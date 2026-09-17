@@ -1,4 +1,4 @@
-import { GenerationCancelledError, GenerationHarnessError } from './errors.js';
+import { GenerationCancelledError, GenerationHarnessError, GenerationPausedError } from './errors.js';
 import { ToolRegistry } from './tool-registry.js';
 
 function normalizeModelResponse(response) {
@@ -36,6 +36,21 @@ function assertActive(signal) {
   if (signal?.aborted) throw new GenerationCancelledError();
 }
 
+const REPAIRABLE_MODEL_ERRORS = new Set(['INVALID_JSON_ACTION', 'INVALID_MODEL_RESPONSE']);
+const REPAIR_PREVIEW_LIMIT = 800;
+
+function responsePreview(response) {
+  try {
+    const text = typeof response === 'string' ? response : JSON.stringify(response);
+    if (!text) return '';
+    return text.length > REPAIR_PREVIEW_LIMIT
+      ? `${text.slice(0, REPAIR_PREVIEW_LIMIT)}...[truncated]`
+      : text;
+  } catch {
+    return String(response);
+  }
+}
+
 export async function runToolLoop({
   model,
   tools = [],
@@ -53,16 +68,62 @@ export async function runToolLoop({
 
   for (let step = 1; step <= maxSteps; step += 1) {
     assertActive(signal);
-    onEvent?.({ type: 'model_started', step });
-    const rawResponse = await model({
+    const modelInput = {
       systemPrompt,
       messages: structuredClone(conversation),
       tools: toolDefinitions,
       step,
       signal,
-    });
-    assertActive(signal);
-    const response = normalizeModelResponse(rawResponse);
+    };
+    const invokeModel = (repairFeedback = null) => {
+      onEvent?.({
+        type: 'model_started',
+        step,
+        attempt: repairFeedback ? repairFeedback.attempt : 1,
+        ...(repairFeedback ? { repair: true } : {}),
+      });
+      return model(repairFeedback ? { ...modelInput, repairFeedback } : modelInput);
+    };
+    // 修复预算按「本步骤累计」计：初始尝试之外还有两次修复机会，
+    // 空输出、坏信封等不同格式错误可混合使用（思考型模型常见「空→裸对象」链式故障）。
+    const MAX_REPAIR_ATTEMPTS_PER_STEP = 2;
+    let rawResponse;
+    let response;
+    try {
+      rawResponse = await invokeModel();
+      assertActive(signal);
+      response = normalizeModelResponse(rawResponse);
+    } catch (error) {
+      if (!REPAIRABLE_MODEL_ERRORS.has(error?.code)) throw error;
+      assertActive(signal);
+      let repairCode = error.code;
+      let repairPreview = error.code === 'INVALID_MODEL_RESPONSE'
+        ? responsePreview(error.details?.response ?? rawResponse)
+        : (error.details?.preview || '');
+      for (let attempt = 2; attempt <= 1 + MAX_REPAIR_ATTEMPTS_PER_STEP; attempt += 1) {
+        onEvent?.({
+          type: 'model_format_retry',
+          step,
+          attempt,
+          code: repairCode,
+        });
+        try {
+          rawResponse = await invokeModel({ code: repairCode, preview: repairPreview, attempt });
+          assertActive(signal);
+          response = normalizeModelResponse(rawResponse);
+          break;
+        } catch (retryError) {
+          if (!REPAIRABLE_MODEL_ERRORS.has(retryError?.code)) throw retryError;
+          assertActive(signal);
+          repairCode = retryError.code;
+          repairPreview = retryError.code === 'INVALID_MODEL_RESPONSE'
+            ? responsePreview(retryError.details?.response ?? rawResponse)
+            : (retryError.details?.preview || '');
+          if (attempt >= 1 + MAX_REPAIR_ATTEMPTS_PER_STEP) throw retryError;
+        }
+      }
+      if (!response) throw error;
+    }
     onEvent?.({ type: 'model_completed', step, response });
 
     if (response.type === 'final') {
@@ -85,6 +146,7 @@ export async function runToolLoop({
       try {
         output = await registry.execute(call, { ...context, signal, step, call });
       } catch (error) {
+        if (error instanceof GenerationPausedError || error instanceof GenerationCancelledError) throw error;
         isError = true;
         output = {
           error: error?.message || String(error),

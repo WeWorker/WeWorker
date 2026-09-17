@@ -1,4 +1,6 @@
 import { GENERATION_STATUSES } from './generation-harness/constants.js';
+import { sanitizeGenerationValue } from './generation-harness/run-store.js';
+import { attributeGenerationFailure } from './generation-harness/failure-attribution.js';
 
 export function createGenerationEventTransport(event) {
   const data = event?.data || {};
@@ -23,18 +25,20 @@ export function createGenerationEventTransport(event) {
   };
 }
 
-export function createGenerationRunTransportSnapshot(snapshot) {
+export function createGenerationRunTransportSnapshot(snapshot, { rootDir = '' } = {}) {
   if (!snapshot) return snapshot;
   const artifacts = { ...(snapshot.artifacts || {}) };
   delete artifacts.draftHistory;
   delete artifacts.workspace;
   delete artifacts.previewAdapter;
-  return {
+  const failureAttribution = attributeGenerationFailure(snapshot);
+  return sanitizeGenerationValue({
     ...snapshot,
     input: {
       tabId: Number.isInteger(snapshot.input?.tabId) ? snapshot.input.tabId : null,
     },
     artifacts,
+    ...(failureAttribution ? { failureAttribution } : {}),
     result: snapshot.status === GENERATION_STATUSES.COMPLETED ? snapshot.result : null,
-  };
+  }, { rootDir });
 }

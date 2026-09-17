@@ -9,7 +9,29 @@
  * 5. 管理本地已安装 adapter，检测 Tab URL 并注入
  */
 
+import {
+  selectCompatibleCaptureBoundEntry,
+  validateGenerationPreviewOutputV2,
+} from './generation-output-validator.js';
+
 const WS_URL = "ws://localhost:3711";
+const EXTENSION_CAPABILITIES = [
+  'passive_exploration_v1',
+  'safe_api_probe_v1',
+  'api_replay_v1',
+  'action_capture_v1',
+  'generation_harness_v1',
+  'runtime_validation_v1',
+];
+
+function buildExtensionHello(extra = {}) {
+  return {
+    type: 'extension_hello',
+    version: chrome.runtime.getManifest().version,
+    capabilities: EXTENSION_CAPABILITIES,
+    ...extra,
+  };
+}
 
 // 截图配置
 // 根据 Claude Code 限制：约 1MB
@@ -297,7 +319,7 @@ function isSideEffectMethod(method) {
   return !['GET', 'HEAD', 'OPTIONS'].includes(String(method || 'GET').toUpperCase());
 }
 
-function isLikelyActionRequest(requestLike, patterns = []) {
+function isLikelyActionRequest(requestLike, patterns = [], { allowRead = false } = {}) {
   const url = String(requestLike?.url || '');
   const method = String(requestLike?.method || 'GET').toUpperCase();
   const requestBody = String(requestLike?.requestBodyPreview || requestLike?.postData || '');
@@ -306,7 +328,9 @@ function isLikelyActionRequest(requestLike, patterns = []) {
   if (!matchesCapturePattern(`${url} ${requestBody}`, patterns)) return false;
   if (isTelemetryLikeEntry({ url, requestBodyPreview: requestBody }) || isStaticAssetEntry({ url })) return false;
   if (patterns.length > 0) return true;
-  if (!isSideEffectMethod(method)) return false;
+  if (!isSideEffectMethod(method)) {
+    return allowRead && /\/api\/|\.json(?:$|[?#])|\.spr(?:$|[?#])|graphql/.test(probe);
+  }
   return /\/api\/|\.json(?:$|[?#])|\.spr(?:$|[?#])|graphql|book|reserve|meeting|room|submit|create|save|apply|order|calendar|appointment|booking/.test(probe)
     || requestBody.length > 0;
 }
@@ -321,9 +345,9 @@ function normalizeFetchHeaders(headers) {
   return result;
 }
 
-function getActionCaptureEntries(tabId, baselineCaptureCount, upperBoundCaptureCount = null, patterns = []) {
+function getActionCaptureEntries(tabId, baselineCaptureCount, upperBoundCaptureCount = null, patterns = [], allowRead = false) {
   return getCapturedEntriesSince(tabId, baselineCaptureCount, upperBoundCaptureCount)
-    .filter((entry) => isLikelyActionRequest(entry, patterns))
+    .filter((entry) => isLikelyActionRequest(entry, patterns, { allowRead }))
     .map((entry) => ({
       ...sanitizeNetworkEntry(entry),
       intercepted: false,
@@ -333,7 +357,7 @@ function getActionCaptureEntries(tabId, baselineCaptureCount, upperBoundCaptureC
 function rankActionCaptureEntries(entries, actionName = '') {
   const actionTokens = normalizeStoredActionTokens(actionName);
   const writeIntent = hasStoredWriteActionIntent(actionTokens);
-  return entries.slice().sort((a, b) => {
+  const ranked = entries.slice().sort((a, b) => {
     const score = (entry) => {
       let value = 0;
       const method = String(entry?.method || 'GET').toUpperCase();
@@ -352,6 +376,23 @@ function rankActionCaptureEntries(entries, actionName = '') {
     if (diff !== 0) return diff;
     return (b.timestamp || 0) - (a.timestamp || 0);
   });
+  const unique = new Map();
+  for (const entry of ranked) {
+    const method = String(entry?.method || 'GET').toUpperCase();
+    const key = `${method} ${String(entry?.url || '')} ${String(entry?.requestBodyPreview || '')}`;
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, { ...entry });
+      continue;
+    }
+    existing.responsePreview ||= entry?.responsePreview || '';
+    existing.responseContentType ||= entry?.responseContentType || '';
+    existing.responseHeaders ||= entry?.responseHeaders || {};
+    existing.requestHeaders ||= entry?.requestHeaders || {};
+    if (existing.status == null && entry?.status != null) existing.status = entry.status;
+    existing.intercepted = Boolean(existing.intercepted || entry?.intercepted);
+  }
+  return [...unique.values()];
 }
 
 async function ensureCdpAttached(tabId) {
@@ -1002,6 +1043,158 @@ async function runExploreWorkflow({ tabId = null, url = null } = {}) {
   };
 }
 
+async function inspectSafeApiActions(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 0) throw new Error('A valid tabId is required');
+  await ensureCdpAttached(tabId);
+  const result = await sendExplorationMessage(tabId, { type: 'exploration_safe_actions' });
+  return {
+    tabId,
+    ...(result && typeof result === 'object' ? result : { candidates: [] }),
+    workflow: {
+      version: 'safe-api-probe-v1',
+      scope: 'network_delta_only',
+    },
+  };
+}
+
+async function runSafeApiProbe({ tabId, candidateId, value = '' }) {
+  if (!Number.isInteger(tabId) || tabId < 0) throw new Error('A valid tabId is required');
+  if (!candidateId || typeof candidateId !== 'string') throw new Error('candidateId required');
+  const state = await ensureCdpAttached(tabId);
+  const baselineCaptureCount = state.totalCaptured;
+  const beforeTab = await getTabRuntimeState(tabId);
+  const pageStateBefore = await sendExplorationMessage(tabId, { type: 'browser_state' });
+  const actionResult = await sendExplorationMessage(tabId, {
+    type: 'exploration_safe_probe',
+    candidateId,
+    value: String(value || '').slice(0, 80),
+  });
+  const pageSignal = await waitForExplorationEffects(tabId, {
+    baselineCaptureCount,
+    beforeTab,
+    minWaitMs: 700,
+    maxWaitMs: 8000,
+    idleMs: 1000,
+    pollMs: 200,
+    postTabChangeGraceMs: 1200,
+  });
+  const pageStateAfter = await sendExplorationMessage(tabId, { type: 'browser_state' });
+  const deltaEntries = getCapturedEntriesSince(tabId, baselineCaptureCount);
+  const step = `safe_${String(actionResult?.kind || 'read_action')}`;
+  return {
+    tabId,
+    step,
+    result: actionResult,
+    networkDelta: buildActionNetworkDelta(step, deltaEntries),
+    pageStateBefore,
+    pageStateAfter,
+    pageSignal,
+    workflow: {
+      version: 'safe-api-probe-v1',
+      scope: 'network_delta_only',
+      writeActionsBlocked: true,
+    },
+  };
+}
+
+function sanitizeExplorationReplayHeaders(headers = {}) {
+  const result = {};
+  for (const [name, value] of Object.entries(headers || {})) {
+    const lower = String(name || '').toLowerCase();
+    if (!name
+      || /authorization|cookie|credential|password|secret|session|ticket|token|csrf|xsrf/.test(lower)
+      || /^(?:connection|content-length|host|origin|referer|sec-|proxy-)/.test(lower)) continue;
+    const normalized = String(value ?? '');
+    if (!normalized || normalized.includes('[redacted]')) continue;
+    result[name] = normalized.slice(0, 2000);
+  }
+  if (!Object.keys(result).some((name) => name.toLowerCase() === 'accept')) result.Accept = 'application/json, text/plain;q=0.9';
+  return result;
+}
+
+async function runExplorationCandidateReplay({ tabId, url, method = 'GET', headers = {}, body = '' }) {
+  if (!Number.isInteger(tabId) || tabId < 0) throw new Error('A valid tabId is required');
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'POST'].includes(normalizedMethod)) throw new Error('API_REPLAY_METHOD_NOT_ALLOWED');
+  let parsedUrl;
+  try { parsedUrl = new URL(String(url || '')); } catch { throw new Error('API_REPLAY_URL_NOT_ALLOWED'); }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('API_REPLAY_URL_NOT_ALLOWED');
+
+  const state = await ensureCdpAttached(tabId);
+  const captured = state.entries.some((entry) => String(entry?.url || '') === parsedUrl.toString()
+    && String(entry?.method || 'GET').toUpperCase() === normalizedMethod);
+  if (!captured) throw new Error('API_REPLAY_REQUIRES_CAPTURED_REQUEST');
+  const probe = `${parsedUrl.pathname} ${parsedUrl.search} ${String(body || '')}`;
+  if (/(?:^|[^a-z0-9])(approve|book|buy|cancel|commit|create|delete|edit|finish|mutation|pay|publish|reject|reserve|save|submit|update|upload)(?:$|[^a-z0-9])/i.test(probe)) {
+    throw new Error('API_REPLAY_WRITE_SIGNAL_BLOCKED');
+  }
+  if (normalizedMethod === 'POST' && !/detail|filter|get|list|page|query|read|search|sort|status/i.test(probe)) {
+    throw new Error('API_REPLAY_POST_READ_SIGNAL_REQUIRED');
+  }
+
+  const request = {
+    url: parsedUrl.toString(),
+    method: normalizedMethod,
+    headers: sanitizeExplorationReplayHeaders(headers),
+    body: ['GET', 'HEAD'].includes(normalizedMethod) ? undefined : String(body || '').slice(0, 4000),
+    maxBytes: 16384,
+  };
+  const startedAt = Date.now();
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    args: [request],
+    func: async (input) => {
+      try {
+        const response = await fetch(input.url, {
+          method: input.method,
+          credentials: 'include',
+          headers: input.headers || {},
+          ...(input.body === undefined ? {} : { body: input.body }),
+          redirect: 'manual',
+        });
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let size = 0;
+        let text = '';
+        if (reader) {
+          while (size < input.maxBytes) {
+            const next = await reader.read();
+            if (next.done) break;
+            const remaining = input.maxBytes - size;
+            const chunk = next.value.slice(0, remaining);
+            size += chunk.byteLength;
+            text += decoder.decode(chunk, { stream: true });
+            if (chunk.byteLength < next.value.byteLength) break;
+          }
+          text += decoder.decode();
+          await reader.cancel().catch(() => {});
+        }
+        return {
+          status: response.status,
+          ok: response.ok,
+          contentType: response.headers.get('content-type') || '',
+          responsePreview: size >= input.maxBytes ? `${text}...[truncated]` : text,
+        };
+      } catch (error) {
+        return { error: error?.message || String(error) };
+      }
+    },
+  });
+  if (result?.error) {
+    return { transport: 'browser_page', status: null, ok: false, contentType: '', responsePreview: '', durationMs: Date.now() - startedAt, errorCode: 'NETWORK' };
+  }
+  return {
+    transport: 'browser_page',
+    status: Number(result?.status || 0),
+    ok: Boolean(result?.ok),
+    contentType: String(result?.contentType || ''),
+    responsePreview: String(result?.responsePreview || ''),
+    durationMs: Date.now() - startedAt,
+    errorCode: '',
+  };
+}
+
 // Kept temporarily as an implementation reference for explicit/manual probe
 // design. The public exploration entry no longer calls this active workflow.
 async function runLegacyActiveExploreWorkflow({ tabId = null, url = null } = {}) {
@@ -1573,6 +1766,8 @@ async function runActionCaptureWorkflow({
   mode = 'intercept',
   timeoutSeconds = 90,
   pattern = '',
+  captureReadRequests = false,
+  onReady = null,
 } = {}) {
   const normalizedMode = ['observe', 'intercept', 'commit'].includes(mode) ? mode : 'intercept';
   const safeTimeoutSeconds = Math.max(5, Math.min(Number(timeoutSeconds || 90), 300));
@@ -1590,6 +1785,13 @@ async function runActionCaptureWorkflow({
     targetTabId = await getExplorationTabId(null);
   }
   if (!targetTabId) throw new Error('未找到可用于动作捕获的标签页');
+
+  try {
+    const targetTab = await chrome.tabs.get(targetTabId);
+    if (!targetTab || !shouldHandleTabUrl(targetTab.url)) throw new Error('TARGET_TAB_NOT_FOUND');
+  } catch {
+    throw new Error('TARGET_TAB_NOT_FOUND');
+  }
 
   await ensureCdpAttached(targetTabId);
 
@@ -1617,6 +1819,7 @@ async function runActionCaptureWorkflow({
     startedAt,
     entries: [],
     errors: [],
+    captureReadRequests: Boolean(captureReadRequests),
     stopReason: 'timeout',
     stopRequestedAt: '',
   };
@@ -1639,8 +1842,13 @@ async function runActionCaptureWorkflow({
     fetchEnabled = true;
   }
 
+  if (typeof onReady === 'function') {
+    await onReady({ tabId: targetTabId, startedAt });
+  }
+
+  let completionReason = 'timeout';
   try {
-    const completionReason = await Promise.race([
+    completionReason = await Promise.race([
       delay(safeTimeoutSeconds * 1000).then(() => 'timeout'),
       session.stopPromise,
     ]);
@@ -1658,9 +1866,19 @@ async function runActionCaptureWorkflow({
     cdpActionCaptureSessions.delete(targetTabId);
   }
 
+  if (completionReason === 'target_tab_closed') {
+    throw new Error('TARGET_TAB_NOT_FOUND');
+  }
+
   const pageStateAfter = await sendExplorationMessage(targetTabId, { type: 'browser_state' }).catch((err) => ({ error: err.message }));
   const finalTab = await getTabRuntimeState(targetTabId);
-  const observedEntries = getActionCaptureEntries(targetTabId, baselineCaptureCount, ensureCdpState(targetTabId).totalCaptured, patterns);
+  const observedEntries = getActionCaptureEntries(
+    targetTabId,
+    baselineCaptureCount,
+    ensureCdpState(targetTabId).totalCaptured,
+    patterns,
+    session.captureReadRequests,
+  );
   const capturedActions = rankActionCaptureEntries([
     ...session.entries,
     ...observedEntries,
@@ -1946,15 +2164,20 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
     if (method === 'Fetch.requestPaused') {
       const session = cdpActionCaptureSessions.get(tabId);
       const request = params.request || {};
+      const rawPostData = String(request.postData || '');
       const requestInfo = {
         kind: 'cdp_fetch_intercept',
         url: request.url || '',
         method: request.method || 'GET',
         timestamp: Date.now(),
         requestHeaders: normalizeFetchHeaders(request.headers),
-        requestBodyPreview: truncateText(request.postData || '', CDP_REQUEST_PREVIEW_LIMIT),
+        requestBodyPreview: truncateText(rawPostData, CDP_REQUEST_PREVIEW_LIMIT),
+        requestBodyFullSize: rawPostData.length,
+        requestBodyTruncated: rawPostData.length > CDP_REQUEST_PREVIEW_LIMIT,
       };
-      const shouldCapture = session && isLikelyActionRequest(requestInfo, session.patterns);
+      const shouldCapture = session && isLikelyActionRequest(requestInfo, session.patterns, {
+        allowRead: session.captureReadRequests,
+      });
 
       if (shouldCapture) {
         session.entries.push({
@@ -1973,13 +2196,16 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
 
     if (method === 'Network.requestWillBeSent') {
       const request = params.request || {};
+      const rawPostData = String(request.postData || '');
       requests.set(params.requestId, {
         requestId: params.requestId,
         url: request.url || '',
         method: request.method || 'GET',
         timestamp: Date.now(),
         requestHeaders: normalizeHeaders(request.headers),
-        requestBodyPreview: truncateText(request.postData || '', CDP_REQUEST_PREVIEW_LIMIT),
+        requestBodyPreview: truncateText(rawPostData, CDP_REQUEST_PREVIEW_LIMIT),
+        requestBodyFullSize: rawPostData.length,
+        requestBodyTruncated: rawPostData.length > CDP_REQUEST_PREVIEW_LIMIT,
       });
       return;
     }
@@ -2014,6 +2240,8 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
         timestamp: pending.timestamp,
         requestHeaders: pending.requestHeaders,
         requestBodyPreview: pending.requestBodyPreview || '',
+        requestBodyFullSize: Number(pending.requestBodyFullSize || 0),
+        requestBodyTruncated: Boolean(pending.requestBodyTruncated),
         status: pending.status,
         statusText: pending.statusText || '',
         responseHeaders: pending.responseHeaders,
@@ -2035,6 +2263,8 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
         timestamp: pending.timestamp,
         requestHeaders: pending.requestHeaders,
         requestBodyPreview: pending.requestBodyPreview || '',
+        requestBodyFullSize: Number(pending.requestBodyFullSize || 0),
+        requestBodyTruncated: Boolean(pending.requestBodyTruncated),
         errorText: params.errorText || 'loading failed',
         canceled: !!params.canceled,
       });
@@ -2092,11 +2322,7 @@ function sendNativeHeartbeat() {
   const socket = ws;
   if (!socket || socket.readyState !== WebSocket.OPEN) return false;
   const sentAt = Date.now();
-  const sent = sendToNative({
-    type: 'extension_hello',
-    version: chrome.runtime.getManifest().version,
-    heartbeat: true,
-  });
+  const sent = sendToNative(buildExtensionHello({ heartbeat: true }));
   if (sent) scheduleNativeHeartbeatAckCheck(socket, sentAt);
   return sent;
 }
@@ -2150,7 +2376,7 @@ function connectToNativeHost() {
     lastNativeAckAt = Date.now();
 
     // 先发送一个握手消息，让 Bridge 识别这是 Chrome 扩展（即使暂无工具）
-    sendToNative({ type: "extension_hello", version: chrome.runtime.getManifest().version });
+    sendToNative(buildExtensionHello());
 
     chrome.tabs.query({}, (tabs) => {
       for (const tab of tabs) {
@@ -2382,6 +2608,261 @@ async function handleNativeMessage(msg) {
       traceLog(traceID, `[ServiceWorker] call_tool 错误: ${err.message}`);
     }
 
+  } else if (msg.type === 'exploration_list_tabs') {
+    try {
+      const tabs = await chrome.tabs.query({});
+      const explorableTabs = tabs
+        .filter((tab) => Number.isInteger(tab.id) && shouldHandleTabUrl(tab.url))
+        .map((tab) => ({
+          id: tab.id,
+          title: tab.title || '',
+          url: tab.url || '',
+          active: Boolean(tab.active),
+          windowId: Number.isInteger(tab.windowId) ? tab.windowId : -1,
+        }))
+        .sort((left, right) => Number(right.active) - Number(left.active));
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: { tabs: explorableTabs } });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_capture_passive') {
+    try {
+      const result = await runExploreWorkflow({ tabId: msg.tabId ?? null });
+      sendToNative({ type: 'call_tool_result', id: msg.id, result });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_safe_actions_inspect') {
+    try {
+      const result = await inspectSafeApiActions(Number(msg.tabId));
+      sendToNative({ type: 'call_tool_result', id: msg.id, result });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_safe_probe_run') {
+    try {
+      const result = await runSafeApiProbe({
+        tabId: Number(msg.tabId),
+        candidateId: String(msg.candidateId || ''),
+        value: String(msg.value || ''),
+      });
+      sendToNative({ type: 'call_tool_result', id: msg.id, result });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_replay_candidate') {
+    try {
+      const result = await runExplorationCandidateReplay({
+        tabId: Number(msg.tabId),
+        url: String(msg.url || ''),
+        method: String(msg.method || 'GET'),
+        headers: msg.headers && typeof msg.headers === 'object' ? msg.headers : {},
+        body: String(msg.body || ''),
+      });
+      sendToNative({ type: 'call_tool_result', id: msg.id, result });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_action_capture_start') {
+    try {
+      const tabId = Number(msg.tabId);
+      const siteKey = String(msg.siteKey || '').trim();
+      const actionName = String(msg.actionName || '').trim();
+      if (!Number.isInteger(tabId) || tabId < 0) throw new Error('A valid tabId is required');
+      if (!siteKey) throw new Error('siteKey required');
+      if (!actionName) throw new Error('actionName required');
+      if (cdpActionCaptureSessions.has(tabId)) throw new Error('当前标签页已有进行中的动作捕获');
+
+      const mode = ['observe', 'intercept'].includes(msg.mode) ? msg.mode : 'intercept';
+      const timeoutSeconds = Math.max(5, Math.min(Number(msg.timeoutSeconds || 60), 300));
+      const pattern = String(msg.pattern || '').trim();
+      await chrome.storage.local.set({
+        actionCaptureLastResult: {
+          type: 'action_capture_loading',
+          tabId,
+          siteKey,
+          actionName,
+          mode,
+          timeoutSeconds,
+          pattern,
+          startedAtMs: Date.now(),
+          timestamp: Date.now(),
+        },
+      });
+      let resolveCaptureReady;
+      let rejectCaptureReady;
+      const captureReady = new Promise((resolve, reject) => {
+        resolveCaptureReady = resolve;
+        rejectCaptureReady = reject;
+      });
+
+      void (async () => {
+        try {
+          const captureResult = await runActionCaptureWorkflow({
+            tabId,
+            site: siteKey,
+            actionName,
+            mode,
+            timeoutSeconds,
+            pattern,
+            captureReadRequests: true,
+            onReady: resolveCaptureReady,
+          });
+          await chrome.storage.local.set({
+            actionCaptureLastResult: {
+              type: 'action_capture_ai_loading',
+              tabId,
+              siteKey,
+              actionName,
+              startedAtMs: Date.parse(captureResult.startedAt || '') || Date.now(),
+              result: captureResult,
+              timestamp: Date.now(),
+            },
+          });
+          const result = await finalizeActionCaptureResult(captureResult, { timeoutMs: 120000 });
+          await chrome.storage.local.set({
+            actionCaptureLastResult: {
+              type: 'action_capture',
+              tabId,
+              siteKey,
+              actionName,
+              startedAtMs: Date.parse(result.startedAt || '') || Date.now(),
+              result,
+              timestamp: Date.now(),
+            },
+          });
+        } catch (err) {
+          rejectCaptureReady(err);
+          await chrome.storage.local.set({
+            actionCaptureLastResult: {
+              type: 'action_capture_error',
+              tabId,
+              siteKey,
+              actionName,
+              startedAtMs: Date.now(),
+              error: err?.message || String(err),
+              timestamp: Date.now(),
+            },
+          });
+        }
+      })();
+
+      await Promise.race([
+        captureReady,
+        delay(7000).then(() => { throw new Error('操作捕获初始化超时，请重新录制'); }),
+      ]);
+      sendToNative({
+        type: 'call_tool_result',
+        id: msg.id,
+        result: { ok: true, started: true, type: 'action_capture_loading', tabId, siteKey, actionName },
+      });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_action_capture_stop') {
+    try {
+      const tabId = Number(msg.tabId);
+      const session = Number.isFinite(tabId) ? cdpActionCaptureSessions.get(tabId) : null;
+      if (!session || typeof session.requestStop !== 'function') throw new Error('当前没有进行中的动作捕获');
+      if (!session.requestStop('manual_stop')) throw new Error('动作捕获已经在结束中');
+      const stored = await chrome.storage.local.get('actionCaptureLastResult');
+      const state = stored.actionCaptureLastResult || {};
+      await chrome.storage.local.set({
+        actionCaptureLastResult: {
+          ...state,
+          type: 'action_capture_stopping',
+          tabId,
+          siteKey: String(msg.siteKey || session.site || state.siteKey || '').trim(),
+          actionName: String(msg.actionName || session.actionName || state.actionName || '').trim(),
+          stopRequestedAt: session.stopRequestedAt,
+          timestamp: Date.now(),
+        },
+      });
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: { ok: true, stopping: true, type: 'action_capture_stopping', tabId } });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_action_capture_get') {
+    try {
+      const stored = await chrome.storage.local.get('actionCaptureLastResult');
+      let state = stored.actionCaptureLastResult || null;
+      const requestedTabId = Number(msg.tabId);
+      const requestedSiteKey = String(msg.siteKey || '').trim();
+      if (state && ['action_capture_loading', 'action_capture_stopping', 'action_capture_ai_loading'].includes(state.type)) {
+        const stateTabId = Number(state.tabId);
+        const ageMs = Math.max(0, Date.now() - Number(state.timestamp || state.startedAtMs || Date.now()));
+        let targetMissing = false;
+        if (Number.isInteger(stateTabId)) {
+          try {
+            await chrome.tabs.get(stateTabId);
+          } catch {
+            targetMissing = true;
+          }
+        }
+        const sessionMissing = Number.isInteger(stateTabId) && !cdpActionCaptureSessions.has(stateTabId);
+        const abandoned = targetMissing
+          || (state.type === 'action_capture_loading' && sessionMissing && ageMs > 5000)
+          || (state.type === 'action_capture_stopping' && sessionMissing && ageMs > 10000)
+          || (state.type === 'action_capture_ai_loading' && ageMs > 150000);
+        if (abandoned) {
+          state = {
+            ...state,
+            type: 'action_capture_error',
+            code: targetMissing ? 'TARGET_TAB_NOT_FOUND' : 'ACTION_CAPTURE_SESSION_LOST',
+            error: targetMissing ? '目标页面已经关闭，请重新选择页面并录制。' : '操作捕获会话已丢失，请重新录制。',
+            recoverable: true,
+            timestamp: Date.now(),
+          };
+          await chrome.storage.local.set({ actionCaptureLastResult: state });
+        }
+      }
+      if (state && Number.isInteger(requestedTabId) && Number(state.tabId) !== requestedTabId) {
+        sendToNative({ type: 'call_tool_result', id: msg.id, result: null });
+      } else if (state && requestedSiteKey && state.siteKey && String(state.siteKey) !== requestedSiteKey) {
+        sendToNative({ type: 'call_tool_result', id: msg.id, result: null });
+      } else {
+        sendToNative({ type: 'call_tool_result', id: msg.id, result: state });
+      }
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_action_capture_select') {
+    try {
+      const state = await selectStoredActionCapturePrimaryCandidate({
+        siteKey: String(msg.siteKey || '').trim(),
+        candidateIndex: msg.candidateIndex,
+      });
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: state });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'exploration_action_capture_clear') {
+    try {
+      const stored = await chrome.storage.local.get('actionCaptureLastResult');
+      const state = stored.actionCaptureLastResult || null;
+      const requestedTabId = Number(msg.tabId);
+      const requestedSiteKey = String(msg.siteKey || '').trim();
+      const matchesTab = !state || !Number.isInteger(requestedTabId) || Number(state.tabId) === requestedTabId;
+      const matchesSite = !state || !requestedSiteKey || !state.siteKey || String(state.siteKey) === requestedSiteKey;
+      if (matchesTab && matchesSite) await chrome.storage.local.remove('actionCaptureLastResult');
+      sendToNative({
+        type: 'call_tool_result',
+        id: msg.id,
+        result: { ok: true, cleared: Boolean(state && matchesTab && matchesSite) },
+      });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
   } else if (msg.type === "get_active_tab") {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     sendToNative({ type: "get_active_tab_result", id: msg.id, tabId: tab?.id ?? null, url: tab?.url ?? null, title: tab?.title ?? null });
@@ -2557,6 +3038,13 @@ async function handleNativeMessage(msg) {
     doRefreshRegistry()
       .then(r => console.log(`[WebMCP] Registry refreshed via CLI: ${r.count} adapters`))
       .catch(err => console.error(`[WebMCP] Registry refresh failed: ${err.message}`));
+  } else if (msg.type === "refresh_adapter_tabs") {
+    try {
+      const result = await refreshAdapterTabs(String(msg.siteKey || '').trim());
+      sendToNative({ type: "call_tool_result", id: msg.id, result });
+    } catch (err) {
+      sendToNative({ type: "call_tool_error", id: msg.id, error: err.message });
+    }
   } else if (msg.type === 'browser_state') {
     try {
       const tabId = await getExplorationTabId(msg.tabId);
@@ -2765,13 +3253,82 @@ async function enhanceExplorationResultWithAI(result, options = {}) {
   };
 }
 
-async function enhanceActionCaptureResultWithAI(result, options = {}) {
-  const heuristicRecommendation = result?.recommendation || {};
-  const withHeuristicFallback = (errorMessage = "") => ({
+const REQUEST_TRUNCATION_MARKER_RE = /(?:\.{0,3}\[truncated\]|…\s*\[truncated\])\s*$/i;
+
+function capturedValueShape(value, depth = 0) {
+  if (depth >= 8) return { type: 'unknown' };
+  if (value === null) return { type: 'null' };
+  if (Array.isArray(value)) return { type: 'array', items: value.length > 0 ? capturedValueShape(value[0], depth + 1) : { type: 'unknown' } };
+  if (value && typeof value === 'object') {
+    return { type: 'object', properties: Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, capturedValueShape(nested, depth + 1)])) };
+  }
+  if (typeof value === 'number') return { type: Number.isInteger(value) ? 'integer' : 'number' };
+  if (typeof value === 'boolean') return { type: 'boolean' };
+  if (typeof value === 'string') return { type: 'string' };
+  return { type: 'unknown' };
+}
+
+function capturedBodyKeys(shape) {
+  return shape?.type === 'object' && shape.properties && typeof shape.properties === 'object'
+    ? Object.keys(shape.properties).sort()
+    : [];
+}
+
+function buildSafeRequestEvidence(entry = {}) {
+  if (entry.requestEvidence && typeof entry.requestEvidence === 'object') return entry.requestEvidence;
+  const text = String(entry.requestBodyPreview || '').trim();
+  if (!text) return { version: 'request-evidence-v1', bodyKind: 'none', bodyShape: null, bodyKeys: [], bodyFullSize: 0, bodyTruncated: false, bodyOmitted: false };
+  const bodyFullSize = Number(entry.requestBodyFullSize) || text.length;
+  const bodyTruncated = Boolean(entry.requestBodyTruncated) || REQUEST_TRUNCATION_MARKER_RE.test(text) || bodyFullSize > text.length;
+  if (bodyTruncated) return { version: 'request-evidence-v1', bodyKind: 'opaque', bodyShape: null, bodyKeys: [], bodyFullSize, bodyTruncated: true, bodyOmitted: true };
+  try {
+    const bodyShape = capturedValueShape(JSON.parse(text));
+    return { version: 'request-evidence-v1', bodyKind: 'json', bodyShape, bodyKeys: capturedBodyKeys(bodyShape), bodyFullSize, bodyTruncated: false, bodyOmitted: false };
+  } catch {
+    if (text.startsWith('{') || text.startsWith('[')) return { version: 'request-evidence-v1', bodyKind: 'opaque', bodyShape: null, bodyKeys: [], bodyFullSize, bodyTruncated: false, bodyOmitted: true };
+  }
+  if (/^[^=&\s]+=[^&]*(?:&[^=&\s]+=[^&]*)*$/.test(text)) {
+    const bodyShape = capturedValueShape(Object.fromEntries(new URLSearchParams(text)));
+    return { version: 'request-evidence-v1', bodyKind: 'form', bodyShape, bodyKeys: capturedBodyKeys(bodyShape), bodyFullSize, bodyTruncated: false, bodyOmitted: false };
+  }
+  return { version: 'request-evidence-v1', bodyKind: 'opaque', bodyShape: null, bodyKeys: [], bodyFullSize, bodyTruncated: false, bodyOmitted: true };
+}
+
+function structuralCapturedUrl(input) {
+  try {
+    const url = new URL(String(input || ''));
+    for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, ':value');
+    url.hash = '';
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return String(input || '').split('#', 1)[0];
+  }
+}
+
+function sanitizeActionCaptureResult(result = {}) {
+  return {
     ...result,
+    capturedActions: (Array.isArray(result.capturedActions) ? result.capturedActions : []).map((candidate) => {
+      const { requestBodyPreview, requestBody, requestHeaders, ...safeCandidate } = candidate || {};
+      return {
+        ...safeCandidate,
+        url: structuralCapturedUrl(candidate?.url),
+        requestEvidence: buildSafeRequestEvidence(candidate),
+      };
+    }),
+  };
+}
+
+async function enhanceActionCaptureResultWithAI(result, options = {}) {
+  const safeResult = sanitizeActionCaptureResult(result);
+  const heuristicRecommendation = safeResult?.recommendation || {};
+  const withHeuristicFallback = (errorMessage = "") => ({
+    ...safeResult,
     actionAnalysis: {
       analysisSource: 'heuristic',
-      summary: result?.capturedActions?.length > 0
+      summary: safeResult?.capturedActions?.length > 0
         ? 'AI 分析失败，已保留当前动作捕获与规则结论。'
         : '本次没有捕获到足够的动作候选，已保留规则结论。',
       recommendedToolName: heuristicRecommendation.toolName || '',
@@ -2786,7 +3343,7 @@ async function enhanceActionCaptureResultWithAI(result, options = {}) {
   const response = await requestBridge(
     {
       type: 'analyze_action_capture_result',
-      captureResult: result,
+      captureResult: safeResult,
     },
     Math.max(1000, Number(options.timeoutMs || 120000)),
     '动作捕获 AI 分析超时，已回退到规则结论',
@@ -2804,8 +3361,8 @@ async function enhanceActionCaptureResultWithAI(result, options = {}) {
     ]),
   );
 
-  const enhancedCandidates = Array.isArray(result?.capturedActions)
-    ? result.capturedActions.map((candidate) => {
+  const enhancedCandidates = Array.isArray(safeResult?.capturedActions)
+    ? safeResult.capturedActions.map((candidate) => {
       const key = `${String(candidate?.method || 'GET').toUpperCase()} ${String(candidate?.url || '')}`;
       const match = analysisByKey.get(key);
       if (!match) return candidate;
@@ -2822,7 +3379,7 @@ async function enhanceActionCaptureResultWithAI(result, options = {}) {
     : [];
 
   return {
-    ...result,
+    ...safeResult,
     capturedActions: enhancedCandidates,
     recommendation: {
       ...heuristicRecommendation,
@@ -4264,7 +4821,8 @@ function isLikelyStoredListApiEntry(entry) {
 }
 
 function mergeStoredListCandidateEvidence(candidate, entry) {
-  candidate.requestBodyPreview = pickStoredRicherPreview(candidate.requestBodyPreview, entry?.requestBodyPreview);
+  candidate.requestEvidence = pickStoredRicherRequestEvidence(buildSafeRequestEvidence(candidate), buildSafeRequestEvidence(entry));
+  delete candidate.requestBodyPreview;
   candidate.responsePreview = pickStoredRicherPreview(candidate.responsePreview, entry?.responsePreview);
   candidate.responseContentType = candidate.responseContentType
     || safeStoredText(entry?.responseContentType || entry?.contentType);
@@ -4278,9 +4836,9 @@ function mergeStoredListCandidateEvidence(candidate, entry) {
 
 function createStoredListCandidate(entry, url, method, step) {
   return mergeStoredListCandidateEvidence({
-    url,
+    url: structuralCapturedUrl(url),
     method,
-    requestBodyPreview: safeStoredText(entry?.requestBodyPreview),
+    requestEvidence: buildSafeRequestEvidence(entry),
     responsePreview: safeStoredText(entry?.responsePreview),
     responseContentType: safeStoredText(entry?.responseContentType || entry?.contentType),
     responseHints: extractStoredActionResponseHints(entry?.responsePreview),
@@ -4407,8 +4965,8 @@ function buildStoredSiteMemory(siteKey, workflowResult, existing = {}) {
       paginationCandidates: Number(workflowResult?.resultPageState?.paginationCandidates || 0),
     },
     listApiCandidates,
-    actionApiCandidates: Array.isArray(existing.actionApiCandidates) ? existing.actionApiCandidates : [],
-    actionCaptureHistory: Array.isArray(existing.actionCaptureHistory) ? existing.actionCaptureHistory : [],
+    actionApiCandidates: Array.isArray(existing.actionApiCandidates) ? existing.actionApiCandidates.map(sanitizeStoredActionCandidate) : [],
+    actionCaptureHistory: Array.isArray(existing.actionCaptureHistory) ? existing.actionCaptureHistory.map(sanitizeStoredActionCandidate) : [],
     actionEvidenceSummary: existing.actionEvidenceSummary,
     detailHints: {
       mode: safeStoredText(detailAction?.result?.mode),
@@ -4546,9 +5104,9 @@ function buildStoredActionCaptureMemory(siteKey, captureResult, existing = {}, o
     actionName,
     mode,
     toolName,
-    url: safeStoredUrl(candidate.url),
+    url: structuralCapturedUrl(candidate.url),
     method: safeStoredText(candidate.method) || 'GET',
-    requestBodyPreview: safeStoredText(candidate.requestBodyPreview),
+    requestEvidence: buildSafeRequestEvidence(candidate),
     responsePreview: safeStoredText(candidate.responsePreview),
     responseContentType: safeStoredText(candidate.responseContentType),
     responseHints: extractStoredActionResponseHints(candidate.responsePreview),
@@ -4579,7 +5137,10 @@ function buildStoredActionCaptureMemory(siteKey, captureResult, existing = {}, o
     verdictReason: safeStoredText(existing.verdictReason),
     search: existing.search || { executed: false, action: '', keywordSeed: '' },
     resultSignals: existing.resultSignals || { listCandidates: 0, paginationCandidates: 0 },
-    listApiCandidates: Array.isArray(existing.listApiCandidates) ? existing.listApiCandidates : [],
+    listApiCandidates: Array.isArray(existing.listApiCandidates) ? existing.listApiCandidates.map((candidate) => {
+      const { requestBodyPreview, requestBody, ...safeCandidate } = candidate || {};
+      return { ...safeCandidate, url: structuralCapturedUrl(candidate?.url), requestEvidence: buildSafeRequestEvidence(candidate) };
+    }) : [],
     actionApiCandidates: Array.isArray(existing.actionApiCandidates) ? existing.actionApiCandidates : [],
     actionCaptureHistory: Array.isArray(existing.actionCaptureHistory) ? existing.actionCaptureHistory : [],
     actionEvidenceSummary: existing.actionEvidenceSummary,
@@ -4651,7 +5212,7 @@ function scoreStoredActionCaptureEntry(entry, tokens) {
   if (Boolean(entry?.aiIsPrimary)) score += 30;
   if (Boolean(entry?.intercepted)) score += 6;
   if (method !== 'GET') score += 4;
-  if (requestBody) score += 3;
+  if (requestBody || entry?.requestEvidence?.bodyKind && entry.requestEvidence.bodyKind !== 'none') score += 3;
   if (responsePreview) score += 2;
   if (storedHasQueryParams(url)) score += 2;
   if (url.includes('/api/') || url.includes('/meeting/') || url.includes('/list') || url.includes('/query') || url.includes('/search') || url.includes('/get')) score += 2;
@@ -4780,7 +5341,8 @@ function describeStoredActionCandidateQuality(candidate) {
     score += 4;
     signals.push('write_method');
   }
-  if (safeStoredUrl(candidate?.requestBodyPreview)) {
+  const requestEvidence = buildSafeRequestEvidence(candidate);
+  if (requestEvidence.bodyKind !== 'none') {
     score += 1;
     signals.push('has_request_body');
   }
@@ -4797,7 +5359,7 @@ function describeStoredActionCandidateQuality(candidate) {
     signals.push('has_query_params');
   }
 
-  const requestFieldCount = countStoredPreviewFields(candidate?.requestBodyPreview);
+  const requestFieldCount = Array.isArray(requestEvidence.bodyKeys) ? requestEvidence.bodyKeys.length : 0;
   if (requestFieldCount > 0) {
     const contribution = Math.min(requestFieldCount, 8);
     score += contribution;
@@ -4878,7 +5440,7 @@ function mergeStoredActionCandidate(primary, secondary) {
     ...winner,
     mode: winner.mode || loser.mode,
     toolName: winner.toolName || loser.toolName,
-    requestBodyPreview: preserveExplicitSelection ? winner.requestBodyPreview : pickStoredRicherPreview(winner.requestBodyPreview, loser.requestBodyPreview),
+    requestEvidence: pickStoredRicherRequestEvidence(buildSafeRequestEvidence(winner), buildSafeRequestEvidence(loser)),
     responsePreview: preserveExplicitSelection ? winner.responsePreview : pickStoredRicherPreview(winner.responsePreview, loser.responsePreview),
     responseContentType: winner.responseContentType || loser.responseContentType,
     responseHints: preserveExplicitSelection ? winner.responseHints : mergeStoredActionResponseHints(winner.responseHints, loser.responseHints),
@@ -4891,6 +5453,24 @@ function mergeStoredActionCandidate(primary, secondary) {
     capturedAt: compareStoredIsoTimestamps(winner.capturedAt, loser.capturedAt) >= 0 ? winner.capturedAt : loser.capturedAt,
     sourceWorkflowVersion: winner.sourceWorkflowVersion || loser.sourceWorkflowVersion,
   };
+}
+
+function sanitizeStoredActionCandidate(candidate) {
+  if (!candidate || typeof candidate !== 'object') return candidate;
+  const { requestBodyPreview, requestBody, requestHeaders, ...safeCandidate } = candidate;
+  return {
+    ...safeCandidate,
+    url: structuralCapturedUrl(candidate.url),
+    requestEvidence: buildSafeRequestEvidence(candidate),
+  };
+}
+
+function pickStoredRicherRequestEvidence(primary, secondary) {
+  if (primary.bodyOmitted !== secondary.bodyOmitted) return primary.bodyOmitted ? secondary : primary;
+  if ((primary.bodyKeys?.length || 0) !== (secondary.bodyKeys?.length || 0)) {
+    return (primary.bodyKeys?.length || 0) > (secondary.bodyKeys?.length || 0) ? primary : secondary;
+  }
+  return Number(primary.bodyFullSize || 0) >= Number(secondary.bodyFullSize || 0) ? primary : secondary;
 }
 
 function buildStoredActionEvidenceSummary(history, bestView) {
@@ -5988,6 +6568,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  const actionCaptureSession = cdpActionCaptureSessions.get(tabId);
+  if (actionCaptureSession && typeof actionCaptureSession.requestStop === 'function') {
+    actionCaptureSession.errors.push('TARGET_TAB_NOT_FOUND');
+    actionCaptureSession.requestStop('target_tab_closed');
+  }
   clearTabInjectedAdapters(tabId);
   const domain = tabDomainMap.get(tabId);
   if (domain) {
@@ -6557,42 +7142,85 @@ function findSensitiveOutputPath(value, pathPrefix = '$', depth = 0) {
 }
 
 function validateGenerationPreviewOutput(output, contract = {}) {
-  const errors = [];
-  let serialized = '';
+  return validateGenerationPreviewOutputV2(output, contract);
+}
+
+const CAPTURE_BOUND_SENSITIVE_PARAM_RE = /api[_-]?key|authorization|cookie|credential|password|passwd|secret|session|ticket|token|csrf|xsrf/i;
+
+function normalizeEndpointPathForCaptureBound(pathname) {
+  return String(pathname || '')
+    .split('/')
+    .map((segment) => (
+      /^\d{3,}$/.test(segment)
+      || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(segment)
+      || /^[A-Za-z]+-\d{2,}$/.test(segment)
+        ? ':id'
+        : segment
+    ))
+    .join('/');
+}
+
+function capturedEndpointFamily(entry) {
   try {
-    serialized = JSON.stringify(output);
-  } catch (error) {
-    errors.push({ code: 'OUTPUT_NOT_SERIALIZABLE', message: error?.message || String(error) });
+    const url = new URL(String(entry?.url || ''));
+    const method = String(entry?.method || 'GET').toUpperCase();
+    const queryKeys = [...new Set([...url.searchParams.keys()])].sort();
+    return `${method} ${normalizeEndpointPathForCaptureBound(url.pathname)}${queryKeys.length ? `?${queryKeys.join(',')}` : ''}`;
+  } catch {
+    return '';
   }
-  const textProbe = typeof output === 'string' ? output : serialized;
-  if (/<html|<!doctype|登录|重新登录|login|sign in/i.test(String(textProbe || '').slice(0, 5000))) {
-    errors.push({ code: 'LOGIN_OR_HTML_RESPONSE', message: '工具返回了登录页或 HTML 页面内容' });
+}
+
+function findCaptureBoundEntry(tabId, endpointFamily, contract = {}) {
+  const candidates = ensureCdpState(tabId).entries.filter((entry) => {
+    if (capturedEndpointFamily(entry) !== String(endpointFamily || '')) return false;
+    const method = String(entry?.method || 'GET').toUpperCase();
+    const probe = `${capturedEndpointFamily(entry)} ${String(entry?.requestBodyPreview || '')}`;
+    if (/(?:^|[^a-z0-9])(approve|book|buy|cancel|commit|create|delete|edit|finish|mutation|pay|publish|reject|reserve|save|submit|update|upload)(?:$|[^a-z0-9])/i.test(probe)) return false;
+    return ['GET', 'HEAD'].includes(method)
+      || (method === 'POST' && /(?:^|[^a-z0-9])(detail|filter|get|list|page|query|read|search|sort|status)(?:$|[^a-z0-9])/i.test(probe));
+  });
+  return selectCompatibleCaptureBoundEntry(candidates, contract);
+}
+
+function coerceCaptureBoundValue(value, propertySchema = {}) {
+  if (value === undefined || value === null) return undefined;
+  if (propertySchema.type === 'number') {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
   }
-  const sensitivePath = findSensitiveOutputPath(output);
-  if (sensitivePath) {
-    errors.push({ code: 'SENSITIVE_OUTPUT_DETECTED', message: `返回值包含敏感字段: ${sensitivePath}` });
+  if (propertySchema.type === 'boolean') {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return undefined;
   }
-  if (contract.kind === 'captured_sample' && contract.capturedShape) {
-    const runtimeShape = describeGenerationOutputShape(output);
-    const capturedShape = contract.capturedShape;
-    const compatible = runtimeShape.rootKind === capturedShape.rootKind
-      || (capturedShape.containsKinds || []).includes(runtimeShape.rootKind)
-      || (runtimeShape.containsKinds || []).includes(capturedShape.rootKind);
-    if (!compatible) {
-      errors.push({
-        code: 'OUTPUT_SHAPE_MISMATCH',
-        message: `返回类型与捕获样本不兼容：捕获为 ${capturedShape.rootKind}，调用结果为 ${runtimeShape.rootKind}`,
-        capturedShape,
-        runtimeShape,
-      });
-    }
+  return String(value);
+}
+
+function buildCaptureBoundArguments(entry, tool, testCase) {
+  const properties = tool?.parameters?.properties && typeof tool.parameters.properties === 'object'
+    ? tool.parameters.properties
+    : {};
+  const keys = [...new Set([
+    ...Object.keys(properties),
+    ...Object.keys(testCase?.arguments || {}),
+    ...(testCase?.capturedRequestKeys || []),
+  ])].filter((key) => key && !CAPTURE_BOUND_SENSITIVE_PARAM_RE.test(key));
+  const url = new URL(String(entry?.url || ''));
+  let body = {};
+  try {
+    const parsed = JSON.parse(String(entry?.requestBodyPreview || '{}'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed;
+  } catch {}
+  const args = { ...(testCase?.arguments || {}) };
+  for (const key of keys) {
+    const raw = url.searchParams.has(key)
+      ? url.searchParams.get(key)
+      : body[key];
+    const coerced = coerceCaptureBoundValue(raw, properties[key] || {});
+    if (coerced !== undefined) args[key] = coerced;
   }
-  return {
-    passed: errors.length === 0,
-    errors,
-    outputKind: Array.isArray(output) ? 'array' : output === null ? 'null' : typeof output,
-    outputPreview: String(serialized || textProbe || '').slice(0, 2000),
-  };
+  return args;
 }
 
 function describeGenerationOutputShape(value) {
@@ -6697,6 +7325,7 @@ async function validateGenerationPreview({ previewAdapterId, previewBundle = nul
       for (const testCase of testCases.slice(0, 5)) {
         const toolName = String(testCase?.toolName || '');
         const risk = testCase?.risk || {};
+        const tool = registeredTools.find((item) => String(item?.name || '') === toolName) || null;
         const preflightErrors = Array.isArray(testCase?.validationErrors) ? testCase.validationErrors : [];
         if (preflightErrors.length > 0) {
           toolResults.push({
@@ -6719,7 +7348,21 @@ async function validateGenerationPreview({ previewAdapterId, previewBundle = nul
         }
         const startedAt = Date.now();
         try {
-          const output = await callGenerationPreviewTool(targetTab.id, toolName, testCase.arguments || {});
+          let runtimeArguments = testCase.arguments || {};
+          if (testCase?.captureBound) {
+            const capturedEntry = findCaptureBoundEntry(
+              targetTab.id,
+              testCase.captureBoundEndpointFamily,
+              testCase.contract || {},
+            );
+            if (!capturedEntry) {
+              throw Object.assign(new Error('未找到可用于本次 Preview 的 capture-bound 只读请求'), {
+                code: 'CAPTURE_BOUND_ARGUMENTS_NOT_FOUND',
+              });
+            }
+            runtimeArguments = buildCaptureBoundArguments(capturedEntry, tool, testCase);
+          }
+          const output = await callGenerationPreviewTool(targetTab.id, toolName, runtimeArguments);
           const contractResult = validateGenerationPreviewOutput(output, testCase.contract || {});
           toolResults.push({
             toolName,
@@ -6747,9 +7390,12 @@ async function validateGenerationPreview({ previewAdapterId, previewBundle = nul
     }
     const failedToolResults = toolResults.filter((item) => item.passed === false);
     const attemptedCount = toolResults.filter((item) => item.attempted).length;
-    const warnings = attemptedCount === 0 && failedToolResults.length === 0 && testCases.length > 0
-      ? [{ code: 'NO_SAFE_RUNTIME_CASES', message: '没有具备安全参数的高置信度只读工具，已仅完成注册验证' }]
-      : [];
+    const warnings = [
+      ...(attemptedCount === 0 && failedToolResults.length === 0 && testCases.length > 0
+        ? [{ code: 'NO_SAFE_RUNTIME_CASES', message: '没有具备安全参数的高置信度只读工具，已仅完成注册验证' }]
+        : []),
+      ...toolResults.flatMap((item) => (item.warnings || []).map((warning) => ({ ...warning, toolName: item.toolName }))),
+    ];
     for (const failure of failedToolResults) {
       for (const error of failure.errors || []) errors.push({ ...error, toolName: failure.toolName });
     }
@@ -6787,21 +7433,43 @@ function shouldHandleTabUrl(url) {
     && !url.startsWith("chrome-extension://");
 }
 
-function sendTabMessage(tabId, message) {
+function sendTabMessage(tabId, message, timeoutMs = 2000) {
   return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-      resolve(response || { ok: true });
-    });
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      finish({ ok: false, error: `tab message timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
+    try {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        if (chrome.runtime.lastError) {
+          finish({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        finish(response || { ok: true });
+      });
+    } catch (error) {
+      finish({ ok: false, error: error?.message || String(error) });
+    }
   });
 }
 
 async function refreshAdapterTabs(adapterId) {
   const tabs = await chrome.tabs.query({});
   const matchedTabs = [];
+  const adapterManifest = await loadAdapterManifestAnywhere(adapterId);
+
+  directAdapterLoadPromises.clear();
+  try {
+    await chrome.offscreen?.closeDocument?.();
+  } catch {
+    // No offscreen document exists yet.
+  }
 
   for (const tab of tabs) {
     if (!Number.isInteger(tab?.id) || !shouldHandleTabUrl(tab?.url)) continue;
@@ -6813,8 +7481,10 @@ async function refreshAdapterTabs(adapterId) {
       continue;
     }
 
-    const resolved = await resolveAdapterForHostname(hostname);
-    if (resolved.adapterId === adapterId) {
+    const matchesManifest = adapterManifest
+      ? adapterMatchesHostname(adapterManifest, hostname)
+      : hostname === adapterId || hostname.endsWith(`.${adapterId}`);
+    if (matchesManifest) {
       matchedTabs.push(tab);
     }
   }
@@ -6828,12 +7498,16 @@ async function refreshAdapterTabs(adapterId) {
 
   for (const tab of matchedTabs) {
     clearTabDomainRegistration(tab.id);
+    clearTabInjectedAdapters(tab.id);
     clearBadge(tab.id);
     await sendTabMessage(tab.id, { type: "clear_tools", siteKey: adapterId });
+    await chrome.tabs.reload(tab.id);
+    await waitForTabLoad(tab.id, 15000);
   }
 
   for (const tab of matchedTabs) {
-    await injectAdapters(tab.id, tab.url);
+    const refreshedTab = await chrome.tabs.get(tab.id);
+    await injectAdapters(tab.id, refreshedTab.url || tab.url);
   }
 
   const domainData = await waitForDomainTools(adapterId, 2500);

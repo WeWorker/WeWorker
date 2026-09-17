@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "evidenceThrough": null,
+  "fingerprints": {
+    "schemaVersion": 1,
+    "inventory": {
+      "adapterCount": 0,
+      "toolCount": 0
+    },
+    "globalFingerprint": null,
+    "adapters": []
+  },
+  "sharedEvidence": {
+    "inventory": {
+      "status": "NOT_RUN",
+      "adapterCount": 0,
+      "toolCount": 0
+    },
+    "mock": {
+      "status": "NOT_RUN",
+      "passed": 0,
+      "failed": 0,
+      "incomplete": 0
+    },
+    "packaging": {
+      "status": "NOT_RUN",
+      "stagedApiToolCount": 0
+    },
+    "safety": {
+      "status": "NOT_RUN",
+      "confirmationGuards": 0,
+      "guardFailures": 0
+    },
+    "knownLiveProductFailures": []
+  }
+}

@@ -7,6 +7,7 @@ import { spawn } from "child_process";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { normalizeRequestBodyEvidence } from "./generation-harness/source-evidence.js";
 
 const CONFIG_DIR = join(homedir(), ".webcli");
 const CONFIG_PATH = join(homedir(), ".webcli", "config.json");
@@ -136,8 +137,12 @@ function buildPrompt(siteKey, apiEntries, existingCode) {
       section += `- Method: ${entry.method || "GET"}\n`;
       section += `- URL: ${urlObj.origin}${urlObj.pathname}\n`;
       if (params) section += `- Query Params: ${params}\n`;
-      if (entry.requestBody)
-        section += `- Request Body: ${entry.requestBody.slice(0, 1500)}\n`;
+      const requestEvidence = normalizeRequestBodyEvidence({
+        ...entry,
+        requestBodyPreview: entry.requestBodyPreview ?? entry.requestBody,
+      });
+      if (requestEvidence.bodyKind !== 'none')
+        section += `- Request Evidence: ${JSON.stringify(requestEvidence)}\n`;
       if (entry.responsePreview)
         section += `- Response Sample: ${entry.responsePreview.slice(0, 2000)}\n`;
       if (entry.status) section += `- Status: ${entry.status}\n`;
@@ -245,13 +250,14 @@ function summarizeNetworkEntry(entry = {}) {
     queryKeys = [...parsed.searchParams.keys()].slice(0, 12);
   } catch {}
 
+  const requestEvidence = normalizeRequestBodyEvidence(entry);
   return {
     method: String(entry.method || "GET").toUpperCase(),
     url,
     status: entry.status ?? null,
     responseContentType: String(entry.responseContentType || entry.contentType || ""),
     queryKeys,
-    requestBodyPreview: truncateForModel(entry.requestBodyPreview, 600),
+    requestEvidence,
     responsePreview: truncateForModel(entry.responsePreview, 1000),
   };
 }
@@ -395,6 +401,7 @@ function summarizeActionCaptureCandidate(candidate = {}) {
     queryKeys = [...parsed.searchParams.keys()].slice(0, 12);
   } catch {}
 
+  const requestEvidence = normalizeRequestBodyEvidence(candidate);
   return {
     method: String(candidate.method || "GET").toUpperCase(),
     url,
@@ -402,7 +409,7 @@ function summarizeActionCaptureCandidate(candidate = {}) {
     blockedReason: String(candidate.blockedReason || ""),
     responseContentType: String(candidate.responseContentType || ""),
     queryKeys,
-    requestBodyPreview: truncateForModel(candidate.requestBodyPreview, 700),
+    requestEvidence,
     responsePreview: truncateForModel(candidate.responsePreview, 1000),
   };
 }
@@ -535,14 +542,15 @@ function extractPreviewFieldNames(preview, limit = 20) {
 }
 
 function summarizeScaffoldCandidate(candidate = {}) {
+  const requestEvidence = normalizeRequestBodyEvidence(candidate);
   return {
     actionName: String(candidate.actionName || "").trim(),
     toolName: String(candidate.toolName || "").trim(),
     method: String(candidate.method || "GET").toUpperCase(),
     url: String(candidate.url || "").trim(),
     mode: String(candidate.mode || "").trim(),
-    requestFieldNames: extractPreviewFieldNames(candidate.requestBodyPreview, 20),
-    requestBodyPreview: truncateForModel(candidate.requestBodyPreview, 800),
+    requestFieldNames: requestEvidence.bodyKeys.slice(0, 20),
+    requestEvidence,
     responseFieldNames: extractPreviewFieldNames(candidate.responsePreview, 24),
     responseHints: candidate.responseHints && typeof candidate.responseHints === "object"
       ? {
@@ -576,8 +584,8 @@ function buildScaffoldSemanticPayload(memory = {}) {
       sourceToolName: index === 0 ? `${siteKey}.search_records` : `${siteKey}.fetch_summary_groups`,
       method: String(candidate.method || "GET").toUpperCase(),
       url: String(candidate.url || "").trim(),
-      requestFieldNames: extractPreviewFieldNames(candidate.requestBodyPreview, 16),
-      requestBodyPreview: truncateForModel(candidate.requestBodyPreview, 700),
+      requestFieldNames: normalizeRequestBodyEvidence(candidate).bodyKeys.slice(0, 16),
+      requestEvidence: normalizeRequestBodyEvidence(candidate),
     })),
     actionApiCandidates: actionCandidates.map(summarizeScaffoldCandidate),
   };
@@ -757,9 +765,12 @@ async function callAnthropicModel(prompt, config, maxTokens, taskLabel) {
 
   const text = String(response.content?.[0]?.text || "").trim();
   const memoryAfter = process.memoryUsage();
+  const emptyDetail = text
+    ? ''
+    : ` stop=${response.stop_reason || 'unknown'} blocks=${(response.content || []).map((block) => block?.type || 'unknown').join(',') || 'none'}`;
   process.stderr.write(
     `[AI] Completed ${taskLabel} `
-      + `(response=${Buffer.byteLength(text, "utf8")}B rss=${Math.round(memoryAfter.rss / 1024 / 1024)}MB)\n`
+      + `(response=${Buffer.byteLength(text, "utf8")}B${emptyDetail} rss=${Math.round(memoryAfter.rss / 1024 / 1024)}MB)\n`
   );
   return text;
 }

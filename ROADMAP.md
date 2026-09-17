@@ -31,6 +31,9 @@ WeWorker 已完成公开仓库初始化，当前在全新的 `develop` 基线上
 - 首个低风险增量已迁入：Backend 显式固定 `@emnapi/runtime` 构建依赖，不涉及业务配置或内部资产。
 - 旧 `develop` 中的通用上下文与记忆能力已迁入公开 `develop`：Prompt 外置、长期记忆存储/召回、记忆准入与执行证据、对话上下文压缩、上下文用量面板、已加载 Skill 指令连续性。
 - Backend 关键运行依赖已从浮动版本调整为固定版本，并补齐 `@emnapi/runtime` optional lock 元数据，提升 Windows 构建可复现性。
+- 已迁入通用网站/API 探索与 Adapter 生成链路：Extension 提供被动网络采集、安全只读探测、capture-bound 回放与动作捕获，Backend 提供探索 Agent、Bridge RPC、站点记忆和生成编排，Renderer 提供任务恢复与生成工作台。
+- 已新增可复用的 API Adapter 认证框架与 Codex Skill，覆盖清单、mock 成功/失败、安全确认门、live 分类、增量指纹、多开发者本地 profile、打包校验和自包含 HTML 报告；开发者权限、登录态、fixture 与 live 证据不进入仓库。
+- 公开构建当前不包含 API/background Adapter，认证清单为 0 个 Adapter、0 个工具；框架可由外部 Profile Overlay 或内部仓库直接复用，不能据此宣称任何未打包 Adapter 已完成 live 认证。
 
 ## 验证结果
 
@@ -48,6 +51,9 @@ WeWorker 已完成公开仓库初始化，当前在全新的 `develop` 基线上
 - `@emnapi/runtime` 固定版本迁移后，Backend TypeScript 生产构建通过，Git 差异格式检查通过。
 - 上下文与记忆迁移后，Backend TypeScript 生产构建通过，Renderer 生产构建通过。
 - 记忆、上下文压缩、上下文快照、Skill 连续性与 Windows 原生命令文案聚焦测试通过；Backend 全量测试为 414/421 通过，剩余 3 个失败为既有 mock/Windows 超时问题。
+- 网站/API 探索与认证迁移后，WebCLI 聚焦测试 100/100、Backend 探索测试 44/44、Renderer 探索测试 15/15、Extension/认证 Skill/Electron/打包测试 38/38 通过。
+- API Adapter 认证的 inventory、evidence 与 mock 门禁通过；公开 Profile 的结果为 0 个 Adapter、0 个工具，4 个证据测试文件全部通过。
+- Backend TypeScript 类型检查、Renderer 生产构建、50 个相关 JavaScript 文件语法检查及认证 Skill 结构校验通过。
 
 ## 进行中
 
@@ -55,7 +61,7 @@ WeWorker 已完成公开仓库初始化，当前在全新的 `develop` 基线上
 
 ## 待办
 
-- 迁移网站探索、API 探索和 WebCLI 等公共候选模块，并完成对应测试与构建验证。
+- 继续在公开 Profile 与内部 Overlay 的实际 Adapter 上分别执行 live 认证，并仅在各自仓库存放对应的非敏感共享基线。
 - 为公开发布配置新的下载地址、指标服务和发布流程。
 - 在目标平台完成 Windows x64、macOS arm64 与 macOS x64 安装包验收。
 

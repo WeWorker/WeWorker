@@ -4,6 +4,9 @@ import path from 'node:path';
 
 const SAFE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const SENSITIVE_KEY_RE = /api[_-]?key|authorization|cookie|credential|password|passwd|secret|session|ticket|token|csrf/i;
+const RAW_PREVIEW_KEY_RE = /(?:output|request|response)Preview/i;
+const DIAGNOSTIC_TEXT_KEY_RE = /^(?:stack)$/i;
+const PATH_KEY_RE = /(?:rootDir|draftRoot|adapterDir|adapterIndex|previewAdapterDir|draftAdapterDir|filePath|manifest|supportFile|sharedRuntime|indexSnippet|integrationGuide|skill|generatedSkill|writtenSkill|knowledgeJson|knowledgeMarkdown|discoveryIndex)$/i;
 
 function assertSafeId(value, label) {
   const text = String(value || '');
@@ -13,15 +16,53 @@ function assertSafeId(value, label) {
   return text;
 }
 
-function redactValue(value, key = '') {
+function looksLikeAbsolutePath(value) {
+  const text = String(value || '');
+  return path.isAbsolute(text)
+    || /^[a-zA-Z]:[\\/]/.test(text)
+    || /^\\\\[^\\]+\\[^\\]+/.test(text);
+}
+
+function publicPath(value, rootDir = '') {
+  const text = String(value || '');
+  if (!text || text.startsWith('<run-root>/')) return text || '[path-redacted]';
+  if (rootDir) {
+    try {
+      const relative = path.relative(path.resolve(rootDir), path.resolve(text));
+      if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+        return `<run-root>/${relative.split(path.sep).join('/')}`;
+      }
+    } catch {}
+  }
+  return '[path-redacted]';
+}
+
+function redactValue(value, key = '', { redactPaths = false, rootDir = '' } = {}) {
   if (SENSITIVE_KEY_RE.test(String(key))) {
     if (value == null || value === '') return value;
     return '[redacted]';
   }
-  if (Array.isArray(value)) return value.map((item) => redactValue(item, key));
+  if (RAW_PREVIEW_KEY_RE.test(String(key)) && typeof value === 'string' && value.trim()) {
+    return '[redacted]';
+  }
+  if (DIAGNOSTIC_TEXT_KEY_RE.test(String(key)) && typeof value === 'string' && value.trim()) {
+    return '[redacted]';
+  }
+  if (
+    redactPaths
+    && typeof value === 'string'
+    && value.trim()
+    && (PATH_KEY_RE.test(String(key)) || looksLikeAbsolutePath(value))
+  ) {
+    return publicPath(value, rootDir);
+  }
+  if (Array.isArray(value)) return value.map((item) => redactValue(item, key, { redactPaths, rootDir }));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
-      Object.entries(value).map(([childKey, childValue]) => [childKey, redactValue(childValue, childKey)]),
+      Object.entries(value).map(([childKey, childValue]) => [
+        childKey,
+        redactValue(childValue, childKey, { redactPaths, rootDir }),
+      ]),
     );
   }
   return value;
@@ -42,6 +83,58 @@ export class GenerationRunStore {
     this.rootDir = path.resolve(rootDir);
   }
 
+  _persistPath(value) {
+    const text = String(value || '');
+    if (!text || text.startsWith('<run-root>/')) return text || '[redacted]';
+    try {
+      const relative = path.relative(this.rootDir, path.resolve(text));
+      if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+        return `<run-root>/${relative.split(path.sep).join('/')}`;
+      }
+    } catch {}
+    return '[external-redacted]';
+  }
+
+  _restorePath(value) {
+    const text = String(value || '');
+    if (!text.startsWith('<run-root>/')) return value;
+    return path.join(this.rootDir, text.slice('<run-root>/'.length));
+  }
+
+  _redactValue(value, key = '') {
+    if (SENSITIVE_KEY_RE.test(String(key))) {
+      if (value == null || value === '') return value;
+      return '[redacted]';
+    }
+    if (RAW_PREVIEW_KEY_RE.test(String(key)) && typeof value === 'string' && value.trim()) {
+      return '[redacted]';
+    }
+    if (DIAGNOSTIC_TEXT_KEY_RE.test(String(key)) && typeof value === 'string' && value.trim()) {
+      return '[redacted]';
+    }
+    if (PATH_KEY_RE.test(String(key)) && typeof value === 'string' && value.trim()) {
+      return this._persistPath(value);
+    }
+    if (Array.isArray(value)) return value.map((item) => this._redactValue(item, key));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([childKey, childValue]) => [childKey, this._redactValue(childValue, childKey)]),
+      );
+    }
+    return value;
+  }
+
+  _restoreValue(value, key = '') {
+    if (PATH_KEY_RE.test(String(key)) && typeof value === 'string') return this._restorePath(value);
+    if (Array.isArray(value)) return value.map((item) => this._restoreValue(item, key));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([childKey, childValue]) => [childKey, this._restoreValue(childValue, childKey)]),
+      );
+    }
+    return value;
+  }
+
   getRunDir(runId) {
     return path.join(this.rootDir, assertSafeId(runId, 'runId'));
   }
@@ -51,7 +144,7 @@ export class GenerationRunStore {
   }
 
   save(snapshot) {
-    const safeSnapshot = redactValue(snapshot);
+    const safeSnapshot = this._redactValue(snapshot);
     writeJsonAtomic(path.join(this.getRunDir(snapshot.id), 'run.json'), safeSnapshot);
     return safeSnapshot;
   }
@@ -59,13 +152,13 @@ export class GenerationRunStore {
   load(runId) {
     const filePath = path.join(this.getRunDir(runId), 'run.json');
     if (!fs.existsSync(filePath)) return null;
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return this._restoreValue(JSON.parse(fs.readFileSync(filePath, 'utf8')));
   }
 
   appendTrace(runId, event) {
     const tracePath = path.join(this.getRunDir(runId), 'trace.jsonl');
     fs.mkdirSync(path.dirname(tracePath), { recursive: true });
-    fs.appendFileSync(tracePath, `${JSON.stringify(redactValue(event))}\n`, 'utf8');
+    fs.appendFileSync(tracePath, `${JSON.stringify(this._redactValue(event))}\n`, 'utf8');
   }
 
   readTrace(runId) {
@@ -78,6 +171,6 @@ export class GenerationRunStore {
   }
 }
 
-export function sanitizeGenerationValue(value) {
-  return redactValue(value);
+export function sanitizeGenerationValue(value, { rootDir = '' } = {}) {
+  return redactValue(value, '', { redactPaths: true, rootDir });
 }

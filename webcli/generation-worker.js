@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   GenerationHarness,
   createAdapterGenerationWorkflow,
+  createAdapterGenerationResumeWorkflow,
   createAdapterPublisher,
   createJsonActionModel,
   createPreviewRuntimeValidator,
@@ -75,6 +76,12 @@ function rejectPendingExtensionRequests(reason) {
 function createHarness({ model }) {
   const harness = new GenerationHarness({
     workflow: createAdapterGenerationWorkflow({
+      model,
+      runtimeValidator: createPreviewRuntimeValidator({
+        requestExtension: createIpcExtensionRequester(),
+      }),
+    }),
+    resumeWorkflow: createAdapterGenerationResumeWorkflow({
       model,
       runtimeValidator: createPreviewRuntimeValidator({
         requestExtension: createIpcExtensionRequester(),
@@ -185,6 +192,8 @@ export async function runGenerationWorker() {
           run = harness.start(payload);
         } else if (command === 'publish') {
           run = harness.publish(String(payload.runId || ''));
+        } else if (command === 'resume') {
+          run = harness.resume(String(payload.runId || ''), String(payload.answer || ''));
         } else {
           throw new Error(`unknown generation worker command: ${command}`);
         }

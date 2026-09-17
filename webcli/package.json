@@ -47,7 +47,19 @@
     "generate:wecli-adapters": "node scripts/generate-wecli-adapters.js",
     "test": "vitest --run",
     "test:ci": "vitest --run --testTimeout=20000",
-    "test:e2e:real": "node scripts/run-real-e2e.js"
+    "test:e2e:real": "node scripts/run-real-e2e.js",
+    "test:api:inventory": "vitest --run __tests__/api-adapter-certification.test.js",
+    "test:api:evidence": "vitest --run __tests__/api-adapter-test-evidence.test.js",
+    "test:api:runtime": "cd .. && node --test extension/test/api-adapter-runtime-registration.test.mjs",
+    "test:api:safety": "cd .. && node --test extension/test/api-adapter-confirmation-guards.test.mjs",
+    "test:api:success": "cd .. && node --test extension/test/api-adapter-success-smoke.test.mjs",
+    "test:api:failure": "cd .. && node --test extension/test/api-adapter-failure-smoke.test.mjs",
+    "test:api:common-errors": "cd .. && node --test extension/test/api-adapter-common-errors.test.mjs",
+    "test:api:mock": "cd .. && node --test extension/test/api-adapter-runtime-registration.test.mjs extension/test/api-adapter-success-smoke.test.mjs extension/test/api-adapter-failure-smoke.test.mjs extension/test/api-adapter-confirmation-guards.test.mjs extension/test/api-adapter-common-errors.test.mjs",
+    "certify:api:inventory": "node api-adapter-certification.js",
+    "certify:api:evidence": "node api-adapter-test-evidence.js --certification-only",
+    "certify:api:evidence:all": "node api-adapter-test-evidence.js",
+    "certify:api:matrix": "node api-adapter-certification-matrix.js --output=../artifacts/api-adapter-certification/certification-matrix.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

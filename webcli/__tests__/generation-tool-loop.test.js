@@ -78,6 +78,128 @@ describe('generation tool loop', () => {
     expect(result.content).toBe('recovered');
   });
 
+  it('retries one malformed JSON action and reports the retry as a model call', async () => {
+    const malformed = Object.assign(new Error('invalid JSON action'), {
+      code: 'INVALID_JSON_ACTION',
+      details: { preview: '{"type":"final"}}' },
+    });
+    const model = vi.fn()
+      .mockRejectedValueOnce(malformed)
+      .mockImplementationOnce(async ({ repairFeedback }) => {
+        expect(repairFeedback).toEqual({
+          code: 'INVALID_JSON_ACTION',
+          preview: '{"type":"final"}}',
+          attempt: 2,
+        });
+        return { type: 'final', content: 'repaired' };
+      });
+    const events = [];
+
+    const result = await runToolLoop({
+      model,
+      tools: [],
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result.content).toBe('repaired');
+    expect(events.filter((event) => event.type === 'model_started')).toHaveLength(2);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'model_format_retry',
+      attempt: 2,
+    }));
+  });
+
+  it('recovers when the model returns empty output twice before succeeding', async () => {
+    const empty = (preview) => Object.assign(new Error('model did not return a valid JSON action'), {
+      code: 'INVALID_JSON_ACTION',
+      details: { preview },
+    });
+    const model = vi.fn()
+      .mockRejectedValueOnce(empty(''))
+      .mockRejectedValueOnce(empty(''))
+      .mockResolvedValueOnce({ type: 'final', content: 'recovered after empty outputs' });
+    const events = [];
+
+    const result = await runToolLoop({
+      model,
+      tools: [],
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result.content).toBe('recovered after empty outputs');
+    expect(model).toHaveBeenCalledTimes(3);
+    const retries = events.filter((event) => event.type === 'model_format_retry');
+    expect(retries.map((event) => event.attempt)).toEqual([2, 3]);
+  });
+
+  it('still fails when empty model output persists beyond both repair attempts', async () => {
+    const empty = Object.assign(new Error('model did not return a valid JSON action'), {
+      code: 'INVALID_JSON_ACTION',
+      details: { preview: '' },
+    });
+    const model = vi.fn().mockRejectedValue(empty);
+
+    await expect(runToolLoop({ model, tools: [] }))
+      .rejects.toMatchObject({ code: 'INVALID_JSON_ACTION' });
+    expect(model).toHaveBeenCalledTimes(3);
+  });
+  it('recovers from chained empty-then-bare-envelope failures within the step budget', async () => {
+    const empty = Object.assign(new Error('model did not return a valid JSON action'), {
+      code: 'INVALID_JSON_ACTION',
+      details: { preview: '' },
+    });
+    const bare = Object.assign(new Error('unsupported model response type: unknown'), {
+      code: 'INVALID_MODEL_RESPONSE',
+      details: { response: { name: 'read_draft_files' } },
+    });
+    const model = vi.fn()
+      .mockRejectedValueOnce(empty)
+      .mockRejectedValueOnce(bare)
+      .mockResolvedValueOnce({ type: 'final', content: 'recovered from chained format errors' });
+
+    const result = await runToolLoop({ model, tools: [] });
+
+    expect(result.content).toBe('recovered from chained format errors');
+    expect(model).toHaveBeenCalledTimes(3);
+  });
+  it('recovers when the model emits valid JSON without the action envelope', async () => {
+    const model = vi.fn()
+      .mockResolvedValueOnce({
+        name: 'save_generation_plan',
+        purpose: '查询站点页面菜单列表',
+        risk: 'read',
+        sourceApiIndexes: [0],
+      })
+      .mockImplementationOnce(async ({ repairFeedback }) => {
+        expect(repairFeedback.code).toBe('INVALID_MODEL_RESPONSE');
+        expect(repairFeedback.preview).toContain('save_generation_plan');
+        return { type: 'final', content: 'repaired' };
+      });
+    const events = [];
+
+    const result = await runToolLoop({
+      model,
+      tools: [],
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result.content).toBe('repaired');
+    expect(events.filter((event) => event.type === 'model_started')).toHaveLength(2);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'model_format_retry',
+      attempt: 2,
+      code: 'INVALID_MODEL_RESPONSE',
+    }));
+  });
+
+  it('still fails with INVALID_MODEL_RESPONSE when the repair keeps the bad shape', async () => {
+    const model = vi.fn().mockResolvedValue({ name: 'save_generation_plan', risk: 'read' });
+
+    await expect(runToolLoop({ model, tools: [] }))
+      .rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE' });
+    expect(model).toHaveBeenCalledTimes(3);
+  });
+
   it('validates tool arguments before execution', async () => {
     const execute = vi.fn();
     const registry = new ToolRegistry([{

@@ -9,10 +9,14 @@ import { app, utilityProcess } from 'electron'
 import {
   formatProcessExitCode,
   isPortOccupied,
-  isStandaloneWeWorkerBackend,
   probeHttpJson,
   waitForHttpInstance,
 } from './local-service.js'
+import {
+  ExternalBackendMonitor,
+  PortInUseMonitor,
+  resolveBackendAvailability,
+} from './backend-availability.js'
 
 import {
   buildWebwrightEnvironment,
@@ -257,43 +261,64 @@ export class NodeManager {
     this._stopping = false
     this._restartTimer = null
     this._restartAttempts = 0
-    this._externalMonitorTimer = null
+    this._externalMonitor = null
+    this._portInUseMonitor = null
+    this._starting = false
   }
 
   async start() {
+    if (this._starting) return
     if (this._process && (this._status === 'starting' || this._status === 'running')) return
     if (this._restartTimer) {
       clearTimeout(this._restartTimer)
       this._restartTimer = null
     }
-    if (this._externalMonitorTimer) {
-      clearInterval(this._externalMonitorTimer)
-      this._externalMonitorTimer = null
+    if (this._externalMonitor) {
+      this._externalMonitor.stop()
+      this._externalMonitor = null
+    }
+    if (this._portInUseMonitor) {
+      this._portInUseMonitor.stop()
+      this._portInUseMonitor = null
     }
     this._stopping = false
+    this._starting = true
+    try {
+      await this._startInternal()
+    } finally {
+      this._starting = false
+    }
+  }
+
+  async _startInternal() {
     this._status = 'starting'
 
     // Do not spawn a second backend into an occupied port. Previously the
     // readiness probe could hit the old process, report "running", and then
     // restart forever when the newly spawned process exited with EADDRINUSE.
-    const occupied = await isPortOccupied(8765)
-    if (occupied) {
-      if (!app.isPackaged) {
-        const externalStatus = await probeHttpJson(
-          'http://127.0.0.1:8765/status',
-          1500,
-          this._httpAuthToken,
-        )
-        if (isStandaloneWeWorkerBackend(externalStatus)) {
-          this._status = 'external_running'
-          this._restartAttempts = 0
-          this._log('[node] using standalone backend already running on port 8765')
-          this._monitorExternalBackend()
-          return
-        }
-      }
+    // The startup probe budget tolerates a busy-but-healthy standalone
+    // backend; only a foreign or truly unresponsive holder leads to
+    // port_in_use, and that state self-heals via _monitorPortInUse.
+    const availability = await resolveBackendAvailability({
+      checkPort: isPortOccupied,
+      probeStatus: (timeout) => probeHttpJson(
+        'http://127.0.0.1:8765/status',
+        timeout,
+        this._httpAuthToken,
+      ),
+      allowExternal: !app.isPackaged,
+    })
+    if (availability === 'external') {
+      this._status = 'external_running'
+      this._restartAttempts = 0
+      this._log('[node] using standalone backend already running on port 8765')
+      this._monitorExternalBackend()
+      return
+    }
+    if (availability === 'port_in_use') {
       this._status = 'port_in_use'
       this._log('[node] port 8765 already in use by another process — skipping backend spawn')
+      this._monitorPortInUse(!app.isPackaged)
       return
     }
 
@@ -394,9 +419,13 @@ export class NodeManager {
       clearTimeout(this._restartTimer)
       this._restartTimer = null
     }
-    if (this._externalMonitorTimer) {
-      clearInterval(this._externalMonitorTimer)
-      this._externalMonitorTimer = null
+    if (this._externalMonitor) {
+      this._externalMonitor.stop()
+      this._externalMonitor = null
+    }
+    if (this._portInUseMonitor) {
+      this._portInUseMonitor.stop()
+      this._portInUseMonitor = null
     }
     // A standalone development backend was started by the developer, not by
     // Electron. Never terminate it when the desktop app exits.
@@ -439,28 +468,43 @@ export class NodeManager {
   }
 
   _monitorExternalBackend() {
-    if (this._externalMonitorTimer) return
-    let checking = false
-    this._externalMonitorTimer = setInterval(async () => {
-      if (checking || this._stopping || this._status !== 'external_running') return
-      checking = true
-      try {
-        const status = await probeHttpJson(
-          'http://127.0.0.1:8765/status',
-          1000,
-          this._httpAuthToken,
-        )
-        if (isStandaloneWeWorkerBackend(status)) return
-
-        clearInterval(this._externalMonitorTimer)
-        this._externalMonitorTimer = null
+    if (this._externalMonitor) return
+    this._externalMonitor = new ExternalBackendMonitor({
+      probeStatus: (timeout) => probeHttpJson(
+        'http://127.0.0.1:8765/status',
+        timeout,
+        this._httpAuthToken,
+      ),
+      onUnavailable: () => {
+        this._externalMonitor = null
         this._status = 'stopped'
         this._log('[node] standalone backend is no longer available; starting managed backend')
-        await this.start()
-      } finally {
-        checking = false
-      }
-    }, 3000)
+        void this.start()
+      },
+    })
+    this._externalMonitor.start()
+  }
+
+  _monitorPortInUse(allowExternal) {
+    if (this._portInUseMonitor) return
+    this._portInUseMonitor = new PortInUseMonitor({
+      checkPort: isPortOccupied,
+      probeStatus: (timeout) => probeHttpJson(
+        'http://127.0.0.1:8765/status',
+        timeout,
+        this._httpAuthToken,
+      ),
+      allowExternal,
+      onRecovered: (availability) => {
+        this._portInUseMonitor = null
+        if (this._stopping) return
+        this._log(availability === 'free'
+          ? '[node] port 8765 is now free; starting managed backend'
+          : '[node] standalone backend on port 8765 is reachable again; using it')
+        void this.start()
+      },
+    })
+    this._portInUseMonitor.start()
   }
 }
 

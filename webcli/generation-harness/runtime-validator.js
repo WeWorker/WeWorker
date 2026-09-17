@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildRuntimeTestCases } from './runtime-test-policy.js';
+import { verifyGeneratedWriteTools } from './write-tool-verifier.js';
 
 const MAX_PREVIEW_SCRIPT_CHARS = 1_000_000;
 const SAFE_PREVIEW_SCRIPT_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*\.js$/;
@@ -56,6 +57,20 @@ export function createPreviewRuntimeValidator({ requestExtension } = {}) {
     const previewBundle = buildInlinePreviewBundle(draft.adapterDir);
     run.setArtifact('previewAdapter', preview);
     try {
+      const writeVerification = await verifyGeneratedWriteTools({
+        adapterDir: draft.adapterDir,
+        expectedSiteKey: run.snapshot.siteKey,
+      });
+      run.setArtifact('writeVerification', writeVerification);
+      if (!writeVerification.passed) {
+        return {
+          passed: false,
+          validator: 'adapter_runtime_validator_v1',
+          errors: writeVerification.errors,
+          warnings: writeVerification.warnings || [],
+          writeVerification,
+        };
+      }
       const registration = await requestExtension({
         type: 'validate_generation_preview',
         previewAdapterId: preview.previewAdapterId,
@@ -81,11 +96,23 @@ export function createPreviewRuntimeValidator({ requestExtension } = {}) {
         expectedToolNames: draft.toolNames || [],
         testCases,
       }, 60_000);
+      const warnings = [...(Array.isArray(execution?.warnings) ? execution.warnings : [])];
+      for (const testCase of testCases) {
+        if (testCase?.unverifiable) {
+          warnings.push({
+            code: 'TOOL_MARKED_UNVERIFIABLE',
+            message: `工具 ${testCase.toolName} 已由修订标记为转人工验证，本轮跳过自动断言`,
+            toolName: testCase.toolName,
+          });
+        }
+      }
       return {
         validator: 'adapter_runtime_validator_v1',
         ...execution,
+        warnings,
         registration,
         testCases,
+        writeVerification,
       };
     } finally {
       run.setArtifact('previewAdapter', null);

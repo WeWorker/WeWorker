@@ -28,6 +28,14 @@ export function validateAdapterDraft({ adapterDir, expectedSiteKey = '', expecte
   const absoluteAdapterDir = path.resolve(adapterDir);
   const manifestPath = path.join(absoluteAdapterDir, 'manifest.json');
   const indexPath = path.join(absoluteAdapterDir, 'index.js');
+  let policySupportFiles = new Set();
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const policyManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      policySupportFiles = new Set((Array.isArray(policyManifest.support_files) ? policyManifest.support_files : [])
+        .map((item) => String(item || '').replace(/\\/g, '/')));
+    } catch {}
+  }
 
   if (!fs.existsSync(indexPath)) {
     errors.push(result('MISSING_ADAPTER_INDEX', 'adapter draft is missing index.js', { file: indexPath }));
@@ -37,13 +45,40 @@ export function validateAdapterDraft({ adapterDir, expectedSiteKey = '', expecte
   }
 
   for (const jsPath of walkFiles(absoluteAdapterDir).filter((filePath) => filePath.endsWith('.js'))) {
+    const source = fs.readFileSync(jsPath, 'utf8');
     try {
-      new vm.Script(fs.readFileSync(jsPath, 'utf8'), { filename: jsPath });
+      new vm.Script(source, { filename: jsPath });
     } catch (error) {
       errors.push(result('INVALID_JAVASCRIPT', error.message, {
         file: jsPath,
         line: Number(error.lineNumber || 0) || undefined,
       }));
+    }
+    const relativeJsPath = path.relative(absoluteAdapterDir, jsPath).replace(/\\/g, '/');
+    const isGeneratedTool = policySupportFiles.has(relativeJsPath)
+      && /webcli-generated[\\/]tools[\\/].+\.generated\.js$/i.test(jsPath);
+    if (!isGeneratedTool) continue;
+    const declaresWrite = /\baccess\s*:\s*['"]write['"]/.test(source);
+    const hasConfirmationMetadata = /x-webcli-requires-confirmation/.test(source);
+    if (hasConfirmationMetadata && !declaresWrite) {
+      errors.push(result('MISSING_WRITE_ACCESS', 'side-effecting generated tool must declare access: write', { file: jsPath }));
+    }
+    if (/\[truncated\]/i.test(source) || /\brequestBodyPreview\b/.test(source)) {
+      errors.push(result('RAW_CAPTURED_BODY_IN_GENERATED_TOOL', 'generated tool contains raw or truncated request-body evidence', { file: jsPath }));
+    }
+    if (/\bdefaultPayload\b/.test(source)) {
+      errors.push(result('CAPTURED_WRITE_DEFAULT_PAYLOAD', 'generated tool must not contain a captured defaultPayload', { file: jsPath }));
+    }
+    if (declaresWrite) {
+      if (/AGENT_AUTHORED_WRITE_REQUIRED|x-webcli-agent-authored['"]?\s*:\s*false/.test(source)) {
+        errors.push(result('WRITE_AGENT_AUTHORING_REQUIRED', 'write skeleton must be replaced by an agent-authored semantic implementation', { file: jsPath }));
+      }
+      if (!/\b__confirmed\b/.test(source) || !hasConfirmationMetadata) {
+        errors.push(result('MISSING_WRITE_CONFIRMATION', 'write tool must enforce confirmation and expose confirmation metadata', { file: jsPath }));
+      }
+      if (!/\bwriteVerification\s*:/.test(source)) {
+        errors.push(result('MISSING_WRITE_VERIFICATION', 'write tool must include a focused writeVerification fixture', { file: jsPath }));
+      }
     }
   }
 

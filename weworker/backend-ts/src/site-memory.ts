@@ -2,6 +2,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createLogger } from './logger.js'
+import {
+  analyzeApiEvidenceEntry,
+  analyzeApiExplorationWorkflow,
+  type ApiEndpointEvidence,
+  type ApiExplorationAnalysisV2,
+} from './api-exploration-evidence.js'
 
 const log = createLogger('site-memory')
 
@@ -11,7 +17,11 @@ const SITE_MEMORY_SCHEMA_VERSION = 1
 interface WorkflowActionEntry {
   url?: string
   method?: string
+  status?: number
   requestBodyPreview?: string
+  requestBodyFullSize?: number
+  requestBodyTruncated?: boolean
+  requestEvidence?: RequestBodyEvidence
   responsePreview?: string
   responseContentType?: string
 }
@@ -34,6 +44,7 @@ interface WorkflowAction {
 }
 
 interface WorkflowResult {
+  schemaVersion?: string
   tabId?: number
   opened?: { url?: string }
   pageStateBefore?: { url?: string }
@@ -43,6 +54,7 @@ interface WorkflowResult {
   workflow?: { version?: string }
   actions?: WorkflowAction[]
   network?: { entries?: WorkflowActionEntry[] }
+  analysisV2?: ApiExplorationAnalysisV2
 }
 
 interface ActionCaptureResult {
@@ -57,8 +69,13 @@ interface ActionCaptureResult {
 export interface SiteApiCandidate {
   url: string
   method: string
+  status?: number
   requestBodyPreview?: string
+  requestEvidence?: RequestBodyEvidence
+  responsePreview?: string
+  responseContentType?: string
   sourceSteps: string[]
+  apiEvidence?: ApiEndpointEvidence
 }
 
 export interface ActionResponseHints {
@@ -80,6 +97,7 @@ export interface StoredActionCandidate {
   url: string
   method: string
   requestBodyPreview?: string
+  requestEvidence?: RequestBodyEvidence
   responsePreview?: string
   responseContentType?: string
   responseHints?: ActionResponseHints
@@ -91,6 +109,17 @@ export interface StoredActionCandidate {
   primarySelection?: 'user' | 'ai' | 'heuristic' | ''
   capturedAt: string
   sourceWorkflowVersion: string
+  apiEvidence?: ApiEndpointEvidence
+}
+
+export interface RequestBodyEvidence {
+  version: 'request-evidence-v1'
+  bodyKind: 'none' | 'json' | 'form' | 'opaque'
+  bodyShape: Record<string, unknown> | null
+  bodyKeys: string[]
+  bodyFullSize: number
+  bodyTruncated: boolean
+  bodyOmitted: boolean
 }
 
 export interface ActionCandidateQuality {
@@ -147,6 +176,7 @@ export interface SiteMemoryRecord {
     paginationCandidates: number
   }
   listApiCandidates: SiteApiCandidate[]
+  apiAnalysisV2?: ApiExplorationAnalysisV2
   actionApiCandidates: StoredActionCandidate[]
   actionCaptureHistory?: StoredActionCandidate[]
   actionEvidenceSummary?: ActionEvidenceSummary
@@ -219,6 +249,96 @@ function safeUrl(input: unknown): string {
   return typeof input === 'string' ? input.trim() : ''
 }
 
+const TRUNCATION_MARKER_RE = /(?:\.{0,3}\[truncated\]|…\s*\[truncated\])\s*$/i
+
+function requestValueShape(value: unknown, depth = 0): Record<string, unknown> {
+  if (depth >= 8) return { type: 'unknown' }
+  if (value === null) return { type: 'null' }
+  if (Array.isArray(value)) {
+    return { type: 'array', items: value.length > 0 ? requestValueShape(value[0], depth + 1) : { type: 'unknown' } }
+  }
+  if (value && typeof value === 'object') {
+    return {
+      type: 'object',
+      properties: Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, requestValueShape(nested, depth + 1)])),
+    }
+  }
+  if (typeof value === 'number') return { type: Number.isInteger(value) ? 'integer' : 'number' }
+  if (typeof value === 'boolean') return { type: 'boolean' }
+  if (typeof value === 'string') return { type: 'string' }
+  return { type: 'unknown' }
+}
+
+function requestBodyKeys(shape: Record<string, unknown> | null): string[] {
+  if (shape?.type !== 'object' || !shape.properties || typeof shape.properties !== 'object') return []
+  return Object.keys(shape.properties as Record<string, unknown>).sort()
+}
+
+function normalizeRequestBodyEvidence(entry: WorkflowActionEntry | StoredActionCandidate): RequestBodyEvidence {
+  const supplied = entry.requestEvidence
+  if (supplied && typeof supplied === 'object') {
+    const bodyTruncated = Boolean(supplied.bodyTruncated)
+    const bodyOmitted = bodyTruncated || Boolean(supplied.bodyOmitted)
+    const bodyShape = bodyOmitted || !supplied.bodyShape || typeof supplied.bodyShape !== 'object' ? null : supplied.bodyShape
+    return {
+      version: 'request-evidence-v1',
+      bodyKind: bodyOmitted ? 'opaque' : supplied.bodyKind,
+      bodyShape,
+      bodyKeys: requestBodyKeys(bodyShape),
+      bodyFullSize: Number.isFinite(Number(supplied.bodyFullSize)) ? Number(supplied.bodyFullSize) : 0,
+      bodyTruncated,
+      bodyOmitted,
+    }
+  }
+  const text = safeUrl(entry.requestBodyPreview)
+  if (!text) return { version: 'request-evidence-v1', bodyKind: 'none', bodyShape: null, bodyKeys: [], bodyFullSize: 0, bodyTruncated: false, bodyOmitted: false }
+  const truncated = Boolean((entry as WorkflowActionEntry).requestBodyTruncated)
+    || TRUNCATION_MARKER_RE.test(text)
+    || (Number.isFinite(Number((entry as WorkflowActionEntry).requestBodyFullSize)) && Number((entry as WorkflowActionEntry).requestBodyFullSize) > text.length)
+  if (truncated) {
+    return {
+      version: 'request-evidence-v1', bodyKind: 'opaque', bodyShape: null, bodyKeys: [],
+      bodyFullSize: Number((entry as WorkflowActionEntry).requestBodyFullSize) || text.length,
+      bodyTruncated: true, bodyOmitted: true,
+    }
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown
+    const bodyShape = requestValueShape(parsed)
+    return { version: 'request-evidence-v1', bodyKind: 'json', bodyShape, bodyKeys: requestBodyKeys(bodyShape), bodyFullSize: text.length, bodyTruncated: false, bodyOmitted: false }
+  } catch {
+    if (text.startsWith('{') || text.startsWith('[')) {
+      return { version: 'request-evidence-v1', bodyKind: 'opaque', bodyShape: null, bodyKeys: [], bodyFullSize: text.length, bodyTruncated: false, bodyOmitted: true }
+    }
+  }
+  if (/^[^=&\s]+=[^&]*(?:&[^=&\s]+=[^&]*)*$/.test(text)) {
+    const bodyShape = requestValueShape(Object.fromEntries(new URLSearchParams(text)))
+    return { version: 'request-evidence-v1', bodyKind: 'form', bodyShape, bodyKeys: requestBodyKeys(bodyShape), bodyFullSize: text.length, bodyTruncated: false, bodyOmitted: false }
+  }
+  return { version: 'request-evidence-v1', bodyKind: 'opaque', bodyShape: null, bodyKeys: [], bodyFullSize: text.length, bodyTruncated: false, bodyOmitted: true }
+}
+
+function structuralUrl(input: unknown): string {
+  const value = safeUrl(input)
+  if (!value) return ''
+  try {
+    const url = new URL(value)
+    for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, ':value')
+    if (url.hash.includes('?')) {
+      const queryIndex = url.hash.indexOf('?')
+      const hashPrefix = url.hash.slice(0, queryIndex + 1)
+      const params = new URLSearchParams(url.hash.slice(queryIndex + 1))
+      for (const key of [...params.keys()]) params.set(key, ':value')
+      url.hash = `${hashPrefix}${params.toString()}`
+    }
+    url.username = ''
+    url.password = ''
+    return url.toString()
+  } catch {
+    return '[invalid-url]'
+  }
+}
+
 function parseUrl(input: string): URL | null {
   if (!input) return null
   try {
@@ -257,12 +377,76 @@ function isNoiseProbe(probe: string): boolean {
 function isLikelyListApiEntry(entry: WorkflowActionEntry): boolean {
   const probe = `${entry.url || ''} ${entry.requestBodyPreview || ''}`.toLowerCase()
   if (!probe || isNoiseProbe(probe)) return false
-  if (/getrequestdetail|getstatuslistbyrequestid|requestdetail|eventdetail|changedetail|problemdetail/.test(probe)) return false
+  if (/gerequestsdetail|getstatuslistbyrequestid|requestdetail|eventdetail|changedetail|problemdetail/.test(probe)) return false
   if (/getcilist|getcigroup/.test(probe)) return true
-  return /(list|search|query|get[a-z0-9]*list|currentpage|pagesize|totalcount|keyword|history=|rows|records)/.test(probe)
+  if (/(list|search|query|get[a-z0-9]*list|currentpage|pagesize|totalcount|keyword|history=|rows|records)/.test(probe)) {
+    return true
+  }
+
+  // Passive exploration may expose a useful collection endpoint without a
+  // conventional "list" name. A successful GET returning JSON is still a
+  // safe, reusable read candidate (for example, /api/projects?status=active).
+  const method = safeUrl(entry.method).toUpperCase() || 'GET'
+  const contentType = safeUrl(entry.responseContentType).toLowerCase()
+  const responsePreview = safeUrl(entry.responsePreview).trim()
+  const hasJsonResponse = /(?:application|text)\/json/.test(contentType)
+    || responsePreview.startsWith('{')
+    || responsePreview.startsWith('[')
+  return method === 'GET' && hasJsonResponse
 }
 
-function extractListApiCandidates(result: WorkflowResult): SiteApiCandidate[] {
+function placeholderForValueType(valueType?: string): unknown {
+  if (valueType === 'string') return '<string>'
+  if (valueType === 'number') return 0
+  if (valueType === 'boolean') return true
+  if (valueType === 'array') return []
+  if (valueType === 'object') return {}
+  return null
+}
+
+function buildShapeBranch(segments: string[], item: Record<string, unknown>): unknown {
+  if (segments.length === 0) return [item]
+  if (segments[0] === '*') return { '<key>': buildShapeBranch(segments.slice(1), item) }
+  return { [segments[0]]: buildShapeBranch(segments.slice(1), item) }
+}
+
+function syntheticResponsePreview(candidate: ApiEndpointEvidence): string {
+  const shape = candidate.replay?.responseShape || candidate.responseShape
+  const item = Object.fromEntries(shape.itemKeys.map((key) => [
+    key,
+    placeholderForValueType(shape.valueTypes[key]),
+  ]))
+  if (shape.kind === 'array') return JSON.stringify([item])
+  if (!shape.listPath || shape.listPath === '$') return JSON.stringify(item)
+
+  const segments = shape.listPath.split('.').filter(Boolean)
+  const rooted = buildShapeBranch(segments, item) as Record<string, unknown>
+  for (const key of shape.topLevelKeys) {
+    if (!Object.prototype.hasOwnProperty.call(rooted, key)) rooted[key] = {}
+  }
+  return JSON.stringify(rooted)
+}
+
+function syntheticRequestPreview(candidate: ApiEndpointEvidence): string {
+  if (!candidate.requestShape.keys.length) return ''
+  return JSON.stringify(Object.fromEntries(candidate.requestShape.keys.map((key) => [key, '<value>'])))
+}
+
+function candidateFromAnalysis(candidate: ApiEndpointEvidence): SiteApiCandidate {
+  const structuralRequest = syntheticRequestPreview(candidate)
+  return {
+    url: structuralUrl(candidate.observedUrl),
+    method: candidate.method,
+    status: candidate.status ?? undefined,
+    requestEvidence: normalizeRequestBodyEvidence({ requestBodyPreview: structuralRequest }),
+    responsePreview: syntheticResponsePreview(candidate),
+    responseContentType: candidate.contentType,
+    sourceSteps: candidate.sourceSteps.length ? candidate.sourceSteps : ['analysis_v2'],
+    apiEvidence: candidate,
+  }
+}
+
+function extractListApiCandidates(result: WorkflowResult, analysis: ApiExplorationAnalysisV2): SiteApiCandidate[] {
   const rankedSteps = ['search', 'refine_search', 'pagination']
   const byKey = new Map<string, SiteApiCandidate>()
   const actions = Array.isArray(result.actions) ? result.actions : []
@@ -279,12 +463,22 @@ function extractListApiCandidates(result: WorkflowResult): SiteApiCandidate[] {
       const existing = byKey.get(key)
       if (existing) {
         if (!existing.sourceSteps.includes(step)) existing.sourceSteps.push(step)
+        existing.requestEvidence = pickRicherRequestEvidence(
+          existing.requestEvidence || normalizeRequestBodyEvidence(existing),
+          normalizeRequestBodyEvidence(entry),
+        )
+        existing.responsePreview ||= safeUrl(entry.responsePreview)
+        existing.responseContentType ||= safeUrl(entry.responseContentType)
+        if (existing.status == null && typeof entry.status === 'number') existing.status = entry.status
         continue
       }
       byKey.set(key, {
-        url,
+        url: structuralUrl(url),
         method,
-        requestBodyPreview: safeUrl(entry.requestBodyPreview),
+        status: typeof entry.status === 'number' ? entry.status : undefined,
+        requestEvidence: normalizeRequestBodyEvidence(entry),
+        responsePreview: safeUrl(entry.responsePreview),
+        responseContentType: safeUrl(entry.responseContentType),
         sourceSteps: [step],
       })
     }
@@ -299,16 +493,53 @@ function extractListApiCandidates(result: WorkflowResult): SiteApiCandidate[] {
       const key = `${method} ${url}`
       if (!byKey.has(key)) {
         byKey.set(key, {
-          url,
+          url: structuralUrl(url),
           method,
-          requestBodyPreview: safeUrl(entry.requestBodyPreview),
+          status: typeof entry.status === 'number' ? entry.status : undefined,
+          requestEvidence: normalizeRequestBodyEvidence(entry),
+          responsePreview: safeUrl(entry.responsePreview),
+          responseContentType: safeUrl(entry.responseContentType),
           sourceSteps: ['final_network'],
         })
+      } else {
+        const existing = byKey.get(key)
+        if (!existing) continue
+        existing.requestEvidence = pickRicherRequestEvidence(
+          existing.requestEvidence || normalizeRequestBodyEvidence(existing),
+          normalizeRequestBodyEvidence(entry),
+        )
+        existing.responsePreview ||= safeUrl(entry.responsePreview)
+        existing.responseContentType ||= safeUrl(entry.responseContentType)
+        if (existing.status == null && typeof entry.status === 'number') existing.status = entry.status
       }
     }
   }
 
-  return [...byKey.values()].sort((a, b) => {
+  if (byKey.size === 0) {
+    for (const candidate of analysis.candidates) {
+      if (candidate.verdict === 'noise' || candidate.risk !== 'read' || !candidate.observedUrl) continue
+      byKey.set(`${candidate.method} ${candidate.observedUrl}`, candidateFromAnalysis(candidate))
+    }
+  }
+
+  return [...byKey.values()].map((candidate) => {
+    const endpointFamily = analyzeApiEvidenceEntry(candidate, candidate.sourceSteps).endpointFamily
+    const apiEvidence = analysis.candidates.find((item) => item.endpointFamily === endpointFamily)
+    return apiEvidence ? { ...candidate, apiEvidence } : candidate
+  }).sort((a, b) => {
+    const replayOrder = (candidate: SiteApiCandidate) => candidate.apiEvidence?.strategyNote.replayStatus === 'verified'
+      ? 2
+      : candidate.apiEvidence?.strategyNote.replayStatus === 'failed'
+        ? 1
+        : 0
+    const aReplay = replayOrder(a)
+    const bReplay = replayOrder(b)
+    if (aReplay !== bReplay) return bReplay - aReplay
+    const aVerdict = a.apiEvidence?.verdict === 'likely_data' ? 2 : (a.apiEvidence?.verdict === 'maybe_data' ? 1 : 0)
+    const bVerdict = b.apiEvidence?.verdict === 'likely_data' ? 2 : (b.apiEvidence?.verdict === 'maybe_data' ? 1 : 0)
+    if (aVerdict !== bVerdict) return bVerdict - aVerdict
+    const scoreDifference = Number(b.apiEvidence?.score || 0) - Number(a.apiEvidence?.score || 0)
+    if (scoreDifference !== 0) return scoreDifference
     const aCanonical = /getcilist|getcigroup/i.test(a.url) ? 1 : 0
     const bCanonical = /getcilist|getcigroup/i.test(b.url) ? 1 : 0
     if (aCanonical !== bCanonical) return bCanonical - aCanonical
@@ -334,6 +565,12 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
   const paginationAction = actions.find((item) => item?.step === 'pagination')
   const detailAction = actions.find((item) => item?.step === 'detail')
   const now = new Date().toISOString()
+  const apiAnalysisV2 = workflowResult.analysisV2?.schemaVersion === 2
+    ? workflowResult.analysisV2
+    : analyzeApiExplorationWorkflow(result)
+  const persistStructuralUrls = workflowResult.schemaVersion === 'exploration-evidence-v2-persisted'
+    || workflowResult.workflow?.version === 'exploration-evidence-v2-persisted'
+  const persistedUrl = persistStructuralUrls ? structuralUrl : safeUrl
 
   return {
     siteKey: identity.siteKey,
@@ -344,9 +581,9 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
     captureCount: 1,
     workflowVersion: asString(workflowResult.workflow?.version),
     workflowVersionsSeen: asString(workflowResult.workflow?.version) ? [asString(workflowResult.workflow?.version)] : [],
-    lastSourceUrl: identity.sourceUrl,
-    canonicalEntryUrl: safeUrl(workflowResult.pageStateBefore?.url),
-    canonicalResultUrl: safeUrl(workflowResult.resultPageState?.url) || safeUrl(workflowResult.pageStateAfter?.url),
+    lastSourceUrl: persistedUrl(identity.sourceUrl),
+    canonicalEntryUrl: persistedUrl(workflowResult.pageStateBefore?.url),
+    canonicalResultUrl: persistedUrl(workflowResult.resultPageState?.url) || persistedUrl(workflowResult.pageStateAfter?.url),
     verdictPattern: asString(workflowResult.verdict?.pattern),
     recommendedStrategy: asString(workflowResult.verdict?.recommendedStrategy),
     verdictReason: asString(workflowResult.verdict?.reason),
@@ -359,7 +596,8 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
       listCandidates: Number(workflowResult.resultPageState?.listCandidates || 0),
       paginationCandidates: Number(workflowResult.resultPageState?.paginationCandidates || 0),
     },
-    listApiCandidates: extractListApiCandidates(workflowResult),
+    listApiCandidates: extractListApiCandidates(workflowResult, apiAnalysisV2),
+    apiAnalysisV2,
     actionApiCandidates: [],
     detailHints: {
       mode: asString(detailAction?.result?.mode),
@@ -380,8 +618,8 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
     },
     rawSummary: {
       tabId: asNumber(workflowResult.tabId),
-      resultPageUrl: safeUrl(workflowResult.resultPageState?.url),
-      finalPageUrl: safeUrl(workflowResult.pageStateAfter?.url),
+      resultPageUrl: persistedUrl(workflowResult.resultPageState?.url),
+      finalPageUrl: persistedUrl(workflowResult.pageStateAfter?.url),
     },
   }
 }
@@ -391,17 +629,28 @@ export function saveSiteMemoryFromWorkflow(result: Record<string, unknown>): Sit
   if (!derived) return null
 
   const store = readStore()
-  const existing = store.sites[derived.siteKey]
+  const existingRecord = store.sites[derived.siteKey]
+  const existing = existingRecord ? enrichSiteMemoryRecord(existingRecord) : undefined
   const workflowVersionsSeen = new Set<string>(existing?.workflowVersionsSeen || [])
   if (derived.workflowVersion) workflowVersionsSeen.add(derived.workflowVersion)
+  const isV2Memory = derived.apiAnalysisV2?.schemaVersion === 2
+    || derived.workflowVersion === 'exploration-evidence-v2-persisted'
 
+  // 动作证据（含写操作捕获）是站点级沉淀，不随某次被动探索的保存被清除：
+  // V2 过滤只约束生成期消费（readOnlyV2Memory），存储层永远保留已有动作证据，
+  // 且随 merged 记录带回任务内存，供写工具生成（三层确认门约束）使用。
+  const existingActionApiCandidates = existing?.actionApiCandidates || []
+  const existingActionCaptureHistory = existing?.actionCaptureHistory
+    || existing?.actionApiCandidates
+    || derived.actionApiCandidates
+    || []
   const merged: SiteMemoryRecord = {
     ...derived,
     firstCapturedAt: existing?.firstCapturedAt || derived.firstCapturedAt,
     captureCount: Number(existing?.captureCount || 0) + 1,
     workflowVersionsSeen: [...workflowVersionsSeen],
-    actionApiCandidates: existing?.actionApiCandidates || derived.actionApiCandidates || [],
-    actionCaptureHistory: existing?.actionCaptureHistory || existing?.actionApiCandidates || derived.actionApiCandidates || [],
+    actionApiCandidates: existingActionApiCandidates,
+    actionCaptureHistory: existingActionCaptureHistory,
     actionEvidenceSummary: existing?.actionEvidenceSummary,
   }
 
@@ -417,7 +666,8 @@ export function saveSiteMemoryFromActionCapture(result: Record<string, unknown>)
   if (!siteKey) return null
 
   const store = readStore()
-  const existing = store.sites[siteKey]
+  const existingRecord = store.sites[siteKey]
+  const existing = existingRecord ? enrichSiteMemoryRecord(existingRecord) : undefined
   const now = new Date().toISOString()
   const actionName = asString(capture.actionName) || 'captured_action'
   const mode = asString(capture.mode) || 'intercept'
@@ -426,14 +676,15 @@ export function saveSiteMemoryFromActionCapture(result: Record<string, unknown>)
   const capturedEntries = Array.isArray(capture.capturedActions) ? capture.capturedActions : []
   const candidate = selectBestActionCaptureEntry(capturedEntries, actionName)
   if (!candidate) return existing || null
+  const requestEvidence = normalizeRequestBodyEvidence(candidate)
 
   const nextActionCandidate: StoredActionCandidate = {
     actionName,
     mode,
     toolName,
-    url: safeUrl(candidate.url),
+    url: structuralUrl(candidate.url),
     method: asString(candidate.method) || 'GET',
-    requestBodyPreview: safeUrl(candidate.requestBodyPreview),
+    requestEvidence,
     responsePreview: safeUrl(candidate.responsePreview),
     responseContentType: asString(candidate.responseContentType),
     responseHints: extractActionResponseHints(candidate.responsePreview),
@@ -445,6 +696,7 @@ export function saveSiteMemoryFromActionCapture(result: Record<string, unknown>)
     primarySelection: candidate.userSelectedPrimary ? 'user' : (candidate.aiIsPrimary ? 'ai' : 'heuristic'),
     capturedAt: now,
     sourceWorkflowVersion: workflowVersion,
+    apiEvidence: analyzeApiEvidenceEntry(candidate, ['action_capture']),
   }
 
   const base: SiteMemoryRecord = existing || {
@@ -656,12 +908,26 @@ function enrichSiteMemoryRecord(record: SiteMemoryRecord): SiteMemoryRecord {
     ? record.actionCaptureHistory
     : legacyCandidates
   let changed = false
+  const listApiCandidates = (Array.isArray(record.listApiCandidates) ? record.listApiCandidates : []).map((candidate) => {
+    const requestEvidence = normalizeRequestBodyEvidence(candidate)
+    const url = structuralUrl(candidate.url)
+    if (!candidate.requestBodyPreview
+      && candidate.url === url
+      && JSON.stringify(candidate.requestEvidence || null) === JSON.stringify(requestEvidence)) return candidate
+    changed = true
+    return { ...candidate, url, requestBodyPreview: undefined, requestEvidence }
+  })
   const firstPassHistory = history.map((candidate) => {
     const responseHints = enrichActionResponseHints(candidate.responseHints, candidate.responsePreview)
-    if (responseHints === candidate.responseHints) return candidate
+    const requestEvidence = normalizeRequestBodyEvidence(candidate)
+    const requestEvidenceChanged = Boolean(candidate.requestBodyPreview)
+      || JSON.stringify(candidate.requestEvidence || null) !== JSON.stringify(requestEvidence)
+    if (responseHints === candidate.responseHints && !requestEvidenceChanged) return candidate
     changed = true
     return {
       ...candidate,
+      requestBodyPreview: undefined,
+      requestEvidence,
       responseHints,
     }
   })
@@ -708,6 +974,7 @@ function enrichSiteMemoryRecord(record: SiteMemoryRecord): SiteMemoryRecord {
   if (!changed) return record
   return {
     ...record,
+    listApiCandidates,
     actionApiCandidates: derivedCandidates,
     actionCaptureHistory: sortedHistory,
     actionEvidenceSummary,
@@ -790,7 +1057,8 @@ function describeStoredActionCandidateQuality(candidate: StoredActionCandidate):
     score += 2
     signals.push('side_effect_safe_capture')
   }
-  if (safeUrl(candidate.requestBodyPreview)) {
+  const requestEvidence = normalizeRequestBodyEvidence(candidate)
+  if (requestEvidence.bodyKind !== 'none') {
     score += 1
     signals.push('has_request_body')
   }
@@ -807,7 +1075,7 @@ function describeStoredActionCandidateQuality(candidate: StoredActionCandidate):
     signals.push('has_query_params')
   }
 
-  const requestFieldCount = countPreviewFields(candidate.requestBodyPreview)
+  const requestFieldCount = requestEvidence.bodyKeys.length
   if (requestFieldCount > 0) {
     const contribution = Math.min(requestFieldCount, 8)
     score += contribution
@@ -894,7 +1162,7 @@ function mergeStoredActionCandidate(
     ...winner,
     mode: winner.mode || loser.mode,
     toolName: winner.toolName || loser.toolName,
-    requestBodyPreview: preserveExplicitSelection ? winner.requestBodyPreview : pickRicherPreview(winner.requestBodyPreview, loser.requestBodyPreview),
+    requestEvidence: pickRicherRequestEvidence(winner.requestEvidence || normalizeRequestBodyEvidence(winner), loser.requestEvidence || normalizeRequestBodyEvidence(loser)),
     responsePreview: preserveExplicitSelection ? winner.responsePreview : pickRicherPreview(winner.responsePreview, loser.responsePreview),
     responseContentType: winner.responseContentType || loser.responseContentType,
     responseHints: preserveExplicitSelection ? winner.responseHints : mergeActionResponseHints(winner.responseHints, loser.responseHints),
@@ -969,6 +1237,13 @@ function pickRicherPreview(primary: string | undefined, secondary: string | unde
   const leftScore = left.length + countPreviewFields(left) * 20
   const rightScore = right.length + countPreviewFields(right) * 20
   return leftScore >= rightScore ? left : right
+}
+
+function pickRicherRequestEvidence(primary: RequestBodyEvidence, secondary: RequestBodyEvidence): RequestBodyEvidence {
+  if (primary.bodyOmitted !== secondary.bodyOmitted) return primary.bodyOmitted ? secondary : primary
+  if (primary.bodyKeys.length !== secondary.bodyKeys.length) return primary.bodyKeys.length > secondary.bodyKeys.length ? primary : secondary
+  if (primary.bodyFullSize !== secondary.bodyFullSize) return primary.bodyFullSize > secondary.bodyFullSize ? primary : secondary
+  return primary
 }
 
 function mergeActionResponseHints(

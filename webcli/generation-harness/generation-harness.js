@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { GENERATION_STATUSES, TERMINAL_GENERATION_STATUSES } from './constants.js';
 import { GenerationRun } from './generation-run.js';
 import { GenerationBudgetExceededError, isAbortLikeError } from './errors.js';
-import { GenerationRunStore } from './run-store.js';
+import { GenerationRunStore, sanitizeGenerationValue } from './run-store.js';
 
 const INTERRUPTIBLE_PERSISTED_STATUSES = new Set([
   GENERATION_STATUSES.CREATED,
@@ -16,11 +16,12 @@ const INTERRUPTIBLE_PERSISTED_STATUSES = new Set([
 ]);
 
 export class GenerationHarness extends EventEmitter {
-  constructor({ store = new GenerationRunStore(), workflow, publisher = null }) {
+  constructor({ store = new GenerationRunStore(), workflow, resumeWorkflow = null, publisher = null }) {
     super();
     if (typeof workflow !== 'function') throw new Error('GenerationHarness requires a workflow function');
     this.store = store;
     this.workflow = workflow;
+    this.resumeWorkflow = resumeWorkflow;
     this.publisher = publisher;
     this.activeRuns = new Map();
   }
@@ -55,7 +56,9 @@ export class GenerationHarness extends EventEmitter {
     if (active) return active.run.toJSON();
     const snapshot = this.store.load(runId);
     if (!snapshot) return null;
-    if (!INTERRUPTIBLE_PERSISTED_STATUSES.has(snapshot.status)) return snapshot;
+    if (!INTERRUPTIBLE_PERSISTED_STATUSES.has(snapshot.status)) {
+      return sanitizeGenerationValue(snapshot, { rootDir: this.store.rootDir });
+    }
 
     const run = this.#restoreRun(snapshot);
     const error = new Error('generation run was interrupted because its Harness worker is no longer running');
@@ -75,7 +78,9 @@ export class GenerationHarness extends EventEmitter {
     }
     const snapshot = this.store.load(runId);
     if (!snapshot) return null;
-    if (TERMINAL_GENERATION_STATUSES.has(snapshot.status)) return snapshot;
+    if (TERMINAL_GENERATION_STATUSES.has(snapshot.status)) {
+      return sanitizeGenerationValue(snapshot, { rootDir: this.store.rootDir });
+    }
     return this.#restoreRun(snapshot).cancel(reason);
   }
 
@@ -102,6 +107,45 @@ export class GenerationHarness extends EventEmitter {
       () => this.activeRuns.delete(run.id),
     );
     return run.toJSON();
+  }
+
+  async resume(runId, answer) {
+    if (typeof this.resumeWorkflow !== 'function') throw new Error('generation harness resume workflow is not configured');
+    const snapshot = this.store.load(runId);
+    if (!snapshot) throw new Error(`generation run not found: ${runId}`);
+    if (snapshot.status !== GENERATION_STATUSES.NEEDS_USER_INPUT) {
+      throw new Error(`generation run is not awaiting user input: ${snapshot.status}`);
+    }
+    const run = this.#restoreRun(snapshot);
+    run.snapshot.completedAt = null;
+    const abortController = new AbortController();
+    const promise = this.#executeResume(run, abortController.signal, answer);
+    this.activeRuns.set(run.id, { run, abortController, promise });
+    void promise.then(
+      () => this.activeRuns.delete(run.id),
+      () => this.activeRuns.delete(run.id),
+    );
+    return run.toJSON();
+  }
+
+  async #executeResume(run, signal, answer) {
+    try {
+      const result = await this.resumeWorkflow({ run, signal, store: this.store, answer });
+      if (result?.pause) {
+        run.setResult(result);
+      } else if (!run.isTerminal()) {
+        run.complete(result);
+      }
+    } catch (error) {
+      if (run.isTerminal()) return;
+      if (isAbortLikeError(error) || signal.aborted) {
+        run.cancel(signal.reason || error?.message || 'cancelled');
+      } else if (error instanceof GenerationBudgetExceededError) {
+        run.fail(error, GENERATION_STATUSES.BUDGET_EXCEEDED);
+      } else {
+        run.fail(error);
+      }
+    }
   }
 
   async #execute(run, signal) {

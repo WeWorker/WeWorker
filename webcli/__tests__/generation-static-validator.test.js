@@ -48,4 +48,29 @@ describe('adapter draft static validator', () => {
     expect(result.errors.map((error) => error.code)).toContain('INVALID_JAVASCRIPT');
     expect(result.errors.map((error) => error.code)).toContain('UNSAFE_SUPPORT_FILE_PATH');
   });
+
+  it('rejects deterministic write placeholders and captured default payloads', () => {
+    const adapterDir = makeAdapter();
+    const toolsDir = path.join(adapterDir, 'webcli-generated', 'tools');
+    fs.mkdirSync(toolsDir, { recursive: true });
+    fs.writeFileSync(path.join(toolsDir, 'submit.generated.js'), `
+      const defaultPayload = { id: 2444 };
+      const tool = {
+        access: "write",
+        parameters: { "x-webcli-requires-confirmation": true, "x-webcli-agent-authored": false },
+        handler: async ({ __confirmed }) => { if (!__confirmed) return { blocked: true }; throw new Error('AGENT_AUTHORED_WRITE_REQUIRED'); },
+      };
+    `);
+    const manifestPath = path.join(adapterDir, 'manifest.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.support_files.push('webcli-generated/tools/submit.generated.js');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const result = validateAdapterDraft({ adapterDir, expectedSiteKey: 'example.test' });
+    expect(result.passed).toBe(false);
+    expect(result.errors.map((item) => item.code)).toEqual(expect.arrayContaining([
+      'CAPTURED_WRITE_DEFAULT_PAYLOAD',
+      'WRITE_AGENT_AUTHORING_REQUIRED',
+      'MISSING_WRITE_VERIFICATION',
+    ]));
+  });
 });

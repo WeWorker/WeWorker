@@ -24,7 +24,7 @@ describe('generation site-memory normalization', () => {
       responseContentType: 'application/json',
       responsePreview: '{"code":0,"data":{"records":[]}}',
       sourceEvidence: expect.objectContaining({
-        version: 'api-source-v1',
+        version: 'api-source-v2',
         sourceKind: 'passive_list',
         risk: expect.objectContaining({ level: 'read', confidence: 0.97 }),
       }),
@@ -44,20 +44,26 @@ describe('generation site-memory normalization', () => {
     });
 
     expect(normalized.listApiCandidates[0]).toMatchObject({
-      requestBodyPreview: '{"page":1}',
+      requestEvidence: expect.objectContaining({
+        bodyKind: 'json',
+        bodyKeys: ['page'],
+        bodyOmitted: false,
+      }),
       responsePreview: '[{"id":1}]',
       responseContentType: 'application/json',
       sourceEvidence: {
-        version: 'api-source-v1',
+        version: 'api-source-v2',
         fingerprint: expect.stringMatching(/^api-v1-/),
         sourceKind: 'passive_list',
         method: 'POST',
         endpoint: 'https://example.test/api/query',
         queryKeys: [],
         bodyKeys: ['page'],
+        requestEvidence: expect.objectContaining({ bodyKind: 'json', bodyKeys: ['page'], bodyOmitted: false }),
         risk: expect.objectContaining({ level: 'read', confidence: 0.97 }),
       },
     });
+    expect(normalized.listApiCandidates[0]).not.toHaveProperty('requestBodyPreview');
   });
 
   it('persists write evidence for interfaces captured from user actions', () => {
@@ -79,5 +85,7 @@ describe('generation site-memory normalization', () => {
       bodyKeys: ['todoId'],
       risk: { level: 'write', confidence: 0.99 },
     });
+    expect(normalized.actionApiCandidates[0].requestBodyPreview).toBeUndefined();
+    expect(normalized.actionApiCandidates[0].requestEvidence).toMatchObject({ bodyKind: 'json', bodyKeys: ['todoId'] });
   });
 });

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { writeScaffoldFromSiteMemory } from '../adapter-scaffold.js';
+import { writeScaffoldFromSiteMemory, selectApis } from '../adapter-scaffold.js';
 import { resolveAdaptersDir } from '../paths.js';
 import { seedAdapterDraft } from './adapter-workspace.js';
 import { GENERATION_STATUSES } from './constants.js';
@@ -7,6 +7,8 @@ import { createJsonActionModel } from './json-action-model.js';
 import { runToolLoop } from './tool-loop.js';
 import { validateAdapterDraft } from './static-validator.js';
 import { reviseAdapterDraft } from './draft-revision.js';
+import { normalizePreviousFailureInput } from './failure-attribution.js';
+import { runGenerationOrchestrator, resumeGenerationOrchestrator } from './generation-orchestrator.js';
 import { writeGenerationHarnessProvenance } from './provenance.js';
 
 function summarizeCandidate(candidate, index) {
@@ -28,10 +30,19 @@ function summarizeCandidate(candidate, index) {
     toolName: candidate?.toolName || '',
     status: candidate?.status,
     responsePreview: String(candidate?.responsePreview || '').slice(0, 800),
+    requestEvidence: candidate?.requestEvidence || candidate?.sourceEvidence?.requestEvidence || null,
+    sourceEvidence: candidate?.sourceEvidence || null,
+    responseHints: candidate?.responseHints || null,
+    evidenceId: candidate?.apiEvidence?.evidenceId || '',
+    verdict: candidate?.apiEvidence?.verdict || '',
+    score: candidate?.apiEvidence?.score,
+    risk: candidate?.apiEvidence?.risk || '',
+    strategyNote: candidate?.apiEvidence?.strategyNote || null,
+    verificationFixture: candidate?.apiEvidence?.verificationFixture || null,
   };
 }
 
-function buildContextSections(memory) {
+export function buildContextSections(memory, previousFailure = null) {
   const listCandidates = Array.isArray(memory.listApiCandidates) ? memory.listApiCandidates : [];
   const actionCandidates = Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates : [];
   return {
@@ -44,9 +55,12 @@ function buildContextSections(memory) {
       verdictReason: memory.verdictReason,
       listApiCount: listCandidates.length,
       actionApiCount: actionCandidates.length,
+      previousFailurePresent: Boolean(previousFailure),
     },
     list_apis: listCandidates.slice(0, 30).map(summarizeCandidate),
     action_apis: actionCandidates.slice(0, 30).map(summarizeCandidate),
+    api_analysis: memory.apiAnalysisV2 || null,
+    previous_failure: previousFailure,
   };
 }
 
@@ -57,8 +71,10 @@ const PLAN_SYSTEM_PROMPT = `你是 Adapter 生成规划器。你的任务不是�
 2. 根据 overview 再查看 list_apis 和/或 action_apis。
 3. 调用 save_generation_plan 保存计划。
 4. 保存成功后输出 final。
-5. 查询类工具 risk 必须为 read；提交、修改、删除、审批类工具必须标记为 write。
-6. 不要虚构未在上下文中出现的接口。`;
+5. 查询类工具 risk 必须为 read；action_apis 中的提交、修改、删除、审批类候选可计划为 write 工具（运行验证只注册不真实执行，发布与调用均有确认门）；未在 action_apis 出现的接口不得计划为 write。查询类工具最多计划 2 个。工具名一律用英文 snake_case（写工具按动作语义命名，如 submit_request），不得使用中文或候选原始 toolName。
+6. 不要虚构未在上下文中出现的接口。
+7. 候选分数不是接口可用性证明；必须读取 strategyNote 和 verificationFixture，未重放候选不得描述为已验证。
+8. 如果 overview 显示存在 previous_failure（同站点上一次生成失败复盘），必须查看它：剔除或替换其中反复失败的工具、规避导致失败的策略，并在计划 summary 中说明针对上次失败的应对。`;
 
 function normalizePlannedToolName(siteKey, value, fallback) {
   const raw = String(value || '').trim();
@@ -105,16 +121,70 @@ function resolvePlannedSourceTool(memory, tool) {
 
   if (localName === 'search_records') return `${siteKey}.search_records`;
   if (localName === 'fetch_summary_groups') return `${siteKey}.fetch_summary_groups`;
+  // 计划索引指向 list_apis 上下文顺序的候选；scaffold 的 primary/secondary 槽位
+  // 按打分排序绑定。必须按「该候选实际落在哪个槽位」映射，否则改名会绑错接口。
+  const listCandidates = Array.isArray(memory.listApiCandidates) ? memory.listApiCandidates : [];
+  const ranked = selectApis(memory, actionCandidates.length > 0);
+  const sameCandidate = (left, right) => Boolean(left && right)
+    && String(left.url || '') === String(right.url || '')
+    && String(left.method || 'GET').toUpperCase() === String(right.method || 'GET').toUpperCase();
   for (const index of indexes) {
-    const sourceToolName = getListSourceToolName(siteKey, index);
-    if (sourceToolName) return sourceToolName;
+    const candidate = listCandidates[index];
+    if (!candidate) continue;
+    if (sameCandidate(candidate, ranked.primary)) return `${siteKey}.search_records`;
+    if (sameCandidate(candidate, ranked.secondary)) return `${siteKey}.fetch_summary_groups`;
   }
-  return Array.isArray(memory.listApiCandidates) && memory.listApiCandidates.length > 0
-    ? `${siteKey}.search_records`
-    : '';
+  // 候选未进入 scaffold 槽位（打分未过阈值或槽位已占）时返回空，
+  // 让该计划工具被跳过——绝不盲绑到 primary 造成「名字与接口错配」。
+  return '';
 }
 
-function buildPlanSemanticEnhancement(memory, plan) {
+const WRITE_TOOL_SIGNAL_RE = /(?:^|[^a-z0-9])(create|add|update|edit|delete|remove|submit|approve|reject|book|cancel|publish|upload|import|run|execute|restart|deploy|set|bind|unbind|confirm|apply|reply)(?:$|[^a-z0-9])/i;
+
+function isReadOnlyPlannedTool(tool) {
+  return tool?.risk === 'read' && !WRITE_TOOL_SIGNAL_RE.test(`${tool?.name || ''} ${tool?.purpose || ''}`);
+}
+
+export function readOnlyV2Memory(memory) {
+  const analysis = memory?.apiAnalysisV2;
+  if (!analysis || analysis.schemaVersion !== 2) return memory;
+  const verifiedIds = new Set((Array.isArray(analysis.candidates) ? analysis.candidates : [])
+    .filter((candidate) => candidate?.risk === 'read' && candidate?.strategyNote?.replayStatus === 'verified')
+    .map((candidate) => String(candidate.evidenceId || '')));
+  const listApiCandidates = (Array.isArray(memory.listApiCandidates) ? memory.listApiCandidates : [])
+    .filter((candidate) => verifiedIds.has(String(candidate?.apiEvidence?.evidenceId || '')));
+  const apiAnalysisV2 = {
+    ...analysis,
+    candidates: (Array.isArray(analysis.candidates) ? analysis.candidates : [])
+      .filter((candidate) => verifiedIds.has(String(candidate.evidenceId || ''))),
+  };
+  return {
+    ...memory,
+    listApiCandidates,
+    apiAnalysisV2,
+    // 动作捕获候选（含写操作）保留进入生成：写工具由「运行验证只注册不真实执行 +
+    // 发布人工确认 + 调用时确认门」三层护栏约束，不再一刀切排除。
+    actionApiCandidates: Array.isArray(memory.actionApiCandidates)
+      ? memory.actionApiCandidates.filter((candidate) => Boolean(candidate?.toolName))
+      : [],
+    actionCaptureHistory: [],
+    actionEvidenceSummary: undefined,
+  };
+}
+
+export function readOnlyV2Plan(plan, { allowWriteTools = false } = {}) {
+  const tools = (Array.isArray(plan?.tools) ? plan.tools : []).filter((tool) => {
+    if (isReadOnlyPlannedTool(tool)) return true;
+    return allowWriteTools && tool?.risk === 'write';
+  });
+  return {
+    ...plan,
+    strategy: plan?.strategy === 'action_only' ? 'api_first' : plan?.strategy,
+    tools,
+  };
+}
+
+export function buildPlanSemanticEnhancement(memory, plan) {
   const overrides = [];
   const seenSources = new Set();
   const seenNames = new Set();
@@ -155,13 +225,36 @@ export function createAdapterGenerationWorkflow({
   runtimeValidator = null,
 } = {}) {
   return async ({ run, signal, store }) => {
-    const memory = run.snapshot.input?.memory;
+    const memory = readOnlyV2Memory(run.snapshot.input?.memory);
     if (!memory?.siteKey) throw new Error('generation run input.memory is required');
-    const sections = buildContextSections(memory);
+    const previousFailure = normalizePreviousFailureInput(run.snapshot.input?.previousFailure);
+    if (previousFailure) run.trace('previous_failure_loaded', previousFailure);
+    const sections = buildContextSections(memory, previousFailure);
     let plan = null;
 
     run.assertNotCancelled(signal);
     run.transition(GENERATION_STATUSES.CONTEXT_READY, { currentAction: 'context_ready' });
+
+    const generationMode = String(run.snapshot.input?.mode || '') === 'agent' && typeof runtimeValidator === 'function'
+      ? 'agent'
+      : 'classic';
+    if (generationMode === 'agent') {
+      return runGenerationOrchestrator({
+        run,
+        signal,
+        store,
+        model,
+        memory,
+        sections,
+        scaffoldWriter,
+        staticValidator,
+        runtimeValidator,
+        adaptersDir,
+        semanticAnalyzer,
+        writeGenerationHarnessProvenance,
+      });
+    }
+
     run.transition(GENERATION_STATUSES.PLANNING, { currentAction: 'create_generation_plan' });
 
     const loopResult = await runToolLoop({
@@ -171,7 +264,10 @@ export function createAdapterGenerationWorkflow({
       signal,
       messages: [{
         role: 'user',
-        content: `为 ${memory.siteKey} 制定 API 类 Adapter 生成计划。`,
+        content: [
+          `为 ${memory.siteKey} 制定 API 类 Adapter 生成计划。`,
+          `用户生成目标：${run.snapshot.goal || '生成可验证的只读 API Adapter'}`,
+        ].join('\n'),
       }],
       context: { run },
       onEvent: (event) => {
@@ -186,12 +282,12 @@ export function createAdapterGenerationWorkflow({
           parameters: {
             type: 'object',
             properties: {
-              section: { type: 'string', enum: ['overview', 'list_apis', 'action_apis'] },
+              section: { type: 'string', enum: ['overview', 'list_apis', 'action_apis', 'api_analysis', 'previous_failure'] },
             },
             required: ['section'],
             additionalProperties: false,
           },
-          execute: async ({ section }) => sections[section],
+          execute: async ({ section }) => sections[section] ?? null,
         },
         {
           name: 'save_generation_plan',
@@ -220,9 +316,9 @@ export function createAdapterGenerationWorkflow({
             additionalProperties: false,
           },
           execute: async (nextPlan) => {
-            plan = nextPlan;
-            run.setArtifact('plan', nextPlan);
-            return { saved: true, toolCount: nextPlan.tools.length };
+            plan = readOnlyV2Plan(nextPlan, { allowWriteTools: (Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates.length : 0) > 0 });
+            run.setArtifact('plan', plan);
+            return { saved: true, toolCount: plan.tools.length };
           },
         },
       ],
@@ -253,9 +349,14 @@ export function createAdapterGenerationWorkflow({
     const draftRoot = path.join(store.getDraftRoot(run.id), `revision-${revision}`);
     run.trace('draft_phase', { phase: 'seed_adapter_started', draftRoot });
     const workspace = seedAdapterDraft({
-      sourceAdapterDir: path.join(adaptersDir, memory.siteKey),
+      // V2 starts from verified evidence only. Seeding an existing adapter can
+      // leak its unrelated write tools into an automatically generated draft.
+      sourceAdapterDir: memory.apiAnalysisV2?.schemaVersion === 2
+        ? draftRoot
+        : path.join(adaptersDir, memory.siteKey),
       draftRoot,
       siteKey: memory.siteKey,
+      adaptersDir,
     });
     run.trace('draft_phase', {
       phase: 'seed_adapter_completed',
@@ -307,14 +408,23 @@ export function createAdapterGenerationWorkflow({
         draft: currentDraft,
         validation: feedback,
         staticValidator,
+        runtimeValidator,
+        plan,
+        memory,
       });
       currentDraft = revised.draft;
       validation = revised.validation;
+      if (revised.plan) plan = revised.plan;
       const history = Array.isArray(run.snapshot.artifacts.draftHistory)
         ? run.snapshot.artifacts.draftHistory
         : [];
       run.setArtifact('draft', currentDraft);
-      run.setArtifact('draftHistory', [...history, { ...currentDraft, writes: revised.writes }]);
+      run.setArtifact('draftHistory', [...history, {
+        ...currentDraft,
+        writes: revised.writes,
+        incomplete: revised.incomplete,
+        loopErrorCode: revised.loopErrorCode,
+      }]);
       run.transition(GENERATION_STATUSES.STATIC_VALIDATING, {
         currentAction: 'validate_revised_adapter_draft',
         revision: currentDraft.revision,
@@ -374,7 +484,7 @@ export function createAdapterGenerationWorkflow({
           error.details = runtimeValidation;
           throw error;
         }
-        await applyRevision({
+        const revised = await applyRevision({
           passed: false,
           validator: runtimeValidation.validator || 'adapter_runtime_validator_v1',
           errors: runtimeValidation.errors || [],
@@ -386,6 +496,12 @@ export function createAdapterGenerationWorkflow({
           error.code = 'STATIC_VALIDATION_FAILED_AFTER_RUNTIME_REPAIR';
           error.details = validation;
           throw error;
+        }
+        if (revised.runtimeValidation?.passed) {
+          runtimeValidation = revised.runtimeValidation;
+          run.setArtifact('runtimeValidation', runtimeValidation);
+          run.trace('runtime_validation_completed_in_revision', runtimeValidation);
+          break;
         }
       }
     }
@@ -407,5 +523,32 @@ export function createAdapterGenerationWorkflow({
       validation,
       runtimeValidation,
     };
+  };
+}
+
+export function createAdapterGenerationResumeWorkflow({
+  model = createJsonActionModel(),
+  scaffoldWriter = writeScaffoldFromSiteMemory,
+  staticValidator = validateAdapterDraft,
+  adaptersDir = resolveAdaptersDir(),
+  runtimeValidator = null,
+} = {}) {
+  return async ({ run, signal, store, answer }) => {
+    const memory = readOnlyV2Memory(run.snapshot.input?.memory);
+    if (!memory?.siteKey) throw new Error('generation run input.memory is required');
+    return resumeGenerationOrchestrator({
+      run,
+      signal,
+      store,
+      model,
+      memory,
+      sections: buildContextSections(memory, null),
+      scaffoldWriter,
+      staticValidator,
+      runtimeValidator,
+      adaptersDir,
+      semanticAnalyzer: null,
+      writeGenerationHarnessProvenance,
+    }, answer);
   };
 }

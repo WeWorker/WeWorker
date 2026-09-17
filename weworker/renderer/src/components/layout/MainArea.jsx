@@ -11,12 +11,19 @@ import { useSettingsStore } from '../../store/settings.js'
 import { useZcfStore, normalizeZcfModeId } from '../../store/zcf.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
+import { useExplorationPageStore } from '../../store/exploration-page.js'
+import ExplorationPage from '../exploration/ExplorationPage.jsx'
+import WebsiteExplorationPage from '../website-exploration/WebsiteExplorationPage.jsx'
+import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 
 export default function MainArea({ onOpenSettings }) {
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
   const createWork = useWorksStore((s) => s.createWork)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
+  const explorationOpen = useExplorationPageStore((s) => s.open)
+  const websiteOpen = useWebsiteExplorationStore((s) => s.open)
+  const closeExplorationPage = useExplorationPageStore((s) => s.closePage)
   const closeToolPackagePage = useToolPackagePageStore((s) => s.closePage)
   const [inputText, setInputText] = React.useState('')
   const [attachments, setAttachments] = React.useState([])
@@ -90,6 +97,10 @@ export default function MainArea({ onOpenSettings }) {
     setInputText(text)
   }
 
+  if (websiteOpen) {
+    return <MainWorkspaceShell><WebsiteExplorationPage onOpenSettings={onOpenSettings} /></MainWorkspaceShell>
+  }
+
   if (activeWorkId) {
     return (
       <MainWorkspaceShell>
@@ -110,6 +121,14 @@ export default function MainArea({ onOpenSettings }) {
     return (
       <MainWorkspaceShell>
         <ToolPackagePage onClose={closeToolPackagePage} />
+      </MainWorkspaceShell>
+    )
+  }
+
+  if (explorationOpen) {
+    return (
+      <MainWorkspaceShell>
+        <ExplorationPage onClose={closeExplorationPage} />
       </MainWorkspaceShell>
     )
   }

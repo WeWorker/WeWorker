@@ -231,9 +231,16 @@ export function fingerprintDirectory(rootDir) {
   return hash.digest('hex');
 }
 
-export function seedAdapterDraft({ sourceAdapterDir, draftRoot, siteKey }) {
+export function seedAdapterDraft({ sourceAdapterDir, draftRoot, siteKey, adaptersDir = '' }) {
   const safeSiteKey = assertSafeSiteKey(siteKey);
   const draftAdapterDir = path.join(draftRoot, safeSiteKey);
+  // 指纹必须在 mkdirSync(draftRoot) 之前计算：V2 证据时 sourceAdapterDir === draftRoot，
+  // 先建目录会把「源不存在」(missing) 变成「空目录」(empty hash)，导致 publish 门禁误判。
+  const sourceFingerprint = fingerprintDirectory(sourceAdapterDir);
+  // publish 门禁的基线必须是「正式 adapters 目录下的目标」，与 seed 源解耦（V2 时源在 run 草稿目录）。
+  const publishBaselineFingerprint = adaptersDir
+    ? fingerprintDirectory(path.join(adaptersDir, safeSiteKey))
+    : sourceFingerprint;
   const seededFromExisting = fs.existsSync(sourceAdapterDir);
   let copyStats = { fileCount: 0, totalBytes: 0 };
   fs.mkdirSync(draftRoot, { recursive: true });
@@ -241,7 +248,8 @@ export function seedAdapterDraft({ sourceAdapterDir, draftRoot, siteKey }) {
     copyStats = copyAdapterDirectorySafe(sourceAdapterDir, draftAdapterDir);
   }
   return {
-    sourceFingerprint: fingerprintDirectory(sourceAdapterDir),
+    sourceFingerprint,
+    publishBaselineFingerprint,
     draftAdapterDir,
     seededFromExisting,
     copyStats,

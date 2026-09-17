@@ -2,6 +2,7 @@ import {
   buildApiSourceEvidence,
   classifyApiCandidateRisk,
   createApiCandidateFingerprint,
+  normalizeRequestBodyEvidence,
 } from './source-evidence.js';
 
 const WRITE_SIGNAL_RE = /(?:^|[^a-z0-9])(create|add|update|edit|delete|remove|submit|approve|reject|book|cancel|publish|upload|import|run|execute|restart|deploy|set|bind|unbind|confirm|apply|reply)(?:$|[^a-z0-9])/i;
@@ -12,21 +13,10 @@ function candidatePayload(candidate) {
   const values = {};
   try {
     const url = new URL(candidate?.url || '');
-    for (const [key, value] of url.searchParams.entries()) {
-      if (!Object.prototype.hasOwnProperty.call(values, key)) values[key] = value;
-      else if (Array.isArray(values[key])) values[key].push(value);
-      else values[key] = [values[key], value];
-    }
+    for (const key of url.searchParams.keys()) values[key] = undefined;
   } catch {}
-  const body = candidate?.requestBodyPreview ?? candidate?.requestBody;
-  if (typeof body === 'string' && body.trim()) {
-    try {
-      const parsed = JSON.parse(body);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) Object.assign(values, parsed);
-    } catch {}
-  } else if (body && typeof body === 'object' && !Array.isArray(body)) {
-    Object.assign(values, body);
-  }
+  const requestEvidence = normalizeRequestBodyEvidence(candidate);
+  for (const key of requestEvidence.bodyKeys) values[key] = undefined;
   return values;
 }
 
@@ -46,6 +36,89 @@ function parseCapturedResponse(candidate) {
   } catch {
     return null;
   }
+}
+
+function fixturePathSegments(path) {
+  return String(path || '')
+    .replace(/^\$\.?/, '')
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function capturedValuesAtPath(root, path) {
+  let current = [root];
+  for (const segment of fixturePathSegments(path)) {
+    const next = [];
+    for (const value of current) {
+      if (segment === '*') {
+        if (Array.isArray(value)) next.push(...value);
+        else if (value && typeof value === 'object') next.push(...Object.values(value));
+      } else if (value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, segment)) {
+        next.push(value[segment]);
+      }
+    }
+    current = next;
+    if (current.length === 0) break;
+  }
+  return current;
+}
+
+function isObservedNonEmpty(value) {
+  if (value == null || value === false) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return true;
+}
+
+function sanitizeVerificationFixture(fixture, candidate) {
+  if (!fixture || typeof fixture !== 'object') return { fixture: null, diagnostics: null };
+  const captured = parseCapturedResponse(candidate);
+  if (captured === null) return { fixture, diagnostics: null };
+  const diagnostics = {
+    droppedRequiredPaths: [],
+    droppedTypePaths: [],
+    droppedNotEmptyPaths: [],
+    droppedTruthyPaths: [],
+  };
+  const keepExistingPath = (path, bucket) => {
+    const keep = capturedValuesAtPath(captured, path).length > 0;
+    if (!keep) diagnostics[bucket].push(path);
+    return keep;
+  };
+  const requiredPaths = (fixture.requiredPaths || [])
+    .filter((path) => keepExistingPath(path, 'droppedRequiredPaths'));
+  const types = Object.fromEntries(Object.entries(fixture.types || {})
+    .filter(([path, expected]) => {
+      const values = capturedValuesAtPath(captured, path);
+      const keep = values.length > 0 && (expected === 'null' || values.every((value) => value === null || valueKind(value) === expected));
+      if (!keep) diagnostics.droppedTypePaths.push(path);
+      return keep;
+    }));
+  const notEmpty = (fixture.notEmpty || []).filter((path) => {
+    const values = capturedValuesAtPath(captured, path);
+    const keep = values.some(isObservedNonEmpty);
+    if (!keep) diagnostics.droppedNotEmptyPaths.push(path);
+    return keep;
+  });
+  const mustBeTruthy = (fixture.mustBeTruthy || []).filter((path) => {
+    const values = capturedValuesAtPath(captured, path);
+    const keep = values.some(Boolean);
+    if (!keep) diagnostics.droppedTruthyPaths.push(path);
+    return keep;
+  });
+  const hasDiagnostics = Object.values(diagnostics).some((paths) => paths.length > 0);
+  return {
+    fixture: {
+      ...fixture,
+      requiredPaths,
+      types,
+      notEmpty,
+      mustBeTruthy,
+    },
+    diagnostics: hasDiagnostics ? diagnostics : null,
+  };
 }
 
 function summarizeResponseShape(value) {
@@ -73,6 +146,21 @@ function summarizeResponseShape(value) {
 }
 
 function capturedResponseShape(candidate) {
+  const evidenceShape = candidate?.apiEvidence?.replay?.responseShape;
+  if (evidenceShape && typeof evidenceShape === 'object') {
+    return {
+      rootKind: evidenceShape.kind || 'object',
+      containsKinds: [
+        ...new Set([
+          evidenceShape.kind,
+          ...(evidenceShape.listPath ? ['array'] : []),
+          ...(Array.isArray(evidenceShape.itemKeys) && evidenceShape.itemKeys.length > 0 ? ['object'] : []),
+          ...Object.values(evidenceShape.valueTypes || {}),
+        ].filter(Boolean)),
+      ].sort(),
+      rootKeys: [...(evidenceShape.topLevelKeys || [])].sort(),
+    };
+  }
   const parsed = parseCapturedResponse(candidate);
   if (parsed !== null) return summarizeResponseShape(parsed);
   const preview = String(candidate?.responsePreview ?? candidate?.responseBodyPreview ?? '').trim();
@@ -204,6 +292,9 @@ export function resolveRuntimeTestArguments({ tool = {}, memory = {}, risk, cand
     ? candidate ? [candidate] : [...(memory.listApiCandidates || []), ...(memory.actionApiCandidates || [])]
     : [];
   const payloads = candidates.map(candidatePayload);
+  const captureBoundEvidence = candidate?.apiEvidence?.strategyNote?.replayStatus === 'verified'
+    && candidate?.apiEvidence?.risk === 'read'
+    && Boolean(candidate?.apiEvidence?.evidenceId);
   const args = {};
   const sources = {};
   const parameterMismatches = [];
@@ -217,7 +308,7 @@ export function resolveRuntimeTestArguments({ tool = {}, memory = {}, risk, cand
       source = 'schema_default';
     } else {
       const payload = payloads.find((item) => Object.prototype.hasOwnProperty.call(item, key));
-      if (payload) {
+      if (payload && payload[key] !== undefined) {
         value = payload[key];
         source = 'captured_request';
       }
@@ -239,8 +330,9 @@ export function resolveRuntimeTestArguments({ tool = {}, memory = {}, risk, cand
   return {
     ready: risk?.level === 'read'
       && risk.confidence >= 0.75
-      && missingRequired.length === 0
+      && (captureBoundEvidence || missingRequired.length === 0)
       && parameterMismatches.length === 0,
+    captureBound: Boolean(captureBoundEvidence),
     args,
     sources,
     missingRequired,
@@ -251,8 +343,15 @@ export function resolveRuntimeTestArguments({ tool = {}, memory = {}, risk, cand
 
 export function inferOutputContract(_tool = {}, candidate = null) {
   const shape = capturedResponseShape(candidate);
+  const sourceFixture = candidate?.apiEvidence?.verificationFixture || candidate?.verificationFixture || null;
+  const { fixture: verificationFixture, diagnostics: fixtureDiagnostics } = sanitizeVerificationFixture(sourceFixture, candidate);
   return shape
-    ? { kind: 'captured_sample', capturedShape: shape }
+    ? {
+        kind: 'captured_sample',
+        capturedShape: shape,
+        ...(verificationFixture ? { verificationFixture } : {}),
+        ...(fixtureDiagnostics ? { fixtureDiagnostics } : {}),
+      }
     : { kind: 'json' };
 }
 
@@ -268,11 +367,12 @@ export function buildRuntimeTestCases({ registeredTools = [], plan = null, memor
     const candidateEvidence = candidate
       ? candidate.sourceEvidence || buildApiSourceEvidence(candidate, { sourceKind })
       : null;
-    const toolEvidenceMatches = tool?.generationSource?.version === 'api-source-v1'
+    const toolEvidenceMatches = /^api-source-v\d+$/.test(String(tool?.generationSource?.version || ''))
       && candidateEvidence
       && tool.generationSource.fingerprint === candidateEvidence.fingerprint;
     const sourceEvidence = toolEvidenceMatches ? tool.generationSource : candidateEvidence;
     const planTool = findPlanTool(tool, planTools);
+    const unverifiable = Boolean(planTool?.unverifiable && typeof planTool.unverifiable === 'object');
     const risk = classifyGeneratedToolRisk({ tool, planTool, candidate, sourceKind });
     if (candidate && (memory.listApiCandidates || []).includes(candidate)) fallbackListIndex += 1;
     const argumentsResult = resolveRuntimeTestArguments({ tool, memory, risk, candidate });
@@ -283,7 +383,7 @@ export function buildRuntimeTestCases({ registeredTools = [], plan = null, memor
       parameter: mismatch.parameter,
     }));
     const hasCapturedContract = contract.kind === 'captured_sample';
-    const execute = !isLoginUtility && argumentsResult.ready && hasCapturedContract;
+    const execute = !isLoginUtility && !unverifiable && argumentsResult.ready && hasCapturedContract;
     return {
       toolName: tool.name,
       risk,
@@ -291,19 +391,30 @@ export function buildRuntimeTestCases({ registeredTools = [], plan = null, memor
       arguments: argumentsResult.args,
       argumentSources: argumentsResult.sources,
       capturedRequestKeys: argumentsResult.capturedRequestKeys,
+      captureBound: argumentsResult.captureBound,
+      captureBoundEvidenceId: argumentsResult.captureBound
+        ? String(candidate?.apiEvidence?.evidenceId || '')
+        : '',
+      captureBoundEndpointFamily: argumentsResult.captureBound
+        ? String(candidate?.apiEvidence?.endpointFamily || '')
+        : '',
       missingRequired: argumentsResult.missingRequired,
       validationErrors,
       contract,
       execute,
+      unverifiable,
       skipReason: execute
         ? ''
         : isLoginUtility
           ? 'login_status_utility_not_runtime_tested'
+          : unverifiable
+          ? 'marked_unverifiable_by_revision'
           : risk.level !== 'read' || risk.confidence < 0.75
           ? 'tool_is_not_high_confidence_read_only'
           : validationErrors.length > 0
             ? 'captured_parameter_type_mismatch'
             : argumentsResult.missingRequired.length > 0
+              && !argumentsResult.captureBound
               ? 'missing_safe_test_arguments'
               : 'missing_captured_response_sample',
     };

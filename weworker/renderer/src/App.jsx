@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
+import { ConfigProvider } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
 import Sidebar from './components/layout/Sidebar.jsx'
 import MainArea from './components/layout/MainArea.jsx'
 import SettingsModal from './components/settings/SettingsModal.jsx'
@@ -16,6 +18,10 @@ import { useScheduledTasksStore } from './store/scheduled-tasks.js'
 import { useUserFilesStore } from './store/user-files.js'
 import { useTerminalStore } from './store/terminal.js'
 import { useToolPackagePageStore } from './store/tool-package-page.js'
+import { useExplorationPageStore } from './store/exploration-page.js'
+import { useWebsiteExplorationStore } from './store/website-exploration.js'
+import { WebsiteExplorationGuard } from './components/website-exploration/WebsiteExplorationPage.jsx'
+import { useAntdThemeConfig } from './theme/antd-theme.js'
 import { streamBackendEvents } from './api/http.js'
 
 
@@ -60,6 +66,21 @@ export default function App() {
   const toggleUserFilesPanel = useUserFilesStore((s) => s.togglePanel)
   const userFilesOpen = useUserFilesStore((s) => s.open)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
+  const explorationOpen = useExplorationPageStore((s) => s.open)
+  const websiteOpen = useWebsiteExplorationStore((s) => s.open)
+  const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen
+
+  useEffect(() => {
+    if (!websiteOpen) return
+    useToolPackagePageStore.getState().closePage()
+    useExplorationPageStore.getState().closePage()
+    useWorksStore.setState({ activeWorkId: null })
+    useScheduledTasksStore.setState({ activeTaskId: null })
+    useUserFilesStore.getState().closePanel?.()
+    useCapabilitiesPanelStore.getState().closePanel?.()
+  }, [websiteOpen])
+
+  useEffect(() => window.electronAPI?.onWebsiteExplorationOpen?.(() => useWebsiteExplorationStore.setState({ open: true })), [])
 
   useEffect(() => {
     loadWorks()
@@ -75,6 +96,9 @@ export default function App() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
+  // 放在主题 class effect 之后声明：切换时先应用 class，再解析 CSS 变量为 antd token。
+  const antdThemeConfig = useAntdThemeConfig(theme)
+
   // SSE listener for task_notification and terminal events
   useEffect(() => {
     const controller = new AbortController()
@@ -85,10 +109,6 @@ export default function App() {
         if (parsed.type === 'terminal_event') {
           useTerminalStore.getState().handleTerminalEvent(parsed)
           useWorksStore.getState().handleTerminalEvent(parsed)
-          return
-        }
-        if (parsed.type === 'memory_status' && parsed.workId) {
-          useWorksStore.getState().setMemoryStatus(parsed.workId, parsed)
           return
         }
         if (parsed.type !== 'task_notification') return
@@ -185,6 +205,7 @@ export default function App() {
   }, [sidebarWidth])
 
   return (
+    <ConfigProvider locale={zhCN} theme={antdThemeConfig}>
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       {/* Full-width title bar — draggable, contains app title + theme toggle */}
       <div style={{
@@ -256,7 +277,7 @@ export default function App() {
           <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 2 }}>v{appVersion || ''}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
-        {!toolPackageOpen && (
+        {!focusedWorkspaceOpen && (
         <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'}>
           <button
             type="button"
@@ -308,7 +329,7 @@ export default function App() {
             </span>
           </button>
         </Tooltip>
-        {!toolPackageOpen && <CapabilitiesToggleButton variant="titlebar" />}
+        {!focusedWorkspaceOpen && <CapabilitiesToggleButton variant="titlebar" />}
         </div>
       </div>
 
@@ -335,7 +356,9 @@ export default function App() {
       </div>
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       <GlobalFileDropLayer />
+      <WebsiteExplorationGuard />
       <NativeTitleTooltipLayer />
     </div>
+    </ConfigProvider>
   )
 }

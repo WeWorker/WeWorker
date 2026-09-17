@@ -30,6 +30,8 @@ let networkObserverStarted = false;
 let pageInterceptorInstalled = false;
 let snapshotRequestCounter = 0;
 const pendingSnapshotResolvers = new Map();
+let safeApiProbeSnapshotCounter = 0;
+const safeApiProbeCandidates = new Map();
 let activeTraceID = null;
 const TRACE_PREVIEW_LIMIT = 3000;
 const TRACE_RESPONSE_PREVIEW_LIMIT = 800;
@@ -731,6 +733,219 @@ function getPageStateSnapshot() {
   };
 }
 
+const SAFE_SEARCH_RE = /search|query|keyword|find|搜索|查询|检索|关键字/i;
+const SAFE_FILTER_RE = /filter|status|type|category|sort|order|筛选|过滤|状态|类型|分类|排序/i;
+const SAFE_DATE_FILTER_RE = /(?:^|[^a-z0-9])(date|day|time|期间|日期|时间)(?:$|[^a-z0-9])|选择日期/i;
+const SAFE_NEXT_RE = /^(?:next|next page|下一页|下页|后一页|›|»|>)$/i;
+const UNSAFE_ACTION_RE = /approve|book|buy|cancel|commit|create|delete|edit|pay|publish|reject|reserve|save|submit|update|upload|同意|审批|预订|删除|保存|提交|支付|上传|修改|驳回/i;
+
+function safeElementLabelParts(el) {
+  if (!(el instanceof Element)) return [];
+  const labelledBy = el.getAttribute('aria-labelledby');
+  const labelledText = labelledBy
+    ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ')
+    : '';
+  return [...new Set([
+    el.getAttribute('aria-label') || '',
+    el.getAttribute('placeholder') || '',
+    el.getAttribute('name') || '',
+    labelledText,
+    getElementText(el),
+  ].map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean))];
+}
+
+function safeElementLabel(el) {
+  const parts = safeElementLabelParts(el);
+  return Array.isArray(parts) ? parts.join(' ').slice(0, 160) : '';
+}
+
+function nextDateValue(input) {
+  const value = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  if (input instanceof HTMLInputElement && input.type === 'datetime-local') {
+    return `${year}-${month}-${day}T00:00`;
+  }
+  return `${year}-${month}-${day}`;
+}
+
+function findSafeSearchTrigger(scope, input = null) {
+  const roots = [];
+  let current = scope instanceof Element ? scope : null;
+  for (let depth = 0; current && depth < 5; depth += 1, current = current.parentElement) {
+    roots.push(current);
+  }
+  const candidates = [...new Set(roots.flatMap((root) => [
+    ...(root.matches('button,input[type="submit"],[role="button"]') ? [root] : []),
+    ...root.querySelectorAll('button,input[type="submit"],[role="button"]'),
+  ]))];
+  const inputRect = input instanceof Element ? input.getBoundingClientRect() : null;
+  return candidates
+    .map((element) => {
+      if (!(element instanceof Element) || element === input || element.contains(input) || !isVisible(element)) return null;
+      const triggerLabel = safeElementLabel(element);
+      if (!SAFE_SEARCH_RE.test(triggerLabel) || UNSAFE_ACTION_RE.test(triggerLabel)) return null;
+      let score = 10;
+      if (input instanceof Element) {
+        if (element.parentElement === input.parentElement) score += 8;
+        if (element.closest('form') && element.closest('form') === input.closest('form')) score += 6;
+        const rect = element.getBoundingClientRect();
+        const distance = Math.abs(rect.top - inputRect.top) + Math.abs(rect.left - inputRect.right);
+        if (distance < 240) score += 6;
+        else if (distance < 600) score += 2;
+        else score -= 4;
+      }
+      return { element, score };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score)[0]?.element || null;
+}
+
+function registerSafeApiProbe(snapshotId, kind, label, target, details = {}) {
+  const id = `safe-api-${snapshotId}-${safeApiProbeCandidates.size + 1}`;
+  safeApiProbeCandidates.set(id, { kind, label, target, ...details });
+  return {
+    id,
+    kind,
+    label,
+    requiresValue: kind === 'search',
+    risk: 'read',
+    safetyReasons: details.safetyReasons || [],
+  };
+}
+
+function inspectSafeApiProbeCandidates() {
+  safeApiProbeCandidates.clear();
+  safeApiProbeSnapshotCounter += 1;
+  const snapshotId = safeApiProbeSnapshotCounter;
+  const result = [];
+
+  for (const input of document.querySelectorAll('input')) {
+    if (!(input instanceof HTMLInputElement) || !isVisible(input) || input.disabled || input.readOnly) continue;
+    const inputType = String(input.type || 'text').toLowerCase();
+    if (!['search', 'text'].includes(inputType)) continue;
+    const label = safeElementLabel(input);
+    const isDateFilter = inputType === 'text' && SAFE_DATE_FILTER_RE.test(label);
+    if (isDateFilter) continue;
+    if (!SAFE_SEARCH_RE.test(label) || UNSAFE_ACTION_RE.test(label)) continue;
+    const form = input.form;
+    const scope = form || input.closest('[role="search"], header, section, div') || input.parentElement;
+    const trigger = findSafeSearchTrigger(scope, input);
+    result.push(registerSafeApiProbe(snapshotId, 'search', label || '搜索', input, {
+      trigger,
+      form,
+      safetyReasons: ['strong_search_semantics', trigger ? 'search_labeled_trigger' : 'search_input_only'],
+    }));
+    if (result.length >= 8) break;
+  }
+
+  for (const input of document.querySelectorAll('input')) {
+    if (!(input instanceof HTMLInputElement) || !isVisible(input) || input.disabled || input.readOnly) continue;
+    const inputType = String(input.type || 'text').toLowerCase();
+    const label = safeElementLabel(input);
+    const isDateFilter = ['date', 'datetime-local'].includes(inputType)
+      || (inputType === 'text' && SAFE_DATE_FILTER_RE.test(label));
+    if (!isDateFilter || UNSAFE_ACTION_RE.test(label)) continue;
+    const scope = input.form
+      || input.closest('.filter-panel, form, [role="search"], section, main')
+      || input.parentElement;
+    result.push(registerSafeApiProbe(snapshotId, 'filter', label || '日期筛选', input, {
+      inputValue: nextDateValue(input),
+      trigger: findSafeSearchTrigger(scope, input),
+      safetyReasons: ['strong_date_filter_semantics', 'native_input'],
+    }));
+    if (result.length >= 12) break;
+  }
+
+  for (const select of document.querySelectorAll('select')) {
+    if (!(select instanceof HTMLSelectElement) || !isVisible(select) || select.disabled) continue;
+    const label = safeElementLabel(select);
+    if (!SAFE_FILTER_RE.test(label) || UNSAFE_ACTION_RE.test(label)) continue;
+    const nextOption = [...select.options].find((option) => !option.disabled && option.value !== select.value && option.value !== '');
+    if (!nextOption) continue;
+    result.push(registerSafeApiProbe(snapshotId, 'filter', label || '筛选', select, {
+      optionValue: nextOption.value,
+      optionLabel: (nextOption.textContent || nextOption.value).trim().slice(0, 80),
+      safetyReasons: ['strong_filter_semantics', 'existing_select_option'],
+    }));
+    if (result.length >= 12) break;
+  }
+
+  for (const control of document.querySelectorAll('a[href],button,[role="button"]')) {
+    if (!(control instanceof Element) || !isVisible(control)) continue;
+    const labelParts = safeElementLabelParts(control);
+    const label = labelParts.join(' ').slice(0, 160);
+    if (!labelParts.some((part) => SAFE_NEXT_RE.test(part)) || UNSAFE_ACTION_RE.test(label)) continue;
+    if (control.matches(':disabled,[disabled],[aria-disabled="true"]')) continue;
+    result.push(registerSafeApiProbe(snapshotId, 'pagination', label || '下一页', control, {
+      safetyReasons: ['strong_next_page_semantics', 'enabled_control'],
+    }));
+    if (result.length >= 16) break;
+  }
+
+  return {
+    snapshotId,
+    candidates: result,
+    policy: {
+      allowedKinds: ['search', 'filter', 'pagination'],
+      writeActionsBlocked: true,
+    },
+  };
+}
+
+function setNativeControlValue(control, value) {
+  const prototype = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+  if (descriptor?.set) descriptor.set.call(control, value);
+  else control.value = value;
+  control.dispatchEvent(new Event('input', { bubbles: true }));
+  control.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function executeSafeApiProbe(candidateId, rawValue) {
+  const candidate = safeApiProbeCandidates.get(String(candidateId || ''));
+  if (!candidate) throw new Error('SAFE_API_PROBE_STALE');
+  if (!(candidate.target instanceof Element) || !candidate.target.isConnected || !isVisible(candidate.target)) {
+    throw new Error('SAFE_API_PROBE_STALE');
+  }
+  if (!['search', 'filter', 'pagination'].includes(candidate.kind)) throw new Error('SAFE_API_PROBE_NOT_ALLOWED');
+
+  if (candidate.kind === 'search') {
+    const value = String(rawValue || 'test').trim().slice(0, 80);
+    if (!value) throw new Error('SAFE_API_PROBE_VALUE_REQUIRED');
+    setNativeControlValue(candidate.target, value);
+    candidate.target.focus();
+    if (candidate.trigger instanceof HTMLElement && candidate.trigger.isConnected) {
+      candidate.trigger.click();
+    } else if (candidate.form instanceof HTMLFormElement && String(candidate.form.method || 'get').toLowerCase() === 'get') {
+      candidate.form.requestSubmit();
+    } else {
+      candidate.target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+      candidate.target.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+    }
+    return { executed: true, kind: candidate.kind, label: candidate.label, valueLength: value.length };
+  }
+
+  if (candidate.kind === 'filter') {
+    if (candidate.target instanceof HTMLInputElement && typeof candidate.inputValue === 'string') {
+      setNativeControlValue(candidate.target, candidate.inputValue);
+      if (candidate.trigger instanceof HTMLElement && candidate.trigger.isConnected) {
+        candidate.trigger.click();
+      } else {
+        candidate.target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+        candidate.target.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+      }
+      return { executed: true, kind: candidate.kind, label: candidate.label, valueLength: candidate.inputValue.length };
+    }
+    setNativeControlValue(candidate.target, candidate.optionValue);
+    return { executed: true, kind: candidate.kind, label: candidate.label, optionLabel: candidate.optionLabel };
+  }
+
+  candidate.target.click();
+  return { executed: true, kind: candidate.kind, label: candidate.label };
+}
+
 function ensureNetworkObserver() {
   if (networkObserverStarted) return;
   networkObserverStarted = true;
@@ -893,6 +1108,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === 'browser_state') {
     sendResponse({ result: getPageStateSnapshot() });
+    return true;
+  }
+
+  if (msg.type === 'exploration_safe_actions') {
+    sendResponse({ result: inspectSafeApiProbeCandidates() });
+    return true;
+  }
+
+  if (msg.type === 'exploration_safe_probe') {
+    Promise.resolve()
+      .then(() => executeSafeApiProbe(msg.candidateId, msg.value))
+      .then(result => sendResponse({ result }))
+      .catch(err => sendResponse({ error: err.message ?? String(err) }));
     return true;
   }
 

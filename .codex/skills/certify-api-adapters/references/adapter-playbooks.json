@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Shared non-user-specific requirements for resolving live API certification blockers.",
+  "authentication": {
+    "mode": "browser-session",
+    "rule": "Detect and reuse an existing authenticated browser session, but never persist session material.",
+    "toolsObservedAuthLimited": []
+  },
+  "permissionBindings": {},
+  "pageContexts": {},
+  "fixtureRequirements": {
+    "dedicatedUatOrReversibleOnly": true,
+    "tools": []
+  }
+}

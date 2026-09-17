@@ -1,11 +1,14 @@
 import express from 'express'
 import cors from 'cors'
+import { createWebsiteExplorationRouter } from './website-exploration.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
+import { bridgeRpcClient } from './bridge-rpc-client.js'
+import { explorationAgentCoordinator } from './exploration-agent.js'
 import {
   expandHomePath,
   getSettings,
@@ -265,6 +268,7 @@ app.get('/internal/webwright/model-config', (req, res) => {
 })
 app.use(requireHttpAuth)
 app.use(express.json({ limit: '50mb' }))
+app.use('/api/website-exploration', createWebsiteExplorationRouter())
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   const detail = err instanceof Error ? err.message : String(err || '')
   const status = typeof (err as { status?: unknown })?.status === 'number'
@@ -1487,6 +1491,246 @@ app.get('/system-tools', (_req, res) => {
 
 // 鈹€鈹€ Explore APIs (deprecated 鈥?use webcli call directly) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
+app.get('/exploration/capabilities', (_req, res) => {
+  const state = bridgeRpcClient.getCapabilities()
+  res.json({
+    ...state,
+    passiveExploration: state.capabilities.includes('passive_exploration_v1'),
+    safeApiProbe: state.capabilities.includes('safe_api_probe_v1'),
+    apiReplay: state.capabilities.includes('api_replay_v1'),
+    actionCapture: state.capabilities.includes('action_capture_v1'),
+    clientAgent: true,
+    generationHarness: state.capabilities.includes('generation_harness_v1'),
+  })
+})
+
+app.get('/exploration/tabs', async (_req, res) => {
+  try {
+    const state = bridgeRpcClient.getCapabilities()
+    if (!state.bridgeConnected) {
+      res.status(503).json({ detail: 'BRIDGE_DISCONNECTED' })
+      return
+    }
+    if (!state.extensionConnected) {
+      res.status(503).json({ detail: 'EXTENSION_DISCONNECTED' })
+      return
+    }
+    if (!state.capabilities.includes('passive_exploration_v1')) {
+      res.status(409).json({ detail: 'EXTENSION_CAPABILITY_MISSING' })
+      return
+    }
+    res.json({ tabs: await bridgeRpcClient.listExplorableTabs() })
+  } catch (error) {
+    res.status(502).json({ detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+const explorationRunInputSchema = z.object({
+  goal: z.string().trim().min(1).max(2_000),
+  tabId: z.number().int().nonnegative(),
+})
+
+app.post('/exploration/runs', async (req, res) => {
+  const parsed = explorationRunInputSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ detail: parsed.error.issues[0]?.message || 'Invalid exploration request' })
+    return
+  }
+  try {
+    const tabs = await bridgeRpcClient.listExplorableTabs()
+    const tab = tabs.find((item) => item.id === parsed.data.tabId)
+    if (!tab) {
+      res.status(404).json({ detail: 'TARGET_TAB_NOT_FOUND' })
+      return
+    }
+    res.status(202).json(explorationAgentCoordinator.start(parsed.data.goal, tab))
+  } catch (error) {
+    res.status(502).json({ detail: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+app.get('/exploration/runs/:taskId', (req, res) => {
+  const run = explorationAgentCoordinator.get(req.params.taskId)
+  if (!run) {
+    res.status(404).json({ detail: 'EXPLORATION_RUN_NOT_FOUND' })
+    return
+  }
+  res.json(run)
+})
+
+app.post('/exploration/runs/:taskId/cancel', (req, res) => {
+  const run = explorationAgentCoordinator.cancel(req.params.taskId)
+  if (!run) {
+    res.status(404).json({ detail: 'EXPLORATION_RUN_NOT_FOUND' })
+    return
+  }
+  res.json(run)
+})
+
+app.post('/exploration/runs/:taskId/save', (req, res) => {
+  try {
+    res.json(explorationAgentCoordinator.saveMemory(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/scaffold', async (req, res) => {
+  try {
+    const saved = explorationAgentCoordinator.saveMemory(req.params.taskId)
+    if (!saved.siteMemory) throw new Error('探索结果尚未保存')
+    const result = writeScaffoldFromSiteMemory(saved.siteMemory)
+    await scheduleAdapterRuntimeReload(saved.siteMemory.siteKey)
+    let browserRefresh: Record<string, unknown> | null = null
+    let browserRefreshError: string | null = null
+    try {
+      browserRefresh = await bridgeRpcClient.refreshAdapterTabs(saved.siteMemory.siteKey)
+    } catch (error) {
+      browserRefreshError = error instanceof Error ? error.message : String(error)
+    }
+    const scaffoldResult = { ...result, browserRefresh, browserRefreshError }
+    const run = explorationAgentCoordinator.recordScaffoldResult(req.params.taskId, scaffoldResult)
+    res.json({ run, result: scaffoldResult })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+const explorationGenerationInputSchema = z.object({
+  goal: z.string().trim().min(1).max(2_000).optional(),
+  mode: z.enum(['agent', 'classic']).optional(),
+})
+
+const explorationGenerationResumeInputSchema = z.object({
+  answer: z.string().trim().min(1).max(4_000),
+})
+
+const explorationActionCaptureInputSchema = z.object({
+  actionName: z.string().trim().min(1).max(200),
+  mode: z.enum(['observe', 'intercept']).optional(),
+  timeoutSeconds: z.number().int().min(5).max(300).optional(),
+  pattern: z.string().max(500).optional(),
+})
+
+app.post('/exploration/runs/:taskId/action-capture', async (req, res) => {
+  const parsed = explorationActionCaptureInputSchema.safeParse(req.body || {})
+  if (!parsed.success) {
+    res.status(400).json({ detail: parsed.error.issues[0]?.message || 'Invalid action capture request' })
+    return
+  }
+  try {
+    res.status(202).json(await explorationAgentCoordinator.startActionCapture(req.params.taskId, parsed.data))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.get('/exploration/runs/:taskId/action-capture', async (req, res) => {
+  try {
+    res.json(await explorationAgentCoordinator.getActionCapture(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/action-capture/stop', async (req, res) => {
+  try {
+    res.json(await explorationAgentCoordinator.stopActionCapture(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+const explorationActionCandidateSchema = z.object({
+  candidateIndex: z.number().int().min(0),
+})
+
+app.post('/exploration/runs/:taskId/action-capture/select', async (req, res) => {
+  const parsed = explorationActionCandidateSchema.safeParse(req.body || {})
+  if (!parsed.success) {
+    res.status(400).json({ detail: parsed.error.issues[0]?.message || 'Invalid candidate selection' })
+    return
+  }
+  try {
+    res.json(await explorationAgentCoordinator.selectActionCaptureCandidate(req.params.taskId, parsed.data.candidateIndex))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/action-capture/clear', async (req, res) => {
+  try {
+    res.json(await explorationAgentCoordinator.clearActionCapture(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/generation', async (req, res) => {
+  const parsed = explorationGenerationInputSchema.safeParse(req.body || {})
+  if (!parsed.success) {
+    res.status(400).json({ detail: parsed.error.issues[0]?.message || 'Invalid generation request' })
+    return
+  }
+  try {
+    res.status(202).json(await explorationAgentCoordinator.startGeneration(req.params.taskId, parsed.data.goal, parsed.data.mode))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/generation/resume', async (req, res) => {
+  const parsed = explorationGenerationResumeInputSchema.safeParse(req.body || {})
+  if (!parsed.success) {
+    res.status(400).json({ detail: parsed.error.issues[0]?.message || 'Invalid generation resume request' })
+    return
+  }
+  try {
+    res.status(202).json(await explorationAgentCoordinator.resumeGeneration(req.params.taskId, parsed.data.answer))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.get('/exploration/runs/:taskId/generation', async (req, res) => {
+  try {
+    res.json(await explorationAgentCoordinator.getGeneration(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/generation/cancel', async (req, res) => {
+  try {
+    res.json(await explorationAgentCoordinator.cancelGeneration(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
+app.post('/exploration/runs/:taskId/generation/publish', async (req, res) => {
+  try {
+    const run = await explorationAgentCoordinator.publishGeneration(req.params.taskId)
+    const siteKey = typeof run.generationRun?.siteKey === 'string' ? run.generationRun.siteKey : ''
+    if (siteKey) await scheduleAdapterRuntimeReload(siteKey)
+    res.json(run)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
 app.post('/explore/state', (_req, res) => {
   res.status(410).json({ detail: 'Use `webcli call inspect_page_state` instead' })
 })
@@ -2652,6 +2896,7 @@ app.get('/logs', (req, res) => {
 // 鈹€鈹€ Start 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 bridgeStatus.start()
+bridgeRpcClient.start()
 
 // Install adapter skills via webcli at startup
 runWebcli(['install', '--skills', '--target', SKILLS_DIR], (err) => {

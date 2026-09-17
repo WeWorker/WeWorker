@@ -167,7 +167,10 @@ export function writeScaffoldFromSiteMemory(memory: SiteMemoryRecord, options: G
 
   fs.mkdirSync(generatedDir, { recursive: true })
 
+  // OpenCLI-aligned quick scaffold is read-only. Writes require the Generation
+  // Harness agent to author semantic payload construction and focused mocks.
   const actionCandidates = selectActionCandidates(memory)
+    .filter((candidate) => (candidate.method || 'GET').toUpperCase() === 'GET')
   const { primary, secondary } = selectApis(memory, actionCandidates)
   if (!primary && actionCandidates.length === 0) {
     throw new Error(`no reusable list or action api candidates available for ${memory.siteKey}`)
@@ -1387,7 +1390,7 @@ function extractVerdictApiCandidates(verdictReason: string): SiteApiCandidate[] 
 }
 
 function scoreListCandidate(candidate: SiteApiCandidate): number {
-  const probe = `${candidate.url} ${candidate.requestBodyPreview || ''}`.toLowerCase()
+  const probe = `${candidateUrlSignals(candidate.url)} ${candidate.requestBodyPreview || ''}`.toLowerCase()
   let score = 0
   if (/get[a-z0-9]*list|\/list\b|search|query|getrooms|rooms|availability|calendar|schedule/.test(probe)) score += 3
   if (/room|rooms|meeting|calendar|availability|schedule/.test(probe)) score += 2
@@ -1400,6 +1403,15 @@ function scoreListCandidate(candidate: SiteApiCandidate): number {
     score -= 1
   }
   return score
+}
+
+function candidateUrlSignals(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    return `${parsed.pathname} ${parsed.search}`
+  } catch {
+    return rawUrl
+  }
 }
 
 function selectActionCandidates(memory: SiteMemoryRecord): SelectedActionCandidate[] {

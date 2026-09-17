@@ -61,6 +61,171 @@ export function getPendingAskUser(workId: string): AskUserRequest | undefined {
 type AskUserSSECallback = (event: { type: string; id: string; question: string; options: Array<{ label: string; description?: string }> }) => void
 type ChannelAskUserHandler = (question: string, options: Array<{ label: string; description?: string }>) => Promise<string>
 
+/**
+ * 鸭子类型：聊天 MCP 工具只依赖 ExplorationAgentCoordinator 的公开方法子集，
+ * 避免 tools.ts → exploration-agent.ts → agent.ts → tools.ts 的模块环。
+ */
+interface ExplorationCoordinatorToolTarget {
+  list(): Array<Record<string, unknown>>
+  listTabs(): Promise<Array<{ id: number, title: string, url: string }>>
+  startFromTabId(goal: string, tabId: number): Promise<unknown>
+  get(taskId: string): unknown
+  startGeneration(taskId: string, goal?: string, mode?: 'agent' | 'classic'): Promise<unknown>
+  resumeGeneration(taskId: string, answer: string): Promise<unknown>
+  publishGeneration(taskId: string): Promise<unknown>
+}
+
+let explorationCoordinatorProvider: (() => ExplorationCoordinatorToolTarget | null) | null = null
+
+export function registerExplorationCoordinator(provider: () => ExplorationCoordinatorToolTarget | null): void {
+  explorationCoordinatorProvider = provider
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {}
+}
+
+function toolText(value: unknown) {
+  return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] }
+}
+
+function generationSummaryView(run: unknown): Record<string, unknown> {
+  const source = asRecord(run)
+  const generation = asRecord(source.generationRun)
+  const artifacts = asRecord(generation.artifacts)
+  const draft = asRecord(artifacts.draft)
+  const pendingQuestion = asRecord(generation.pendingQuestion || asRecord(artifacts.pendingQuestion))
+  const blocker = asRecord(asRecord(artifacts.blockerNote))
+  const attribution = asRecord(generation.failureAttribution)
+  return {
+    taskId: source.taskId || '',
+    status: generation.status || '',
+    currentAction: generation.currentAction || '',
+    toolNames: Array.isArray(draft.toolNames) ? draft.toolNames : [],
+    staticValidationPassed: asRecord(artifacts.staticValidation).passed === true,
+    runtimeValidationPassed: asRecord(artifacts.runtimeValidation).passed === true,
+    pendingQuestion: typeof pendingQuestion.question === 'string' && pendingQuestion.question
+      ? { question: pendingQuestion.question, context: typeof pendingQuestion.context === 'string' ? pendingQuestion.context : '' }
+      : null,
+    blockerQuestion: typeof blocker.question === 'string' ? blocker.question : '',
+    failureSummary: typeof attribution.summary === 'string' ? attribution.summary : '',
+    lastErrorCode: asRecord(generation.lastError).code || '',
+  }
+}
+
+function buildExplorationChatTools(coordinator: ExplorationCoordinatorToolTarget) {
+  return [
+    tool(
+      'list_explorable_tabs',
+      '列出当前 Chrome 中可进行 API 探索的 HTTP(S) 页面。开始探索前先调用本工具获取 tabId。',
+      {},
+      async () => {
+        try {
+          return toolText({ tabs: await coordinator.listTabs() })
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+    tool(
+      'start_api_exploration',
+      '对一个已打开的页面启动客户端 API 探索（被动捕获 Fetch/XHR 并分析证据）。返回 taskId，完成后可用 start_adapter_generation 生成 Adapter。',
+      {
+        tabId: z.number().int().describe('目标页面 id，来自 list_explorable_tabs'),
+        goal: z.string().min(1).max(2_000).describe('希望分析的 API 能力描述，例如"沉淀会议室查询能力"'),
+      },
+      async ({ tabId, goal }) => {
+        try {
+          const run = await coordinator.startFromTabId(goal, tabId)
+          const source = asRecord(run)
+          return toolText({ taskId: source.taskId, status: source.status, hint: '探索在后台执行，用 list_api_explorations 查询进度' })
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+    tool(
+      'list_api_explorations',
+      '列出探索任务及各自的生成状态（taskId、站点、状态、是否已保存站点记忆、生成状态）。需要 taskId 时先调用本工具。',
+      {},
+      async () => {
+        try {
+          return toolText({ runs: coordinator.list() })
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+    tool(
+      'start_adapter_generation',
+      '对已完成的探索任务启动 API Adapter 智能生成（计划→草稿→静态/运行验证→等待确认发布）。推荐 mode="agent"：编排者可自主处置失败并中途向用户提问。',
+      {
+        taskId: z.string().min(1).max(100).describe('探索任务 id，来自 list_api_explorations'),
+        goal: z.string().min(1).max(2_000).optional().describe('生成目标描述'),
+        mode: z.enum(['agent', 'classic']).optional().describe('agent=智能编排（推荐）；classic=固定流水线'),
+      },
+      async ({ taskId, goal, mode }) => {
+        try {
+          const run = await coordinator.startGeneration(taskId, goal, mode)
+          return toolText(generationSummaryView(run))
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+    tool(
+      'get_adapter_generation',
+      '查询生成任务状态：阶段、工具清单、验证结果、等待用户的问题（pendingQuestion）、失败归因（failureSummary）。status=needs_user_input 时必须把 pendingQuestion.question 转述给用户并用 resume_adapter_generation 提交回答。',
+      {
+        taskId: z.string().min(1).max(100),
+      },
+      async ({ taskId }) => {
+        try {
+          return toolText(generationSummaryView(coordinator.get(taskId)))
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+    tool(
+      'resume_adapter_generation',
+      '提交用户对 pendingQuestion 的回答并从暂停点继续生成（同一对话上下文）。',
+      {
+        taskId: z.string().min(1).max(100),
+        answer: z.string().min(1).max(4_000).describe('用户的回答原文'),
+      },
+      async ({ taskId, answer }) => {
+        try {
+          return toolText(generationSummaryView(await coordinator.resumeGeneration(taskId, answer)))
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+    tool(
+      'publish_adapter_generation',
+      '确认发布：把通过验证的工具安装到本机 Skill 目录并刷新目标页面。仅当生成状态为 awaiting_approval 且用户明确同意后调用。',
+      {
+        taskId: z.string().min(1).max(100),
+      },
+      async ({ taskId }) => {
+        try {
+          const run = await coordinator.publishGeneration(taskId)
+          const source = asRecord(run)
+          return toolText({
+            taskId,
+            status: asRecord(source.generationRun).status || '',
+            refreshError: typeof source.generationRefreshError === 'string' ? source.generationRefreshError : '',
+            published: true,
+          })
+        } catch (e) {
+          return toolText({ error: e instanceof Error ? e.message : String(e) })
+        }
+      },
+    ),
+  ]
+}
+
 interface McpServerContext {
   channelPermissionMode?: ChannelPermissionMode
   workId?: string | null
@@ -443,6 +608,11 @@ export function buildMcpServer(opts?: McpServerContext) {
         }
       ),
     ] : []),
+    ...(() => {
+      if (channelPermissionMode !== 'full' || !explorationCoordinatorProvider) return []
+      const coordinator = explorationCoordinatorProvider()
+      return coordinator ? buildExplorationChatTools(coordinator) : []
+    })(),
   ]
 
   return createSdkMcpServer({

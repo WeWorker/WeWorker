@@ -9,6 +9,8 @@ import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useCapabilitiesPanelStore } from '../../store/capabilities-panel.js'
 import { useUserFilesStore } from '../../store/user-files.js'
+import { useExplorationPageStore } from '../../store/exploration-page.js'
+import { useWebsiteExplorationStore, leaveWebsiteExploration } from '../../store/website-exploration.js'
 
 export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }) {
   const createWork = useWorksStore((s) => s.createWork)
@@ -16,7 +18,11 @@ export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }
   const loadTasks = useScheduledTasksStore((s) => s.loadTasks)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
+  const explorationOpen = useExplorationPageStore((s) => s.open)
+  const websiteOpen = useWebsiteExplorationStore((s) => s.open)
+  const websiteActivity = useWebsiteExplorationStore((s) => s.activity)
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
+  const openExplorationPage = useExplorationPageStore((s) => s.openPage)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [showLabelFilter, setShowLabelFilter] = useState(false)
@@ -40,8 +46,10 @@ export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }
     return () => document.removeEventListener('mousedown', close)
   }, [showLabelFilter])
 
-  const handleCreateTask = () => {
+  const handleCreateTask = async () => {
+    if (!await leaveWebsiteExploration()) return
     useToolPackagePageStore.getState().closePage()
+    useExplorationPageStore.getState().closePage()
     // If there's already an unconfigured task (empty prompt), just select it
     const tasks = useScheduledTasksStore.getState().tasks
     const unconfigured = tasks.find(t => !t.prompt_template && t.title === '新定时任务')
@@ -57,12 +65,16 @@ export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }
     })
   }
 
-  const handleCreateWork = () => {
+  const handleCreateWork = async () => {
+    if (!await leaveWebsiteExploration()) return
     useToolPackagePageStore.getState().closePage()
+    useExplorationPageStore.getState().closePage()
     createWork()
   }
 
-  const handleOpenToolPackage = () => {
+  const handleOpenToolPackage = async () => {
+    if (!await leaveWebsiteExploration()) return
+    useExplorationPageStore.getState().closePage()
     useWorksStore.setState({ activeWorkId: null })
     useScheduledTasksStore.setState({ activeTaskId: null })
     useUserFilesStore?.getState?.()?.closePanel?.()
@@ -70,20 +82,34 @@ export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }
     openToolPackagePage()
   }
 
-  const handleOpenWorksSection = () => {
+  const handleOpenExploration = async () => {
+    if (!await leaveWebsiteExploration()) return
     useToolPackagePageStore.getState().closePage()
+    useWorksStore.setState({ activeWorkId: null })
+    useScheduledTasksStore.setState({ activeTaskId: null })
+    useUserFilesStore?.getState?.()?.closePanel?.()
+    useCapabilitiesPanelStore?.getState?.()?.closePanel?.()
+    openExplorationPage()
+  }
+
+  const handleOpenWorksSection = async () => {
+    if (!await leaveWebsiteExploration()) return
+    useToolPackagePageStore.getState().closePage()
+    useExplorationPageStore.getState().closePage()
     useScheduledTasksStore.setState({ activeTaskId: null })
   }
 
-  const handleOpenTasksSection = () => {
+  const handleOpenTasksSection = async () => {
+    if (!await leaveWebsiteExploration()) return
     useToolPackagePageStore.getState().closePage()
+    useExplorationPageStore.getState().closePage()
     useWorksStore.setState({ activeWorkId: null })
     const state = useScheduledTasksStore.getState()
     if (!state.activeTaskId && state.tasks[0]?.id) state.selectTask(state.tasks[0].id)
   }
 
-  const worksSectionActive = !toolPackageOpen && !activeTaskId
-  const tasksSectionActive = !toolPackageOpen && Boolean(activeTaskId)
+  const worksSectionActive = !websiteOpen && !toolPackageOpen && !explorationOpen && !activeTaskId
+  const tasksSectionActive = !websiteOpen && !toolPackageOpen && !explorationOpen && Boolean(activeTaskId)
 
   return (
     <div style={{
@@ -115,6 +141,33 @@ export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }
         >
           <ToolPackageNavIcon size={13} />
           <span>SKILLS与场景</span>
+        </button>
+      </div>
+      <div style={{ padding: '2px 12px 6px', WebkitAppRegion: 'no-drag' }}>
+        <button
+          type="button"
+          onClick={handleOpenExploration}
+          style={{
+            ...sidebarSectionButtonStyle,
+            width: '100%',
+            color: explorationOpen ? 'var(--text-primary)' : 'var(--text-muted)',
+          }}
+        >
+          <ExplorationNavIcon size={13} />
+          <span>API 探索</span>
+        </button>
+      </div>
+      <div style={{ padding: '2px 12px 6px', WebkitAppRegion: 'no-drag' }}>
+        <button type="button" onClick={() => {
+          useToolPackagePageStore.getState().closePage()
+          useExplorationPageStore.getState().closePage()
+          useWorksStore.setState({ activeWorkId: null })
+          useScheduledTasksStore.setState({ activeTaskId: null })
+          useUserFilesStore.getState().closePanel?.()
+          useCapabilitiesPanelStore.getState().closePanel?.()
+          useWebsiteExplorationStore.setState({ open: true })
+        }} style={{ ...sidebarSectionButtonStyle, width: '100%', color: websiteOpen ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+          <ExplorationNavIcon size={13} /><span>网站探索agent{websiteActivity.running ? ' · 运行中' : ''}</span>
         </button>
       </div>
       {/* 任务 section */}
@@ -224,7 +277,6 @@ export default function Sidebar({ onOpenSettings, collapsed, onCollapse, width }
             <Tooltip text="新任务">
               <button
                 type="button"
-                data-weworker-new-work="true"
                 onClick={handleCreateWork}
                 style={{
                 WebkitAppRegion: 'no-drag',
@@ -394,6 +446,16 @@ function ToolPackageNavIcon({ size = 15 }) {
       <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" />
       <path d="M4 12.5 12 17l8-4.5" />
       <path d="M4 17.5 12 22l8-4.5" />
+    </svg>
+  )
+}
+
+function ExplorationNavIcon({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+      <path d="M8 11h6M11 8v6" />
     </svg>
   )
 }

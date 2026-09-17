@@ -19,6 +19,89 @@ afterEach(() => {
 });
 
 describe('adapter scaffold knowledge pack', () => {
+  it('preserves GET query names without persisting captured values or credentials', () => {
+    const outputRoot = makeTmpDir();
+    const result = writeScaffoldFromSiteMemory({
+      siteKey: '127.0.0.1',
+      siteHost: '127.0.0.1',
+      siteOrigin: 'http://127.0.0.1:18888',
+      updatedAt: '2026-08-17T00:00:00.000Z',
+      captureCount: 1,
+      workflowVersion: 'opencli-like-v13',
+      canonicalEntryUrl: 'http://127.0.0.1:18888/',
+      recommendedStrategy: 'COOKIE_API',
+      verdictPattern: 'api_driven',
+      verdictReason: '最强候选为 http://127.0.0.1:18888/api/projects。',
+      resultSignals: {},
+      detailHints: { mode: '', bestCandidateHref: '', bestCandidateText: '', networkDetailCandidates: [] },
+      pagination: { attempted: false, verified: false, mode: '', targetPage: null, activePageBefore: null, activePageAfter: null, reason: '' },
+      listApiCandidates: [{
+        method: 'GET',
+        url: 'http://127.0.0.1:18888/api/projects?status=active&access_token=[redacted]',
+        responsePreview: JSON.stringify({ items: [{ id: 'P-101', name: 'Alpha' }] }),
+      }],
+      actionApiCandidates: [],
+      actionCaptureHistory: [],
+    }, { outputRoot });
+
+    const toolSource = fs.readFileSync(
+      path.join(result.adapterDir, result.supportFiles.find((file) => file.endsWith('/search_records.generated.js'))),
+      'utf8',
+    );
+    const requestHandlerSource = toolSource.slice(0, toolSource.indexOf('registerTool(siteKey'));
+    expect(toolSource).toContain('"status": {');
+    expect(toolSource).not.toContain('"status": "active"');
+    expect(toolSource).toContain('fetchGet("http://127.0.0.1:18888/api/projects", params)');
+    expect(toolSource).not.toContain('"access_token": {');
+    expect(requestHandlerSource).not.toContain('[redacted]');
+    const integrationGuide = fs.readFileSync(result.files.integrationGuide, 'utf8');
+    expect(integrationGuide).toContain('确认 manifest.json 中包含');
+    expect(integrationGuide).not.toContain(outputRoot);
+  });
+
+  it('keeps V2 query keys without turning structural placeholders into runtime defaults', () => {
+    const outputRoot = makeTmpDir();
+    const result = writeScaffoldFromSiteMemory({
+      siteKey: 'example.test',
+      siteHost: 'example.test',
+      siteOrigin: 'https://example.test',
+      updatedAt: '2026-08-31T00:00:00.000Z',
+      captureCount: 1,
+      workflowVersion: 'opencli-like-v13',
+      canonicalEntryUrl: 'https://example.test/',
+      recommendedStrategy: 'PUBLIC_API',
+      verdictPattern: 'api_driven',
+      resultSignals: {},
+      detailHints: { mode: '', bestCandidateHref: '', bestCandidateText: '', networkDetailCandidates: [] },
+      pagination: { attempted: false, verified: false, mode: '', targetPage: null, activePageBefore: null, activePageAfter: null, reason: '' },
+      listApiCandidates: [{
+        method: 'GET',
+        url: 'https://example.test/api/projects?page=%3Avalue&query=%3Avalue&status=%3Avalue',
+        responsePreview: JSON.stringify({ rows: [{ id: '<string>' }] }),
+        apiEvidence: {
+          evidenceId: 'GET /api/projects?page,query,status',
+          endpointFamily: 'GET /api/projects?page,query,status',
+          queryKeys: ['page', 'query', 'status'],
+          requestShape: { keys: [] },
+          risk: 'read',
+          strategyNote: { replayStatus: 'verified' },
+        },
+      }],
+      actionApiCandidates: [],
+      actionCaptureHistory: [],
+    }, { outputRoot });
+
+    const toolSource = fs.readFileSync(
+      path.join(result.adapterDir, result.supportFiles.find((file) => file.endsWith('/search_records.generated.js'))),
+      'utf8',
+    );
+    expect(toolSource).toContain('"page": {');
+    expect(toolSource).toContain('"query": {');
+    expect(toolSource).toContain('"status": {');
+    expect(toolSource).not.toContain(':value');
+    expect(toolSource).toContain('...{}');
+  });
+
   it('writes deduped token-friendly WEBCLI_KNOWLEDGE files', () => {
     const outputRoot = makeTmpDir();
     const memory = {
@@ -255,13 +338,13 @@ describe('adapter scaffold knowledge pack', () => {
   it('uses a user-confirmed primary action instead of a richer follow-up detail request', () => {
     const outputRoot = makeTmpDir();
     const memory = {
-      siteKey: 'todo.example.com',
-      siteHost: 'todo.example.com',
-      siteOrigin: 'https://todo.example.com',
+      siteKey: 'tasks.example.com',
+      siteHost: 'tasks.example.com',
+      siteOrigin: 'https://tasks.example.com',
       updatedAt: '2026-07-21T02:00:00.000Z',
       captureCount: 1,
       workflowVersion: 'opencli-action-capture-v1',
-      canonicalEntryUrl: 'https://todo.example.com/',
+      canonicalEntryUrl: 'https://tasks.example.com/',
       recommendedStrategy: 'api_first',
       verdictPattern: 'api_driven',
       verdictReason: 'Captured approval action.',
@@ -272,20 +355,20 @@ describe('adapter scaffold knowledge pack', () => {
       actionApiCandidates: [
         {
           actionName: 'approve_todo',
-          toolName: 'todo.example.com.approve_todo',
+          toolName: 'tasks.example.com.approve_todo',
           method: 'POST',
-          url: 'https://todo.example.com/api/todo/info/21829007',
-          requestBodyPreview: JSON.stringify({ id: 21829007 }),
-          responsePreview: JSON.stringify({ data: { id: 21829007, title: '申请详情', history: [] } }),
+          url: 'https://tasks.example.com/api/todo/info/12345',
+          requestBodyPreview: JSON.stringify({ id: 12345 }),
+          responsePreview: JSON.stringify({ data: { id: 12345, title: '申请详情', history: [] } }),
           responseContentType: 'application/json',
           capturedAt: '2026-07-21T02:00:01.000Z',
         },
         {
           actionName: 'approve_todo',
-          toolName: 'todo.example.com.approve_todo',
+          toolName: 'tasks.example.com.approve_todo',
           method: 'POST',
-          url: 'https://todo.example.com/api/todo/myApprove',
-          requestBodyPreview: JSON.stringify({ id: 21829007, decision: 'agree' }),
+          url: 'https://tasks.example.com/api/todo/myApprove',
+          requestBodyPreview: JSON.stringify({ id: 12345, decision: 'agree' }),
           responsePreview: JSON.stringify({ code: 0, message: 'success' }),
           responseContentType: 'application/json',
           primarySelection: 'user',
@@ -296,7 +379,7 @@ describe('adapter scaffold knowledge pack', () => {
     };
 
     const result = writeScaffoldFromSiteMemory(memory, { outputRoot });
-    expect(result.actionApiUrls).toContain('https://todo.example.com/api/todo/myApprove');
-    expect(result.actionApiUrls).not.toContain('https://todo.example.com/api/todo/info/21829007');
+    expect(result.actionApiUrls).toContain('https://tasks.example.com/api/todo/myApprove');
+    expect(result.actionApiUrls).not.toContain('https://tasks.example.com/api/todo/info/12345');
   });
 });

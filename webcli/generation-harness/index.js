@@ -8,6 +8,7 @@ export {
   GenerationBudgetExceededError,
   GenerationCancelledError,
   GenerationHarnessError,
+  GenerationPausedError,
   isAbortLikeError,
 } from './errors.js';
 export { GenerationRun } from './generation-run.js';
@@ -17,7 +18,7 @@ export { ToolRegistry, validateToolArguments } from './tool-registry.js';
 export { runToolLoop } from './tool-loop.js';
 export { createJsonActionModel, parseJsonActionResponse } from './json-action-model.js';
 export { validateAdapterDraft } from './static-validator.js';
-export { createAdapterGenerationWorkflow } from './adapter-generation-workflow.js';
+export { createAdapterGenerationWorkflow, createAdapterGenerationResumeWorkflow } from './adapter-generation-workflow.js';
 export { createAdapterPublisher } from './adapter-publisher.js';
 export {
   cleanupPreviewAdapter,
@@ -41,4 +42,7 @@ export {
   classifyApiCandidateRisk,
   createApiCandidateFingerprint,
   normalizeApiEndpoint,
+  normalizeRequestBodyEvidence,
 } from './source-evidence.js';
+export { runGenerationOrchestrator, resumeGenerationOrchestrator } from './generation-orchestrator.js';
+export { verifyGeneratedWriteTools } from './write-tool-verifier.js';

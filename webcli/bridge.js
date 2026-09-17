@@ -38,7 +38,8 @@ import {
 } from "./ai-analyzer.js";
 import { resolveToolCallTimeout } from "./tool-timeouts.js";
 import { GenerationWorkerController } from './generation-worker-controller.js';
-import { buildApiSourceEvidence } from './generation-harness/source-evidence.js';
+import { buildApiSourceEvidence, normalizeRequestBodyEvidence } from './generation-harness/source-evidence.js';
+import { buildPreviousFailureContext } from './generation-harness/failure-attribution.js';
 
 const execFileAsync = promisify(execFile);
 const WS_PORT = 3711;
@@ -475,6 +476,8 @@ export class WebSocketBridge extends EventEmitter {
     this._extensionWs = null;
     /** @type {string | null} Chrome扩展的版本号 */
     this._extensionVersion = null;
+    /** @type {string[]} Chrome扩展声明的增量能力 */
+    this._extensionCapabilities = [];
     /** @type {string | null} Chrome扩展连接的 Origin */
     this._extensionOrigin = null;
     this._generationWorkers = new GenerationWorkerController({
@@ -545,6 +548,9 @@ export class WebSocketBridge extends EventEmitter {
               const wasConnected = this._extensionWs !== null;
               this._extensionWs = ws;
               if (msg.version) this._extensionVersion = msg.version;
+              this._extensionCapabilities = Array.isArray(msg.capabilities)
+                ? [...new Set(msg.capabilities.filter((item) => typeof item === 'string' && item.trim()))]
+                : [];
               process.stderr.write(`[${ts()}] [Bridge] Identified Chrome extension connection #${connectionId}${msg.version ? ` (v${msg.version})` : ''}\n`);
               try {
                 ws.send(JSON.stringify({ type: 'extension_hello_ack', ts: Date.now() }));
@@ -553,7 +559,11 @@ export class WebSocketBridge extends EventEmitter {
               }
               // 如果这是扩展首次被识别（之前未连接），通知所有其他客户端
               if (!wasConnected) {
-                this._broadcast({ type: 'extension_connected', version: this._extensionVersion });
+                this._broadcast({
+                  type: 'extension_connected',
+                  version: this._extensionVersion,
+                  capabilities: this._extensionCapabilities,
+                });
               }
             }
 
@@ -588,13 +598,15 @@ export class WebSocketBridge extends EventEmitter {
               this._handleGenerateAdapterWithAI(msg, ws);
             } else if (msg.type === 'start_generation_run') {
               this._handleStartGenerationRun(msg, ws);
+            } else if (msg.type === 'resume_generation_run') {
+              this._handleResumeGenerationRun(msg, ws);
             } else if (msg.type === 'get_generation_run') {
               this._handleGetGenerationRun(msg, ws);
             } else if (msg.type === 'cancel_generation_run') {
               this._handleCancelGenerationRun(msg, ws);
             } else if (msg.type === 'publish_generation_run') {
               this._handlePublishGenerationRun(msg, ws);
-            } else if (msg.type === 'call_tool' || msg.type === 'get_active_tab' || msg.type === 'open_browser' || msg.type === 'capture_screenshot' || msg.type === 'reload_extension' || msg.type === 'refresh_registry' || msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow' || msg.type === 'get_trace_logs') {
+            } else if (msg.type === 'call_tool' || msg.type === 'get_active_tab' || msg.type === 'exploration_list_tabs' || msg.type === 'exploration_capture_passive' || msg.type === 'exploration_safe_actions_inspect' || msg.type === 'exploration_safe_probe_run' || msg.type === 'exploration_replay_candidate' || msg.type === 'exploration_action_capture_start' || msg.type === 'exploration_action_capture_stop' || msg.type === 'exploration_action_capture_get' || msg.type === 'exploration_action_capture_select' || msg.type === 'exploration_action_capture_clear' || msg.type === 'refresh_adapter_tabs' || msg.type === 'open_browser' || msg.type === 'capture_screenshot' || msg.type === 'reload_extension' || msg.type === 'refresh_registry' || msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow' || msg.type === 'get_trace_logs') {
               // 来自CLI客户端的请求，需要转发给Chrome扩展或处理系统命令
               this._handleClientRequest(msg);
             } else {
@@ -609,6 +621,7 @@ export class WebSocketBridge extends EventEmitter {
           this._clients.delete(ws);
           if (this._extensionWs === ws) {
             this._extensionWs = null;
+            this._extensionCapabilities = [];
             process.stderr.write(`[${ts()}] [Bridge] Chrome extension disconnected #${connectionId}\n`);
             this._broadcast({ type: 'extension_disconnected' });
           } else {
@@ -622,7 +635,11 @@ export class WebSocketBridge extends EventEmitter {
 
         // 如果是新连接，通知扩展连接状态
         if (this.isExtensionConnected()) {
-          ws.send(JSON.stringify({ type: 'extension_connected', version: this._extensionVersion }));
+          ws.send(JSON.stringify({
+            type: 'extension_connected',
+            version: this._extensionVersion,
+            capabilities: this._extensionCapabilities,
+          }));
         }
       });
 
@@ -750,7 +767,7 @@ export class WebSocketBridge extends EventEmitter {
       // CLI 查询扩展的 trace 日志，直接转发给扩展
       process.stderr.write(`[${ts()}] [Bridge] Forwarding get_trace_logs to extension: ${msg.traceID}\n`);
       this._send(msg);
-    } else if (msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow') {
+    } else if (msg.type === 'exploration_list_tabs' || msg.type === 'exploration_capture_passive' || msg.type === 'exploration_safe_actions_inspect' || msg.type === 'exploration_safe_probe_run' || msg.type === 'exploration_replay_candidate' || msg.type === 'exploration_action_capture_start' || msg.type === 'exploration_action_capture_stop' || msg.type === 'exploration_action_capture_get' || msg.type === 'exploration_action_capture_select' || msg.type === 'exploration_action_capture_clear' || msg.type === 'refresh_adapter_tabs' || msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow') {
       process.stderr.write(`[${ts()}] [Bridge] Forwarding ${msg.type} to Chrome extension\n`);
       this._send(msg);
     }
@@ -929,7 +946,13 @@ export class WebSocketBridge extends EventEmitter {
       const memoryForScaffold = semanticEnhancement?.analysisSource === "ai"
         ? { ...normalizedMemory, scaffoldSemanticHints: semanticEnhancement }
         : normalizedMemory;
-      const result = writeScaffoldFromSiteMemory(memoryForScaffold);
+      const readOnlyQuickMemory = {
+        ...memoryForScaffold,
+        actionApiCandidates: (Array.isArray(memoryForScaffold.actionApiCandidates) ? memoryForScaffold.actionApiCandidates : [])
+          .filter((candidate) => String(candidate?.method || 'GET').toUpperCase() === 'GET'),
+        actionCaptureHistory: [],
+      };
+      const result = writeScaffoldFromSiteMemory(readOnlyQuickMemory);
       clearGenerationHarnessProvenance(result.files?.manifest);
 
       process.stderr.write(`[${ts()}] [Bridge] Scaffold generated for ${normalizedMemory.siteKey}: ${result.adapterDir}\n`);
@@ -1089,15 +1112,36 @@ export class WebSocketBridge extends EventEmitter {
   // ─── AI adapter 生成 ───────────────────────────────────────────────────────
 
   async _handleStartGenerationRun(msg, ws) {
-    const { id, siteKey, memory, goal, budget, tabId } = msg;
+    const { id, siteKey, memory, goal, budget, tabId, modelConfig, previousRunId, mode } = msg;
     try {
       const normalizedMemory = normalizeSiteMemoryForScaffold(memory, siteKey);
-      const run = await this._generationWorkers.start({
-        siteKey: normalizedMemory.siteKey,
-        goal: String(goal || `为 ${normalizedMemory.siteKey} 生成可验证的 API Adapter`),
-        input: { memory: normalizedMemory, tabId: Number.isInteger(tabId) ? tabId : null },
-        budget: budget || {},
-      });
+      let previousFailure = null;
+      if (previousRunId) {
+        try {
+          const previous = this._generationWorkers.get(String(previousRunId));
+          if (previous
+            && previous.siteKey === normalizedMemory.siteKey
+            && ['failed', 'budget_exceeded'].includes(previous.status)) {
+            previousFailure = buildPreviousFailureContext(previous);
+          }
+        } catch (error) {
+          process.stderr.write(`[${ts()}] [Bridge] previous generation run unavailable: ${error.message}\n`);
+        }
+      }
+      const run = await this._generationWorkers.start(
+        {
+          siteKey: normalizedMemory.siteKey,
+          goal: String(goal || `为 ${normalizedMemory.siteKey} 生成可验证的 API Adapter`),
+          input: {
+            memory: normalizedMemory,
+            tabId: Number.isInteger(tabId) ? tabId : null,
+            ...(previousFailure ? { previousFailure } : {}),
+            ...(mode === 'agent' || mode === 'classic' ? { mode } : {}),
+          },
+          budget: budget || {},
+        },
+        modelConfig ? { modelConfig } : undefined,
+      );
       ws.send(JSON.stringify({
         type: 'start_generation_run_result',
         id,
@@ -1108,6 +1152,31 @@ export class WebSocketBridge extends EventEmitter {
       process.stderr.write(`[${ts()}] [Bridge] start_generation_run error: ${err.message}\n`);
       ws.send(JSON.stringify({
         type: 'start_generation_run_result',
+        id,
+        ok: false,
+        error: err.message,
+      }));
+    }
+  }
+
+  async _handleResumeGenerationRun(msg, ws) {
+    const { id, runId, answer, modelConfig } = msg;
+    try {
+      const run = await this._generationWorkers.resume(
+        String(runId || ''),
+        String(answer || ''),
+        modelConfig ? { modelConfig } : {},
+      );
+      ws.send(JSON.stringify({
+        type: 'resume_generation_run_result',
+        id,
+        ok: true,
+        run,
+      }));
+    } catch (err) {
+      process.stderr.write(`[${ts()}] [Bridge] resume_generation_run error: ${err.message}\n`);
+      ws.send(JSON.stringify({
+        type: 'resume_generation_run_result',
         id,
         ok: false,
         error: err.message,
@@ -1534,6 +1603,9 @@ function normalizeSiteMemoryForScaffold(memory, fallbackSiteKey = '') {
     search: normalizeSearchState(input.search),
     resultSignals: normalizeResultSignals(input.resultSignals),
     listApiCandidates,
+    apiAnalysisV2: input.apiAnalysisV2 && typeof input.apiAnalysisV2 === 'object'
+      ? input.apiAnalysisV2
+      : undefined,
     actionApiCandidates,
     actionCaptureHistory: normalizeActionApiCandidates(input.actionCaptureHistory, siteKey, now),
     actionEvidenceSummary: input.actionEvidenceSummary,
@@ -1559,6 +1631,21 @@ function listCandidateKey(candidate) {
   return url ? `${method.toUpperCase()} ${url}` : '';
 }
 
+function structuralApiUrl(input) {
+  const text = toNonEmptyString(input);
+  if (!text) return '';
+  try {
+    const url = new URL(text);
+    for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, ':value');
+    url.hash = '';
+    url.username = '';
+    url.password = '';
+    return url.toString();
+  } catch {
+    return text.split('#', 1)[0];
+  }
+}
+
 function pickRicherText(primary, secondary) {
   const left = toNonEmptyString(primary);
   const right = toNonEmptyString(secondary);
@@ -1577,23 +1664,29 @@ function normalizeListApiCandidates(candidates, fallbackCandidates = []) {
   const deduped = new Map();
 
   for (const candidate of usable) {
-    const url = toNonEmptyString(candidate?.url);
-    if (!url) continue;
+    const rawUrl = toNonEmptyString(candidate?.url);
+    if (!rawUrl) continue;
     const method = toNonEmptyString(candidate?.method) || 'GET';
-    const key = `${method.toUpperCase()} ${url}`;
+    const key = `${method.toUpperCase()} ${rawUrl}`;
     const fallback = fallbackByKey.get(key) || {};
+    const requestBodyPreview = firstNonEmptyString(
+      candidate?.requestBodyPreview,
+      candidate?.requestBody,
+      fallback?.requestBodyPreview,
+      fallback?.requestBody,
+    );
+    const requestEvidence = normalizeRequestBodyEvidence({
+      ...fallback,
+      ...candidate,
+      requestBodyPreview,
+    });
     const normalized = {
-      url,
+      url: structuralApiUrl(rawUrl),
       method,
       status: Number.isFinite(Number(candidate?.status ?? fallback?.status))
         ? Number(candidate?.status ?? fallback?.status)
         : undefined,
-      requestBodyPreview: firstNonEmptyString(
-        candidate?.requestBodyPreview,
-        candidate?.requestBody,
-        fallback?.requestBodyPreview,
-        fallback?.requestBody,
-      ),
+      requestEvidence,
       responsePreview: firstNonEmptyString(
         candidate?.responsePreview,
         candidate?.responseBodyPreview,
@@ -1608,13 +1701,19 @@ function normalizeListApiCandidates(candidates, fallbackCandidates = []) {
       ),
       responseHints: normalizeResponseHints(candidate?.responseHints || fallback?.responseHints),
       sourceSteps: normalizeStringArray(candidate?.sourceSteps, ['extension_memory']),
+      apiEvidence: candidate?.apiEvidence && typeof candidate.apiEvidence === 'object'
+        ? candidate.apiEvidence
+        : (fallback?.apiEvidence && typeof fallback.apiEvidence === 'object' ? fallback.apiEvidence : undefined),
     };
     if (deduped.has(key)) {
       const existing = deduped.get(key);
-      existing.requestBodyPreview = pickRicherText(existing.requestBodyPreview, normalized.requestBodyPreview);
+      if (existing.requestEvidence?.bodyOmitted && !normalized.requestEvidence?.bodyOmitted) {
+        existing.requestEvidence = normalized.requestEvidence;
+      }
       existing.responsePreview = pickRicherText(existing.responsePreview, normalized.responsePreview);
       existing.responseContentType ||= normalized.responseContentType;
       existing.responseHints ||= normalized.responseHints;
+      existing.apiEvidence ||= normalized.apiEvidence;
       existing.sourceSteps = normalizeStringArray([...existing.sourceSteps, ...normalized.sourceSteps]);
       continue;
     }
@@ -1634,17 +1733,18 @@ function normalizeActionApiCandidates(candidates, siteKey, fallbackCapturedAt) {
 
   return candidates
     .map((candidate, index) => {
-      const url = toNonEmptyString(candidate?.url);
-      if (!url) return null;
+      const rawUrl = toNonEmptyString(candidate?.url);
+      if (!rawUrl) return null;
       const actionName = toNonEmptyString(candidate?.actionName) || `captured_action_${index + 1}`;
       const toolName = toNonEmptyString(candidate?.toolName) || `${siteKey}.${actionName}_draft`;
+      const requestEvidence = normalizeRequestBodyEvidence(candidate);
       const normalized = {
         actionName,
         mode: toNonEmptyString(candidate?.mode) || 'intercept',
         toolName,
-        url,
+        url: structuralApiUrl(rawUrl),
         method: toNonEmptyString(candidate?.method) || 'GET',
-        requestBodyPreview: firstNonEmptyString(candidate?.requestBodyPreview, candidate?.requestBody),
+        requestEvidence,
         responsePreview: toNonEmptyString(candidate?.responsePreview),
         responseContentType: firstNonEmptyString(candidate?.responseContentType, candidate?.contentType),
         responseHints: normalizeResponseHints(candidate?.responseHints),
@@ -1658,6 +1758,9 @@ function normalizeActionApiCandidates(candidates, siteKey, fallbackCapturedAt) {
           : '',
         capturedAt: toNonEmptyString(candidate?.capturedAt) || fallbackCapturedAt,
         sourceWorkflowVersion: toNonEmptyString(candidate?.sourceWorkflowVersion),
+        apiEvidence: candidate?.apiEvidence && typeof candidate.apiEvidence === 'object'
+          ? candidate.apiEvidence
+          : undefined,
       };
       normalized.sourceEvidence = buildApiSourceEvidence(normalized, { sourceKind: 'action_capture' });
       return normalized;

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "bundleVersion": "2026-09-01.v1",
+  "upstream": {
+    "project": "OpenCLI",
+    "version": "1.8.6",
+    "license": "Apache-2.0",
+    "copyright": "Copyright 2025 jackwener"
+  },
+  "skills": [
+    {
+      "id": "usage",
+      "name": "weworker-api-usage",
+      "directory": "weworker-api-usage",
+      "loadWhen": "每次 API 自动探索取得第一批脱敏证据后首先加载，用于选择后续 Skill。",
+      "derivedFrom": ["skills/opencli-usage/SKILL.md", "skills/opencli-adapter-author/SKILL.md"]
+    },
+    {
+      "id": "discovery",
+      "name": "weworker-api-discovery",
+      "directory": "weworker-api-discovery",
+      "loadWhen": "首屏证据没有覆盖目标，或只有弱候选、噪声候选时加载。",
+      "derivedFrom": ["skills/opencli-adapter-author/references/site-recon.md", "skills/opencli-adapter-author/references/api-discovery.md"]
+    },
+    {
+      "id": "strategy-selection",
+      "name": "weworker-api-strategy-selection",
+      "directory": "weworker-api-strategy-selection",
+      "loadWhen": "已有候选端点与重放证据，需要确定 PUBLIC、COOKIE、页面态或拦截策略时加载。",
+      "derivedFrom": ["skills/opencli-adapter-author/SKILL.md", "skills/opencli-adapter-author/references/strategy-selection.md"]
+    },
+    {
+      "id": "action-probing",
+      "name": "weworker-api-safe-action-probing",
+      "directory": "weworker-api-safe-action-probing",
+      "loadWhen": "被动证据不足，且客户端返回搜索、筛选或分页候选动作时加载。",
+      "derivedFrom": ["skills/opencli-browser/SKILL.md", "skills/opencli-adapter-author/references/api-discovery.md"]
+    },
+    {
+      "id": "field-decoding",
+      "name": "weworker-api-field-decoding",
+      "directory": "weworker-api-field-decoding",
+      "loadWhen": "已有响应样本，需要解析参数、路径、类型、单位或未知字段时加载。",
+      "derivedFrom": ["skills/opencli-adapter-author/references/field-decode-playbook.md", "skills/opencli-adapter-author/references/output-design.md"]
+    },
+    {
+      "id": "verification",
+      "name": "weworker-api-verification",
+      "directory": "weworker-api-verification",
+      "loadWhen": "候选准备进入 Site Memory 或 Generation 前加载。",
+      "derivedFrom": ["skills/opencli-adapter-author/SKILL.md", "skills/opencli-adapter-author/references/success-rate-pitfalls.md"]
+    },
+    {
+      "id": "autofix",
+      "name": "weworker-api-autofix",
+      "directory": "weworker-api-autofix",
+      "loadWhen": "重放、Schema、参数或 Preview 出现可复现失败时加载。",
+      "derivedFrom": ["skills/opencli-autofix/SKILL.md"]
+    }
+  ]
+}

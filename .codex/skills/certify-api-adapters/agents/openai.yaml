@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Adapter Certification"
+  short_description: "Certify shipped API Adapters with reusable live evidence"
+  default_prompt: "Use $certify-api-adapters to certify the shipped Extension API Adapters and report release blockers."

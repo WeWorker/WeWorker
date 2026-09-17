@@ -900,6 +900,9 @@ export async function* streamChat(
     previousTaskFailed?: boolean;
     forceCompaction?: boolean;
     compactionOnly?: boolean;
+    systemPromptOverride?: string;
+    mcpServerOverride?: ReturnType<typeof _buildMcpServer>;
+    restrictBuiltInTools?: boolean;
   } = {},
 ): AsyncGenerator<SSEEvent> {
   // Claude Code discovers user Skills when each query starts. If a website was
@@ -914,6 +917,7 @@ export async function* streamChat(
     askUserSSECallback: opts.onAskUser ?? null,
     channelAskUserHandler: opts.channelAskUserHandler ?? null,
   })
+  const activeMcpServer = opts.mcpServerOverride || mcpServer
   const claudeSetup: { pathToClaudeCodeExecutable?: string; executable?: string; extraEnv?: Record<string, string> } = process.env.WEWORKER_PACKAGED
     ? getPackagedClaudeSetup()
     : { pathToClaudeCodeExecutable: findClaudeExecutable() }
@@ -947,7 +951,9 @@ export async function* streamChat(
   // skills so visitors get plain text answers instead of silent tool attempts.
   // Runtime skills are stored under the isolated CLAUDE_CONFIG_DIR/skills,
   // which Claude Code treats as the user skill source.
-  const settingSources: SettingSource[] = channelPermissionMode === 'qa_only' ? [] : ['user', 'project']
+  const settingSources: SettingSource[] = channelPermissionMode === 'qa_only' || opts.restrictBuiltInTools
+    ? []
+    : ['user', 'project']
   const includePartialMessages = channelPermissionMode === 'qa_only'
     ? false
     : opts.streaming !== false
@@ -972,11 +978,18 @@ export async function* streamChat(
   const nativeCommandTool = process.platform === 'win32' ? 'PowerShell' : 'Bash'
   const alternateCommandTool = process.platform === 'win32' ? 'Bash' : 'PowerShell'
   const baseDisallowed = ['Agent', 'WebFetch', 'Task', 'TaskOutput', 'CronList', 'CronCreate', 'CronDelete', 'AskUserQuestion', alternateCommandTool]
-  const disallowedTools = channelPermissionMode === 'qa_only'
+  let disallowedTools = channelPermissionMode === 'qa_only'
     ? [...baseDisallowed, nativeCommandTool, 'Skill', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'TodoWrite', 'WebSearch']
     : channelPermissionMode === 'no_bash'
       ? [...baseDisallowed, nativeCommandTool]
       : baseDisallowed
+  if (opts.restrictBuiltInTools) {
+    disallowedTools = [...new Set([
+      ...disallowedTools,
+      nativeCommandTool,
+      'Skill', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'TodoWrite', 'WebSearch',
+    ])]
+  }
   const filesystemSettings = buildAgentFilesystemSettings(getUserDirectory(), channelPermissionMode)
   const filesystemToolGuard = createUnifiedToolGuard(channelPermissionMode)
   const toolPolicy = createWeWorkerToolPolicy(channelPermissionMode)
@@ -990,7 +1003,7 @@ export async function* streamChat(
   }
 
   const memoryEnabled = opts.memoryEnabled !== false
-  const skillRoots = channelPermissionMode === 'qa_only' ? [] : [
+  const skillRoots = channelPermissionMode === 'qa_only' || opts.restrictBuiltInTools ? [] : [
     path.join(queryEnv.CLAUDE_CONFIG_DIR!, 'skills'),
     path.join(getUserDirectory(), '.claude', 'skills'),
   ]
@@ -1026,13 +1039,13 @@ export async function* streamChat(
       previousTaskFailed: opts.previousTaskFailed,
     })
     : ''
-  const systemPrompt = buildSystemPrompt({
-    channelPermissionMode,
-    zcfRole: opts.zcfRole,
-    zcfMode: opts.zcfMode,
-    zcfCustomRoles: settings.zcf_custom_roles,
-    memoryProtocol,
-  })
+  const systemPrompt = opts.systemPromptOverride ?? buildSystemPrompt({
+      channelPermissionMode,
+      zcfRole: opts.zcfRole,
+      zcfMode: opts.zcfMode,
+      zcfCustomRoles: settings.zcf_custom_roles,
+      memoryProtocol,
+    })
   const buildAssembly = (conversationPrompt: string, compaction?: ConversationCompactionSnapshot) => buildContextAssembly({
     systemPrompt,
     identityPrompt,
@@ -1041,9 +1054,9 @@ export async function* streamChat(
       `Claude Code 原生 ${nativeCommandTool}`,
       'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Skill', 'TodoWrite',
     ].join('\n'),
-    skillIndex: channelPermissionMode === 'qa_only' ? '' : buildEnabledSkillIndex(path.join(queryEnv.CLAUDE_CONFIG_DIR || '', 'skills')),
+    skillIndex: channelPermissionMode === 'qa_only' || opts.restrictBuiltInTools ? '' : buildEnabledSkillIndex(path.join(queryEnv.CLAUDE_CONFIG_DIR || '', 'skills')),
     loadedSkills,
-    mcpDynamicTools: getMcpToolDefinitionSummary(channelPermissionMode),
+    mcpDynamicTools: opts.mcpServerOverride ? '' : getMcpToolDefinitionSummary(channelPermissionMode),
     subagentDefinitions: '',
     recalledMemory: longTermMemory.recalled,
     contextLimit: settings.context_limit,
@@ -1224,7 +1237,7 @@ export async function* streamChat(
       abortController,
       model: settings.model,
       systemPrompt: contextAssembly.sdk.system_prompt,
-      mcpServers: { weworker: mcpServer },
+      mcpServers: { weworker: activeMcpServer },
       disallowedTools,
       canUseTool,
       settings: filesystemSettings,

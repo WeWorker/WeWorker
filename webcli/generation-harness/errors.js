@@ -25,6 +25,13 @@ export class GenerationCancelledError extends GenerationHarnessError {
   }
 }
 
+export class GenerationPausedError extends GenerationHarnessError {
+  constructor(question = '') {
+    super(`generation paused for user input: ${question}`, 'GENERATION_PAUSED_FOR_USER_INPUT', { question });
+    this.name = 'GenerationPausedError';
+  }
+}
+
 export function isAbortLikeError(error) {
   return error?.name === 'AbortError'
     || error instanceof GenerationCancelledError
