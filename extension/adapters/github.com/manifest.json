@@ -1,0 +1,61 @@
+{
+  "id": "github.com",
+  "name": "GitHub",
+  "description": "GitHub：检查登录状态、搜索仓库、查看仓库详情、查看 Issue/PR、Star 仓库",
+  "match": [
+    "github.com"
+  ],
+  "requires_auth": false,
+  "version": "1.0.0",
+  "author": "webmcp-team",
+  "homepage_url": "https://github.com/WeWorker/WeWorker/tree/main/extension/adapters/github.com",
+  "icon": "code",
+  "scenarios": [
+    {
+      "id": "search-repository",
+      "title": "搜索仓库",
+      "summary": "按关键词搜索 GitHub 仓库并整理结果",
+      "prompts": [
+        {
+          "text": "帮我在 GitHub 搜索${playwright}相关仓库"
+        }
+      ]
+    },
+    {
+      "id": "repository-detail",
+      "title": "查看仓库",
+      "summary": "读取仓库简介、README 摘要、语言和关键链接",
+      "prompts": [
+        {
+          "text": "帮我查看 GitHub 仓库${microsoft/playwright}的信息"
+        }
+      ]
+    },
+    {
+      "id": "issue-pr-detail",
+      "title": "查看 Issue/PR",
+      "summary": "读取 Issue 或 Pull Request 的标题、状态、正文摘要和评论摘要",
+      "prompts": [
+        {
+          "text": "帮我查看这个 GitHub Issue 的内容"
+        }
+      ]
+    },
+    {
+      "id": "star-repository",
+      "title": "Star 仓库",
+      "summary": "在用户确认后对指定 GitHub 仓库执行 Star"
+    }
+  ],
+  "detail_description": "GitHub Adapter 可以让 WeWorker 根据自然语言指令执行常用 GitHub 网页任务，例如检查登录状态、搜索仓库、读取仓库详情、查看 Issue 或 Pull Request 摘要，并在用户明确确认后对仓库执行 Star。该 Adapter 不读取、不保存、不返回 Cookie、Token、邮箱或其他敏感凭据。",
+  "test_prompts": [
+    "打开 GitHub，搜索 playwright 仓库，查看 microsoft/playwright 的仓库详情，再打开一个 Issue 查看摘要"
+  ],
+  "i18n": {
+    "zh": {
+      "name": "GitHub",
+      "description": "GitHub：检查登录状态、搜索仓库、查看仓库详情、查看 Issue/PR、Star 仓库"
+    }
+  },
+  "verified_on": "2026-09-17"
+}
