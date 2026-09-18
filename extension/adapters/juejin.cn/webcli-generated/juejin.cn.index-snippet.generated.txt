@@ -1,0 +1,3 @@
+// 把这一行加入 extension/adapters/juejin.cn/index.js 的 tools 数组中
+...(window.__webmcpGeneratedSupport?.["juejin.cn"]?.tools || []),
+
