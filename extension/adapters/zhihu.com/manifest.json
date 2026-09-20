@@ -1,0 +1,57 @@
+{
+  "id": "zhihu.com",
+  "name": "知乎",
+  "description": "知乎：登录检查、搜索问题/文章、打开详情、读取回答/评论、点赞/收藏",
+  "match": [
+    "zhihu.com"
+  ],
+  "requires_auth": false,
+  "version": "1.0.0",
+  "author": "WeWorker project",
+  "homepage_url": "https://www.zhihu.com",
+  "enabled": true,
+  "icon": "article",
+  "scenarios": [
+    {
+      "id": "login-status",
+      "title": "登录检查",
+      "summary": "检查当前知乎浏览器会话是否已登录"
+    },
+    {
+      "id": "search",
+      "title": "搜索问题/文章",
+      "summary": "按关键词搜索知乎问题和文章",
+      "prompts": [
+        {
+          "text": "帮我在知乎搜索${AI 工作流}相关问题和文章"
+        }
+      ]
+    },
+    {
+      "id": "content-detail",
+      "title": "打开问题或文章详情",
+      "summary": "打开或读取知乎问题/文章详情，提取标题、正文、回答摘要或文章内容"
+    },
+    {
+      "id": "comments",
+      "title": "读取回答/评论",
+      "summary": "读取当前问题、文章或回答下的可见回答和评论摘要"
+    },
+    {
+      "id": "like-favorite",
+      "title": "点赞或收藏",
+      "summary": "在用户明确确认后点赞或收藏当前问题、文章或回答"
+    }
+  ],
+  "detail_description": "知乎 Adapter 可以让 WeWorker 根据自然语言指令执行常用知乎网页任务，例如检查登录状态、搜索问题/文章、读取详情、回答和评论，并在用户明确确认后点赞或收藏。该 Adapter 不读取、不保存、不返回 Cookie、Token、账号凭据或其他敏感信息。",
+  "test_prompts": [
+    "打开知乎，搜索 AI 工作流，读取一个问题或文章的详情和评论摘要"
+  ],
+  "i18n": {
+    "zh": {
+      "name": "知乎",
+      "description": "知乎：登录检查、搜索问题/文章、打开详情、读取回答/评论、点赞/收藏"
+    }
+  },
+  "verified_on": "2026-09-20"
+}

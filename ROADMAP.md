@@ -36,8 +36,11 @@ WeWorker 已完成公开仓库初始化，当前在全新的 `develop` 基线上
 - 已迁入通用网站/API 探索与 Adapter 生成链路：Extension 提供被动网络采集、安全只读探测、capture-bound 回放与动作捕获，Backend 提供探索 Agent、Bridge RPC、站点记忆和生成编排，Renderer 提供任务恢复与生成工作台。
 - 已新增可复用的 API Adapter 认证框架与 Codex Skill，覆盖清单、mock 成功/失败、安全确认门、live 分类、增量指纹、多开发者本地 profile、打包校验和自包含 HTML 报告；开发者权限、登录态、fixture 与 live 证据不进入仓库。
 - 公开构建当前不包含 API/background Adapter，认证清单为 0 个 Adapter、0 个工具；框架可由外部 Profile Overlay 或内部仓库直接复用，不能据此宣称任何未打包 Adapter 已完成 live 认证。
+- 新增知乎公开 Extension Adapter，提供登录检查、问题/文章搜索、详情读取、回答/评论读取，以及确认后的点赞/收藏；已同步 Adapter 注册清单、默认构建 Profile、状态清单和更新日志，未提交账号、Cookie、Token、浏览器 Profile 或真实会话数据。
 
 ## 验证结果
+
+- 2026-09-20：知乎 Adapter 语法检查、`webcli adapter info zhihu.com`、公开配置一致性检查、配置校验器单测、Adapter 打包范围测试、Extension Adapter runtime/safety/success/failure/common-error smoke 通过；PR scope 检查和敏感信息扫描未发现问题。完整 WebCLI 本地单测仍受既有 #23 generation harness 断言问题影响；本机 `~/.weworker/adapters` 中历史 Bilibili 备份目录也会造成重复 Adapter 注册干扰，未将这些基线/环境问题混入知乎 Adapter PR。
 
 - 2026-09-20：同步上游 develop，解决 WebCLI package scripts 的唯一文本冲突：保留上游 `test:e2e:real --profile public` 及本分支 API 测试／认证命令。自动合并 Windows 文件锁重试与持久化脱敏改动后，草稿工作区、Worker、Harness、发布基线、捕获值隔离和认证清单六文件测试 32/32，公共配置一致性检查通过。上游带入的四个生成文件存在 EOF 空行提示，未改写这些既有产物；计划工具遗漏等已知功能问题仍未修复。
 
