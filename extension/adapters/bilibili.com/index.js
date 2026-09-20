@@ -45,7 +45,7 @@ function isSamePage(targetUrl) {
   try {
     const current = new URL(window.location.href);
     const target = new URL(targetUrl);
-    return current.origin === target.origin && current.pathname.replace(/\/$/, '') === target.pathname.replace(/\/$/, '') && current.search === target.search;
+    return current.origin === target.origin && current.pathname.replace(/\/$/, '') === target.pathname.replace(/\/$/, '');
   } catch {
     return false;
   }
@@ -103,17 +103,99 @@ function videoIdFromUrl(url = window.location.href) {
   }
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      accept: 'application/json, text/plain, */*',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`请求失败：HTTP ${response.status}`);
+  }
+  const json = await response.json();
+  if (json && typeof json === 'object' && json.code !== undefined && json.code !== 0) {
+    throw new Error(json.message || `接口返回错误：${json.code}`);
+  }
+  return json;
+}
+
+function getCookieValue(name) {
+  const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+async function postBilibiliForm(url, params) {
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      accept: 'application/json, text/plain, */*',
+      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    },
+    body: new URLSearchParams(params).toString(),
+  });
+  if (!response.ok) {
+    throw new Error(`请求失败：HTTP ${response.status}`);
+  }
+  const json = await response.json();
+  if (json && typeof json === 'object' && json.code !== undefined && json.code !== 0) {
+    throw new Error(json.message || `接口返回错误：${json.code}`);
+  }
+  return json;
+}
+
+async function getVideoAid(videoId = videoIdFromUrl()) {
+  if (/^av\d+$/i.test(videoId)) return videoId.replace(/^av/i, '');
+  if (!videoId) return '';
+  const viewJson = await fetchJson(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(videoId)}`);
+  return viewJson?.data?.aid ? String(viewJson.data.aid) : '';
+}
+
+async function getCurrentUserMid() {
+  const state = await checkLoginStatus();
+  const match = String(state.profile_url || '').match(/space\.bilibili\.com\/(\d+)/);
+  return match ? match[1] : '';
+}
+
+async function getFavoriteFoldersFromApi() {
+  const mid = await getCurrentUserMid();
+  if (!mid) return [];
+  const json = await fetchJson(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${encodeURIComponent(mid)}`);
+  const list = Array.isArray(json?.data?.list) ? json.data.list : [];
+  return list.map((folder) => ({
+    id: folder?.id ? String(folder.id) : '',
+    title: normalizedText(folder?.title || folder?.name || ''),
+  })).filter((folder) => folder.id && folder.title);
+}
+
 // ─── Login / page state ──────────────────────────────────────────────────────
 
 async function checkLoginStatus() {
-  const avatar = document.querySelector('.header-avatar-wrap img, .bili-avatar img, a[href*="space.bilibili.com"] img, .right-entry__outside .avatar');
-  const loginEntry = Array.from(document.querySelectorAll('a, button, span, div'))
+  const headerRoots = Array.from(document.querySelectorAll([
+    '.bili-header',
+    '.bili-header__bar',
+    '.international-header',
+    '.right-entry',
+    '.right-entry__outside',
+    '.header-entry-mini',
+    'header',
+  ].join(',')));
+  const headerScope = headerRoots.length ? headerRoots : [document];
+  const findInHeader = (selector) => headerScope
+    .map((root) => root.querySelector(selector))
+    .find(Boolean);
+  const findAllInHeader = (selector) => headerScope.flatMap((root) => Array.from(root.querySelectorAll(selector)));
+
+  const avatar = findInHeader('.header-avatar-wrap img, .bili-avatar img, a[href*="space.bilibili.com"] img, .avatar img, .avatar');
+  const loginEntry = findAllInHeader('a, button, span, div')
     .find((el) => /^登录$/.test(normalizedText(el.innerText || el.textContent || '')));
-  const spaceLink = Array.from(document.querySelectorAll('a[href*="space.bilibili.com/"]'))
+  const spaceLink = findAllInHeader('a[href*="space.bilibili.com/"]')
     .find((link) => !/\/0(?:\?|$|\/)/.test(link.getAttribute('href') || ''));
   const username = normalizedText(avatar?.getAttribute('alt') || document.querySelector('.nickname, .user-name, .header-entry-mini .name')?.textContent || '');
   const profileUrl = absoluteUrl(spaceLink?.getAttribute('href') || '');
-  const loggedIn = Boolean(avatar || spaceLink) && !Boolean(loginEntry && !avatar && !spaceLink);
+  const loggedIn = Boolean(avatar || spaceLink) && !Boolean(loginEntry && !avatar);
 
   return {
     logged_in: loggedIn,
@@ -213,6 +295,66 @@ async function openVideoDetail({ video_url = '' } = {}) {
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
+const COMMENT_ROOT_SELECTOR = '.reply-item, .root-reply-container, .list-item.reply-wrap, .comment-item, bili-comment-thread-renderer';
+
+function collectVisibleComments(limit) {
+  const roots = Array.from(document.querySelectorAll(COMMENT_ROOT_SELECTOR));
+  return roots.map((root) => {
+    const author = normalizedText(root.querySelector?.('.user-name, .sub-user-name, .name, a[href*="space.bilibili.com"]')?.textContent || '');
+    const content = normalizedText(root.querySelector?.('.reply-content, .root-reply, .text, .content, bili-rich-text')?.textContent || root.textContent || '').slice(0, 800);
+    const time = normalizedText(root.querySelector?.('.reply-time, .time, .sub-reply-time')?.textContent || '');
+    const like = normalizedText(root.querySelector?.('.reply-like, .like, .like-count')?.textContent || '');
+    return { author, content, time, like };
+  }).filter((item) => item.content).slice(0, limit);
+}
+
+async function waitForComments(limit, timeoutMs = 8000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const comments = collectVisibleComments(limit);
+    if (comments.length) return comments;
+    await sleep(500);
+  }
+  return collectVisibleComments(limit);
+}
+
+async function readCommentsFromPublicApi(limit) {
+  const videoId = videoIdFromUrl();
+  if (!videoId) return [];
+
+  const aid = await getVideoAid(videoId);
+  if (!aid) return [];
+
+  const replyJson = await fetchJson(`https://api.bilibili.com/x/v2/reply/main?type=1&oid=${encodeURIComponent(aid)}&next=0&mode=3`);
+  const replies = Array.isArray(replyJson?.data?.replies) ? replyJson.data.replies : [];
+  return replies.slice(0, limit).map((reply) => ({
+    author: normalizedText(reply?.member?.uname || ''),
+    content: normalizedText(reply?.content?.message || '').slice(0, 800),
+    time: reply?.ctime ? new Date(Number(reply.ctime) * 1000).toISOString() : '',
+    like: reply?.like === undefined ? '' : String(reply.like),
+    source: 'public_api',
+  })).filter((item) => item.content);
+}
+
+function scrollToCommentArea() {
+  const target = document.querySelector([
+    '#comment',
+    '.reply-wrap',
+    '.reply-container',
+    '.comment-container',
+    'bili-comments',
+    COMMENT_ROOT_SELECTOR,
+  ].join(','));
+
+  if (target?.scrollIntoView) {
+    target.scrollIntoView({ block: 'center' });
+    return true;
+  }
+
+  window.scrollTo({ top: Math.max(0, document.body.scrollHeight * 0.65), behavior: 'auto' });
+  return false;
+}
+
 async function readComments({ limit = 10 } = {}) {
   if (!isBilibiliVideoPath()) {
     return {
@@ -223,20 +365,39 @@ async function readComments({ limit = 10 } = {}) {
   }
 
   const safeLimit = Math.max(1, Math.min(Number(limit) || 10, 20));
-  const roots = Array.from(document.querySelectorAll('.reply-item, .root-reply-container, .list-item.reply-wrap, .comment-item, bili-comment-thread-renderer'));
-  const comments = roots.map((root) => {
-    const author = normalizedText(root.querySelector?.('.user-name, .sub-user-name, .name, a[href*="space.bilibili.com"]')?.textContent || '');
-    const content = normalizedText(root.querySelector?.('.reply-content, .root-reply, .text, .content, bili-rich-text')?.textContent || root.textContent || '').slice(0, 800);
-    const time = normalizedText(root.querySelector?.('.reply-time, .time, .sub-reply-time')?.textContent || '');
-    const like = normalizedText(root.querySelector?.('.reply-like, .like, .like-count')?.textContent || '');
-    return { author, content, time, like };
-  }).filter((item) => item.content).slice(0, safeLimit);
+  let comments = collectVisibleComments(safeLimit);
+  let auto_scrolled = false;
+  let source = comments.length ? 'dom' : '';
+  if (!comments.length) {
+    auto_scrolled = scrollToCommentArea();
+    comments = await waitForComments(safeLimit);
+    if (comments.length) source = 'dom_after_scroll';
+  }
+  if (!comments.length) {
+    try {
+      comments = await readCommentsFromPublicApi(safeLimit);
+      if (comments.length) source = 'public_api';
+    } catch (err) {
+      return {
+        video_id: videoIdFromUrl(),
+        count: 0,
+        comments: [],
+        auto_scrolled,
+        source: 'none',
+        error: err?.message || String(err),
+        message: '当前页面未读取到评论，公开评论接口也不可用。',
+        url: window.location.href,
+      };
+    }
+  }
 
   return {
     video_id: videoIdFromUrl(),
     count: comments.length,
     comments,
-    message: comments.length ? '已读取当前页面可见评论。' : '当前页面未读取到可见评论；可滚动到评论区并等待加载后再次调用。',
+    auto_scrolled,
+    source: source || 'none',
+    message: comments.length ? '已读取当前页面评论。' : '当前页面未读取到评论；可能评论区尚未加载、评论关闭或页面结构已变化。',
     url: window.location.href,
   };
 }
@@ -295,16 +456,63 @@ function findFavoriteSubmitButton() {
     .find((el) => /确定|完成|收藏|提交|确认/.test(normalizedText(el.innerText || el.textContent || el.getAttribute('title') || ''))) || null;
 }
 
+function listFavoriteFolders() {
+  const candidates = Array.from(document.querySelectorAll('label, li, .fav-item, .collection-item, .group-list-item, .favlist-item'));
+  const seen = new Set();
+  return candidates.map((el) => {
+    const text = normalizedText(el.innerText || el.textContent || '');
+    return { el, text };
+  }).filter((item) => {
+    if (!item.text || /确定|完成|提交|取消|新建/.test(item.text)) return false;
+    if (seen.has(item.text)) return false;
+    seen.add(item.text);
+    return true;
+  });
+}
+
 function findFavoriteFolder(folderName) {
   const wanted = normalizedText(folderName);
-  if (!wanted) return null;
-  return Array.from(document.querySelectorAll('label, li, .fav-item, .collection-item, .group-list-item, .favlist-item'))
-    .find((el) => normalizedText(el.innerText || el.textContent || '').includes(wanted)) || null;
+  const folders = listFavoriteFolders();
+  if (!wanted) return folders[0]?.el || null;
+  return folders.find((item) => item.text.includes(wanted))?.el || null;
 }
 
 function hasFavoriteDialog() {
   return Boolean(document.querySelector('.favorite-dialog, .fav-box, .collection-dialog, .bili-dialog, .van-popover, .bili-modal') ||
     Array.from(document.querySelectorAll('button, .btn')).some((el) => /确定|完成/.test(normalizedText(el.innerText || el.textContent || ''))));
+}
+
+async function favoriteVideoViaApi({ folder_name = '' } = {}) {
+  const csrf = getCookieValue('bili_jct');
+  if (!csrf) {
+    throw new Error('未找到 B 站 csrf Cookie，请确认当前页面已登录。');
+  }
+  const aid = await getVideoAid();
+  if (!aid) {
+    throw new Error('未能解析当前视频 aid。');
+  }
+  const folders = await getFavoriteFoldersFromApi();
+  if (!folders.length) {
+    throw new Error('未读取到可用收藏夹。');
+  }
+  const wanted = normalizedText(folder_name);
+  const folder = wanted ? folders.find((item) => item.title.includes(wanted)) : folders[0];
+  if (!folder) {
+    const err = new Error(`未找到名为“${folder_name}”的收藏夹。`);
+    err.available_folders = folders.map((item) => item.title);
+    throw err;
+  }
+  await postBilibiliForm('https://api.bilibili.com/x/v3/fav/resource/deal', {
+    rid: aid,
+    type: '2',
+    add_media_ids: folder.id,
+    del_media_ids: '',
+    csrf,
+  });
+  return {
+    folder_name: folder.title,
+    folder_id: folder.id,
+  };
 }
 
 async function favoriteVideo({ video_url = '', folder_name = '', confirm = false } = {}) {
@@ -346,12 +554,14 @@ async function favoriteVideo({ video_url = '', folder_name = '', confirm = false
   await sleep(1000);
 
   if (hasFavoriteDialog()) {
+    const availableFolders = listFavoriteFolders().map((item) => item.text);
     const folder = findFavoriteFolder(folder_name);
     if (!folder) {
       return {
         changed: false,
         favorited: false,
         needs_folder_selection: true,
+        available_folders: availableFolders,
         message: folder_name ? `未找到名为“${folder_name}”的收藏夹。请确认收藏夹名称后再次调用。` : '页面要求选择收藏夹；请传入 folder_name 或手动选择收藏夹后确认。',
         url: window.location.href,
       };
@@ -360,13 +570,27 @@ async function favoriteVideo({ video_url = '', folder_name = '', confirm = false
     await sleep(500);
     const submit = findFavoriteSubmitButton();
     if (!submit) {
+      try {
+        const apiResult = await favoriteVideoViaApi({ folder_name });
+        return {
+          changed: true,
+          favorited: true,
+          method: 'api_fallback',
+          ...apiResult,
+          message: `已通过接口收藏到“${apiResult.folder_name}”。`,
+          url: window.location.href,
+        };
+      } catch (err) {
       return {
         changed: false,
         favorited: false,
         needs_manual_submit: true,
+          available_folders: err?.available_folders || availableFolders,
+          error: err?.message || String(err),
         message: '已尝试选择收藏夹，但未找到确认按钮；请手动确认收藏。',
         url: window.location.href,
       };
+      }
     }
     submit.click();
     await sleep(1200);
@@ -374,6 +598,19 @@ async function favoriteVideo({ video_url = '', folder_name = '', confirm = false
 
   const after = findControl([/收藏|favorite|fav/i, /video-fav/i]);
   const favorited = controlLooksActive(after || control);
+  if (!favorited) {
+    try {
+      const apiResult = await favoriteVideoViaApi({ folder_name });
+      return {
+        changed: true,
+        favorited: true,
+        method: 'api_fallback',
+        ...apiResult,
+        message: `已通过接口收藏到“${apiResult.folder_name}”。`,
+        url: window.location.href,
+      };
+    } catch { }
+  }
   return {
     changed: favorited,
     favorited,
