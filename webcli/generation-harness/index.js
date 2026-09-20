@@ -43,6 +43,7 @@ export {
   createApiCandidateFingerprint,
   normalizeApiEndpoint,
   normalizeRequestBodyEvidence,
+  normalizeResponseBodyEvidence,
 } from './source-evidence.js';
 export { runGenerationOrchestrator, resumeGenerationOrchestrator } from './generation-orchestrator.js';
 export { verifyGeneratedWriteTools } from './write-tool-verifier.js';

@@ -43,6 +43,7 @@ afterEach(() => {
       store.sites['preserve.example.test'].actionApiCandidates = [{
         actionName: '提交申请', method: 'POST', url: 'https://preserve.example.test/api/submit',
         toolName: 'preserve.example.test.submit_draft', capturedAt: '2026-09-15T02:00:00.000Z',
+        responsePreview: '{"data":{"userId":"fixture-user-001","name":"private-user"}}',
       }]
       store.sites['preserve.example.test'].actionCaptureHistory = store.sites['preserve.example.test'].actionApiCandidates
       fs.writeFileSync(process.env.WEWORKER_SITE_MEMORY_FILE, JSON.stringify(store))
@@ -53,6 +54,9 @@ afterEach(() => {
       const persisted = getSiteMemory('preserve.example.test')
       expect(persisted?.actionApiCandidates?.map((candidate) => candidate.toolName))
         .toEqual(['preserve.example.test.submit_draft'])
+      expect(persisted?.actionApiCandidates?.[0]?.responsePreview).toBeUndefined()
+      expect(JSON.stringify(persisted)).not.toContain('fixture-user-001')
+      expect(JSON.stringify(persisted)).not.toContain('private-user')
     } finally {
       if (previousFile === undefined) delete process.env.WEWORKER_SITE_MEMORY_FILE
       else process.env.WEWORKER_SITE_MEMORY_FILE = previousFile
@@ -132,7 +136,7 @@ describe('saveSiteMemoryFromActionCapture', () => {
     expect(saved?.actionEvidenceSummary?.toolSummaries[0]?.selectedUrl).toBe('https://rooms.example.com/api/booking/create')
   })
 
-  it('prefers the business-relevant read request for filter-style captures and preserves response preview', () => {
+  it('prefers the business-relevant read request and preserves response structure without values', () => {
     const saved = saveSiteMemoryFromActionCapture({
       site: 'rooms.example.com',
       actionName: 'filter_rooms',
@@ -163,7 +167,8 @@ describe('saveSiteMemoryFromActionCapture', () => {
     expect(saved?.actionApiCandidates[0]?.actionName).toBe('filter_rooms')
     expect(saved?.actionApiCandidates[0]?.toolName).toBe('rooms.example.com.filter_rooms_draft')
     expect(saved?.actionApiCandidates[0]?.url).toContain('/api/rooms?')
-    expect(saved?.actionApiCandidates[0]?.responsePreview).toContain('"roomcode":"1106"')
+    expect(saved?.actionApiCandidates[0]?.responsePreview).toBeUndefined()
+    expect(JSON.stringify(saved)).not.toContain('"roomcode":"1106"')
     expect(saved?.actionApiCandidates[0]?.responseContentType).toBe('application/json')
     expect(saved?.actionApiCandidates[0]?.responseHints?.listPath).toBe('data.list')
     expect(saved?.actionApiCandidates[0]?.responseHints?.itemKeys).toContain('id')
@@ -171,7 +176,7 @@ describe('saveSiteMemoryFromActionCapture', () => {
     expect(saved?.actionApiCandidates[0]?.responseHints?.preferredIdKey).toBe('id')
     expect(saved?.actionApiCandidates[0]?.responseHints?.preferredDisplayKey).toBe('roomcode')
     expect(saved?.actionCaptureHistory).toHaveLength(1)
-    expect(saved?.actionEvidenceSummary?.toolSummaries[0]?.selectedSignals).toContain('has_response_preview')
+    expect(saved?.actionEvidenceSummary?.toolSummaries[0]?.selectedSignals).toContain('has_response_shape')
     expect(saved?.actionEvidenceSummary?.toolSummaries[0]?.selectedSignals).toContain('json_response')
   })
 
@@ -244,8 +249,8 @@ describe('saveSiteMemoryFromActionCapture', () => {
     expect(second?.actionCaptureHistory).toHaveLength(1)
     expect(second?.actionApiCandidates[0]?.responseHints?.preferredAvailabilityKey).toBe('meetingInfoMaps')
     expect(second?.actionApiCandidates[0]?.responseHints?.availabilityLikeKeys).toContain('meetingInfoMaps')
-    expect(second?.actionApiCandidates[0]?.responsePreview).toContain('"meetingInfoMaps"')
-    expect(second?.actionCaptureHistory?.[0]?.responsePreview).toContain('"meetingInfoMaps"')
+    expect(second?.actionApiCandidates[0]?.responsePreview).toBeUndefined()
+    expect(second?.actionCaptureHistory?.[0]?.responsePreview).toBeUndefined()
     expect(second?.actionEvidenceSummary?.historyCount).toBe(1)
     expect(second?.actionEvidenceSummary?.toolSummaries[0]?.selectedSignals).toContain('response_hints:14')
     expect(second?.actionEvidenceSummary?.toolSummaries[0]?.candidates).toHaveLength(1)

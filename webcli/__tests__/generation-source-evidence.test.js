@@ -3,6 +3,7 @@ import {
   buildApiSourceEvidence,
   createApiCandidateFingerprint,
   normalizeRequestBodyEvidence,
+  normalizeResponseBodyEvidence,
 } from '../generation-harness/index.js';
 
 describe('generation source evidence', () => {
@@ -113,5 +114,41 @@ describe('generation source evidence', () => {
       bodyKeys: [],
       requestEvidence: { bodyKind: 'opaque', bodyOmitted: true, bodyTruncated: true },
     });
+  });
+
+  it('keeps response field/type shape without captured scalar values', () => {
+    const evidence = normalizeResponseBodyEvidence({
+      responsePreview: JSON.stringify({
+        data: {
+          user: { id: 'fixture-user-001', name: 'private-user' },
+          articles: [{ articleId: 'fixture-article-001', title: 'private-title' }],
+          msToken: 'private-token',
+        },
+      }),
+    });
+
+    expect(evidence).toMatchObject({
+      version: 'response-evidence-v1',
+      bodyKind: 'json',
+      bodyShape: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'object',
+            properties: {
+              user: { type: 'object' },
+              articles: { type: 'array' },
+              msToken: { type: 'string' },
+            },
+          },
+        },
+      },
+    });
+    const serialized = JSON.stringify(evidence);
+    expect(serialized).not.toContain('fixture-user-001');
+    expect(serialized).not.toContain('private-user');
+    expect(serialized).not.toContain('fixture-article-001');
+    expect(serialized).not.toContain('private-title');
+    expect(serialized).not.toContain('private-token');
   });
 });

@@ -10,6 +10,7 @@ import { reviseAdapterDraft } from './draft-revision.js';
 import { normalizePreviousFailureInput } from './failure-attribution.js';
 import { runGenerationOrchestrator, resumeGenerationOrchestrator } from './generation-orchestrator.js';
 import { writeGenerationHarnessProvenance } from './provenance.js';
+import { normalizeRequestBodyEvidence, normalizeResponseBodyEvidence } from './source-evidence.js';
 
 function summarizeCandidate(candidate, index) {
   let pathname = '';
@@ -29,16 +30,103 @@ function summarizeCandidate(candidate, index) {
     actionName: candidate?.actionName || '',
     toolName: candidate?.toolName || '',
     status: candidate?.status,
-    responsePreview: String(candidate?.responsePreview || '').slice(0, 800),
+    responseEvidence: normalizeResponseBodyEvidence(candidate),
     requestEvidence: candidate?.requestEvidence || candidate?.sourceEvidence?.requestEvidence || null,
-    sourceEvidence: candidate?.sourceEvidence || null,
-    responseHints: candidate?.responseHints || null,
+    sourceEvidence: sanitizeSourceEvidence(candidate?.sourceEvidence),
+    responseHints: sanitizeResponseHints(candidate?.responseHints),
     evidenceId: candidate?.apiEvidence?.evidenceId || '',
     verdict: candidate?.apiEvidence?.verdict || '',
     score: candidate?.apiEvidence?.score,
     risk: candidate?.apiEvidence?.risk || '',
     strategyNote: candidate?.apiEvidence?.strategyNote || null,
-    verificationFixture: candidate?.apiEvidence?.verificationFixture || null,
+    verificationFixture: sanitizeVerificationFixture(candidate?.apiEvidence?.verificationFixture),
+  };
+}
+
+function sanitizeSourceEvidence(evidence) {
+  if (!evidence || typeof evidence !== 'object') return null;
+  return {
+    version: String(evidence.version || ''),
+    fingerprint: String(evidence.fingerprint || ''),
+    sourceKind: String(evidence.sourceKind || ''),
+    method: String(evidence.method || 'GET').toUpperCase(),
+    endpoint: String(evidence.endpoint || ''),
+    queryKeys: (Array.isArray(evidence.queryKeys) ? evidence.queryKeys : []).map(String).slice(0, 30),
+    bodyKeys: (Array.isArray(evidence.bodyKeys) ? evidence.bodyKeys : []).map(String).slice(0, 50),
+    requestEvidence: normalizeRequestBodyEvidence({ requestEvidence: evidence.requestEvidence }),
+    risk: evidence.risk || null,
+  };
+}
+
+function sanitizeResponseHints(hints) {
+  if (!hints || typeof hints !== 'object') return null;
+  const strings = (value, limit = 80) => (Array.isArray(value) ? value : []).map(String).slice(0, limit);
+  return {
+    topLevelKeys: strings(hints.topLevelKeys, 40),
+    listPath: String(hints.listPath || ''),
+    itemKeys: strings(hints.itemKeys),
+    idLikeKeys: strings(hints.idLikeKeys, 30),
+    displayLikeKeys: strings(hints.displayLikeKeys, 30),
+    availabilityLikeKeys: strings(hints.availabilityLikeKeys, 30),
+    preferredIdKey: String(hints.preferredIdKey || ''),
+    preferredDisplayKey: String(hints.preferredDisplayKey || ''),
+    preferredAvailabilityKey: String(hints.preferredAvailabilityKey || ''),
+  };
+}
+
+function sanitizeVerificationFixture(fixture) {
+  if (!fixture || typeof fixture !== 'object') return null;
+  const strings = (value, limit = 30) => (Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, limit);
+  const rowCount = fixture.rowCount && typeof fixture.rowCount === 'object'
+    ? {
+        min: Number(fixture.rowCount.min || 0),
+        max: Number(fixture.rowCount.max || 0),
+      }
+    : null;
+  return {
+    source: fixture.source === 'captured_response' ? 'captured_response' : 'structural_evidence',
+    status: (Array.isArray(fixture.status) ? fixture.status : []).map(Number).filter(Number.isFinite).slice(0, 10),
+    contentTypes: strings(fixture.contentTypes, 10),
+    rowCount,
+    requiredPaths: strings(fixture.requiredPaths),
+    types: Object.fromEntries(Object.entries(fixture.types || {}).slice(0, 50).map(([key, value]) => [key, String(value)])),
+    notEmpty: strings(fixture.notEmpty),
+    mustNotContain: strings(fixture.mustNotContain),
+    mustBeTruthy: strings(fixture.mustBeTruthy),
+  };
+}
+
+function summarizeApiAnalysis(analysis) {
+  if (!analysis || analysis.schemaVersion !== 2) return null;
+  return {
+    schemaVersion: 2,
+    likelyDataCount: Number(analysis.likelyDataCount || 0),
+    maybeDataCount: Number(analysis.maybeDataCount || 0),
+    noiseCount: Number(analysis.noiseCount || 0),
+    blockedCount: Number(analysis.blockedCount || 0),
+    recommendedNextProbe: String(analysis.recommendedNextProbe || ''),
+    candidates: (Array.isArray(analysis.candidates) ? analysis.candidates : []).slice(0, 30).map((candidate) => ({
+      evidenceId: String(candidate?.evidenceId || ''),
+      endpointFamily: String(candidate?.endpointFamily || ''),
+      method: String(candidate?.method || 'GET').toUpperCase(),
+      origin: String(candidate?.origin || ''),
+      path: String(candidate?.path || ''),
+      queryKeys: (Array.isArray(candidate?.queryKeys) ? candidate.queryKeys : []).map(String).slice(0, 30),
+      status: candidate?.status ?? null,
+      contentType: String(candidate?.contentType || ''),
+      sourceSteps: (Array.isArray(candidate?.sourceSteps) ? candidate.sourceSteps : []).map(String).slice(0, 20),
+      requestShape: candidate?.requestShape || null,
+      responseShape: candidate?.responseShape || null,
+      verdict: String(candidate?.verdict || ''),
+      score: Number(candidate?.score || 0),
+      signals: (Array.isArray(candidate?.signals) ? candidate.signals : []).map(String).slice(0, 30),
+      risk: String(candidate?.risk || ''),
+      strategyNote: candidate?.strategyNote || null,
+      verificationFixture: sanitizeVerificationFixture(candidate?.verificationFixture),
+    })),
   };
 }
 
@@ -59,7 +147,7 @@ export function buildContextSections(memory, previousFailure = null) {
     },
     list_apis: listCandidates.slice(0, 30).map(summarizeCandidate),
     action_apis: actionCandidates.slice(0, 30).map(summarizeCandidate),
-    api_analysis: memory.apiAnalysisV2 || null,
+    api_analysis: summarizeApiAnalysis(memory.apiAnalysisV2),
     previous_failure: previousFailure,
   };
 }

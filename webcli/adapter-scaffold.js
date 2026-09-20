@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveAdaptersDir } from './paths.js';
-import { buildApiSourceEvidence, normalizeRequestBodyEvidence } from './generation-harness/source-evidence.js';
+import {
+    buildApiSourceEvidence,
+    normalizeRequestBodyEvidence,
+    normalizeResponseBodyEvidence
+} from './generation-harness/source-evidence.js';
 const log = {
     info () {}
 };
@@ -1244,11 +1248,24 @@ function structuralScaffoldUrl(input) {
 function sanitizeScaffoldCandidate(candidate) {
     if (!candidate || typeof candidate !== 'object') return candidate;
     const requestEvidence = normalizeRequestBodyEvidence(candidate);
-    const { requestBodyPreview, requestBody, requestHeaders, ...safeCandidate } = candidate;
+    const responseEvidence = normalizeResponseBodyEvidence(candidate);
+    const responseHints = normalizeKnowledgeResponseHints(candidate.responseHints)
+        || summarizeKnowledgeResponsePreview(candidate.responsePreview ?? candidate.responseBodyPreview ?? candidate.responseBody);
+    const {
+        requestBodyPreview,
+        requestBody,
+        requestHeaders,
+        responsePreview,
+        responseBodyPreview,
+        responseBody,
+        ...safeCandidate
+    } = candidate;
     return {
         ...safeCandidate,
         url: structuralScaffoldUrl(candidate.url),
         requestEvidence,
+        responseEvidence,
+        responseHints,
         sourceEvidence: buildApiSourceEvidence({ ...candidate, requestEvidence }, {
             sourceKind: candidate?.actionName ? 'action_capture' : 'passive_list'
         })
@@ -1258,10 +1275,20 @@ function sanitizeScaffoldCandidate(candidate) {
 function sanitizeScaffoldMemory(memory) {
     return {
         ...(memory || {}),
+        siteOrigin: structuralScaffoldUrl(memory?.siteOrigin),
+        canonicalEntryUrl: structuralScaffoldUrl(memory?.canonicalEntryUrl),
+        canonicalResultUrl: structuralScaffoldUrl(memory?.canonicalResultUrl),
+        lastSourceUrl: structuralScaffoldUrl(memory?.lastSourceUrl),
+        verdictReason: structuralizeUrlsInText(memory?.verdictReason),
+        reason: structuralizeUrlsInText(memory?.reason),
         listApiCandidates: (Array.isArray(memory?.listApiCandidates) ? memory.listApiCandidates : []).map(sanitizeScaffoldCandidate),
         actionApiCandidates: (Array.isArray(memory?.actionApiCandidates) ? memory.actionApiCandidates : []).map(sanitizeScaffoldCandidate),
         actionCaptureHistory: (Array.isArray(memory?.actionCaptureHistory) ? memory.actionCaptureHistory : []).map(sanitizeScaffoldCandidate)
     };
+}
+
+function structuralizeUrlsInText(value) {
+    return safeString(value).replace(/https?:\/\/[^\s，。；）)]+/g, (url)=>structuralScaffoldUrl(url));
 }
 
 function resolveGenerationSource(candidate, sourceKind) {
@@ -1766,7 +1793,8 @@ function normalizeExistingKnowledgeApi(api) {
         sourceActions: uniqueKnowledgeStrings(api.sourceActions || []),
         backingTools: uniqueKnowledgeStrings(api.backingTools || []),
         queryKeys: uniqueKnowledgeStrings(api.queryKeys || []).sort(),
-        examples: dedupeKnowledgeExamples(api.examples || []).slice(0, 3),
+        responseEvidence: normalizeResponseBodyEvidence({ responseEvidence: api.responseEvidence }),
+        examples: [],
         seenCount: Math.max(1, Number(api.seenCount || 1))
     };
 }
@@ -1784,8 +1812,9 @@ function normalizeKnowledgeApiCandidate(candidate, source, extra = {}) {
         : [];
     const requestEvidence = normalizeRequestBodyEvidence(candidate);
     const requestShape = summarizeKnowledgeRequestEvidence(requestEvidence);
+    const responseEvidence = normalizeResponseBodyEvidence(candidate);
     const responseHints = normalizeKnowledgeResponseHints(candidate?.responseHints);
-    const responseShape = responseHints || summarizeKnowledgeResponsePreview(candidate?.responsePreview);
+    const responseShape = responseHints || summarizeKnowledgeResponseEvidence(responseEvidence);
     const id = buildKnowledgeApiFingerprint({
         method,
         pathName,
@@ -1793,7 +1822,6 @@ function normalizeKnowledgeApiCandidate(candidate, source, extra = {}) {
         requestShape
     });
     const requestSample = summarizeKnowledgeRequestSample(candidate, parsed, requestShape);
-    const responseSample = summarizeKnowledgeResponseSample(candidate?.responsePreview, responseShape);
     const purpose = safeString(candidate?.aiPurpose) || safeString(candidate?.purpose) || inferKnowledgeApiPurpose(candidate, extra);
     return {
         id,
@@ -1807,13 +1835,12 @@ function normalizeKnowledgeApiCandidate(candidate, source, extra = {}) {
         backingTools: [extra.toolName || candidate?.toolName].map(safeString).filter(Boolean),
         queryKeys,
         requestShape,
+        responseEvidence,
         responseShape,
         examples: [{
             source,
             request: requestSample,
-            responseSample,
-            capturedAt: safeString(candidate?.capturedAt)
-        }].filter((item)=>Object.keys(item.request || {}).length > 0 || item.responseSample),
+        }].filter((item)=>Object.keys(item.request || {}).length > 0),
         seenCount: 1,
         firstSeenAt: safeString(candidate?.capturedAt),
         lastSeenAt: safeString(candidate?.capturedAt),
@@ -1832,6 +1859,7 @@ function mergeKnowledgeApi(left, right) {
         backingTools: uniqueKnowledgeStrings([...(left.backingTools || []), ...(right.backingTools || [])]).slice(0, 12),
         queryKeys: uniqueKnowledgeStrings([...(left.queryKeys || []), ...(right.queryKeys || [])]).sort(),
         requestShape: mergeKnowledgeShape(left.requestShape, right.requestShape),
+        responseEvidence: right.responseEvidence || left.responseEvidence,
         responseShape: mergeKnowledgeResponseShape(left.responseShape, right.responseShape),
         examples,
         seenCount: Number(left.seenCount || 0) + Number(right.seenCount || 0),
@@ -1919,18 +1947,37 @@ function summarizeKnowledgeRequestSample(candidate, parsedUrl, requestShape) {
     return result;
 }
 
-function summarizeKnowledgeResponseSample(preview, responseShape) {
-    const parsed = parseKnowledgeJsonLike(preview);
-    if (!parsed) return truncateKnowledgeText(preview, 800);
-    const listPath = responseShape?.listPath || '';
-    const list = listPath ? getKnowledgePath(parsed, listPath) : null;
-    if (Array.isArray(list) && list.length > 0 && list[0] && typeof list[0] === 'object') {
-        return sanitizeKnowledgeObjectSample(list[0], 25);
+function summarizeKnowledgeResponseEvidence(evidence) {
+    const shape = evidence?.bodyShape;
+    if (!shape || shape.type !== 'object') return null;
+    const topLevelKeys = Object.keys(shape.properties || {}).slice(0, 40);
+    const firstArray = findKnowledgeArrayShape(shape, '');
+    const itemKeys = firstArray?.itemShape?.type === 'object'
+        ? Object.keys(firstArray.itemShape.properties || {}).slice(0, 80)
+        : [];
+    return {
+        topLevelKeys,
+        listPath: firstArray?.path || '',
+        itemKeys,
+        idLikeKeys: pickKnowledgeKeysByPattern(itemKeys, /(id|Id|ID)$/),
+        displayLikeKeys: pickKnowledgeKeysByPattern(itemKeys, /(name|title|code|text|label|display|roomcode|roomCode)$/),
+        availabilityLikeKeys: pickKnowledgeKeysByPattern(itemKeys, /(available|availability|status|meetingInfoMaps|calendar|slots?)/i),
+        preferredIdKey: pickKnowledgePreferredKey(itemKeys, ['id', 'roomId', 'resourceId']),
+        preferredDisplayKey: pickKnowledgePreferredKey(itemKeys, ['roomcode', 'roomCode', 'name', 'title', 'display']),
+        preferredAvailabilityKey: pickKnowledgePreferredKey(itemKeys, ['meetingInfoMaps', 'available', 'availability', 'status'])
+    };
+}
+
+function findKnowledgeArrayShape(shape, prefix) {
+    if (!shape || typeof shape !== 'object') return null;
+    if (shape.type === 'array') return { path: prefix, itemShape: shape.items };
+    if (shape.type !== 'object') return null;
+    for (const [key, nested] of Object.entries(shape.properties || {})) {
+        const pathName = prefix ? `${prefix}.${key}` : key;
+        const found = findKnowledgeArrayShape(nested, pathName);
+        if (found) return found;
     }
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return sanitizeKnowledgeObjectSample(parsed, 25);
-    }
-    return truncateKnowledgeText(JSON.stringify(parsed), 800);
+    return null;
 }
 
 function buildKnowledgeTools(toolDefinitions, actionHints) {
@@ -1953,7 +2000,7 @@ function summarizeKnowledgeToolParameters(schema) {
         required: required.has(name),
         description: truncateKnowledgeText(property?.description || '', 220),
         enum: Array.isArray(property?.enum) ? property.enum.map((item)=>String(item)).slice(0, 30) : undefined,
-        default: Object.prototype.hasOwnProperty.call(property || {}, 'default') ? sanitizeKnowledgeSampleValue(property.default) : undefined
+        hasDefault: Object.prototype.hasOwnProperty.call(property || {}, 'default') || undefined
     }));
 }
 
@@ -2287,22 +2334,6 @@ function getKnowledgePath(value, dotPath) {
     return current;
 }
 
-function sanitizeKnowledgeSampleValue(value) {
-    if (value === null || value === undefined) return value;
-    if (typeof value === 'string') return redactKnowledgeString(truncateKnowledgeText(value, 220));
-    if (typeof value === 'number' || typeof value === 'boolean') return value;
-    if (Array.isArray(value)) return value.slice(0, 5).map(sanitizeKnowledgeSampleValue);
-    if (typeof value === 'object') return sanitizeKnowledgeObjectSample(value, 12);
-    return String(value);
-}
-
-function sanitizeKnowledgeObjectSample(object, limit = 25) {
-    return Object.fromEntries(Object.entries(object || {}).slice(0, limit).map(([key, value])=>[
-            key,
-            isSensitiveKnowledgeKey(key) ? '[REDACTED]' : sanitizeKnowledgeSampleValue(value)
-        ]));
-}
-
 function isSensitiveKnowledgeKey(key) {
     return /token|access.?token|authorization|cookie|session|ticket|password|passwd|secret|credential|key/i.test(safeString(key));
 }
@@ -2366,7 +2397,6 @@ function dedupeKnowledgeExamples(examples) {
     for (const example of examples || []) {
         const key = JSON.stringify({
             request: example.request || {},
-            responseSample: example.responseSample || ''
         }).slice(0, 500);
         if (seen.has(key)) continue;
         seen.add(key);
@@ -2664,8 +2694,8 @@ function scoreListCandidate(candidate) {
     if (safeString(candidate.requestBodyPreview)) score += 1;
     const method = safeString(candidate.method || 'GET').toUpperCase();
     const responseContentType = safeString(candidate.responseContentType).toLowerCase();
-    const responsePreview = safeString(candidate.responsePreview).trim();
-    if (method === 'GET' && (/(?:application|text)\/json/.test(responseContentType) || /^[\[{]/.test(responsePreview))) {
+    const responseEvidence = normalizeResponseBodyEvidence(candidate);
+    if (method === 'GET' && (/(?:application|text)\/json/.test(responseContentType) || responseEvidence.bodyKind === 'json')) {
         score += 2;
     }
     if ((candidate.sourceSteps || []).some((step)=>step && step !== 'final_network')) score += 1;
@@ -2713,7 +2743,7 @@ function actionCandidateScore(candidate) {
     if ((candidate.method || '').toUpperCase() !== 'GET') score += 3;
     const requestEvidence = normalizeRequestBodyEvidence(candidate);
     if (!requestEvidence.bodyOmitted && requestEvidence.bodyKind !== 'none') score += 1;
-    if (safeString(candidate.responsePreview)) score += 1;
+    if (normalizeResponseBodyEvidence(candidate).bodyKind !== 'none') score += 1;
     if ((candidate.responseContentType || '').toLowerCase().includes('json')) score += 1;
     score += Math.min(Array.isArray(requestEvidence.bodyKeys) ? requestEvidence.bodyKeys.length : 0, 8);
     score += responseHintScore(candidate.responseHints);

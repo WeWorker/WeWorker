@@ -78,7 +78,7 @@ describe('deriveSiteMemoryFromWorkflow', () => {
     expect(memory).not.toBeNull()
     expect(memory?.siteKey).toBe('tickets.example.com')
     expect(memory?.workflowVersion).toBe('opencli-like-v12')
-    expect(memory?.canonicalResultUrl).toContain('/globalSearch?keyword=test')
+    expect(memory?.canonicalResultUrl).toContain('/globalSearch?keyword=%3Avalue')
     expect(memory?.listApiCandidates.map((item) => item.url)).toEqual([
       'https://tickets.example.com/ticketing/getCiGroup.spr',
       'https://tickets.example.com/ticketing/getCiList.spr',
@@ -129,6 +129,13 @@ describe('deriveSiteMemoryFromWorkflow', () => {
       likelyDataCount: 1,
       recommendedNextProbe: 'replay_top_candidate',
     })
+    expect(memory?.listApiCandidates[0]?.responsePreview).toBeUndefined()
+    expect(memory?.listApiCandidates[0]?.responseHints).toMatchObject({
+      listPath: 'items',
+      itemKeys: ['id', 'name'],
+    })
+    expect(JSON.stringify(memory)).not.toContain('P-101')
+    expect(JSON.stringify(memory)).not.toContain('Alpha')
   })
 
   it('preserves verified replay strategy and fixture metadata for generation planning', () => {
@@ -203,7 +210,13 @@ describe('deriveSiteMemoryFromWorkflow', () => {
 
     const candidate = memory?.listApiCandidates[0]
     expect(candidate?.url).toBe('https://example.test/api/projects?page=%3Avalue&status=%3Avalue')
-    expect(candidate?.responsePreview).toBe('{"items":[{"id":"<string>","name":"<string>"}]}')
+    expect(candidate?.responsePreview).toBeUndefined()
+    expect(candidate?.responseHints).toMatchObject({
+      listPath: 'items',
+      itemKeys: ['id', 'name'],
+      preferredIdKey: 'id',
+      preferredDisplayKey: 'name',
+    })
     expect(JSON.stringify(memory)).not.toContain('P-101')
     expect(JSON.stringify(memory)).not.toContain('Alpha')
     expect(JSON.stringify(memory)).not.toContain('ExampleUser')

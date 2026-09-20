@@ -101,6 +101,15 @@ test('client passive capture bypasses the plugin-side model analysis', () => {
   assert.doesNotMatch(handler, /enhanceExplorationResultWithAI/)
 })
 
+test('persisted site memory keeps structural evidence instead of captured response values', () => {
+  assert.match(source, /function structuralizeStoredTextUrls\(value\)/)
+  assert.match(source, /responseHints: extractStoredActionResponseHints\(entry\.responsePreview\)/)
+  assert.match(source, /responseHints: mergeStoredActionResponseHints\(candidate\.responseHints, extractStoredActionResponseHints\(candidate\.responsePreview\)\)/)
+  assert.match(source, /responsePreview:\s*undefined/)
+  assert.match(source, /keywordSeed:\s*''/)
+  assert.doesNotMatch(source, /requestBody:\s*entry\.requestBodyPreview,\s*responsePreview:\s*entry\.responsePreview/)
+})
+
 test('client generation can refresh tabs after publishing a v1 adapter', () => {
   assert.match(source, /msg\.type === "refresh_adapter_tabs"/)
 assert.match(source, /refreshAdapterTabs\(String\(msg\.siteKey \|\| ''\)\.trim\(\)/)

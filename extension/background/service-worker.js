@@ -3307,6 +3307,10 @@ function structuralCapturedUrl(input) {
   }
 }
 
+function structuralizeStoredTextUrls(value) {
+  return safeStoredText(value).replace(/https?:\/\/[^\s，。；）)]+/g, (url) => structuralCapturedUrl(url));
+}
+
 function sanitizeActionCaptureResult(result = {}) {
   return {
     ...result,
@@ -4823,7 +4827,6 @@ function isLikelyStoredListApiEntry(entry) {
 function mergeStoredListCandidateEvidence(candidate, entry) {
   candidate.requestEvidence = pickStoredRicherRequestEvidence(buildSafeRequestEvidence(candidate), buildSafeRequestEvidence(entry));
   delete candidate.requestBodyPreview;
-  candidate.responsePreview = pickStoredRicherPreview(candidate.responsePreview, entry?.responsePreview);
   candidate.responseContentType = candidate.responseContentType
     || safeStoredText(entry?.responseContentType || entry?.contentType);
   candidate.responseHints = mergeStoredActionResponseHints(
@@ -4839,7 +4842,6 @@ function createStoredListCandidate(entry, url, method, step) {
     url: structuralCapturedUrl(url),
     method,
     requestEvidence: buildSafeRequestEvidence(entry),
-    responsePreview: safeStoredText(entry?.responsePreview),
     responseContentType: safeStoredText(entry?.responseContentType || entry?.contentType),
     responseHints: extractStoredActionResponseHints(entry?.responsePreview),
     status: Number.isFinite(Number(entry?.status)) ? Number(entry.status) : undefined,
@@ -4904,21 +4906,21 @@ function extractLegacyApiCandidates(workflowResult) {
       return Boolean(entry?.url) && (contentType.includes('json') || contentType.includes('javascript'));
     })
     .map((entry) => ({
-      url: entry.url,
+      url: structuralCapturedUrl(entry.url),
       method: entry.method || 'GET',
       status: entry.status,
       contentType: entry.responseContentType || entry.contentType,
-      requestBody: entry.requestBodyPreview,
-      responsePreview: entry.responsePreview,
+      requestEvidence: buildSafeRequestEvidence(entry),
+      responseHints: extractStoredActionResponseHints(entry.responsePreview),
     }));
 }
 
 function buildStoredSiteMemory(siteKey, workflowResult, existing = {}) {
   const now = new Date().toISOString();
-  const pageStateBeforeUrl = safeStoredUrl(workflowResult?.pageStateBefore?.url);
-  const resultPageUrl = safeStoredUrl(workflowResult?.resultPageState?.url);
-  const finalPageUrl = safeStoredUrl(workflowResult?.pageStateAfter?.url);
-  const openedUrl = safeStoredUrl(workflowResult?.opened?.url);
+  const pageStateBeforeUrl = structuralCapturedUrl(workflowResult?.pageStateBefore?.url);
+  const resultPageUrl = structuralCapturedUrl(workflowResult?.resultPageState?.url);
+  const finalPageUrl = structuralCapturedUrl(workflowResult?.pageStateAfter?.url);
+  const openedUrl = structuralCapturedUrl(workflowResult?.opened?.url);
   const sourceUrl = openedUrl || resultPageUrl || finalPageUrl || pageStateBeforeUrl;
   const parsedSource = parseStoredUrl(sourceUrl);
   const resolvedSiteKey = safeStoredText(siteKey) || parsedSource?.hostname || safeStoredText(existing.siteKey);
@@ -4954,11 +4956,11 @@ function buildStoredSiteMemory(siteKey, workflowResult, existing = {}) {
     canonicalResultUrl: resultPageUrl || finalPageUrl || safeStoredText(existing.canonicalResultUrl),
     verdictPattern: safeStoredText(verdict.pattern) || safeStoredText(existing.verdictPattern),
     recommendedStrategy: safeStoredText(verdict.recommendedStrategy) || safeStoredText(existing.recommendedStrategy),
-    verdictReason: safeStoredText(verdict.reason) || safeStoredText(existing.verdictReason),
+    verdictReason: structuralizeStoredTextUrls(verdict.reason) || structuralizeStoredTextUrls(existing.verdictReason),
     search: {
       executed: Boolean(searchAction?.result?.executed),
       action: safeStoredText(searchAction?.result?.action),
-      keywordSeed: safeStoredText(searchAction?.result?.value),
+      keywordSeed: '',
     },
     resultSignals: {
       listCandidates: Number(workflowResult?.resultPageState?.listCandidates || 0),
@@ -4970,10 +4972,10 @@ function buildStoredSiteMemory(siteKey, workflowResult, existing = {}) {
     actionEvidenceSummary: existing.actionEvidenceSummary,
     detailHints: {
       mode: safeStoredText(detailAction?.result?.mode),
-      bestCandidateHref: safeStoredText(detailAction?.result?.bestCandidate?.href),
-      bestCandidateText: safeStoredText(detailAction?.result?.bestCandidate?.text),
+      bestCandidateHref: structuralCapturedUrl(detailAction?.result?.bestCandidate?.href),
+      bestCandidateText: '',
       networkDetailCandidates: Array.isArray(detailAction?.result?.networkDetailCandidates)
-        ? detailAction.result.networkDetailCandidates.filter((item) => typeof item === 'string' && item.trim())
+        ? detailAction.result.networkDetailCandidates.map(structuralCapturedUrl).filter(Boolean)
         : [],
     },
     pagination: {
@@ -4992,7 +4994,7 @@ function buildStoredSiteMemory(siteKey, workflowResult, existing = {}) {
     },
     apiCandidates: legacyApiCandidates,
     pattern: safeStoredText(verdict.pattern),
-    reason: safeStoredText(verdict.reason),
+    reason: structuralizeStoredTextUrls(verdict.reason),
   };
 }
 
@@ -5094,9 +5096,9 @@ function buildStoredActionCaptureMemory(siteKey, captureResult, existing = {}, o
     return existing && Object.keys(existing).length > 0 ? existing : null;
   }
 
-  const finalUrl = safeStoredUrl(captureResult?.finalTab?.url);
-  const beforeUrl = safeStoredUrl(captureResult?.beforeTab?.url);
-  const openedUrl = safeStoredUrl(captureResult?.opened?.url);
+  const finalUrl = structuralCapturedUrl(captureResult?.finalTab?.url);
+  const beforeUrl = structuralCapturedUrl(captureResult?.beforeTab?.url);
+  const openedUrl = structuralCapturedUrl(captureResult?.opened?.url);
   const sourceUrl = finalUrl || beforeUrl || openedUrl || safeStoredText(existing.lastSourceUrl);
   const parsedSource = parseStoredUrl(sourceUrl);
 
@@ -5107,7 +5109,6 @@ function buildStoredActionCaptureMemory(siteKey, captureResult, existing = {}, o
     url: structuralCapturedUrl(candidate.url),
     method: safeStoredText(candidate.method) || 'GET',
     requestEvidence: buildSafeRequestEvidence(candidate),
-    responsePreview: safeStoredText(candidate.responsePreview),
     responseContentType: safeStoredText(candidate.responseContentType),
     responseHints: extractStoredActionResponseHints(candidate.responsePreview),
     intercepted: Boolean(candidate.intercepted),
@@ -5129,27 +5130,46 @@ function buildStoredActionCaptureMemory(siteKey, captureResult, existing = {}, o
     captureCount: Number(existing.captureCount || 0),
     workflowVersion: workflowVersion || safeStoredText(existing.workflowVersion),
     workflowVersionsSeen: Array.isArray(existing.workflowVersionsSeen) ? existing.workflowVersionsSeen.filter((item) => typeof item === 'string' && item.trim()) : [],
-    lastSourceUrl: sourceUrl,
-    canonicalEntryUrl: safeStoredText(existing.canonicalEntryUrl) || beforeUrl || sourceUrl,
-    canonicalResultUrl: safeStoredText(existing.canonicalResultUrl) || finalUrl || sourceUrl,
+    lastSourceUrl: structuralCapturedUrl(sourceUrl),
+    canonicalEntryUrl: structuralCapturedUrl(existing.canonicalEntryUrl) || beforeUrl || sourceUrl,
+    canonicalResultUrl: structuralCapturedUrl(existing.canonicalResultUrl) || finalUrl || sourceUrl,
     verdictPattern: safeStoredText(existing.verdictPattern),
     recommendedStrategy: safeStoredText(existing.recommendedStrategy),
-    verdictReason: safeStoredText(existing.verdictReason),
-    search: existing.search || { executed: false, action: '', keywordSeed: '' },
+    verdictReason: structuralizeStoredTextUrls(existing.verdictReason),
+    search: existing.search ? { ...existing.search, keywordSeed: '' } : { executed: false, action: '', keywordSeed: '' },
     resultSignals: existing.resultSignals || { listCandidates: 0, paginationCandidates: 0 },
     listApiCandidates: Array.isArray(existing.listApiCandidates) ? existing.listApiCandidates.map((candidate) => {
-      const { requestBodyPreview, requestBody, ...safeCandidate } = candidate || {};
-      return { ...safeCandidate, url: structuralCapturedUrl(candidate?.url), requestEvidence: buildSafeRequestEvidence(candidate) };
+      const { requestBodyPreview, requestBody, responsePreview, responseBodyPreview, responseBody, ...safeCandidate } = candidate || {};
+      return {
+        ...safeCandidate,
+        url: structuralCapturedUrl(candidate?.url),
+        requestEvidence: buildSafeRequestEvidence(candidate),
+        responseHints: mergeStoredActionResponseHints(candidate?.responseHints, extractStoredActionResponseHints(candidate?.responsePreview)),
+      };
     }) : [],
-    actionApiCandidates: Array.isArray(existing.actionApiCandidates) ? existing.actionApiCandidates : [],
-    actionCaptureHistory: Array.isArray(existing.actionCaptureHistory) ? existing.actionCaptureHistory : [],
+    actionApiCandidates: Array.isArray(existing.actionApiCandidates) ? existing.actionApiCandidates.map(sanitizeStoredActionCandidate) : [],
+    actionCaptureHistory: Array.isArray(existing.actionCaptureHistory) ? existing.actionCaptureHistory.map(sanitizeStoredActionCandidate) : [],
     actionEvidenceSummary: existing.actionEvidenceSummary,
-    detailHints: existing.detailHints || { mode: '', bestCandidateHref: '', bestCandidateText: '', networkDetailCandidates: [] },
+    detailHints: existing.detailHints ? {
+      ...existing.detailHints,
+      bestCandidateHref: structuralCapturedUrl(existing.detailHints.bestCandidateHref),
+      bestCandidateText: '',
+      networkDetailCandidates: Array.isArray(existing.detailHints.networkDetailCandidates)
+        ? existing.detailHints.networkDetailCandidates.map(structuralCapturedUrl).filter(Boolean)
+        : [],
+    } : { mode: '', bestCandidateHref: '', bestCandidateText: '', networkDetailCandidates: [] },
     pagination: existing.pagination || { attempted: false, verified: false, mode: '', targetPage: null, activePageBefore: null, activePageAfter: null, reason: '' },
     rawSummary: existing.rawSummary || { tabId: null, resultPageUrl: '', finalPageUrl: '' },
-    apiCandidates: Array.isArray(existing.apiCandidates) ? existing.apiCandidates : [],
+    apiCandidates: Array.isArray(existing.apiCandidates) ? existing.apiCandidates.map((item) => ({
+      url: structuralCapturedUrl(item?.url),
+      method: safeStoredText(item?.method) || 'GET',
+      status: item?.status,
+      contentType: safeStoredText(item?.contentType),
+      requestEvidence: buildSafeRequestEvidence(item),
+      responseHints: mergeStoredActionResponseHints(item?.responseHints, extractStoredActionResponseHints(item?.responsePreview)),
+    })) : [],
     pattern: safeStoredText(existing.pattern),
-    reason: safeStoredText(existing.reason),
+    reason: structuralizeStoredTextUrls(existing.reason),
   };
 
   const workflowVersionsSeen = new Set(base.workflowVersionsSeen || []);
@@ -5346,9 +5366,9 @@ function describeStoredActionCandidateQuality(candidate) {
     score += 1;
     signals.push('has_request_body');
   }
-  if (safeStoredUrl(candidate?.responsePreview)) {
+  if (candidate?.responseHints || candidate?.apiEvidence?.responseShape) {
     score += 1;
-    signals.push('has_response_preview');
+    signals.push('has_response_shape');
   }
   if (safeStoredText(candidate?.responseContentType).toLowerCase().includes('json')) {
     score += 1;
@@ -5441,7 +5461,7 @@ function mergeStoredActionCandidate(primary, secondary) {
     mode: winner.mode || loser.mode,
     toolName: winner.toolName || loser.toolName,
     requestEvidence: pickStoredRicherRequestEvidence(buildSafeRequestEvidence(winner), buildSafeRequestEvidence(loser)),
-    responsePreview: preserveExplicitSelection ? winner.responsePreview : pickStoredRicherPreview(winner.responsePreview, loser.responsePreview),
+    responsePreview: undefined,
     responseContentType: winner.responseContentType || loser.responseContentType,
     responseHints: preserveExplicitSelection ? winner.responseHints : mergeStoredActionResponseHints(winner.responseHints, loser.responseHints),
     intercepted: Boolean(winner.intercepted || loser.intercepted),
@@ -5457,11 +5477,20 @@ function mergeStoredActionCandidate(primary, secondary) {
 
 function sanitizeStoredActionCandidate(candidate) {
   if (!candidate || typeof candidate !== 'object') return candidate;
-  const { requestBodyPreview, requestBody, requestHeaders, ...safeCandidate } = candidate;
+  const {
+    requestBodyPreview,
+    requestBody,
+    requestHeaders,
+    responsePreview,
+    responseBodyPreview,
+    responseBody,
+    ...safeCandidate
+  } = candidate;
   return {
     ...safeCandidate,
     url: structuralCapturedUrl(candidate.url),
     requestEvidence: buildSafeRequestEvidence(candidate),
+    responseHints: mergeStoredActionResponseHints(candidate.responseHints, extractStoredActionResponseHints(candidate.responsePreview)),
   };
 }
 

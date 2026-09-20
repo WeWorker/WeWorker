@@ -88,7 +88,8 @@ describe('GenerationHarness', () => {
     harness.publish(started.id);
     const completed = await harness.wait(started.id);
     expect(completed.status).toBe(GENERATION_STATUSES.COMPLETED);
-    expect(completed.result.adapterDir).toBe('/tmp/published-adapter');
+    expect(completed.result.adapterDir).toBe('[path-redacted]');
+    expect(JSON.stringify(completed)).not.toContain('/tmp/published-adapter');
     expect(published).toEqual([started.id]);
   });
 

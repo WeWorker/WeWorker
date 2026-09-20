@@ -109,12 +109,21 @@ function sanitizeVerificationFixture(fixture, candidate) {
     return keep;
   });
   const hasDiagnostics = Object.values(diagnostics).some((paths) => paths.length > 0);
+  const status = (Array.isArray(fixture.status) ? fixture.status : []).map(Number).filter(Number.isFinite).slice(0, 10);
+  const contentTypes = (Array.isArray(fixture.contentTypes) ? fixture.contentTypes : []).map(String).slice(0, 10);
+  const rowCount = fixture.rowCount && typeof fixture.rowCount === 'object'
+    ? { min: Number(fixture.rowCount.min || 0), max: Number(fixture.rowCount.max || 0) }
+    : null;
   return {
     fixture: {
-      ...fixture,
+      source: fixture.source === 'captured_response' ? 'captured_response' : 'structural_evidence',
+      status,
+      contentTypes,
+      rowCount,
       requiredPaths,
       types,
       notEmpty,
+      mustNotContain: (Array.isArray(fixture.mustNotContain) ? fixture.mustNotContain : []).map(String).slice(0, 30),
       mustBeTruthy,
     },
     diagnostics: hasDiagnostics ? diagnostics : null,

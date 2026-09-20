@@ -112,11 +112,7 @@ function createHarness({ model }) {
 
 export async function runGenerationWorker() {
   const modelSession = new LanguageModelWorkerSession();
-  const harness = createHarness({
-    model: createJsonActionModel({
-      callModel: (input) => modelSession.call(input),
-    }),
-  });
+  let harness = null;
   process.stderr.write(
     `[HarnessWorker] started pid=${process.pid} modelTransport=persistent-worker ${formatWorkerMemory()}\n`,
   );
@@ -162,6 +158,7 @@ export async function runGenerationWorker() {
     if (command === 'cancel') {
       void (async () => {
         try {
+          if (!harness) throw new Error('generation worker has not started a Harness run');
           const payload = message.payload || {};
           const run = harness.cancel(String(payload.runId || ''), String(payload.reason || 'cancelled by user'));
           if (!run) throw new Error(`generation run not found: ${payload.runId}`);
@@ -187,6 +184,12 @@ export async function runGenerationWorker() {
     void (async () => {
       try {
         const payload = readCommandPayload(message.payloadPath);
+        harness = createHarness({
+          model: createJsonActionModel({
+            callModel: (input) => modelSession.call(input),
+            ...(message.modelConfig ? { config: message.modelConfig } : {}),
+          }),
+        });
         let run;
         if (command === 'start') {
           run = harness.start(payload);
@@ -223,7 +226,7 @@ export async function runGenerationWorker() {
   process.on('disconnect', () => {
     rejectPendingExtensionRequests('Bridge IPC channel disconnected');
     void modelSession.close();
-    if (!disconnectingNormally && activeRunId) {
+    if (!disconnectingNormally && activeRunId && harness) {
       try { harness.cancel(activeRunId, 'Bridge IPC channel disconnected'); } catch {}
     }
   });

@@ -74,6 +74,7 @@ export interface SiteApiCandidate {
   requestEvidence?: RequestBodyEvidence
   responsePreview?: string
   responseContentType?: string
+  responseHints?: ActionResponseHints
   sourceSteps: string[]
   apiEvidence?: ApiEndpointEvidence
 }
@@ -395,36 +396,41 @@ function isLikelyListApiEntry(entry: WorkflowActionEntry): boolean {
   return method === 'GET' && hasJsonResponse
 }
 
-function placeholderForValueType(valueType?: string): unknown {
-  if (valueType === 'string') return '<string>'
-  if (valueType === 'number') return 0
-  if (valueType === 'boolean') return true
-  if (valueType === 'array') return []
-  if (valueType === 'object') return {}
-  return null
-}
-
-function buildShapeBranch(segments: string[], item: Record<string, unknown>): unknown {
-  if (segments.length === 0) return [item]
-  if (segments[0] === '*') return { '<key>': buildShapeBranch(segments.slice(1), item) }
-  return { [segments[0]]: buildShapeBranch(segments.slice(1), item) }
-}
-
-function syntheticResponsePreview(candidate: ApiEndpointEvidence): string {
-  const shape = candidate.replay?.responseShape || candidate.responseShape
-  const item = Object.fromEntries(shape.itemKeys.map((key) => [
-    key,
-    placeholderForValueType(shape.valueTypes[key]),
-  ]))
-  if (shape.kind === 'array') return JSON.stringify([item])
-  if (!shape.listPath || shape.listPath === '$') return JSON.stringify(item)
-
-  const segments = shape.listPath.split('.').filter(Boolean)
-  const rooted = buildShapeBranch(segments, item) as Record<string, unknown>
-  for (const key of shape.topLevelKeys) {
-    if (!Object.prototype.hasOwnProperty.call(rooted, key)) rooted[key] = {}
+function responseHintsFromApiShape(shape: ApiEndpointEvidence['responseShape']): ActionResponseHints | undefined {
+  if (!shape || (shape.kind !== 'object' && shape.kind !== 'array')) return undefined
+  const itemKeys = [...(shape.itemKeys || [])]
+  const idLikeKeys = itemKeys.filter((key) => /(^id$|id$|code$|key$|uuid$)/i.test(key))
+  const displayLikeKeys = itemKeys.filter((key) => /(name|title|label|code|display|desc|room)/i.test(key))
+  const availabilityLikeKeys = itemKeys.filter((key) => /(availability|schedule|calendar|slot|time|map)/i.test(key))
+  return {
+    topLevelKeys: [...(shape.topLevelKeys || [])],
+    listPath: shape.listPath || '',
+    itemKeys,
+    idLikeKeys,
+    displayLikeKeys,
+    availabilityLikeKeys,
+    preferredIdKey: pickPreferredIdKey(idLikeKeys),
+    preferredDisplayKey: pickPreferredDisplayKey(displayLikeKeys),
+    preferredAvailabilityKey: pickPreferredAvailabilityKey(availabilityLikeKeys),
   }
-  return JSON.stringify(rooted)
+}
+
+function sanitizeApiAnalysisForPersistence(analysis: ApiExplorationAnalysisV2): ApiExplorationAnalysisV2 {
+  return {
+    ...analysis,
+    candidates: analysis.candidates.map((candidate) => ({
+      ...candidate,
+      observedUrl: structuralUrl(candidate.observedUrl),
+      strategyNote: {
+        ...candidate.strategyNote,
+        reasons: candidate.strategyNote.reasons.map(structuralizeTextUrls),
+      },
+    })),
+  }
+}
+
+function structuralizeTextUrls(value: string): string {
+  return safeUrl(value).replace(/https?:\/\/[^\s，。；）)]+/g, (url) => structuralUrl(url))
 }
 
 function syntheticRequestPreview(candidate: ApiEndpointEvidence): string {
@@ -439,8 +445,8 @@ function candidateFromAnalysis(candidate: ApiEndpointEvidence): SiteApiCandidate
     method: candidate.method,
     status: candidate.status ?? undefined,
     requestEvidence: normalizeRequestBodyEvidence({ requestBodyPreview: structuralRequest }),
-    responsePreview: syntheticResponsePreview(candidate),
     responseContentType: candidate.contentType,
+    responseHints: responseHintsFromApiShape(candidate.replay?.responseShape || candidate.responseShape),
     sourceSteps: candidate.sourceSteps.length ? candidate.sourceSteps : ['analysis_v2'],
     apiEvidence: candidate,
   }
@@ -467,7 +473,7 @@ function extractListApiCandidates(result: WorkflowResult, analysis: ApiExplorati
           existing.requestEvidence || normalizeRequestBodyEvidence(existing),
           normalizeRequestBodyEvidence(entry),
         )
-        existing.responsePreview ||= safeUrl(entry.responsePreview)
+        existing.responseHints = mergeActionResponseHints(existing.responseHints, extractActionResponseHints(entry.responsePreview))
         existing.responseContentType ||= safeUrl(entry.responseContentType)
         if (existing.status == null && typeof entry.status === 'number') existing.status = entry.status
         continue
@@ -477,8 +483,8 @@ function extractListApiCandidates(result: WorkflowResult, analysis: ApiExplorati
         method,
         status: typeof entry.status === 'number' ? entry.status : undefined,
         requestEvidence: normalizeRequestBodyEvidence(entry),
-        responsePreview: safeUrl(entry.responsePreview),
         responseContentType: safeUrl(entry.responseContentType),
+        responseHints: extractActionResponseHints(entry.responsePreview),
         sourceSteps: [step],
       })
     }
@@ -497,8 +503,8 @@ function extractListApiCandidates(result: WorkflowResult, analysis: ApiExplorati
           method,
           status: typeof entry.status === 'number' ? entry.status : undefined,
           requestEvidence: normalizeRequestBodyEvidence(entry),
-          responsePreview: safeUrl(entry.responsePreview),
           responseContentType: safeUrl(entry.responseContentType),
+          responseHints: extractActionResponseHints(entry.responsePreview),
           sourceSteps: ['final_network'],
         })
       } else {
@@ -508,7 +514,7 @@ function extractListApiCandidates(result: WorkflowResult, analysis: ApiExplorati
           existing.requestEvidence || normalizeRequestBodyEvidence(existing),
           normalizeRequestBodyEvidence(entry),
         )
-        existing.responsePreview ||= safeUrl(entry.responsePreview)
+        existing.responseHints = mergeActionResponseHints(existing.responseHints, extractActionResponseHints(entry.responsePreview))
         existing.responseContentType ||= safeUrl(entry.responseContentType)
         if (existing.status == null && typeof entry.status === 'number') existing.status = entry.status
       }
@@ -565,12 +571,11 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
   const paginationAction = actions.find((item) => item?.step === 'pagination')
   const detailAction = actions.find((item) => item?.step === 'detail')
   const now = new Date().toISOString()
-  const apiAnalysisV2 = workflowResult.analysisV2?.schemaVersion === 2
+  const rawApiAnalysisV2 = workflowResult.analysisV2?.schemaVersion === 2
     ? workflowResult.analysisV2
     : analyzeApiExplorationWorkflow(result)
-  const persistStructuralUrls = workflowResult.schemaVersion === 'exploration-evidence-v2-persisted'
-    || workflowResult.workflow?.version === 'exploration-evidence-v2-persisted'
-  const persistedUrl = persistStructuralUrls ? structuralUrl : safeUrl
+  const apiAnalysisV2 = sanitizeApiAnalysisForPersistence(rawApiAnalysisV2)
+  const persistedUrl = structuralUrl
 
   return {
     siteKey: identity.siteKey,
@@ -586,11 +591,11 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
     canonicalResultUrl: persistedUrl(workflowResult.resultPageState?.url) || persistedUrl(workflowResult.pageStateAfter?.url),
     verdictPattern: asString(workflowResult.verdict?.pattern),
     recommendedStrategy: asString(workflowResult.verdict?.recommendedStrategy),
-    verdictReason: asString(workflowResult.verdict?.reason),
+    verdictReason: structuralizeTextUrls(asString(workflowResult.verdict?.reason)),
     search: {
       executed: Boolean(searchAction?.result?.executed),
       action: asString(searchAction?.result?.action),
-      keywordSeed: asString(searchAction?.result?.value),
+      keywordSeed: '',
     },
     resultSignals: {
       listCandidates: Number(workflowResult.resultPageState?.listCandidates || 0),
@@ -602,9 +607,9 @@ export function deriveSiteMemoryFromWorkflow(result: Record<string, unknown>): S
     detailHints: {
       mode: asString(detailAction?.result?.mode),
       bestCandidateHref: asString((detailAction?.result as Record<string, unknown> | undefined)?.bestCandidate && (detailAction?.result as Record<string, unknown>).bestCandidate && ((detailAction?.result as Record<string, unknown>).bestCandidate as Record<string, unknown>).href),
-      bestCandidateText: asString((detailAction?.result as Record<string, unknown> | undefined)?.bestCandidate && ((detailAction?.result as Record<string, unknown>).bestCandidate as Record<string, unknown>).text),
+      bestCandidateText: '',
       networkDetailCandidates: Array.isArray((detailAction?.result as Record<string, unknown> | undefined)?.networkDetailCandidates)
-        ? ((detailAction?.result as Record<string, unknown>).networkDetailCandidates as unknown[]).map(asString).filter(Boolean)
+        ? ((detailAction?.result as Record<string, unknown>).networkDetailCandidates as unknown[]).map(structuralUrl).filter(Boolean)
         : [],
     },
     pagination: {
@@ -685,7 +690,6 @@ export function saveSiteMemoryFromActionCapture(result: Record<string, unknown>)
     url: structuralUrl(candidate.url),
     method: asString(candidate.method) || 'GET',
     requestEvidence,
-    responsePreview: safeUrl(candidate.responsePreview),
     responseContentType: asString(candidate.responseContentType),
     responseHints: extractActionResponseHints(candidate.responsePreview),
     intercepted: Boolean(candidate.intercepted),
@@ -911,22 +915,26 @@ function enrichSiteMemoryRecord(record: SiteMemoryRecord): SiteMemoryRecord {
   const listApiCandidates = (Array.isArray(record.listApiCandidates) ? record.listApiCandidates : []).map((candidate) => {
     const requestEvidence = normalizeRequestBodyEvidence(candidate)
     const url = structuralUrl(candidate.url)
+    const responseHints = mergeActionResponseHints(candidate.responseHints, extractActionResponseHints(candidate.responsePreview))
     if (!candidate.requestBodyPreview
+      && !candidate.responsePreview
       && candidate.url === url
-      && JSON.stringify(candidate.requestEvidence || null) === JSON.stringify(requestEvidence)) return candidate
+      && JSON.stringify(candidate.requestEvidence || null) === JSON.stringify(requestEvidence)
+      && JSON.stringify(candidate.responseHints || null) === JSON.stringify(responseHints || null)) return candidate
     changed = true
-    return { ...candidate, url, requestBodyPreview: undefined, requestEvidence }
+    return { ...candidate, url, requestBodyPreview: undefined, responsePreview: undefined, requestEvidence, responseHints }
   })
   const firstPassHistory = history.map((candidate) => {
     const responseHints = enrichActionResponseHints(candidate.responseHints, candidate.responsePreview)
     const requestEvidence = normalizeRequestBodyEvidence(candidate)
     const requestEvidenceChanged = Boolean(candidate.requestBodyPreview)
       || JSON.stringify(candidate.requestEvidence || null) !== JSON.stringify(requestEvidence)
-    if (responseHints === candidate.responseHints && !requestEvidenceChanged) return candidate
+    if (responseHints === candidate.responseHints && !requestEvidenceChanged && !candidate.responsePreview) return candidate
     changed = true
     return {
       ...candidate,
       requestBodyPreview: undefined,
+      responsePreview: undefined,
       requestEvidence,
       responseHints,
     }
@@ -1062,9 +1070,9 @@ function describeStoredActionCandidateQuality(candidate: StoredActionCandidate):
     score += 1
     signals.push('has_request_body')
   }
-  if (safeUrl(candidate.responsePreview)) {
+  if (candidate.responseHints || candidate.apiEvidence?.responseShape) {
     score += 1
-    signals.push('has_response_preview')
+    signals.push('has_response_shape')
   }
   if ((candidate.responseContentType || '').toLowerCase().includes('json')) {
     score += 1
@@ -1163,7 +1171,7 @@ function mergeStoredActionCandidate(
     mode: winner.mode || loser.mode,
     toolName: winner.toolName || loser.toolName,
     requestEvidence: pickRicherRequestEvidence(winner.requestEvidence || normalizeRequestBodyEvidence(winner), loser.requestEvidence || normalizeRequestBodyEvidence(loser)),
-    responsePreview: preserveExplicitSelection ? winner.responsePreview : pickRicherPreview(winner.responsePreview, loser.responsePreview),
+    responsePreview: undefined,
     responseContentType: winner.responseContentType || loser.responseContentType,
     responseHints: preserveExplicitSelection ? winner.responseHints : mergeActionResponseHints(winner.responseHints, loser.responseHints),
     intercepted: winner.intercepted || loser.intercepted,
