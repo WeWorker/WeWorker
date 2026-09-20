@@ -429,13 +429,132 @@ function collectVisibleComments(limit) {
     '.Comments-container .List-item',
     '.AnswerItem',
   ].join(',')));
-  return roots.map((root) => {
+  let comments = roots.map((root) => {
     const author = normalizedText(root.querySelector?.('.CommentItemV2-meta a, .CommentItem-meta a, .UserLink, .AuthorInfo-name')?.textContent || '');
     const content = normalizedText(root.querySelector?.('.CommentItemV2-content, .CommentItem-content, .RichContent-inner, .RichText')?.textContent || root.textContent || '').slice(0, 800);
     const time = normalizedText(root.querySelector?.('time, .CommentItemV2-time, .CommentItem-time')?.textContent || root.querySelector?.('time')?.getAttribute?.('datetime') || '');
     const like = normalizedText(root.querySelector?.('.CommentItemV2-likeBtn, .CommentItem-likeBtn, button[aria-label*="赞"]')?.textContent || '');
     return { author, content, time, like };
   }).filter((item) => item.content).slice(0, safeLimit);
+
+  if (comments.length) return comments;
+  comments = collectModernArticleComments(safeLimit);
+  if (comments.length) return comments;
+  return collectTextSectionComments(safeLimit);
+}
+
+function collectModernArticleComments(limit) {
+  const pageTitle = normalizedText(document.querySelector('h1')?.textContent || '');
+  const panels = Array.from(document.querySelectorAll('div')).filter((el) => {
+    if (!isVisibleElement(el)) return false;
+    const text = normalizedText(el.textContent || '');
+    return /\d+\s*条评论/.test(text)
+      && /(默认|最新)/.test(text)
+      && (!pageTitle || !text.includes(pageTitle));
+  });
+  const panel = panels.sort((a, b) => normalizedText(a.textContent || '').length - normalizedText(b.textContent || '').length)[0];
+  if (!panel) return [];
+
+  const authorLinks = Array.from(panel.querySelectorAll('a')).filter((link) => {
+    if (!isVisibleElement(link)) return false;
+    const text = normalizedText(link.textContent || '');
+    const href = link.getAttribute('href') || '';
+    if (!text || text.length > 40) return false;
+    if (/^(展开|收起|查看|回复|赞|踩|更多|举报)$/.test(text)) return false;
+    return /\/people\/|\/org\//.test(href) || /css-10u695f|UserLink/.test(String(link.className || ''));
+  });
+
+  const seen = new Set();
+  const comments = [];
+  for (const authorLink of authorLinks) {
+    if (comments.length >= limit) break;
+    const author = normalizedText(authorLink.textContent || '');
+    let cursor = authorLink.parentElement;
+    const candidates = [];
+    while (cursor && cursor !== panel) {
+      const text = normalizedText(cursor.textContent || '');
+      if (text.length >= author.length + 8 && text.length <= 1200) {
+        candidates.push({ root: cursor, text });
+      }
+      cursor = cursor.parentElement;
+    }
+    const root = candidates.find((candidate) => /回复|赞|发布于|编辑于|IP属地/.test(candidate.text))?.root
+      || candidates[candidates.length - 1]?.root
+      || authorLink.parentElement;
+
+    const rawText = normalizedText(root?.textContent || '');
+    if (!rawText || rawText.length <= author.length) continue;
+    const content = rawText
+      .replace(author, '')
+      .replace(/^[:：\s]+/, '')
+      .replace(/展开其他\s*\d+\s*条回复.*/u, '')
+      .replace(/回复\s*$/u, '')
+      .trim()
+      .slice(0, 800);
+    const key = `${author}:${content.slice(0, 80)}`;
+    if (!content || seen.has(key)) continue;
+    seen.add(key);
+
+    const time = (rawText.match(/(\d{4}-\d{2}-\d{2}|今天|昨天|\d+\s*(?:分钟|小时|天)前|IP属地[^\s]+)/u) || [])[0] || '';
+    const like = (rawText.match(/(\d+\s*赞|赞\s*\d+)/u) || [])[0] || '';
+    comments.push({ author, content, time, like });
+  }
+
+  return comments;
+}
+
+function collectTextSectionComments(limit) {
+  const text = document.body?.innerText || '';
+  const headers = Array.from(text.matchAll(/\d+\s*条评论/gu))
+    .map((match) => match.index ?? -1)
+    .filter((index) => index >= 0)
+    .filter((index) => {
+      const head = text.slice(index, index + 300);
+      return head.includes('默认') && head.includes('最新');
+    });
+  let sectionStart = headers[headers.length - 1] ?? -1;
+  if (sectionStart < 0) {
+    const defaultIndex = text.lastIndexOf('默认');
+    const latestIndex = defaultIndex >= 0 ? text.indexOf('最新', defaultIndex) : -1;
+    if (latestIndex >= 0 && latestIndex - defaultIndex < 200) sectionStart = latestIndex + '最新'.length;
+  }
+  if (sectionStart < 0) return [];
+  const sectionText = text.slice(sectionStart, sectionStart + 6000)
+    .replace(/^[\s\S]*?默认[\s\S]*?最新/u, '');
+
+  const stopPattern = /^(写下你的评论|相关推荐|发布评论|登录后|选择语言|热门搜索|©|知乎指南|申请转载)$/u;
+  const noisePattern = /^(默认|最新|赞|回复|分享|收藏|举报|展开|收起|发布评论|添加评论|写下你的评论|喜欢|​|\d+)$/u;
+  const metaPattern = /^(发布于|编辑于|IP属地|\d+\s*(?:分钟|小时|天)前|昨天|今天|\d{2}-\d{2}|\d{4}-\d{2}-\d{2})/u;
+  const lines = sectionText
+    .split(/\n+/)
+    .map((line) => normalizedText(line))
+    .filter(Boolean);
+
+  const comments = [];
+  for (let i = 0; i < lines.length && comments.length < limit; i += 1) {
+    const author = lines[i];
+    if (!author || author.length > 40 || noisePattern.test(author) || stopPattern.test(author) || metaPattern.test(author)) continue;
+
+    const contentParts = [];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = lines[j];
+      if (stopPattern.test(line)) break;
+      if (metaPattern.test(line)) break;
+      if (/^(赞|回复|展开其他|收起|举报)$/u.test(line)) break;
+      if (line.length <= 40 && j > i + 1 && !/[，。！？,.!?]/u.test(line)) break;
+      if (!noisePattern.test(line)) contentParts.push(line);
+      if (contentParts.join(' ').length > 30) {
+        const next = lines[j + 1] || '';
+        if (metaPattern.test(next) || /^(赞|回复)/u.test(next)) break;
+      }
+    }
+
+    const content = normalizedText(contentParts.join(' ')).slice(0, 800);
+    if (!content || content.length < 4 || noisePattern.test(content) || metaPattern.test(content)) continue;
+    comments.push({ author, content, time: '', like: '', source: 'text_section' });
+    i += Math.max(1, contentParts.length);
+  }
+  return comments;
 }
 
 function openCommentsIfNeeded() {
