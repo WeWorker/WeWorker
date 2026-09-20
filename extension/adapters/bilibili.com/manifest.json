@@ -1,0 +1,55 @@
+{
+  "id": "bilibili.com",
+  "name": "Bilibili",
+  "description": "Bilibili / B 站：登录检查、搜索视频、打开视频详情、读取评论、点赞/收藏视频",
+  "match": [
+    "bilibili.com"
+  ],
+  "requires_auth": false,
+  "version": "1.0.0",
+  "author": "WeWorker project",
+  "homepage_url": "https://www.bilibili.com",
+  "icon": "video",
+  "scenarios": [
+    {
+      "id": "search-video",
+      "title": "搜索视频",
+      "summary": "按关键词搜索 B 站视频并整理结果",
+      "prompts": [
+        {
+          "text": "帮我在 B 站搜索${开源项目介绍}相关视频"
+        }
+      ]
+    },
+    {
+      "id": "video-detail",
+      "title": "查看视频详情",
+      "summary": "打开或读取视频详情页，提取标题、UP 主、播放量和简介",
+      "prompts": [
+        {
+          "text": "帮我打开这个 B 站视频并总结基础信息"
+        }
+      ]
+    },
+    {
+      "id": "comments",
+      "title": "读取评论",
+      "summary": "读取当前视频页的评论摘要"
+    },
+    {
+      "id": "like-favorite",
+      "title": "点赞或收藏视频",
+      "summary": "在用户明确确认后对当前或指定 B 站视频执行点赞或收藏"
+    }
+  ],
+  "detail_description": "Bilibili Adapter 可以让 WeWorker 根据自然语言指令执行常用 B 站网页任务，例如检查登录状态、搜索视频、读取视频详情和评论，并在用户明确确认后点赞或收藏视频。该 Adapter 不读取、不保存、不返回 Cookie、Token、账号凭据或其他敏感信息。",
+  "test_prompts": [
+    "打开 B 站，搜索开源项目介绍，读取一个视频详情和评论摘要"
+  ],
+  "i18n": {
+    "zh": {
+      "name": "Bilibili / B 站",
+      "description": "Bilibili / B 站：登录检查、搜索视频、打开视频详情、读取评论、点赞/收藏视频"
+    }
+  }
+}
