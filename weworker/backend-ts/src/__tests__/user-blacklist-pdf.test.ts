@@ -2,7 +2,8 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../config.js', () => ({
-  getUserDirectory: vi.fn(() => 'C:/Users/liuqi/.weworker/user-files'),
+  getConfigDirectory: vi.fn(() => 'C:/Users/weworker-test/.weworker'),
+  getUserDirectory: vi.fn(() => 'C:/Users/weworker-test/.weworker/user-files'),
   getUserDirectoryBlacklist: vi.fn(() => [{
     type: 'regex_path',
     pattern: '^folder-b/zcf \\(1\\)/BaiduSyncdisk/同步空间帮助文档\\.pdf$',
@@ -14,7 +15,7 @@ import { evaluateToolAccess } from '../user-directory-access.js'
 import { isPathBlacklisted } from '../user-directory-blacklist.js'
 
 describe('user pdf blacklist scenario', () => {
-  const root = 'C:/Users/liuqi/.weworker/user-files'
+  const root = 'C:/Users/weworker-test/.weworker/user-files'
   const pattern = '^folder-b/zcf \\(1\\)/BaiduSyncdisk/同步空间帮助文档\\.pdf$'
   const entries = [{ type: 'regex_path' as const, pattern }]
   const target = path.join(root, 'folder-b', 'zcf (1)', 'BaiduSyncdisk', '同步空间帮助文档.pdf')

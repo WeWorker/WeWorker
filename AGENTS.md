@@ -50,6 +50,7 @@ WeWorker 是桌面端 AI 工作助手项目，包含 Electron 桌面端、TypeSc
 - 不得提交真实密码、Token、API Key、Cookie、个人账号、真实用户数据、真实会话数据、非公开系统名称、私有域名或私网 IP。
 - 示例地址使用 `example.com`、`example.org`、`localhost` 或 `127.0.0.1`。
 - 测试中的密钥、Token、账号必须使用明显占位值。
+- 测试、Fixture、示例和文档中的本地路径不得包含真实用户名、真实组织名或真实机器路径。需要覆盖 Windows 绝对路径逻辑时，使用中性虚构路径，例如 `C:/weworker-fixtures/user-files` 或 `C:/Users/weworker-test/.weworker/user-files`；不得使用来自开发者电脑的 `C:/Users/<真实用户名>/...`、`D:/workspace/<真实项目>/...` 等路径。
 - 不在日志记录模型 Key、Token、密钥或用户数据路径。
 - 敏感信息扫描不放入公开自动化流程；合并前在受控环境进行检查。
 

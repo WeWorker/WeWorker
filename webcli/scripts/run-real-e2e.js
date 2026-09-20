@@ -9,7 +9,8 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const WEBCLI_DIR = resolve(SCRIPT_DIR, '..')
-const DEFAULT_MANIFEST = join(WEBCLI_DIR, 'e2e-cases', 'new-commands.json')
+const PUBLIC_MANIFEST = join(WEBCLI_DIR, 'e2e-cases', 'public-smoke.json')
+const INTERNAL_MANIFEST = join(WEBCLI_DIR, 'e2e-cases', 'new-commands.json')
 const LOGIN_PATTERNS = [
   /authentication required/i,
   /login required/i,
@@ -28,18 +29,21 @@ const PERMISSION_PATTERNS = [
 ]
 
 function parseArgs(argv) {
-  const options = { manifest: DEFAULT_MANIFEST, timeout: 60_000, suite: 'new' }
+  const options = { profile: 'public', timeout: 60_000, suite: 'new' }
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === '--manifest') options.manifest = resolve(argv[++i])
+    if (argv[i] === '--profile') options.profile = argv[++i]
+    else if (argv[i] === '--manifest') options.manifest = resolve(argv[++i])
     else if (argv[i] === '--timeout') options.timeout = Number(argv[++i]) * 1000
     else if (argv[i] === '--only') options.only = new Set(argv[++i].split(',').filter(Boolean))
     else if (argv[i] === '--suite') options.suite = argv[++i]
     else if (argv[i] === '--help') options.help = true
   }
+  options.manifest ??= options.profile === 'internal' ? INTERNAL_MANIFEST : PUBLIC_MANIFEST
   return options
 }
 
-async function loadHistoricalSafeCases() {
+async function loadHistoricalSafeCases(profile) {
+  if (profile !== 'internal') return []
   const migrated = JSON.parse(await readFile(join(WEBCLI_DIR, 'wecli-migrated-commands.json'), 'utf8'))
   const catalog = JSON.parse(await readFile(join(WEBCLI_DIR, 'wecli-command-catalog.json'), 'utf8'))
   const catalogById = new Map(catalog.commands.map((command) => [command.id, command]))
@@ -131,14 +135,19 @@ async function runCase(testCase, timeout) {
 async function main() {
   const options = parseArgs(process.argv.slice(2))
   if (options.help) {
-    console.log('Usage: npm run test:e2e:real -- [--suite new|historical-safe|all] [--manifest file] [--only id1,id2] [--timeout seconds]')
+    console.log('Usage: npm run test:e2e:real -- [--profile public|internal] [--suite new|historical-safe|all] [--manifest file] [--only id1,id2] [--timeout seconds]')
     return
   }
 
   const manifest = JSON.parse(await readFile(options.manifest, 'utf8'))
-  const historicalCases = options.suite === 'historical-safe' || options.suite === 'all' ? await loadHistoricalSafeCases() : []
+  const historicalCases = options.suite === 'historical-safe' || options.suite === 'all' ? await loadHistoricalSafeCases(options.profile) : []
   const newCases = options.suite === 'new' || options.suite === 'all' ? manifest.cases : []
   const cases = [...historicalCases, ...newCases].filter((item) => !options.only || options.only.has(item.id))
+  if (cases.length === 0) {
+    console.log(JSON.stringify({ outputPath: null, counts: {}, loginSites: [] }, null, 2))
+    return
+  }
+
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
   const outputDir = join(WEBCLI_DIR, 'e2e-results')
   const outputPath = join(outputDir, `${options.suite}-${manifest.name}-${stamp}.jsonl`)

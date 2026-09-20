@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - develop
   workflow_dispatch:
 
 permissions:
@@ -18,8 +19,8 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  public-config:
-    name: Public config
+  config-check:
+    name: 配置一致性检查
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,12 +39,12 @@ jobs:
       - name: Test public configuration validator
         run: node --test scripts/__tests__/check-public-config.test.mjs
 
-  webcli:
-    name: WebCLI tests
+      - name: Test build profile overlay
+        run: node --test weworker/scripts/__tests__/build-profile-overlay.test.cjs
+
+  test:
+    name: 单元测试
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: webcli
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -55,134 +56,108 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: webcli/package-lock.json
+          cache-dependency-path: |
+            webcli/package-lock.json
+            weworker/package-lock.json
+            weworker/backend-ts/package-lock.json
 
-      - name: Install dependencies
+      - name: Install WebCLI dependencies
+        working-directory: webcli
         run: npm ci
 
-      - name: Run tests
+      - name: Run WebCLI tests
+        working-directory: webcli
         run: npm run test:ci
 
-  backend:
-    name: Backend checks
-    runs-on: ubuntu-latest
-    defaults:
-      run:
+      - name: Install Backend dependencies
         working-directory: weworker/backend-ts
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: weworker/backend-ts/package-lock.json
-
-      - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
+      - name: Type-check Backend
+        working-directory: weworker/backend-ts
         run: npm run typecheck
 
-      - name: Run tests
+      - name: Run Backend tests
+        working-directory: weworker/backend-ts
         run: npm run test:ci
 
-  renderer:
-    name: Renderer build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: weworker/renderer
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: weworker/renderer/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-  website:
-    name: Website build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: officialWeb
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: officialWeb/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-  electron-integration:
-    name: Electron integration tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
+      - name: Install Electron dependencies
         working-directory: weworker
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: weworker/package-lock.json
-
-      - name: Install dependencies
         run: npm ci
 
-      - name: Run integration tests
+      - name: Run Electron and website exploration agent integration tests
+        working-directory: weworker
         run: npm run test:webwright-integration
 
-  extension:
-    name: Extension tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Run tests
+      - name: Run Extension tests
         run: >-
           node --test
           extension/test/exploration-site-state.test.mjs
           extension/test/sidepanel-workflow-navigation.test.mjs
           extension/test/tool-route.test.mjs
+          extension/test/wecli-runtime-helper.test.mjs
+
+  build-check:
+    name: 编译检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            webcli/package-lock.json
+            weworker/package-lock.json
+            weworker/renderer/package-lock.json
+            weworker/backend-ts/package-lock.json
+            officialWeb/package-lock.json
+
+      - name: Install WeWorker dependencies
+        working-directory: weworker
+        run: npm ci
+
+      - name: Install Renderer dependencies
+        working-directory: weworker/renderer
+        run: npm ci
+
+      - name: Install Backend dependencies
+        working-directory: weworker/backend-ts
+        run: npm ci
+
+      - name: Install WebCLI dependencies
+        working-directory: webcli
+        run: npm ci
+
+      - name: Install Website dependencies
+        working-directory: officialWeb
+        run: npm ci
+
+      - name: Prepare desktop build configuration
+        working-directory: weworker
+        run: node scripts/prepare-build.cjs
+
+      - name: Build Renderer
+        working-directory: weworker
+        run: npm run build:renderer
+
+      - name: Bundle Backend TS
+        working-directory: weworker
+        run: npm run build:backend-ts
+
+      - name: Bundle Bridge
+        working-directory: weworker
+        run: npm run build:bridge
+
+      - name: Bundle WebCLI
+        working-directory: weworker
+        run: npm run build:webcli
+
+      - name: Build Website
+        working-directory: officialWeb
+        run: npm run build

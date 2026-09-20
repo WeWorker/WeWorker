@@ -72,7 +72,26 @@ function writeJsonAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  fs.renameSync(tempPath, filePath);
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      fs.renameSync(tempPath, filePath);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!['EPERM', 'EACCES'].includes(error?.code)) throw error;
+      if (attempt < 3) {
+        const waitBuffer = new SharedArrayBuffer(4);
+        Atomics.wait(new Int32Array(waitBuffer), 0, 0, 50 * (attempt + 1));
+      }
+    }
+  }
+  if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(lastError?.code)) {
+    fs.copyFileSync(tempPath, filePath);
+    fs.rmSync(tempPath, { force: true });
+    return;
+  }
+  throw lastError;
 }
 
 export class GenerationRunStore {

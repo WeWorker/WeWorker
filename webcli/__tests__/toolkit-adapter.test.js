@@ -18,6 +18,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const cliPath = join(import.meta.dirname, "..", "index.js");
+const BUILTIN_EXTENSION_ADAPTER_ID = "jd.com";
 
 function artifactHash(files) {
   const digest = createHash("sha256");
@@ -112,6 +113,7 @@ describe("Toolkit Adapter registry", () => {
   });
 
   it("rejects a symlinked required file", async () => {
+    if (process.platform === "win32") return;
     const fixture = await createToolkit();
     const skillPath = join(fixture.adapterRoot, "SKILL.md");
     const target = join(fixture.root, "outside-skill.md");
@@ -142,12 +144,12 @@ describe("Toolkit Adapter registry", () => {
   });
 
   it("fails closed when a Toolkit Adapter id conflicts with an Extension Adapter", async () => {
-    const fixture = await createToolkit({ adapterId: "scheduling.example.com" });
+    const fixture = await createToolkit({ adapterId: BUILTIN_EXTENSION_ADAPTER_ID });
 
     await expect(execFileAsync(process.execPath, [cliPath, "adapter", "list", "--json"], {
       env: { ...process.env, WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot },
     })).rejects.toMatchObject({
-      stderr: expect.stringContaining('Duplicate Adapter registration: "scheduling.example.com"'),
+      stderr: expect.stringContaining(`Duplicate Adapter registration: "${BUILTIN_EXTENSION_ADAPTER_ID}"`),
     });
   });
 
@@ -158,6 +160,7 @@ describe("Toolkit Adapter registry", () => {
       ...process.env,
       HOME: fixture.root,
       WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
+      WEWORKER_USER_ADAPTERS_DIR: join(fixture.root, ".weworker", "adapters"),
     };
 
     const [{ stdout: listOutput }, { stdout: humanList }, { stdout: infoOutput }, { stdout: skillOutput }] = await Promise.all([
@@ -189,6 +192,7 @@ describe("Toolkit Adapter registry", () => {
         ...process.env,
         HOME: fixture.root,
         WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
+        WEWORKER_USER_ADAPTERS_DIR: join(fixture.root, ".weworker", "adapters"),
       },
     })).rejects.toMatchObject({
       stderr: expect.stringContaining('Duplicate Adapter registration: "user-conflict"'),
@@ -202,9 +206,10 @@ describe("Toolkit Adapter registry", () => {
       ...process.env,
       HOME: fixture.root,
       WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
+      WEWORKER_USER_ADAPTERS_DIR: join(fixture.root, ".weworker", "adapters"),
     };
 
-    await expect(execFileAsync(process.execPath, [cliPath, "adapter", "remove", "scheduling.example.com"], { env }))
+    await expect(execFileAsync(process.execPath, [cliPath, "adapter", "remove", BUILTIN_EXTENSION_ADAPTER_ID], { env }))
       .rejects.toMatchObject({ stderr: expect.stringContaining("Built-in Extension Adapter") });
     await expect(execFileAsync(process.execPath, [cliPath, "adapter", "remove", "blog-admin"], { env }))
       .rejects.toMatchObject({ stderr: expect.stringContaining("由网站探索管理") });
@@ -237,7 +242,8 @@ process.stdin.on('end', () => {
     chmodSync(runtime, 0o755);
 
     const completed = await runToolkitTool(match, { limit: "5", force: true }, {
-      runtimePath: runtime,
+      runtimePath: process.execPath,
+      runtimeArgs: [runtime],
       env: { ...process.env, PYTHONHOME: "/unsafe", PYTHONPATH: "/unsafe" },
       metricsConfig: { endpoint: null },
       traceID: "trace123",

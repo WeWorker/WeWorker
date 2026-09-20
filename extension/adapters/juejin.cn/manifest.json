@@ -1,0 +1,26 @@
+{
+  "id": "juejin.cn",
+  "name": "juejin.cn",
+  "description": "Generated adapter shell for juejin.cn",
+  "match": [
+    "juejin.cn"
+  ],
+  "homepage_url": "https://juejin.cn/frontend",
+  "requires_auth": true,
+  "version": "1.0.8",
+  "author": "site-memory-scaffold",
+  "generated_from": {
+    "source": "site_memory",
+    "workflow_version": "opencli-like-v12",
+    "generated_at": "2026-05-21T02:37:07.073Z",
+    "recommended_strategy": "HYBRID"
+  },
+  "support_files": [
+    "webcli-generated/shared/juejin.cn.runtime.generated.js",
+    "webcli-generated/tools/check_login_status.generated.js",
+    "webcli-generated/tools/like_current_item.generated.js",
+    "webcli-generated/tools/favorite_current_item.generated.js",
+    "webcli-generated/tools/list_detail_candidates.generated.js",
+    "webcli-generated/juejin.cn.site-entry.generated.js"
+  ]
+}

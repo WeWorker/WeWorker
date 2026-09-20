@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "profile": "public",
+  "catalogFiles": [
+    "webcli/config/command-catalog.public.json"
+  ],
+  "migratedCommandFiles": [
+    "webcli/config/migrated-commands.public.json"
+  ],
+  "defaultAuthCheckTool": null,
+  "previousDomains": [],
+  "adapterDisplayNames": {},
+  "output": {
+    "generatedSupportFile": "wecli.generated.json",
+    "migrationReport": "webcli/generated/wecli-adapter-migration-report.json"
+  },
+  "publicDenyPatterns": [
+    "\\b10\\.\\d+\\.\\d+\\.\\d+\\b",
+    "\\b172\\.(1[6-9]|2\\d|3[0-1])\\.\\d+\\.\\d+\\b",
+    "\\b192\\.168\\.\\d+\\.\\d+\\b",
+    "(^|[._-])internal([._-]|$)"
+  ]
+}

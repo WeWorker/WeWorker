@@ -16,6 +16,13 @@ function makeEvent() {
     addListener(listener) {
       listeners.push(listener)
     },
+    removeListener(listener) {
+      const index = listeners.indexOf(listener)
+      if (index >= 0) listeners.splice(index, 1)
+    },
+    emit(...args) {
+      for (const listener of [...listeners]) listener(...args)
+    },
     listeners,
   }
 }
@@ -136,7 +143,11 @@ function loadServiceWorker(options = {}) {
   const createCalls = []
   const removeCalls = []
   const updateCalls = []
-  const tabs = [options.tab || { id: 7, url: 'https://itsm.example.com/workbench', windowId: 1 }]
+  const tabs = [{
+    active: true,
+    status: 'complete',
+    ...(options.tab || { id: 7, url: 'https://itsm.example.com/workbench', windowId: 1 }),
+  }]
 
   class FakeWebSocket {
     static OPEN = 1
@@ -161,6 +172,18 @@ function loadServiceWorker(options = {}) {
       detach: async (target) => { debuggerDetachCalls.push(target) },
       sendCommand: async (target, command, params = {}) => {
         debuggerCalls.push({ target, command, params })
+        if (command === 'Network.getCookies') {
+          return {
+            cookies: [{
+              name: 'SESSION',
+              value: 'secret',
+              domain: '.example.com',
+              path: '/',
+              secure: true,
+              httpOnly: true,
+            }],
+          }
+        }
         if (command === 'DOM.getDocument') return { root: { nodeId: 1 } }
         if (command === 'DOM.querySelector') return { nodeId: 2 }
         if (command === 'DOM.setFileInputFiles') return {}
@@ -205,7 +228,7 @@ function loadServiceWorker(options = {}) {
       captureVisibleTab: async () => '',
       create: async (options) => {
         createCalls.push(options)
-        const tab = { id: 8, windowId: 1, ...options }
+        const tab = { id: 8, windowId: 1, status: 'complete', ...options }
         tabs.push(tab)
         return tab
       },
@@ -223,7 +246,10 @@ function loadServiceWorker(options = {}) {
       update: async (id, update) => {
         updateCalls.push({ id, update })
         const tab = tabs.find((candidate) => candidate.id === id)
-        if (tab) Object.assign(tab, update)
+        if (tab) {
+          Object.assign(tab, update, { status: 'complete' })
+          chrome.tabs.onUpdated.emit(id, { status: 'complete' }, tab)
+        }
         return { id, ...update }
       },
     },
@@ -386,9 +412,16 @@ test('service worker allows ProjectDemo runtime helpers to read SDL sibling-doma
 })
 
 test('direct browser_fetch reuses the existing ITSM tab and browser credentials', async () => {
-  const { directRequest, executeCalls } = loadServiceWorker()
+  const {
+    directRequest,
+    cookieCalls,
+    createCalls,
+    debuggerAttachCalls,
+    debuggerDetachCalls,
+    debuggerCalls,
+  } = loadServiceWorker()
 
-    const response = await directRequest('cookies_get', {
+  const response = await directRequest('cookies_get', {
     url: 'https://itsm.example.com/itsm/request/getRequestList.spr',
   })
 

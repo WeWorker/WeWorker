@@ -22,87 +22,20 @@ body:
         - label: 这不是需要私下报告的安全漏洞
           required: true
 
-  - type: input
-    id: version
-    attributes:
-      label: WeWorker 版本
-      description: 可在应用设置页或安装包文件名中查看
-      placeholder: "例如：1.0.0"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: install_source
-    attributes:
-      label: 安装来源
-      options:
-        - GitHub Release 安装包
-        - 从源码运行
-        - 自行构建的安装包
-        - 其他
-    validations:
-      required: true
-
-  - type: dropdown
-    id: component
-    attributes:
-      label: 相关组件
-      multiple: true
-      options:
-        - 桌面应用
-        - 浏览器扩展
-        - WebCLI
-        - 网站 Adapter
-        - 网站探索agent
-        - 定时任务或消息通知
-        - 官网或文档
-        - 不确定
-    validations:
-      required: true
-
-  - type: dropdown
-    id: platform
-    attributes:
-      label: 操作系统
-      options:
-        - Windows 10/11 x64
-        - macOS Intel
-        - macOS Apple Silicon
-        - Linux（开发环境）
-        - 其他
-    validations:
-      required: true
-
-  - type: input
-    id: platform_version
-    attributes:
-      label: 操作系统版本
-      placeholder: "例如：Windows 11 24H2 / macOS 15.4"
-    validations:
-      required: true
-
-  - type: input
-    id: browser
-    attributes:
-      label: 浏览器及版本
-      description: 如果问题与网页或扩展无关，可填写“不适用”
-      placeholder: "例如：Chrome 128.0.6613.114"
-    validations:
-      required: true
-
-  - type: input
-    id: adapter
-    attributes:
-      label: 网站或 Adapter
-      description: 如果问题与特定网站无关，可留空；不要填写账号信息
-      placeholder: "例如：mail.163.com"
-
   - type: textarea
     id: description
     attributes:
       label: 问题描述
       description: 描述发生了什么，以及问题对你的影响
       placeholder: 清晰、简洁地描述问题
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      placeholder: 描述你预期发生的结果
     validations:
       required: true
 
@@ -119,20 +52,17 @@ body:
       required: true
 
   - type: textarea
-    id: expected
+    id: environment
     attributes:
-      label: 期望行为
-      placeholder: 描述你预期发生的结果
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: 实际行为
-      placeholder: 描述实际结果和错误提示
-    validations:
-      required: true
+      label: 环境信息
+      description: 以下字段均可选；不确定或不适用时可留空，但请保留字段名
+      value: |
+        WeWorker 版本：
+        安装来源：
+        相关组件：
+        操作系统：
+        浏览器及版本：
+        网站或 Adapter：
 
   - type: textarea
     id: logs
@@ -140,12 +70,6 @@ body:
       label: 已脱敏日志
       description: 只粘贴定位问题所需的最小日志；请先删除凭据、账号、私人内容和本机路径
       render: shell
-
-  - type: textarea
-    id: media
-    attributes:
-      label: 已脱敏截图或录屏
-      description: 可拖入附件；请遮盖账号、邮件、订单、文件路径和网页个人数据
 
   - type: textarea
     id: additional

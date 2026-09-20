@@ -26,12 +26,53 @@ function walkFiles(rootDir) {
 }
 
 function removeDirectory(directory) {
-  fs.rmSync(directory, {
-    recursive: true,
-    force: true,
-    maxRetries: 4,
-    retryDelay: 75,
-  });
+  let lastError = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      fs.rmSync(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 4,
+        retryDelay: 75,
+      });
+    } catch (error) {
+      lastError = error;
+      if (error?.code !== 'ENOENT') {
+        waitBeforeRetry(attempt + 1);
+        continue;
+      }
+    }
+    if (!fs.existsSync(directory)) return;
+    waitBeforeRetry(attempt + 1);
+  }
+  try {
+    removeDirectoryManually(directory);
+  } catch (error) {
+    lastError = error;
+  }
+  for (let attempt = 0; attempt < 4 && fs.existsSync(directory); attempt += 1) {
+    try {
+      fs.rmSync(directory, { recursive: true, force: true, maxRetries: 4, retryDelay: 75 });
+    } catch (error) {
+      lastError = error;
+    }
+    if (!fs.existsSync(directory)) return;
+    waitBeforeRetry(attempt + 1);
+  }
+  if (fs.existsSync(directory)) throw lastError || createPublishFilesystemError(`failed to remove directory: ${directory}`);
+}
+
+function removeDirectoryManually(directory) {
+  if (!fs.existsSync(directory)) return;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      removeDirectoryManually(entryPath);
+    } else {
+      fs.rmSync(entryPath, { force: true });
+    }
+  }
+  fs.rmdirSync(directory);
 }
 
 export function copyAdapterDirectorySafe(sourceDir, targetDir, {

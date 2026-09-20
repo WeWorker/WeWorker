@@ -53,9 +53,10 @@ export async function runToolkitTool(match, parameters, options = {}) {
   const runtime = options.runtimePath || resolveToolkitRuntime(options);
   const traceID = options.traceID || randomUUID().replace(/-/g, "").slice(0, 12);
   const startedAt = Date.now();
+  const runtimeArgs = options.runtimeArgs || [];
   const child = (options.spawn || spawn)(
     runtime,
-    ["--internal-script", match.adapter.entryPath, match.tool.id],
+    [...runtimeArgs, "--internal-script", match.adapter.entryPath, match.tool.id],
     {
       cwd: match.adapter.root,
       env: toolkitEnvironment(options.env || process.env),

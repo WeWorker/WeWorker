@@ -48,6 +48,7 @@ export function resolveAdaptersDir() {
  * @returns {string} Absolute path to the user adapters directory.
  */
 export function resolveUserAdaptersDir() {
+  if (process.env.WEWORKER_USER_ADAPTERS_DIR) return resolve(process.env.WEWORKER_USER_ADAPTERS_DIR);
   const home = homedir();
   const weworker = join(home, ".weworker", "adapters");
   if (existsSync(weworker)) return weworker;

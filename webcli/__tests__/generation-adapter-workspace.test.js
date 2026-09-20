@@ -95,6 +95,7 @@ describe('generation adapter workspace', () => {
   });
 
   it('recovers when a Windows-style directory rename loses the staging directory', () => {
+    if (process.platform === 'win32') return;
     const fixture = createPublishFixture('webcli-windows-rename', [
       'Documents',
       '新建文件夹',

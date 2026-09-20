@@ -1,0 +1,83 @@
+name: Close Linked Issues on Develop
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - develop
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  close-linked-issues:
+    name: Close linked issues
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Close issues referenced by merged PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node <<'NODE'
+          const { execFileSync } = require('node:child_process')
+          const fs = require('node:fs')
+
+          const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
+          const pr = event.pull_request || {}
+          const body = String(pr.body || '')
+          const prNumber = pr.number
+          const repo = String(process.env.GH_REPO || '')
+          const escapedRepo = repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+          const issueNumbers = new Set()
+          const closingPattern = new RegExp(
+            String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:(?:https:\/\/github\.com\/${escapedRepo}\/issues\/)|#)(\d+)\b`,
+            'gi',
+          )
+
+          for (const match of body.matchAll(closingPattern)) {
+            issueNumbers.add(Number(match[1]))
+          }
+
+          if (!issueNumbers.size) {
+            console.log('No linked issues found in PR body.')
+            process.exit(0)
+          }
+
+          for (const issueNumber of [...issueNumbers].sort((a, b) => a - b)) {
+            try {
+              const state = execFileSync(
+                'gh',
+                ['issue', 'view', String(issueNumber), '--repo', process.env.GH_REPO, '--json', 'state', '--jq', '.state'],
+                { encoding: 'utf8' },
+              ).trim()
+
+              if (state === 'CLOSED') {
+                console.log(`Issue #${issueNumber} is already closed.`)
+                continue
+              }
+
+              execFileSync(
+                'gh',
+                [
+                  'issue',
+                  'close',
+                  String(issueNumber),
+                  '--repo',
+                  process.env.GH_REPO,
+                  '--comment',
+                  `已通过 PR #${prNumber} 合并到 develop，自动关闭。`,
+                ],
+                { stdio: 'inherit' },
+              )
+            } catch (error) {
+              console.error(`Failed to close issue #${issueNumber}: ${error.message}`)
+              process.exitCode = 1
+            }
+          }
+          NODE

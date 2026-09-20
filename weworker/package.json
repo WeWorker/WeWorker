@@ -54,6 +54,7 @@
         "to": "backend-ts",
         "filter": [
           "server.cjs",
+          "query-routes.json",
           "node_modules/**"
         ]
       },

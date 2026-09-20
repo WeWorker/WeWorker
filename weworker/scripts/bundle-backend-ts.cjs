@@ -21,6 +21,9 @@ const PROMPT_FILES = {
 const NO_VARIABLE_PROMPTS = new Set(['agent-qa-only', 'terminal'])
 const EXACT_PROMPT_PLACEHOLDER = /^{{([a-z][a-z0-9]*(?:_[a-z0-9]+)*)}}$/
 const PROMPT_BRACE_EXPRESSION = /{+[^{}]*}+/g
+const QUERY_ROUTES_CONFIG = process.env.WEWORKER_QUERY_ROUTES_CONFIG
+  ? path.resolve(process.env.WEWORKER_QUERY_ROUTES_CONFIG)
+  : path.resolve(__dirname, '../query-routes.public.json')
 
 const KEYRING_PLATFORM_PACKAGES = {
   'win32-x64': '@napi-rs/keyring-win32-x64-msvc',
@@ -161,6 +164,11 @@ function bundleBackend(options = {}) {
   })
 
   copyKeyringNativeDeps(outDir)
+
+  if (fs.existsSync(QUERY_ROUTES_CONFIG)) {
+    fs.copyFileSync(QUERY_ROUTES_CONFIG, path.join(outDir, 'query-routes.json'))
+    console.log(`[bundle-backend-ts] Copied query routes: ${QUERY_ROUTES_CONFIG}`)
+  }
 
   fs.writeFileSync(
     path.join(outDir, '.profile.json'),
