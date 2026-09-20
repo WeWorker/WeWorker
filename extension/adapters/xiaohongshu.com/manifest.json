@@ -1,21 +1,26 @@
 {
   "id": "xiaohongshu.com",
   "name": "小红书",
-  "description": "小红书：导航主页、按关键字搜索帖子",
+  "description": "小红书：登录检查、搜索笔记、打开笔记详情、读取评论、点赞/收藏笔记",
   "match": [
     "xiaohongshu.com"
   ],
   "requires_auth": false,
-  "version": "1.0.8",
-  "author": "webmcp-team",
-  "homepage_url": "https://github.com/WeWorker/WeWorker/tree/main/extension/adapters/xiaohongshu.com",
-  "enabled": false,
+  "version": "1.1.0",
+  "author": "WeWorker project",
+  "homepage_url": "https://www.xiaohongshu.com",
+  "enabled": true,
   "icon": "social",
   "scenarios": [
     {
+      "id": "login-status",
+      "title": "登录检查",
+      "summary": "检查当前小红书浏览器会话是否已登录"
+    },
+    {
       "id": "search",
       "title": "搜索笔记",
-      "summary": "按关键词搜索小红书笔记推荐",
+      "summary": "按关键词搜索小红书笔记并整理结果",
       "prompts": [
         {
           "text": "帮我在小红书搜索${好吃的蛋糕}推荐"
@@ -23,25 +28,30 @@
       ]
     },
     {
-      "id": "trend",
-      "title": "发现流行",
-      "summary": "浏览近期热门内容与趋势",
-      "prompts": [
-        {
-          "text": "帮我看看小红书上最近流行什么"
-        }
-      ]
+      "id": "note-detail",
+      "title": "打开笔记详情",
+      "summary": "打开或读取笔记详情，提取标题、正文、图片/视频信息和评论摘要"
+    },
+    {
+      "id": "comments",
+      "title": "读取评论",
+      "summary": "读取当前或指定笔记的评论摘要"
+    },
+    {
+      "id": "like-favorite",
+      "title": "点赞或收藏笔记",
+      "summary": "在用户明确确认后对当前或指定笔记执行点赞或收藏"
     }
   ],
-  "detail_description": "小红书可以让 WeWorker 根据你的自然语言指令浏览和搜索内容，例如打开首页、按关键词搜索笔记、查看搜索结果并整理相关信息。执行过程中如果需要登录、打开具体内容或进一步筛选，会停下来等你确认。",
+  "detail_description": "小红书 Adapter 可以让 WeWorker 根据自然语言指令执行常用小红书网页任务，例如检查登录状态、搜索笔记、读取笔记详情和评论，并在用户明确确认后点赞或收藏笔记。该 Adapter 不读取、不保存、不返回 Cookie、Token、账号凭据或其他敏感信息。",
   "test_prompts": [
-    "打开小红书，搜索'蛋糕推荐'，告诉我搜索结果"
+    "打开小红书，搜索蛋糕推荐，读取一篇笔记详情和评论摘要"
   ],
   "i18n": {
     "zh": {
       "name": "小红书",
-      "description": "小红书：导航主页、按关键字搜索帖子"
+      "description": "小红书：登录检查、搜索笔记、打开笔记详情、读取评论、点赞/收藏笔记"
     }
   },
-  "verified_on": "2026-03-10"
+  "verified_on": "2026-09-20"
 }
