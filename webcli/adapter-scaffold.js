@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveAdaptersDir } from './paths.js';
+import { bindGenerationPlan } from './generation-harness/plan-binding.js';
 import {
     buildApiSourceEvidence,
     normalizeRequestBodyEvidence,
@@ -13,6 +14,7 @@ const DEFAULT_ADAPTER_ROOT = resolveAdaptersDir();
 const GENERATED_SUBDIR = 'webcli-generated';
 export function writeScaffoldFromSiteMemory(memory, options = {}) {
     memory = sanitizeScaffoldMemory(memory);
+    if (options.plan) memory = bindGenerationPlan(memory, options.plan);
     const adapterRoot = options.outputRoot ?? DEFAULT_ADAPTER_ROOT;
     const adapterDir = path.join(adapterRoot, memory.siteKey);
     const generatedDir = path.join(adapterDir, GENERATED_SUBDIR);
@@ -57,6 +59,7 @@ export function writeScaffoldFromSiteMemory(memory, options = {}) {
     const normalizedActionToolNames = collectNormalizedActionToolNames(memory.siteKey, actionCandidates);
     const semanticToolNames = collectSemanticReadToolNames(memory.siteKey, actionCandidates);
     const toolNames = buildGeneratedToolNames(memory.siteKey, {
+        allowedToolNames: memory.generationPlanToolNames,
         hasPrimary: Boolean(primary),
         hasSecondary: Boolean(primary && secondary),
         includeDetailHints,
@@ -527,6 +530,7 @@ function buildSupportBundle(memory, context) {
     const semanticReadCandidate = selectSemanticReadCandidate(context.actionCandidates);
     const actionHintRegistry = buildActionHintRegistry(memory.siteKey, context.actionCandidates, semanticReadCandidate);
     const toolNames = buildGeneratedToolNames(memory.siteKey, {
+        allowedToolNames: memory.generationPlanToolNames,
         hasPrimary: Boolean(context.primary),
         hasSecondary: Boolean(context.primary && context.secondary),
         includeDetailHints: context.includeDetailHints,
@@ -2511,7 +2515,9 @@ function buildGeneratedToolNames(siteKey, context) {
         names.push(name);
     }
     if (context.includeDetailHints) names.push(context.detailToolName || `${siteKey}.list_detail_candidates`);
-    return names;
+    return context.allowedToolNames
+        ? names.filter((name) => name === `${siteKey}.check_login_status` || context.allowedToolNames.includes(name))
+        : names;
 }
 function buildActionHintRegistry(siteKey, actionCandidates, semanticReadCandidate) {
     const entries = actionCandidates.filter((candidate)=>candidate.toolName).map((candidate)=>[
@@ -2626,7 +2632,11 @@ function canBuildPrepareActionTool(siteKey, candidate, semanticReadCandidate) {
     const planningHints = buildActionPlanningHints(siteKey, candidate, semanticReadCandidate);
     return typeof planningHints?.resourceIdParameter === 'string' && Boolean(planningHints.resourceIdParameter) && Array.isArray(planningHints.resourceLookupToolNames) && planningHints.resourceLookupToolNames.length > 0;
 }
-export function selectApis(memory, actionCandidates) {
+export function selectApis(memory, actionCandidates = []) {
+    if (memory.generationPlanBound) return {
+        primary: memory.listApiCandidates[0] || null,
+        secondary: memory.listApiCandidates[1] || null
+    };
     const sorted = collectRankedListCandidates(memory, actionCandidates.length > 0);
     return {
         primary: sorted[0] || null,

@@ -127,22 +127,40 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
       errors.push(error('MISSING_WRITE_VERIFICATION', `write tool ${tool.name} is missing writeVerification`, { toolName: tool.name }));
       continue;
     }
+    const invalidExpectations = ['successExpectation', 'failureExpectation'].filter((key) => {
+      const value = fixture[key];
+      return !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length === 0;
+    });
+    if (invalidExpectations.length > 0) {
+      errors.push(error('INVALID_WRITE_VERIFICATION', `${tool.name} ${invalidExpectations.join(', ')} must be non-empty JSON objects matched against the result, not JavaScript expression strings`, { toolName: tool.name, fields: invalidExpectations }));
+      continue;
+    }
     const representativeArgs = fixture.representativeArgs && typeof fixture.representativeArgs === 'object'
       ? structuredClone(fixture.representativeArgs)
       : {};
 
-    requests.length = 0;
-    let blockedResult;
-    try {
-      blockedResult = await tool.handler(structuredClone(representativeArgs));
-    } catch (cause) {
-      errors.push(error('WRITE_CONFIRMATION_GUARD_FAILED', `unconfirmed ${tool.name} threw: ${cause.message}`, { toolName: tool.name }));
-      continue;
+    // The verifier, not the model-authored fixture, controls confirmation state.
+    // Check both omission and explicit false so unsafe handler defaults cannot pass.
+    const unconfirmedArgs = structuredClone(representativeArgs);
+    delete unconfirmedArgs.__confirmed;
+    let confirmationPassed = true;
+    for (const args of [unconfirmedArgs, { ...structuredClone(unconfirmedArgs), __confirmed: false }]) {
+      requests.length = 0;
+      let blockedResult;
+      try {
+        blockedResult = await tool.handler(args);
+      } catch (cause) {
+        errors.push(error('WRITE_CONFIRMATION_GUARD_FAILED', `unconfirmed ${tool.name} threw: ${cause.message}`, { toolName: tool.name }));
+        confirmationPassed = false;
+        break;
+      }
+      if (requests.length !== 0 || blockedResult?.blocked !== true || blockedResult?.requiresConfirmation !== true) {
+        errors.push(error('WRITE_IO_BEFORE_CONFIRMATION', `unconfirmed ${tool.name} must block with zero network I/O`, { toolName: tool.name, requestCount: requests.length }));
+        confirmationPassed = false;
+        break;
+      }
     }
-    if (requests.length !== 0 || blockedResult?.blocked !== true || blockedResult?.requiresConfirmation !== true) {
-      errors.push(error('WRITE_IO_BEFORE_CONFIRMATION', `unconfirmed ${tool.name} must block with zero network I/O`, { toolName: tool.name, requestCount: requests.length }));
-      continue;
-    }
+    if (!confirmationPassed) continue;
 
     requests.length = 0;
     responseSpec = fixture.successResponse || { status: 200, body: {} };

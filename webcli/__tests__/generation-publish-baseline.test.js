@@ -33,8 +33,8 @@ const MEMORY = {
   verdictPattern: 'api_driven',
   // V2 evidence forces seedAdapterDraft to use the run draft root as source,
   // which is exactly the path that produced the empty-hash vs missing mismatch.
-  apiAnalysisV2: { schemaVersion: 2, candidates: [] },
-  listApiCandidates: [],
+  apiAnalysisV2: { schemaVersion: 2, candidates: [{ evidenceId: 'list', risk: 'read', strategyNote: { replayStatus: 'verified' } }] },
+  listApiCandidates: [{ url: 'https://newsite.example.test/api/list', method: 'GET', apiEvidence: { evidenceId: 'list' } }],
   actionApiCandidates: [],
 };
 
@@ -43,7 +43,7 @@ function createFakeScaffoldWriter() {
     const adapterDir = path.join(outputRoot, memory.siteKey);
     const toolsDir = path.join(adapterDir, 'webcli-generated', 'tools');
     fs.mkdirSync(toolsDir, { recursive: true });
-    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
+    fs.writeFileSync(path.join(adapterDir, 'index.js'), `window.__webmcpRegister({ name: "test", tools: [{ name: "${memory.siteKey}.search_records" }] });\n`);
     fs.writeFileSync(path.join(toolsDir, 'search_records.generated.js'), '// search tool');
     fs.writeFileSync(path.join(adapterDir, 'manifest.json'), `${JSON.stringify({
       id: memory.siteKey,

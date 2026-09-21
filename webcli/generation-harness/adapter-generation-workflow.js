@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { writeScaffoldFromSiteMemory, selectApis } from '../adapter-scaffold.js';
+import { bindGenerationPlan, plannedToolNames } from './plan-binding.js';
+import { writeScaffoldFromSiteMemory } from '../adapter-scaffold.js';
 import { resolveAdaptersDir } from '../paths.js';
 import { seedAdapterDraft } from './adapter-workspace.js';
 import { GENERATION_STATUSES } from './constants.js';
@@ -164,68 +165,6 @@ const PLAN_SYSTEM_PROMPT = `你是 Adapter 生成规划器。你的任务不是�
 7. 候选分数不是接口可用性证明；必须读取 strategyNote 和 verificationFixture，未重放候选不得描述为已验证。
 8. 如果 overview 显示存在 previous_failure（同站点上一次生成失败复盘），必须查看它：剔除或替换其中反复失败的工具、规避导致失败的策略，并在计划 summary 中说明针对上次失败的应对。`;
 
-function normalizePlannedToolName(siteKey, value, fallback) {
-  const raw = String(value || '').trim();
-  if (!raw) return fallback;
-  const prefix = `${siteKey}.`;
-  const local = raw.startsWith(prefix)
-    ? raw.slice(prefix.length)
-    : raw.includes('.') ? raw.split('.').slice(1).join('.') : raw;
-  const normalized = local
-    .replace(/[^a-zA-Z0-9_]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase();
-  return normalized ? `${siteKey}.${normalized}` : fallback;
-}
-
-function getListSourceToolName(siteKey, index) {
-  if (index === 0) return `${siteKey}.search_records`;
-  if (index === 1) return `${siteKey}.fetch_summary_groups`;
-  return '';
-}
-
-function resolvePlannedSourceTool(memory, tool) {
-  const siteKey = memory.siteKey;
-  const localName = String(tool?.name || '').split('.').pop().toLowerCase();
-  if (localName === 'check_login_status') return `${siteKey}.check_login_status`;
-
-  const indexes = Array.isArray(tool?.sourceApiIndexes)
-    ? tool.sourceApiIndexes.map(Number).filter(Number.isInteger)
-    : [];
-  const actionCandidates = Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates : [];
-  const matchingAction = actionCandidates.find((candidate) => {
-    const candidateLocal = String(candidate?.toolName || '').split('.').pop().toLowerCase();
-    return candidateLocal && (candidateLocal === localName || candidateLocal.replace(/_draft$/, '') === localName);
-  });
-
-  if (tool?.risk === 'write') {
-    if (matchingAction?.toolName) return String(matchingAction.toolName);
-    for (const index of indexes) {
-      if (actionCandidates[index]?.toolName) return String(actionCandidates[index].toolName);
-    }
-    return '';
-  }
-
-  if (localName === 'search_records') return `${siteKey}.search_records`;
-  if (localName === 'fetch_summary_groups') return `${siteKey}.fetch_summary_groups`;
-  // 计划索引指向 list_apis 上下文顺序的候选；scaffold 的 primary/secondary 槽位
-  // 按打分排序绑定。必须按「该候选实际落在哪个槽位」映射，否则改名会绑错接口。
-  const listCandidates = Array.isArray(memory.listApiCandidates) ? memory.listApiCandidates : [];
-  const ranked = selectApis(memory, actionCandidates.length > 0);
-  const sameCandidate = (left, right) => Boolean(left && right)
-    && String(left.url || '') === String(right.url || '')
-    && String(left.method || 'GET').toUpperCase() === String(right.method || 'GET').toUpperCase();
-  for (const index of indexes) {
-    const candidate = listCandidates[index];
-    if (!candidate) continue;
-    if (sameCandidate(candidate, ranked.primary)) return `${siteKey}.search_records`;
-    if (sameCandidate(candidate, ranked.secondary)) return `${siteKey}.fetch_summary_groups`;
-  }
-  // 候选未进入 scaffold 槽位（打分未过阈值或槽位已占）时返回空，
-  // 让该计划工具被跳过——绝不盲绑到 primary 造成「名字与接口错配」。
-  return '';
-}
 
 const WRITE_TOOL_SIGNAL_RE = /(?:^|[^a-z0-9])(create|add|update|edit|delete|remove|submit|approve|reject|book|cancel|publish|upload|import|run|execute|restart|deploy|set|bind|unbind|confirm|apply|reply)(?:$|[^a-z0-9])/i;
 
@@ -273,24 +212,7 @@ export function readOnlyV2Plan(plan, { allowWriteTools = false } = {}) {
 }
 
 export function buildPlanSemanticEnhancement(memory, plan) {
-  const overrides = [];
-  const seenSources = new Set();
-  const seenNames = new Set();
-  for (const tool of Array.isArray(plan?.tools) ? plan.tools : []) {
-    const sourceToolName = resolvePlannedSourceTool(memory, tool);
-    if (!sourceToolName || seenSources.has(sourceToolName)) continue;
-    const plannedToolName = normalizePlannedToolName(memory.siteKey, tool?.name, sourceToolName);
-    const toolName = seenNames.has(plannedToolName) ? sourceToolName : plannedToolName;
-    seenSources.add(sourceToolName);
-    seenNames.add(toolName);
-    overrides.push({
-      sourceToolName,
-      toolName,
-      description: String(tool?.purpose || '').trim(),
-      parameterDescriptions: {},
-      parameterUiHints: {},
-    });
-  }
+  const overrides = bindGenerationPlan(memory, plan).scaffoldSemanticHints.toolOverrides;
   const quickPrompts = (Array.isArray(plan?.tools) ? plan.tools : [])
     .slice(0, 3)
     .map((tool) => String(tool?.purpose || tool?.name || '').trim())
@@ -437,11 +359,9 @@ export function createAdapterGenerationWorkflow({
     const draftRoot = path.join(store.getDraftRoot(run.id), `revision-${revision}`);
     run.trace('draft_phase', { phase: 'seed_adapter_started', draftRoot });
     const workspace = seedAdapterDraft({
-      // V2 starts from verified evidence only. Seeding an existing adapter can
-      // leak its unrelated write tools into an automatically generated draft.
-      sourceAdapterDir: memory.apiAnalysisV2?.schemaVersion === 2
-        ? draftRoot
-        : path.join(adaptersDir, memory.siteKey),
+      // Every planned run starts fresh: existing tools are not evidence that
+      // the current plan requested them. Publication still checks its baseline.
+      sourceAdapterDir: draftRoot,
       draftRoot,
       siteKey: memory.siteKey,
       adaptersDir,
@@ -457,7 +377,7 @@ export function createAdapterGenerationWorkflow({
       ? { ...memory, scaffoldSemanticHints: semanticEnhancement }
       : memory;
     run.trace('draft_phase', { phase: 'scaffold_write_started' });
-    const draft = scaffoldWriter(memoryForDraft, { outputRoot: draftRoot });
+    const draft = scaffoldWriter(memoryForDraft, { outputRoot: draftRoot, plan });
     run.trace('draft_phase', {
       phase: 'scaffold_write_completed',
       toolCount: draft.toolNames?.length || 0,
@@ -466,7 +386,7 @@ export function createAdapterGenerationWorkflow({
       revision,
       rootDir: draftRoot,
       adapterDir: draft.adapterDir,
-      toolNames: draft.toolNames,
+      toolNames: plannedToolNames(memory.siteKey, plan),
       files: draft.files,
       semanticEnhancement: semanticEnhancement ? {
         analysisSource: semanticEnhancement.analysisSource,
@@ -482,7 +402,7 @@ export function createAdapterGenerationWorkflow({
     let validation = staticValidator({
       adapterDir: currentDraft.adapterDir,
       expectedSiteKey: memory.siteKey,
-      expectedToolNames: draft.toolNames,
+      expectedToolNames: currentDraft.toolNames,
     });
     run.setArtifact('staticValidation', validation);
     run.trace('validation_completed', validation);

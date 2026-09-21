@@ -1,6 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { resolveAdapterDraftFile } from './draft-revision.js';
+
+function registeredToolNames(adapterDir, manifest) {
+  // Registration only: no handlers, timers, network or Node globals exposed.
+  const context = vm.createContext({}, { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' });
+  vm.runInContext(`var window = { __registrations: [] };
+    window.__webmcpRegister = function(adapter) {
+      window.__registrations.push(...(adapter.tools || []).map(tool => tool.name));
+    };`, context, { timeout: 1000 });
+  for (const relativePath of [...new Set([...(manifest.support_files || []), 'index.js'])]) {
+    const { filePath } = resolveAdapterDraftFile(adapterDir, relativePath);
+    new vm.Script(fs.readFileSync(filePath, 'utf8')).runInContext(context, { timeout: 1000 });
+  }
+  return JSON.parse(vm.runInContext('JSON.stringify(window.__registrations)', context, { timeout: 1000 }));
+}
 
 function result(code, message, extra = {}) {
   return { code, message, severity: 'error', ...extra };
@@ -124,6 +139,23 @@ export function validateAdapterDraft({ adapterDir, expectedSiteKey = '', expecte
   for (const toolName of uniqueToolNames) {
     if (expectedSiteKey && !toolName.startsWith(`${expectedSiteKey}.`)) {
       errors.push(result('INVALID_TOOL_NAMESPACE', `tool must use ${expectedSiteKey} namespace: ${toolName}`));
+    }
+  }
+  if (toolNames.length && manifest && errors.length === 0) {
+    try {
+      const actual = registeredToolNames(absoluteAdapterDir, manifest);
+      for (const name of uniqueToolNames) {
+        if (!actual.includes(name)) errors.push(result('MISSING_PLANNED_TOOL', `planned tool is not registered: ${name}`));
+      }
+      for (const name of new Set(actual)) {
+        // Scaffold always includes this explicit infrastructure helper.
+        if (!uniqueToolNames.has(name) && name !== `${expectedSiteKey}.check_login_status`) {
+          errors.push(result('UNPLANNED_TOOL', `unplanned tool is registered: ${name}`));
+        }
+      }
+      if (new Set(actual).size !== actual.length) errors.push(result('DUPLICATE_REGISTERED_TOOL', 'registered tool names must be unique'));
+    } catch (cause) {
+      errors.push(result('TOOL_REGISTRATION_FAILED', `draft registration failed: ${cause.message}`));
     }
   }
   if (toolNames.length === 0) warnings.push({

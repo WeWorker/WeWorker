@@ -169,17 +169,15 @@ describe('write tool support and scaffold slot mapping', () => {
     const enhancement = buildPlanSemanticEnhancement(memory, plan);
     const bindings = Object.fromEntries(enhancement.toolOverrides.map((override) => [override.toolName, override.sourceToolName]));
 
-    // scaffold 的 primary 槽位按打分属于 owner/list；计划里 owner/list 是 index 1，
-    // 因此 planned "list_owner_records" 必须绑定 primary 槽（search_records），
-    // "list_accessible_pages" 绑定 secondary 槽（fetch_summary_groups），写工具绑定动作候选。
-    expect(bindings['request.example.test.list_owner_records']).toBe('request.example.test.search_records');
-    expect(bindings['request.example.test.list_accessible_pages']).toBe('request.example.test.fetch_summary_groups');
+    // 计划顺序决定槽位，不再让全站候选打分覆盖计划指定的接口。
+    expect(bindings['request.example.test.list_owner_records']).toBe('request.example.test.fetch_summary_groups');
+    expect(bindings['request.example.test.list_accessible_pages']).toBe('request.example.test.search_records');
     expect(enhancement.toolOverrides.some((override) => override.sourceToolName.includes('提交申请') && override.toolName.endsWith('.submit_request'))).toBe(true);
 
     const outputRoot = makeTmpDir('webcli-slot-mapping-');
     const draft = writeScaffoldFromSiteMemory(
       { ...memory, scaffoldSemanticHints: enhancement },
-      { outputRoot },
+      { outputRoot, plan },
     );
     expect(draft.toolNames).toContain('request.example.test.list_owner_records');
     expect(draft.toolNames).toContain('request.example.test.list_accessible_pages');

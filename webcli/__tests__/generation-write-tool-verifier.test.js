@@ -9,6 +9,10 @@ const tmpDirs = [];
 function makeWriteAdapter({
   expectedBody = { title: 'Request', count: 2 },
   actualBody = null,
+  representativeArgs = { title: 'Request', visitorCount: 2 },
+  confirmationDefault = 'false',
+  confirmationGuard = '!__confirmed',
+  expectations = {},
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'webcli-write-verifier-'));
   tmpDirs.push(dir);
@@ -28,16 +32,17 @@ function makeWriteAdapter({
           name: 'example.test.submit_request',
           access: 'write',
           writeVerification: ${JSON.stringify({
-            representativeArgs: { title: 'Request', visitorCount: 2 },
+            representativeArgs,
             expectedRequest: { method: 'POST', url: 'https://example.test/api/request/submit', body: expectedBody },
             successResponse: { status: 200, body: { code: 0, message: 'ok' } },
             successExpectation: { ok: true },
             failureResponse: { status: 200, body: { code: 409, message: 'conflict' } },
             failureExpectation: { ok: false, message: 'conflict' },
+            ...expectations,
             forbiddenValues: ['demo-user', '2444', '2026-09-14'],
           })},
-          handler: async ({ __confirmed = false, title, visitorCount } = {}) => {
-            if (!__confirmed) return { ok: false, blocked: true, requiresConfirmation: true };
+          handler: async ({ __confirmed = ${confirmationDefault}, title, visitorCount } = {}) => {
+            if (${confirmationGuard}) return { ok: false, blocked: true, requiresConfirmation: true };
             const response = await fetch('https://example.test/api/request/submit', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
@@ -58,6 +63,45 @@ afterEach(() => {
 });
 
 describe('generated write tool verifier', () => {
+  it.each(['successExpectation', 'failureExpectation'])('rejects invalid %s with actionable schema feedback', async (field) => {
+    for (const value of ['result.ok === true', {}, [], null]) {
+      const result = await verifyGeneratedWriteTools({
+        adapterDir: makeWriteAdapter({ expectations: { [field]: value } }),
+        expectedSiteKey: 'example.test',
+      });
+      expect(result.passed).toBe(false);
+      expect(result.errors).toContainEqual(expect.objectContaining({
+        code: 'INVALID_WRITE_VERIFICATION', fields: [field],
+        message: expect.stringContaining('not JavaScript expression strings'),
+      }));
+    }
+  });
+
+  it.each([true, false])('controls confirmation independently of fixture value %s', async (__confirmed) => {
+    const result = await verifyGeneratedWriteTools({
+      adapterDir: makeWriteAdapter({ representativeArgs: { title: 'Request', visitorCount: 2, __confirmed } }),
+      expectedSiteKey: 'example.test',
+    });
+    expect(result).toMatchObject({ passed: true, writeToolCount: 1 });
+    expect(result.cases).toHaveLength(1);
+  });
+
+  it.each([
+    { confirmationDefault: 'true' },
+    { confirmationDefault: 'undefined', confirmationGuard: '__confirmed === undefined' },
+    { confirmationGuard: 'false' },
+  ])('rejects unsafe missing/false confirmation handling: %j', async (options) => {
+    const result = await verifyGeneratedWriteTools({
+      adapterDir: makeWriteAdapter({
+        ...options,
+        representativeArgs: { title: 'Request', visitorCount: 2, __confirmed: true },
+      }),
+      expectedSiteKey: 'example.test',
+    });
+    expect(result.passed).toBe(false);
+    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'WRITE_IO_BEFORE_CONFIRMATION', requestCount: 1 }));
+  });
+
   it('verifies no I/O before confirmation, exact request, and business success/failure', async () => {
     const result = await verifyGeneratedWriteTools({ adapterDir: makeWriteAdapter(), expectedSiteKey: 'example.test' });
     expect(result).toMatchObject({ passed: true, writeToolCount: 1 });

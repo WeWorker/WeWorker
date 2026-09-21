@@ -46,12 +46,15 @@ describe('adapter draft revision loop', () => {
     const model = vi.fn()
       .mockResolvedValueOnce({ type: 'tool_call', name: 'inspect_validation_errors', arguments: {} })
       .mockResolvedValueOnce({ type: 'tool_call', name: 'read_draft_file', arguments: { path: 'index.js' } })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'write_draft_file', arguments: {
+        path: 'new/tools/query.js', content: '// new planned implementation', reason: '新增缺失文件',
+      } })
       .mockResolvedValueOnce({
         type: 'tool_call',
         name: 'write_draft_file',
         arguments: {
           path: 'index.js',
-          content: 'window.__webmcpRegister({ name: "test", tools: [] });\n',
+          content: 'window.__webmcpRegister({ name: "test", tools: [{ name: "example.test.search_records" }] });\n',
           reason: '修复未闭合的对象字面量',
         },
       })
@@ -75,7 +78,11 @@ describe('adapter draft revision loop', () => {
 
     expect(revised.validation.passed).toBe(true);
     expect(revised.draft.revision).toBe(1);
-    expect(revised.writes).toEqual([{ path: 'index.js', reason: '修复未闭合的对象字面量' }]);
+    expect(revised.writes).toEqual([
+      { path: 'new/tools/query.js', reason: '新增缺失文件' },
+      { path: 'index.js', reason: '修复未闭合的对象字面量' },
+    ]);
+    expect(fs.readFileSync(path.join(revised.draft.adapterDir, 'new/tools/query.js'), 'utf8')).toBe('// new planned implementation');
     expect(fs.readFileSync(path.join(revised.draft.adapterDir, 'index.js'), 'utf8')).toContain('__webmcpRegister');
     expect(fs.readFileSync(path.join(adapterDir, 'index.js'), 'utf8')).toBe('window.__webmcpRegister({');
   });
@@ -112,7 +119,7 @@ describe('adapter draft revision loop', () => {
         name: 'write_draft_file',
         arguments: {
           path: 'index.js',
-          content: 'window.__webmcpRegister({ name: "test", tools: [] });\n',
+          content: 'window.__webmcpRegister({ name: "test", tools: [{ name: "example.test.search_records" }] });\n',
           reason: 'complete registration',
         },
       })
@@ -139,7 +146,7 @@ describe('adapter draft revision loop', () => {
     const previousRoot = makeTmpDir('webcli-revision-runtime-source-');
     const adapterDir = path.join(previousRoot, 'example.test');
     fs.mkdirSync(adapterDir, { recursive: true });
-    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
+    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [{ name: "example.test.search_records" }] });\n');
     fs.writeFileSync(path.join(adapterDir, 'manifest.json'), JSON.stringify({ id: 'example.test', match: ['example.test'], support_files: [] }));
 
     const run = GenerationRun.create({ store, siteKey: 'example.test', goal: 'repair runtime output' });
@@ -176,7 +183,7 @@ describe('adapter draft revision loop', () => {
     const previousRoot = makeTmpDir('webcli-revision-incomplete-source-');
     const adapterDir = path.join(previousRoot, 'example.test');
     fs.mkdirSync(adapterDir, { recursive: true });
-    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
+    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [{ name: "example.test.search_records" }] });\n');
     fs.writeFileSync(path.join(adapterDir, 'manifest.json'), JSON.stringify({ id: 'example.test', match: ['example.test'], support_files: [] }));
 
     const run = GenerationRun.create({
@@ -233,9 +240,9 @@ describe('adapter draft revision loop', () => {
   function writeTwoToolDraft(adapterDir) {
     const toolsDir = path.join(adapterDir, 'webcli-generated', 'tools');
     fs.mkdirSync(toolsDir, { recursive: true });
-    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
-    fs.writeFileSync(path.join(toolsDir, 'search_records.generated.js'), '// search tool');
-    fs.writeFileSync(path.join(toolsDir, 'getuserinfo.generated.js'), '// userinfo tool');
+    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: window.fixtureTools });\n');
+    fs.writeFileSync(path.join(toolsDir, 'search_records.generated.js'), 'window.fixtureTools = [{ name: "example.test.search_records" }];');
+    fs.writeFileSync(path.join(toolsDir, 'getuserinfo.generated.js'), 'window.fixtureTools.push({ name: "example.test.getuserinfo" });');
     fs.writeFileSync(path.join(adapterDir, 'manifest.json'), JSON.stringify({
       id: 'example.test',
       match: ['example.test'],
@@ -391,7 +398,7 @@ describe('adapter draft revision loop', () => {
     const previousRoot = makeTmpDir('webcli-revision-blocker-source-');
     const adapterDir = path.join(previousRoot, 'example.test');
     fs.mkdirSync(adapterDir, { recursive: true });
-    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
+    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [{ name: "example.test.search_records" }] });\n');
     fs.writeFileSync(path.join(adapterDir, 'manifest.json'), JSON.stringify({ id: 'example.test', match: ['example.test'], support_files: [] }));
 
     const run = GenerationRun.create({ store, siteKey: 'example.test', goal: 'report blocker' });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { plannedToolNames } from './plan-binding.js';
 import { GENERATION_STATUSES } from './constants.js';
 import { runToolLoop } from './tool-loop.js';
 import { seedAdapterDraft } from './adapter-workspace.js';
@@ -27,6 +28,7 @@ const ORCHESTRATOR_SYSTEM_PROMPT = `你是 Adapter 生成编排者，负责从�
 1. 先 inspect_generation_context：overview 必看；如果存在 previous_failure（上次失败复盘）必须读取并吸收教训。
 2. save_generation_plan 保存计划：查询类工具 risk=read（最多 2 个）；action_apis 中的提交/修改类候选可计划为 write。写工具必须由你根据安全的 requestEvidence 语义化创作，明确业务参数、显式 payload 构造、access=write、确认门和业务响应判断；不得把捕获值写成默认值。requestEvidence 为 opaque/omitted/truncated 时必须 request_user_input，禁止猜测或修复前缀。未在 action_apis 出现的接口不得计划为 write。工具名一律用英文 snake_case（如 submit_request），不得使用中文或候选原始 toolName。
 3. scaffold_adapter_draft 只生成安全骨架。write 骨架含 AGENT_AUTHORED_WRITE_REQUIRED，必须读取对应文件并改写为业务语义实现；禁止让占位骨架进入验证通过状态。工具定义必须包含 access: 'write' 与 writeVerification，后者至少包含 representativeArgs、expectedRequest{method,url,body}、successResponse、successExpectation、failureResponse、failureExpectation，可用 forbiddenValues 声明禁止出现的捕获值。验证器会真实执行 handler，但 fetch 为本地 mock，不会访问站点。
+   writeVerification 的 representativeArgs 仅提供虚构业务参数，不要填 __confirmed；验证器会分别测试省略确认、__confirmed:false 和 __confirmed:true。successExpectation 与 failureExpectation 必须是非空 JSON 对象，用于匹配结果字段子集，例如 {"ok":true} 和 {"ok":false}；禁止填写 JavaScript 表达式字符串。successResponse/failureResponse 使用 {"status":200,"body":{...}} 格式。
 4. validate_adapter_draft 做静态验证；失败就读取/修改草稿文件后重验。
 5. validate_adapter_runtime 做真实页面运行验证；失败按责任域处置：
    - 输出映射问题 → 对照错误修改草稿后重验；
@@ -100,6 +102,7 @@ function createOrchestratorTools(state, deps) {
         additionalProperties: false,
       },
       execute: async (nextPlan) => {
+        if (state.draft) throw new GenerationHarnessError('草稿生成后不能覆盖计划；请修复工具或显式记录剔除原因', 'PLAN_ALREADY_SCAFFOLDED');
         const plan = readOnlyV2Plan(nextPlan, { allowWriteTools: (Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates.length : 0) > 0 });
         if (!Array.isArray(plan.tools) || plan.tools.length === 0) {
           throw new GenerationHarnessError('计划必须包含至少一个只读工具', 'INVALID_GENERATION_PLAN');
@@ -145,9 +148,7 @@ function createOrchestratorTools(state, deps) {
         const draftRoot = path.join(store.getDraftRoot(run.id), `revision-${revision}`);
         run.trace('draft_phase', { phase: 'seed_adapter_started', draftRoot });
         const workspace = seedAdapterDraft({
-          sourceAdapterDir: memory.apiAnalysisV2?.schemaVersion === 2
-            ? draftRoot
-            : path.join(adaptersDir, memory.siteKey),
+          sourceAdapterDir: draftRoot,
           draftRoot,
           siteKey: memory.siteKey,
           adaptersDir,
@@ -166,17 +167,16 @@ function createOrchestratorTools(state, deps) {
         run.trace('draft_phase', { phase: 'scaffold_write_started' });
         const draft = scaffoldWriter(
           semanticEnhancement ? { ...memory, scaffoldSemanticHints: semanticEnhancement } : memory,
-          { outputRoot: draftRoot },
+          { outputRoot: draftRoot, plan: state.plan },
         );
         run.trace('draft_phase', { phase: 'scaffold_write_completed', toolCount: draft.toolNames?.length || 0 });
         state.draft = {
           revision,
           rootDir: draftRoot,
           adapterDir: draft.adapterDir,
-          toolNames: [...(draft.toolNames || [])],
+          toolNames: [...state.activeToolNames],
           files: draft.files,
         };
-        state.activeToolNames = [...(draft.toolNames || [])];
         state.staticValidation = null;
         state.runtimeValidation = null;
         run.setArtifact('draft', state.draft);
@@ -234,7 +234,7 @@ function createOrchestratorTools(state, deps) {
     },
     {
       name: 'write_draft_file',
-      description: '替换草稿中的一个现有文件，仅用于修复验证错误。',
+      description: '新增或替换隔离草稿文件以实现计划和修复验证错误；新增工具后须更新 manifest 和注册入口。',
       parameters: {
         type: 'object',
         properties: {
@@ -248,7 +248,8 @@ function createOrchestratorTools(state, deps) {
       execute: async ({ path: relativePath, content, reason }) => {
         requiresDraft();
         if (content.length > MAX_DRAFT_FILE_CHARS) throw new GenerationHarnessError('draft file content is too large', 'DRAFT_FILE_TOO_LARGE');
-        const resolved = resolveAdapterDraftFile(state.draft.adapterDir, relativePath);
+        const resolved = resolveAdapterDraftFile(state.draft.adapterDir, relativePath, { mustExist: false });
+        fs.mkdirSync(path.dirname(resolved.filePath), { recursive: true });
         fs.writeFileSync(resolved.filePath, content, 'utf8');
         state.writes.push({ path: resolved.normalized, reason });
         state.staticValidation = null;
@@ -633,9 +634,9 @@ export async function resumeGenerationOrchestrator(deps, answer) {
   const state = {
     plan: planArtifact || null,
     draft: draftArtifact || null,
-    staticValidation: run.snapshot.artifacts?.staticValidation || null,
-    runtimeValidation: run.snapshot.artifacts?.runtimeValidation || null,
-    activeToolNames: [...(orchestrationState?.activeToolNames || draftArtifact?.toolNames || [])],
+    staticValidation: null,
+    runtimeValidation: null,
+    activeToolNames: plannedToolNames(deps.memory.siteKey, planArtifact),
     writes: [],
     pendingQuestion: null,
     lastModelMessages: orchestrationState?.messages || [],
@@ -646,6 +647,14 @@ export async function resumeGenerationOrchestrator(deps, answer) {
     )),
   };
   run.setArtifact('pendingQuestion', null);
+  if (state.draft) {
+    state.staticValidation = deps.staticValidator({
+      adapterDir: state.draft.adapterDir,
+      expectedSiteKey: deps.memory.siteKey,
+      expectedToolNames: state.activeToolNames,
+    });
+    run.setArtifact('staticValidation', state.staticValidation);
+  }
   run.trace('orchestration_resumed', { question: pendingQuestion.question, answerLength: String(answer || '').length });
   const provenanceWriter = deps.writeGenerationHarnessProvenance;
   try {

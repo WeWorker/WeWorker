@@ -10,7 +10,7 @@ function makeAdapter() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'webcli-validator-'));
   tmpDirs.push(dir);
   fs.mkdirSync(path.join(dir, 'webcli-generated'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
+  fs.writeFileSync(path.join(dir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [{ name: "example.test.search_records" }] });\n');
   fs.writeFileSync(path.join(dir, 'webcli-generated', 'support.js'), 'window.support = true;\n');
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
     id: 'example.test',

@@ -31,7 +31,7 @@ const MEMORY = {
   canonicalEntryUrl: 'https://example.test/list',
   recommendedStrategy: 'COOKIE_API',
   verdictPattern: 'api_driven',
-  listApiCandidates: [],
+  listApiCandidates: [{ url: 'https://example.test/api/list', method: 'GET' }],
   actionApiCandidates: [],
 };
 
@@ -54,7 +54,7 @@ function createFakeScaffoldWriter() {
     const adapterDir = path.join(outputRoot, memory.siteKey);
     const toolsDir = path.join(adapterDir, 'webcli-generated', 'tools');
     fs.mkdirSync(toolsDir, { recursive: true });
-    fs.writeFileSync(path.join(adapterDir, 'index.js'), 'window.__webmcpRegister({ name: "test", tools: [] });\n');
+    fs.writeFileSync(path.join(adapterDir, 'index.js'), `window.__webmcpRegister({ name: "test", tools: [{ name: "${memory.siteKey}.search_records" }] });\n`);
     fs.writeFileSync(path.join(toolsDir, 'search_records.generated.js'), '// search tool');
     fs.writeFileSync(path.join(adapterDir, 'manifest.json'), `${JSON.stringify({
       id: memory.siteKey,
@@ -99,6 +99,40 @@ function createOrchestratorDeps(overrides = {}) {
 }
 
 describe('generation orchestrator (agent mode)', () => {
+  it('repairs a missing registration by creating a new tool file, without shrinking the plan', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-orch-new-file-') });
+    const run = await import('../generation-harness/generation-run.js').then(({ GenerationRun }) => GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'repair missing planned tool' }));
+    const scaffoldWriter = (memory, options) => {
+      const draft = createFakeScaffoldWriter()(memory, options);
+      fs.writeFileSync(path.join(draft.adapterDir, 'index.js'), 'window.__webmcpRegister({tools:[]});');
+      return { ...draft, toolNames: [] };
+    };
+    const model = vi.fn()
+      .mockResolvedValueOnce(planToolCall())
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'scaffold_adapter_draft', arguments: {} })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'validate_adapter_draft', arguments: {} })
+      .mockImplementationOnce(async ({ messages }) => {
+        expect(JSON.stringify(messages)).toContain('MISSING_PLANNED_TOOL');
+        return { type: 'tool_call', name: 'write_draft_file', arguments: {
+          path: 'new/query.js', content: 'window.fixtureTools = [{name:"example.test.search_records"}];', reason: '补齐计划工具',
+        } };
+      })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'write_draft_file', arguments: {
+        path: 'manifest.json', content: JSON.stringify({ id: MEMORY.siteKey, match: [MEMORY.siteHost], support_files: ['new/query.js'] }), reason: '注入新工具',
+      } })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'write_draft_file', arguments: {
+        path: 'index.js', content: 'window.__webmcpRegister({tools:window.fixtureTools});', reason: '注册计划工具',
+      } })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'validate_adapter_draft', arguments: {} })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'validate_adapter_runtime', arguments: {} })
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'finish_run', arguments: { summary: '完成' } })
+      .mockResolvedValueOnce({ type: 'final', content: 'done' });
+    const runtimeValidator = vi.fn().mockResolvedValue({ passed: true, errors: [] });
+    const result = await runGenerationOrchestrator(createOrchestratorDeps({ run, store, model, scaffoldWriter, runtimeValidator }));
+    expect(result.status).toBe(GENERATION_STATUSES.AWAITING_APPROVAL);
+    expect(runtimeValidator.mock.calls[0][0].draft.toolNames).toEqual(['example.test.search_records']);
+    expect(run.snapshot.artifacts.draft.toolNames).toEqual(['example.test.search_records']);
+  });
   it('pauses instead of planning a write from opaque or truncated request evidence', async () => {
     const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-orch-incomplete-write-') });
     const run = await import('../generation-harness/generation-run.js').then(({ GenerationRun }) => GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'write safety' }));

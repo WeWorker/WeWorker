@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { plannedToolNames } from './plan-binding.js';
 import { GENERATION_STATUSES } from './constants.js';
 import { runToolLoop } from './tool-loop.js';
 import { copyAdapterDirectorySafe } from './adapter-workspace.js';
@@ -11,7 +12,9 @@ const MAX_REVISION_STEPS = 12;
 
 function resolveDraftFile(adapterDir, relativePath, { mustExist = true } = {}) {
   const normalized = String(relativePath || '').replace(/\\/g, '/').replace(/^\.\/+/, '');
-  if (!normalized || path.isAbsolute(normalized) || !ALLOWED_DRAFT_FILE_RE.test(normalized)) {
+  if (!normalized || path.isAbsolute(normalized) || /[:\x00-\x1f]/.test(normalized)
+    || normalized.split('/').some((part) => /[. ]$/.test(part) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))
+    || !ALLOWED_DRAFT_FILE_RE.test(normalized)) {
     throw new Error(`draft file path is not allowed: ${relativePath}`);
   }
   const absoluteAdapterDir = path.resolve(adapterDir);
@@ -19,6 +22,15 @@ function resolveDraftFile(adapterDir, relativePath, { mustExist = true } = {}) {
   const relative = path.relative(absoluteAdapterDir, filePath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     throw new Error(`draft file escapes adapter directory: ${relativePath}`);
+  }
+  // Reject symlink/junction parents even for a not-yet-created leaf.
+  for (let current = filePath; ; current = path.dirname(current)) {
+    let stat;
+    try { stat = fs.lstatSync(current); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (stat?.isSymbolicLink()) {
+      throw new Error('draft file path contains a symbolic link');
+    }
+    if (current === absoluteAdapterDir) break;
   }
   if (mustExist && !fs.existsSync(filePath)) throw new Error(`draft file not found: ${normalized}`);
   return { normalized, filePath };
@@ -136,7 +148,9 @@ export async function reviseAdapterDraft({
   let latestFeedback = validation;
   let runtimeValidation = null;
   const writes = [];
-  const activeToolNames = [...(Array.isArray(draft.toolNames) ? draft.toolNames : [])];
+  const activeToolNames = plan?.tools
+    ? plannedToolNames(run.snapshot.siteKey, plan)
+    : [...(Array.isArray(draft.toolNames) ? draft.toolNames : [])];
   let activePlan = plan && Array.isArray(plan.tools)
     ? { ...plan, tools: plan.tools.map((tool) => ({ ...tool })) }
     : plan;
@@ -228,7 +242,7 @@ export async function reviseAdapterDraft({
       },
       {
         name: 'write_draft_file',
-        description: '替换隔离草稿中的一个现有文件。只能修复验证错误。',
+        description: '新增或替换隔离草稿文件以实现计划和修复验证错误；新增工具后须更新 manifest 和注册入口。',
         parameters: {
           type: 'object',
           properties: {
@@ -241,7 +255,8 @@ export async function reviseAdapterDraft({
         },
         execute: async ({ path: relativePath, content, reason }) => {
           if (content.length > MAX_DRAFT_FILE_CHARS) throw new Error('draft file content is too large');
-          const resolved = resolveDraftFile(adapterDir, relativePath);
+          const resolved = resolveDraftFile(adapterDir, relativePath, { mustExist: false });
+          fs.mkdirSync(path.dirname(resolved.filePath), { recursive: true });
           fs.writeFileSync(resolved.filePath, content, 'utf8');
           writes.push({ path: resolved.normalized, reason });
           return { written: true, path: resolved.normalized };

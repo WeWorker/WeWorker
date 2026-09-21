@@ -209,7 +209,7 @@ describe('adapter generation workflow', () => {
           strategy: 'api_first',
           tools: [
             { name: 'query_rooms', purpose: '查询房间', risk: 'read', sourceApiIndexes: [0] },
-            { name: 'book_room', purpose: '预订房间', risk: 'write', sourceApiIndexes: [1] },
+            { name: 'book_room', purpose: '预订房间', risk: 'write', sourceApiIndexes: [0] },
           ],
         },
       })
