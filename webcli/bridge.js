@@ -14,7 +14,7 @@ import { promisify } from "util";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import XLSX from "xlsx";
 import { writeScaffoldFromSiteMemory } from "./adapter-scaffold.js";
 import { resolveAdaptersDir, resolveUserAdaptersDir } from "./paths.js";
@@ -27,6 +27,7 @@ import {
 import { isAllowedBridgeOrigin, isBrowserExtensionOrigin } from "./websocket-origin-policy.js";
 import {
   analyzeActionCaptureResult,
+  resolveActionCaptureModelConfig,
   analyzeExplorationResult,
   analyzeScaffoldSemantics,
   generateAdapterWithAI,
@@ -40,6 +41,7 @@ import { resolveToolCallTimeout } from "./tool-timeouts.js";
 import { GenerationWorkerController } from './generation-worker-controller.js';
 import { buildApiSourceEvidence, normalizeRequestBodyEvidence } from './generation-harness/source-evidence.js';
 import { buildPreviousFailureContext } from './generation-harness/failure-attribution.js';
+import { modelOutputErrorDetails } from './generation-harness/model-output-policy.js';
 
 const execFileAsync = promisify(execFile);
 const WS_PORT = 3711;
@@ -480,6 +482,8 @@ export class WebSocketBridge extends EventEmitter {
     this._extensionCapabilities = [];
     /** @type {string | null} Chrome扩展连接的 Origin */
     this._extensionOrigin = null;
+    // Credentials stay in this process, never in extension messages or capture data.
+    this._captureModelContexts = new Map();
     this._generationWorkers = new GenerationWorkerController({
       requestExtension: (message, timeout) => this._request(message, timeout),
     });
@@ -606,6 +610,9 @@ export class WebSocketBridge extends EventEmitter {
               this._handleCancelGenerationRun(msg, ws);
             } else if (msg.type === 'publish_generation_run') {
               this._handlePublishGenerationRun(msg, ws);
+            } else if (msg.type === 'client_action_capture_start' || msg.type === 'client_action_capture_analyze') {
+              // Local-only credential-bearing request; never forward this envelope.
+              this._handleClientRequest(msg);
             } else if (msg.type === 'call_tool' || msg.type === 'get_active_tab' || msg.type === 'exploration_list_tabs' || msg.type === 'exploration_capture_passive' || msg.type === 'exploration_safe_actions_inspect' || msg.type === 'exploration_safe_probe_run' || msg.type === 'exploration_replay_candidate' || msg.type === 'exploration_action_capture_start' || msg.type === 'exploration_action_capture_stop' || msg.type === 'exploration_action_capture_get' || msg.type === 'exploration_action_capture_select' || msg.type === 'exploration_action_capture_clear' || msg.type === 'refresh_adapter_tabs' || msg.type === 'open_browser' || msg.type === 'capture_screenshot' || msg.type === 'reload_extension' || msg.type === 'refresh_registry' || msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow' || msg.type === 'get_trace_logs') {
               // 来自CLI客户端的请求，需要转发给Chrome扩展或处理系统命令
               this._handleClientRequest(msg);
@@ -620,6 +627,7 @@ export class WebSocketBridge extends EventEmitter {
         ws.on("close", () => {
           this._clients.delete(ws);
           if (this._extensionWs === ws) {
+            this._clearCaptureModelContexts();
             this._extensionWs = null;
             this._extensionCapabilities = [];
             process.stderr.write(`[${ts()}] [Bridge] Chrome extension disconnected #${connectionId}\n`);
@@ -691,6 +699,11 @@ export class WebSocketBridge extends EventEmitter {
   // ─── 处理来自扩展的消息 ────────────────────────────────────────────────────
 
   _handleExtensionMessage(msg) {
+    if (msg.type === 'call_tool_error') {
+      for (const [contextId, context] of this._captureModelContexts) {
+        if (context.requestId === msg.id) this._deleteCaptureModelContext(contextId);
+      }
+    }
     // 从 pending 请求中取出 traceID
     const pending = this._pendingRequests.get(msg.id);
     const traceID = pending?.traceID || msg.traceID || null;
@@ -739,6 +752,32 @@ export class WebSocketBridge extends EventEmitter {
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge] 调用失败: ${toolName} — ${err.message}\n`);
         this._broadcast({ type: 'call_tool_error', id, error: err.message, traceID });
       }
+    } else if (msg.type === 'client_action_capture_start' || msg.type === 'client_action_capture_analyze' || msg.type === 'exploration_action_capture_start') {
+      const { modelConfig, analysisContextId: ignoredContextId, ...captureRequest } = msg;
+      let contextId;
+      try {
+        const retryAnalysis = msg.type === 'client_action_capture_analyze';
+        captureRequest.type = retryAnalysis ? 'exploration_action_capture_analyze' : 'exploration_action_capture_start';
+        if (msg.type.startsWith('client_') || Object.hasOwn(msg, 'modelConfig')) {
+          if (!this._extensionCapabilities.includes(retryAnalysis ? 'action_capture_analysis_retry_v1' : 'action_capture_model_context_v1')) {
+            throw new Error('请重载浏览器扩展后重试，以使用客户端模型进行动作分析');
+          }
+          const config = resolveActionCaptureModelConfig(modelConfig ?? null);
+          if (this._captureModelContexts.size >= 64) throw new Error('动作捕获分析任务过多，请稍后重试');
+          contextId = randomUUID();
+          const timer = setTimeout(() => this._deleteCaptureModelContext(contextId), 10 * 60_000);
+          timer.unref?.();
+          this._captureModelContexts.set(contextId, {
+            config, timer, requestId: msg.id,
+            tabId: Number(msg.tabId), site: String(msg.siteKey || '').trim(), actionName: String(msg.actionName || '').trim(),
+          });
+          captureRequest.analysisContextId = contextId;
+        }
+        if (!this._send(captureRequest)) throw new Error('浏览器扩展未连接');
+      } catch (err) {
+        this._deleteCaptureModelContext(contextId);
+        this._broadcast({ type: 'call_tool_error', id: msg.id, error: err.message });
+      }
     } else if (msg.type === 'get_active_tab') {
       try {
         const tabId = await this.getActiveTabId();
@@ -767,7 +806,7 @@ export class WebSocketBridge extends EventEmitter {
       // CLI 查询扩展的 trace 日志，直接转发给扩展
       process.stderr.write(`[${ts()}] [Bridge] Forwarding get_trace_logs to extension: ${msg.traceID}\n`);
       this._send(msg);
-    } else if (msg.type === 'exploration_list_tabs' || msg.type === 'exploration_capture_passive' || msg.type === 'exploration_safe_actions_inspect' || msg.type === 'exploration_safe_probe_run' || msg.type === 'exploration_replay_candidate' || msg.type === 'exploration_action_capture_start' || msg.type === 'exploration_action_capture_stop' || msg.type === 'exploration_action_capture_get' || msg.type === 'exploration_action_capture_select' || msg.type === 'exploration_action_capture_clear' || msg.type === 'refresh_adapter_tabs' || msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow') {
+    } else if (msg.type === 'exploration_list_tabs' || msg.type === 'exploration_capture_passive' || msg.type === 'exploration_safe_actions_inspect' || msg.type === 'exploration_safe_probe_run' || msg.type === 'exploration_replay_candidate' || msg.type === 'exploration_action_capture_stop' || msg.type === 'exploration_action_capture_get' || msg.type === 'exploration_action_capture_select' || msg.type === 'exploration_action_capture_clear' || msg.type === 'refresh_adapter_tabs' || msg.type === 'browser_state' || msg.type === 'browser_network' || msg.type === 'browser_eval' || msg.type === 'browser_analyze' || msg.type === 'browser_explore_workflow' || msg.type === 'browser_action_capture_workflow') {
       process.stderr.write(`[${ts()}] [Bridge] Forwarding ${msg.type} to Chrome extension\n`);
       this._send(msg);
     }
@@ -1066,7 +1105,17 @@ export class WebSocketBridge extends EventEmitter {
   async _handleAnalyzeActionCaptureResult(msg, ws) {
     const { id, captureResult } = msg;
     try {
-      const analysis = await analyzeActionCaptureResult({ captureResult });
+      let modelConfig;
+      if (Object.hasOwn(msg, 'analysisContextId')) {
+        const context = this._captureModelContexts.get(msg.analysisContextId);
+        if (!context) throw new Error('客户端动作分析上下文已失效，请重试已有捕获的 AI 分析，无需重新操作网站');
+        if (context.tabId !== captureResult?.tabId || context.site !== captureResult?.site || context.actionName !== captureResult?.actionName) {
+          throw new Error('客户端动作分析上下文与捕获任务不匹配');
+        }
+        modelConfig = context.config;
+        this._deleteCaptureModelContext(msg.analysisContextId);
+      }
+      const analysis = await analyzeActionCaptureResult({ captureResult, modelConfig });
       ws.send(JSON.stringify({
         type: 'analyze_action_capture_result',
         id,
@@ -1080,8 +1129,20 @@ export class WebSocketBridge extends EventEmitter {
         id,
         ok: false,
         error: err.message,
+        code: err.code || 'ACTION_ANALYSIS_FAILED',
+        details: modelOutputErrorDetails(err.details),
       }));
     }
+  }
+
+  _deleteCaptureModelContext(contextId) {
+    const context = this._captureModelContexts.get(contextId);
+    if (context) clearTimeout(context.timer);
+    this._captureModelContexts.delete(contextId);
+  }
+
+  _clearCaptureModelContexts() {
+    for (const contextId of this._captureModelContexts.keys()) this._deleteCaptureModelContext(contextId);
   }
 
   async _handleAnalyzeExplorationResult(msg, ws) {

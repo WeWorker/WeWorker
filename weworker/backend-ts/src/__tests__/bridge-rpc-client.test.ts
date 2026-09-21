@@ -104,10 +104,12 @@ describe('BridgeRpcClient', () => {
       actionName: 'search_projects',
       mode: 'intercept',
       timeoutSeconds: 60,
+      modelConfig: { provider: 'custom', protocol: 'anthropic', model: 'glm-5.3', api_key: 'fake-test-key', base_url: 'https://model.example.com' },
     })
     const startRequest = JSON.parse(socket.sent.at(-1) || '{}')
+    expect(startRequest.modelConfig).toEqual({ provider: 'custom', protocol: 'anthropic', model: 'glm-5.3', api_key: 'fake-test-key', base_url: 'https://model.example.com' })
     expect(startRequest).toMatchObject({
-      type: 'exploration_action_capture_start',
+      type: 'client_action_capture_start',
       tabId: 7,
       siteKey: 'todo.example.com',
       actionName: 'search_projects',
@@ -120,6 +122,12 @@ describe('BridgeRpcClient', () => {
     expect(stopRequest.type).toBe('exploration_action_capture_stop')
     socket.receive({ type: 'call_tool_result', id: stopRequest.id, result: { type: 'action_capture_stopping', stopping: true } })
     await expect(stopPromise).resolves.toMatchObject({ type: 'action_capture_stopping' })
+
+    const retryPromise = client.retryActionCaptureAnalysis({ tabId: 7, siteKey: 'todo.example.com', actionName: 'search_projects', modelConfig: startRequest.modelConfig })
+    const retryRequest = JSON.parse(socket.sent.at(-1) || '{}')
+    expect(retryRequest).toMatchObject({ type: 'client_action_capture_analyze', modelConfig: { model: 'glm-5.3' } })
+    socket.receive({ type: 'call_tool_result', id: retryRequest.id, result: { type: 'action_capture_ai_loading' } })
+    await expect(retryPromise).resolves.toMatchObject({ type: 'action_capture_ai_loading' })
 
     const getPromise = client.getActionCapture({ tabId: 7, siteKey: 'todo.example.com' })
     const getRequest = JSON.parse(socket.sent.at(-1) || '{}')

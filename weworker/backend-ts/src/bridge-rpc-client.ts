@@ -34,6 +34,8 @@ export interface GenerationModelConfig {
   api_key: string
   base_url: string
   model: string
+  max_output_tokens?: number
+  model_max_output_tokens?: number
 }
 
 export type ActionCaptureSnapshot = Record<string, unknown>
@@ -209,16 +211,19 @@ export class BridgeRpcClient {
     mode?: string
     timeoutSeconds?: number
     pattern?: string
+    modelConfig?: GenerationModelConfig
   }): Promise<ActionCaptureSnapshot> {
     const message = await this.request(
       {
-        type: 'exploration_action_capture_start',
+        // A distinct local-only message prevents older Bridges forwarding credentials.
+        type: input.modelConfig ? 'client_action_capture_start' : 'exploration_action_capture_start',
         tabId: input.tabId,
         siteKey: input.siteKey,
         actionName: input.actionName,
         mode: input.mode || 'intercept',
         timeoutSeconds: input.timeoutSeconds || 60,
         pattern: input.pattern || '',
+        ...(input.modelConfig ? { modelConfig: input.modelConfig } : {}),
       },
       ['call_tool_result'],
       10_000,
@@ -234,6 +239,15 @@ export class BridgeRpcClient {
         ...(input.siteKey ? { siteKey: input.siteKey } : {}),
         ...(input.actionName ? { actionName: input.actionName } : {}),
       },
+      ['call_tool_result'],
+      10_000,
+    )
+    return asRecord(message.result)
+  }
+
+  async retryActionCaptureAnalysis(input: { tabId: number; siteKey: string; actionName: string; modelConfig: GenerationModelConfig }): Promise<ActionCaptureSnapshot> {
+    const message = await this.request(
+      { type: 'client_action_capture_analyze', ...input },
       ['call_tool_result'],
       10_000,
     )

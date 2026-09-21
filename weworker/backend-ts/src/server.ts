@@ -1637,6 +1637,15 @@ app.get('/exploration/runs/:taskId/action-capture', async (req, res) => {
   }
 })
 
+app.post('/exploration/runs/:taskId/action-capture/analyze', async (req, res) => {
+  try {
+    res.status(202).json(await explorationAgentCoordinator.retryActionCaptureAnalysis(req.params.taskId))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    res.status(message === 'EXPLORATION_RUN_NOT_FOUND' ? 404 : 409).json({ detail: message })
+  }
+})
+
 app.post('/exploration/runs/:taskId/action-capture/stop', async (req, res) => {
   try {
     res.json(await explorationAgentCoordinator.stopActionCapture(req.params.taskId))

@@ -2,10 +2,112 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
+import vm from 'node:vm'
 import { fileURLToPath } from 'node:url'
 
 const testDir = path.dirname(fileURLToPath(import.meta.url))
 const source = fs.readFileSync(path.resolve(testDir, '../background/service-worker.js'), 'utf8')
+
+function analysisHarness(response) {
+  const requests = []
+  let state = { type: 'action_capture', tabId: 7, siteKey: 'example.com', result: {
+    tabId: 7, site: 'example.com', actionName: 'like_article', finishedAt: '2026-01-01T00:00:00Z',
+    capturedActions: [{ method: 'POST', url: 'https://example.com/api/like', userSelectedPrimary: true }],
+  } }
+  const context = vm.createContext({
+    sanitizeActionCaptureResult: (value) => structuredClone(value),
+    requestBridge: async (message) => { requests.push(message); return response(message) },
+    persistActionCaptureToSiteMemory: async () => ({ ok: true }),
+    cdpActionCaptureSessions: new Map(),
+    chrome: { storage: { local: {
+      get: async () => ({ actionCaptureLastResult: structuredClone(state) }),
+      set: async (value) => { state = structuredClone(value.actionCaptureLastResult) },
+    } } },
+  })
+  vm.runInContext(source.slice(source.indexOf('function actionCaptureAnalysisFailure('), source.indexOf('\n}', source.indexOf('async function finalizeActionCaptureResult(')) + 2), context)
+  const msg = { id: 'retry-1', tabId: 7, siteKey: 'example.com', actionName: 'like_article', analysisContextId: 'opaque-fixture-context' }
+  return { context, msg, requests, state: () => state, replace: (value) => { state = value } }
+}
+
+test('analysis retry retains captured write evidence and selection without touching the site', async () => {
+  let finish
+  const harness = analysisHarness(() => new Promise((resolve) => { finish = resolve }))
+  const before = structuredClone(harness.state().result)
+  const loading = await harness.context.retryStoredActionCaptureAnalysis(harness.msg)
+  assert.equal(loading.type, 'action_capture_ai_loading')
+  await assert.rejects(harness.context.retryStoredActionCaptureAnalysis(harness.msg), /仍在进行中/)
+  finish({ ok: true, analysis: { model: 'glm-5.3', summary: 'complete', candidateAnalyses: [] } })
+  for (let i = 0; i < 20 && harness.state().type !== 'action_capture'; i++) await new Promise(setImmediate)
+  assert.equal(harness.state().type, 'action_capture')
+  assert.equal(harness.state().result.actionAnalysis.model, 'glm-5.3')
+  assert.deepEqual(harness.state().result.capturedActions, before.capturedActions)
+  assert.equal(harness.state().result.finishedAt, before.finishedAt)
+  assert.equal(harness.requests.length, 1)
+  assert.equal(harness.requests[0].type, 'analyze_action_capture_result')
+  assert.doesNotMatch(JSON.stringify(harness.state()), /analysisContextId|opaque-fixture-context|api_key/)
+})
+
+test('analysis transport failure keeps evidence and permits another analysis-only retry', async () => {
+  let count = 0
+  const harness = analysisHarness(async () => {
+    if (++count === 1) throw new Error('fixture connection timeout')
+    return { ok: true, analysis: { summary: 'complete', candidateAnalyses: [] } }
+  })
+  await harness.context.retryStoredActionCaptureAnalysis(harness.msg)
+  for (let i = 0; i < 20 && harness.state().type !== 'action_capture'; i++) await new Promise(setImmediate)
+  assert.equal(harness.state().result.capturedActions.length, 1)
+  assert.equal(harness.state().result.actionAnalysis.aiError, 'fixture connection timeout')
+  await harness.context.retryStoredActionCaptureAnalysis({ ...harness.msg, id: 'retry-2' })
+  for (let i = 0; i < 20 && harness.state().type !== 'action_capture'; i++) await new Promise(setImmediate)
+  assert.equal(harness.state().result.actionAnalysis.analysisSource, 'ai')
+  assert.equal(harness.requests.length, 2)
+})
+
+test('output exhaustion stays visible and retry refuses unrelated or missing capture evidence', async () => {
+  const harness = analysisHarness(async () => ({ ok: false, code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', error: 'fixture output limit', details: { outputLimit: 2200 } }))
+  await assert.rejects(harness.context.retryStoredActionCaptureAnalysis({ ...harness.msg, siteKey: 'other.example.com' }), /不匹配/)
+  assert.equal(harness.requests.length, 0)
+  await harness.context.retryStoredActionCaptureAnalysis(harness.msg)
+  for (let i = 0; i < 20 && harness.state().type !== 'action_capture'; i++) await new Promise(setImmediate)
+  assert.equal(harness.state().result.actionAnalysis.errorCode, 'MODEL_OUTPUT_LIMIT_EXCEEDED')
+  assert.equal(harness.state().result.actionAnalysis.outputLimit, 2200)
+  harness.replace(null)
+  await assert.rejects(harness.context.retryStoredActionCaptureAnalysis(harness.msg), /没有保留的捕获证据/)
+})
+
+test('late analysis does not overwrite a newer capture state', async () => {
+  let finish
+  const harness = analysisHarness(() => new Promise((resolve) => { finish = resolve }))
+  await harness.context.retryStoredActionCaptureAnalysis(harness.msg)
+  harness.replace({ type: 'action_capture', tabId: 8, result: { site: 'other.example.com' } })
+  finish({ ok: true, analysis: { candidateAnalyses: [] } })
+  await new Promise(setImmediate)
+  assert.equal(harness.state().tabId, 8)
+})
+
+test('capture analysis passes only an ephemeral context ID and never stores it in results', async () => {
+  assert.match(source, /'action_capture_model_context_v1'/)
+  const startHandler = source.slice(source.indexOf("} else if (msg.type === 'exploration_action_capture_start')"), source.indexOf("} else if (msg.type === 'exploration_action_capture_stop')"))
+  assert.match(startHandler, /finalizeActionCaptureResult\(captureResult,\s*\{\s*timeoutMs: 120000,\s*analysisContextId: msg\.analysisContextId/)
+  assert.doesNotMatch(startHandler, /modelConfig|api_key/)
+  const requests = []
+  const persisted = []
+  const context = vm.createContext({
+    sanitizeActionCaptureResult: (value) => value,
+    requestBridge: async (message) => { requests.push(message); return { ok: true, analysis: { model: 'glm-5.3', candidateAnalyses: [] } } },
+    persistActionCaptureToSiteMemory: async (value) => { persisted.push(JSON.stringify(value)); return { ok: true } },
+  })
+  const functions = source.slice(source.indexOf('function actionCaptureAnalysisFailure('), source.indexOf('\n}', source.indexOf('async function finalizeActionCaptureResult(')) + 2)
+  vm.runInContext(functions, context)
+  const result = await context.finalizeActionCaptureResult({ site: 'example.com', capturedActions: [] }, { analysisContextId: 'opaque-fixture-id' })
+  assert.equal(requests[0].analysisContextId, 'opaque-fixture-id')
+  assert.equal(requests[0].captureResult.analysisContextId, undefined)
+  assert.equal(result.actionAnalysis.model, 'glm-5.3')
+  assert.doesNotMatch(JSON.stringify(result), /opaque-fixture-id|analysisContextId|modelConfig|api_key/)
+  assert.doesNotMatch(persisted.join(''), /opaque-fixture-id|analysisContextId/)
+  await context.finalizeActionCaptureResult({ site: 'example.com', capturedActions: [] })
+  assert.equal(Object.hasOwn(requests[1], 'analysisContextId'), false)
+})
 
 test('extension advertises passive exploration and lists only explorable tabs', () => {
   assert.match(source, /'passive_exploration_v1'/)

@@ -26,6 +26,7 @@ import {
   generateExplorationScaffold,
   publishExplorationGeneration,
   resumeExplorationGeneration,
+  retryExplorationActionAnalysis,
   saveExplorationMemory,
   selectExplorationActionCandidate,
   startExplorationRun,
@@ -144,6 +145,7 @@ export default function ExplorationPage({ onClose }) {
   const generation = run?.generationRun
   const generationRunning = isGenerationStatusActive(generation?.status)
   const actionCapture = run?.actionCapture
+  const actionAnalysisError = actionCapture?.result?.actionAnalysis?.aiError
   const actionCaptureRunning = isActionCaptureInFlight(actionCapture)
   const actionCaptureRecording = actionCapture?.type === 'action_capture_loading'
   const generationStarted = Boolean(run?.generationRunId || run?.scaffoldResult)
@@ -381,6 +383,19 @@ export default function ExplorationPage({ onClose }) {
       setActionTimeoutSeconds(60)
       setActionPattern('')
       setGenerationMessage('已保留此前录制证据，可以继续录制下一个操作。')
+    } catch (nextError) {
+      setGenerationMessage(normalizeError(nextError))
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  const handleRetryActionAnalysis = async () => {
+    if (!run?.taskId || busyAction) return
+    setBusyAction('retryAnalysis')
+    try {
+      setRun(await retryExplorationActionAnalysis(run.taskId))
+      setGenerationMessage('正在重新分析已有捕获证据，不会重复操作网站。')
     } catch (nextError) {
       setGenerationMessage(normalizeError(nextError))
     } finally {
@@ -744,13 +759,14 @@ export default function ExplorationPage({ onClose }) {
                   {actionCapture?.type === 'action_capture' && (
                     <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
                       <Alert
-                        type="success"
+                        type={actionAnalysisError ? 'warning' : 'success'}
                         showIcon
                         message={`操作捕获完成，发现 ${Array.isArray(actionCapture.result?.capturedActions) ? actionCapture.result.capturedActions.length : 0} 个请求候选，已合并到当前探索结果。`}
-                        description={actionCapture.result?.actionAnalysis?.summary || undefined}
+                        description={actionAnalysisError || actionCapture.result?.actionAnalysis?.summary || undefined}
                       />
 
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {actionAnalysisError && <Button loading={busyAction === 'retryAnalysis'} disabled={anyBusy || generationStarted} onClick={handleRetryActionAnalysis}>重试 AI 分析（无需重新操作）</Button>}
                         <Button loading={busyAction === 'nextCapture'} disabled={anyBusy || generationStarted} onClick={handlePrepareNextActionCapture}>继续录制下一个操作</Button>
                       </div>
 
@@ -788,7 +804,8 @@ export default function ExplorationPage({ onClose }) {
                   )}
                 </div>
                 {actionCapture?.type === 'action_capture_restored' && (
-                  <Alert type="info" showIcon style={{ marginTop: 8 }} message="历史任务的录制明细不随任务保留；已沉淀到站点记忆的操作证据如下（脱敏）。" />
+                  <Alert type="info" showIcon style={{ marginTop: 8 }} message="历史任务的录制明细不随任务保留；已沉淀到站点记忆的操作证据如下（脱敏）。"
+                    action={<Button loading={busyAction === 'retryAnalysis'} disabled={anyBusy || generationStarted} onClick={handleRetryActionAnalysis}>重试扩展保留的 AI 分析</Button>} />
                 )}
 
                 {Array.isArray(run.siteMemory?.actionCaptureHistory) && run.siteMemory.actionCaptureHistory.length > 0 && (

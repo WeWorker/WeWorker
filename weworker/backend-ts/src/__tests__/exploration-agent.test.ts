@@ -661,7 +661,7 @@ describe('ExplorationAgentCoordinator', () => {
       const coordinator = new ExplorationAgentCoordinator(
         bridge,
         fakeAgentStream,
-        () => generationSettings(),
+        () => generationSettings({ model: 'glm-5.3' }),
       )
       const started = coordinator.start('分析列表能力', {
         id: 7,
@@ -683,6 +683,11 @@ describe('ExplorationAgentCoordinator', () => {
         timeoutSeconds: 60,
       })
       expect(capturing.actionCapture).toMatchObject({ type: 'action_capture_loading' })
+      expect(bridge.startActionCapture).toHaveBeenCalledWith(expect.objectContaining({
+        modelConfig: resolveClientGenerationModelConfig(generationSettings({ model: 'glm-5.3' })),
+      }))
+      expect(JSON.stringify(capturing)).not.toContain('client-request-secret')
+      expect(JSON.stringify(capturing)).not.toContain('modelConfig')
       const stopping = await coordinator.stopActionCapture(started.taskId)
       expect(stopping.actionCapture).toMatchObject({ type: 'action_capture_stopping' })
       const finished = await coordinator.getActionCapture(started.taskId)
@@ -713,6 +718,49 @@ describe('ExplorationAgentCoordinator', () => {
       expect(bridge.stopActionCapture).toHaveBeenCalledTimes(2)
       expect(bridge.selectActionCaptureCandidate).toHaveBeenCalledWith(expect.objectContaining({ candidateIndex: 1 }))
       expect(bridge.clearActionCapture).toHaveBeenCalledWith(expect.objectContaining({ tabId: 7 }))
+    } finally {
+      if (previousMemoryFile === undefined) delete process.env.WEWORKER_SITE_MEMORY_FILE
+      else process.env.WEWORKER_SITE_MEMORY_FILE = previousMemoryFile
+      fs.rmSync(memoryDir, { recursive: true, force: true })
+    }
+  })
+
+  it('retries stored capture analysis with current settings, persists improved memory and never recaptures', async () => {
+    const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-analysis-retry-'))
+    const previousMemoryFile = process.env.WEWORKER_SITE_MEMORY_FILE
+    process.env.WEWORKER_SITE_MEMORY_FILE = path.join(memoryDir, 'memory.json')
+    try {
+      const capture = {
+        type: 'action_capture', tabId: 7, actionName: 'like_article', result: {
+          tabId: 7, site: 'example.com', actionName: 'like_article', finishedAt: '2026-01-01T00:00:00Z',
+          capturedActions: [{ method: 'POST', url: 'https://example.com/api/like' }],
+          actionAnalysis: { analysisSource: 'heuristic', aiError: 'fixture output limit' },
+        },
+      }
+      const bridge = {
+        runPassiveExploration: vi.fn().mockResolvedValue({ pageStateBefore: { url: 'https://example.com/list' }, network: { entries: [] } }),
+        getActionCapture: vi.fn().mockResolvedValue(capture),
+        startActionCapture: vi.fn(),
+        retryActionCaptureAnalysis: vi.fn().mockResolvedValue({ ...capture, type: 'action_capture_ai_loading' }),
+      } as unknown as BridgeRpcClient
+      const coordinator = new ExplorationAgentCoordinator(bridge, completedAgentStream, () => generationSettings({ model: 'glm-5.3' }))
+      const started = coordinator.start('fixture exploration', { id: 7, title: 'Example', url: 'https://example.com/list', active: true, windowId: 1 })
+      await waitForCompleted(coordinator, started.taskId)
+      await coordinator.getActionCapture(started.taskId)
+      const retried = await coordinator.retryActionCaptureAnalysis(started.taskId)
+      expect(retried.actionCapture?.type).toBe('action_capture_ai_loading')
+      expect(bridge.retryActionCaptureAnalysis).toHaveBeenCalledWith(expect.objectContaining({ tabId: 7, actionName: 'like_article', modelConfig: { provider: 'custom', protocol: 'anthropic', api_key: 'client-request-secret', base_url: 'https://open.bigmodel.cn/api/anthropic', model: 'glm-5.3' } }))
+      expect(bridge.startActionCapture).not.toHaveBeenCalled()
+      expect(JSON.stringify(retried)).not.toContain('client-request-secret')
+      vi.mocked(bridge.getActionCapture).mockResolvedValue({ ...capture, result: { ...capture.result, actionAnalysis: { analysisSource: 'ai', model: 'glm-5.3' } } })
+      const finished = await coordinator.getActionCapture(started.taskId)
+      expect((finished.actionCapture?.result as Record<string, unknown>).actionAnalysis).toMatchObject({ analysisSource: 'ai' })
+      expect(finished.siteMemory?.actionCaptureHistory?.length).toBeGreaterThan(0)
+      vi.mocked(bridge.getActionCapture).mockResolvedValue(null)
+      await expect(coordinator.retryActionCaptureAnalysis(started.taskId)).rejects.toThrow('已无可分析的捕获证据')
+      vi.mocked(bridge.getActionCapture).mockResolvedValue({ ...capture, type: 'action_capture_ai_loading' })
+      await expect(coordinator.retryActionCaptureAnalysis(started.taskId)).rejects.toThrow('仍在进行中')
+      expect(bridge.retryActionCaptureAnalysis).toHaveBeenCalledTimes(1)
     } finally {
       if (previousMemoryFile === undefined) delete process.env.WEWORKER_SITE_MEMORY_FILE
       else process.env.WEWORKER_SITE_MEMORY_FILE = previousMemoryFile

@@ -63,6 +63,12 @@ export async function stopExplorationActionCapture(taskId) {
   }))
 }
 
+export async function retryExplorationActionAnalysis(taskId) {
+  return readJsonResponse(await backendFetch(`/exploration/runs/${encodeURIComponent(taskId)}/action-capture/analyze`, {
+    method: 'POST',
+  }))
+}
+
 export async function selectExplorationActionCandidate(taskId, candidateIndex) {
   return readJsonResponse(await backendFetch(`/exploration/runs/${encodeURIComponent(taskId)}/action-capture/select`, {
     method: 'POST',

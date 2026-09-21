@@ -20,6 +20,8 @@ const EXTENSION_CAPABILITIES = [
   'safe_api_probe_v1',
   'api_replay_v1',
   'action_capture_v1',
+  'action_capture_model_context_v1',
+  'action_capture_analysis_retry_v1',
   'generation_harness_v1',
   'runtime_validation_v1',
 ];
@@ -2677,6 +2679,7 @@ async function handleNativeMessage(msg) {
       if (!siteKey) throw new Error('siteKey required');
       if (!actionName) throw new Error('actionName required');
       if (cdpActionCaptureSessions.has(tabId)) throw new Error('当前标签页已有进行中的动作捕获');
+      if (actionCaptureAnalysisRetries.size) throw new Error('已有动作分析正在进行，请稍后开始新的捕获');
 
       const mode = ['observe', 'intercept'].includes(msg.mode) ? msg.mode : 'intercept';
       const timeoutSeconds = Math.max(5, Math.min(Number(msg.timeoutSeconds || 60), 300));
@@ -2724,7 +2727,10 @@ async function handleNativeMessage(msg) {
               timestamp: Date.now(),
             },
           });
-          const result = await finalizeActionCaptureResult(captureResult, { timeoutMs: 120000 });
+          const result = await finalizeActionCaptureResult(captureResult, {
+            timeoutMs: 120000,
+            analysisContextId: msg.analysisContextId,
+          });
           await chrome.storage.local.set({
             actionCaptureLastResult: {
               type: 'action_capture',
@@ -2789,6 +2795,14 @@ async function handleNativeMessage(msg) {
       sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
     }
 
+  } else if (msg.type === 'exploration_action_capture_analyze') {
+    try {
+      const state = await retryStoredActionCaptureAnalysis(msg);
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: state });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
   } else if (msg.type === 'exploration_action_capture_get') {
     try {
       const stored = await chrome.storage.local.get('actionCaptureLastResult');
@@ -2820,6 +2834,10 @@ async function handleNativeMessage(msg) {
             recoverable: true,
             timestamp: Date.now(),
           };
+          if (state.result && Array.isArray(state.result.capturedActions)) {
+            state.type = 'action_capture';
+            state.result = actionCaptureAnalysisFailure(state.result, '分析会话已中断，可重试已有证据的 AI 分析，无需重新操作网站', 'ACTION_ANALYSIS_INTERRUPTED');
+          }
           await chrome.storage.local.set({ actionCaptureLastResult: state });
         }
       }
@@ -2836,6 +2854,7 @@ async function handleNativeMessage(msg) {
 
   } else if (msg.type === 'exploration_action_capture_select') {
     try {
+      if (actionCaptureAnalysisRetries.size) throw new Error('动作分析仍在进行中，暂时不能修改主接口');
       const state = await selectStoredActionCapturePrimaryCandidate({
         siteKey: String(msg.siteKey || '').trim(),
         candidateIndex: msg.candidateIndex,
@@ -2849,6 +2868,7 @@ async function handleNativeMessage(msg) {
     try {
       const stored = await chrome.storage.local.get('actionCaptureLastResult');
       const state = stored.actionCaptureLastResult || null;
+      if (actionCaptureAnalysisRetries.size) throw new Error('动作分析仍在进行中，暂时不能清空');
       const requestedTabId = Number(msg.tabId);
       const requestedSiteKey = String(msg.siteKey || '').trim();
       const matchesTab = !state || !Number.isInteger(requestedTabId) || Number(state.tabId) === requestedTabId;
@@ -3325,10 +3345,10 @@ function sanitizeActionCaptureResult(result = {}) {
   };
 }
 
-async function enhanceActionCaptureResultWithAI(result, options = {}) {
+function actionCaptureAnalysisFailure(result, errorMessage = '', code = 'ACTION_ANALYSIS_FAILED', details = {}) {
   const safeResult = sanitizeActionCaptureResult(result);
   const heuristicRecommendation = safeResult?.recommendation || {};
-  const withHeuristicFallback = (errorMessage = "") => ({
+  return {
     ...safeResult,
     actionAnalysis: {
       analysisSource: 'heuristic',
@@ -3341,20 +3361,72 @@ async function enhanceActionCaptureResultWithAI(result, options = {}) {
       confidence: null,
       candidateAnalyses: [],
       aiError: errorMessage || '',
+      errorCode: code,
+      ...(Number.isSafeInteger(details?.outputLimit) ? { outputLimit: details.outputLimit } : {}),
     },
-  });
+  };
+}
 
-  const response = await requestBridge(
-    {
-      type: 'analyze_action_capture_result',
-      captureResult: safeResult,
-    },
-    Math.max(1000, Number(options.timeoutMs || 120000)),
-    '动作捕获 AI 分析超时，已回退到规则结论',
-  );
+// Only re-analyze retained evidence: no debugger, page interaction or request replay.
+const actionCaptureAnalysisRetries = new Set();
+async function retryStoredActionCaptureAnalysis(msg) {
+  const tabId = Number(msg.tabId);
+  if (actionCaptureAnalysisRetries.size) throw new Error('动作分析仍在进行中');
+  actionCaptureAnalysisRetries.add(tabId);
+  let handedOff = false;
+  try {
+    const stored = await chrome.storage.local.get('actionCaptureLastResult');
+    const state = stored.actionCaptureLastResult;
+    if (!state?.result || !Array.isArray(state.result.capturedActions)) throw new Error('没有保留的捕获证据可供分析，请勿重复执行写操作');
+    if (Number(state.tabId) !== tabId || state.result.site !== msg.siteKey || state.result.actionName !== msg.actionName) throw new Error('捕获证据与当前任务不匹配');
+    if (['action_capture_loading', 'action_capture_stopping', 'action_capture_ai_loading'].includes(state.type) || cdpActionCaptureSessions.has(tabId)) throw new Error('动作捕获或分析仍在进行中');
+    const loading = { ...state, type: 'action_capture_ai_loading', analysisAttemptId: msg.id, timestamp: Date.now() };
+    await chrome.storage.local.set({ actionCaptureLastResult: loading });
+    void (async () => {
+      try {
+        let result;
+        try {
+          result = await finalizeActionCaptureResult(state.result, { analysisContextId: msg.analysisContextId, timeoutMs: 120000 });
+        } catch (err) {
+          result = actionCaptureAnalysisFailure(state.result, err?.message || '动作分析失败');
+        }
+        const current = (await chrome.storage.local.get('actionCaptureLastResult')).actionCaptureLastResult;
+        if (current?.analysisAttemptId === msg.id) {
+          const { analysisAttemptId, ...settled } = loading;
+          await chrome.storage.local.set({ actionCaptureLastResult: { ...settled, type: 'action_capture', result, timestamp: Date.now() } });
+        }
+      } finally {
+        actionCaptureAnalysisRetries.delete(tabId);
+      }
+    })().catch(() => {}); // A storage failure is reconciled by the normal state polling path.
+    handedOff = true;
+    return loading;
+  } finally {
+    if (!handedOff) actionCaptureAnalysisRetries.delete(tabId);
+  }
+}
+
+async function enhanceActionCaptureResultWithAI(result, options = {}) {
+  const safeResult = sanitizeActionCaptureResult(result);
+  const heuristicRecommendation = safeResult?.recommendation || {};
+
+  let response;
+  try {
+    response = await requestBridge(
+      {
+        type: 'analyze_action_capture_result',
+        captureResult: safeResult,
+        ...(options.analysisContextId !== undefined ? { analysisContextId: options.analysisContextId } : {}),
+      },
+      Math.max(1000, Number(options.timeoutMs || 120000)),
+      '动作捕获 AI 分析超时，已保留证据，可重试分析，无需重新操作网站',
+    );
+  } catch (err) {
+    return actionCaptureAnalysisFailure(safeResult, err?.message || '动作分析连接中断', err?.code || 'ACTION_ANALYSIS_UNAVAILABLE');
+  }
 
   if (!response?.ok || !response.analysis) {
-    return withHeuristicFallback(response?.error || '动作捕获 AI 分析失败');
+    return actionCaptureAnalysisFailure(safeResult, response?.error || '动作捕获 AI 分析失败', response?.code, response?.details);
   }
 
   const analysis = response.analysis;

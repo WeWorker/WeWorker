@@ -692,6 +692,7 @@ export class ExplorationAgentCoordinator {
       mode: input.mode,
       timeoutSeconds: input.timeoutSeconds,
       pattern: input.pattern,
+      modelConfig: resolveClientGenerationModelConfig(this._settingsProvider()),
     })
     run.actionCapture = sanitizeExplorationEvidence(state) as ActionCaptureSnapshot
     run.updatedAt = new Date().toISOString()
@@ -741,6 +742,26 @@ export class ExplorationAgentCoordinator {
       candidateIndex,
     })
     await this.recordActionCapture(run, state, true)
+    return cloneRun(run)
+  }
+
+  async retryActionCaptureAnalysis(taskId: string): Promise<ExplorationRun> {
+    const run = this.requireRun(taskId)
+    if (run.status !== 'completed' || run.generationRunId || run.scaffoldResult) throw new Error('请在探索完成、生成开始前重试动作分析')
+    if (!run.actionCapture) throw new Error('当前任务没有动作捕获记录')
+    const current = await this._bridge.getActionCapture({ tabId: run.tab.id, siteKey: this.resolveRunSiteKey(run) })
+    if (!current || !asRecord(current.result).capturedActions) throw new Error('扩展中已无可分析的捕获证据；请勿重复执行写操作')
+    if (this.isActionCaptureActive(current)) throw new Error('动作捕获或分析仍在进行中')
+    const actionName = String(asRecord(current.result).actionName || current.actionName || '')
+    if (run.actionCapture.actionName && run.actionCapture.actionName !== actionName) throw new Error('扩展中的捕获证据不属于当前动作')
+    const state = await this._bridge.retryActionCaptureAnalysis({
+      tabId: run.tab.id,
+      siteKey: this.resolveRunSiteKey(run),
+      actionName,
+      modelConfig: resolveClientGenerationModelConfig(this._settingsProvider()),
+    })
+    this._persistedActionCaptureKeys.delete(taskId)
+    await this.recordActionCapture(run, state)
     return cloneRun(run)
   }
 

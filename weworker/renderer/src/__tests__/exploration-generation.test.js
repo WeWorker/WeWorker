@@ -51,6 +51,17 @@ test('client exploration API owns the generation lifecycle endpoints', () => {
   assert.match(apiSource, /\/action-capture\/stop/)
   assert.match(apiSource, /\/action-capture\/select/)
   assert.match(apiSource, /\/action-capture\/clear/)
+  assert.match(apiSource, /\/action-capture\/analyze/)
+})
+
+test('failed action analysis is a warning with an evidence-only retry, including restored captures', () => {
+  assert.match(componentSource, /type=\{actionAnalysisError \? 'warning' : 'success'\}/)
+  assert.match(componentSource, /description=\{actionAnalysisError \|\|/)
+  assert.match(componentSource, /重试 AI 分析（无需重新操作）/)
+  assert.match(componentSource, /重试扩展保留的 AI 分析/)
+  const handler = componentSource.slice(componentSource.indexOf('const handleRetryActionAnalysis ='), componentSource.indexOf('const handleQuickGenerate ='))
+  assert.match(handler, /retryExplorationActionAnalysis\(run.taskId\)/)
+  assert.doesNotMatch(handler, /startExplorationActionCapture|startExplorationRun/)
 })
 
 test('generation failures surface attributed guidance and retry context', () => {
