@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { modelOutputErrorDetails } from './generation-harness/model-output-policy.js';
 
 function formatWorkerExitCode(code, signal) {
   if (signal) return `signal ${signal}`;
@@ -174,6 +175,7 @@ export class LanguageModelWorkerSession {
       if (message.ok === false) {
         const error = new Error(message.error || 'persistent AI worker request failed');
         error.code = message.code || 'AI_WORKER_REQUEST_FAILED';
+        if (error.code === 'MODEL_OUTPUT_LIMIT_EXCEEDED') error.details = modelOutputErrorDetails(message.details);
         pending.reject(error);
       } else {
         pending.resolve(message.result);

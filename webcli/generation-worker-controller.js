@@ -181,7 +181,8 @@ export class GenerationWorkerController extends EventEmitter {
     this.activeWorkers.set(id, session);
     await session.command.promise;
     cleanupWorkerPayload(session);
-    await session.completion.promise;
+    // Match start(): acknowledge the resumed run, then let the client poll.
+    // Waiting for the entire model loop here exceeds the Bridge RPC deadline.
     const run = this.store.load(id);
     if (!run) throw new Error(`generation run not found: ${id}`);
     return createGenerationRunTransportSnapshot(run, { rootDir: this.store.rootDir });
@@ -306,7 +307,7 @@ export class GenerationWorkerController extends EventEmitter {
     if (message?.type === 'finished') {
       session.finished = true;
       session.runId = message.runId || session.runId;
-      if (session.runId) this.activeWorkers.delete(session.runId);
+      if (this.activeWorkers.get(session.runId) === session) this.activeWorkers.delete(session.runId);
       session.completion.resolve(this.store.load(session.runId));
     }
   }
@@ -351,8 +352,9 @@ export class GenerationWorkerController extends EventEmitter {
       pending.reject(new Error(`Harness worker exited: ${formatProcessExitCode(code, signal)}`));
     }
     session.pendingCommands.clear();
-    if (session.runId) this.activeWorkers.delete(session.runId);
-    if (!session.finished && !session.cancelRequested && session.runId) {
+    const ownsRun = this.activeWorkers.get(session.runId) === session;
+    if (ownsRun) this.activeWorkers.delete(session.runId);
+    if (!session.finished && !session.cancelRequested && session.runId && ownsRun) {
       const exit = formatProcessExitCode(code, signal);
       process.stderr.write(
         `[HarnessWorker] exited unexpectedly (${exit}); Bridge remains active; fatal reports: ${this.reportDir}\n`,

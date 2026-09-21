@@ -35,6 +35,13 @@ const RUNTIME_FAILED_RUN = {
 };
 
 describe('generation failure attribution', () => {
+  it.each(['MODEL_OUTPUT_LIMIT_EXCEEDED', 'INVALID_MODEL_OUTPUT_CONFIG'])('provides configuration guidance for %s instead of identical retries', (code) => {
+    const result = attributeGenerationFailure({ status: 'failed', lastError: { code } });
+    expect(result.category).toBe('harness');
+    expect(result.recommendedAction).toBe('adjust_model_output_config');
+    expect(result.summary).toContain('不建议原样重复请求');
+  });
+
   it('attributes runtime contract mismatches to the draft category with retry guidance', () => {
     const attribution = attributeGenerationFailure(RUNTIME_FAILED_RUN);
     expect(attribution.category).toBe('draft');

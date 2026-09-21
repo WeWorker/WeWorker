@@ -27,6 +27,9 @@ const HARNESS_LIMIT_ERROR_CODES = new Set([
   'INVALID_MODEL_RESPONSE',
   'INVALID_JSON_ACTION',
   'BUDGET_EXCEEDED',
+  'GENERATION_BUDGET_EXCEEDED',
+  'MODEL_OUTPUT_LIMIT_EXCEEDED',
+  'INVALID_MODEL_OUTPUT_CONFIG',
   'GENERATION_WORKER_CRASHED',
   'GENERATION_WORKER_INTERRUPTED',
   'GENERATION_RUN_INTERRUPTED',
@@ -114,7 +117,11 @@ export function attributeGenerationFailure(run) {
   const phaseLabel = runtimeFailed ? '页面运行' : staticFailed ? '静态' : '';
 
   let summary = '';
-  if (category === 'site') {
+  const outputConfigurationError = ['MODEL_OUTPUT_LIMIT_EXCEEDED', 'INVALID_MODEL_OUTPUT_CONFIG'].includes(lastErrorCode);
+  if (outputConfigurationError) {
+    category = 'harness';
+    summary = '模型输出额度耗尽或配置无效。请检查输出额度及模型支持的上限，再继续或重新生成；不建议原样重复请求。';
+  } else if (category === 'site') {
     summary = `目标页面不可用或需要登录（${codes[0] || '页面状态异常'}）。请打开并登录目标页面后，再点击「重新智能生成」。`;
   } else if (category === 'harness') {
     summary = `生成流程自身受限（${lastErrorCode || codes[0] || '预算或协议异常'}）。点击「重新智能生成」会携带本次失败上下文重试。`;
@@ -134,7 +141,7 @@ export function attributeGenerationFailure(run) {
     category,
     categoryLabel: CATEGORY_LABELS[category],
     summary,
-    recommendedAction: category === 'site' ? 'reopen_and_retry' : 'retry_with_context',
+    recommendedAction: outputConfigurationError ? 'adjust_model_output_config' : category === 'site' ? 'reopen_and_retry' : 'retry_with_context',
     errorCodes: codes,
     toolErrors,
   };

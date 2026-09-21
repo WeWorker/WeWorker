@@ -6,9 +6,11 @@ import {
   GENERATION_STATUSES,
   GenerationHarness,
   GenerationRunStore,
+  GenerationRun,
   createAdapterGenerationWorkflow,
   runGenerationOrchestrator,
   resumeGenerationOrchestrator,
+  createJsonActionModel,
   validateAdapterDraft,
 } from '../generation-harness/index.js';
 
@@ -99,6 +101,85 @@ function createOrchestratorDeps(overrides = {}) {
 }
 
 describe('generation orchestrator (agent mode)', () => {
+  it('does not reset the model-call budget when resuming an output-limit pause', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-output-resume-budget-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'bounded resume', budget: { maxModelCalls: 1 } });
+    const model = vi.fn().mockRejectedValue(Object.assign(new Error('output limit'), { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED' }));
+    await runGenerationOrchestrator(createOrchestratorDeps({ run, store, model }));
+    expect(run.status).toBe(GENERATION_STATUSES.NEEDS_USER_INPUT);
+    await expect(resumeGenerationOrchestrator(createOrchestratorDeps({ run, store, model }), '继续'))
+      .rejects.toMatchObject({ code: 'GENERATION_BUDGET_EXCEEDED' });
+    expect(model).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors cancellation even when the in-flight model reports output exhaustion', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-output-cancel-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'cancel fixture' });
+    const controller = new AbortController();
+    const deps = createOrchestratorDeps({ run, store, model: async () => {
+      controller.abort();
+      throw Object.assign(new Error('output limit'), { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED' });
+    } });
+    deps.signal = controller.signal;
+    await expect(runGenerationOrchestrator(deps)).rejects.toMatchObject({ code: 'GENERATION_CANCELLED' });
+    expect(run.snapshot.artifacts.pendingQuestion).toBeUndefined();
+  });
+
+  it('checkpoints output exhaustion without format retries and resumes the same draft after a long user pause', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-output-pause-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'preserve draft' });
+    const exhausted = Object.assign(new Error('模型输出达到上限'), { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', details: { outputLimit: 24000, stopReason: 'length' } });
+    const model = vi.fn().mockResolvedValueOnce(planToolCall())
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'scaffold_adapter_draft', arguments: {} })
+      .mockRejectedValueOnce(exhausted);
+    const deps = createOrchestratorDeps({ run, store, model });
+    const paused = await runGenerationOrchestrator(deps);
+    expect(paused.status).toBe(GENERATION_STATUSES.NEEDS_USER_INPUT);
+    expect(model).toHaveBeenCalledTimes(3);
+    expect(run.snapshot.modelCallCount).toBe(3);
+    expect(run.snapshot.artifacts.pendingQuestion).toMatchObject({ code: 'MODEL_OUTPUT_LIMIT_EXCEEDED', outputLimit: 24000 });
+    const draft = structuredClone(run.snapshot.artifacts.draft);
+    const delayed = store.load(run.id);
+    delayed.startedAt = new Date(Date.now() - 3_601_000).toISOString();
+    delayed.completedAt = new Date(Date.now() - 3_600_000).toISOString();
+    const restored = GenerationRun.restore({ store, snapshot: delayed });
+    const resumeModel = vi.fn()
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'validate_adapter_runtime', arguments: {} })
+      .mockResolvedValueOnce({ type: 'final', content: 'resumed' });
+    const resumed = await resumeGenerationOrchestrator(createOrchestratorDeps({
+      run: restored, store, model: resumeModel,
+      runtimeValidator: vi.fn().mockResolvedValue({ passed: true, errors: [] }),
+    }), '额度已调整');
+    expect(resumed.status).toBe(GENERATION_STATUSES.AWAITING_APPROVAL);
+    expect(restored.snapshot.artifacts.draft).toEqual(draft);
+    expect(restored.snapshot.modelCallCount).toBe(5);
+    expect(restored.snapshot.pausedDurationMs).toBeGreaterThanOrEqual(3_600_000);
+    expect(restored.snapshot.artifacts.pendingQuestion).toBeNull();
+    expect(resumeModel.mock.calls[0][0].messages.some((message) => message.name === 'scaffold_adapter_draft')).toBe(true);
+  });
+
+  it('counts format retries toward the existing task budget and never calls a model past the cap', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-output-call-budget-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'bounded repair', budget: { maxModelCalls: 1 } });
+    const callModel = vi.fn().mockResolvedValue({ text: '{}' });
+    await expect(runGenerationOrchestrator(createOrchestratorDeps({
+      run, store, model: createJsonActionModel({ callModel }),
+    }))).rejects.toMatchObject({ code: 'GENERATION_BUDGET_EXCEEDED' });
+    expect(callModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops before executing a tool if the task duration expired during the model call', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-output-time-budget-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'bounded time' });
+    const model = vi.fn(async () => {
+      run.snapshot.startedAt = new Date(Date.now() - 700_000).toISOString();
+      return planToolCall();
+    });
+    await expect(runGenerationOrchestrator(createOrchestratorDeps({ run, store, model })))
+      .rejects.toMatchObject({ code: 'GENERATION_BUDGET_EXCEEDED' });
+    expect(run.snapshot.artifacts.plan).toBeUndefined();
+  });
+
   it('repairs a missing registration by creating a new tool file, without shrinking the plan', async () => {
     const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-orch-new-file-') });
     const run = await import('../generation-harness/generation-run.js').then(({ GenerationRun }) => GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'repair missing planned tool' }));

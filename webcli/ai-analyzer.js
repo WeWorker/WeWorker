@@ -7,6 +7,7 @@ import { spawn } from "child_process";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { normalizeOutputConfig, resolveModelOutputLimit, assertModelOutputComplete, modelOutputErrorDetails } from './generation-harness/model-output-policy.js';
 import {
   normalizeApiEndpoint,
   normalizeRequestBodyEvidence,
@@ -73,6 +74,7 @@ export function normalizeAiConfig(config = {}) {
     api_key: String(config.api_key || "").trim(),
     base_url: baseUrl || preset.base_url || "",
     model: model || preset.model || "",
+    ...normalizeOutputConfig(config),
   };
 }
 
@@ -769,6 +771,7 @@ async function callAnthropicModel(prompt, config, maxTokens, taskLabel) {
     max_tokens: maxTokens,
     messages: [{ role: "user", content: prompt }],
   });
+  assertModelOutputComplete({ stopReason: response.stop_reason, outputLimit: maxTokens, usage: response.usage });
 
   // Anthropic-compatible providers may prepend a thinking/redacted-thinking
   // block before the text block. Read every text block instead of assuming
@@ -822,6 +825,7 @@ async function callOpenAiCompatibleModel(prompt, config, maxTokens, taskLabel) {
   if (payload?.error?.message) {
     throw new Error(`OpenAI-compatible 响应错误: ${payload.error.message}`);
   }
+  assertModelOutputComplete({ stopReason: payload?.choices?.[0]?.finish_reason, outputLimit: maxTokens, usage: payload?.usage });
   if (payload?.msg && !payload?.choices?.[0]?.message?.content) {
     throw new Error(`OpenAI-compatible 响应错误: ${payload.msg}`);
   }
@@ -951,6 +955,7 @@ export function runLanguageModelWorker({
           if (!payload.ok) {
             const error = new Error(payload.error || `AI worker failed for ${taskLabel}`);
             error.code = payload.code || "AI_WORKER_REQUEST_FAILED";
+            if (error.code === 'MODEL_OUTPUT_LIMIT_EXCEEDED') error.details = modelOutputErrorDetails(payload.details);
             reject(error);
             return;
           }
@@ -999,13 +1004,15 @@ async function callLanguageModel(prompt, config, maxTokens, taskLabel) {
  */
 export async function callConfiguredLanguageModel({
   prompt,
-  maxTokens = 2400,
+  maxTokens,
+  purpose = 'analysis',
   taskLabel = 'generation harness step',
   config = null,
 } = {}) {
   const resolvedConfig = config ? normalizeAiConfig(config) : loadRequiredConfig();
   validateAiConfig(resolvedConfig, taskLabel);
-  const text = await callLanguageModel(String(prompt || ''), resolvedConfig, maxTokens, taskLabel);
+  const outputLimit = resolveModelOutputLimit({ config: resolvedConfig, purpose, requested: maxTokens });
+  const text = await callLanguageModel(String(prompt || ''), resolvedConfig, outputLimit, taskLabel);
   return {
     text,
     provider: resolvedConfig.provider,
@@ -1013,15 +1020,11 @@ export async function callConfiguredLanguageModel({
   };
 }
 
-export async function analyzeExplorationResult({ siteKey, explorationResult, heuristicVerdict }) {
-  const config = loadRequiredConfig();
+export async function analyzeExplorationResult({ siteKey, explorationResult, heuristicVerdict, modelConfig }) {
+  const config = resolveTaskModelConfig(modelConfig);
   const prompt = buildExplorationAnalysisPrompt({ siteKey, explorationResult, heuristicVerdict });
-  const rawText = await callLanguageModel(
-    prompt,
-    config,
-    2400,
-    `${siteKey || "unknown-site"} exploration analysis`,
-  );
+  const { text: rawText } = await callConfiguredLanguageModel({ prompt, config,
+    taskLabel: `${siteKey || "unknown-site"} exploration analysis` });
   const parsed = extractJsonFromResponse(rawText);
   const analysis = normalizeExplorationAnalysis(parsed, heuristicVerdict || {});
 
@@ -1033,15 +1036,26 @@ export async function analyzeExplorationResult({ siteKey, explorationResult, heu
   };
 }
 
-export async function analyzeActionCaptureResult({ captureResult }) {
-  const config = loadRequiredConfig();
+export function resolveTaskModelConfig(modelConfig) {
+  // Only an absent injection may use the standalone extension configuration.
+  if (modelConfig === undefined) return loadRequiredConfig();
+  if (!modelConfig || ['api_key', 'base_url', 'model'].some((key) => (
+    typeof modelConfig[key] !== 'string' || !modelConfig[key].trim()
+  )) || !['anthropic', 'openai'].includes(modelConfig.protocol)) {
+    throw new Error('客户端模型配置不完整，请检查客户端模型设置');
+  }
+  const config = normalizeAiConfig(modelConfig);
+  validateAiConfig(config, '客户端模型配置');
+  return config;
+}
+
+export const resolveActionCaptureModelConfig = resolveTaskModelConfig;
+
+export async function analyzeActionCaptureResult({ captureResult, modelConfig }) {
+  const config = resolveActionCaptureModelConfig(modelConfig);
   const prompt = buildActionCaptureAnalysisPrompt({ captureResult });
-  const rawText = await callLanguageModel(
-    prompt,
-    config,
-    2200,
-    `${captureResult?.site || "unknown-site"} action capture analysis`,
-  );
+  const { text: rawText } = await callConfiguredLanguageModel({ prompt, config,
+    taskLabel: `${captureResult?.site || "unknown-site"} action capture analysis` });
   const parsed = extractJsonFromResponse(rawText);
   const analysis = normalizeActionCaptureAnalysis(parsed, captureResult || {});
   return {
@@ -1052,15 +1066,11 @@ export async function analyzeActionCaptureResult({ captureResult }) {
   };
 }
 
-export async function analyzeScaffoldSemantics({ memory }) {
-  const config = loadRequiredConfig();
+export async function analyzeScaffoldSemantics({ memory, modelConfig }) {
+  const config = resolveTaskModelConfig(modelConfig);
   const prompt = buildScaffoldSemanticPrompt(memory || {});
-  const rawText = await callLanguageModel(
-    prompt,
-    config,
-    2200,
-    `${memory?.siteKey || "unknown-site"} scaffold semantic enhancement`,
-  );
+  const { text: rawText } = await callConfiguredLanguageModel({ prompt, config,
+    taskLabel: `${memory?.siteKey || "unknown-site"} scaffold semantic enhancement` });
   const parsed = extractJsonFromResponse(rawText);
   const analysis = normalizeScaffoldSemanticAnalysis(parsed, memory || {});
   return {
@@ -1075,12 +1085,8 @@ export async function testAiConfig(inputConfig = {}) {
   const config = normalizeAiConfig(inputConfig || {});
   validateAiConfig(config, "测试配置");
   const startedAt = Date.now();
-  const rawText = await callLanguageModel(
-    '请只回复 OK',
-    config,
-    60,
-    `${config.provider || "unknown"} connectivity test`,
-  );
+  const { text: rawText } = await callConfiguredLanguageModel({ prompt: '请只回复 OK', config,
+    taskLabel: `${config.provider || "unknown"} connectivity test` });
   const latencyMs = Date.now() - startedAt;
   return {
     provider: config.provider,
@@ -1095,20 +1101,16 @@ export async function testAiConfig(inputConfig = {}) {
  * @param {{ siteKey: string, apiEntries: Array, existingCode?: string }} options
  * @returns {Promise<{ adapterCode: string, toolNames: string[] }>}
  */
-export async function generateAdapterWithAI({ siteKey, apiEntries, existingCode }) {
-  const config = loadRequiredConfig();
+export async function generateAdapterWithAI({ siteKey, apiEntries, existingCode, modelConfig }) {
+  const config = resolveTaskModelConfig(modelConfig);
   const prompt = buildPrompt(siteKey, apiEntries, existingCode || null);
 
   process.stderr.write(
     `[AI] Generating adapter for ${siteKey} with ${apiEntries.length} API entries${existingCode ? ' (merge mode)' : ''}...\n`
   );
 
-  const rawText = await callLanguageModel(
-    prompt,
-    config,
-    8192,
-    `${siteKey} adapter generation`,
-  );
+  const { text: rawText } = await callConfiguredLanguageModel({ prompt, config, purpose: 'adapter_generation',
+    taskLabel: `${siteKey} adapter generation` });
   const adapterCode = extractCodeFromResponse(rawText);
 
   if (!adapterCode.includes("__webmcpRegister")) {
@@ -1134,8 +1136,8 @@ export async function generateAdapterWithAI({ siteKey, apiEntries, existingCode 
  * @param {{ siteKey: string, adapterCode: string, toolNames: string[] }} options
  * @returns {Promise<string>} Skill.md 内容
  */
-export async function generateSkillMd({ siteKey, adapterCode, toolNames }) {
-  const config = loadRequiredConfig();
+export async function generateSkillMd({ siteKey, adapterCode, toolNames, modelConfig }) {
+  const config = resolveTaskModelConfig(modelConfig);
 
   const prompt = `根据以下 WebMCP adapter 代码，为网站 ${siteKey} 生成一份 SKILL.md 文档。
 
@@ -1168,12 +1170,8 @@ ${toolNames.map(t => `- ${t}`).join('\n')}
 
   process.stderr.write(`[AI] Generating SKILL.md for ${siteKey}...\n`);
 
-  const skillMd = await callLanguageModel(
-    prompt,
-    config,
-    4096,
-    `${siteKey} skill generation`,
-  );
+  const { text: skillMd } = await callConfiguredLanguageModel({ prompt, config, purpose: 'adapter_generation',
+    taskLabel: `${siteKey} skill generation` });
   process.stderr.write(`[AI] SKILL.md generated for ${siteKey} (${skillMd.length} chars)\n`);
   return skillMd;
 }

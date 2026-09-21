@@ -196,7 +196,7 @@ export async function runGenerationWorker() {
         } else if (command === 'publish') {
           run = harness.publish(String(payload.runId || ''));
         } else if (command === 'resume') {
-          run = harness.resume(String(payload.runId || ''), String(payload.answer || ''));
+          run = await harness.resume(String(payload.runId || ''), String(payload.answer || ''));
         } else {
           throw new Error(`unknown generation worker command: ${command}`);
         }

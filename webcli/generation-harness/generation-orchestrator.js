@@ -467,7 +467,31 @@ async function runOrchestrationLoop(state, deps, initialMessages) {
   return runToolLoop({
     model: async (input) => {
       state.lastModelMessages = input.messages;
-      return model(input);
+      try {
+        const response = await model(input);
+        run.assertNotCancelled(signal);
+        run.assertWithinBudget();
+        return response;
+      } catch (error) {
+        run.assertNotCancelled(signal);
+        if (!['MODEL_OUTPUT_LIMIT_EXCEEDED', 'INVALID_MODEL_OUTPUT_CONFIG'].includes(error?.code)) throw error;
+        run.assertWithinBudget();
+        state.pendingQuestion = {
+          question: error.code === 'MODEL_OUTPUT_LIMIT_EXCEEDED'
+            ? '模型输出额度耗尽，已保留当前计划和草稿。请调整输出额度或模型配置后，输入说明并继续。'
+            : '模型输出额度配置无效，已保留当前进度。请修正配置后，输入说明并继续。',
+          context: clipText(error.message, 600),
+          code: error.code,
+          askedDuring: run.status,
+          outputLimit: error.details?.outputLimit,
+        };
+        run.setArtifact('pendingQuestion', state.pendingQuestion);
+        run.trace('model_output_paused', {
+          code: error.code, outputLimit: error.details?.outputLimit,
+          stopReason: error.details?.stopReason,
+        });
+        throw new GenerationPausedError(state.pendingQuestion.question);
+      }
     },
     systemPrompt: ORCHESTRATOR_SYSTEM_PROMPT,
     maxSteps: state.stepLimit,
@@ -630,7 +654,7 @@ export async function resumeGenerationOrchestrator(deps, answer) {
   if (!pendingQuestion) throw new GenerationHarnessError('generation run has no pending question to resume', 'NO_PENDING_QUESTION');
   const draftArtifact = run.snapshot.artifacts?.draft;
   const planArtifact = run.snapshot.artifacts?.plan;
-  run.snapshot.completedAt = null;
+  run.transition(draftArtifact ? GENERATION_STATUSES.STATIC_VALIDATING : GENERATION_STATUSES.PLANNING, { currentAction: 'resume_generation', orchestrator: true });
   const state = {
     plan: planArtifact || null,
     draft: draftArtifact || null,

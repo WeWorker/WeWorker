@@ -1,5 +1,6 @@
 import { callConfiguredLanguageModel } from './ai-analyzer.js';
 import readline from 'node:readline';
+import { modelOutputErrorDetails } from './generation-harness/model-output-policy.js';
 
 async function readStdin() {
   const chunks = [];
@@ -14,6 +15,7 @@ export async function runAiCallWorker() {
     const result = await callConfiguredLanguageModel({
       prompt: input.prompt,
       maxTokens: input.maxTokens,
+      purpose: input.purpose,
       taskLabel: input.taskLabel,
       config: input.config,
     });
@@ -23,6 +25,7 @@ export async function runAiCallWorker() {
       ok: false,
       error: error?.message || String(error),
       code: error?.code || 'AI_WORKER_REQUEST_FAILED',
+      ...(error?.code === 'MODEL_OUTPUT_LIMIT_EXCEEDED' ? { details: modelOutputErrorDetails(error.details) } : {}),
     }));
   }
 }
@@ -38,6 +41,7 @@ export async function runAiSessionWorker() {
       const result = await callConfiguredLanguageModel({
         prompt: input.prompt,
         maxTokens: input.maxTokens,
+        purpose: input.purpose,
         taskLabel: input.taskLabel,
         config: input.config,
       });
@@ -48,6 +52,7 @@ export async function runAiSessionWorker() {
         ok: false,
         error: error?.message || String(error),
         code: error?.code || 'AI_WORKER_REQUEST_FAILED',
+        ...(error?.code === 'MODEL_OUTPUT_LIMIT_EXCEEDED' ? { details: modelOutputErrorDetails(error.details) } : {}),
       })}\n`);
     }
   }

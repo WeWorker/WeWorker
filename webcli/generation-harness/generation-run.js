@@ -94,7 +94,7 @@ export class GenerationRun {
   }
 
   assertWithinBudget() {
-    const elapsedMs = Date.now() - Date.parse(this.snapshot.startedAt);
+    const elapsedMs = Date.now() - Date.parse(this.snapshot.startedAt) - (this.snapshot.pausedDurationMs || 0);
     const checks = [
       ['maxSteps', this.snapshot.stepCount],
       ['maxModelCalls', this.snapshot.modelCallCount],
@@ -118,6 +118,13 @@ export class GenerationRun {
       );
     }
     const previousStatus = this.status;
+    if (previousStatus === GENERATION_STATUSES.NEEDS_USER_INPUT) {
+      const pausedAt = Date.parse(this.snapshot.completedAt || this.snapshot.updatedAt);
+      if (Number.isFinite(pausedAt)) {
+        this.snapshot.pausedDurationMs = (this.snapshot.pausedDurationMs || 0) + Math.max(0, Date.now() - pausedAt);
+      }
+      this.snapshot.completedAt = null;
+    }
     this.snapshot.status = nextStatus;
     this.snapshot.currentAction = String(data.currentAction || '');
     if (TERMINAL_GENERATION_STATUSES.has(nextStatus)) {

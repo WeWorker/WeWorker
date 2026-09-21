@@ -117,7 +117,6 @@ export class GenerationHarness extends EventEmitter {
       throw new Error(`generation run is not awaiting user input: ${snapshot.status}`);
     }
     const run = this.#restoreRun(snapshot);
-    run.snapshot.completedAt = null;
     const abortController = new AbortController();
     const promise = this.#executeResume(run, abortController.signal, answer);
     this.activeRuns.set(run.id, { run, abortController, promise });

@@ -1,7 +1,68 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createJsonActionModel, parseJsonActionResponse } from '../generation-harness/index.js';
+import { createJsonActionModel, parseJsonActionResponse, runToolLoop } from '../generation-harness/index.js';
 
 describe('JSON action model adapter', () => {
+  it('delegates the output policy and does not retry exhaustion as a JSON error', async () => {
+    const exhausted = Object.assign(new Error('output limit'), { code: 'MODEL_OUTPUT_LIMIT_EXCEEDED' });
+    const callModel = vi.fn().mockRejectedValue(exhausted);
+    const execute = vi.fn();
+    await expect(runToolLoop({
+      model: createJsonActionModel({ callModel }),
+      tools: [{ name: 'write_draft_file', parameters: { type: 'object' }, execute }],
+    })).rejects.toBe(exhausted);
+    expect(callModel).toHaveBeenCalledTimes(1);
+    expect(callModel.mock.calls[0][0]).toHaveProperty('purpose', 'adapter_generation');
+    expect(callModel.mock.calls[0][0]).not.toHaveProperty('maxTokens');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '{}',
+    'function example(args = {}) { return args; }',
+    '```javascript\nfunction example(args = {}) { return args; }\n```',
+    '{"type":"tool_call","name":"write_draft_file","arguments":',
+    '{"type":"tool_call","name":"write_draft_file","arguments":"bad"}',
+    '{"wrapper":{"type":"final","content":"nested"}}',
+    'prefix [{"type":"final","content":"nested"}] suffix',
+    '{"type":"final","content":"one"}\n{"type":"final","content":"two"}',
+  ])('rejects malformed or ambiguous actions without promoting inner objects: %s', (text) => {
+    try {
+      parseJsonActionResponse(text);
+      expect.fail('expected format error');
+    } catch (error) {
+      expect(error.code).toBe('INVALID_JSON_ACTION');
+      expect(error.details.preview).toBe(text);
+    }
+  });
+
+  it('finds a valid action after unrelated objects, preserving escaped source code', () => {
+    const action = { type: 'tool_call', name: 'write_draft_file', arguments: {
+      path: 'tool.js', content: 'function example(args = {}) { return "quoted"; }',
+    } };
+    expect(parseJsonActionResponse(`{}\n${JSON.stringify(action)}`)).toEqual(action);
+    expect(parseJsonActionResponse(`\`\`\`javascript\nconst x = {};\n\`\`\`\n\`\`\`json\n${JSON.stringify(action)}\n\`\`\``)).toEqual(action);
+    expect(parseJsonActionResponse(JSON.stringify({ type: 'tool_calls', calls: [action] })))
+      .toMatchObject({ type: 'tool_calls' });
+  });
+
+  it('repairs raw code using the original bounded preview and executes only the repaired call', async () => {
+    const rawCode = `function example(args = {}) { return args; }\n${'x'.repeat(2000)}`;
+    const execute = vi.fn().mockResolvedValue({ written: true });
+    const callModel = vi.fn()
+      .mockResolvedValueOnce({ text: rawCode })
+      .mockResolvedValueOnce({ text: JSON.stringify({ type: 'tool_call', name: 'write_draft_file', arguments: { content: 'fixed' } }) })
+      .mockResolvedValueOnce({ text: '{"type":"final","content":"done"}' });
+    const result = await runToolLoop({
+      model: createJsonActionModel({ callModel }), messages: [],
+      tools: [{ name: 'write_draft_file', description: 'write fixture', parameters: {
+        type: 'object', properties: { content: { type: 'string' } }, required: ['content'],
+      }, execute }],
+    });
+    expect(result.status).toBe('completed');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(callModel.mock.calls[1][0].prompt).toContain('function example(args = {})');
+    expect(callModel.mock.calls[1][0].prompt).not.toContain('x'.repeat(1000));
+  });
   it('parses fenced and plain JSON actions', () => {
     expect(parseJsonActionResponse('```json\n{"type":"final","content":"ok"}\n```')).toEqual({
       type: 'final',
