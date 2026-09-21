@@ -285,6 +285,10 @@ export class NodeManager {
     this._starting = true
     try {
       await this._startInternal()
+    } catch (error) {
+      this._status = 'error'
+      this._log(`[node] startup failed: ${error?.message || error}`)
+      throw error
     } finally {
       this._starting = false
     }
@@ -374,7 +378,6 @@ export class NodeManager {
           WEWORKER_BACKEND_INSTANCE_ID: backendInstanceId,
           WEWORKER_MODEL_CONFIG_TOKEN: this._modelConfigToken,
           WEWORKER_RENDERER_ORIGIN: process.env.WEWORKER_DEV_SERVER_URL || '',
-          WEWORKER_CLAUDE_CODE_PATH: claudeCodePath,
         },
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,

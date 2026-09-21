@@ -16,6 +16,7 @@ from webwright.run.server_lifecycle import (
     ParentProcessWatchdog,
     ServerLifecycle,
     StdinCloseWatchdog,
+    process_exists,
 )
 
 
@@ -25,6 +26,24 @@ class FakeManager:
 
     def shutdown(self) -> None:
         self.shutdown_calls += 1
+
+
+def test_process_probe_does_not_terminate_live_process() -> None:
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        for _ in range(3):
+            assert process_exists(child.pid) is True
+            time.sleep(0.05)
+            assert child.poll() is None
+    finally:
+        child.terminate()
+        child.wait(timeout=5)
+    assert process_exists(child.pid) is False
+
+
+def test_process_probe_rejects_nonpositive_pids() -> None:
+    assert process_exists(0) is False
+    assert process_exists(-1) is False
 
 
 class FakeServer:
@@ -107,7 +126,7 @@ def test_stdin_watchdog_stops_on_eof() -> None:
     watchdog.stop()
 
 
-def test_server_process_serves_health_and_releases_port_on_terminate(
+def test_server_process_serves_health_and_releases_port_on_stdin_close(
     tmp_path: Path,
 ) -> None:
     with socket.socket() as listener:
@@ -122,7 +141,11 @@ def test_server_process_serves_health_and_releases_port_on_terminate(
             "127.0.0.1",
             "--port",
             str(port),
+            "--parent-pid",
+            str(os.getpid()),
+            "--exit-on-stdin-close",
         ],
+        stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         env={**os.environ, "WEBWRIGHT_HOME": str(tmp_path / "home")},
@@ -143,7 +166,8 @@ def test_server_process_serves_health_and_releases_port_on_terminate(
         assert health["ok"] is True
         assert health["mode"] == "source"
     finally:
-        process.terminate()
+        assert process.stdin is not None
+        process.stdin.close()
         process.wait(timeout=10)
 
     with socket.socket() as probe:
