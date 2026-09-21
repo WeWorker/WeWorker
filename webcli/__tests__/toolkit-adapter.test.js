@@ -33,8 +33,10 @@ function artifactHash(files) {
 async function createToolkit({ adapterId = "blog-admin" } = {}) {
   const root = await mkdtemp(join(tmpdir(), "webcli-toolkit-"));
   const adaptersRoot = join(root, ".claude", "skills");
+  const userAdaptersRoot = join(root, ".weworker", "adapters");
   const adapterRoot = join(adaptersRoot, adapterId);
   mkdirSync(join(adapterRoot, "scripts"), { recursive: true });
+  mkdirSync(userAdaptersRoot, { recursive: true });
   const files = {
     "scripts/toolkit.py": "print('toolkit')\n",
     "scripts/toolkit_runtime.py": "RUNTIME = True\n",
@@ -65,7 +67,18 @@ async function createToolkit({ adapterId = "blog-admin" } = {}) {
   writeFileSync(join(adapterRoot, "scripts", "toolkit.py"), files["scripts/toolkit.py"]);
   writeFileSync(join(adapterRoot, "scripts", "toolkit_runtime.py"), files["scripts/toolkit_runtime.py"]);
   writeFileSync(join(adapterRoot, "scripts", "requirements.txt"), "playwright==1.60.0\n");
-  return { root, adaptersRoot, adapterRoot };
+  return { root, adaptersRoot, userAdaptersRoot, adapterRoot };
+}
+
+function cliEnv(fixture, extra = {}) {
+  return {
+    ...process.env,
+    HOME: fixture.root,
+    USERPROFILE: fixture.root,
+    WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
+    WEWORKER_USER_ADAPTERS_DIR: fixture.userAdaptersRoot,
+    ...extra,
+  };
 }
 
 function createUserExtension(root, { adapterId = "user-blog", toolName = `${adapterId}.search` } = {}) {
@@ -128,7 +141,7 @@ describe("Toolkit Adapter registry", () => {
 
   it("exposes Toolkit Adapters through list, info, and skill commands", async () => {
     const fixture = await createToolkit();
-    const env = { ...process.env, WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot };
+    const env = cliEnv(fixture);
     const [{ stdout: listOutput }, { stdout: infoOutput }, { stdout: skillOutput }] = await Promise.all([
       execFileAsync(process.execPath, [cliPath, "adapter", "list", "--json"], { env }),
       execFileAsync(process.execPath, [cliPath, "adapter", "info", "blog-admin"], { env }),
@@ -147,7 +160,7 @@ describe("Toolkit Adapter registry", () => {
     const fixture = await createToolkit({ adapterId: BUILTIN_EXTENSION_ADAPTER_ID });
 
     await expect(execFileAsync(process.execPath, [cliPath, "adapter", "list", "--json"], {
-      env: { ...process.env, WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot },
+      env: cliEnv(fixture),
     })).rejects.toMatchObject({
       stderr: expect.stringContaining(`Duplicate Adapter registration: "${BUILTIN_EXTENSION_ADAPTER_ID}"`),
     });
@@ -156,12 +169,7 @@ describe("Toolkit Adapter registry", () => {
   it("combines built-in, user, and Toolkit Adapters in list, info, and skill commands", async () => {
     const fixture = await createToolkit();
     createUserExtension(fixture.root);
-    const env = {
-      ...process.env,
-      HOME: fixture.root,
-      WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
-      WEWORKER_USER_ADAPTERS_DIR: join(fixture.root, ".weworker", "adapters"),
-    };
+    const env = cliEnv(fixture);
 
     const [{ stdout: listOutput }, { stdout: humanList }, { stdout: infoOutput }, { stdout: skillOutput }] = await Promise.all([
       execFileAsync(process.execPath, [cliPath, "adapter", "list", "--json"], { env }),
@@ -189,10 +197,7 @@ describe("Toolkit Adapter registry", () => {
 
     await expect(execFileAsync(process.execPath, [cliPath, "adapter", "list", "--json"], {
       env: {
-        ...process.env,
-        HOME: fixture.root,
-        WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
-        WEWORKER_USER_ADAPTERS_DIR: join(fixture.root, ".weworker", "adapters"),
+        ...cliEnv(fixture),
       },
     })).rejects.toMatchObject({
       stderr: expect.stringContaining('Duplicate Adapter registration: "user-conflict"'),
@@ -202,12 +207,7 @@ describe("Toolkit Adapter registry", () => {
   it("allows removing user Extension Adapters but refuses built-in and Toolkit Adapters", async () => {
     const fixture = await createToolkit();
     const userAdapterRoot = createUserExtension(fixture.root);
-    const env = {
-      ...process.env,
-      HOME: fixture.root,
-      WEWORKER_ADAPTERS_DIR: fixture.adaptersRoot,
-      WEWORKER_USER_ADAPTERS_DIR: join(fixture.root, ".weworker", "adapters"),
-    };
+    const env = cliEnv(fixture);
 
     await expect(execFileAsync(process.execPath, [cliPath, "adapter", "remove", BUILTIN_EXTENSION_ADAPTER_ID], { env }))
       .rejects.toMatchObject({ stderr: expect.stringContaining("Built-in Extension Adapter") });

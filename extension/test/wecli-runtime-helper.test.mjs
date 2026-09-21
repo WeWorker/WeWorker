@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import vm from 'node:vm'
+import { runServiceWorkerInContext } from './helpers/adapter-test-loader.mjs'
 
 const ROOT = process.cwd()
 
@@ -277,7 +278,7 @@ function loadServiceWorker(options = {}) {
     setTimeout: () => 0,
     clearTimeout() {},
   })
-  vm.runInContext(readFileSync(join(ROOT, 'extension/background/service-worker.js'), 'utf8'), context)
+  runServiceWorkerInContext(context, { repoRoot: ROOT })
 
   const request = (action, payload = {}) => new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`wecli_runtime_request "${action}" timed out`)), 100)

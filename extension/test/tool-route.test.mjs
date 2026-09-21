@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
+import { runServiceWorkerInContext } from "./helpers/adapter-test-loader.mjs";
 
 const ROOT = process.cwd();
 
@@ -168,8 +169,7 @@ function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {} 
     return { ok: false, json: async () => ({}), text: async () => "" };
   };
 
-  const source = readFileSync(join(ROOT, "extension/background/service-worker.js"), "utf8");
-  vm.runInContext(source, context, { filename: "service-worker.js" });
+  runServiceWorkerInContext(context, { repoRoot: ROOT });
   context.requestBridge = async () => null;
 
   const flushStaticRoutes = async () => {

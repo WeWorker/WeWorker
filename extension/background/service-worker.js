@@ -4827,6 +4827,7 @@ function isLikelyStoredListApiEntry(entry) {
 function mergeStoredListCandidateEvidence(candidate, entry) {
   candidate.requestEvidence = pickStoredRicherRequestEvidence(buildSafeRequestEvidence(candidate), buildSafeRequestEvidence(entry));
   delete candidate.requestBodyPreview;
+  candidate.responsePreview = pickStoredRicherPreview(candidate.responsePreview, entry?.responsePreview);
   candidate.responseContentType = candidate.responseContentType
     || safeStoredText(entry?.responseContentType || entry?.contentType);
   candidate.responseHints = mergeStoredActionResponseHints(
@@ -4842,6 +4843,7 @@ function createStoredListCandidate(entry, url, method, step) {
     url: structuralCapturedUrl(url),
     method,
     requestEvidence: buildSafeRequestEvidence(entry),
+    responsePreview: safeStoredText(entry?.responsePreview),
     responseContentType: safeStoredText(entry?.responseContentType || entry?.contentType),
     responseHints: extractStoredActionResponseHints(entry?.responsePreview),
     status: Number.isFinite(Number(entry?.status)) ? Number(entry.status) : undefined,
