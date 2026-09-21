@@ -51,9 +51,15 @@ describe('bridge generation harness protocol', () => {
     expect(source).toContain('injectGenerationPreviewSourcesWithCdp');
     expect(source).toContain('allowUnsafeEvalBlockedByCSP: true');
     expect(source).toContain("method === 'Runtime.executionContextCreated'");
-    expect(source).toContain("contract.kind === 'captured_sample'");
+    const validatorSource = fs.readFileSync(
+      path.resolve(import.meta.dirname, '..', '..', 'extension', 'background', 'generation-output-validator.js'),
+      'utf8',
+    );
+    expect(source).toContain("from './generation-output-validator.js'");
+    expect(source).toContain('validateGenerationPreviewOutputV2(output, contract)');
+    expect(validatorSource).toContain("contract.kind === 'captured_sample'");
     expect(source).toContain('generationSource: tool.generationSource || null');
-    expect(source).toContain("code: 'OUTPUT_SHAPE_MISMATCH'");
+    expect(validatorSource).toContain("code: 'OUTPUT_SHAPE_MISMATCH'");
     expect(source).not.toContain('列表工具应返回数组');
     expect(source).not.toContain('now - lastNativeAckAt > NATIVE_ACK_TIMEOUT_MS');
   });
