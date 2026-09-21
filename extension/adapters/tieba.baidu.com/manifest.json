@@ -1,0 +1,57 @@
+{
+  "id": "tieba.baidu.com",
+  "name": "百度贴吧",
+  "description": "百度贴吧：登录检查、搜索贴吧/帖子、打开帖子详情、读取回复、关注贴吧/签到",
+  "match": [
+    "tieba.baidu.com"
+  ],
+  "requires_auth": false,
+  "version": "1.0.0",
+  "author": "WeWorker project",
+  "homepage_url": "https://tieba.baidu.com",
+  "enabled": true,
+  "icon": "community",
+  "scenarios": [
+    {
+      "id": "login-status",
+      "title": "登录检查",
+      "summary": "检查当前百度贴吧浏览器会话是否已登录"
+    },
+    {
+      "id": "search",
+      "title": "搜索贴吧/帖子",
+      "summary": "按关键词搜索贴吧或帖子并整理结果",
+      "prompts": [
+        {
+          "text": "帮我在百度贴吧搜索${AI 工具}相关帖子"
+        }
+      ]
+    },
+    {
+      "id": "thread-detail",
+      "title": "打开帖子详情",
+      "summary": "打开或读取帖子详情，提取标题、楼主、正文和基础统计信息"
+    },
+    {
+      "id": "replies",
+      "title": "读取回复",
+      "summary": "读取当前或指定帖子下的可见回复摘要"
+    },
+    {
+      "id": "follow-sign",
+      "title": "关注贴吧或签到",
+      "summary": "在用户明确确认后关注当前贴吧或执行签到"
+    }
+  ],
+  "detail_description": "百度贴吧 Adapter 可以让 WeWorker 根据自然语言指令执行常用贴吧网页任务，例如检查登录状态、搜索贴吧或帖子、读取帖子详情和回复，并在用户明确确认后关注贴吧或签到。该 Adapter 不读取、不保存、不返回 Cookie、Token、账号凭据或其他敏感信息。",
+  "test_prompts": [
+    "打开百度贴吧，搜索 AI 工具，读取一个帖子详情和回复摘要"
+  ],
+  "i18n": {
+    "zh": {
+      "name": "百度贴吧",
+      "description": "百度贴吧：登录检查、搜索贴吧/帖子、打开帖子详情、读取回复、关注贴吧/签到"
+    }
+  },
+  "verified_on": "2026-09-21"
+}

@@ -36,6 +36,7 @@ WeWorker 已完成公开仓库初始化，当前在全新的 `develop` 基线上
 - 已迁入通用网站/API 探索与 Adapter 生成链路：Extension 提供被动网络采集、安全只读探测、capture-bound 回放与动作捕获，Backend 提供探索 Agent、Bridge RPC、站点记忆和生成编排，Renderer 提供任务恢复与生成工作台。
 - 已新增可复用的 API Adapter 认证框架与 Codex Skill，覆盖清单、mock 成功/失败、安全确认门、live 分类、增量指纹、多开发者本地 profile、打包校验和自包含 HTML 报告；开发者权限、登录态、fixture 与 live 证据不进入仓库。
 - 公开构建当前不包含 API/background Adapter，认证清单为 0 个 Adapter、0 个工具；框架可由外部 Profile Overlay 或内部仓库直接复用，不能据此宣称任何未打包 Adapter 已完成 live 认证。
+- 新增百度贴吧公开 Extension Adapter，覆盖登录检查、贴吧/帖子搜索、帖子详情、回复读取，以及需要显式确认的关注贴吧和签到。
 
 ## 验证结果
 
