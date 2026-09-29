@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-09-29：OpenCLI 新闻类 wave2：新增 Hacker News 9 项与 36氪 4 项公开 v2 包（news.ycombinator.com、36kr.com，全 read），13 项均通过真实 WebCLI→Bridge→Extension 只读调用并记录 trace；HN read 保留树/截断语义并加 200 条目请求预算，36kr article 明示 800 字符截断与完整性口径，hot 四类榜单各走官方路由不降级。新增聚焦测试 57 项、八站+携程回归 157 项、打包/Skill/Profile 122 项通过；公开 prepare 18 包、WebCLI 重建、两包 .adapt 校验通过。36kr 搜索真实页未暴露日期保持空串；客户端自然语言验收未执行；extension-v2-loader 有 1 项基线既有失败未处理。见 docs/opencli_news_wave2_migration.md 与 13 项机器可读清单、后续对齐路线。
+
 - 2026-09-29：继续处理 BOSS 搜索与 12306 订单。BOSS 0.1.1 显式主世界只读请求及跨页/城市/学历经验筛选真实通过；12306 0.1.1 修复旧登录页误报，核验服务器会话与官方订单页后，成功响应无 data 的真实空状态已通过；不等于未出行/历史订单为空，有订单提取仍待验证。两站及导航聚焦116项通过；未修改内部仓库或执行业务写操作。
 
 - 2026-09-29：整理公开迁移 PR：携程 0.3.6 与八站 81/83 命令、通用导航/Skill/记忆/二进制响应一起提交；网络捕获通用测试改用 example.com。提交前 WebCLI 198、Backend 40、扩展 30、Profile/打包 6 项通过，公开 16 包 prepare 与八包 .adapt/Skill 校验通过。抖音 draft/publish 未实现，BOSS 搜索、12306 订单及完整自然语言验收仍未通过；真实证据见迁移文档。未合并或发版。

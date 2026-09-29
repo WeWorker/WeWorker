@@ -15,7 +15,9 @@
     "douyin.com",
     "douban.com",
     "zhihu.com",
-    "zhipin.com"
+    "zhipin.com",
+    "news.ycombinator.com",
+    "36kr.com"
   ],
   "providers": [
     {

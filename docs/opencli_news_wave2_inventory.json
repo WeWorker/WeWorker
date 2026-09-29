@@ -1,0 +1,529 @@
+[
+  {
+    "site": "hackernews",
+    "file": "top.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "top",
+    "access": "read",
+    "description": "Hacker News top stories",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of stories"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "score",
+      "author",
+      "comments",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/topstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "517c7a99cdb3",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "best.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "best",
+    "access": "read",
+    "description": "Hacker News best stories",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of stories"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "score",
+      "author",
+      "comments",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/beststories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "eebdf17eb4d0",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "new.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "new",
+    "access": "read",
+    "description": "Hacker News newest stories",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of stories"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "score",
+      "author",
+      "comments",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/newstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "a306d46aa80b",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "ask.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "ask",
+    "access": "read",
+    "description": "Hacker News Ask HN posts",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of stories"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "score",
+      "author",
+      "comments",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/askstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "76fe59dcee29",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "show.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "show",
+    "access": "read",
+    "description": "Hacker News Show HN posts",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of stories"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "score",
+      "author",
+      "comments",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/showstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "d94458b9cb07",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "jobs.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "jobs",
+    "access": "read",
+    "description": "Hacker News job postings",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of job postings"
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "author",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/jobstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）；按来源无 score/comments 列",
+    "fixture_status": "fixture_passed",
+    "real_trace": "d8aa8a384a7c",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "search.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "search",
+    "access": "read",
+    "description": "Search Hacker News stories",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "query",
+        "positional": true,
+        "required": true,
+        "help": "Search query"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of results"
+      },
+      {
+        "name": "sort",
+        "default": "relevance",
+        "help": "Sort by relevance or date",
+        "choices": [
+          "relevance",
+          "date"
+        ]
+      }
+    ],
+    "columns": [
+      "rank",
+      "id",
+      "title",
+      "score",
+      "author",
+      "comments",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hn.algolia.com/api/v1/search[_by_date]（tags=story）；Extension 后台 API Runner（backend_fetch，参数 URLSearchParams 严格编码）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "ecb052eae352",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "read.js",
+    "imports": [
+      "@jackwener/opencli/registry",
+      "@jackwener/opencli/errors"
+    ],
+    "name": "read",
+    "access": "read",
+    "description": "Read a Hacker News story and its comment tree",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "id",
+        "required": true,
+        "positional": true,
+        "help": "HN item ID (e.g. 39847301)"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 25,
+        "help": "Max top-level comments"
+      },
+      {
+        "name": "depth",
+        "type": "int",
+        "default": 2,
+        "help": "Max reply depth (1=no replies, 2=one level of replies, etc.)"
+      },
+      {
+        "name": "replies",
+        "type": "int",
+        "default": 5,
+        "help": "Max replies shown per comment at each level"
+      },
+      {
+        "name": "max-length",
+        "type": "int",
+        "default": 2000,
+        "help": "Max characters per comment body (min 100)"
+      }
+    ],
+    "columns": [
+      "type",
+      "author",
+      "score",
+      "text"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/item/<id>.json 树遍历；Extension 后台 API Runner；单次调用条目请求预算 200，预算耗尽/部分失败显式标注",
+    "fixture_status": "fixture_passed",
+    "real_trace": "aabddf036f32",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "hackernews",
+    "file": "user.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "user",
+    "access": "read",
+    "description": "Hacker News user profile",
+    "domain": "news.ycombinator.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "username",
+        "required": true,
+        "positional": true,
+        "help": "HN username"
+      }
+    ],
+    "columns": [
+      "username",
+      "karma",
+      "created",
+      "about"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "news.ycombinator.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://hacker-news.firebaseio.com/v0/user/<name>.json；用户名格式校验并 encodeURIComponent；不存在返回明确空结果",
+    "fixture_status": "fixture_passed",
+    "real_trace": "344606c9715d",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "36kr",
+    "file": "hot.js",
+    "imports": [
+      "@jackwener/opencli/registry",
+      "@jackwener/opencli/errors"
+    ],
+    "name": "hot",
+    "access": "read",
+    "description": "36氪热榜 — trending articles (renqi/zonghe/shoucang/catalog)",
+    "domain": "www.36kr.com",
+    "strategy": "PUBLIC",
+    "browser": true,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of items (max 50)"
+      },
+      {
+        "name": "type",
+        "type": "string",
+        "default": "catalog",
+        "help": "List type: renqi (人气), zonghe (综合), shoucang (收藏), catalog (热门资讯)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "title",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "36kr.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "页面 DOM：catalog 走 /hot-list/catalog，renqi/zonghe/shoucang 走 /hot-list/<type>/<UTC+8 当日>/1；宿主导航续执行；行附 type/board/board_url",
+    "fixture_status": "fixture_passed",
+    "real_trace": "ba407982df3b, 2011130725fc",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "36kr",
+    "file": "news.js",
+    "imports": [
+      "@jackwener/opencli/registry"
+    ],
+    "name": "news",
+    "access": "read",
+    "description": "Latest tech/startup news from 36kr (36氪)",
+    "domain": "www.36kr.com",
+    "strategy": "PUBLIC",
+    "browser": false,
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of articles (max 50)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "title",
+      "summary",
+      "date",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "36kr.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "https://www.36kr.com/feed RSS；Extension 后台 API Runner（backend_fetch）；summary 为前 120 字符摘要；HTTP 失败明确报错（来源返回空数组的行为未保留）",
+    "fixture_status": "fixture_passed",
+    "real_trace": "6719af0ceb96",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "36kr",
+    "file": "search.js",
+    "imports": [
+      "@jackwener/opencli/registry",
+      "@jackwener/opencli/errors"
+    ],
+    "name": "search",
+    "access": "read",
+    "description": "搜索36氪文章",
+    "domain": "www.36kr.com",
+    "strategy": "PUBLIC",
+    "browser": true,
+    "args": [
+      {
+        "name": "query",
+        "positional": true,
+        "required": true,
+        "help": "Search keyword (e.g. \"AI\", \"OpenAI\")"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 20,
+        "help": "Number of results (max 50)"
+      }
+    ],
+    "columns": [
+      "rank",
+      "title",
+      "date",
+      "url"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "36kr.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "页面 DOM：/search/articles/<encodeURIComponent(query)>；宿主导航续执行；渲染超时与空结果分别报错",
+    "fixture_status": "fixture_passed",
+    "real_trace": "76e428975b42",
+    "natural_language_status": "not_run"
+  },
+  {
+    "site": "36kr",
+    "file": "article.js",
+    "imports": [
+      "@jackwener/opencli/registry",
+      "@jackwener/opencli/errors"
+    ],
+    "name": "article",
+    "access": "read",
+    "description": "获取36氪文章正文内容",
+    "domain": "www.36kr.com",
+    "strategy": "INTERCEPT",
+    "browser": true,
+    "args": [
+      {
+        "name": "id",
+        "positional": true,
+        "required": true,
+        "help": "Article ID or full 36kr article URL"
+      }
+    ],
+    "columns": [
+      "field",
+      "value"
+    ],
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "package": "36kr.com",
+    "migration_status": "implemented_real_read_passed",
+    "blocker": null,
+    "data_source": "页面 DOM：/p/<id>（来源声明 INTERCEPT 但实际只读 DOM，未保留拦截器）；正文截断 800 字符并附 body_length/body_truncated/content_status；ID 严格校验，不从混杂字符串猜数字",
+    "fixture_status": "fixture_passed",
+    "real_trace": "3b39af9d7b6d",
+    "natural_language_status": "not_run"
+  }
+]

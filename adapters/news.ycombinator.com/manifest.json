@@ -1,0 +1,276 @@
+{
+  "schema_version": 2,
+  "name": "news.ycombinator.com",
+  "version": "0.1.0",
+  "description": "Hacker News：榜单（top/best/new/ask/show/jobs）、Algolia 搜索、评论树读取与用户资料，全部走公开 API",
+  "match": [
+    "news.ycombinator.com"
+  ],
+  "runtime_allowed_hosts": [
+    "hacker-news.firebaseio.com",
+    "hn.algolia.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "Hacker News",
+    "hackernews",
+    "HN",
+    "Ask HN",
+    "Show HN"
+  ],
+  "commands": [
+    {
+      "id": "top",
+      "runtime": "extension",
+      "module": "extension/commands/top.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Hacker News 首页 top 榜单；来源实现先预取 min(limit+10,50) 条再过滤 deleted/dead，因此实际返回不超过 50 条。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100）；受来源预取上限约束，实际最多 50 条",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "best",
+      "runtime": "extension",
+      "module": "extension/commands/best.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Hacker News best 榜单；来源实现先预取 min(limit+10,50) 条再过滤 deleted/dead，因此实际返回不超过 50 条。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100）；受来源预取上限约束，实际最多 50 条",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "new",
+      "runtime": "extension",
+      "module": "extension/commands/new.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Hacker News 最新 new 榜单；来源实现先预取 min(limit+10,50) 条再过滤 deleted/dead，因此实际返回不超过 50 条。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100）；受来源预取上限约束，实际最多 50 条",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "ask",
+      "runtime": "extension",
+      "module": "extension/commands/ask.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Ask HN 帖子榜单；来源实现先预取 min(limit+10,50) 条再过滤 deleted/dead，因此实际返回不超过 50 条。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100）；受来源预取上限约束，实际最多 50 条",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "show",
+      "runtime": "extension",
+      "module": "extension/commands/show.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Show HN 帖子榜单；来源实现先预取 min(limit+10,50) 条再过滤 deleted/dead，因此实际返回不超过 50 条。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100）；受来源预取上限约束，实际最多 50 条",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "jobs",
+      "runtime": "extension",
+      "module": "extension/commands/jobs.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Hacker News 职位帖榜单；按来源语义不含 score/comments 字段。来源实现先预取 min(limit+10,50) 条再过滤 deleted/dead。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100）；受来源预取上限约束，实际最多 50 条",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "通过 Algolia 公开接口搜索 Hacker News 帖子（tags=story）；sort=relevance 或 date。返回 id 供 read 使用。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索关键词"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数（1-100），映射为 Algolia hitsPerPage",
+            "default": 20
+          },
+          "sort": {
+            "type": "string",
+            "description": "排序方式：relevance=按相关度（默认），date=按时间",
+            "default": "relevance",
+            "enum": [
+              "relevance",
+              "date"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "read",
+      "runtime": "extension",
+      "module": "extension/commands/read.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取一个 HN 帖子及其评论树：首行为 POST，其后按 L0/L1 层级缩进；被 limit/depth/replies 截断的分支以 [+N more replies] 标注。单次调用最多请求 200 个条目，预算耗尽会明确标注，不会无限请求。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "HN 条目数字 ID（例如 39847301），来自 top/new/search 等命令的返回值，不接受猜测 ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "最多展开的顶层评论数",
+            "default": 25
+          },
+          "depth": {
+            "type": "integer",
+            "description": "最大回复深度（1=不展开回复，2=展开一层回复）",
+            "default": 2
+          },
+          "replies": {
+            "type": "integer",
+            "description": "每层每条评论最多显示的回复数",
+            "default": 5
+          },
+          "max-length": {
+            "type": "integer",
+            "description": "单条评论/正文最大字符数（最小 100），超出截断并标注",
+            "default": 2000
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "user",
+      "runtime": "extension",
+      "module": "extension/commands/user.js",
+      "routeDomain": "news.ycombinator.com",
+      "description": "读取 Hacker News 用户公开资料（username/karma/created/about）；about 保留来源原始 HTML 文本，用户不存在时明确报空结果。",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "HN 用户名（字母/数字/连字符/下划线）"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
