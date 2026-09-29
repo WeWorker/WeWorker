@@ -195,6 +195,148 @@
       .trim();
   }
 
+  /* ---- Bounded XML structure scan (RSS envelope) ----
+   * Single left-to-right pass with no new dependency. Comments, CDATA
+   * sections, processing instructions and declarations are skipped as whole
+   * units, so markup-looking text inside them never opens or closes an
+   * element (a fake <item> or <html> inside a description CDATA is neither
+   * an item nor an error envelope). Every real element is recorded with its
+   * parent index and inner text range; well-formedness is tag matching: each
+   * end tag must close the innermost open element and nothing may stay open
+   * at end of input. */
+  function findStartTagEnd(text, from) {
+    let quote = '';
+    for (let j = from + 1; j < text.length; j += 1) {
+      const ch = text.charAt(j);
+      if (quote) { if (ch === quote) quote = ''; }
+      else if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '>') return j;
+    }
+    return -1;
+  }
+
+  function findDeclarationEnd(text, from) {
+    let quote = '';
+    let depth = 0;
+    for (let j = from + 2; j < text.length; j += 1) {
+      const ch = text.charAt(j);
+      if (quote) { if (ch === quote) quote = ''; }
+      else if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === '[') depth += 1;
+      else if (ch === ']') depth = depth > 0 ? depth - 1 : 0;
+      else if (ch === '>' && depth === 0) return j;
+    }
+    return -1;
+  }
+
+  function scanXmlElements(xml) {
+    const text = String(xml ?? '');
+    const elements = [];
+    const stack = [];
+    let error = null;
+    let firstElementName = null;
+    let sawHtmlDoctype = false;
+    let i = 0;
+    while (i < text.length && error === null) {
+      const lt = text.indexOf('<', i);
+      if (lt < 0) break;
+      const next = text.charAt(lt + 1);
+      if (next === '!') {
+        if (text.startsWith('<!--', lt)) {
+          const end = text.indexOf('-->', lt + 4);
+          if (end < 0) { error = 'unterminated comment'; break; }
+          i = end + 3;
+        } else if (text.startsWith('<![CDATA[', lt)) {
+          const end = text.indexOf(']]>', lt + 9);
+          if (end < 0) { error = 'unterminated CDATA section'; break; }
+          i = end + 3;
+        } else {
+          const close = findDeclarationEnd(text, lt);
+          if (close < 0) { error = 'unterminated declaration'; break; }
+          if (/^<!doctype\s+html(\s|$)/i.test(text.slice(lt, close))) sawHtmlDoctype = true;
+          i = close + 1;
+        }
+      } else if (next === '?') {
+        const end = text.indexOf('?>', lt + 2);
+        if (end < 0) { error = 'unterminated processing instruction'; break; }
+        i = end + 2;
+      } else if (next === '/') {
+        const end = text.indexOf('>', lt + 2);
+        if (end < 0) { error = 'unterminated end tag'; break; }
+        const name = text.slice(lt + 2, end).trim().split(/\s+/)[0].toLowerCase();
+        const openIndex = stack.pop();
+        if (openIndex === undefined || elements[openIndex].name !== name) {
+          error = 'unexpected closing tag </' + name + '>';
+          break;
+        }
+        elements[openIndex].innerEnd = lt;
+        i = end + 1;
+      } else if (/[A-Za-z_:]/.test(next)) {
+        const close = findStartTagEnd(text, lt);
+        if (close < 0) { error = 'unterminated start tag'; break; }
+        let last = close - 1;
+        while (last > lt && /\s/.test(text.charAt(last))) last -= 1;
+        const selfClosing = text.charAt(last) === '/';
+        const name = text.slice(lt + 1, selfClosing ? last : close).trim().split(/\s+/)[0].toLowerCase();
+        const element = {
+          name,
+          index: elements.length,
+          parentIndex: stack.length ? stack[stack.length - 1] : -1,
+          innerStart: close + 1,
+          innerEnd: close + 1,
+        };
+        elements.push(element);
+        if (firstElementName === null) firstElementName = name;
+        if (!selfClosing) stack.push(element.index);
+        i = close + 1;
+      } else {
+        error = 'unexpected markup';
+        break;
+      }
+    }
+    if (error === null && stack.length) {
+      error = 'unclosed element <' + elements[stack[stack.length - 1]].name + '>';
+    }
+    return { error, elements, firstElementName, sawHtmlDoctype };
+  }
+
+  /* Validate the RSS envelope and collect item children. Returns exactly one
+   * of: { isHtml: true } when the document's real root element (or doctype)
+   * is HTML — an HTTP 200 HTML error page, where CDATA content never counts;
+   * { error } with a concrete reason for any structural problem (tag
+   * mismatch, unclosed root/channel/item, root is not a single <rss>,
+   * channel missing or repeated, items outside the channel); or
+   * { items: [...] } where each item maps every child element name
+   * (lowercased, first occurrence) to its raw inner text. Only items that are
+   * real children of the single real <channel> are returned. A structurally
+   * valid channel with zero items is a legitimate empty feed — the caller
+   * decides that, not this parser. */
+  function parseRssEnvelope(xml) {
+    const text = String(xml ?? '');
+    const scan = scanXmlElements(text);
+    if (scan.firstElementName === 'html' || scan.sawHtmlDoctype) return { isHtml: true, error: null, items: [] };
+    if (scan.error) return { isHtml: false, error: scan.error, items: [] };
+    const roots = scan.elements.filter((element) => element.parentIndex === -1);
+    if (roots.length !== 1) return { isHtml: false, error: 'expected one root element, found ' + roots.length, items: [] };
+    if (roots[0].name !== 'rss') return { isHtml: false, error: 'root element is not <rss>', items: [] };
+    const channels = scan.elements.filter((element) => element.parentIndex === roots[0].index && element.name === 'channel');
+    if (channels.length !== 1) return { isHtml: false, error: 'expected one <channel> inside <rss>, found ' + channels.length, items: [] };
+    if (scan.elements.some((element) => element.name === 'item' && element.parentIndex === roots[0].index)) {
+      return { isHtml: false, error: 'found <item> elements outside <channel>', items: [] };
+    }
+    const items = [];
+    for (const element of scan.elements) {
+      if (element.parentIndex !== channels[0].index || element.name !== 'item') continue;
+      const child = {};
+      for (const sub of scan.elements) {
+        if (sub.parentIndex !== element.index || child[sub.name] !== undefined) continue;
+        child[sub.name] = text.slice(sub.innerStart, sub.innerEnd);
+      }
+      items.push(child);
+    }
+    return { isHtml: false, error: null, items };
+  }
+
   /* Standard RFC 822 pubDate ("Tue, 26 Mar 2026 18:30:00 +0800"), plus the
    * simplified "2026-03-26 18:30:00 +0800" form the live feed emits. Anything
    * else (or an unparseable value) is null — never a guessed date. */
@@ -235,6 +377,7 @@
     boardLabelFromPageTitle,
     sectionBoardLabel,
     decodeXmlText,
+    parseRssEnvelope,
     parseRssDate,
   };
 })();

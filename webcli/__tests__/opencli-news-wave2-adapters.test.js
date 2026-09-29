@@ -493,11 +493,62 @@ describe('36kr hot board routing', () => {
     await expect(catalog.run('hot', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('board area was not found') });
   });
 
-  it('reports a genuinely empty rendered board as an empty result', async () => {
+  it('reports a persistently empty board region as a render anomaly, never as an empty board', async () => {
     const date = boardDate();
     const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + date + '/1';
-    const s = setup('36kr.com', { url: boardUrl, title: '资讯人气榜' + date + '_36氪', all: { '.article-list': [boardList([])] } });
-    await expect(s.run('hot', { type: 'renqi' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
+    const dated = setup('36kr.com', { url: boardUrl, title: '资讯人气榜' + date + '_36氪', all: { '.article-list': [boardList([])] } });
+    await expect(dated.run('hot', { type: 'renqi' })).rejects.toMatchObject({
+      code: 'COMMAND_EXEC',
+      message: expect.stringContaining('no entries appeared'),
+    });
+    const catalog = setup('36kr.com', {
+      url: 'https://www.36kr.com/hot-list/catalog',
+      title: '36氪资讯热榜频道_36氪',
+      all: { '.list-section-wrapper': [boardSection('36氪人气榜查看完整榜单', [], null)] },
+    });
+    await expect(catalog.run('hot', {})).rejects.toMatchObject({
+      code: 'COMMAND_EXEC',
+      message: expect.stringContaining('no entries appeared'),
+    });
+  });
+
+  it('waits for late-filling rows instead of misreporting a still-loading board as empty', async () => {
+    const date = boardDate();
+    /* The container renders before its rows: the first polls see an empty
+     * .article-list / recognized section, later polls see the filled one. */
+    let datedPolls = 0;
+    const datedRows = [boardWrapper('延迟填充的人气榜文章', '/p/1001')];
+    const dated = setup('36kr.com', {
+      url: 'https://www.36kr.com/hot-list/renqi/' + date + '/1',
+      title: '资讯人气榜' + date + '_36氪',
+      all: {
+        get '.article-list'() {
+          datedPolls += 1;
+          return [boardList(datedPolls < 3 ? [] : datedRows)];
+        },
+      },
+    });
+    expect(await dated.run('hot', { type: 'renqi' })).toEqual([
+      { rank: 1, title: '延迟填充的人气榜文章', url: 'https://www.36kr.com/p/1001', type: 'renqi', board: '人气榜', board_url: 'https://www.36kr.com/hot-list/renqi/' + date + '/1' },
+    ]);
+    expect(datedPolls).toBeGreaterThanOrEqual(3);
+
+    let catalogPolls = 0;
+    const catalogRows = [boardWrapper('延迟填充的分区文章', '/p/2001')];
+    const catalog = setup('36kr.com', {
+      url: 'https://www.36kr.com/hot-list/catalog',
+      title: '36氪资讯热榜频道_36氪',
+      all: {
+        get '.list-section-wrapper'() {
+          catalogPolls += 1;
+          return [boardSection('36氪人气榜查看完整榜单', catalogPolls < 3 ? [] : catalogRows, '/hot-list/renqi/' + date + '/1')];
+        },
+      },
+    });
+    expect(await catalog.run('hot', {})).toEqual([
+      { rank: 1, title: '延迟填充的分区文章', url: 'https://www.36kr.com/p/2001', type: 'catalog', board: '人气榜', board_url: 'https://www.36kr.com/hot-list/renqi/' + date + '/1' },
+    ]);
+    expect(catalogPolls).toBeGreaterThanOrEqual(3);
   });
 
   it('distinguishes a not-yet-rendered board from unparseable rows', async () => {
@@ -592,6 +643,46 @@ describe('36kr news feed', () => {
     const empty = setup('36kr.com', { payload: '<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>' });
     await expect(empty.run('news', {})).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
     await expect(setup('36kr.com').run('news', { limit: '0' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+  });
+
+  it('rejects structurally broken RSS envelopes instead of reporting an empty feed', async () => {
+    for (const xml of [
+      '<rss><channel></channel>',                                            // unclosed root <rss>
+      '<rss><channel><item><title>x</title></channel></rss>',                 // unclosed <item>
+      '<rss><channel></channel><item><title>x</title></item></rss>',          // item outside the channel
+      '<rss><channel></channel></rss><rss><channel></channel></rss>',         // two roots
+      '<feed><entry><title>x</title></entry></feed>',                         // root is not rss
+    ]) {
+      const s = setup('36kr.com', { payload: xml });
+      await expect(s.run('news', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('could not be parsed') });
+    }
+    /* Items that all fail projection (no usable title anywhere) are a parse
+     * error, not an empty feed. */
+    const untitled = setup('36kr.com', { payload: '<rss><channel><item><description>x</description></item><item><link>https://36kr.com/p/6666666666666666</link></item></channel></rss>' });
+    await expect(untitled.run('news', {})).rejects.toMatchObject({
+      code: 'COMMAND_EXEC',
+      message: expect.stringContaining('none had a usable title'),
+    });
+  });
+
+  it('never lets CDATA pseudo-markup count as items, fields or an HTML error page', async () => {
+    /* A description CDATA carrying an <html> body and fake <item>/<title>
+     * text: the document must still parse as RSS with exactly one real item
+     * and must not be mistaken for an HTML error page. */
+    const cdataFeed = '<rss version="2.0"><channel><item><title>真实条目标题</title><link>https://36kr.com/p/5555555555555555</link><pubDate>2026-03-26 09:00:00 +0800</pubDate><description><![CDATA[<html><body>伪页面正文</body></html> 与伪条目文字 <item><title>伪条目标题</title></item> 以及 <rss></rss> <channel></channel>]]></description></item></channel></rss>';
+    const s = setup('36kr.com', { payload: cdataFeed });
+    const rows = await s.run('news', {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ rank: 1, title: '真实条目标题', url: 'https://36kr.com/p/5555555555555555', date: '2026-03-26T01:00:00.000Z' });
+    expect(rows[0].summary).toContain('伪页面正文');
+    expect(rows[0].summary).not.toContain('<item>');
+    /* Whole-document HTML detection fires only on a real root/doctype: a
+     * feed whose only <html> text sits inside CDATA is not an error page. */
+    const cdataOnlyHtml = '<?xml version="1.0"?><rss version="2.0"><channel><item><title>仅CDATA含html</title><description><![CDATA[<html>not an error page</html>]]></description></item></channel></rss>';
+    const htmlInCdata = setup('36kr.com', { payload: cdataOnlyHtml });
+    expect(await htmlInCdata.run('news', {})).toEqual([
+      { rank: 1, title: '仅CDATA含html', summary: 'not an error page', date: null, url: '' },
+    ]);
   });
 });
 

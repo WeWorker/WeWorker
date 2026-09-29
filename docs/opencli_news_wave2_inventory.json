@@ -409,9 +409,9 @@
     "package": "36kr.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "页面 DOM：catalog 走 /hot-list/catalog 聚合页（行属 .list-section-wrapper 分区并按真实分区标注 board/board_url），renqi/zonghe/shoucang 走 /hot-list/<type>/<UTC+8 当日>/1；宿主导航续执行；结果仅取经 2026-09-29 真实 DOM 核验的榜单区域，页面标题须含请求榜单名；全页其他 /p/ 链接不算结果；区域渲染无条目才报空",
+    "data_source": "页面 DOM：catalog 走 /hot-list/catalog 聚合页（行属 .list-section-wrapper 分区并按真实分区标注 board/board_url），renqi/zonghe/shoucang 走 /hot-list/<type>/<UTC+8 当日>/1；宿主导航续执行；结果仅取经 2026-09-29 真实 DOM 核验的榜单区域，轮询等待区域内出现可解析行（容器先行渲染的动态页不误报空），页面标题须含请求榜单名；全页其他 /p/ 链接不算结果；页面无已验证空态标记，区域持续无条目按渲染/结构异常报错，不支持空榜判定",
     "fixture_status": "fixture_passed",
-    "real_trace": "812a2b2e7d97, f6e4538e7dbe, f2deefdbf036, 07076a7735ea",
+    "real_trace": "39a18b5b7209 (round2 renqi), 8fcddec40e71 (round2 catalog), 812a2b2e7d97, f6e4538e7dbe, f2deefdbf036, 07076a7735ea (round1)",
     "natural_language_status": "not_run"
   },
   {
@@ -445,9 +445,9 @@
     "package": "36kr.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "https://www.36kr.com/feed RSS；Extension 后台 API Runner（backend_fetch）；summary 为前 120 字符摘要；title 解 CDATA/实体；date 为标准 pubDate 解析的完整 ISO 8601（缺失/非法为 null）；HTTP 失败、HTTP 200 但 HTML/畸形文档报接口/解析错误，合法空通道才报空（来源返回空数组的行为未保留）",
+    "data_source": "https://www.36kr.com/feed RSS；Extension 后台 API Runner（backend_fetch）；summary 为前 120 字符摘要；title 解 CDATA/实体；date 为标准 pubDate 解析的完整 ISO 8601（缺失/非法为 null）；信封经有界结构扫描校验（根/通道/条目闭合与结构、条目须在 channel 内、条目存在但均无可用标题均报解析错误，CDATA 内伪标记不算条目也不算错误信封），HTTP 失败、HTTP 200 HTML（按真实根元素/doctype 判定）报接口/解析错误，仅结构合法零条目才报空（来源返回空数组的行为未保留）",
     "fixture_status": "fixture_passed",
-    "real_trace": "089dc616530e",
+    "real_trace": "b9a68ab6eaf7 (round2), 089dc616530e (round1)",
     "natural_language_status": "not_run"
   },
   {

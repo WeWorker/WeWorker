@@ -20,7 +20,7 @@
       "runtime": "extension",
       "module": "extension/commands/hot.js",
       "routeDomain": "www.36kr.com",
-      "description": "读取 36氪热榜：catalog=热门资讯聚合页（默认），renqi=人气榜、zonghe=综合榜、shoucang=收藏榜按当日（UTC+8）日期访问对应官方榜单页。结果仅取经真实 DOM 核验的榜单区域，页面标题须与请求榜单一致；catalog 聚合页每行 board/board_url 标注真实所属分区。不会用其他榜单或全页推荐链接冒充。",
+      "description": "读取 36氪热榜：catalog=热门资讯聚合页（默认），renqi=人气榜、zonghe=综合榜、shoucang=收藏榜按当日（UTC+8）日期访问对应官方榜单页。结果仅取经真实 DOM 核验的榜单区域，并轮询等待区域内出现可解析行（容器先渲染、行后填充的动态页不会误判为空）；页面标题须与请求榜单一致；catalog 聚合页每行 board/board_url 标注真实所属分区。不会用其他榜单或全页推荐链接冒充；页面无已验证空态标记，区域持续无条目按渲染/结构异常报错而非空结果。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -51,7 +51,7 @@
       "runtime": "extension",
       "module": "extension/commands/news.js",
       "routeDomain": "www.36kr.com",
-      "description": "读取 36氪官方 RSS 最新资讯；summary 为描述的前 120 字符摘要，不代表全文；date 为按标准 pubDate 解析的完整 ISO 8601 时间（缺失/非法为 null）。HTTP 失败、HTTP 200 但 HTML/畸形文档、合法空 feed 分别明确区分，不返回空列表冒充成功。",
+      "description": "读取 36氪官方 RSS 最新资讯；summary 为描述的前 120 字符摘要，不代表全文；date 为按标准 pubDate 解析的完整 ISO 8601 时间（缺失/非法为 null）。对 RSS 信封做有界结构校验：根/通道/条目未闭合或结构异常、条目存在但均无可用标题、HTTP 200 返回 HTML，均报解析/接口错误而非空结果；CDATA 内伪标记不算条目也不算错误信封；仅结构合法且确实零条目才报空。",
       "safety": "read",
       "execution": {
         "type": "api",

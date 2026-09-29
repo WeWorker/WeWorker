@@ -7,7 +7,11 @@
  * links happen to exist on the page — and the page title plus (for catalog)
  * the section titles must confirm the requested board before anything is
  * returned. Region shape verified against the live read-only DOM on
- * 2026-09-29; see docs/opencli_news_wave2_migration.md. */
+ * 2026-09-29; see docs/opencli_news_wave2_migration.md. The wait is for a
+ * parseable row inside the trusted region, not for the container: dynamic
+ * pages render the container before its rows, and these pages have no
+ * verified empty-state marker, so an empty-looking region is reported as a
+ * render/structure anomaly instead of an empty board. */
 (function () {
   /* Board rows on every verified board page are .article-wrapper items whose
    * title link is a.article-item-title. On dated board pages the board list is
@@ -16,6 +20,23 @@
   function mainBoardLists() {
     return Array.from(document.querySelectorAll('.article-list'))
       .filter((list) => !list.closest('.list-section-wrapper'));
+  }
+
+  function catalogSections() {
+    return Array.from(document.querySelectorAll('.list-section-wrapper'));
+  }
+
+  /* Board a catalog section actually names, from its own title first. */
+  function sectionBoardName(section) {
+    const titleText = typeof section.querySelector === 'function'
+      ? (section.querySelector('.list-title')?.textContent || '')
+      : '';
+    return window.__kr36.sectionBoardLabel(titleText)
+      || window.__kr36.sectionBoardLabel(section.textContent || '');
+  }
+
+  function recognizedSections() {
+    return catalogSections().filter((section) => sectionBoardName(section) !== null);
   }
 
   function rowsFromWrappers(wrappers) {
@@ -33,6 +54,25 @@
     return rows;
   }
 
+  function wrappersOf(container) {
+    return typeof container.querySelectorAll === 'function'
+      ? Array.from(container.querySelectorAll('.article-wrapper'))
+      : [];
+  }
+
+  function trustedRegions(type) {
+    return type === 'catalog' ? recognizedSections() : mainBoardLists();
+  }
+
+  /* Parseable rows inside the trusted regions only. Catalog rows count only
+   * inside recognized board sections, so a successful probe always means the
+   * extraction below will return at least one row. */
+  function parseableRowCount(type) {
+    let count = 0;
+    for (const region of trustedRegions(type)) count += rowsFromWrappers(wrappersOf(region)).length;
+    return count;
+  }
+
   __webcliRegisterCommand('hot', async (args = {}) => {
     const api = window.__kr36;
     const type = args.type === undefined || args.type === null ? 'catalog' : String(args.type);
@@ -45,17 +85,38 @@
     if (!api.same(url)) return api.navigate(url);
     api.guard();
 
-    /* Wait for the trusted board region itself, not for any /p/ link: header
-     * and footer links also match /p/ and would fake a rendered board. */
-    const rendered = await api.waitFor(async () =>
-      (type === 'catalog' ? document.querySelectorAll('.list-section-wrapper').length > 0 : mainBoardLists().length > 0));
+    /* Wait for a parseable row inside the trusted board region itself — not
+     * for the container and not for any /p/ link: dynamic pages render the
+     * board container before its rows (a bare container is not evidence of an
+     * empty board), and header/footer /p/ links would fake a rendered board.
+     * No verified empty-state marker exists on these pages, so a region that
+     * never gains a row fails below as a render/structure anomaly, never as
+     * an empty result. */
+    const rendered = await api.waitFor(() => parseableRowCount(type) > 0);
     if (!rendered) {
-      if (document.querySelectorAll('a[href*="/p/"]').length > 0) {
-        /* The page has content but no trusted board region — recommendations
-         * and navigation links are never treated as board results. */
-        throw new api.CommandExecutionError('36kr page rendered but the ' + expectedBoard + ' board area was not found', '36kr may have changed its DOM structure; page-level links are not treated as board results');
+      const regionCount = type === 'catalog' ? catalogSections().length : mainBoardLists().length;
+      if (!regionCount) {
+        if (document.querySelectorAll('a[href*="/p/"]').length > 0) {
+          /* The page has content but no trusted board region — recommendations
+           * and navigation links are never treated as board results. */
+          throw new api.CommandExecutionError('36kr page rendered but the ' + expectedBoard + ' board area was not found', '36kr may have changed its DOM structure; page-level links are not treated as board results');
+        }
+        throw new api.CommandExecutionError('36kr ' + api.hotTypeLabel(type) + ' board area did not render within the wait budget', 'The board may still be loading or 36kr changed its DOM structure');
       }
-      throw new api.CommandExecutionError('36kr ' + api.hotTypeLabel(type) + ' board area did not render within the wait budget', 'The board may still be loading or 36kr changed its DOM structure');
+      if (type === 'catalog' && !recognizedSections().length) {
+        throw new api.CommandExecutionError('36kr catalog page rendered but no recognized board section was found', '36kr may have changed its board section structure');
+      }
+      let wrapperCount = 0;
+      for (const region of trustedRegions(type)) wrapperCount += wrappersOf(region).length;
+      if (wrapperCount > 0) {
+        /* Rows exist in the trusted region but none ever yielded a valid
+         * official article title link — the row structure changed. */
+        throw new api.CommandExecutionError('Could not parse any 36kr ' + api.hotTypeLabel(type) + ' board rows within the wait budget', '36kr may have changed its board row structure');
+      }
+      throw new api.CommandExecutionError(
+        '36kr ' + api.hotTypeLabel(type) + ' board area rendered but no entries appeared within the wait budget',
+        'No verified empty-state marker exists for 36kr board pages, so an empty-looking region is reported as a render or structure anomaly instead of an empty board',
+      );
     }
 
     /* The page title must confirm the requested board (dated titles are
@@ -64,25 +125,16 @@
     if (pageBoard !== expectedBoard) {
       throw new api.CommandExecutionError(
         'Requested board ' + expectedBoard + ' but the rendered page shows ' + JSON.stringify(pageBoard || document.title || ''),
-        'The board routing or page structure changed; refusing to relabel another board as ' + expectedBoard);
+        'The board routing or page structure changed; refusing to relabel another board as ' + expectedBoard,
+      );
     }
 
     const collected = [];
-    let wrapperCount = 0;
     if (type === 'catalog') {
       /* Catalog aggregates the three mini boards; rows are attributed to the
        * board their section actually names, never blanket-labeled. */
-      const sections = Array.from(document.querySelectorAll('.list-section-wrapper'));
-      const recognized = sections.filter((section) => api.sectionBoardLabel(
-        typeof section.querySelector === 'function' ? (section.querySelector('.list-title')?.textContent || '') : '') !== null
-        || api.sectionBoardLabel(section.textContent || '') !== null);
-      if (!recognized.length) {
-        throw new api.CommandExecutionError('36kr catalog page rendered but no recognized board section was found', '36kr may have changed its board section structure');
-      }
-      for (const section of recognized) {
-        const label = api.sectionBoardLabel(
-          (typeof section.querySelector === 'function' ? (section.querySelector('.list-title')?.textContent || '') : '')
-          || (section.textContent || ''));
+      for (const section of recognizedSections()) {
+        const label = sectionBoardName(section);
         if (!label) continue;
         /* Board link: the section title anchors the full board page; fall back
          * to the catalog page itself when it is not a /hot-list/ route. */
@@ -94,26 +146,17 @@
             if (candidate.protocol === 'https:' && candidate.hostname === 'www.36kr.com' && candidate.pathname.startsWith('/hot-list/')) boardUrl = candidate.href;
           } catch { /* keep page url */ }
         }
-        const wrappers = typeof section.querySelectorAll === 'function' ? Array.from(section.querySelectorAll('.article-wrapper')) : [];
-        wrapperCount += wrappers.length;
-        for (const row of rowsFromWrappers(wrappers)) collected.push({ ...row, board: label, board_url: boardUrl });
+        for (const row of rowsFromWrappers(wrappersOf(section))) collected.push({ ...row, board: label, board_url: boardUrl });
       }
     } else {
       for (const list of mainBoardLists()) {
-        const wrappers = typeof list.querySelectorAll === 'function' ? Array.from(list.querySelectorAll('.article-wrapper')) : [];
-        wrapperCount += wrappers.length;
-        for (const row of rowsFromWrappers(wrappers)) collected.push({ ...row, board: api.hotTypeLabel(type), board_url: url });
+        for (const row of rowsFromWrappers(wrappersOf(list))) collected.push({ ...row, board: api.hotTypeLabel(type), board_url: url });
       }
     }
 
-    if (!wrapperCount) {
-      /* The trusted board region rendered with no rows at all — a genuinely
-       * empty board, not a parsing failure. */
-      throw new api.EmptyResultError('36kr ' + api.hotTypeLabel(type) + ' board rendered with no entries', 'The board is empty for the requested date');
-    }
     if (!collected.length) {
-      /* Rows exist in the trusted region but none yielded a valid official
-       * article title link — the row structure changed. */
+      /* Defensive: the successful probe guarantees a parseable row, so this
+       * only triggers if the DOM changed between probe and extraction. */
       throw new api.CommandExecutionError('Could not parse any 36kr ' + api.hotTypeLabel(type) + ' board rows', '36kr may have changed its board row structure');
     }
     return collected.slice(0, limit).map((row, index) => ({
