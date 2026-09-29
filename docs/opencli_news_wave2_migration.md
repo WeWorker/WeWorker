@@ -1,6 +1,6 @@
 # OpenCLI 新闻类 wave2 迁移与验收记录（Hacker News + 36氪）
 
-日期：2026-09-29。本批迁移 Hacker News 全部 9 项与 36氪全部 4 项来源命令，共 13 项全部接入公开 v2 包；13 项均通过真实 WebCLI → Bridge → Extension 只读调用。客户端聊天入口的自然语言验收未执行，不称整体完成。
+日期：2026-09-29（round 1），2026-09-29 审查 round 1 修复后冻结本文版本。本批迁移 Hacker News 全部 9 项与 36氪全部 4 项来源命令，共 13 项全部接入公开 v2 包。**“通过”仅指当次记录的真实调用路径与 fixture 覆盖**：13 项各自通过了一次真实 WebCLI → Bridge → Extension 只读调用（含 36kr 四类榜单、真实空搜索各一次），不代表所有 hot 类型 × 异常路径的组合或自然语言入口全部通过；后者未执行，不称整体完成。
 
 ## 来源与许可
 
@@ -14,42 +14,55 @@
 
 | 命令 | 参数与默认值（=来源） | 执行方式 | 关键语义与限额 |
 | --- | --- | --- | --- |
-| `news.ycombinator.com.top/best/new/ask/show` | `limit=20` | 后台 API（backend_fetch，禁重定向、trace 脱敏） | 预取 `min(limit+10,50)` 个 id 再过滤 deleted/dead/无标题，实际返回 ≤50；空/全失效报 EMPTY_RESULT |
+| `news.ycombinator.com.top/best/new/ask/show` | `limit=20` | 后台 API（backend_fetch，禁重定向、trace 脱敏） | 预取 `min(limit+10,50)` 个 id 再过滤 deleted/dead/无标题，实际返回 ≤50；空/全失效报 EMPTY_RESULT；缺 score/by 保持 null |
 | `news.ycombinator.com.jobs` | `limit=20` | 同上 | 按来源无 score/comments 列 |
-| `news.ycombinator.com.search` | `query`（必填）、`limit=20`、`sort=relevance|date` | Algolia 公开接口 | tags=story、hitsPerPage=limit；query/tags 经 URLSearchParams 严格编码；id 来自 objectID |
-| `news.ycombinator.com.read` | `id`（必填纯数字）、`limit=25`、`depth=2`、`replies=5`、`max-length=2000`（≥100） | 后台 API 树遍历 | POST 行 + L0/Ln 缩进评论；`[+N more replies]`/`[+N more top-level comments]` 截断标注；**单次调用条目请求预算 200**，耗尽输出明确标注行；deleted/dead/null 跳过；个别请求失败计数标注，不冒充完整 |
+| `news.ycombinator.com.search` | `query`（必填）、`limit=20`、`sort=relevance\|date` | Algolia 公开接口 | tags=story、hitsPerPage=limit；query/tags 经 URLSearchParams 严格编码；id 来自 objectID |
+| `news.ycombinator.com.read` | `id`（必填纯数字）、`limit=25`、`depth=2`、`replies=5`、`max-length=2000`（≥100） | 后台 API 树遍历 | POST 行 + L0/Ln 缩进评论；`[+N more replies]`/`[+N more top-level comments]` 截断标注；**单次调用条目请求预算 200**，耗尽输出明确标注行；deleted/dead/null 跳过；个别请求失败计数标注，不冒充完整；**POST/评论缺 author/score 输出 null（未知），真实 0 分保留，不补造 `[deleted]`** |
 | `news.ycombinator.com.user` | `username`（必填） | 后台 API | 用户名 `^[A-Za-z0-9_-]{1,32}$` 校验后 encodeURIComponent；不存在报 EMPTY_RESULT；about 保留来源原始 HTML |
-| `36kr.com.hot` | `limit=20`（≤50）、`type=catalog|renqi|zonghe|shoucang` | 页面 DOM + 宿主导航续执行 | catalog 走 `/hot-list/catalog`；renqi/zonghe/shoucang 走 `/hot-list/<type>/<UTC+8 当日>/1` 各自官方榜单页，不降级冒充；每行附 type/board/board_url 供核对 |
-| `36kr.com.news` | `limit=20`（≤50） | 后台 API（RSS `https://www.36kr.com/feed`） | summary=描述前 120 字符；HTTP 失败明确报错（来源返回 `[]` 的行为未保留）；UA 标识改为 `WeWorker-WebCLI/1.0` |
-| `36kr.com.search` | `query`（必填）、`limit=20`（≤50） | 页面 DOM + 导航续执行 | 关键词严格编码；渲染超时（≈5 秒有界轮询）与真正无结果分别报 COMMAND_EXEC / EMPTY_RESULT；date 缺失为空串 |
-| `36kr.com.article` | `id`（数字或 36kr.com `/p/` URL） | 页面 DOM + 导航续执行 | 来源声明 INTERCEPT 但实际只读 DOM，未保留拦截器；正文按来源截断 **800 字符**，并以 body_length/body_truncated/content_status 明确截断与完整性，不把摘要或截断文本当全文 |
+| `36kr.com.hot` | `limit=20`（≤50）、`type=catalog\|renqi\|zonghe\|shoucang` | 页面 DOM + 宿主导航续执行 | renqi/zonghe/shoucang 走 `/hot-list/<type>/<UTC+8 当日>/1` 官方榜单页；catalog 走 `/hot-list/catalog` 聚合页。结果**只取经真实 DOM 核验的榜单区域**（dated：非分区 `.article-list` 的 `.article-wrapper` 行；catalog：`.list-section-wrapper` 分区），页面标题必须含请求榜单名，否则按类别不一致失败；catalog 每行 board/board_url 为**真实所属分区**及其入口；全页其他 `/p/` 链接（导航/侧栏推荐）不算结果；榜单区域渲染但无条目才报空 |
+| `36kr.com.news` | `limit=20`（≤50） | 后台 API（RSS `https://www.36kr.com/feed`） | summary=描述前 120 字符；title 解 CDATA/XML 实体；date 为标准 pubDate 解析的**完整 ISO 8601 时间**（缺失/非法为 null，不猜）；HTTP 失败、HTTP 200 但 HTML/畸形文档报接口/解析错误，合法空通道才报空（来源返回 `[]` 的行为未保留）；UA 标识 `WeWorker-WebCLI/1.0` |
+| `36kr.com.search` | `query`（必填）、`limit=20`（≤50） | 页面 DOM + 导航续执行 | 关键词严格编码；结果**只取 `kr-search-result-list-main` 文章卡标题链接，无全页回退**；以页面无结果提示（`.kr-search-nodata`）为唯一真实空态证据，区域未就绪/结构异常分别报错；当前卡片不暴露日期，date 为空串 |
+| `36kr.com.article` | `id`（数字或官方 `/p/` URL） | 页面 DOM + 导航续执行 | 来源声明 INTERCEPT 但实际只读 DOM，未保留拦截器；**ID 严格校验**：仅 `36kr.com`/`www.36kr.com` 的 https 完整 `/p/<纯数字>` 路径（允许尾斜杠/查询/hash）或安全整数范围数字，`/p/123abc`、`/foo/p/123`、外域、非 https、超精度数字一律拒绝；正文按来源截断 **800 字符**，以 body_length/body_truncated/content_status 明确截断与完整性；url 规范化为 `https://www.36kr.com/p/<id>` |
 
 域名声明：HN 包 `match=[news.ycombinator.com]`，API 域 `hacker-news.firebaseio.com`、`hn.algolia.com` 放在 `runtime_allowed_hosts`（仅限受限 backend_fetch，不作为导航目标）；36kr 包仅 `www.36kr.com`。数值/布尔/ID 均在包内校验（CLI 字符串数字接受，小数/越界/类型错误拒绝），未改全局 CLI。
 
 ### 与来源的有意偏差（均已记录在清单 data_source）
 
-1. 36kr news：HTTP 失败从静默 `[]` 改为显式 `HTTP_ERROR`；UA 标识更名。
-2. 36kr article：不再从任意字符串剥离数字猜 ID（来源 `replace(/\D/g,'')` 行为移除），只接受纯数字或 36kr.com `/p/` URL。
+1. 36kr news：HTTP 失败从静默 `[]` 改为显式 `HTTP_ERROR`；UA 标识更名；round 1 修复起 HTTP 200 的 HTML/畸形文档报解析错误而非 EMPTY_RESULT，date 从 `pubDate.slice(0,10)` 改为完整 ISO 8601（避免丢年份），title 增加 CDATA/实体解码。
+2. 36kr article：不再从任意字符串剥离数字猜 ID（来源 `replace(/\D/g,'')` 行为移除），只接受严格官方路径/安全数字；url 输出规范化为 `https://www.36kr.com/p/<id>`。
 3. HN 列表 limit 接受 1–100（来源无上限），但保留来源预取上限 50 的实际约束并在 manifest/guidance 说明。
 4. HN read/列表的空结果从来源的空数组改为显式 EMPTY_RESULT 错误，避免"返回空数组即成功"。
+5. 36kr hot/search（round 1 修复）：移除来源的全页 `a[href*="/p/"]` 抓取与无条件回退，改为可信区域绑定 + 榜单名核验 + 真实分区归属；空态仅在可信区域有证据（榜单区域无条目 / `.kr-search-nodata`）时成立，否则报渲染/结构错误。
+6. HN read（round 1 修复）：缺 by/score 不再补 `[deleted]`/0，输出 null；真实 0 分保留。
 
-## 逐项验收状态
+## 审查 round 1 修复记录（本次提交）
 
-| 命令 | fixture（vm 内真实 v2 bootstrap） | 真实 CLI → Bridge → Extension trace | 自然语言验收 |
+- R1（36kr 结果与业务范围绑定）：hot/search 重写为经 2026-09-29 真实只读 DOM 核验的区域选择器（见上表）；新增反例 fixture：全页仅推荐、榜单区域+侧栏推荐、真实空态、区域未就绪、目标类别不一致（含 nodata+卡片并存的矛盾态）。真实复跑 catalog/renqi/zonghe/shoucang 与 search（命中+真实空态）并核对每行实际所属区域。
+- R2（HN read 补造未知字段）：改为 null/未知语义并新增回归（含真实 0 分保留）。
+- R3（36kr 身份与 URL 校验）：`parseArticleId` 锚定完整官方路径并做安全整数校验；`normalizeArticleUrl` 用 URL 解析限定官方 host/protocol/path，列表跳过无效链接；新增 `/p/123abc`、`/foo/p/123`、外域、协议相对、前导零、超精度等反例。
+- R4（后续对齐分类）：以固定来源目录与实际根 adapters 重算，见 `docs/opencli_clis_alignment_map.json`（11+4+164=179，互斥可复算）；修正 github/gmail 无包的错误断言，未读实现仅按名称标注待核查。
+- R5（占位与归因）：fixture 中真实账号名替换为虚构值；文档不保留真实账号与资料；瞬时错误归因改为"原因未确定"；"13 项均通过"改为仅当次路径口径。
+- R6（36kr RSS 错误文档与空态区分）：见偏差 1；新增标准 RSS 日期+CDATA、合法空 RSS、200 HTML/畸形 XML 回归。
+
+## 逐项验收状态（round 1 修复后重新冻结）
+
+| 命令 | fixture（vm 内真实 v2 bootstrap） | 真实 CLI → Bridge → Extension trace（本次重跑） | 自然语言验收 |
 | --- | --- | --- | --- |
-| hn top | 通过（预取上限、过滤、请求计数 31） | `517c7a99cdb3`（另有一次瞬时 FETCH_ERROR `6b81bfb45001` 后重试成功） | 未执行 |
-| hn best | 通过 | `eebdf17eb4d0` | 未执行 |
-| hn new | 通过 | `a306d46aa80b` | 未执行 |
-| hn ask | 通过 | `76fe59dcee29` | 未执行 |
-| hn show | 通过 | `d94458b9cb07` | 未执行 |
-| hn jobs | 通过（无 score/comments 投影） | `d8aa8a384a7c` | 未执行 |
-| hn search | 通过（URL/参数/枚举/空/错误） | `ecb052eae352`（query=rust，3 条真实结果） | 未执行 |
-| hn read | 通过（树/缩进/截断标注/预算 200/部分失败/参数校验，含来源上游用例语义复刻） | `aabddf036f32`（POST+L0/L1+`[+N more replies]`+`[+38 more top-level comments]`） | 未执行 |
-| hn user | 通过（资料映射/不存在/用户名校验） | `344606c9715d`（pg：karma/created/about） | 未执行 |
-| 36kr hot | 通过（四类榜单各自路由/上海日期/去重/超时与不可解析区分/验证码） | catalog `ba407982df3b`；renqi `2011130725fc`（board_url 为当日 dated 路由）；首次调用遇宿主 tab 通道瞬时错误 `0d88b3dd8d02`，重试成功 | 未执行 |
-| 36kr news | 通过（CDATA/日期/120 字符摘要/HTTP 与空 feed 区分） | `6719af0ceb96`（3 条真实资讯） | 未执行 |
-| 36kr search | 通过（编码/标题卡/回退/超时与空结果区分） | `76e428975b42`（真实页卡片未暴露 date，返回空串而非补造） | 未执行 |
-| 36kr article | 通过（ID 校验/800 截断/长度语义/缺标题与缺正文区分/超时） | `3b39af9d7b6d`（正文 800/8073 字符，body_truncated=true，content_status 明示 partial） | 未执行 |
+| hn top | 通过（预取上限、过滤、请求计数 31） | `6aba460b5ba8` | 未执行 |
+| hn best | 通过 | `8fed90066479` | 未执行 |
+| hn new | 通过 | `d2b3f6f4a783` | 未执行 |
+| hn ask | 通过 | `6f093a62dc79` | 未执行 |
+| hn show | 通过 | `49bd76397a54` | 未执行 |
+| hn jobs | 通过（无 score/comments 投影） | `d5a9d351a96b` | 未执行 |
+| hn search | 通过（URL/参数/枚举/空/错误） | `90ae658ca8dc`（真实结果映射） | 未执行 |
+| hn read | 通过（树/缩进/截断标注/预算 200/部分失败/参数校验/**未知字段 null**） | `581321959193`（POST+评论树；作者/分值来自真实返回） | 未执行 |
+| hn user | 通过（资料映射/不存在/用户名校验） | `cb7645234c41`（公开账号资料字段映射；按边界本文不记录账号与资料内容）；占位不存在用户返回 EMPTY `7005aafd24fb` | 未执行 |
+| 36kr hot | 通过（四类榜单各自路由/上海日期/**区域绑定/类别核验/分区归属**/去重/超时、仅推荐、空态、类别不一致、验证码） | catalog `812a2b2e7d97`（行属人气榜/综合榜/收藏榜真实分区，board_url 为分区 dated 路由）；renqi `f6e4538e7dbe`；zonghe `f2deefdbf036`；shoucang `07076a7735ea` | 未执行 |
+| 36kr news | 通过（CDATA/实体/**完整 ISO 日期**/120 字符摘要/HTTP、HTML/畸形与空 feed 区分） | `089dc616530e`（date 为完整 ISO 时间） | 未执行 |
+| 36kr search | 通过（编码/**结果区域绑定/无回退/nodata 空态**/仅推荐反例/矛盾态/超时） | 命中 `486c6a944e00`（真实卡片，date 空串）；真实空态 `5c4bddd17ae2` | 未执行 |
+| 36kr article | 通过（**严格 ID/URL 反例**/800 截断/长度语义/缺标题与缺正文区分/超时） | `412b913d2367`（body_truncated=true，content_status 明示 partial，url 规范化） | 未执行 |
+
+注：round 1 版本（冻结 `9670b9d2`）的旧 trace 因 R1/R6 行为变更仅作历史记录，不再代表当前实现。
 
 真实调用命令形态（公开构建产物）：
 
@@ -60,35 +73,34 @@ node weworker/build/webcli-dist/webcli.cjs call 36kr.com.hot --type=renqi --limi
 node weworker/build/webcli-dist/webcli.cjs call 36kr.com.article --id=<真实文章id>
 ```
 
-## 聚焦验证记录（2026-09-29）
+## 聚焦验证记录（2026-09-29，round 1 修复后）
 
-- 新增 `webcli/__tests__/opencli-news-wave2-adapters.test.js`：57 项通过（契约/清单一致性/bootstrap 注册/确定性 Skill/只读声明/域名声明；HN 列表、搜索、read 树与预算、user；36kr 榜单路由、RSS、搜索、文章）。
-- 回归：`opencli-batch-adapters` + `ctrip-adapter` 共 157 项通过；打包/Skill/Profile 相关 9 文件 122 项通过。
-- `extension-v2-loader.test.js` 有 1 项**基线既有失败**（`requires_confirmation:false` 字段与旧断言不一致），与本批无关（本轮未改 v2-loader，基线 82b1df1 即失败），按边界未修改通用框架，留待 Codex 安排。
+- `webcli/__tests__/opencli-news-wave2-adapters.test.js`：**68 项通过**（契约/清单一致性/bootstrap 注册/确定性 Skill/只读声明/域名声明；HN 列表、搜索、read 树与预算、**未知字段 null 回归**、user；36kr 榜单路由与**区域绑定/分区归属/类别核验/空态/仅推荐/未就绪反例**、RSS **信封校验/实体/完整日期/HTML 与畸形区分**、搜索**区域绑定/无回退/nodata 空态**、文章**严格 ID/URL 反例/规范化**）。
+- 回归：`opencli-batch-adapters` + `ctrip-adapter` 共 157 项通过；宿主/适配器宿主与 Bridge 重载聚焦 3 文件 28 项通过；打包/Skill/Profile 相关 8 文件 50 项中 49 项通过。
+- `extension-v2-loader.test.js` 有 1 项**基线既有失败**（`requires_confirmation:false` 字段与旧断言不一致），与本批无关（基线 82b1df1 即失败，本轮未改 v2-loader），按边界未修改通用框架，留待 Codex 安排。
 - 公开 `prepare-build.cjs`：18 个 host-managed 包；WebCLI bundle 重建成功（既有可选列名映射缺失警告不变）。
-- 打包 CLI `adapter validate`：两包通过；`adapterhub pack` 生成 `.adapt` 并 `validate` 通过：news.ycombinator.com 12 文件 sha256 `6e42d8f7…93d648`、36kr.com 7 文件 sha256 `247d8800…e1e1260`（产物在仓库外临时目录，不发布）。
+- 打包 CLI `adapter validate`：两包通过；`adapterhub pack` 生成 `.adapt` 并 `validate` 通过：news.ycombinator.com 12 文件 sha256 `c6aae45f…dc8f701f7`、36kr.com 7 文件 sha256 `b7bab31d…295f590d6`（产物在仓库外临时目录，不发布）。
 - 确定性 Skill 生成由测试覆盖（guidance 原文包含、两次生成逐字节一致）。
 
 ### 已知限制（不算通过的事项）
 
-1. 36kr search 真实页面卡片未暴露日期给当前选择器，date 返回空串；不补造、不猜。若需要日期需后续按真实 DOM 调整选择器并复验。
-2. 36kr hot 首次真实调用遇宿主 tab 通道瞬时错误（扩展消息通道关闭），重试成功；属环境瞬态，不掩盖、不写成包缺陷。
-3. HN top 一次真实调用遇上游瞬时 FETCH_ERROR，重试成功；guidance 已规定失败保留 trace、不盲目重试。
-4. 客户端聊天入口的自然语言验收（参数追问、ID 保留、截断口径说明）未执行。
-5. `extension-v2-loader` 基线既有失败未修复（见上）。
+1. 36kr search 真实页面卡片不暴露日期（2026-09-29 复核仍无日期元素），date 返回空串；不补造、不猜。若需要日期需后续按真实 DOM 调整并复验。
+2. 36kr hot 本次真实复跑覆盖 catalog/renqi/zonghe/shoucang 四类与真实空搜索；其余异常路径仅 fixture 覆盖。首次 catalog 调用遇宿主 tab 通道错误一次（trace `dc2f9fec9a56`），原参数重试成功（`812a2b2e7d97`）；**错误原因未确定**（不排除实现或环境因素），不将其归类为环境瞬态或上游缺陷，不写成包缺陷。
+3. 客户端聊天入口的自然语言验收（参数追问、ID 保留、截断口径说明）未执行。
+4. `extension-v2-loader` 基线既有失败未修复（见上）。
+5. 36kr 榜单/搜索的区域选择器基于 2026-09-29 真实 DOM；站点改版会使区域核验失败并显式报错（不降级为全页抓取），需按新 DOM 重新核验后再调整。
 
-## 后续对齐路线（分类，不声称全量已对齐）
+## 后续对齐路线（不声称全量已对齐）
 
-以固定 SHA `24136945847afbfad266c6c46a8cd335377f9112` 的 `clis/` 目录为基准（排除 `_shared`、`_atlassian`、`test-utils.js`）：共 **179** 个站点目录。
+机器可读映射：`docs/opencli_clis_alignment_map.json`。以固定 SHA `24136945847afbfad266c6c46a8cd335377f9112` 的 `clis/` 目录（排除 `_` 前缀辅助目录与 `test-utils.js`，共 **179** 个站点）与本仓库实际根 `adapters/` 目录双向重算，分类互斥、总数一致：
 
-1. **已迁入公开 v2 包（11 站）**：ctrip、12306、zhihu、youdao、51job、boss、dianping、douban、douyin、hackernews、36kr。其中**命令级仍未全对齐**：douyin 14/16（draft/publish 未实现）；多数站点仍有登录态/写路径/自然语言验收缺口（见 `docs/opencli_batch_migration.md`）。"有包"不等于"命令对齐"。
-2. **已有 WeWorker 包、但未与 OpenCLI 命令对齐（6 站）**：bilibili、github、jd、juejin、xiaohongshu、gmail(mail.google.com)。这些站点的既有包命令集与 OpenCLI 定义不同，属"有包、命令未对齐"，需逐命令盘点而不是重复建包。
-3. **未迁移的网页类站点（约 142 个，名称层面分类）**：如 github-trending、reddit、wikipedia、arxiv、pubmed、google-scholar、bbc、reuters、bloomberg、eastmoney、xueqiu、weibo、v2ex、stackoverflow、npm、pypi、dockerhub、imdb、booking、brave、duckduckgo 等。其中部分为公开 API（适合先迁后台 API 命令），部分为强登录 DOM 站（需会话与更重验收）。
-4. **桌面/应用或非网页集成（约 26 个，名称启发式，需逐站确认）**：chatgpt(-app)、claude、codex、cursor、gemini、grok、kimi、deepseek、qwen、doubao(-app)、yuanbao、mercury、minimax、manus、chatwise、qoder、trae-cn、trae-solo、discord-app、wechat-channels、xiaoyuzhou、weread、flomo、mubu。这类可能需要宿主/Toolkit 侧能力而非 Extension 页面 Runner，纳入前必须先做可行性分类。
-5. **下一批建议（仅规划）**：优先纯公开 API、只读、低风险新闻/信息类（如 github-trending、arxiv、wikipedia、duckduckgo/brave、reuters/bbc）延续本批模式；随后处理"已有包"6 站的命令对齐盘点；桌面/应用类单独开分类评审。不在本批实施。
+1. **已从 OpenCLI 迁入公开 v2 包（11 站，命令级对齐情况见各自清单）**：12306→12306.cn、zhihu→zhihu.com、youdao→note.youdao.com、51job→51job.com、boss→zhipin.com、dianping→dianping.com、douban→douban.com、douyin→douyin.com（14/16，draft/publish 未实现）、hackernews→news.ycombinator.com、36kr→36kr.com，及本轮 11 站合计。"有包"不等于"命令全对齐"；多数站点仍有登录态/写路径/自然语言验收缺口（见 `docs/opencli_batch_migration.md`）。
+2. **已有 WeWorker 包、但包先于 OpenCLI 批次且未做命令级对齐盘点（4 站）**：bilibili→bilibili.com、jd→jd.com、juejin→juejin.cn、xiaohongshu→xiaohongshu.com。需逐命令盘点而不是重复建包。
+3. **无 WeWorker 包（164 站）**：github、gmail、github-trending、reddit、wikipedia、arxiv、pubmed、google-scholar、bbc、reuters、bloomberg、eastmoney、xueqiu、weibo、v2ex、stackoverflow、npm、pypi、dockerhub、imdb、booking、brave、duckduckgo 等。其中部分名称疑似桌面/应用集成（chatgpt-app、claude、codex、cursor、gemini、grok、kimi、deepseek、qwen、doubao、yuanbao、mercury、minimax、manus、chatwise、qoder、trae-cn、trae-solo、discord-app、wechat-channels、xiaoyuzhou、weread、flomo、mubu 等）——**这些实现本轮未读，仅按名称标注待核查，不断言其形态**，纳入前必须逐站核验可行性。
+4. **下一批建议（仅规划，不实施）**：优先纯公开 API、只读、低风险信息类（如 github-trending、arxiv、wikipedia、duckduckgo/brave、reuters/bbc）延续本批模式；随后处理第 2 类 4 站的命令对齐盘点；疑似桌面/应用类单独开可行性分类评审。
 
 ## 边界与安全
 
 - 未修改内部仓库、通用框架、Extension manifest 权限或全局 CLI；未触碰旧迁移目录与 Archive；未重置/清理/删除文件；未改密钥/.env/CI/CD/数据库；未推送、合并、发版。
-- 未执行业务写操作；两包无 write 命令、无确认门需求。真实调用均为只读。未公开真实用户数据/日志；本文 trace 为本地命令 trace id，不含账号数据。
+- 未执行业务写操作；两包无 write 命令、无确认门需求。真实调用均为只读。未公开真实用户数据/日志；本文 trace 为本地命令 trace id，不含账号数据；fixture 一律使用虚构占位账号。
 - `docs/api_auto_exploration_technical_article.md` 为用户原未跟踪文章，未读取、未添加提交。

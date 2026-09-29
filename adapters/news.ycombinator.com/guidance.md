@@ -4,7 +4,7 @@ top/best/new/ask/show/jobs 是六个不同的官方榜单；jobs 按来源语义
 
 列表命令保留来源的预取上限：先取 min(limit+10,50) 个条目再过滤已删除（deleted）、已dead 和无标题项，因此 limit 大于 50 时实际也不会超过 50 条；过滤后不足 limit 不补造。空榜单或全部条目不可用时返回明确空结果，不返回空数组冒充成功。
 
-read 的输出首行是 POST（标题 + 自述正文 + 外链），其后是按 L0/L1… 层级缩进的评论；被 limit/depth/replies 截断的分支会输出 [+N more replies] / [+N more top-level comments] 标注。单次调用最多请求 200 个条目（含帖子本身），预算耗尽会输出明确标注行，不会无限展开。deleted/dead/null 的评论会被跳过；个别评论请求失败会计数并在末尾标注，不冒充完整。max-length 截断正文并加省略号标注。id 必须是纯数字，来自上一轮真实返回，不能猜测或拼接。
+read 的输出首行是 POST（标题 + 自述正文 + 外链），其后是按 L0/L1… 层级缩进的评论；被 limit/depth/replies 截断的分支会输出 [+N more replies] / [+N more top-level comments] 标注。单次调用最多请求 200 个条目（含帖子本身），预算耗尽会输出明确标注行，不会无限展开。deleted/dead/null 的评论会被跳过；个别评论请求失败会计数并在末尾标注，不冒充完整。max-length 截断正文并加省略号标注。id 必须是纯数字，来自上一轮真实返回，不能猜测或拼接。POST 与评论的 author/score 缺失时保持 null（未知），真实 0 分保留 0；不把未知补成 0 或 [deleted]，只有 API 自身标记 deleted/dead 的条目才按已删除处理（此类条目直接跳过）。
 
 ## 调用与证据
 

@@ -34,7 +34,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/topstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
     "fixture_status": "fixture_passed",
-    "real_trace": "517c7a99cdb3",
+    "real_trace": "6aba460b5ba8",
     "natural_language_status": "not_run"
   },
   {
@@ -72,7 +72,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/beststories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
     "fixture_status": "fixture_passed",
-    "real_trace": "eebdf17eb4d0",
+    "real_trace": "8fed90066479",
     "natural_language_status": "not_run"
   },
   {
@@ -110,7 +110,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/newstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
     "fixture_status": "fixture_passed",
-    "real_trace": "a306d46aa80b",
+    "real_trace": "d2b3f6f4a783",
     "natural_language_status": "not_run"
   },
   {
@@ -148,7 +148,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/askstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
     "fixture_status": "fixture_passed",
-    "real_trace": "76fe59dcee29",
+    "real_trace": "6f093a62dc79",
     "natural_language_status": "not_run"
   },
   {
@@ -186,7 +186,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/showstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）",
     "fixture_status": "fixture_passed",
-    "real_trace": "d94458b9cb07",
+    "real_trace": "49bd76397a54",
     "natural_language_status": "not_run"
   },
   {
@@ -222,7 +222,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/jobstories.json + item 端点；Extension 后台 API Runner（backend_fetch，禁重定向）；按来源无 score/comments 列",
     "fixture_status": "fixture_passed",
-    "real_trace": "d8aa8a384a7c",
+    "real_trace": "d5a9d351a96b",
     "natural_language_status": "not_run"
   },
   {
@@ -275,7 +275,7 @@
     "blocker": null,
     "data_source": "https://hn.algolia.com/api/v1/search[_by_date]（tags=story）；Extension 后台 API Runner（backend_fetch，参数 URLSearchParams 严格编码）",
     "fixture_status": "fixture_passed",
-    "real_trace": "ecb052eae352",
+    "real_trace": "90ae658ca8dc",
     "natural_language_status": "not_run"
   },
   {
@@ -333,9 +333,9 @@
     "package": "news.ycombinator.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "https://hacker-news.firebaseio.com/v0/item/<id>.json 树遍历；Extension 后台 API Runner；单次调用条目请求预算 200，预算耗尽/部分失败显式标注",
+    "data_source": "https://hacker-news.firebaseio.com/v0/item/<id>.json 树遍历；Extension 后台 API Runner；单次调用条目请求预算 200，预算耗尽/部分失败显式标注；缺 author/score 输出 null（未知），真实 0 分保留，不补造 [deleted]",
     "fixture_status": "fixture_passed",
-    "real_trace": "aabddf036f32",
+    "real_trace": "581321959193",
     "natural_language_status": "not_run"
   },
   {
@@ -370,7 +370,7 @@
     "blocker": null,
     "data_source": "https://hacker-news.firebaseio.com/v0/user/<name>.json；用户名格式校验并 encodeURIComponent；不存在返回明确空结果",
     "fixture_status": "fixture_passed",
-    "real_trace": "344606c9715d",
+    "real_trace": "cb7645234c41（公开账号，字段映射核验；账号与资料内容不入库）",
     "natural_language_status": "not_run"
   },
   {
@@ -409,9 +409,9 @@
     "package": "36kr.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "页面 DOM：catalog 走 /hot-list/catalog，renqi/zonghe/shoucang 走 /hot-list/<type>/<UTC+8 当日>/1；宿主导航续执行；行附 type/board/board_url",
+    "data_source": "页面 DOM：catalog 走 /hot-list/catalog 聚合页（行属 .list-section-wrapper 分区并按真实分区标注 board/board_url），renqi/zonghe/shoucang 走 /hot-list/<type>/<UTC+8 当日>/1；宿主导航续执行；结果仅取经 2026-09-29 真实 DOM 核验的榜单区域，页面标题须含请求榜单名；全页其他 /p/ 链接不算结果；区域渲染无条目才报空",
     "fixture_status": "fixture_passed",
-    "real_trace": "ba407982df3b, 2011130725fc",
+    "real_trace": "812a2b2e7d97, f6e4538e7dbe, f2deefdbf036, 07076a7735ea",
     "natural_language_status": "not_run"
   },
   {
@@ -445,9 +445,9 @@
     "package": "36kr.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "https://www.36kr.com/feed RSS；Extension 后台 API Runner（backend_fetch）；summary 为前 120 字符摘要；HTTP 失败明确报错（来源返回空数组的行为未保留）",
+    "data_source": "https://www.36kr.com/feed RSS；Extension 后台 API Runner（backend_fetch）；summary 为前 120 字符摘要；title 解 CDATA/实体；date 为标准 pubDate 解析的完整 ISO 8601（缺失/非法为 null）；HTTP 失败、HTTP 200 但 HTML/畸形文档报接口/解析错误，合法空通道才报空（来源返回空数组的行为未保留）",
     "fixture_status": "fixture_passed",
-    "real_trace": "6719af0ceb96",
+    "real_trace": "089dc616530e",
     "natural_language_status": "not_run"
   },
   {
@@ -487,9 +487,9 @@
     "package": "36kr.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "页面 DOM：/search/articles/<encodeURIComponent(query)>；宿主导航续执行；渲染超时与空结果分别报错",
+    "data_source": "页面 DOM：/search/articles/<encodeURIComponent(query)>；宿主导航续执行；结果仅取 kr-search-result-list-main 文章卡（2026-09-29 真实 DOM 核验），无全页回退；以页面 .kr-search-nodata 为唯一真实空态证据；区域未就绪/结构异常分别报错；当前卡片无日期元素，date 为空串",
     "fixture_status": "fixture_passed",
-    "real_trace": "76e428975b42",
+    "real_trace": "486c6a944e00（命中）, 5c4bddd17ae2（真实空态）",
     "natural_language_status": "not_run"
   },
   {
@@ -521,9 +521,9 @@
     "package": "36kr.com",
     "migration_status": "implemented_real_read_passed",
     "blocker": null,
-    "data_source": "页面 DOM：/p/<id>（来源声明 INTERCEPT 但实际只读 DOM，未保留拦截器）；正文截断 800 字符并附 body_length/body_truncated/content_status；ID 严格校验，不从混杂字符串猜数字",
+    "data_source": "页面 DOM：/p/<id>（来源声明 INTERCEPT 但实际只读 DOM，未保留拦截器）；正文截断 800 字符并附 body_length/body_truncated/content_status；ID 严格校验（仅 36kr.com/www.36kr.com https 完整 /p/<纯数字> 路径或安全整数，允许尾斜杠/查询/hash），url 规范化为 https://www.36kr.com/p/<id>",
     "fixture_status": "fixture_passed",
-    "real_trace": "3b39af9d7b6d",
+    "real_trace": "412b913d2367",
     "natural_language_status": "not_run"
   }
 ]

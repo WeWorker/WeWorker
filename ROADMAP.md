@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-09-29（审查 round 1 修复）：Codex 审查 wave2 后修复 R1-R6 并重新冻结：36kr hot/search 改为经真实 DOM 核验的榜单/结果区域绑定（页面标题核验榜单、catalog 按真实分区归属、无全页回退、空态需页面证据），HN read 缺 author/score 输出 null 不补造，36kr 文章 ID/URL 锚定官方路径并防精度丢失，RSS 区分 HTML/畸形与合法空且 date 输出完整 ISO，fixture 全部改用占位账号，后续对齐分类改为可复算映射（docs/opencli_clis_alignment_map.json，11+4+164=179）。聚焦测试扩至 68 项、八站+携程回归 157 项、打包/Skill/Profile 8 文件 49/50 项通过（1 项为基线既有 v2-loader 失败）；重新 prepare/bundle 后 13 项全部重跑真实链路（四类榜单+真实空搜索各一次，trace 已更新）。已知：36kr 搜索卡片仍无日期元素；自然语言验收未执行。见 docs/opencli_news_wave2_migration.md。
+
 - 2026-09-29：OpenCLI 新闻类 wave2：新增 Hacker News 9 项与 36氪 4 项公开 v2 包（news.ycombinator.com、36kr.com，全 read），13 项均通过真实 WebCLI→Bridge→Extension 只读调用并记录 trace；HN read 保留树/截断语义并加 200 条目请求预算，36kr article 明示 800 字符截断与完整性口径，hot 四类榜单各走官方路由不降级。新增聚焦测试 57 项、八站+携程回归 157 项、打包/Skill/Profile 122 项通过；公开 prepare 18 包、WebCLI 重建、两包 .adapt 校验通过。36kr 搜索真实页未暴露日期保持空串；客户端自然语言验收未执行；extension-v2-loader 有 1 项基线既有失败未处理。见 docs/opencli_news_wave2_migration.md 与 13 项机器可读清单、后续对齐路线。
 
 - 2026-09-29：继续处理 BOSS 搜索与 12306 订单。BOSS 0.1.1 显式主世界只读请求及跨页/城市/学历经验筛选真实通过；12306 0.1.1 修复旧登录页误报，核验服务器会话与官方订单页后，成功响应无 data 的真实空状态已通过；不等于未出行/历史订单为空，有订单提取仍待验证。两站及导航聚焦116项通过；未修改内部仓库或执行业务写操作。

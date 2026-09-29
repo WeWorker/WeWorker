@@ -12,7 +12,7 @@
     const api = window.__kr36;
     const articleId = api.parseArticleId(args.id);
     if (!articleId) {
-      throw new api.ArgumentError('Invalid article ID or URL; pass a numeric 36kr article id or an https://www.36kr.com/p/<id> URL');
+      throw new api.ArgumentError('Invalid article ID or URL; pass a numeric 36kr article id or an https://www.36kr.com/p/<id> URL (the whole path must be /p/<digits>)');
     }
     const target = 'https://www.36kr.com/p/' + articleId;
     if (!api.same(target)) return api.navigate(target);
@@ -45,7 +45,7 @@
       { field: 'title', value: title },
       { field: 'author', value: author || '' },
       { field: 'date', value: date || '' },
-      { field: 'url', value: 'https://36kr.com/p/' + articleId },
+      { field: 'url', value: 'https://www.36kr.com/p/' + articleId },
       { field: 'body', value: fullText.slice(0, api.ARTICLE_BODY_MAX_CHARS) },
       { field: 'body_length', value: fullText.length },
       { field: 'body_truncated', value: truncated },

@@ -3,7 +3,9 @@
  * Modified for WeWorker v2: background API execution through the restricted
  * backend_fetch helper (declared API hosts, manual redirects, redacted traces),
  * strict argument/ID validation and a bounded per-invocation item request budget.
- * No OpenCLI runtime or pipeline engine is reused. */
+ * Absent fields (author/score) stay null — unknown is never rewritten into a
+ * fabricated 0 or "[deleted]"; deletion is only claimed for items the API
+ * itself marks deleted. No OpenCLI runtime or pipeline engine is reused. */
 (function () {
   class CliError extends Error {
     constructor(code, message) { super(message); this.code = code; }
@@ -189,8 +191,11 @@
     if (story.url) storyParts.push('\n' + story.url);
     results.push({
       type: 'POST',
-      author: story.by || '[deleted]',
-      score: story.score ?? 0,
+      /* Missing by/score stay null (unknown); a real 0 score is preserved.
+       * "[deleted]" is only used when the API itself reports deleted items,
+       * and those are skipped before rendering. */
+      author: story.by ?? null,
+      score: typeof story.score === 'number' ? story.score : null,
       text: storyParts.join('').trim(),
     });
 
@@ -202,7 +207,9 @@
         : bodyText;
       results.push({
         type: depth === 0 ? 'L0' : 'L' + depth,
-        author: node.by || '[deleted]',
+        /* Missing author stays null (unknown); deleted/dead comments are
+         * skipped above, so absence here never implies deletion. */
+        author: node.by ?? null,
         score: '',
         text: indentLines(truncated, depth),
       });
@@ -272,7 +279,7 @@
   async function userProfile(args) {
     const username = typeof args.username === 'string' ? args.username.trim() : '';
     if (!HN_USERNAME_RE.test(username)) {
-      throw new ArgumentError('Invalid HN username: ' + JSON.stringify(args.username ?? '') + '; pass the account name like pg');
+      throw new ArgumentError('Invalid HN username: ' + JSON.stringify(args.username ?? '') + '; pass the account name like example-user');
     }
     const payload = await fetchJson('https://hacker-news.firebaseio.com/v0/user/' + encodeURIComponent(username) + '.json');
     if (!payload || typeof payload !== 'object' || !payload.id) {

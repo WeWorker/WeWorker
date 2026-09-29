@@ -1,0 +1,1119 @@
+{
+  "source_repo": "jackwener/OpenCLI",
+  "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+  "source_dir": "clis/",
+  "generated_from": [
+    "directory names under clis/ of the reference checkout at the fixed commit (helper entries starting with _ such as _shared/_atlassian and the test-utils.js file are not sites)",
+    "directory listing of adapters/ in this repository (the actual public root packages)",
+    "per-site migration records docs/opencli_batch_migration.md + docs/opencli_news_wave2_migration.md for the migrated/unaligned classifications"
+  ],
+  "note": "Categories are mutually exclusive and computed only from directory evidence: which clis sites exist and which WeWorker v2 packages exist. migrated_from_opencli additionally cites the per-site migration records. suspected_app_or_desktop is a name-level annotation for gap planning only — those implementations were NOT read and no desktop/app claim is made.",
+  "categories": {
+    "migrated_from_opencli": 11,
+    "package_exists_unaligned": 4,
+    "no_package": 164,
+    "total": 179
+  },
+  "sites": [
+    {
+      "site": "12306",
+      "category": "migrated_from_opencli",
+      "package": "12306.cn",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "1688",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "1point3acres",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "36kr",
+      "category": "migrated_from_opencli",
+      "package": "36kr.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "51job",
+      "category": "migrated_from_opencli",
+      "package": "51job.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "aibase",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "amazon",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "antigravity",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "apple-podcasts",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "archive",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "arxiv",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "autohome",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "baidu-scholar",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "band",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "barchart",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "bbc",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "bilibili",
+      "category": "package_exists_unaligned",
+      "package": "bilibili.com",
+      "alignment_status": "package_predates_opencli_batch_command_alignment_not_inventoried"
+    },
+    {
+      "site": "binance",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "bloomberg",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "bluesky",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "booking",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "boss",
+      "category": "migrated_from_opencli",
+      "package": "zhipin.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "brave",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "chaoxing",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "chatgpt",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "chatgpt-app",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "chatwise",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "chess",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "claude",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "cnki",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "codex",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "coingecko",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "confluence",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "coupang",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "crates",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "ctrip",
+      "category": "migrated_from_opencli",
+      "package": "ctrip.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "cursor",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "dblp",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "deepseek",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "defillama",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "devto",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "dianping",
+      "category": "migrated_from_opencli",
+      "package": "dianping.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "dictionary",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "discord-app",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "dockerhub",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "dongchedi",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "douban",
+      "category": "migrated_from_opencli",
+      "package": "douban.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "doubao",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "doubao-app",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "douyin",
+      "category": "migrated_from_opencli",
+      "package": "douyin.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "dribbble",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "duckduckgo",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "eastmoney",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "endoflife",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "facebook",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "flathub",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "flomo",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "gemini",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "geogebra",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "gitee",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "github",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "github-trending",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "gmail",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "google",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "google-scholar",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "goproxy",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "gov-law",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "gov-policy",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "grok",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "guazi",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "hackernews",
+      "category": "migrated_from_opencli",
+      "package": "news.ycombinator.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "hf",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "hltv",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "homebrew",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "huodongxing",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "hupu",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "imdb",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "indeed",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "instagram",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "jd",
+      "category": "package_exists_unaligned",
+      "package": "jd.com",
+      "alignment_status": "package_predates_opencli_batch_command_alignment_not_inventoried"
+    },
+    {
+      "site": "jianyu",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "jike",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "jimeng",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "jira",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "juejin",
+      "category": "package_exists_unaligned",
+      "package": "juejin.cn",
+      "alignment_status": "package_predates_opencli_batch_command_alignment_not_inventoried"
+    },
+    {
+      "site": "ke",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "kimi",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "lesswrong",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "lichess",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "linkedin",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "linkedin-learning",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "linux-do",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "lobsters",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "maimai",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "manus",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "maven",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "mdn",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "medium",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "mercury",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "midjourney",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "minimax",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "mubu",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "notebooklm",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "nowcoder",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "npm",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "nuget",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "nvd",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "oeis",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "ones",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "openalex",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "openfda",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "openreview",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "osv",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "packagist",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "paperreview",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "pinterest",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "pixiv",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "powerchina",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "producthunt",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "pubmed",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "pypi",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "qoder",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "quark",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "qwen",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "reddit",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "rednote",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "rest-countries",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "reuters",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "rfc",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "rubygems",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "semanticscholar",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "sinablog",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "sinafinance",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "slock",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "smzdm",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "spotify",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "stackoverflow",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "steam",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "substack",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "suno",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "taobao",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "tdx",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "ths",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "tieba",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "tiktok",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "toutiao",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "trae-cn",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "trae-solo",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "trip",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "tvmaze",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "twitter",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "uisdc",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "uiverse",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "upwork",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "v2ex",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "wanfang",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "web",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "wechat-channels",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "weibo",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "weixin",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "weread",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "weread-official",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "wikidata",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "wikipedia",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "wttr",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "xianyu",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "xiaoe",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "xiaohongshu",
+      "category": "package_exists_unaligned",
+      "package": "xiaohongshu.com",
+      "alignment_status": "package_predates_opencli_batch_command_alignment_not_inventoried"
+    },
+    {
+      "site": "xiaoyuzhou",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "xueqiu",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "yahoo",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "yahoo-finance",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "yollomi",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "youdao",
+      "category": "migrated_from_opencli",
+      "package": "note.youdao.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "youtube",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "yuanbao",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package",
+      "suspected_app_or_desktop": "name_level_only_unverified"
+    },
+    {
+      "site": "zhihu",
+      "category": "migrated_from_opencli",
+      "package": "zhihu.com",
+      "alignment_status": "commands_migrated_see_inventory"
+    },
+    {
+      "site": "zlibrary",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    },
+    {
+      "site": "zsxq",
+      "category": "no_package",
+      "package": null,
+      "alignment_status": "not_started_no_package"
+    }
+  ]
+}

@@ -11,19 +11,29 @@ const root = resolve(import.meta.dirname, '../..');
 const sites = ['news.ycombinator.com', '36kr.com'];
 const inventory = JSON.parse(readFileSync(resolve(root, 'docs/opencli_news_wave2_inventory.json'), 'utf8'));
 
-function node(text = '', { one = {}, all = {}, attrs = {}, container = null } = {}) {
+/* Minimal DOM node mock. `parents` is the ancestor chain (nearest first) used
+ * by closest(); `.cls` selectors match any whitespace-separated class. */
+function matchesClassSelector(el, selector) {
+  if (!el || typeof selector !== 'string') return false;
+  const classes = String(selector).split(',').flatMap((part) => part.trim().split(/\s+/));
+  const own = String(el.className || '').split(/\s+/);
+  return classes.every((cls) => !cls.startsWith('.') || own.includes(cls.slice(1)));
+}
+
+function node(text = '', { one = {}, all = {}, attrs = {}, className = '', parents = [] } = {}) {
   return {
     textContent: text,
     innerText: text,
+    className,
+    parentElement: parents[0] || null,
     querySelector: (selector) => one[selector] || selector.split(',').map((part) => one[part.trim()]).find(Boolean) || null,
     querySelectorAll: (selector) => all[selector] || selector.split(',').flatMap((part) => all[part.trim()] || []),
     getAttribute: (name) => attrs[name] ?? null,
-    closest: (selector) => (container && selector.includes('article-item') ? container : null),
-    parentElement: null,
+    closest: (selector) => parents.find((parent) => matchesClassSelector(parent, selector)) || null,
   };
 }
 
-function setup(site, { url, payload = {}, bodyText = '', one = {}, all = {}, privileged } = {}) {
+function setup(site, { url, payload = {}, bodyText = '', title = '', one = {}, all = {}, privileged } = {}) {
   const pkg = validateV2AdapterDir(resolve(root, 'adapters', site));
   const handlers = new Map(), requests = [], calls = [];
   const location = new URL(url || 'https://' + pkg.manifest.match[0] + '/');
@@ -34,7 +44,7 @@ function setup(site, { url, payload = {}, bodyText = '', one = {}, all = {}, pri
     console, location,
     document: {
       body: { innerText: bodyText },
-      title: '',
+      title,
       querySelector: (selector) => one[selector] || selector.split(',').map((part) => one[part.trim()]).find(Boolean) || null,
       querySelectorAll: (selector) => all[selector] || selector.split(',').flatMap((part) => all[part.trim()] || []),
     },
@@ -224,8 +234,8 @@ describe('Hacker News search', () => {
 
 describe('Hacker News read', () => {
   const tree = new Map([
-    ['123', { id: 123, type: 'story', by: 'pg', score: 42, title: 'Ask HN: Example', text: '<p>Hello <a href="https://example.com">world</a></p>', url: 'https://news.ycombinator.com/item?id=123', kids: [456] }],
-    ['456', { id: 456, type: 'comment', by: 'sama', text: '<p>Top level</p>', kids: [789] }],
+    ['123', { id: 123, type: 'story', by: 'hn-fix-author', score: 42, title: 'Ask HN: Example', text: '<p>Hello <a href="https://example.com">world</a></p>', url: 'https://news.ycombinator.com/item?id=123', kids: [456] }],
+    ['456', { id: 456, type: 'comment', by: 'hn-fix-replier', text: '<p>Top level</p>', kids: [789] }],
   ]);
   const treeSetup = (map = tree) => setup('news.ycombinator.com', {
     payload: (url) => map.get(url.match(/item\/(\d+)\.json$/)?.[1]) ?? null,
@@ -234,10 +244,25 @@ describe('Hacker News read', () => {
   it('renders the story header, indented comments and hidden-reply stubs from the source fixture', async () => {
     const rows = await treeSetup().run('read', { id: '123', limit: 5, depth: 1, replies: 5, 'max-length': 2000 });
     expect(rows).toEqual([
-      { type: 'POST', author: 'pg', score: 42, text: 'Ask HN: Example\nHello world (https://example.com)\nhttps://news.ycombinator.com/item?id=123' },
-      { type: 'L0', author: 'sama', score: '', text: 'Top level' },
+      { type: 'POST', author: 'hn-fix-author', score: 42, text: 'Ask HN: Example\nHello world (https://example.com)\nhttps://news.ycombinator.com/item?id=123' },
+      { type: 'L0', author: 'hn-fix-replier', score: '', text: 'Top level' },
       { type: 'L1', author: '', score: '', text: '  [+1 more replies]' },
     ]);
+  });
+
+  it('keeps absent author/score unknown instead of fabricating 0 or [deleted]', async () => {
+    const minimal = new Map([
+      ['1', { id: 1, type: 'story', title: 'Minimal fixture story', kids: [2] }],
+      ['2', { id: 2, type: 'comment', text: 'comment without author' }],
+    ]);
+    const rows = await treeSetup(minimal).run('read', { id: '1', limit: 5, depth: 1 });
+    expect(rows[0]).toMatchObject({ type: 'POST', author: null, score: null });
+    expect(rows[0].text).toBe('Minimal fixture story');
+    expect(rows[1]).toMatchObject({ type: 'L0', author: null, text: 'comment without author' });
+    expect(JSON.stringify(rows)).not.toContain('[deleted]');
+    const zeroScore = new Map([['3', { id: 3, type: 'story', title: 'Zero score fixture', score: 0 }]]);
+    const zero = await treeSetup(zeroScore).run('read', { id: '3' });
+    expect(zero[0]).toMatchObject({ type: 'POST', score: 0, author: null });
   });
 
   it('rejects non-numeric ids and missing/deleted stories before walking the tree', async () => {
@@ -329,10 +354,10 @@ describe('Hacker News read', () => {
 describe('Hacker News user', () => {
   it('maps the public profile and reports missing users explicitly', async () => {
     const s = setup('news.ycombinator.com', {
-      payload: (url) => url.endsWith('/user/pg.json') ? { id: 'pg', created: 1160418111, karma: 1, about: '<i>hi</i>' } : null,
+      payload: (url) => url.endsWith('/user/fixture-user.json') ? { id: 'fixture-user', created: 1160418111, karma: 1, about: '<i>hi</i>' } : null,
     });
-    expect(await s.run('user', { username: 'pg' })).toEqual({ username: 'pg', karma: 1, created: '2006-10-09', about: '<i>hi</i>' });
-    expect(s.requests[0].url).toBe('https://hacker-news.firebaseio.com/v0/user/pg.json');
+    expect(await s.run('user', { username: 'fixture-user' })).toEqual({ username: 'fixture-user', karma: 1, created: '2006-10-09', about: '<i>hi</i>' });
+    expect(s.requests[0].url).toBe('https://hacker-news.firebaseio.com/v0/user/fixture-user.json');
     const missing = setup('news.ycombinator.com', { payload: () => null });
     await expect(missing.run('user', { username: 'nobody' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
   });
@@ -355,6 +380,26 @@ describe('Hacker News user', () => {
     expect(await s.run('top', args)).toHaveLength(5);
   });
 });
+
+/* ---- 36kr helpers: board rows wrapped like the verified live DOM ---- */
+function boardWrapper(title, href, className = 'article-wrapper') {
+  const titleLink = node(title, { attrs: { href }, className: 'article-item-title weight-bold' });
+  return node('', { className, one: { '.article-item-title': titleLink } });
+}
+
+function boardList(wrappers, { inSection = false, section = null } = {}) {
+  return node('', { className: 'article-list', all: { '.article-wrapper': wrappers }, parents: inSection && section ? [section] : [] });
+}
+
+function boardSection(labelText, wrappers, boardHref) {
+  const one = { '.list-title': node(labelText, { className: 'list-title' }) };
+  if (boardHref !== null) one['.list-title a[href]'] = node('', { attrs: { href: boardHref } });
+  return node('', { className: 'list-section-wrapper', one, all: { '.article-wrapper': wrappers } });
+}
+
+function boardDate() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
 
 describe('36kr hot board routing', () => {
   it('routes every board type to its own official URL before extraction', async () => {
@@ -386,31 +431,105 @@ describe('36kr hot board routing', () => {
     expect(s.calls).toHaveLength(0);
   });
 
-  it('extracts the rendered board with dedup, board context and limit', async () => {
-    const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10) + '/1';
-    const links = [
-      node('人均榜文章标题一', { attrs: { href: '/p/1001' } }),
-      node('人均榜文章标题一', { attrs: { href: '/p/1001' } }),
-      node('人均榜文章标题二', { attrs: { href: '/p/1002' } }),
-      node('短标题', { attrs: { href: '/p/1003' } }),
-      node('外部链接文字较长', { attrs: { href: 'https://36kr.com/p/1004' } }),
-    ];
-    const s = setup('36kr.com', { url: boardUrl, all: { 'a[href*="/p/"]': links } });
+  it('extracts the dated board from its own list, ignoring sidebar recommendations', async () => {
+    const date = boardDate();
+    const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + date + '/1';
+    const sidebarSection = boardSection('36氪综合榜查看完整榜单', [boardWrapper('侧栏推荐文章标题', '/p/9001')], '/hot-list/zonghe/' + date + '/1');
+    const sidebarList = boardList([boardWrapper('侧栏推荐文章标题', '/p/9001')], { inSection: true, section: sidebarSection });
+    const mainList = boardList([
+      boardWrapper('人气榜文章标题一', '/p/1001'),
+      boardWrapper('人气榜文章标题一', '/p/1001'), // duplicate url collapses
+      boardWrapper('人气榜文章标题二', '/p/1002'),
+    ]);
+    const s = setup('36kr.com', {
+      url: boardUrl,
+      title: '资讯人气榜' + date + '_36氪',
+      all: { '.article-list': [mainList, sidebarList] },
+    });
     const rows = await s.run('hot', { type: 'renqi', limit: '2' });
     expect(rows).toEqual([
-      { rank: 1, title: '人均榜文章标题一', url: 'https://36kr.com/p/1001', type: 'renqi', board: '人气榜', board_url: boardUrl },
-      { rank: 2, title: '人均榜文章标题二', url: 'https://36kr.com/p/1002', type: 'renqi', board: '人气榜', board_url: boardUrl },
+      { rank: 1, title: '人气榜文章标题一', url: 'https://www.36kr.com/p/1001', type: 'renqi', board: '人气榜', board_url: boardUrl },
+      { rank: 2, title: '人气榜文章标题二', url: 'https://www.36kr.com/p/1002', type: 'renqi', board: '人气榜', board_url: boardUrl },
     ]);
   });
 
-  it('distinguishes render timeout from a page whose links cannot be parsed', async () => {
-    const boardUrl = 'https://www.36kr.com/hot-list/catalog';
+  it('attributes catalog rows to the board section they actually come from', async () => {
+    const date = boardDate();
+    const sections = [
+      boardSection('36氪人气榜查看完整榜单', [boardWrapper('人气榜分区内文章', '/p/1001'), boardWrapper('人气榜分区第二篇', '/p/1002')], '/hot-list/renqi/' + date + '/1'),
+      boardSection('36氪综合榜查看完整榜单', [boardWrapper('人气榜分区内文章', '/p/1001'), boardWrapper('综合榜分区内文章', '/p/2001')], '/hot-list/zonghe/' + date + '/1'),
+      boardSection('36氪研究院精选', [boardWrapper('未知分区文章不应入选', '/p/7001')], null),
+    ];
+    const s = setup('36kr.com', {
+      url: 'https://www.36kr.com/hot-list/catalog',
+      title: '36氪资讯热榜频道_36氪',
+      all: { '.list-section-wrapper': sections },
+    });
+    const rows = await s.run('hot', { type: 'catalog', limit: '4' });
+    expect(rows).toEqual([
+      { rank: 1, title: '人气榜分区内文章', url: 'https://www.36kr.com/p/1001', type: 'catalog', board: '人气榜', board_url: 'https://www.36kr.com/hot-list/renqi/' + date + '/1' },
+      { rank: 2, title: '人气榜分区第二篇', url: 'https://www.36kr.com/p/1002', type: 'catalog', board: '人气榜', board_url: 'https://www.36kr.com/hot-list/renqi/' + date + '/1' },
+      /* The same article legitimately appears again as a real row of 综合榜. */
+      { rank: 3, title: '人气榜分区内文章', url: 'https://www.36kr.com/p/1001', type: 'catalog', board: '综合榜', board_url: 'https://www.36kr.com/hot-list/zonghe/' + date + '/1' },
+      { rank: 4, title: '综合榜分区内文章', url: 'https://www.36kr.com/p/2001', type: 'catalog', board: '综合榜', board_url: 'https://www.36kr.com/hot-list/zonghe/' + date + '/1' },
+    ]);
+  });
+
+  it('fails on a page whose board sections are all unrecognized', async () => {
+    const s = setup('36kr.com', {
+      url: 'https://www.36kr.com/hot-list/catalog',
+      title: '36氪资讯热榜频道_36氪',
+      all: { '.list-section-wrapper': [boardSection('36氪研究院精选', [boardWrapper('未知分区文章', '/p/7001')], null)] },
+    });
+    await expect(s.run('hot', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('no recognized board section') });
+  });
+
+  it('never treats page-wide recommendation links as a board (full page with only recommendations)', async () => {
+    const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + boardDate() + '/1';
+    const recommendations = { 'a[href*="/p/"]': [node('一条与榜单无关的推荐内容标题', { attrs: { href: '/p/9999' } })] };
+    const s = setup('36kr.com', { url: boardUrl, title: '资讯人气榜' + boardDate() + '_36氪', all: recommendations });
+    await expect(s.run('hot', { type: 'renqi' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('board area was not found') });
+    const catalog = setup('36kr.com', { url: 'https://www.36kr.com/hot-list/catalog', title: '36氪资讯热榜频道_36氪', all: recommendations });
+    await expect(catalog.run('hot', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('board area was not found') });
+  });
+
+  it('reports a genuinely empty rendered board as an empty result', async () => {
+    const date = boardDate();
+    const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + date + '/1';
+    const s = setup('36kr.com', { url: boardUrl, title: '资讯人气榜' + date + '_36氪', all: { '.article-list': [boardList([])] } });
+    await expect(s.run('hot', { type: 'renqi' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
+  });
+
+  it('distinguishes a not-yet-rendered board from unparseable rows', async () => {
+    const date = boardDate();
+    const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + date + '/1';
     const timeout = setup('36kr.com', { url: boardUrl, all: {} });
-    await expect(timeout.run('hot', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('did not render') });
-    const unparsable = setup('36kr.com', { url: boardUrl, all: { 'a[href*="/p/"]': [node('ab', { attrs: { href: '/p/1' } })] } });
-    await expect(unparsable.run('hot', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('Could not retrieve') });
-    const captcha = setup('36kr.com', { url: boardUrl, all: { 'a[href*="/p/"]': [node('一个标题', { attrs: { href: '/p/1' } })] }, bodyText: '请完成安全验证' });
-    await expect(captcha.run('hot', {})).rejects.toMatchObject({ code: 'CAPTCHA_REQUIRED' });
+    await expect(timeout.run('hot', { type: 'renqi' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('did not render') });
+    const brokenRows = boardList([
+      boardWrapper('', '/p/1001'), // no title text
+      boardWrapper('有标题但外域链接', 'https://example.com/p/1002'),
+    ]);
+    const unparsable = setup('36kr.com', { url: boardUrl, title: '资讯人气榜' + date + '_36氪', all: { '.article-list': [brokenRows] } });
+    await expect(unparsable.run('hot', { type: 'renqi' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('Could not parse') });
+    const captcha = setup('36kr.com', {
+      url: boardUrl, title: '资讯人气榜' + date + '_36氪',
+      all: { '.article-list': [boardList([boardWrapper('人气榜文章标题一', '/p/1001')])] },
+      bodyText: '请完成安全验证',
+    });
+    await expect(captcha.run('hot', { type: 'renqi' })).rejects.toMatchObject({ code: 'CAPTCHA_REQUIRED' });
+  });
+
+  it('refuses to relabel a rendered page whose board differs from the request', async () => {
+    const date = boardDate();
+    const boardUrl = 'https://www.36kr.com/hot-list/renqi/' + date + '/1';
+    const mainList = boardList([boardWrapper('综合榜内容文章', '/p/3001')]);
+    const s = setup('36kr.com', { url: boardUrl, title: '资讯综合榜' + date + '_36氪', all: { '.article-list': [mainList] } });
+    await expect(s.run('hot', { type: 'renqi' })).rejects.toMatchObject({
+      code: 'COMMAND_EXEC',
+      message: expect.stringContaining('Requested board 人气榜'),
+    });
+    const untitled = setup('36kr.com', { url: 'https://www.36kr.com/hot-list/catalog', title: '36氪首页', all: { '.list-section-wrapper': [boardSection('36氪人气榜查看完整榜单', [boardWrapper('标题', '/p/1')], null)] } });
+    await expect(untitled.run('hot', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('Requested board 热榜') });
   });
 });
 
@@ -418,9 +537,9 @@ describe('36kr news feed', () => {
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>36氪</title>
 <item>
-  <title>红杉中国领投AI公司「示例」，金额近2亿元</title>
+  <title><![CDATA[红杉中国领投AI公司「示例」 A &amp; B &#65;]]></title>
   <link><![CDATA[https://36kr.com/p/1111111111111111?f=rss]]></link>
-  <pubDate>2026-03-26 10:00:00  +0800</pubDate>
+  <pubDate>Tue, 26 Mar 2026 10:00:00 +0800</pubDate>
   <description><![CDATA[<p>这是描述文本 &amp; 含实体</p>]]></description>
 </item>
 <item>
@@ -431,71 +550,118 @@ describe('36kr news feed', () => {
 <item>
   <title>马斯克旗下xAI估值突破1000亿美元</title>
   <link><![CDATA[https://36kr.com/p/3333333333333333?f=rss]]></link>
-  <pubDate>2026-03-25 20:00:00  +0800</pubDate>
+  <pubDate>这不是一个日期</pubDate>
 </item>
 </channel></rss>`;
 
-  it('parses ranked RSS items with 120-character summaries', async () => {
+  it('parses ranked RSS items with full dates, CDATA and entities', async () => {
     const s = setup('36kr.com', { payload: rss });
     const rows = await s.run('news', { limit: '2' });
     expect(rows).toHaveLength(2);
     expect(rows[0]).toEqual({
       rank: 1,
-      title: '红杉中国领投AI公司「示例」，金额近2亿元',
+      title: '红杉中国领投AI公司「示例」 A & B A',
       summary: '这是描述文本 & 含实体',
-      date: '2026-03-26',
+      date: '2026-03-26T02:00:00.000Z',
       url: 'https://36kr.com/p/1111111111111111?f=rss',
     });
+    expect(rows[1].date).toBe(null); // invalid pubDate stays unknown instead of being guessed
     expect(s.requests[0].url).toBe('https://www.36kr.com/feed');
     expect(s.requests[0].options.headers['User-Agent']).toContain('WeWorker-WebCLI');
     expect(s.requests[0].browserFallback).toBe(false);
     expect(s.requests[0].redactBodyInTrace).toBe(true);
   });
 
-  it('reports HTTP, network and empty-feed failures instead of returning an empty array', async () => {
+  it('accepts the simplified feed-style pubDate and emits the full timestamp', async () => {
+    const feed = '<rss version="2.0"><channel><item><title>示例资讯</title><link>https://36kr.com/p/4444444444444444</link><pubDate>2026-03-26 09:00:00 +0800</pubDate></item></channel></rss>';
+    const s = setup('36kr.com', { payload: feed });
+    expect(await s.run('news', {})).toEqual([
+      { rank: 1, title: '示例资讯', summary: '', date: '2026-03-26T01:00:00.000Z', url: 'https://36kr.com/p/4444444444444444' },
+    ]);
+  });
+
+  it('separates interface failures (HTTP 200 HTML / malformed XML) from a genuinely empty feed', async () => {
     const http = setup('36kr.com', { payload: rss, privileged: () => ({ ok: false, status: 503, url: 'https://www.36kr.com/feed', body: '' }) });
     await expect(http.run('news', {})).rejects.toMatchObject({ code: 'HTTP_ERROR' });
     const network = setup('36kr.com', { payload: () => { throw new TypeError('network unavailable'); } });
     await expect(network.run('news', {})).rejects.toMatchObject({ code: 'FETCH_ERROR' });
-    const empty = setup('36kr.com', { payload: '<?xml version="1.0"?><rss><channel></channel></rss>' });
+    const htmlErrorPage = setup('36kr.com', { payload: '<!DOCTYPE html><html><body>upstream error page</body></html>' });
+    await expect(htmlErrorPage.run('news', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('HTML document') });
+    const malformed = setup('36kr.com', { payload: 'not-an-rss-document at all' });
+    await expect(malformed.run('news', {})).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('could not be parsed') });
+    const empty = setup('36kr.com', { payload: '<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>' });
     await expect(empty.run('news', {})).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
     await expect(setup('36kr.com').run('news', { limit: '0' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
   });
 });
 
 describe('36kr search', () => {
+  const target = (query) => 'https://www.36kr.com/search/articles/' + encodeURIComponent(query);
+
   it('encodes the keyword and navigates through the official search route', async () => {
     const s = setup('36kr.com', { url: 'https://www.36kr.com/' });
     const result = await s.run('search', { query: '人工智能 AI' });
     expect(result).toMatchObject({ __webcli_navigation: { version: 1, resume: true } });
-    expect(result.__webcli_navigation.url).toBe('https://www.36kr.com/search/articles/' + encodeURIComponent('人工智能 AI'));
+    expect(result.__webcli_navigation.url).toBe(target('人工智能 AI'));
     expect(s.calls).toHaveLength(0);
     await expect(setup('36kr.com').run('search', { query: ' ' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
   });
 
-  it('extracts titled cards with dates and falls back to generic article links', async () => {
-    const target = 'https://www.36kr.com/search/articles/' + encodeURIComponent('人工智能');
-    const dateNode = node('2026-03-26');
-    const card = node('', { one: { '[class*="time"]': dateNode } });
-    const titled = node('AI 芯片新进展', { attrs: { href: '/p/2001' }, container: card });
-    const s = setup('36kr.com', { url: target, all: { '.article-item-title a[href*="/p/"]': [titled], 'a[href*="/p/"]': [titled] } });
-    expect(await s.run('search', { query: '人工智能', limit: '1' })).toEqual([
-      { rank: 1, title: 'AI 芯片新进展', date: '2026-03-26', url: 'https://36kr.com/p/2001' },
-    ]);
-
-    const generic = node('一篇足够长的通用文章标题', { attrs: { href: '/p/2002' } });
-    const fallback = setup('36kr.com', { url: target, all: { 'a[href*="/p/"]': [generic] } });
-    expect(await fallback.run('search', { query: '人工智能' })).toEqual([
-      { rank: 1, title: '一篇足够长的通用文章标题', date: '', url: 'https://36kr.com/p/2002' },
+  it('extracts only cards from the trusted result list and skips invalid links', async () => {
+    const cards = [
+      node('AI 芯片新进展', { attrs: { href: '/p/2001' }, className: 'article-item-title weight-bold' }),
+      node('外站链接不应入选', { attrs: { href: 'https://example.com/p/9999' }, className: 'article-item-title' }),
+      node('协议相对链接不应入选', { attrs: { href: '//example.org/p/8888' }, className: 'article-item-title' }),
+      node('AI 芯片新进展', { attrs: { href: '/p/2001' }, className: 'article-item-title weight-bold' }), // duplicate url
+    ];
+    const s = setup('36kr.com', {
+      url: target('人工智能'),
+      one: { '.kr-search-result-list': node('', { className: 'kr-search-result-list' }) },
+      all: {
+        '.kr-search-result-list-main .article-item-title': cards,
+        'a[href*="/p/"]': [node('与搜索无关的推荐文章标题', { attrs: { href: '/p/7007' } })],
+      },
+    });
+    expect(await s.run('search', { query: '人工智能', limit: '5' })).toEqual([
+      { rank: 1, title: 'AI 芯片新进展', date: '', url: 'https://www.36kr.com/p/2001' },
     ]);
   });
 
-  it('distinguishes render timeout from a rendered page without matches', async () => {
-    const target = 'https://www.36kr.com/search/articles/fixture';
-    const timeout = setup('36kr.com', { url: target, all: {}, one: {} });
+  it('treats the page no-result notice as the only genuine empty state', async () => {
+    const s = setup('36kr.com', {
+      url: target('不存在的词条'),
+      one: { '.kr-search-result-list': node('', { className: 'kr-search-result-list', one: { '.kr-search-nodata': node('很抱歉，没有找到相关结果') } }) },
+      all: {},
+    });
+    await expect(s.run('search', { query: '不存在的词条' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
+  });
+
+  it('fails on a result area that has neither cards nor a no-result notice (never empty)', async () => {
+    const s = setup('36kr.com', {
+      url: target('异常'),
+      one: { '.kr-search-result-list': node('', { className: 'kr-search-result-list' }) },
+      all: {},
+    });
+    await expect(s.run('search', { query: '异常' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('did not render') });
+  });
+
+  it('never treats page-wide recommendation links as search results', async () => {
+    const s = setup('36kr.com', {
+      url: target('任意'),
+      all: { 'a[href*="/p/"]': [node('一条与结果无关的推荐内容标题', { attrs: { href: '/p/9998' } })] },
+    });
+    await expect(s.run('search', { query: '任意' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('without the trusted result area') });
+  });
+
+  it('reports a render timeout and an inconsistent page separately', async () => {
+    const timeout = setup('36kr.com', { url: target('fixture'), all: {}, one: {} });
     await expect(timeout.run('search', { query: 'fixture' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('did not render') });
-    const rendered = setup('36kr.com', { url: target, one: { '.search-result': node('结果区域') }, all: {} });
-    await expect(rendered.run('search', { query: 'fixture' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
+    const inconsistent = setup('36kr.com', {
+      url: target('fixture'),
+      one: { '.kr-search-result-list': node('', { className: 'kr-search-result-list', one: { '.kr-search-nodata': node('很抱歉') } }) },
+      all: { '.kr-search-result-list-main .article-item-title': [node('结果标题', { attrs: { href: '/p/3001' } })] },
+    });
+    await expect(inconsistent.run('search', { query: 'fixture' })).rejects.toMatchObject({ code: 'COMMAND_EXEC', message: expect.stringContaining('both results and a no-result notice') });
   });
 });
 
@@ -514,15 +680,45 @@ describe('36kr article', () => {
     },
   };
 
-  it('accepts numeric ids and 36kr /p/ URLs, rejecting guessed or foreign input', async () => {
+  it('accepts numeric ids and strict official /p/ URLs only', async () => {
     const s = setup('36kr.com', { url: articleUrl, one: articleDom.one, all: articleDom.all });
     await s.run('article', { id: '1234567' });
     await s.run('article', { id: 'https://www.36kr.com/p/1234567?from=fixture' });
+    await s.run('article', { id: 'https://36kr.com/p/1234567/' });
+    await s.run('article', { id: 'https://www.36kr.com/p/1234567#section' });
     const foreign = setup('36kr.com');
-    for (const id of ['https://example.com/p/1234567', 'not-a-url', 'abc123', 'https://user:pass@www.36kr.com/p/1234567', '']) {
+    for (const id of [
+      'https://www.36kr.com/p/123abc',   // trailing junk after digits
+      'https://www.36kr.com/foo/p/123',  // non-article path containing /p/
+      'https://example.com/p/1234567',   // foreign host
+      'https://m.36kr.com/p/1234567',    // unofficial 36kr subdomain
+      'https://sub.36kr.com/p/1234567',
+      'http://www.36kr.com/p/1234567',   // non-https protocol
+      'https://user:pass@www.36kr.com/p/1234567',
+      '//www.36kr.com/p/1234567',        // protocol-relative
+      'not-a-url', 'abc123', '',
+      '0123456',                          // leading zero
+      '123456789012345678',               // too long for a safe integer
+    ]) {
       await expect(foreign.run('article', { id })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
     }
     expect(foreign.calls).toHaveLength(0);
+  });
+
+  it('canonicalizes board and search links, rejecting foreign or partial ones', () => {
+    const s = setup('36kr.com');
+    const api = s.context.__kr36;
+    expect(api.normalizeArticleUrl('/p/2001')).toBe('https://www.36kr.com/p/2001');
+    expect(api.normalizeArticleUrl('https://36kr.com/p/1004?from=hot')).toBe('https://www.36kr.com/p/1004');
+    expect(api.normalizeArticleUrl('https://www.36kr.com/p/1004/')).toBe('https://www.36kr.com/p/1004');
+    expect(api.normalizeArticleUrl('//example.org/p/1')).toBe(null);
+    expect(api.normalizeArticleUrl('https://example.com/p/9')).toBe(null);
+    expect(api.normalizeArticleUrl('/p/123abc')).toBe(null);
+    expect(api.normalizeArticleUrl('/newsflashes/123')).toBe(null);
+    expect(api.normalizeArticleUrl('')).toBe(null);
+    expect(api.parseArticleId('https://www.36kr.com/p/123abc')).toBe(null);
+    expect(api.parseArticleId('https://www.36kr.com/foo/p/123')).toBe(null);
+    expect(api.parseArticleId('https://www.36kr.com/p/123/')).toBe('123');
   });
 
   it('navigates to the article page before extraction', async () => {
@@ -538,7 +734,7 @@ describe('36kr article', () => {
     expect(byField.title).toBe('示例文章标题');
     expect(byField.author).toBe('示例作者');
     expect(byField.date).toBe('2026-03-26 10:00');
-    expect(byField.url).toBe('https://36kr.com/p/1234567');
+    expect(byField.url).toBe('https://www.36kr.com/p/1234567');
     expect(byField.body.length).toBe(800);
     expect(byField.body_length).toBeGreaterThan(800);
     expect(byField.body_truncated).toBe(true);

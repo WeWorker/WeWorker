@@ -20,7 +20,7 @@
       "runtime": "extension",
       "module": "extension/commands/hot.js",
       "routeDomain": "www.36kr.com",
-      "description": "读取 36氪热榜：catalog=热门资讯（默认），renqi=人气榜、zonghe=综合榜、shoucang=收藏榜按当日（UTC+8）日期访问对应官方榜单页。每行附 type/board/board_url 供核对，不会用其他榜单冒充。",
+      "description": "读取 36氪热榜：catalog=热门资讯聚合页（默认），renqi=人气榜、zonghe=综合榜、shoucang=收藏榜按当日（UTC+8）日期访问对应官方榜单页。结果仅取经真实 DOM 核验的榜单区域，页面标题须与请求榜单一致；catalog 聚合页每行 board/board_url 标注真实所属分区。不会用其他榜单或全页推荐链接冒充。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -51,7 +51,7 @@
       "runtime": "extension",
       "module": "extension/commands/news.js",
       "routeDomain": "www.36kr.com",
-      "description": "读取 36氪官方 RSS 最新资讯；summary 为描述的前 120 字符摘要，不代表全文。HTTP 失败会明确报错，不返回空列表冒充成功。",
+      "description": "读取 36氪官方 RSS 最新资讯；summary 为描述的前 120 字符摘要，不代表全文；date 为按标准 pubDate 解析的完整 ISO 8601 时间（缺失/非法为 null）。HTTP 失败、HTTP 200 但 HTML/畸形文档、合法空 feed 分别明确区分，不返回空列表冒充成功。",
       "safety": "read",
       "execution": {
         "type": "api",
@@ -75,7 +75,7 @@
       "runtime": "extension",
       "module": "extension/commands/search.js",
       "routeDomain": "www.36kr.com",
-      "description": "在 36氪站内搜索文章；关键词严格 URL 编码。渲染超时、无匹配与页面异常分别明确报错，date 缺失时为空串。",
+      "description": "在 36氪站内搜索文章；关键词严格 URL 编码。结果仅取结果区域 kr-search-result-list-main 的文章卡片；页面自带无结果提示才报空，区域未就绪/结构异常分别报错。当前卡片不暴露日期，date 为空串。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -101,7 +101,7 @@
       "runtime": "extension",
       "module": "extension/commands/article.js",
       "routeDomain": "www.36kr.com",
-      "description": "读取 36氪文章正文：接受纯数字文章 ID 或 36kr.com 的 /p/ 链接。正文按来源语义只截取前 800 字符，并以 body_length/body_truncated/content_status 明确标注截断与完整性；不会把摘要或截断文本当成全文。",
+      "description": "读取 36氪文章正文：接受纯数字文章 ID 或完整官方文章路径（https://36kr.com 或 www.36kr.com 的 /p/<纯数字>，允许尾斜杠/查询/hash，其余拒绝）。正文按来源语义只截取前 800 字符，并以 body_length/body_truncated/content_status 明确标注截断与完整性；url 规范化为 https://www.36kr.com/p/<id>。不会把摘要或截断文本当成全文。",
       "safety": "read",
       "schema": {
         "type": "object",
