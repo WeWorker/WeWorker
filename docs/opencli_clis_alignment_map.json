@@ -9,8 +9,8 @@
   ],
   "note": "Categories are mutually exclusive and computed only from directory evidence: which clis sites exist and which WeWorker v2 packages exist. migrated_from_opencli additionally cites the per-site migration records. suspected_app_or_desktop is a name-level annotation for gap planning only — those implementations were NOT read and no desktop/app claim is made.",
   "categories": {
-    "migrated_from_opencli": 13,
-    "package_exists_unaligned": 5,
+    "migrated_from_opencli": 14,
+    "package_exists_unaligned": 4,
     "no_package": 161,
     "total": 179
   },
@@ -1043,9 +1043,10 @@
     },
     {
       "site": "xiaohongshu",
-      "category": "package_exists_unaligned",
+      "category": "migrated_from_opencli",
       "package": "xiaohongshu.com",
-      "alignment_status": "package_predates_opencli_batch_command_alignment_not_inventoried"
+      "alignment_status": "25_source_commands_ported_with_documented_host_limits_partial_live_samples_passed",
+      "migration_record": "docs/opencli_xiaohongshu_migration.md"
     },
     {
       "site": "xiaoyuzhou",

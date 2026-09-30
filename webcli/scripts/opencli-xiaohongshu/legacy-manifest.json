@@ -1,0 +1,263 @@
+{
+  "schema_version": 2,
+  "name": "xiaohongshu.com",
+  "version": "1.1.1",
+  "description": "小红书：登录检查、搜索笔记、打开笔记详情、读取评论、点赞/收藏笔记",
+  "match": [
+    "xiaohongshu.com"
+  ],
+  "requires_auth": false,
+  "commands": [
+    {
+      "id": "check-login-status",
+      "runtime": "extension",
+      "module": "extension/commands/check-login-status.js",
+      "description": "检查当前小红书浏览器会话是否已登录，并返回登录状态。不会返回 Cookie、Token、账号凭据或其他敏感信息。",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "aliases": [
+        "check_login_status"
+      ]
+    },
+    {
+      "id": "navigate-to-homepage",
+      "runtime": "extension",
+      "module": "extension/commands/navigate-to-homepage.js",
+      "description": "Navigate to the Xiaohongshu (小红书) homepage.",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "aliases": [
+        "navigate_to_homepage"
+      ]
+    },
+    {
+      "id": "search-notes",
+      "runtime": "extension",
+      "module": "extension/commands/search-notes.js",
+      "description": "Search for notes (帖子) on Xiaohongshu by keyword with optional filters. If not on the search results page, navigates there first — call again after 3-5 seconds (with the same keyword and desired filters) to apply filters and get results.",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "搜索关键字 (e.g., \"咖啡\", \"旅行攻略\", \"穿搭\")"
+          },
+          "sortBy": {
+            "type": "string",
+            "description": "排序依据",
+            "enum": [
+              "综合",
+              "最新",
+              "最多点赞",
+              "最多评论",
+              "最多收藏"
+            ]
+          },
+          "noteType": {
+            "type": "string",
+            "description": "笔记类型",
+            "enum": [
+              "不限",
+              "视频",
+              "图文"
+            ]
+          },
+          "publishTime": {
+            "type": "string",
+            "description": "发布时间",
+            "enum": [
+              "不限",
+              "一天内",
+              "一周内",
+              "半年内"
+            ]
+          },
+          "searchScope": {
+            "type": "string",
+            "description": "搜索范围",
+            "enum": [
+              "不限",
+              "已看过",
+              "未看过",
+              "已关注"
+            ]
+          },
+          "location": {
+            "type": "string",
+            "description": "位置距离",
+            "enum": [
+              "不限",
+              "同城",
+              "附近"
+            ]
+          }
+        },
+        "required": [
+          "keyword"
+        ]
+      },
+      "aliases": [
+        "search_notes"
+      ]
+    },
+    {
+      "id": "open-note",
+      "runtime": "extension",
+      "module": "extension/commands/open-note.js",
+      "description": "Open a Xiaohongshu note by ID or URL and return its full detail: title, body text, post date, and top-level comments (author, content, date, location, likes). For image notes, returns noteType=\"image\" and images[]. For video notes, returns noteType=\"video\" and video={cover, duration} — LIMITATION: the actual video URL is not available; the adapter runs in an isolated DOM context and cannot access the real video URL stored in the page JS memory (xgplayer config). If not already on the note page, navigates there first — call again after 3-5 seconds to get the content.",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Note ID (e.g., \"69a7ff7e00000000220334e1\")"
+          },
+          "url": {
+            "type": "string",
+            "description": "Full note URL (e.g., \"https://www.xiaohongshu.com/explore/69a7ff7e00000000220334e1\")"
+          }
+        }
+      },
+      "aliases": [
+        "open_note"
+      ]
+    },
+    {
+      "id": "read-comments",
+      "runtime": "extension",
+      "module": "extension/commands/read-comments.js",
+      "description": "读取当前或指定小红书笔记的评论摘要。首次调用可能会跳转笔记详情页，页面加载后再次调用可读取评论。",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "笔记 ID；为空时使用当前页"
+          },
+          "url": {
+            "type": "string",
+            "description": "笔记详情 URL；为空时使用当前页"
+          },
+          "limit": {
+            "type": "number",
+            "description": "最多返回评论数量，1-20"
+          }
+        }
+      },
+      "aliases": [
+        "read_comments"
+      ]
+    },
+    {
+      "id": "like-note",
+      "runtime": "extension",
+      "module": "extension/commands/like-note.js",
+      "description": "对当前或指定小红书笔记执行点赞；如果已经点赞则返回已点赞，不执行取消。用户明确要求时执行。",
+      "safety": "write",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "笔记 ID；为空时使用当前页"
+          },
+          "url": {
+            "type": "string",
+            "description": "笔记详情 URL；为空时使用当前页"
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "兼容旧调用的确认参数；当前包无需二次确认。"
+          }
+        }
+      },
+      "aliases": [
+        "like_note"
+      ],
+      "requires_confirmation": false
+    },
+    {
+      "id": "favorite-note",
+      "runtime": "extension",
+      "module": "extension/commands/favorite-note.js",
+      "description": "对当前或指定小红书笔记执行收藏；如果已经收藏则返回已收藏，不执行取消。用户明确要求时执行。",
+      "safety": "write",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "笔记 ID；为空时使用当前页"
+          },
+          "url": {
+            "type": "string",
+            "description": "笔记详情 URL；为空时使用当前页"
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "兼容旧调用的确认参数；当前包无需二次确认。"
+          }
+        }
+      },
+      "aliases": [
+        "favorite_note"
+      ],
+      "requires_confirmation": false
+    }
+  ],
+  "homepage_url": "https://www.xiaohongshu.com",
+  "icon": "social",
+  "scenarios": [
+    {
+      "id": "login-status",
+      "title": "登录检查",
+      "summary": "检查当前小红书浏览器会话是否已登录"
+    },
+    {
+      "id": "search",
+      "title": "搜索笔记",
+      "summary": "按关键词搜索小红书笔记并整理结果",
+      "prompts": [
+        {
+          "text": "帮我在小红书搜索${好吃的蛋糕}推荐"
+        }
+      ]
+    },
+    {
+      "id": "note-detail",
+      "title": "打开笔记详情",
+      "summary": "打开或读取笔记详情，提取标题、正文、图片/视频信息和评论摘要"
+    },
+    {
+      "id": "comments",
+      "title": "读取评论",
+      "summary": "读取当前或指定笔记的评论摘要"
+    },
+    {
+      "id": "like-favorite",
+      "title": "点赞或收藏笔记",
+      "summary": "在用户明确确认后对当前或指定笔记执行点赞或收藏"
+    }
+  ],
+  "test_prompts": [
+    "打开小红书，搜索蛋糕推荐，读取一篇笔记详情和评论摘要"
+  ],
+  "i18n": {
+    "zh": {
+      "name": "小红书",
+      "description": "小红书：登录检查、搜索笔记、打开笔记详情、读取评论、点赞/收藏笔记"
+    }
+  },
+  "verified_on": "2026-09-20"
+}

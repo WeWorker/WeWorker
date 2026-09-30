@@ -1,0 +1,617 @@
+{
+  "source": "https://github.com/jackwener/OpenCLI",
+  "sha": "24136945847afbfad266c6c46a8cd335377f9112",
+  "live_verification_scope": "samples_only_not_full_command_coverage",
+  "commands": [
+    {
+      "name": "ask",
+      "access": "write",
+      "args": [
+        {
+          "name": "query",
+          "positional": true,
+          "required": true,
+          "help": "Question for 点点"
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "default": 90,
+          "help": "Seconds to wait for the 点点 answer"
+        },
+        {
+          "name": "source-limit",
+          "type": "int",
+          "default": 10,
+          "help": "Maximum citation sources to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "comments",
+      "access": "read",
+      "args": [
+        {
+          "name": "note-id",
+          "required": true,
+          "positional": true,
+          "help": "Full Xiaohongshu note URL with xsec_token"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of top-level comments (max 50)"
+        },
+        {
+          "name": "with-replies",
+          "type": "boolean",
+          "default": false,
+          "help": "Include nested replies; reply_to is the direct target shown by the page"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "6a91ac10ade1",
+          "status": "passed",
+          "scope": "limit=3, with-replies=true; three parents and twelve replies"
+        }
+      ]
+    },
+    {
+      "name": "creator-note-detail",
+      "access": "read",
+      "args": [
+        {
+          "name": "note-id",
+          "positional": true,
+          "type": "string",
+          "required": true,
+          "help": "Note ID (from creator-notes or note-detail page URL)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "creator-notes",
+      "access": "read",
+      "args": [
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of notes to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_failed",
+      "live_samples": [
+        {
+          "trace": "668d7f22de48",
+          "status": "failed",
+          "scope": "signed API HTTP 200 acknowledgement without note_infos; not evidence of no notes"
+        }
+      ]
+    },
+    {
+      "name": "creator-notes-summary",
+      "access": "read",
+      "args": [
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 3,
+          "help": "Number of recent notes to summarize"
+        },
+        {
+          "name": "timeout",
+          "type": "int",
+          "required": false,
+          "default": 180,
+          "help": "Max seconds for the overall command (default: 180)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "creator-profile",
+      "access": "read",
+      "args": [],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "ac2810c03d36",
+          "status": "passed",
+          "scope": "seven profile fields returned"
+        }
+      ]
+    },
+    {
+      "name": "creator-stats",
+      "access": "read",
+      "args": [
+        {
+          "name": "period",
+          "type": "string",
+          "default": "seven",
+          "help": "Stats period: seven or thirty",
+          "choices": [
+            "seven",
+            "thirty"
+          ]
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "fb21e8aae7b7",
+          "status": "passed",
+          "scope": "period=seven; nine metrics returned"
+        }
+      ]
+    },
+    {
+      "name": "delete-note",
+      "access": "write",
+      "args": [
+        {
+          "name": "note-id",
+          "required": true,
+          "positional": true,
+          "help": "Note ID (e.g. 6a08ba0b000000000702a893 from xiaohongshu creator-notes / URL)"
+        },
+        {
+          "name": "execute",
+          "type": "boolean",
+          "default": false,
+          "help": "Actually click delete + confirm. Default is dry-run target verification only."
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "download",
+      "access": "read",
+      "args": [
+        {
+          "name": "note-id",
+          "positional": true,
+          "required": true,
+          "help": "Full Xiaohongshu note URL with xsec_token, or xhslink short link"
+        },
+        {
+          "name": "output",
+          "default": "./xiaohongshu-downloads",
+          "help": "Output directory"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "draft-clear",
+      "access": "write",
+      "args": [
+        {
+          "name": "type",
+          "default": "image",
+          "help": "Draft type: image, video, article, audio, all"
+        },
+        {
+          "name": "execute",
+          "type": "bool",
+          "default": false,
+          "help": "Actually clear local drafts. Default is dry-run count only."
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "draft-delete",
+      "access": "write",
+      "args": [
+        {
+          "name": "id",
+          "positional": true,
+          "required": true,
+          "help": "Draft id returned by `opencli xiaohongshu drafts`"
+        },
+        {
+          "name": "type",
+          "default": "image",
+          "help": "Draft type: image, video, article, audio"
+        },
+        {
+          "name": "execute",
+          "type": "bool",
+          "default": false,
+          "help": "Actually delete the local draft. Default is dry-run verification only."
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "draft-open",
+      "access": "read",
+      "args": [
+        {
+          "name": "id",
+          "positional": true,
+          "required": true,
+          "help": "Draft id returned by `opencli xiaohongshu drafts`"
+        },
+        {
+          "name": "type",
+          "default": "image",
+          "help": "Draft type: image, video, article, audio"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "drafts",
+      "access": "read",
+      "args": [
+        {
+          "name": "type",
+          "default": "image",
+          "help": "Draft type: image, video, article, audio"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "81f1ff7cc23a",
+          "status": "passed",
+          "scope": "image local drafts; empty list only"
+        }
+      ]
+    },
+    {
+      "name": "feed",
+      "access": "read",
+      "args": [
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of items to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "8f4531aed240",
+          "status": "passed",
+          "scope": "two recommended notes with signed URLs"
+        }
+      ]
+    },
+    {
+      "name": "follow",
+      "access": "write",
+      "args": [
+        {
+          "name": "user-id",
+          "required": true,
+          "positional": true,
+          "help": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "liked",
+      "access": "read",
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "help": "User id or profile URL (defaults to current logged-in user)"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of notes to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "note",
+      "access": "read",
+      "args": [
+        {
+          "name": "note-id",
+          "required": true,
+          "positional": true,
+          "help": "Full Xiaohongshu note URL with xsec_token"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "66774387b2cc",
+          "status": "passed",
+          "scope": "seven detail fields; title matches search result; body nonempty"
+        }
+      ]
+    },
+    {
+      "name": "notifications",
+      "access": "read",
+      "args": [
+        {
+          "name": "type",
+          "default": "mentions",
+          "help": "Notification type: mentions, likes, or connections"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of notifications to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_failed",
+      "live_samples": [
+        {
+          "trace": "da2033a2bac7",
+          "status": "failed",
+          "scope": "mentions; zero captured responses after store action; not evidence of no notifications"
+        }
+      ]
+    },
+    {
+      "name": "publish",
+      "access": "write",
+      "args": [
+        {
+          "name": "content",
+          "required": true,
+          "positional": true,
+          "help": "笔记正文"
+        },
+        {
+          "name": "title",
+          "required": true,
+          "help": "笔记标题 (最多20字)"
+        },
+        {
+          "name": "images",
+          "required": false,
+          "help": "图片路径，逗号分隔，最多9张 (jpg/png/gif/webp)"
+        },
+        {
+          "name": "card-text",
+          "required": false,
+          "help": "文字配图卡片文字，多张卡片用 ||| 分隔，卡内换行用 \\n"
+        },
+        {
+          "name": "card-style",
+          "required": false,
+          "help": "文字配图卡片样式，运行时按页面实际选项匹配；找不到会失败。省略时使用基础。可选: 基础(默认兜底，万能) 边框(金句/要点卡) 备忘(提醒/随手记) 清新(日常/清单贴士) 涂写(随笔/碎碎念) 便签(笔记/提醒) 光影(情绪/文艺) 涂鸦(趣味/童话) 简约(干货/观点) 手写(日记/情感) 插图(生活方式/轻松话题) 美漫(活力/趣味/故事感) 弥散(弥散光氛围) 柔和(柔和/温柔金句) 印刷(印刷海报/排版) 科技(科技/产品) 贺卡(节日祝福) 札记(艺术/水彩氛围) 书摘(书摘/引用) 手帐(手帐拼贴) 几何(醒目/有力主张)"
+        },
+        {
+          "name": "topics",
+          "required": false,
+          "help": "话题标签，逗号分隔，不含 # 号"
+        },
+        {
+          "name": "draft",
+          "type": "bool",
+          "default": false,
+          "help": "保存为草稿，不直接发布"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "saved",
+      "access": "read",
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "help": "User id or profile URL (defaults to current logged-in user)"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of notes to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "search",
+      "access": "read",
+      "args": [
+        {
+          "name": "query",
+          "required": true,
+          "positional": true,
+          "help": "Search keyword"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of results"
+        },
+        {
+          "name": "sort",
+          "type": "string",
+          "default": "comprehensive",
+          "choices": [
+            "comprehensive",
+            "latest",
+            "most-liked",
+            "most-commented",
+            "most-collected"
+          ],
+          "help": "Sort order"
+        },
+        {
+          "name": "note-type",
+          "type": "string",
+          "default": "all",
+          "choices": [
+            "all",
+            "video",
+            "image"
+          ],
+          "help": "Note type"
+        },
+        {
+          "name": "publish-time",
+          "type": "string",
+          "default": "anytime",
+          "choices": [
+            "anytime",
+            "day",
+            "week",
+            "half-year"
+          ],
+          "help": "Publish time range"
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "default": "all",
+          "choices": [
+            "all",
+            "seen",
+            "unseen",
+            "following"
+          ],
+          "help": "Search scope"
+        },
+        {
+          "name": "location",
+          "type": "string",
+          "default": "all",
+          "choices": [
+            "all",
+            "same-city",
+            "nearby"
+          ],
+          "help": "Location distance"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "3be1db753ef0",
+          "status": "passed",
+          "scope": "default filters; two rows"
+        },
+        {
+          "trace": "237142e1b3f4",
+          "status": "passed",
+          "scope": "latest and image filters; three rows; active filters verified"
+        }
+      ]
+    },
+    {
+      "name": "unfollow",
+      "access": "write",
+      "args": [
+        {
+          "name": "user-id",
+          "required": true,
+          "positional": true,
+          "help": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "user",
+      "access": "read",
+      "args": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "positional": true,
+          "help": "User id or profile URL"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 15,
+          "help": "Number of notes to return"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "14231d737dbf",
+          "status": "passed",
+          "scope": "author profile from search; two notes returned"
+        }
+      ]
+    },
+    {
+      "name": "whoami",
+      "access": "read",
+      "args": [],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "trace": "81b859f4914f",
+          "status": "passed",
+          "scope": "creator server identity; logged_in=true"
+        }
+      ]
+    },
+    {
+      "name": "login",
+      "access": "write",
+      "args": [],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    }
+  ]
+}

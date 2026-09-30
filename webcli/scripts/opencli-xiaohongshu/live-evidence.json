@@ -1,0 +1,16 @@
+{
+  "whoami": [{ "trace": "81b859f4914f", "status": "passed", "scope": "creator server identity; logged_in=true" }],
+  "creator-profile": [{ "trace": "ac2810c03d36", "status": "passed", "scope": "seven profile fields returned" }],
+  "creator-stats": [{ "trace": "fb21e8aae7b7", "status": "passed", "scope": "period=seven; nine metrics returned" }],
+  "feed": [{ "trace": "8f4531aed240", "status": "passed", "scope": "two recommended notes with signed URLs" }],
+  "search": [
+    { "trace": "3be1db753ef0", "status": "passed", "scope": "default filters; two rows" },
+    { "trace": "237142e1b3f4", "status": "passed", "scope": "latest and image filters; three rows; active filters verified" }
+  ],
+  "note": [{ "trace": "66774387b2cc", "status": "passed", "scope": "seven detail fields; title matches search result; body nonempty" }],
+  "comments": [{ "trace": "6a91ac10ade1", "status": "passed", "scope": "limit=3, with-replies=true; three parents and twelve replies" }],
+  "user": [{ "trace": "14231d737dbf", "status": "passed", "scope": "author profile from search; two notes returned" }],
+  "drafts": [{ "trace": "81f1ff7cc23a", "status": "passed", "scope": "image local drafts; empty list only" }],
+  "creator-notes": [{ "trace": "668d7f22de48", "status": "failed", "scope": "signed API HTTP 200 acknowledgement without note_infos; not evidence of no notes" }],
+  "notifications": [{ "trace": "da2033a2bac7", "status": "failed", "scope": "mentions; zero captured responses after store action; not evidence of no notifications" }]
+}

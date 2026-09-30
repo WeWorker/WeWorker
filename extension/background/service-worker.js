@@ -8071,6 +8071,8 @@ async function handleWecliRuntimeRequest(msg, sender) {
         selector: payload.selector,
         files: payload.files,
       });
+    case 'native_input':
+      return runRuntimeNativeInput(tab.id, payload);
     case 'backend_fetch':
       return runRuntimeBridgeRequest('wecli_backend_fetch', payload, traceID);
     case 'browser_fetch':
@@ -8414,6 +8416,39 @@ async function runRuntimeMainWorldEval(tab, payload) {
     },
   });
   return { value: result };
+}
+
+// Fixed input operations for editors that require trusted browser events.
+// This does not expose an arbitrary CDP method or caller-selected tab.
+async function runRuntimeNativeInput(tabId, payload = {}) {
+  const keys = { Enter: 13, PageDown: 34, Escape: 27, Backspace: 8, Tab: 9 };
+  if (payload.type === 'text') {
+    if (typeof payload.text !== 'string' || payload.text.length > 20000) throw createRuntimeHelperError('INVALID_ARGS', 'native_input text must be a string of at most 20000 characters');
+  } else if (payload.type === 'key') {
+    if (!Object.hasOwn(keys, payload.key)) throw createRuntimeHelperError('INVALID_ARGS', 'Unsupported native_input key');
+  } else throw createRuntimeHelperError('INVALID_ARGS', 'native_input supports text and key only');
+  const borrowed = cdpAttachedTabs.has(tabId);
+  let owned = false;
+  try {
+    const target = { tabId };
+    if (!borrowed) {
+      await chrome.debugger.attach(target, '1.3');
+      cdpAttachedTabs.add(tabId);
+      owned = true;
+    }
+    if (payload.type === 'text') await chrome.debugger.sendCommand(target, 'Input.insertText', { text: payload.text });
+    else {
+      const fields = { key: payload.key, code: payload.key, windowsVirtualKeyCode: keys[payload.key], nativeVirtualKeyCode: keys[payload.key] };
+      await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { type: 'keyDown', ...fields, ...(payload.key === 'Enter' ? { text: '\r' } : {}) });
+      await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', { type: 'keyUp', ...fields });
+    }
+    return { success: true };
+  } finally {
+    if (owned) {
+      try { await chrome.debugger.detach({ tabId }); } catch { }
+      cdpAttachedTabs.delete(tabId);
+    }
+  }
 }
 
 function normalizeRuntimeBrowserFetchHeaders(headers = {}) {

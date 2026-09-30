@@ -1,48 +1,660 @@
 {
   "schema_version": 2,
   "name": "xiaohongshu.com",
-  "version": "1.1.1",
-  "description": "小红书：登录检查、搜索笔记、打开笔记详情、读取评论、点赞/收藏笔记",
+  "version": "2.0.1",
+  "description": "小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理",
   "match": [
-    "xiaohongshu.com"
+    "xiaohongshu.com",
+    "www.xiaohongshu.com",
+    "creator.xiaohongshu.com"
   ],
   "requires_auth": false,
   "commands": [
     {
-      "id": "check-login-status",
+      "id": "ask",
       "runtime": "extension",
-      "module": "extension/commands/check-login-status.js",
-      "description": "检查当前小红书浏览器会话是否已登录，并返回登录状态。不会返回 Cookie、Token、账号凭据或其他敏感信息。",
-      "safety": "read",
+      "module": "extension/commands/ask.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "Ask 小红书点点 and return the answer with citation sources.",
+      "safety": "write",
+      "requires_confirmation": true,
       "schema": {
         "type": "object",
-        "properties": {},
-        "required": []
-      },
-      "aliases": [
-        "check_login_status"
-      ]
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Question for 点点"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Seconds to wait for the 点点 answer",
+            "default": 90
+          },
+          "source-limit": {
+            "type": "integer",
+            "description": "Maximum citation sources to return",
+            "default": 10
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
     },
     {
-      "id": "navigate-to-homepage",
+      "id": "comments",
       "runtime": "extension",
-      "module": "extension/commands/navigate-to-homepage.js",
-      "description": "Navigate to the Xiaohongshu (小红书) homepage.",
+      "module": "extension/commands/comments.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "获取小红书笔记评论（支持楼中楼子回复）",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note-id": {
+            "type": "string",
+            "description": "Full Xiaohongshu note URL with xsec_token"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of top-level comments (max 50)",
+            "default": 20
+          },
+          "with-replies": {
+            "type": "boolean",
+            "description": "Include nested replies; reply_to is the direct target shown by the page",
+            "default": false
+          }
+        },
+        "required": [
+          "note-id"
+        ]
+      }
+    },
+    {
+      "id": "creator-note-detail",
+      "runtime": "extension",
+      "module": "extension/commands/creator-note-detail.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书单篇笔记详情页数据 (笔记信息 + 核心/互动数据 + 观看来源 + 观众画像 + 趋势数据)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note-id": {
+            "type": "string",
+            "description": "Note ID (from creator-notes or note-detail page URL)"
+          }
+        },
+        "required": [
+          "note-id"
+        ]
+      }
+    },
+    {
+      "id": "creator-notes",
+      "runtime": "extension",
+      "module": "extension/commands/creator-notes.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书创作者笔记列表 + 每篇数据 (标题/日期/观看/点赞/收藏/评论)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of notes to return",
+            "default": 20
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "creator-notes-summary",
+      "runtime": "extension",
+      "module": "extension/commands/creator-notes-summary.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书最近笔记批量摘要 (列表 + 单篇关键数据汇总)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of recent notes to summarize",
+            "default": 3
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Max seconds for the overall command (default: 180)",
+            "default": 180
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "creator-profile",
+      "runtime": "extension",
+      "module": "extension/commands/creator-profile.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书创作者账号信息 (粉丝/关注/获赞/成长等级)",
       "safety": "read",
       "schema": {
         "type": "object",
         "properties": {},
         "required": []
-      },
-      "aliases": [
-        "navigate_to_homepage"
-      ]
+      }
+    },
+    {
+      "id": "creator-stats",
+      "runtime": "extension",
+      "module": "extension/commands/creator-stats.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书创作者数据总览 (观看/点赞/收藏/评论/分享/涨粉，含每日趋势)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "description": "Stats period: seven or thirty",
+            "default": "seven",
+            "enum": [
+              "seven",
+              "thirty"
+            ]
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "delete-note",
+      "runtime": "extension",
+      "module": "extension/commands/delete-note.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "删除小红书已发布笔记 (creator center UI automation)",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note-id": {
+            "type": "string",
+            "description": "Note ID (e.g. 6a08ba0b000000000702a893 from xiaohongshu creator-notes / URL)"
+          },
+          "execute": {
+            "type": "boolean",
+            "description": "Actually click delete + confirm. Default is dry-run target verification only.",
+            "default": false
+          }
+        },
+        "required": [
+          "note-id"
+        ]
+      }
+    },
+    {
+      "id": "download",
+      "runtime": "extension",
+      "module": "extension/commands/download.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "下载小红书笔记中的图片和视频",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note-id": {
+            "type": "string",
+            "description": "Full Xiaohongshu note URL with xsec_token, or xhslink short link"
+          },
+          "output": {
+            "type": "string",
+            "description": "Output directory",
+            "default": "./xiaohongshu-downloads"
+          }
+        },
+        "required": [
+          "note-id"
+        ]
+      }
+    },
+    {
+      "id": "draft-clear",
+      "runtime": "extension",
+      "module": "extension/commands/draft-clear.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "清空小红书本地草稿",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Draft type: image, video, article, audio, all",
+            "default": "image"
+          },
+          "execute": {
+            "type": "boolean",
+            "description": "Actually clear local drafts. Default is dry-run count only.",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "draft-delete",
+      "runtime": "extension",
+      "module": "extension/commands/draft-delete.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "删除一条小红书本地草稿",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Draft id returned by `opencli xiaohongshu drafts`"
+          },
+          "type": {
+            "type": "string",
+            "description": "Draft type: image, video, article, audio",
+            "default": "image"
+          },
+          "execute": {
+            "type": "boolean",
+            "description": "Actually delete the local draft. Default is dry-run verification only.",
+            "default": false
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "id": "draft-open",
+      "runtime": "extension",
+      "module": "extension/commands/draft-open.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "读取一条小红书本地草稿详情",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Draft id returned by `opencli xiaohongshu drafts`"
+          },
+          "type": {
+            "type": "string",
+            "description": "Draft type: image, video, article, audio",
+            "default": "image"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "id": "drafts",
+      "runtime": "extension",
+      "module": "extension/commands/drafts.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书本地草稿箱列表",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Draft type: image, video, article, audio",
+            "default": "image"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "feed",
+      "runtime": "extension",
+      "module": "extension/commands/feed.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "小红书首页推荐 Feed (reads hydrated Pinia store)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of items to return",
+            "default": 20
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "follow",
+      "runtime": "extension",
+      "module": "extension/commands/follow.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "关注小红书用户 (profile UI automation)",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user-id": {
+            "type": "string",
+            "description": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+          }
+        },
+        "required": [
+          "user-id"
+        ]
+      }
+    },
+    {
+      "id": "liked",
+      "runtime": "extension",
+      "module": "extension/commands/liked.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "小红书赞过笔记列表",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "User id or profile URL (defaults to current logged-in user)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of notes to return",
+            "default": 20
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "note",
+      "runtime": "extension",
+      "module": "extension/commands/note.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "获取小红书笔记正文和互动数据",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note-id": {
+            "type": "string",
+            "description": "Full Xiaohongshu note URL with xsec_token"
+          }
+        },
+        "required": [
+          "note-id"
+        ]
+      }
+    },
+    {
+      "id": "notifications",
+      "runtime": "extension",
+      "module": "extension/commands/notifications.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "小红书通知 (mentions/likes/connections)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Notification type: mentions, likes, or connections",
+            "default": "mentions"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of notifications to return",
+            "default": 20
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "publish",
+      "runtime": "extension",
+      "module": "extension/commands/publish.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "小红书发布图文笔记 (creator center UI automation)",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "笔记正文"
+          },
+          "title": {
+            "type": "string",
+            "description": "笔记标题 (最多20字)"
+          },
+          "images": {
+            "type": "string",
+            "description": "图片路径，逗号分隔，最多9张 (jpg/png/gif/webp)"
+          },
+          "card-text": {
+            "type": "string",
+            "description": "文字配图卡片文字，多张卡片用 ||| 分隔，卡内换行用 \\n"
+          },
+          "card-style": {
+            "type": "string",
+            "description": "文字配图卡片样式，运行时按页面实际选项匹配；找不到会失败。省略时使用基础。可选: 基础(默认兜底，万能) 边框(金句/要点卡) 备忘(提醒/随手记) 清新(日常/清单贴士) 涂写(随笔/碎碎念) 便签(笔记/提醒) 光影(情绪/文艺) 涂鸦(趣味/童话) 简约(干货/观点) 手写(日记/情感) 插图(生活方式/轻松话题) 美漫(活力/趣味/故事感) 弥散(弥散光氛围) 柔和(柔和/温柔金句) 印刷(印刷海报/排版) 科技(科技/产品) 贺卡(节日祝福) 札记(艺术/水彩氛围) 书摘(书摘/引用) 手帐(手帐拼贴) 几何(醒目/有力主张)"
+          },
+          "topics": {
+            "type": "string",
+            "description": "话题标签，逗号分隔，不含 # 号"
+          },
+          "draft": {
+            "type": "boolean",
+            "description": "保存为草稿，不直接发布",
+            "default": false
+          }
+        },
+        "required": [
+          "content",
+          "title"
+        ]
+      }
+    },
+    {
+      "id": "saved",
+      "runtime": "extension",
+      "module": "extension/commands/saved.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "小红书收藏笔记列表",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "User id or profile URL (defaults to current logged-in user)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of notes to return",
+            "default": 20
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "搜索小红书笔记",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results",
+            "default": 20
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort order",
+            "default": "comprehensive",
+            "enum": [
+              "comprehensive",
+              "latest",
+              "most-liked",
+              "most-commented",
+              "most-collected"
+            ]
+          },
+          "note-type": {
+            "type": "string",
+            "description": "Note type",
+            "default": "all",
+            "enum": [
+              "all",
+              "video",
+              "image"
+            ]
+          },
+          "publish-time": {
+            "type": "string",
+            "description": "Publish time range",
+            "default": "anytime",
+            "enum": [
+              "anytime",
+              "day",
+              "week",
+              "half-year"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "description": "Search scope",
+            "default": "all",
+            "enum": [
+              "all",
+              "seen",
+              "unseen",
+              "following"
+            ]
+          },
+          "location": {
+            "type": "string",
+            "description": "Location distance",
+            "default": "all",
+            "enum": [
+              "all",
+              "same-city",
+              "nearby"
+            ]
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "id": "unfollow",
+      "runtime": "extension",
+      "module": "extension/commands/unfollow.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "取消关注小红书用户 (profile UI automation)",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "user-id": {
+            "type": "string",
+            "description": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+          }
+        },
+        "required": [
+          "user-id"
+        ]
+      }
+    },
+    {
+      "id": "user",
+      "runtime": "extension",
+      "module": "extension/commands/user.js",
+      "routeDomain": "www.xiaohongshu.com",
+      "description": "Get public notes from a Xiaohongshu user profile",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "User id or profile URL"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of notes to return",
+            "default": 15
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "id": "whoami",
+      "runtime": "extension",
+      "module": "extension/commands/whoami.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "通过创作者中心接口验证当前登录账号",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "id": "login",
+      "runtime": "extension",
+      "module": "extension/commands/login.js",
+      "routeDomain": "creator.xiaohongshu.com",
+      "description": "打开创作者中心登录页；完成登录后调用 whoami",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     },
     {
       "id": "search-notes",
       "runtime": "extension",
       "module": "extension/commands/search-notes.js",
-      "description": "Search for notes (帖子) on Xiaohongshu by keyword with optional filters. If not on the search results page, navigates there first — call again after 3-5 seconds (with the same keyword and desired filters) to apply filters and get results.",
+      "description": "兼容旧调用；使用 OpenCLI 对齐实现。笔记读取需要带 xsec_token 的完整 URL。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -99,21 +711,24 @@
               "同城",
               "附近"
             ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 20,
+            "description": "结果数量，1..100"
           }
-        },
-        "required": [
-          "keyword"
-        ]
+        }
       },
       "aliases": [
         "search_notes"
-      ]
+      ],
+      "routeDomain": "www.xiaohongshu.com"
     },
     {
       "id": "open-note",
       "runtime": "extension",
       "module": "extension/commands/open-note.js",
-      "description": "Open a Xiaohongshu note by ID or URL and return its full detail: title, body text, post date, and top-level comments (author, content, date, location, likes). For image notes, returns noteType=\"image\" and images[]. For video notes, returns noteType=\"video\" and video={cover, duration} — LIMITATION: the actual video URL is not available; the adapter runs in an isolated DOM context and cannot access the real video URL stored in the page JS memory (xgplayer config). If not already on the note page, navigates there first — call again after 3-5 seconds to get the content.",
+      "description": "兼容旧调用；使用 OpenCLI 对齐实现。笔记读取需要带 xsec_token 的完整 URL。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -130,13 +745,14 @@
       },
       "aliases": [
         "open_note"
-      ]
+      ],
+      "routeDomain": "www.xiaohongshu.com"
     },
     {
       "id": "read-comments",
       "runtime": "extension",
       "module": "extension/commands/read-comments.js",
-      "description": "读取当前或指定小红书笔记的评论摘要。首次调用可能会跳转笔记详情页，页面加载后再次调用可读取评论。",
+      "description": "兼容旧调用；使用 OpenCLI 对齐实现。笔记读取需要带 xsec_token 的完整 URL。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -150,13 +766,50 @@
             "description": "笔记详情 URL；为空时使用当前页"
           },
           "limit": {
-            "type": "number",
-            "description": "最多返回评论数量，1-20"
+            "type": "integer",
+            "default": 20,
+            "description": "顶层评论数量，1..50；回复另计"
+          },
+          "with-replies": {
+            "type": "boolean",
+            "default": false,
+            "description": "包含楼中楼回复"
           }
         }
       },
       "aliases": [
         "read_comments"
+      ],
+      "routeDomain": "www.xiaohongshu.com"
+    },
+    {
+      "id": "check-login-status",
+      "runtime": "extension",
+      "module": "extension/commands/check-login-status.js",
+      "description": "兼容旧调用；使用 OpenCLI 对齐实现。笔记读取需要带 xsec_token 的完整 URL。",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "aliases": [
+        "check_login_status"
+      ],
+      "routeDomain": "creator.xiaohongshu.com"
+    },
+    {
+      "id": "navigate-to-homepage",
+      "runtime": "extension",
+      "module": "extension/commands/navigate-to-homepage.js",
+      "description": "Navigate to the Xiaohongshu (小红书) homepage.",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "aliases": [
+        "navigate_to_homepage"
       ]
     },
     {
@@ -256,8 +909,12 @@
   "i18n": {
     "zh": {
       "name": "小红书",
-      "description": "小红书：登录检查、搜索笔记、打开笔记详情、读取评论、点赞/收藏笔记"
+      "description": "小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理"
     }
   },
-  "verified_on": "2026-09-20"
+  "runtime_allowed_hosts": [
+    "xiaohongshu.com",
+    "xhscdn.com",
+    "xhslink.com"
+  ]
 }

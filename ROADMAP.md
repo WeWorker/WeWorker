@@ -1,5 +1,9 @@
 # WeWorker Roadmap
 
+- 2026-09-30（小红书登录后验收）：2.0.1 修复隐藏重复筛选项、签名详情链接规范化跳转；whoami／creator-profile／七天统计／feed／search／note／comments／user 共 8 项真实数据样例通过，另 drafts 空列表路径通过。评论实测 3 条顶层＋12 条回复。专项 214 项、相关回归 105 项及构建／包校验通过。创作者作品响应缺 note_infos、通知捕获 0 响应仍未通过，均不误报为空；未执行真实写操作。样例 trace 和限制见 docs/opencli_xiaohongshu_migration.md。
+
+- 2026-09-30：直接迁移 GitHub OpenCLI 最新 main（核验 SHA 2413694）小红书全部 25 个来源命令，包升级 2.0.0；保留 7 个旧名／本地能力，旧读取改接新实现。211 项来源／bundle 集成测试通过，新增有界原生文本／按键 helper 及测试同步内外仓；公开 prepare 20 包、WebCLI 构建及 .adapt 校验通过。真实 whoami、search 被登录拦截，未验收业务数据和真实写操作。详情见 docs/opencli_xiaohongshu_migration.md。
+
 - 2026-09-30：Codex直接迁移Wikipedia五项与GitHub Trending一项（来源2413694），公开v2包/Profile共20包；新增36项及相关8文件238项测试、prepare/bundle、两包.adapt校验通过。语言/域名、摘要截断、全文段落、UTC榜单日期及周期语义已覆盖。真实六项调用未验收通过：Wikipedia连接失败，GitHub传输回退错误，保留trace不冒充成功；自然语言未执行。179目录映射更新13+5+161。无内部/通用框架变化、未推送。见docs/opencli_reference_wave3_migration.md。
 
 - 2026-09-29（审查 round 2 修复）：Codex 增量审查后修复剩余 2 项并重新冻结：36kr hot 空榜误报（等待条件从“容器存在”改为“可信区域内出现可解析行”，新增延迟填充成功与持续空区域报错 fixture 各 dated/catalog 一例；页面无已验证空态标记，取消空榜判定，持续无条目一律按渲染/结构异常报错）；36kr news RSS 信封改为有界结构扫描（未闭合/错配 rss/channel/item、多根、根非 rss、channel 外 item、条目存在但均无可用标题均报解析错误；CDATA 内伪标记不算条目/字段/错误信封，HTML 检测按真实根元素/doctype 判定，description CDATA 含 <html> 不再误判）。聚焦测试 71 项、八站+携程+宿主 5 文件 185 项、打包/Skill/Profile 8 文件 66/67 项通过（1 项为基线既有 v2-loader 失败，冻结 HEAD 复核仍在）；prepare/bundle 重建后 hot(renqi/catalog)/news 三次真实链路复跑通过并更新 trace；36kr.com .adapt sha256 变更为 23c4804d…、HN 包未变。已知：hot 不支持空榜判定；自然语言验收未执行。见 docs/opencli_news_wave2_migration.md。
