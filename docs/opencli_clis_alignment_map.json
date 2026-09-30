@@ -9,9 +9,9 @@
   ],
   "note": "Categories are mutually exclusive and computed only from directory evidence: which clis sites exist and which WeWorker v2 packages exist. migrated_from_opencli additionally cites the per-site migration records. suspected_app_or_desktop is a name-level annotation for gap planning only — those implementations were NOT read and no desktop/app claim is made.",
   "categories": {
-    "migrated_from_opencli": 11,
-    "package_exists_unaligned": 4,
-    "no_package": 164,
+    "migrated_from_opencli": 13,
+    "package_exists_unaligned": 5,
+    "no_package": 161,
     "total": 179
   },
   "sites": [
@@ -389,15 +389,15 @@
     },
     {
       "site": "github",
-      "category": "no_package",
-      "package": null,
-      "alignment_status": "not_started_no_package"
+      "category": "package_exists_unaligned",
+      "package": "github.com",
+      "alignment_status": "only_github_trending_repos_exists_github_commands_not_aligned"
     },
     {
       "site": "github-trending",
-      "category": "no_package",
-      "package": null,
-      "alignment_status": "not_started_no_package"
+      "category": "migrated_from_opencli",
+      "package": "github.com",
+      "alignment_status": "commands_migrated_see_reference_wave3_inventory"
     },
     {
       "site": "gmail",
@@ -1019,9 +1019,9 @@
     },
     {
       "site": "wikipedia",
-      "category": "no_package",
-      "package": null,
-      "alignment_status": "not_started_no_package"
+      "category": "migrated_from_opencli",
+      "package": "wikipedia.org",
+      "alignment_status": "commands_migrated_see_reference_wave3_inventory"
     },
     {
       "site": "wttr",

@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "name": "github.com",
+  "version": "0.1.0",
+  "description": "GitHub Trending 公开趋势榜（仅 repos，不代表 GitHub 其他命令已迁移）",
+  "match": [
+    "github.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "GitHub Trending",
+    "热门代码仓库",
+    "趋势榜"
+  ],
+  "commands": [
+    {
+      "id": "repos",
+      "runtime": "extension",
+      "module": "extension/commands/repos.js",
+      "routeDomain": "github.com",
+      "description": "GitHub Trending repositories (public, no login). Filter by --language and --since.",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "since": {
+            "type": "string",
+            "description": "Time range: daily / weekly / monthly",
+            "default": "daily",
+            "enum": [
+              "daily",
+              "weekly",
+              "monthly"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "description": "Filter by programming language slug, e.g. python, rust, \"c++\"",
+            "default": ""
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of repositories to return (max 25)",
+            "default": 25
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

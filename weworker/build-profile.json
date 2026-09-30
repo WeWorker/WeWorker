@@ -17,7 +17,9 @@
     "zhihu.com",
     "zhipin.com",
     "news.ycombinator.com",
-    "36kr.com"
+    "36kr.com",
+    "wikipedia.org",
+    "github.com"
   ],
   "providers": [
     {

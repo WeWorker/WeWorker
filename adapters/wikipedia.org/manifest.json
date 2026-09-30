@@ -1,0 +1,172 @@
+{
+  "schema_version": 2,
+  "name": "wikipedia.org",
+  "version": "0.1.0",
+  "description": "维基百科：搜索、摘要、随机条目、昨日精选 feed 的 mostread 榜单与纯文本正文",
+  "match": [
+    "wikipedia.org",
+    "*.wikipedia.org"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "Wikipedia",
+    "维基百科",
+    "百科",
+    "词条"
+  ],
+  "commands": [
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "wikipedia.org",
+      "description": "Search Wikipedia articles",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results",
+            "default": 10
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. en, zh, ja)",
+            "default": "en"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "summary",
+      "runtime": "extension",
+      "module": "extension/commands/summary.js",
+      "routeDomain": "wikipedia.org",
+      "description": "读取条目导语（最多300字符，明确截断；不是全文）",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Article title (e.g. \"Transformer (machine learning model)\")"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. en, zh, ja)",
+            "default": "en"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "random",
+      "runtime": "extension",
+      "module": "extension/commands/random.js",
+      "routeDomain": "wikipedia.org",
+      "description": "随机条目导语（最多300字符，明确截断；不是全文）",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. en, zh, ja)",
+            "default": "en"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "trending",
+      "runtime": "extension",
+      "module": "extension/commands/trending.js",
+      "routeDomain": "wikipedia.org",
+      "description": "昨日UTC featured feed 的 mostread 榜单；保留feed_date和mostread_date，不将两者等同",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Max results",
+            "default": 10
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (e.g. en, zh, ja)",
+            "default": "en"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "page",
+      "runtime": "extension",
+      "module": "extension/commands/page.js",
+      "routeDomain": "wikipedia.org",
+      "description": "API纯文本正文；paragraphs=0不主动截断，N>0限制段落并明确标注，不含全部网页媒体",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Article title (e.g. \"Transformer (machine learning model)\")"
+          },
+          "lang": {
+            "type": "string",
+            "description": "Language code (en, zh, ja, de, ...).",
+            "default": "en"
+          },
+          "paragraphs": {
+            "type": "integer",
+            "description": "Cap to first N paragraphs (0 = full article).",
+            "default": 0
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

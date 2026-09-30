@@ -1,0 +1,179 @@
+[
+  {
+    "site": "wikipedia",
+    "name": "search",
+    "file": "search.js",
+    "package": "wikipedia.org",
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "access": "read",
+    "args": [
+      {
+        "name": "query",
+        "positional": true,
+        "required": true,
+        "help": "Search keyword"
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 10,
+        "help": "Max results"
+      },
+      {
+        "name": "lang",
+        "default": "en",
+        "help": "Language code (e.g. en, zh, ja)"
+      }
+    ],
+    "implementation": "implemented",
+    "fixture_status": "passed",
+    "live_status": "blocked_transport",
+    "natural_language_status": "not_run",
+    "trace_id": "268ab91fd4e2",
+    "live_note": "Request failed; search trace shows HTTPS connection timeout. Other commands returned FETCH_ERROR; no successful live acceptance."
+  },
+  {
+    "site": "wikipedia",
+    "name": "summary",
+    "file": "summary.js",
+    "package": "wikipedia.org",
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "access": "read",
+    "args": [
+      {
+        "name": "title",
+        "positional": true,
+        "required": true,
+        "help": "Article title (e.g. \"Transformer (machine learning model)\")"
+      },
+      {
+        "name": "lang",
+        "default": "en",
+        "help": "Language code (e.g. en, zh, ja)"
+      }
+    ],
+    "implementation": "implemented",
+    "fixture_status": "passed",
+    "live_status": "blocked_transport",
+    "natural_language_status": "not_run",
+    "trace_id": "b26397bedf71",
+    "live_note": "Request failed; search trace shows HTTPS connection timeout. Other commands returned FETCH_ERROR; no successful live acceptance."
+  },
+  {
+    "site": "wikipedia",
+    "name": "random",
+    "file": "random.js",
+    "package": "wikipedia.org",
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "access": "read",
+    "args": [
+      {
+        "name": "lang",
+        "default": "en",
+        "help": "Language code (e.g. en, zh, ja)"
+      }
+    ],
+    "implementation": "implemented",
+    "fixture_status": "passed",
+    "live_status": "blocked_transport",
+    "natural_language_status": "not_run",
+    "trace_id": "fbc7e8fc58f5",
+    "live_note": "Request failed; search trace shows HTTPS connection timeout. Other commands returned FETCH_ERROR; no successful live acceptance."
+  },
+  {
+    "site": "wikipedia",
+    "name": "trending",
+    "file": "trending.js",
+    "package": "wikipedia.org",
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "access": "read",
+    "args": [
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 10,
+        "help": "Max results"
+      },
+      {
+        "name": "lang",
+        "default": "en",
+        "help": "Language code (e.g. en, zh, ja)"
+      }
+    ],
+    "implementation": "implemented",
+    "fixture_status": "passed",
+    "live_status": "blocked_transport",
+    "natural_language_status": "not_run",
+    "trace_id": "99e3b50063b9",
+    "live_note": "Request failed; search trace shows HTTPS connection timeout. Other commands returned FETCH_ERROR; no successful live acceptance."
+  },
+  {
+    "site": "wikipedia",
+    "name": "page",
+    "file": "page.js",
+    "package": "wikipedia.org",
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "access": "read",
+    "args": [
+      {
+        "name": "title",
+        "positional": true,
+        "required": true,
+        "type": "string",
+        "help": "Article title (e.g. \"Transformer (machine learning model)\")"
+      },
+      {
+        "name": "lang",
+        "type": "string",
+        "default": "en",
+        "help": "Language code (en, zh, ja, de, ...)."
+      },
+      {
+        "name": "paragraphs",
+        "type": "int",
+        "default": 0,
+        "help": "Cap to first N paragraphs (0 = full article)."
+      }
+    ],
+    "implementation": "implemented",
+    "fixture_status": "passed",
+    "live_status": "blocked_transport",
+    "natural_language_status": "not_run",
+    "trace_id": "6b17b0be5838",
+    "live_note": "Request failed; search trace shows HTTPS connection timeout. Other commands returned FETCH_ERROR; no successful live acceptance."
+  },
+  {
+    "site": "github-trending",
+    "name": "repos",
+    "file": "repos.js",
+    "package": "github.com",
+    "source_commit": "24136945847afbfad266c6c46a8cd335377f9112",
+    "access": "read",
+    "args": [
+      {
+        "name": "since",
+        "type": "string",
+        "default": "daily",
+        "help": "Time range: daily / weekly / monthly"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "default": "",
+        "help": "Filter by programming language slug, e.g. python, rust, \"c++\""
+      },
+      {
+        "name": "limit",
+        "type": "int",
+        "default": 25,
+        "help": "Number of repositories to return (max 25)"
+      }
+    ],
+    "implementation": "implemented",
+    "fixture_status": "passed",
+    "live_status": "blocked_transport",
+    "natural_language_status": "not_run",
+    "trace_id": "e7700f0b6433",
+    "live_note": "Backend transport failed; curl fallback code 43, cause undetermined. No successful live acceptance."
+  }
+]
