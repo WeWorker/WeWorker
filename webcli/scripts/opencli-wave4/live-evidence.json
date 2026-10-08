@@ -1,0 +1,85 @@
+{
+  "toutiao/hot": [
+    {
+      "status": "passed",
+      "trace": "f655079cbcfa",
+      "scope": "final build, limit=2; two hot-board topic rows"
+    }
+  ],
+  "toutiao/recommend": [
+    {
+      "status": "passed",
+      "trace": "49ec00077d9d",
+      "scope": "category=news_tech, limit=2; two article rows"
+    }
+  ],
+  "toutiao/whoami": [
+    {
+      "status": "failed",
+      "trace": "4dd72c00e402",
+      "scope": "host page navigation timed out; identity not verified"
+    },
+    {
+      "status": "failed",
+      "trace": "eadab7180e9e",
+      "scope": "after user login: dashboard user_id surface not recognized; does not prove expired session"
+    },
+    {
+      "status": "passed",
+      "trace": "6467086e1971",
+      "scope": "server is_login=true plus creator user_info identity; string ID preserved"
+    }
+  ],
+  "toutiao/articles": [
+    {
+      "status": "failed",
+      "trace": "efbf293c9fe8",
+      "scope": "page=1; creator login required; no article data accepted"
+    },
+    {
+      "status": "failed",
+      "trace": "1c2b6072f600",
+      "scope": "after user login, page=1: no parsed article rows; empty account not established"
+    },
+    {
+      "status": "passed",
+      "trace": "c6898c261d1d",
+      "scope": "page=1; verified server login and scoped visible empty-state; populated list not verified"
+    }
+  ],
+  "smzdm/search": [
+    {
+      "status": "passed",
+      "trace": "7bb62c120a1c",
+      "scope": "query=耳机, limit=2; two rendered offer rows"
+    }
+  ],
+  "arxiv/search": [
+    {
+      "status": "passed",
+      "trace": "d14b41e3fd0e",
+      "scope": "query=transformer, limit=2; two paper rows"
+    }
+  ],
+  "arxiv/paper": [
+    {
+      "status": "passed",
+      "trace": "631448e76f37",
+      "scope": "public paper metadata sample; one row"
+    }
+  ],
+  "arxiv/author": [
+    {
+      "status": "passed",
+      "trace": "7e3f788993b7",
+      "scope": "public author search, limit=2; two rows"
+    }
+  ],
+  "arxiv/recent": [
+    {
+      "status": "passed",
+      "trace": "fe0d5f76a724",
+      "scope": "category=cs.CL, limit=2; two rows"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "schema_version": 2,
+  "name": "arxiv.org",
+  "version": "0.1.0",
+  "description": "arXiv 论文：OpenCLI 对齐能力",
+  "match": [
+    "arxiv.org",
+    "export.arxiv.org"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "arxiv",
+    "arXiv 论文"
+  ],
+  "commands": [
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "arxiv.org",
+      "description": "Search arXiv papers",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search keyword (e.g. \"attention is all you need\")"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (max 25)",
+            "default": 10
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "paper",
+      "runtime": "extension",
+      "module": "extension/commands/paper.js",
+      "routeDomain": "arxiv.org",
+      "description": "Get arXiv paper details by ID",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "arXiv paper ID (e.g. 1706.03762)"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "author",
+      "runtime": "extension",
+      "module": "extension/commands/author.js",
+      "routeDomain": "arxiv.org",
+      "description": "List arXiv papers by a given author (newest first)",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author name (e.g. \"Yoshua Bengio\" or \"Y Bengio\")"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max papers to return (max 50)",
+            "default": 20
+          }
+        },
+        "required": [
+          "author"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "recent",
+      "runtime": "extension",
+      "module": "extension/commands/recent.js",
+      "routeDomain": "arxiv.org",
+      "description": "List recent arXiv submissions in a category",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "arXiv category (e.g. cs.CL, cs.LG, math.PR, q-bio.NC)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max results (max 50)",
+            "default": 10
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

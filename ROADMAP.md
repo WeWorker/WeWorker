@@ -1,5 +1,17 @@
 # WeWorker Roadmap
 
+- 2026-10-08（wave4提交）：整理头条0.1.1、什么值得买/arXiv 0.1.0及协作交接文档提交至codex/opencli-wave4，目标develop。8项真实数据/身份样例及头条文章空态通过；专项130项、相关回归148项、构建与包校验通过。无关文章未纳入，未合并或发版。
+
+- 2026-10-08（协作交接）：核对17个已迁入来源目录、4个有包未对齐、158个无根v2包；整理站点范围、验收缺口、wave4未提交状态、开放PR重叠及建议分工，见docs/opencli_migration_handoff_20261008.md。未向同事发消息或分派任务。
+
+- 2026-10-08（头条0.1.1修复）：恢复WeWorker Bridge连接，用只读诊断核实当前服务器身份API和作品列表空态，whoami登录身份及articles第1页明确空列表实测通过；不代表有作品/多页路径通过。临时诊断已移除；专项130项通过，无真实写操作。详情及trace见docs/opencli_wave4_migration.md。
+
+- 2026-10-08（头条登录后）：whoami 未识别后台身份字段、articles 未解析文章，均未通过；不能推断会话失效或账号无作品。修正身份结构未知被误报为过期会话的问题，生成包专项121项通过。浏览器检查工具因 Codex auth token unavailable 阻塞页面核验，保留失败 trace；未执行写操作。
+
+- 2026-10-08（wave4）：按授权合并 PR #41，基于最新 develop 202ec8ae 迁移今日头条5项、什么值得买1项、arXiv4项，共10项；7项公开读取真实样例通过，头条whoami导航超时、articles需要登录，login未执行。专项120项、相关回归138项、公开23包prepare/WebCLI构建及三包.adapt校验通过。来源仍2413694，目录映射17+4+158=179；仅公开站点包/测试/Profile/文档变更，无通用框架或内部仓库变更。本批尚未提交PR，未执行真实写操作。详见docs/opencli_wave4_migration.md。
+
+- 2026-10-08：重新 fetch 核验 OpenCLI main 仍为 2413694；迁移分支盘点 179 个来源目录：14 已有迁移记录、4 有包未对齐、161 无包。PR #41 尚未合并，目录覆盖不代表主线发布或完整验收。完整缺口、特殊目录及下一批建议见 docs/opencli_remaining_sites_20261008.md；本轮只盘点，未新增站点实现。
+
 - 2026-09-30（小红书登录后验收）：2.0.1 修复隐藏重复筛选项、签名详情链接规范化跳转；whoami／creator-profile／七天统计／feed／search／note／comments／user 共 8 项真实数据样例通过，另 drafts 空列表路径通过。评论实测 3 条顶层＋12 条回复。专项 214 项、相关回归 105 项及构建／包校验通过。创作者作品响应缺 note_infos、通知捕获 0 响应仍未通过，均不误报为空；未执行真实写操作。样例 trace 和限制见 docs/opencli_xiaohongshu_migration.md。
 
 - 2026-09-30：直接迁移 GitHub OpenCLI 最新 main（核验 SHA 2413694）小红书全部 25 个来源命令，包升级 2.0.0；保留 7 个旧名／本地能力，旧读取改接新实现。211 项来源／bundle 集成测试通过，新增有界原生文本／按键 helper 及测试同步内外仓；公开 prepare 20 包、WebCLI 构建及 .adapt 校验通过。真实 whoami、search 被登录拦截，未验收业务数据和真实写操作。详情见 docs/opencli_xiaohongshu_migration.md。

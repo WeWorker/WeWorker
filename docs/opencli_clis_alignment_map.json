@@ -5,13 +5,13 @@
   "generated_from": [
     "directory names under clis/ of the reference checkout at the fixed commit (helper entries starting with _ such as _shared/_atlassian and the test-utils.js file are not sites)",
     "directory listing of adapters/ in this repository (the actual public root packages)",
-    "per-site migration records docs/opencli_batch_migration.md + docs/opencli_news_wave2_migration.md for the migrated/unaligned classifications"
+    "per-site migration records docs/opencli_batch_migration.md, docs/opencli_news_wave2_migration.md, docs/opencli_reference_wave3_migration.md, docs/opencli_xiaohongshu_migration.md and docs/opencli_wave4_migration.md"
   ],
   "note": "Categories are mutually exclusive and computed only from directory evidence: which clis sites exist and which WeWorker v2 packages exist. migrated_from_opencli additionally cites the per-site migration records. suspected_app_or_desktop is a name-level annotation for gap planning only — those implementations were NOT read and no desktop/app claim is made.",
   "categories": {
-    "migrated_from_opencli": 14,
+    "migrated_from_opencli": 17,
     "package_exists_unaligned": 4,
-    "no_package": 161,
+    "no_package": 158,
     "total": 179
   },
   "sites": [
@@ -77,9 +77,9 @@
     },
     {
       "site": "arxiv",
-      "category": "no_package",
-      "package": null,
-      "alignment_status": "not_started_no_package"
+      "category": "migrated_from_opencli",
+      "package": "arxiv.org",
+      "alignment_status": "commands_migrated_partial_live_samples_see_wave4_inventory"
     },
     {
       "site": "autohome",
@@ -841,9 +841,9 @@
     },
     {
       "site": "smzdm",
-      "category": "no_package",
-      "package": null,
-      "alignment_status": "not_started_no_package"
+      "category": "migrated_from_opencli",
+      "package": "smzdm.com",
+      "alignment_status": "commands_migrated_partial_live_samples_see_wave4_inventory"
     },
     {
       "site": "spotify",
@@ -907,9 +907,9 @@
     },
     {
       "site": "toutiao",
-      "category": "no_package",
-      "package": null,
-      "alignment_status": "not_started_no_package"
+      "category": "migrated_from_opencli",
+      "package": "toutiao.com",
+      "alignment_status": "commands_migrated_partial_live_samples_see_wave4_inventory"
     },
     {
       "site": "trae-cn",

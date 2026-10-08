@@ -19,7 +19,10 @@
     "news.ycombinator.com",
     "36kr.com",
     "wikipedia.org",
-    "github.com"
+    "github.com",
+    "toutiao.com",
+    "smzdm.com",
+    "arxiv.org"
   ],
   "providers": [
     {

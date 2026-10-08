@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "name": "smzdm.com",
+  "version": "0.1.0",
+  "description": "什么值得买：OpenCLI 对齐能力",
+  "match": [
+    "smzdm.com",
+    "www.smzdm.com",
+    "search.smzdm.com",
+    "post.smzdm.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "smzdm",
+    "什么值得买"
+  ],
+  "commands": [
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "search.smzdm.com",
+      "description": "什么值得买搜索好价",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results",
+            "default": 20
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

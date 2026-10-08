@@ -1,0 +1,267 @@
+{
+  "source": "https://github.com/jackwener/OpenCLI",
+  "sha": "24136945847afbfad266c6c46a8cd335377f9112",
+  "live_verification_scope": "samples_only_not_full_command_coverage",
+  "commands": [
+    {
+      "site": "toutiao",
+      "package": "toutiao.com",
+      "name": "hot",
+      "access": "read",
+      "args": [
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 30,
+          "help": "返回条数 (1-50)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "f655079cbcfa",
+          "scope": "final build, limit=2; two hot-board topic rows"
+        }
+      ]
+    },
+    {
+      "site": "toutiao",
+      "package": "toutiao.com",
+      "name": "recommend",
+      "access": "read",
+      "args": [
+        {
+          "name": "category",
+          "type": "string",
+          "default": "__all__",
+          "help": "频道 (__all__, news_tech, news_finance, news_world, news_sports, news_entertainment, news_military)"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "返回条数 (1-50)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "49ec00077d9d",
+          "scope": "category=news_tech, limit=2; two article rows"
+        }
+      ]
+    },
+    {
+      "site": "toutiao",
+      "package": "toutiao.com",
+      "name": "articles",
+      "access": "read",
+      "args": [
+        {
+          "name": "page",
+          "type": "int",
+          "default": 1,
+          "help": "页码 (1-4)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "failed",
+          "trace": "efbf293c9fe8",
+          "scope": "page=1; creator login required; no article data accepted"
+        },
+        {
+          "status": "failed",
+          "trace": "1c2b6072f600",
+          "scope": "after user login, page=1: no parsed article rows; empty account not established"
+        },
+        {
+          "status": "passed",
+          "trace": "c6898c261d1d",
+          "scope": "page=1; verified server login and scoped visible empty-state; populated list not verified"
+        }
+      ]
+    },
+    {
+      "site": "toutiao",
+      "package": "toutiao.com",
+      "name": "whoami",
+      "access": "read",
+      "args": [],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "failed",
+          "trace": "4dd72c00e402",
+          "scope": "host page navigation timed out; identity not verified"
+        },
+        {
+          "status": "failed",
+          "trace": "eadab7180e9e",
+          "scope": "after user login: dashboard user_id surface not recognized; does not prove expired session"
+        },
+        {
+          "status": "passed",
+          "trace": "6467086e1971",
+          "scope": "server is_login=true plus creator user_info identity; string ID preserved"
+        }
+      ]
+    },
+    {
+      "site": "toutiao",
+      "package": "toutiao.com",
+      "name": "login",
+      "access": "write",
+      "args": [],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "site": "smzdm",
+      "package": "smzdm.com",
+      "name": "search",
+      "access": "read",
+      "args": [
+        {
+          "name": "query",
+          "required": true,
+          "positional": true,
+          "help": "Search keyword"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Number of results"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "7bb62c120a1c",
+          "scope": "query=耳机, limit=2; two rendered offer rows"
+        }
+      ]
+    },
+    {
+      "site": "arxiv",
+      "package": "arxiv.org",
+      "name": "search",
+      "access": "read",
+      "args": [
+        {
+          "name": "query",
+          "positional": true,
+          "required": true,
+          "help": "Search keyword (e.g. \"attention is all you need\")"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 10,
+          "help": "Max results (max 25)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "d14b41e3fd0e",
+          "scope": "query=transformer, limit=2; two paper rows"
+        }
+      ]
+    },
+    {
+      "site": "arxiv",
+      "package": "arxiv.org",
+      "name": "paper",
+      "access": "read",
+      "args": [
+        {
+          "name": "id",
+          "positional": true,
+          "required": true,
+          "help": "arXiv paper ID (e.g. 1706.03762)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "631448e76f37",
+          "scope": "public paper metadata sample; one row"
+        }
+      ]
+    },
+    {
+      "site": "arxiv",
+      "package": "arxiv.org",
+      "name": "author",
+      "access": "read",
+      "args": [
+        {
+          "name": "author",
+          "positional": true,
+          "required": true,
+          "help": "Author name (e.g. \"Yoshua Bengio\" or \"Y Bengio\")"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 20,
+          "help": "Max papers to return (max 50)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "7e3f788993b7",
+          "scope": "public author search, limit=2; two rows"
+        }
+      ]
+    },
+    {
+      "site": "arxiv",
+      "package": "arxiv.org",
+      "name": "recent",
+      "access": "read",
+      "args": [
+        {
+          "name": "category",
+          "positional": true,
+          "required": true,
+          "help": "arXiv category (e.g. cs.CL, cs.LG, math.PR, q-bio.NC)"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": 10,
+          "help": "Max results (max 50)"
+        }
+      ],
+      "implementation": "ported",
+      "live_status": "sample_passed",
+      "live_samples": [
+        {
+          "status": "passed",
+          "trace": "fe0d5f76a724",
+          "scope": "category=cs.CL, limit=2; two rows"
+        }
+      ]
+    }
+  ]
+}

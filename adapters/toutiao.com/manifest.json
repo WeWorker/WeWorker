@@ -1,0 +1,120 @@
+{
+  "schema_version": 2,
+  "name": "toutiao.com",
+  "version": "0.1.1",
+  "description": "今日头条：OpenCLI 对齐能力",
+  "match": [
+    "toutiao.com",
+    "www.toutiao.com",
+    "mp.toutiao.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "toutiao",
+    "今日头条"
+  ],
+  "commands": [
+    {
+      "id": "hot",
+      "runtime": "extension",
+      "module": "extension/commands/hot.js",
+      "routeDomain": "www.toutiao.com",
+      "description": "今日头条首页热榜（公开 API，无需登录）",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "返回条数 (1-50)",
+            "default": 30
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "recommend",
+      "runtime": "extension",
+      "module": "extension/commands/recommend.js",
+      "routeDomain": "www.toutiao.com",
+      "description": "今日头条频道推荐流（公开 API，无需登录）",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "频道 (__all__, news_tech, news_finance, news_world, news_sports, news_entertainment, news_military)",
+            "default": "__all__"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "返回条数 (1-50)",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "articles",
+      "runtime": "extension",
+      "module": "extension/commands/articles.js",
+      "routeDomain": "mp.toutiao.com",
+      "description": "读取头条号创作者后台文章列表及指标",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "页码 (1-4)",
+            "default": 1
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "whoami",
+      "runtime": "extension",
+      "module": "extension/commands/whoami.js",
+      "routeDomain": "mp.toutiao.com",
+      "description": "通过头条号登录状态及用户接口验证当前身份",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "login",
+      "runtime": "extension",
+      "module": "extension/commands/login.js",
+      "routeDomain": "mp.toutiao.com",
+      "description": "打开头条号登录页；人工完成后调用 whoami",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
