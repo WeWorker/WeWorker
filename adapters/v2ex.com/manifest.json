@@ -1,0 +1,308 @@
+{
+  "schema_version": 2,
+  "name": "v2ex.com",
+  "version": "0.1.0",
+  "description": "V2EX 社区：OpenCLI 对齐能力",
+  "homepage_url": "https://www.v2ex.com/",
+  "match": [
+    "www.v2ex.com",
+    "v2ex.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "v2ex",
+    "V2EX 社区"
+  ],
+  "commands": [
+    {
+      "id": "hot",
+      "runtime": "extension",
+      "module": "extension/commands/hot.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 热门话题",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of topics (max 100)",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "latest",
+      "runtime": "extension",
+      "module": "extension/commands/latest.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 最新话题",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of topics (max 100)",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "topic",
+      "runtime": "extension",
+      "module": "extension/commands/topic.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 主题详情和回复",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Topic ID"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "member",
+      "runtime": "extension",
+      "module": "extension/commands/member.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 用户资料",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Username"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "node",
+      "runtime": "extension",
+      "module": "extension/commands/node.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 节点话题列表",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Node name (e.g. python, javascript, apple)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of topics (API returns max 20) (max 100)",
+            "default": 10
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "nodes",
+      "runtime": "extension",
+      "module": "extension/commands/nodes.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 所有节点列表",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of nodes (max 100)",
+            "default": 30
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "replies",
+      "runtime": "extension",
+      "module": "extension/commands/replies.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 主题回复列表",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Topic ID"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of replies (max 100)",
+            "default": 20
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "user",
+      "runtime": "extension",
+      "module": "extension/commands/user.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 用户发帖列表",
+      "safety": "read",
+      "execution": {
+        "type": "api",
+        "runtime": "background"
+      },
+      "schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Username"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of topics (API returns max 20) (max 100)",
+            "default": 10
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "me",
+      "runtime": "extension",
+      "module": "extension/commands/me.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 获取个人资料 (余额/未读提醒)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "notifications",
+      "runtime": "extension",
+      "module": "extension/commands/notifications.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 获取提醒 (回复/由于)",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of notifications (max 100)",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "daily",
+      "runtime": "extension",
+      "module": "extension/commands/daily.js",
+      "routeDomain": "www.v2ex.com",
+      "description": "V2EX 每日签到并领取铜币",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "whoami",
+      "runtime": "extension",
+      "module": "extension/commands/whoami.js",
+      "routeDomain": "v2ex.com",
+      "description": "Show the current logged-in v2ex account",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "login",
+      "runtime": "extension",
+      "module": "extension/commands/login.js",
+      "routeDomain": "v2ex.com",
+      "description": "Open the v2ex login page; finish signing in on the page, then verify with whoami",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

@@ -2672,8 +2672,6 @@ async function handleNativeMessage(msg) {
         const route = selected.command.tabDomain || selected.command.routeDomain || selected.manifest.match[0];
         let tab = tabs.find(entry => {
           try { return new URL(entry.url).hostname === route; } catch { return false; }
-        }) || tabs.find(entry => {
-          try { return adapterMatchesHostname(selected.manifest, new URL(entry.url).hostname); } catch { return false; }
         });
         if (!tab?.id) {
           const startUrl = assertAdapterNavigationUrl(selected.manifest, 'https://' + route + '/');

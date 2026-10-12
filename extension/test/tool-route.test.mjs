@@ -774,3 +774,20 @@ test("managed page calls open the declared route without user setup and do not r
   assert.match(failed.error, /message port closed/);
   assert.equal(calls, 1);
 });
+
+test("managed page calls do not select helper subdomain tabs as the execution page", async () => {
+  const manifest = {
+    name: 'gitee.com',
+    match: ['gitee.com', 'www.gitee.com'],
+    runtime_allowed_hosts: ['so.gitee.com'],
+    _hostSnapshot: { profile: 'public', digest: 'fixture' },
+    commands: [{ id: 'search', runtime: 'extension', routeDomain: 'gitee.com', safety: 'read' }],
+  };
+  const worker = loadServiceWorker({
+    tabs: [{ id: 10, url: 'https://so.gitee.com/?q=weworker', status: 'complete' }],
+    managedCatalog: { available: true, managedNames: ['gitee.com'], adapters: [manifest] },
+  });
+  const result = await worker.callNativeTool('gitee.com.search');
+  assert.equal(result.result.tabId, 999);
+  assert.equal((await worker.context.chrome.tabs.get(999)).url, 'https://gitee.com/');
+});

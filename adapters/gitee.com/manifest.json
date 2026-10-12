@@ -1,0 +1,119 @@
+{
+  "schema_version": 2,
+  "name": "gitee.com",
+  "version": "0.1.0",
+  "description": "Gitee 代码托管：OpenCLI 对齐能力",
+  "homepage_url": "https://gitee.com/",
+  "match": [
+    "gitee.com",
+    "www.gitee.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "gitee",
+    "Gitee 代码托管"
+  ],
+  "runtime_allowed_hosts": [
+    "gitee.com",
+    "www.gitee.com",
+    "so.gitee.com"
+  ],
+  "commands": [
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "gitee.com",
+      "description": "Search repositories on Gitee",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of results (max 50)",
+            "default": 10
+          }
+        },
+        "required": [
+          "keyword"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "trending",
+      "runtime": "extension",
+      "module": "extension/commands/trending.js",
+      "routeDomain": "gitee.com",
+      "description": "Recommended open-source projects on Gitee Explore",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of projects (max 50)",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "user",
+      "runtime": "extension",
+      "module": "extension/commands/user.js",
+      "routeDomain": "gitee.com",
+      "description": "Show a Gitee user profile panel",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Gitee username"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "whoami",
+      "runtime": "extension",
+      "module": "extension/commands/whoami.js",
+      "routeDomain": "gitee.com",
+      "description": "Show the current logged-in gitee account",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "login",
+      "runtime": "extension",
+      "module": "extension/commands/login.js",
+      "routeDomain": "gitee.com",
+      "description": "Open the gitee login page; finish signing in on the page, then verify with whoami",
+      "safety": "write",
+      "requires_confirmation": true,
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
