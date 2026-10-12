@@ -90,8 +90,9 @@ var __wave5 = (() => {
       throw new CommandExecutionError("Only GET requests are allowed");
     }
     let response;
+    const helperAction = url.hostname === "www.v2ex.com" ? "browser_fetch" : "backend_fetch";
     try {
-      response = await window.__webmcpWecliRuntime.requestPrivileged("backend_fetch", {
+      response = await window.__webmcpWecliRuntime.requestPrivileged(helperAction, {
         url: url.href,
         browserFallback: false,
         redactBodyInTrace: true,

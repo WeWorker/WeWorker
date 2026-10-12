@@ -3,6 +3,7 @@
   "name": "v2ex.com",
   "version": "0.1.0",
   "description": "V2EX 社区：OpenCLI 对齐能力",
+  "homepage_url": "https://www.v2ex.com/",
   "match": [
     "www.v2ex.com",
     "v2ex.com"
