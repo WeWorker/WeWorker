@@ -207,8 +207,6 @@ var __wave5 = (() => {
       apiUrl.searchParams.set("q", keyword);
       apiUrl.searchParams.set("from", "0");
       apiUrl.searchParams.set("size", String(fetchSize));
-      await page.goto(searchUrl);
-      await page.wait(2);
       const response = await fetch(apiUrl.toString(), {
         headers: {
           Accept: "application/json",

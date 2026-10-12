@@ -3,6 +3,7 @@
   "name": "gitee.com",
   "version": "0.1.0",
   "description": "Gitee 代码托管：OpenCLI 对齐能力",
+  "homepage_url": "https://gitee.com/",
   "match": [
     "gitee.com",
     "www.gitee.com"
@@ -13,6 +14,8 @@
     "Gitee 代码托管"
   ],
   "runtime_allowed_hosts": [
+    "gitee.com",
+    "www.gitee.com",
     "so.gitee.com"
   ],
   "commands": [
