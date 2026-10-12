@@ -67,7 +67,15 @@ var __wave5 = (() => {
     ["so.gitee.com", { exact: /* @__PURE__ */ new Set(["/v1/search/widget/wong1slagnlmzwvsu5ya"]) }],
     ["gitee.com", { prefix: ["/api/v5/users/"] }],
     ["weread.qq.com", { prefix: ["/web/"] }],
-    ["i.weread.qq.com", { prefix: ["/book/", "/user/", "/review/", "/shelf/"] }]
+    ["i.weread.qq.com", { prefix: ["/book/", "/user/", "/review/", "/shelf/"] }],
+    ["tieba.baidu.com", {
+      exact: /* @__PURE__ */ new Set([
+        "/c/f/frs/page_pc"
+      ]),
+      methods: /* @__PURE__ */ new Map([
+        ["/c/f/frs/page_pc", /* @__PURE__ */ new Set(["POST"])]
+      ])
+    }]
   ]);
   function allowed(url) {
     const rule = endpoints.get(url.hostname);
@@ -81,7 +89,10 @@ var __wave5 = (() => {
     if (url.protocol !== "https:" || url.username || url.password || url.port || !allowed(url)) {
       throw new CommandExecutionError("Request is outside the fixed source API endpoints");
     }
-    if (options.method && String(options.method).toUpperCase() !== "GET") {
+    const method = String(options.method || "GET").toUpperCase();
+    const rule = endpoints.get(url.hostname);
+    const allowedMethods = rule?.methods?.get(url.pathname) || /* @__PURE__ */ new Set(["GET"]);
+    if (!allowedMethods.has(method)) {
       throw new CommandExecutionError("Only GET requests are allowed");
     }
     let response;
@@ -91,10 +102,11 @@ var __wave5 = (() => {
         browserFallback: false,
         redactBodyInTrace: true,
         options: {
-          method: "GET",
+          method,
           redirect: "manual",
           maxResponseBytes: 4 * 1024 * 1024,
-          headers: { Accept: "application/json", ...options.headers }
+          headers: { Accept: "application/json", ...options.headers },
+          ...(options.body != null ? { body: String(options.body) } : {})
         }
       });
     } catch {
