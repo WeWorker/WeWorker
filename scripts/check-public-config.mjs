@@ -13,6 +13,7 @@ function duplicates(values) {
 export function validatePublicConfig(repoRoot) {
   const errors = []
   const adaptersRoot = path.join(repoRoot, 'extension', 'adapters')
+  const managedAdaptersRoot = path.join(repoRoot, 'adapters')
   const registryPath = path.join(adaptersRoot, 'index.json')
   const profilePath = path.join(repoRoot, 'weworker', 'build-profile.json')
   const registered = readJson(registryPath)
@@ -53,7 +54,19 @@ export function validatePublicConfig(repoRoot) {
   }
 
   for (const id of profile.adapters) {
-    if (!registered.includes(id)) errors.push(`build profile references unregistered Adapter: ${id}`)
+    if (registered.includes(id)) continue
+    const managedManifestPath = path.join(managedAdaptersRoot, id, 'manifest.json')
+    if (!fs.existsSync(managedManifestPath)) {
+      errors.push(`build profile references unregistered Adapter: ${id}`)
+      continue
+    }
+    const manifest = readJson(managedManifestPath)
+    if (manifest.schema_version !== 2) {
+      errors.push(`managed Adapter ${id} manifest must use schema_version 2`)
+    }
+    if (manifest.name !== id) {
+      errors.push(`managed Adapter name mismatch in adapters/${id}/manifest.json`)
+    }
   }
 
   const versionFiles = [

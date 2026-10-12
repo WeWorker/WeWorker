@@ -24,6 +24,7 @@ describe("v2CommandDef", () => {
       name: "demo.list-metrics",
       description: "查询指标",
       parameters: { type: "object", properties: { mode: { type: "string" } }, required: ["mode"] },
+      requires_confirmation: false,
       adapterId: "demo",
       routeDomain: "demo.example.com",
       tabDomain: "demo.example.com",
