@@ -1,0 +1,129 @@
+{
+  "schema_version": 2,
+  "name": "tieba.baidu.com",
+  "version": "0.1.0",
+  "description": "百度贴吧：OpenCLI 对齐能力",
+  "match": [
+    "tieba.baidu.com"
+  ],
+  "requires_auth": false,
+  "discovery_terms": [
+    "tieba",
+    "百度贴吧"
+  ],
+  "commands": [
+    {
+      "id": "hot",
+      "runtime": "extension",
+      "module": "extension/commands/hot.js",
+      "routeDomain": "tieba.baidu.com",
+      "description": "Tieba hot topics",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Number of items to return",
+            "default": 20
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "posts",
+      "runtime": "extension",
+      "module": "extension/commands/posts.js",
+      "routeDomain": "tieba.baidu.com",
+      "description": "Browse posts in a tieba forum",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "forum": {
+            "type": "string",
+            "description": "Forum name in Chinese"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of items to return",
+            "default": 20
+          }
+        },
+        "required": [
+          "forum"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "read",
+      "runtime": "extension",
+      "module": "extension/commands/read.js",
+      "routeDomain": "tieba.baidu.com",
+      "description": "Read a tieba thread",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Thread ID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number",
+            "default": 1
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of replies to return",
+            "default": 30
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "search",
+      "runtime": "extension",
+      "module": "extension/commands/search.js",
+      "routeDomain": "tieba.baidu.com",
+      "description": "Search posts across tieba",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Search keyword"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (currently only 1 is supported)",
+            "default": 1
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Number of items to return",
+            "default": 20
+          }
+        },
+        "required": [
+          "keyword"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
