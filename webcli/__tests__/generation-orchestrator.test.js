@@ -101,6 +101,76 @@ function createOrchestratorDeps(overrides = {}) {
 }
 
 describe('generation orchestrator (agent mode)', () => {
+  it('validates the unchanged read draft after model timeout and records recovery without another model call', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-timeout-recovery-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'query records' });
+    const model = vi.fn().mockResolvedValueOnce(planToolCall())
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'scaffold_adapter_draft', arguments: {} })
+      .mockRejectedValue(Object.assign(new Error('fixture timeout'), { code: 'AI_WORKER_TIMEOUT' }));
+    const runtimeValidator = vi.fn(async () => ({ passed: true, errors: [], executionSummary: { attempted: 1, passed: 1, skipped: 0, failed: 0 } }));
+    const result = await runGenerationOrchestrator(createOrchestratorDeps({ run, store, model, runtimeValidator }));
+    expect(result.status).toBe(GENERATION_STATUSES.AWAITING_APPROVAL);
+    expect(model).toHaveBeenCalledTimes(3);
+    expect(runtimeValidator).toHaveBeenCalledOnce();
+    expect(run.snapshot.artifacts.staticValidation.passed).toBe(true);
+    expect(run.snapshot.artifacts.modelRecovery).toMatchObject({ triggerCode: 'AI_WORKER_TIMEOUT', strategy: 'validate_existing_read_draft', recovered: true });
+    expect(JSON.stringify(store.readTrace(run.id))).toContain('AI_WORKER_TIMEOUT');
+  });
+
+  it.each([
+    [{ passed: false, errors: [{ code: 'OUTPUT_EMPTY' }] }, 'RUNTIME_VALIDATION_FAILED'],
+    [{ passed: true, executionSummary: { attempted: 0, passed: 0, skipped: 1, failed: 0 } }, 'RUNTIME_EXECUTION_REQUIRED'],
+    [{ passed: true }, 'RUNTIME_EXECUTION_REQUIRED'],
+  ])('rejects timeout recovery when actual execution is incomplete: %j', async (validation, code) => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-timeout-incomplete-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'query records' });
+    const model = vi.fn().mockResolvedValueOnce(planToolCall())
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'scaffold_adapter_draft', arguments: {} })
+      .mockRejectedValue(Object.assign(new Error('fixture timeout'), { code: 'AI_WORKER_TIMEOUT' }));
+    await expect(runGenerationOrchestrator(createOrchestratorDeps({ run, store, model, runtimeValidator: async () => validation }))).rejects.toMatchObject({ code });
+    expect(run.snapshot.artifacts.modelRecovery).toBeUndefined();
+    expect(run.status).not.toBe(GENERATION_STATUSES.AWAITING_APPROVAL);
+  });
+
+  it.each(['no-draft', 'no-validator', 'write-plan', 'budget', 'cancelled'])('does not recover an unsafe or incomplete timeout: %s', async kind => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-timeout-boundary-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'query records' });
+    const plan = planToolCall();
+    if (kind === 'write-plan') plan.arguments.tools[0] = { name: 'submit_record', purpose: 'fixture mutation', risk: 'write', sourceApiKind: 'action', sourceApiIndexes: [0] };
+    const memory = kind === 'write-plan' ? { ...MEMORY, actionApiCandidates: [{ toolName: 'example.test.submit_record', method: 'POST', requestEvidence: { bodyKind: 'json', bodyKeys: ['title'] } }] } : MEMORY;
+    const runtimeValidator = vi.fn(async () => ({ passed: true, executionSummary: { attempted: 1, passed: 1, skipped: 0, failed: 0 } }));
+    const model = vi.fn().mockResolvedValueOnce(plan);
+    if (kind !== 'no-draft') model.mockResolvedValueOnce({ type: 'tool_call', name: 'scaffold_adapter_draft', arguments: {} });
+    model.mockImplementation(async () => {
+      if (kind === 'budget') run.snapshot.startedAt = new Date(0).toISOString();
+      if (kind === 'cancelled') run.cancel();
+      throw Object.assign(new Error('fixture timeout'), { code: 'AI_WORKER_TIMEOUT' });
+    });
+    const deps = createOrchestratorDeps({ run, store, model, memory, runtimeValidator: kind === 'no-validator' ? undefined : runtimeValidator });
+    await expect(runGenerationOrchestrator(deps)).rejects.toMatchObject({ code: kind === 'budget' ? 'GENERATION_BUDGET_EXCEEDED' : kind === 'cancelled' ? 'GENERATION_CANCELLED' : 'AI_WORKER_TIMEOUT' });
+    expect(runtimeValidator).not.toHaveBeenCalled();
+    expect(run.snapshot.artifacts.modelRecovery).toBeUndefined();
+  });
+
+  it('finishes a validated draft without depending on another model response after finish_run', async () => {
+    const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-finish-model-independent-') });
+    const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'query records' });
+    const call = (name, args = {}) => ({ type: 'tool_call', name, arguments: args });
+    const model = vi.fn()
+      .mockResolvedValueOnce(planToolCall())
+      .mockResolvedValueOnce(call('scaffold_adapter_draft'))
+      .mockResolvedValueOnce(call('validate_adapter_draft'))
+      .mockResolvedValueOnce(call('validate_adapter_runtime'))
+      .mockResolvedValueOnce(call('finish_run', { summary: 'validated' }))
+      .mockRejectedValue(Object.assign(new Error('fixture model unavailable after verification'), { code: 'AI_WORKER_TIMEOUT' }));
+    const runtimeValidator = vi.fn(async () => ({ passed: true, errors: [] }));
+    const result = await runGenerationOrchestrator(createOrchestratorDeps({ run, store, model, runtimeValidator }));
+    expect(result.status).toBe(GENERATION_STATUSES.AWAITING_APPROVAL);
+    expect(model).toHaveBeenCalledTimes(5);
+    expect(run.snapshot.artifacts.staticValidation.passed).toBe(true);
+    expect(run.snapshot.artifacts.runtimeValidation.passed).toBe(true);
+  });
+
   it('revalidates a repaired draft after runtime failure before allowing completion', async () => {
     const store = new GenerationRunStore({ rootDir: makeTmpDir('webcli-runtime-repair-') });
     const run = GenerationRun.create({ store, siteKey: MEMORY.siteKey, goal: 'query records' });
@@ -317,7 +387,7 @@ describe('generation orchestrator (agent mode)', () => {
     expect(run.snapshot.artifacts.plan.tools).toHaveLength(1);
     expect(run.snapshot.artifacts.staticValidation.passed).toBe(true);
     expect(runtimeValidator).toHaveBeenCalledTimes(1);
-    expect(model).toHaveBeenCalledTimes(7);
+    expect(model).toHaveBeenCalledTimes(6);
   });
 
   it('survives the impossible-fixture failure by marking the tool unverifiable (run 6208043a regression)', async () => {
@@ -367,7 +437,7 @@ describe('generation orchestrator (agent mode)', () => {
     const result = await runGenerationOrchestrator(createOrchestratorDeps({ run, store, model, runtimeValidator }));
 
     expect(result.status).toBe(GENERATION_STATUSES.AWAITING_APPROVAL);
-    expect(model).toHaveBeenCalledTimes(7);
+    expect(model).toHaveBeenCalledTimes(6);
   });
 
   it('falls back to deterministic completion when the orchestrator exhausts its step budget', async () => {

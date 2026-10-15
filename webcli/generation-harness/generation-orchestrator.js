@@ -13,6 +13,7 @@ import {
   resolveAdapterDraftFile,
 } from './draft-revision.js';
 import { readOnlyV2Plan, buildPlanSemanticEnhancement } from './adapter-generation-workflow.js';
+import { allocateGenerationPlan } from './existing-site.js';
 import { createDraftEvidenceTools } from './draft-evidence-tools.js';
 
 const MAX_ORCHESTRATION_STEPS = 24;
@@ -37,9 +38,11 @@ const ORCHESTRATOR_SYSTEM_PROMPT = `你是 Adapter 生成编排者，负责从�
    - 单个工具反复失败 → mark_tool_unverifiable 转人工或 drop_planned_tool 剔除（至少保留一个工具，处理后重验）；
    - 页面不可用或需要登录 → request_user_input 请用户处理；
    - 确实无法推进 → report_blocker 说明卡点、已试方案和建议。
-6. 全部通过后调用 finish_run（前置条件不满足会被拒绝并说明原因），随后输出 final。
+6. 全部通过后调用 finish_run（前置条件不满足会被拒绝并说明原因）；返回 ready 后由系统结束编排，无需追加模型回复。
 7. 需要回顾此前轮次时调用 inspect_run_trace。
-8. 不得伪造数据通过验证；不得虚构上下文外的接口；文件改动只允许发生在隔离草稿目录内。`;
+8. 不得伪造数据通过验证；不得虚构上下文外的接口；文件改动只允许发生在隔离草稿目录内。
+9. 计划工具填写 sourceApiKind：list_apis 为 list，action_apis 为 action（补充录制的只读操作也属于 action）。sourceApiIndexes 使用该列表的原始 index，不得把 action 的索引绑定到 list。
+10. overview.existingPackage 表示增量扩展：已有命令、文件与元数据必须原样保留，不能改名或删除。先使用 scaffold 返回的 generatedCommands 查看新增命令；用 update_generated_command 只更新新增命令的参数和实现，避免重写包含旧能力的整个 manifest。无需读取或改写保留文件、通用 runtime 或 guidance。`;
 
 function finishProblems(state, runtimeValidator) {
   const problems = [];
@@ -64,8 +67,8 @@ function createOrchestratorTools(state, deps) {
   };
 
   return [
-    ...createDraftEvidenceTools(() => { requiresDraft(); return state.draft.adapterDir; }, commandId => {
-      state.writes.push({ path: `fixture:${commandId}`, reason: 'mock verification' });
+    ...createDraftEvidenceTools(() => { requiresDraft(); return state.draft.adapterDir; }, (commandId, kind) => {
+      state.writes.push({ path: `${kind}:${commandId}`, reason: kind === 'command' ? 'update generated command' : 'mock verification' });
       state.staticValidation = null;
       state.runtimeValidation = null;
     }),
@@ -98,6 +101,7 @@ function createOrchestratorTools(state, deps) {
                 name: { type: 'string' },
                 purpose: { type: 'string' },
                 risk: { type: 'string', enum: ['read', 'write'] },
+                sourceApiKind: { type: 'string', enum: ['list', 'action'] },
                 sourceApiIndexes: { type: 'array', items: { type: 'integer' } },
               },
               required: ['name', 'purpose', 'risk', 'sourceApiIndexes'],
@@ -110,7 +114,7 @@ function createOrchestratorTools(state, deps) {
       },
       execute: async (nextPlan) => {
         if (state.draft) throw new GenerationHarnessError('草稿生成后不能覆盖计划；请修复工具或显式记录剔除原因', 'PLAN_ALREADY_SCAFFOLDED');
-        const plan = readOnlyV2Plan(nextPlan, { allowWriteTools: (Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates.length : 0) > 0 });
+        const plan = allocateGenerationPlan(memory, readOnlyV2Plan(nextPlan, { allowWriteTools: (Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates.length : 0) > 0 }));
         if (!Array.isArray(plan.tools) || plan.tools.length === 0) {
           throw new GenerationHarnessError('计划必须包含至少一个只读工具', 'INVALID_GENERATION_PLAN');
         }
@@ -140,7 +144,7 @@ function createOrchestratorTools(state, deps) {
         state.activeToolNames = plan.tools.map((tool) => `${memory.siteKey}.${String(tool.name || '').split('.').pop()}`);
         run.setArtifact('plan', plan);
         run.trace('planning_completed', { plan, orchestrator: true });
-        return { saved: true, toolCount: plan.tools.length };
+        return { saved: true, toolCount: plan.tools.length, plan };
       },
     },
     {
@@ -191,7 +195,11 @@ function createOrchestratorTools(state, deps) {
         state.runtimeValidation = null;
         run.setArtifact('draft', state.draft);
         run.setArtifact('draftHistory', [state.draft]);
-        return { scaffolded: true, toolNames: [...state.activeToolNames] };
+        const manifest = draft.packageFormat === 2 ? JSON.parse(fs.readFileSync(draft.files.manifest, 'utf8')) : null;
+        return { scaffolded: true, toolNames: [...state.activeToolNames], ...(manifest ? {
+          generatedCommands: manifest.commands.filter(command => state.activeToolNames.includes(`${manifest.name}.${command.id}`)),
+          retainedCommandCount: manifest.commands.length - state.activeToolNames.length,
+        } : {}) };
       },
     },
     {
@@ -435,7 +443,7 @@ function createOrchestratorTools(state, deps) {
     },
     {
       name: 'finish_run',
-      description: '声明完成。前置条件：计划已保存、草稿已生成、静态验证通过、运行验证通过（或无运行验证器）。满足后返回 ready，此时输出 final。',
+      description: '声明完成。前置条件：计划已保存、草稿已生成、静态验证通过、运行验证通过（或无运行验证器）。满足后返回 ready，系统结束编排。',
       parameters: {
         type: 'object',
         properties: { summary: { type: 'string' } },
@@ -516,6 +524,7 @@ async function runOrchestrationLoop(state, deps, initialMessages) {
       run.trace(`orchestration_loop_${event.type}`, event);
     },
     tools: createOrchestratorTools(state, deps),
+    isComplete: ({ call, output }) => call.name === 'finish_run' && output?.ready === true,
   });
 }
 
@@ -551,10 +560,12 @@ async function finishOrchestration(state, deps, provenanceWriter) {
   return orchestratorResult(state, state.runtimeValidation);
 }
 
-async function deterministicFallbackFinish(state, deps, provenanceWriter) {
+async function deterministicFallbackFinish(state, deps, provenanceWriter, { code = 'TOOL_LOOP_MAX_STEPS', requireExecution = false } = {}) {
   const { run, staticValidator, runtimeValidator, signal, store, memory } = deps;
+  run.assertNotCancelled(signal);
+  run.assertWithinBudget();
   run.trace('orchestration_loop_incomplete', {
-    code: 'TOOL_LOOP_MAX_STEPS',
+    code,
     stepLimit: state.stepLimit,
     writes: state.writes.length,
   });
@@ -562,7 +573,11 @@ async function deterministicFallbackFinish(state, deps, provenanceWriter) {
     const error = new GenerationHarnessError('orchestrator exhausted steps before scaffolding a draft', 'STATIC_VALIDATION_FAILED');
     throw error;
   }
-  if (!state.staticValidation?.passed) {
+  if (requireExecution || !state.staticValidation?.passed) {
+    if (run.status === GENERATION_STATUSES.RUNTIME_VALIDATING) {
+      run.transition(GENERATION_STATUSES.REVISING, { currentAction: 'validate_adapter_draft' });
+    }
+    run.transition(GENERATION_STATUSES.STATIC_VALIDATING, { currentAction: 'validate_adapter_draft' });
     state.staticValidation = staticValidator({
       adapterDir: state.draft.adapterDir,
       expectedSiteKey: run.snapshot.siteKey,
@@ -576,7 +591,7 @@ async function deterministicFallbackFinish(state, deps, provenanceWriter) {
     error.details = state.staticValidation;
     throw error;
   }
-  if (typeof runtimeValidator === 'function' && !state.runtimeValidation?.passed) {
+  if (typeof runtimeValidator === 'function' && (requireExecution || !state.runtimeValidation?.passed)) {
     run.transition(GENERATION_STATUSES.RUNTIME_VALIDATING, { currentAction: 'validate_adapter_runtime' });
     run.recordStep('validate_adapter_runtime', { phase: 'runtime_validation' });
     state.runtimeValidation = await runtimeValidator({
@@ -603,8 +618,31 @@ async function deterministicFallbackFinish(state, deps, provenanceWriter) {
       throw error;
     }
   }
-  run.trace('orchestrated_fallback_finished', { stepLimit: state.stepLimit });
+  run.assertNotCancelled(signal);
+  run.assertWithinBudget();
+  if (requireExecution) {
+    const summary = state.runtimeValidation?.executionSummary;
+    const count = state.activeToolNames.length;
+    if (!summary || summary.attempted !== count || summary.passed !== count || summary.skipped !== 0 || summary.failed !== 0) {
+      throw new GenerationHarnessError('超时恢复需要全部目标工具通过真实执行验证，不能跳过工具。', 'RUNTIME_EXECUTION_REQUIRED');
+    }
+    run.setArtifact('modelRecovery', { triggerCode: code, strategy: 'validate_existing_read_draft', recovered: true, modelCallCount: run.snapshot.modelCallCount });
+  }
+  run.trace('orchestrated_fallback_finished', { stepLimit: state.stepLimit, code });
   return finishOrchestration(state, deps, provenanceWriter);
+}
+
+function canValidateTimedOutDraft(state, deps, error) {
+  // An unreturned model response is never executed. Only the already-written,
+  // complete read-only plan may continue through the ordinary validators.
+  const originalNames = deps.run.snapshot.artifacts?.draft?.toolNames || [];
+  return error?.code === 'AI_WORKER_TIMEOUT'
+    && !!state.draft && typeof deps.runtimeValidator === 'function'
+    && state.plan?.tools?.length > 0
+    && state.plan.tools.every(tool => tool.risk === 'read' && !tool.unverifiable)
+    && originalNames.length === state.activeToolNames.length
+    && originalNames.every(name => state.activeToolNames.includes(name))
+    && !state.writes.some(write => /^(?:drop|mark-unverifiable):/.test(write.path));
 }
 
 export async function runGenerationOrchestrator(deps) {
@@ -654,6 +692,9 @@ export async function runGenerationOrchestrator(deps) {
     }
     if (error?.code === 'TOOL_LOOP_MAX_STEPS') {
       return deterministicFallbackFinish(state, deps, provenanceWriter);
+    }
+    if (canValidateTimedOutDraft(state, deps, error)) {
+      return deterministicFallbackFinish(state, deps, provenanceWriter, { code: error.code, requireExecution: true });
     }
     throw error;
   }
@@ -714,6 +755,9 @@ export async function resumeGenerationOrchestrator(deps, answer) {
     }
     if (error?.code === 'TOOL_LOOP_MAX_STEPS') {
       return deterministicFallbackFinish(state, deps, provenanceWriter);
+    }
+    if (canValidateTimedOutDraft(state, deps, error)) {
+      return deterministicFallbackFinish(state, deps, provenanceWriter, { code: error.code, requireExecution: true });
     }
     throw error;
   }

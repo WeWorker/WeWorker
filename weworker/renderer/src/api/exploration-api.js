@@ -86,7 +86,7 @@ export async function clearExplorationActionCapture(taskId) {
 export async function startExplorationGeneration(taskId, options = {}) {
   const payload = {}
   if (typeof options.goal === 'string' && options.goal.trim()) payload.goal = options.goal.trim()
-  if (['agent', 'classic', 'quick'].includes(options.mode)) payload.mode = options.mode
+  if (['auto', 'agent', 'classic', 'quick'].includes(options.mode)) payload.mode = options.mode
   return readJsonResponse(await backendFetch(`/exploration/runs/${encodeURIComponent(taskId)}/generation`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

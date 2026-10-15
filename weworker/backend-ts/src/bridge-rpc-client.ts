@@ -307,7 +307,7 @@ export class BridgeRpcClient {
     budget?: Record<string, unknown>
     modelConfig?: GenerationModelConfig
     previousRunId?: string
-    mode?: 'agent' | 'classic' | 'quick'
+    mode?: 'auto' | 'agent' | 'classic' | 'quick'
   }): Promise<GenerationRunSnapshot> {
     const message = await this.request(
       {
@@ -372,7 +372,9 @@ export class BridgeRpcClient {
     const message = await this.request(
       { type: 'refresh_adapter_tabs', siteKey },
       ['call_tool_result'],
-      15_000,
+      // Extension waits up to 15s per matching page before reinjecting tools.
+      // The outer RPC must also allow time for injection and registration.
+      60_000,
     )
     return asRecord(message.result)
   }

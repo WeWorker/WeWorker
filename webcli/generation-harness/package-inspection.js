@@ -30,7 +30,7 @@ export function packageDraftBundle(adapterDir) {
 export function inspectPackageRegistration(adapterDir) {
   const bundle = packageDraftBundle(adapterDir);
   const context = vm.createContext({}, { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' });
-  vm.runInContext('var window = { __registrations: [], __webmcpRegister(adapter) { this.__registrations.push(...adapter.tools.map(tool => tool.name)); } };', context, { timeout: 1000 });
+  vm.runInContext('var window = globalThis; window.__registrations = []; window.__webmcpRegister = function(adapter) { window.__registrations.push(...adapter.tools.map(tool => tool.name)); };', context, { timeout: 1000 });
   for (const script of bundle.scripts) new vm.Script(script.source).runInContext(context, { timeout: 1000 });
   const names = JSON.parse(vm.runInContext('JSON.stringify(window.__registrations)', context, { timeout: 1000 }));
   return { ...bundle, names };

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
-  Checkbox,
   Input,
   InputNumber,
   Popconfirm,
@@ -23,7 +22,6 @@ import {
   fetchExplorationCapabilities,
   fetchExplorationGeneration,
   fetchExplorationRun,
-  generateExplorationScaffold,
   publishExplorationGeneration,
   resumeExplorationGeneration,
   retryExplorationActionAnalysis,
@@ -137,7 +135,6 @@ export default function ExplorationPage({ onClose }) {
   const [generationMessage, setGenerationMessage] = useState('')
   const [busyAction, setBusyAction] = useState('')
   const [captureElapsed, setCaptureElapsed] = useState(0)
-  const [agentMode, setAgentMode] = useState(true)
   const [resumeAnswer, setResumeAnswer] = useState('')
 
   const requests = useMemo(() => collectExplorationRequests(run?.evidence), [run?.evidence])
@@ -408,9 +405,8 @@ export default function ExplorationPage({ onClose }) {
     setBusyAction('quickGenerate')
     setGenerationMessage('正在生成 Adapter 草稿…')
     try {
-      const response = await generateExplorationScaffold(run.taskId)
-      setRun(response.run)
-      setGenerationMessage('快速生成已启动，验证通过后可确认安装并启用。')
+      setRun(await startExplorationGeneration(run.taskId, { mode: 'auto' }))
+      setGenerationMessage('已开始生成并验证；需要时会自动修复一次，通过后可确认安装。')
     } catch (nextError) {
       setGenerationMessage(normalizeError(nextError))
     } finally {
@@ -436,9 +432,9 @@ export default function ExplorationPage({ onClose }) {
   const handleSmartGenerate = async () => {
     if (!run?.taskId || busyAction) return
     setBusyAction('smartGenerate')
-    setGenerationMessage('正在启动 Generation Harness…')
+    setGenerationMessage('正在启动智能生成…')
     try {
-      setRun(await startExplorationGeneration(run.taskId, agentMode ? { mode: 'agent' } : {}))
+      setRun(await startExplorationGeneration(run.taskId, { mode: 'agent' }))
       setGenerationMessage('智能生成已启动，客户端会持续显示草稿和验证进度。')
     } catch (nextError) {
       setGenerationMessage(normalizeError(nextError))
@@ -829,19 +825,13 @@ export default function ExplorationPage({ onClose }) {
                 <div style={cardStyle}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>下一步：生成 Adapter</div>
                   <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-muted)' }}>
-                    先保存本次探索结果，再选择快速生成或智能生成。生成结果通过验证后需要确认安装。
+                    直接生成并验证；复杂参数或多接口任务可选智能生成。通过验证后确认安装。
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
                     {!run.siteMemory && <Button loading={busyAction === 'saveMemory'} disabled={anyBusy || actionCaptureRunning} onClick={handleSaveMemory}>保存探索结果</Button>}
-                    <Button loading={busyAction === 'quickGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleQuickGenerate}>{actionCapture ? '快速生成' : '跳过录制，快速生成'}</Button>
-                    <Button type="primary" loading={busyAction === 'smartGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleSmartGenerate}>智能生成</Button>
-                    <Checkbox
-                      checked={agentMode}
-                      onChange={(event) => setAgentMode(event.target.checked)}
-                      disabled={generationRunning || anyBusy || actionCaptureRunning}
-                    >
-                      智能编排（实验，遇到问题自主处置并可中途提问）
-                    </Checkbox>
+                    <Button type="primary" loading={busyAction === 'quickGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleQuickGenerate}>生成并验证</Button>
+                    <Button loading={busyAction === 'smartGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleSmartGenerate}>智能生成</Button>
+
                   </div>
                 </div>
               </>
@@ -918,7 +908,7 @@ export default function ExplorationPage({ onClose }) {
               <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--accent) 8%, transparent)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                 {generation.status === 'awaiting_approval'
                   ? '请核对工具清单、验证结果和安装评审。确认后安装到本机用户 Adapter 目录，刷新工具与 Skill。'
-                  : '智能生成进行中：草稿、静态验证和页面运行验证完成后，会在这里等待你安装并启用。'}
+                  : '正在生成并验证：完成草稿、静态验证和页面运行验证后，等待你确认安装。'}
               </div>
             )}
 

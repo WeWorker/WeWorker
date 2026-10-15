@@ -4,6 +4,7 @@ import {
   type ApiReplayEvidence,
   type RawApiEvidenceEntry,
 } from './api-exploration-evidence.js'
+import { isApiResponseFailure } from '../../../extension/background/api-response-failure.mjs'
 
 type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>
 
@@ -124,7 +125,7 @@ export function summarizeReplayResult(raw: RawReplayResult, entry: RawApiEvidenc
   }, ['replay'])
   const nonEmpty = raw.responsePreview.trim() !== ''
     && !/^\s*(?:\[\s*\]|\{\s*\}|null)\s*$/i.test(raw.responsePreview)
-    && !/<html|<!doctype|login|sign in|登录|验证码/i.test(raw.responsePreview.slice(0, 4_000))
+    && !isApiResponseFailure(raw.responsePreview)
   return {
     transport: raw.transport,
     status: raw.status,

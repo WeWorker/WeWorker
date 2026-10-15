@@ -12,7 +12,9 @@ const apiSource = fs.readFileSync(path.resolve(testDir, '../api/exploration-api.
 
 test('client exploration exposes draft generation and reviewed local installation', () => {
   assert.match(componentSource, /保存探索结果/)
-  assert.match(componentSource, /快速生成/)
+  assert.match(componentSource, /生成并验证/)
+  assert.match(componentSource, /startExplorationGeneration\(run.taskId, \{ mode: 'auto' \}\)/)
+  assert.match(componentSource, /type="primary" loading=\{busyAction === 'quickGenerate'\}/)
   assert.match(componentSource, /智能生成/)
   assert.match(componentSource, /安装并启用/)
   assert.match(componentSource, /取消生成/)
@@ -99,7 +101,7 @@ test('pending generation questions surface an inline answer flow', () => {
   assert.match(componentSource, /生成智能体需要你的输入/)
   assert.match(componentSource, /提交回答并继续/)
   assert.match(componentSource, /resumeExplorationGeneration\(run\.taskId, resumeAnswer\.trim\(\)\)/)
-  assert.match(componentSource, /智能编排（实验，遇到问题自主处置并可中途提问）/)
+  assert.match(componentSource, /startExplorationGeneration\(run.taskId, \{ mode: 'agent' \}\)/)
   assert.match(apiSource, /\/generation\/resume/)
 
   assert.equal(generationPendingQuestion({ status: 'planning' }), null)

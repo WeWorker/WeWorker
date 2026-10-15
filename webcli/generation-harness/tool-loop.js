@@ -60,6 +60,7 @@ export async function runToolLoop({
   signal,
   context = {},
   onEvent = null,
+  isComplete = null,
 }) {
   if (typeof model !== 'function') throw new Error('runToolLoop requires a model function');
   const registry = tools instanceof ToolRegistry ? tools : new ToolRegistry(tools);
@@ -163,6 +164,17 @@ export async function runToolLoop({
       };
       conversation.push(toolResult);
       onEvent?.({ type: 'tool_completed', step, call, output, isError });
+      // Stop at validated completion before another model turn or batch mutation.
+      if (!isError && typeof isComplete === 'function' && isComplete({ call, output })) {
+        assertActive(signal);
+        return {
+          status: 'completed',
+          steps: step,
+          content: '',
+          data: output,
+          messages: conversation,
+        };
+      }
     }
   }
 

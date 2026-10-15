@@ -5,6 +5,7 @@ const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infini
 
 for await (const line of lines) {
   const input = JSON.parse(line);
+  if (input.config?.delayMs) await new Promise(resolve => setTimeout(resolve, input.config.delayMs));
   const marker = String(input.config?.crashOnceMarker || '');
   if (marker && !fs.existsSync(marker)) {
     fs.writeFileSync(marker, 'crashed once', 'utf8');

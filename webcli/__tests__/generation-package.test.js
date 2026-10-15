@@ -65,6 +65,14 @@ it('does not include captured query, request or response values in package or ev
   expect(content).not.toMatch(/CAPTURED_(PRIVATE|BODY|RESPONSE)_VALUE/);
 });
 
+it('keeps keyword parameter names while excluding credential fields and all captured values', () => {
+  const draft = create({ ...memory, listApiCandidates: [{ url: 'https://example.com/api/search?keyword=CAPTURED_SEARCH&keywords=CAPTURED_WORDS&api_key=fixture-secret&key=fixture-secret&privateKey=fixture-secret&token=fixture-secret', method: 'GET' }] }, { plan: { tools: [{ name: 'search_items', risk: 'read', sourceApiIndexes: [0] }] } });
+  const pkg = readPackageDirectory(draft.adapterDir);
+  const command = pkg.manifest.commands.find(item => item.id === 'search-items');
+  expect(Object.keys(command.schema.properties)).toEqual(['keyword', 'keywords']);
+  expect([...pkg.files.values()].join('\n')).not.toMatch(/CAPTURED_SEARCH|CAPTURED_WORDS|fixture-secret/);
+});
+
 it('refuses to overwrite an existing draft and rejects missing planned registrations', () => {
   const root = setup();
   const draft = writeAdapterPackageFromSiteMemory(memory, { outputRoot: root, plan });

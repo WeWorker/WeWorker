@@ -55,7 +55,7 @@ interface ExplorationCoordinatorToolTarget {
   listTabs(): Promise<Array<{ id: number, title: string, url: string }>>
   startFromTabId(goal: string, tabId: number): Promise<unknown>
   get(taskId: string): unknown
-  startGeneration(taskId: string, goal?: string, mode?: 'agent' | 'classic'): Promise<unknown>
+  startGeneration(taskId: string, goal?: string, mode?: 'auto' | 'agent' | 'classic' | 'quick'): Promise<unknown>
   resumeGeneration(taskId: string, answer: string): Promise<unknown>
   publishGeneration(taskId: string): Promise<unknown>
 }
@@ -143,11 +143,11 @@ function buildExplorationChatTools(coordinator: ExplorationCoordinatorToolTarget
     ),
     tool(
       'start_adapter_generation',
-      '对已完成的探索任务启动 API Adapter 智能生成（计划→草稿→静态/运行验证→等待确认发布）。推荐 mode="agent"：编排者可自主处置失败并中途向用户提问。',
+      '对已完成的探索任务生成并验证 API Adapter。默认 auto：先直接生成并验证，具体错误才限时智能修复一次；agent 用于复杂场景。通过验证后等待安装确认。',
       {
         taskId: z.string().min(1).max(100).describe('探索任务 id，来自 list_api_explorations'),
         goal: z.string().min(1).max(2_000).optional().describe('生成目标描述'),
-        mode: z.enum(['agent', 'classic']).optional().describe('agent=智能编排（推荐）；classic=固定流水线'),
+        mode: z.enum(['auto', 'agent', 'classic', 'quick']).optional().describe('auto=默认生成并验证；quick=仅快速生成；agent=复杂场景智能生成；classic=固定智能流水线'),
       },
       async ({ taskId, goal, mode }) => {
         try {

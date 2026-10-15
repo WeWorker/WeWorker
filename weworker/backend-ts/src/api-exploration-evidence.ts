@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { isApiResponseFailure } from '../../../extension/background/api-response-failure.mjs'
+
 export type ApiCandidateVerdict = 'likely_data' | 'maybe_data' | 'noise' | 'blocked'
 export type ApiCandidateRisk = 'read' | 'write' | 'unknown'
 export type ApiStrategy = 'PUBLIC_API' | 'COOKIE_API' | 'PAGE_FETCH' | 'INTERCEPT' | 'NO_USABLE_API'
@@ -86,11 +89,13 @@ export interface ApiEndpointEvidence {
   strategyNote: ApiStrategyNote
   verificationFixture: ApiVerificationFixture | null
   replay?: ApiReplayEvidence
+  replayCaptureDigest?: string
   observedUrl: string
 }
 
 export interface ApiExplorationAnalysisV2 {
   schemaVersion: 2
+  selectedEvidenceIds?: string[]
   candidates: ApiEndpointEvidence[]
   likelyDataCount: number
   maybeDataCount: number
@@ -102,6 +107,7 @@ export interface ApiExplorationAnalysisV2 {
 const SENSITIVE_KEY_RE = /api[_-]?key|authorization|cookie|credential|password|passwd|secret|session|ticket|token|csrf/i
 const TELEMETRY_RE = /(?:^|[\/_-])(analytics|beacon|collect|log|metrics|monitor|report|rum|sentry|telemetry|trace)(?:[\/_?&=-]|$)/i
 const STATIC_RE = /\.(?:css|js|mjs|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|map)(?:$|[?#])/i
+const STATIC_JSON_ASSET_RE = /\/(?:assets?|static|icons?|svg-next|fonts?)\/(?:[^?#]*\/)?[^/?#]+\.json(?:$|[?#])/i
 const DATA_URL_RE = /(?:\/api\/|graphql|\.json(?:$|[?#])|\.spr(?:$|[?#])|\/query(?:[/?#]|$)|\/search(?:[/?#]|$)|\/list(?:[/?#]|$))/i
 const LIST_SIGNAL_RE = /(?:^|[_.\-/])(items?|list|records?|results?|rows)(?:$|[_.\-/])/i
 const LIST_FIELD_SUFFIX_RE = /(?:items?|list|records?|results?|rows)$/i
@@ -343,7 +349,9 @@ function fixtureFor(entry: RawApiEvidenceEntry, response: ApiResponseShape, verd
     requiredPaths,
     types,
     notEmpty,
-    mustNotContain: ['login', 'captcha', 'access denied'],
+    // Authentication/HTML failures are classified at the response envelope,
+    // rather than forbidding words that can legitimately occur in search data.
+    mustNotContain: [],
     mustBeTruthy,
   }
 }
@@ -369,11 +377,12 @@ export function analyzeApiEvidenceEntry(
   if (response.itemKeys.length > 0) { score += 2; signals.push('item_fields') }
   if (identity.queryKeys.length > 0 || request.keys.length > 0) { score += 2; signals.push('parameterized') }
   if (request.kind === 'graphql') { score += 2; signals.push(`graphql_${request.graphqlOperationType || 'operation'}`) }
-  if (STATIC_RE.test(text(entry.url))) { score -= 20; signals.push('static_asset') }
+  const staticJsonAsset = STATIC_JSON_ASSET_RE.test(text(entry.url)) && !/\/(?:api|graphql|rest|rpc)\//i.test(identity.path)
+  if (STATIC_RE.test(text(entry.url)) || staticJsonAsset) { score -= 20; signals.push('static_asset') }
   if (TELEMETRY_RE.test(probe)) { score -= 18; signals.push('telemetry') }
   if (/text\/html/.test(ct) && response.kind === 'text') { score -= 5; signals.push('html_response') }
   if (status != null && BLOCKED_STATUS.has(status)) { score -= 12; signals.push(`blocked_status:${status}`) }
-  if (/captcha|access denied|请登录|未登录/i.test(text(entry.responsePreview))) { score -= 12; signals.push('blocked_payload') }
+  if (isApiResponseFailure(text(entry.responsePreview))) { score -= 12; signals.push('blocked_payload') }
 
   const blocked = signals.some((signal) => signal.startsWith('blocked_'))
   const noise = signals.includes('static_asset') || signals.includes('telemetry')
@@ -443,7 +452,19 @@ function mergeEvidence(left: ApiEndpointEvidence, right: ApiEndpointEvidence): A
   }
 }
 
-export function analyzeApiExplorationWorkflow(result: Record<string, unknown>): ApiExplorationAnalysisV2 {
+function captureContractDigest(candidate: ApiEndpointEvidence): string {
+  return createHash('sha256').update(JSON.stringify({
+    origin: candidate.origin, path: candidate.path, method: candidate.method, status: candidate.status,
+    contentType: candidate.contentType,
+    queryKeys: [...candidate.queryKeys].sort(),
+    requestShape: { ...candidate.requestShape, keys: [...candidate.requestShape.keys].sort() },
+    responseKind: candidate.responseShape.kind, rootKeys: [...candidate.responseShape.topLevelKeys].sort(),
+    listPath: candidate.responseShape.listPath, itemKeys: [...candidate.responseShape.itemKeys].sort(),
+    valueTypes: Object.fromEntries(Object.entries(candidate.responseShape.valueTypes).sort(([a], [b]) => a.localeCompare(b))),
+  })).digest('hex')
+}
+
+export function analyzeApiExplorationWorkflow(result: Record<string, unknown>, previous?: ApiExplorationAnalysisV2): ApiExplorationAnalysisV2 {
   const byFamily = new Map<string, ApiEndpointEvidence>()
   const append = (entries: unknown, sourceStep: string) => {
     if (!Array.isArray(entries)) return
@@ -483,7 +504,7 @@ export function analyzeApiExplorationWorkflow(result: Record<string, unknown>): 
         ? 'resolve_auth'
         : 'no_usable_api'
 
-  return {
+  let analysis: ApiExplorationAnalysisV2 = {
     schemaVersion: 2,
     candidates,
     likelyDataCount,
@@ -492,6 +513,15 @@ export function analyzeApiExplorationWorkflow(result: Record<string, unknown>): 
     blockedCount,
     recommendedNextProbe,
   }
+  // An additional probe adds evidence; it must not erase a replay already made
+  // for the same origin, operation and response contract in this exploration.
+  for (const prior of previous?.candidates || []) {
+    if (!prior.replay || prior.risk !== 'read') continue
+    const current = candidates.find(candidate => candidate.evidenceId === prior.evidenceId)
+    if (!current || current.risk !== 'read' || current.verdict === 'blocked' || current.verdict === 'noise') continue
+    if (captureContractDigest(current) === (prior.replayCaptureDigest || captureContractDigest(prior))) analysis = applyApiReplayEvidence(analysis, current.evidenceId, prior.replay)
+  }
+  return analysis
 }
 
 export function applyApiReplayEvidence(
@@ -519,6 +549,9 @@ export function applyApiReplayEvidence(
     return {
       ...candidate,
       replay,
+      // Replay may have a complete JSON shape while the original CDP capture
+      // was truncated. Compare later probes with that capture, not its replay.
+      replayCaptureDigest: candidate.replayCaptureDigest || captureContractDigest(candidate),
       responseShape: verified ? replay.responseShape : candidate.responseShape,
       verificationFixture: replay.verificationFixture || candidate.verificationFixture,
       strategyNote: {

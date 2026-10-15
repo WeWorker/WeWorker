@@ -33,6 +33,8 @@ const HARNESS_LIMIT_ERROR_CODES = new Set([
   'GENERATION_WORKER_CRASHED',
   'GENERATION_WORKER_INTERRUPTED',
   'GENERATION_RUN_INTERRUPTED',
+  'AUTOMATIC_REPAIR_TIMEOUT',
+  'AUTOMATIC_REPAIR_CONTEXT_LIMIT',
 ]);
 
 const DRAFT_ERROR_CODE_RE = /^(?:OUTPUT_|STATIC_|CAPTURED_PARAMETER|RUNTIME_VALIDATION_FAILED|INVALID_TOOL_ARGUMENTS|UNKNOWN_GENERATION_TOOL)/;
@@ -121,6 +123,12 @@ export function attributeGenerationFailure(run) {
   if (outputConfigurationError) {
     category = 'harness';
     summary = '模型输出额度耗尽或配置无效。请检查输出额度及模型支持的上限，再继续或重新生成；不建议原样重复请求。';
+  } else if (lastErrorCode === 'EXPLORATION_TARGET_NOT_CONFIRMED') {
+    category = 'user_action';
+    summary = '探索尚未确认覆盖目标的已验证接口。请补充搜索或筛选证据，不能用推荐、配置等无关接口替代目标。';
+  } else if (lastErrorCode === 'AUTOMATIC_REPAIR_TIMEOUT') {
+    category = 'harness';
+    summary = '一次智能修复已达到限时，草稿与原验证错误已保留。请查看失败明细；复杂任务可选择智能生成。';
   } else if (category === 'site') {
     summary = `目标页面不可用或需要登录（${codes[0] || '页面状态异常'}）。请打开并登录目标页面后，再点击「重新智能生成」。`;
   } else if (category === 'harness') {

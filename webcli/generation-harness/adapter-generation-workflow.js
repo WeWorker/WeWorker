@@ -13,8 +13,10 @@ import { runGenerationOrchestrator, resumeGenerationOrchestrator } from './gener
 import { writeGenerationHarnessProvenance } from './provenance.js';
 import { normalizeRequestBodyEvidence, normalizeResponseBodyEvidence } from './source-evidence.js';
 import { runQuickGeneration } from './quick-generation.js';
+import { runAutomaticGeneration } from './automatic-generation.js';
+import { prepareGenerationRun, allocateGenerationPlan } from './existing-site.js';
 
-function summarizeCandidate(candidate, index) {
+function summarizeCandidate(candidate, index, sourceApiKind) {
   let pathname = '';
   let queryKeys = [];
   try {
@@ -26,6 +28,7 @@ function summarizeCandidate(candidate, index) {
   }
   return {
     index,
+    sourceApiKind,
     method: String(candidate?.method || 'GET').toUpperCase(),
     pathname,
     queryKeys,
@@ -146,9 +149,10 @@ export function buildContextSections(memory, previousFailure = null) {
       listApiCount: listCandidates.length,
       actionApiCount: actionCandidates.length,
       previousFailurePresent: Boolean(previousFailure),
+      ...(memory.generationBaseline ? { existingPackage: { name: memory.generationBaseline.name, reservedCommandNames: memory.generationBaseline.reservedNames, mode: 'additive' } } : {}),
     },
-    list_apis: listCandidates.slice(0, 30).map(summarizeCandidate),
-    action_apis: actionCandidates.slice(0, 30).map(summarizeCandidate),
+    list_apis: listCandidates.slice(0, 30).map((candidate, index) => summarizeCandidate(candidate, index, 'list')),
+    action_apis: actionCandidates.slice(0, 30).map((candidate, index) => summarizeCandidate(candidate, index, 'action')),
     api_analysis: summarizeApiAnalysis(memory.apiAnalysisV2),
     previous_failure: previousFailure,
   };
@@ -164,7 +168,8 @@ const PLAN_SYSTEM_PROMPT = `你是 Adapter 生成规划器。你的任务不是�
 5. 查询类工具 risk 必须为 read；action_apis 中的提交、修改、删除、审批类候选可计划为 write 工具（运行验证只注册不真实执行，发布与调用均有确认门）；未在 action_apis 出现的接口不得计划为 write。查询类工具最多计划 2 个。工具名一律用英文 snake_case（写工具按动作语义命名，如 submit_request），不得使用中文或候选原始 toolName。
 6. 不要虚构未在上下文中出现的接口。
 7. 候选分数不是接口可用性证明；必须读取 strategyNote 和 verificationFixture，未重放候选不得描述为已验证。
-8. 如果 overview 显示存在 previous_failure（同站点上一次生成失败复盘），必须查看它：剔除或替换其中反复失败的工具、规避导致失败的策略，并在计划 summary 中说明针对上次失败的应对。`;
+8. 如果 overview 显示存在 previous_failure（同站点上一次生成失败复盘），必须查看它：剔除或替换其中反复失败的工具、规避导致失败的策略，并在计划 summary 中说明针对上次失败的应对。
+9. 每个工具填写 sourceApiKind：list_apis 的候选为 list，action_apis 的候选为 action（包括补充录制的只读搜索、筛选）。sourceApiIndexes 是对应列表内的原始 index，两组索引不能混用。`;
 
 
 const WRITE_TOOL_SIGNAL_RE = /(?:^|[^a-z0-9])(create|add|update|edit|delete|remove|submit|approve|reject|book|cancel|publish|upload|import|run|execute|restart|deploy|set|bind|unbind|confirm|apply|reply)(?:$|[^a-z0-9])/i;
@@ -177,7 +182,8 @@ export function readOnlyV2Memory(memory) {
   const analysis = memory?.apiAnalysisV2;
   if (!analysis || analysis.schemaVersion !== 2) return memory;
   const verifiedIds = new Set((Array.isArray(analysis.candidates) ? analysis.candidates : [])
-    .filter((candidate) => candidate?.risk === 'read' && candidate?.strategyNote?.replayStatus === 'verified')
+    .filter((candidate) => candidate?.risk === 'read' && candidate?.strategyNote?.replayStatus === 'verified'
+      && (!Array.isArray(analysis.selectedEvidenceIds) || analysis.selectedEvidenceIds.includes(candidate.evidenceId)))
     .map((candidate) => String(candidate.evidenceId || '')));
   const listApiCandidates = (Array.isArray(memory.listApiCandidates) ? memory.listApiCandidates : [])
     .filter((candidate) => verifiedIds.has(String(candidate?.apiEvidence?.evidenceId || '')));
@@ -234,11 +240,13 @@ export function createAdapterGenerationWorkflow({
   staticValidator = validateAdapterDraft,
   adaptersDir = resolveAdaptersDir(),
   runtimeValidator = null,
+  automaticRepairTimeoutMs = undefined,
 } = {}) {
   return async ({ run, signal, store }) => {
-    const memory = readOnlyV2Memory(run.snapshot.input?.memory);
+    const memory = readOnlyV2Memory(prepareGenerationRun(run));
     if (!memory?.siteKey) throw new Error('generation run input.memory is required');
     if (run.snapshot.input?.mode === 'quick') return runQuickGeneration({ run, signal, store, memory, scaffoldWriter, staticValidator, runtimeValidator });
+    if (run.snapshot.input?.mode === 'auto') return runAutomaticGeneration({ run, signal, store, memory, model, scaffoldWriter, staticValidator, runtimeValidator, repairTimeoutMs: automaticRepairTimeoutMs });
     const previousFailure = normalizePreviousFailureInput(run.snapshot.input?.previousFailure);
     if (previousFailure) run.trace('previous_failure_loaded', previousFailure);
     const sections = buildContextSections(memory, previousFailure);
@@ -317,6 +325,7 @@ export function createAdapterGenerationWorkflow({
                     name: { type: 'string' },
                     purpose: { type: 'string' },
                     risk: { type: 'string', enum: ['read', 'write'] },
+                    sourceApiKind: { type: 'string', enum: ['list', 'action'] },
                     sourceApiIndexes: { type: 'array', items: { type: 'integer' } },
                   },
                   required: ['name', 'purpose', 'risk', 'sourceApiIndexes'],
@@ -328,9 +337,9 @@ export function createAdapterGenerationWorkflow({
             additionalProperties: false,
           },
           execute: async (nextPlan) => {
-            plan = readOnlyV2Plan(nextPlan, { allowWriteTools: (Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates.length : 0) > 0 });
+            plan = allocateGenerationPlan(memory, readOnlyV2Plan(nextPlan, { allowWriteTools: (Array.isArray(memory.actionApiCandidates) ? memory.actionApiCandidates.length : 0) > 0 }));
             run.setArtifact('plan', plan);
-            return { saved: true, toolCount: plan.tools.length };
+            return { saved: true, toolCount: plan.tools.length, plan };
           },
         },
       ],
@@ -549,6 +558,7 @@ export function createAdapterGenerationResumeWorkflow({
     const memory = readOnlyV2Memory(run.snapshot.input?.memory);
     if (!memory?.siteKey) throw new Error('generation run input.memory is required');
     if (run.snapshot.input?.mode === 'quick') return runQuickGeneration({ run, signal, store, memory, scaffoldWriter, staticValidator, runtimeValidator, resume: true });
+    if (run.snapshot.input?.mode === 'auto') return runAutomaticGeneration({ run, signal, store, memory, model, scaffoldWriter, staticValidator, runtimeValidator, resume: true });
     return resumeGenerationOrchestrator({
       run,
       signal,

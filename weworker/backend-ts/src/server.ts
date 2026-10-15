@@ -1606,7 +1606,7 @@ app.post('/exploration/runs/:taskId/scaffold', async (req, res) => {
 
 const explorationGenerationInputSchema = z.object({
   goal: z.string().trim().min(1).max(2_000).optional(),
-  mode: z.enum(['agent', 'classic', 'quick']).optional(),
+  mode: z.enum(['auto', 'agent', 'classic', 'quick']).optional(),
 })
 
 const explorationGenerationResumeInputSchema = z.object({

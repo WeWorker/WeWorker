@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import { BridgeRpcClient } from '../bridge-rpc-client.js'
 
@@ -35,6 +35,27 @@ function createHarness() {
 }
 
 describe('BridgeRpcClient', () => {
+  it('allows page reload and reinjection to exceed the inner 15s load wait, with a bounded refresh deadline', async () => {
+    vi.useFakeTimers()
+    const { client, socket } = createHarness()
+    try {
+      socket.receive({ type: 'extension_connected', capabilities: ['passive_exploration_v1'] })
+      const refresh = client.refreshAdapterTabs('example.com')
+      const request = JSON.parse(socket.sent.at(-1) || '{}')
+      const resolved = expect(refresh).resolves.toEqual({ refreshedTabs: 1, toolCount: 2 })
+      await vi.advanceTimersByTimeAsync(20_000)
+      socket.receive({ type: 'call_tool_result', id: request.id, result: { refreshedTabs: 1, toolCount: 2 } })
+      await resolved
+      const missing = client.refreshAdapterTabs('example.com')
+      const rejected = expect(missing).rejects.toThrow('Bridge request timed out: refresh_adapter_tabs')
+      await vi.advanceTimersByTimeAsync(60_000)
+      await rejected
+    } finally {
+      client.stop()
+      vi.useRealTimers()
+    }
+  })
+
   it('tracks extension capabilities and correlates tab-list responses', async () => {
     const { client, socket } = createHarness()
     socket.receive({

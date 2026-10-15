@@ -79,6 +79,54 @@ describe('sanitizeExplorationEvidence', () => {
 })
 
 describe('ExplorationAgentCoordinator', () => {
+  it('bounds analysis time while preserving evidence and without reporting user cancellation', async () => {
+    const bridge = { runPassiveExploration: vi.fn(async () => ({ network: { entries: [{ method: 'GET', url: 'https://example.com/api/search' }] } })) } as unknown as BridgeRpcClient
+    const stream = (async function* (_messages: unknown, _settings: unknown, controller: AbortController, options: { mcpServerOverride?: unknown }) {
+      await new Promise<void>(resolve => controller.signal.addEventListener('abort', () => resolve(), { once: true }))
+      const server = options.mcpServerOverride as { instance: { _registeredTools: Record<string, { handler: (args: Record<string, unknown>) => Promise<unknown> }> } }
+      await expect(server.instance._registeredTools.capture_passive_exploration.handler({})).rejects.toThrow('API_EXPLORATION_ANALYSIS_TIMEOUT')
+      await expect(server.instance._registeredTools.finish_api_exploration.handler({ evidenceIds: ['GET /api/search'] })).rejects.toThrow('API_EXPLORATION_ANALYSIS_TIMEOUT')
+      yield { type: 'done' }
+    }) as unknown as typeof streamChat
+    const coordinator = new ExplorationAgentCoordinator(bridge, stream, () => generationSettings(), null, 20)
+    const started = coordinator.start('搜索资料', { id: 7, title: 'Example', url: 'https://example.com/search', active: true, windowId: 1 })
+    const result = await waitForCompleted(coordinator, started.taskId)
+    expect(result?.evidence).toBeTruthy()
+    expect(result?.analysisError).toContain('达到限时')
+    expect(result?.status).toBe('completed')
+  })
+
+  it('finishes only with selected verified reads and stops the model without cancelling the user task', async () => {
+    const entry = { method: 'GET', url: 'https://example.com/api/search?keyword=fixture', status: 200, responseContentType: 'application/json', responsePreview: '{"items":[{"id":"fixture","title":"Example"}]}' }
+    const fetchMock = vi.fn(async () => new Response(entry.responsePreview, { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const bridge = { runPassiveExploration: vi.fn(async () => ({ pageStateBefore: { url: 'https://example.com/search' }, network: { entries: [entry] } })) } as unknown as BridgeRpcClient
+    let modelSignal: AbortSignal | undefined
+    let continued = false
+    const fakeAgentStream = (async function* (_messages: unknown, _settings: unknown, controller: AbortController, options: { mcpServerOverride?: unknown }) {
+      modelSignal = controller.signal
+      const server = options.mcpServerOverride as { instance: { _registeredTools: Record<string, { handler: (args: Record<string, unknown>) => Promise<unknown> }> } }
+      const tools = server.instance._registeredTools
+      await expect(tools.finish_api_exploration.handler({ evidenceIds: ['GET /api/search?keyword'] })).rejects.toThrow('REQUIRES_VERIFIED_READ_TARGETS')
+      await tools.replay_api_candidate.handler({ evidenceId: 'GET /api/search?keyword' })
+      await tools.finish_api_exploration.handler({ evidenceIds: ['GET /api/search?keyword'] })
+      await expect(tools.inspect_safe_api_actions.handler({})).rejects.toThrow('ALREADY_FINISHED')
+      yield { type: 'tool_call_result', name: 'finish_api_exploration' }
+      continued = true
+      throw new Error('must not wait for another model turn')
+    }) as unknown as typeof streamChat
+    try {
+      const coordinator = new ExplorationAgentCoordinator(bridge, fakeAgentStream, () => generationSettings())
+      const started = coordinator.start('搜索学习资料', { id: 7, title: 'Example', url: 'https://example.com/search', active: true, windowId: 1 })
+      const result = await waitForCompleted(coordinator, started.taskId)
+      expect(result?.analysisError).toBeNull()
+      expect(result?.summary).toContain('1 个目标查询接口')
+      expect(result?.evidence?.analysisV2).toMatchObject({ selectedEvidenceIds: ['GET /api/search?keyword'] })
+      expect(continued).toBe(false)
+      expect(modelSignal?.aborted).toBe(true)
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('maps the active client provider to a request-scoped Harness model config', () => {
     expect(resolveClientGenerationModelConfig(generationSettings())).toEqual({
       provider: 'custom',
@@ -117,6 +165,7 @@ describe('ExplorationAgentCoordinator', () => {
         'inspect_safe_api_actions',
         'execute_safe_api_probe',
         'replay_api_candidate',
+        'finish_api_exploration',
         'load_api_exploration_skill',
       ])
       const captured = await server.instance._registeredTools.capture_passive_exploration.handler({}) as {
@@ -129,8 +178,10 @@ describe('ExplorationAgentCoordinator', () => {
       expect(JSON.stringify(agentView)).not.toContain('real-business-name')
       expect(captured.content[0]?.text.length || 0).toBeLessThan(25_000)
       const skillResult = await server.instance._registeredTools.load_api_exploration_skill.handler({ name: 'usage' })
-      expect(JSON.stringify(skillResult)).toContain('WeWorker API exploration usage')
-      expect(JSON.stringify(skillResult)).toContain('Apache-2.0')
+      expect(JSON.stringify(skillResult)).toContain('alreadyLoaded')
+      expect(JSON.stringify(_messages)).toContain('WeWorker API exploration usage')
+      expect(JSON.stringify(_messages)).toContain('Apache-2.0')
+      expect(JSON.stringify(_messages)).not.toContain('real-business-name')
       yield { type: 'text_delta', content: '识别到一个只读列表接口。' }
       yield { type: 'done' }
     }) as unknown as typeof streamChat
@@ -246,7 +297,7 @@ describe('ExplorationAgentCoordinator', () => {
     expect(JSON.stringify(completed?.evidence)).not.toContain('responsePreview')
   })
 
-  it('keeps a raw captured URL only in memory for page replay while exposing and persisting only redacted evidence', async () => {
+  it('keeps raw replay URLs in memory and retains verified evidence after a subsequent safe probe', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 401 }))
     vi.stubGlobal('fetch', fetchMock)
     try {
@@ -271,6 +322,10 @@ describe('ExplorationAgentCoordinator', () => {
           durationMs: 3,
           errorCode: '',
         }),
+        runSafeApiProbe: vi.fn().mockResolvedValue({
+          step: 'safe_search', result: { executed: true, kind: 'search' },
+          networkDelta: { entries: [{ method: 'GET', url: 'https://example.com/api/projects?page=2&token=another-fixture-secret', status: 200, responseContentType: 'application/json', responsePreview: '{"items":[{"id":"P-2"}]}' }] },
+        }),
       } as unknown as BridgeRpcClient
       const fakeAgentStream = (async function* (
         _messages: unknown,
@@ -282,6 +337,7 @@ describe('ExplorationAgentCoordinator', () => {
           instance: { _registeredTools: Record<string, { handler: (args: Record<string, unknown>) => Promise<unknown> }> }
         }
         await server.instance._registeredTools.replay_api_candidate.handler({ evidenceId: 'GET /api/projects?page' })
+        await server.instance._registeredTools.execute_safe_api_probe.handler({ candidateId: 'fixture-read-probe', value: 'fixture' })
         yield { type: 'text_delta', content: '页面态重放验证成功。' }
         yield { type: 'done' }
       }) as unknown as typeof streamChat
@@ -377,6 +433,7 @@ describe('ExplorationAgentCoordinator', () => {
       const generation = await coordinator.startGeneration(started.taskId)
       expect(generation.generationRunId).toBe('generation-1')
       expect(bridge.startGenerationRun).toHaveBeenCalledWith(expect.objectContaining({
+        mode: 'auto',
         siteKey: 'todo.example.com',
         tabId: 7,
         modelConfig: {

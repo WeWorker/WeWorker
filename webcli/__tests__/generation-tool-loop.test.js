@@ -2,6 +2,48 @@ import { describe, expect, it, vi } from 'vitest';
 import { runToolLoop, ToolRegistry } from '../generation-harness/index.js';
 
 describe('generation tool loop', () => {
+  it('stops a tool batch at validated completion before a later mutation', async () => {
+    const mutate = vi.fn();
+    const model = vi.fn().mockResolvedValue({ type: 'tool_calls', calls: [
+      { name: 'finish', arguments: {} }, { name: 'mutate', arguments: {} },
+    ] });
+    const result = await runToolLoop({
+      model, tools: [
+        { name: 'finish', execute: async () => ({ ready: true }) },
+        { name: 'mutate', execute: mutate },
+      ],
+      isComplete: ({ call, output }) => call.name === 'finish' && output.ready === true,
+    });
+    expect(result.status).toBe('completed');
+    expect(mutate).not.toHaveBeenCalled();
+    expect(model).toHaveBeenCalledOnce();
+  });
+
+  it('continues after a rejected completion so validation can be repaired', async () => {
+    const isComplete = vi.fn(() => true);
+    const model = vi.fn()
+      .mockResolvedValueOnce({ type: 'tool_call', name: 'finish', arguments: {} })
+      .mockImplementationOnce(async ({ messages }) => {
+        expect(messages.at(-1)).toMatchObject({ isError: true, content: { code: 'FINISH_PRECONDITION_FAILED' } });
+        return { type: 'final', content: 'blocked' };
+      });
+    const result = await runToolLoop({ model, isComplete, tools: [{
+      name: 'finish', execute: async () => { throw Object.assign(new Error('Not validated'), { code: 'FINISH_PRECONDITION_FAILED' }); },
+    }] });
+    expect(result.content).toBe('blocked');
+    expect(isComplete).not.toHaveBeenCalled();
+    expect(model).toHaveBeenCalledTimes(2);
+  });
+
+  it('honors cancellation during the final tool instead of reporting completion', async () => {
+    const controller = new AbortController();
+    await expect(runToolLoop({
+      model: async () => ({ type: 'tool_call', name: 'finish', arguments: {} }),
+      signal: controller.signal, isComplete: () => true,
+      tools: [{ name: 'finish', execute: async () => { controller.abort(); return { ready: true }; } }],
+    })).rejects.toMatchObject({ code: 'GENERATION_CANCELLED' });
+  });
+
   it('executes domain tools until the model returns final', async () => {
     const model = vi.fn()
       .mockResolvedValueOnce({

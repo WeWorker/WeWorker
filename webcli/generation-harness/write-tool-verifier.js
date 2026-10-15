@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { isPackageDraft, packageDraftBundle, readGenerationEvidence } from './package-inspection.js';
+import { verifyRetainedPackage } from './existing-site.js';
 
 function error(code, message, extra = {}) {
   return { code, message, severity: 'error', ...extra };
@@ -80,7 +81,7 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
   const cases = [];
   const requests = [];
   let responseSpec = { status: 200, body: {} };
-  const window = {
+  let window = {
     location: {
       origin: `https://${expectedSiteKey || 'example.test'}`,
       hostname: expectedSiteKey || 'example.test',
@@ -101,6 +102,8 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
       return makeResponse(responseSpec);
     },
   };
+  Object.assign(sandbox, window);
+  window = sandbox;
   window.window = window;
   window.document = sandbox.document;
   window.fetch = sandbox.fetch;
@@ -110,6 +113,7 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
   try {
     if (isPackageDraft(adapterDir)) {
       const bundle = packageDraftBundle(adapterDir);
+      const retained = verifyRetainedPackage(bundle.pkg, readGenerationEvidence(adapterDir));
       const fixtures = readGenerationEvidence(adapterDir, 'write-verification.json', { optional: true });
       const rawHandlers = new Map();
       window.__webmcpRegister = () => {};
@@ -117,7 +121,7 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
       const register = window.__webcliRegisterCommand;
       window.__webcliRegisterCommand = (id, handler) => { rawHandlers.set(id, handler); register(id, handler); };
       for (const script of bundle.scripts.slice(1)) new vm.Script(script.source).runInContext(context, { timeout: 1000 });
-      packageWriteTools = bundle.manifest.commands.filter(command => command.safety === 'write').map(command => ({
+      packageWriteTools = bundle.manifest.commands.filter(command => command.safety === 'write' && !retained.has(command.id)).map(command => ({
         name: `${bundle.manifest.name}.${command.id}`, handler: rawHandlers.get(command.id), writeVerification: fixtures?.commands?.[command.id],
       }));
     } else {

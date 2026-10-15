@@ -1234,7 +1234,7 @@ export class WebSocketBridge extends EventEmitter {
             memory: normalizedMemory,
             tabId: Number.isInteger(tabId) ? tabId : null,
             ...(previousFailure ? { previousFailure } : {}),
-            ...(['agent', 'classic', 'quick'].includes(mode) ? { mode } : {}),
+            ...(['auto', 'agent', 'classic', 'quick'].includes(mode) ? { mode } : {}),
           },
           budget: budget || {},
         },

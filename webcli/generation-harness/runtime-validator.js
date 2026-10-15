@@ -3,6 +3,7 @@ import path from 'node:path';
 import { buildRuntimeTestCases } from './runtime-test-policy.js';
 import { verifyGeneratedWriteTools } from './write-tool-verifier.js';
 import { isPackageDraft, packageDraftBundle, readGenerationEvidence } from './package-inspection.js';
+import { verifyRetainedPackage } from './existing-site.js';
 
 const MAX_PREVIEW_SCRIPT_CHARS = 1_000_000;
 const SAFE_PREVIEW_SCRIPT_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*\.js$/;
@@ -82,7 +83,7 @@ export function createPreviewRuntimeValidator({ requestExtension } = {}) {
         type: 'validate_generation_preview',
         previewAdapterId: preview.previewAdapterId,
         previewBundle,
-        siteKey: run.snapshot.siteKey,
+        siteKey: memory.siteHost || run.snapshot.siteKey,
         tabId: run.snapshot.input?.tabId,
         expectedToolNames: draft.toolNames || [],
       }, 45_000);
@@ -90,8 +91,9 @@ export function createPreviewRuntimeValidator({ requestExtension } = {}) {
         return { validator: 'adapter_runtime_validator_v1', ...registration };
       }
       const evidence = previewBundle.manifest.schema_version === 2 ? readGenerationEvidence(draft.adapterDir) : null;
+      const retained = evidence ? verifyRetainedPackage(packageDraftBundle(draft.adapterDir).pkg, evidence) : new Set();
       const testCases = buildRuntimeTestCases({
-        registeredTools: (registration.tools || []).map(tool => {
+        registeredTools: (registration.tools || []).filter(tool => !retained.has(tool.name.slice(previewBundle.manifest.name?.length + 1))).map(tool => {
           const source = evidence?.commands?.[tool.name.slice(previewBundle.manifest.name?.length + 1)];
           return source ? { ...tool, generationSource: source.generationSource } : tool;
         }),
@@ -102,7 +104,7 @@ export function createPreviewRuntimeValidator({ requestExtension } = {}) {
         type: 'validate_generation_preview',
         previewAdapterId: preview.previewAdapterId,
         previewBundle,
-        siteKey: run.snapshot.siteKey,
+        siteKey: memory.siteHost || run.snapshot.siteKey,
         tabId: run.snapshot.input?.tabId,
         expectedToolNames: draft.toolNames || [],
         testCases,

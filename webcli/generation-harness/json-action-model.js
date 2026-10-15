@@ -131,13 +131,15 @@ export function createJsonActionModel({
   taskLabelPrefix = 'adapter generation loop',
   config = null,
 } = {}) {
-  return async ({ systemPrompt, messages, tools, step, signal, repairFeedback = null }) => {
+  return async ({ systemPrompt, messages, tools, step, signal, repairFeedback = null, retryOnCrash = true }) => {
     if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
     const response = await callModel({
       prompt: buildJsonActionPrompt({ systemPrompt, messages, tools, step, repairFeedback }),
       // The model transport owns output policy; never impose a per-model cap here.
       purpose: 'adapter_generation',
       taskLabel: `${taskLabelPrefix} step ${step}`,
+      signal,
+      retryOnCrash,
       ...(config ? { config } : {}),
     });
     if (signal?.aborted) throw new DOMException('aborted', 'AbortError');

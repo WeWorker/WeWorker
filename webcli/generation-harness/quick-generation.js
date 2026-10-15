@@ -3,6 +3,7 @@ import { classifyApiCandidateRisk } from './source-evidence.js';
 import { plannedToolNames } from './plan-binding.js';
 import { GENERATION_STATUSES as S } from './constants.js';
 import { writeGenerationHarnessProvenance } from './provenance.js';
+import { allocateGenerationPlan } from './existing-site.js';
 
 export function buildQuickGenerationPlan(memory) {
   const tools = [];
@@ -29,10 +30,10 @@ export async function runQuickGeneration({ run, signal, store, memory, scaffoldW
   let plan = run.snapshot.artifacts?.plan;
   let draft = run.snapshot.artifacts?.draft;
   if (!resume) {
-    run.setArtifact('generationMode', 'quick');
+    run.setArtifact('generationMode', run.snapshot.input?.mode === 'auto' ? 'auto' : 'quick');
     run.transition(S.CONTEXT_READY, { currentAction: 'context_ready' });
     run.transition(S.PLANNING, { currentAction: 'create_quick_generation_plan' });
-    plan = buildQuickGenerationPlan(memory);
+    plan = allocateGenerationPlan(memory, buildQuickGenerationPlan(memory));
     run.setArtifact('plan', plan);
     run.transition(S.DRAFTING, { currentAction: 'generate_adapter_draft' });
     const rootDir = path.join(store.getDraftRoot(run.id), 'revision-0');
@@ -59,6 +60,18 @@ export async function runQuickGeneration({ run, signal, store, memory, scaffoldW
     run.setArtifact('pendingQuestion', { question: '请打开对应站点并登录，完成后继续验证当前草稿。', askedDuring: run.status });
     run.transition(S.NEEDS_USER_INPUT, { currentAction: 'open_or_login_target_page' });
     return { pause: true, status: S.NEEDS_USER_INPUT };
+  }
+  run.assertNotCancelled(signal);
+  run.assertWithinBudget();
+  if (run.snapshot.input?.mode === 'auto') {
+    const summary = runtimeValidation.executionSummary;
+    const count = draft.toolNames.length;
+    if (!count || !summary || summary.attempted !== count || summary.passed !== count || summary.skipped !== 0 || summary.failed !== 0) {
+      throw Object.assign(new Error('全部目标工具必须通过真实执行验证，不能跳过。'), { code: 'RUNTIME_EXECUTION_REQUIRED' });
+    }
+    if (run.snapshot.artifacts.automaticRepair?.attempted) {
+      run.setArtifact('automaticRepair', { ...run.snapshot.artifacts.automaticRepair, outcome: 'passed' });
+    }
   }
   writeGenerationHarnessProvenance({ run, draft, plan, validation, runtimeValidation });
   run.transition(S.AWAITING_APPROVAL, { currentAction: 'await_install_approval' });

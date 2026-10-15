@@ -1,3 +1,5 @@
+import { isApiResponseFailure } from './api-response-failure.mjs';
+
 const SENSITIVE_OUTPUT_KEY_RE = /api[_-]?key|authorization|cookie|credential|password|passwd|secret|session|ticket|token|csrf/i;
 
 function valueKind(value) {
@@ -110,7 +112,13 @@ function validateFixture(output, fixture) {
   let serialized = '';
   try { serialized = JSON.stringify(output).toLowerCase(); } catch {}
 
-  for (const needle of fixture.mustNotContain || []) {
+  const forbidden = fixture.mustNotContain || [];
+  const legacyAuthFixture = fixture.source === 'captured_response' && forbidden.length === 3
+    && ['login', 'captcha', 'access denied'].every(keyword => forbidden.some(needle => String(needle).toLowerCase().trim() === keyword));
+  for (const needle of forbidden) {
+    // Older generated fixtures used global auth keywords. Their response-level
+    // meaning is checked by isApiResponseFailure; matching result titles is wrong.
+    if (legacyAuthFixture) continue;
     if (needle && serialized.includes(String(needle).toLowerCase())) {
       errors.push({ code: 'OUTPUT_FORBIDDEN_CONTENT', message: `返回值包含禁止内容: ${needle}`, value: needle });
     }
@@ -165,24 +173,47 @@ function validateFixture(output, fixture) {
   return errors;
 }
 
+function isGeneratedFetchEnvelope(output) {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const keys = ['ok', 'status', 'url', 'data', 'rawText'];
+  return Object.keys(output).length === keys.length
+    && keys.every(key => Object.prototype.hasOwnProperty.call(output, key))
+    && typeof output.ok === 'boolean'
+    && Number.isInteger(output.status)
+    && typeof output.url === 'string'
+    && typeof output.rawText === 'string';
+}
+
+function capturedBusinessOutput(output, contract, fetchEnvelope) {
+  if (!fetchEnvelope || contract.kind !== 'captured_sample') return output;
+  const capturedKeys = contract.capturedShape?.rootKeys || [];
+  // An API can itself return envelope-shaped JSON. Keep that captured contract
+  // at its original level rather than treating every `data` property as a wrapper.
+  if (['ok', 'status', 'url', 'data', 'rawText'].every(key => capturedKeys.includes(key))) return output;
+  return output.data;
+}
+
 export function validateGenerationPreviewOutputV2(output, contract = {}) {
   const errors = [];
   const warnings = [];
   const outputShape = describeGenerationOutputShape(output);
-  let serialized = '';
   try {
-    serialized = JSON.stringify(output);
+    JSON.stringify(output);
   } catch (error) {
     errors.push({ code: 'OUTPUT_NOT_SERIALIZABLE', message: error?.message || String(error) });
   }
-  const textProbe = typeof output === 'string' ? output : serialized;
-  if (/<html|<!doctype|登录|重新登录|login|sign in/i.test(String(textProbe || '').slice(0, 5000))) {
+  if (isApiResponseFailure(output)) {
     errors.push({ code: 'LOGIN_OR_HTML_RESPONSE', message: '工具返回了登录页或 HTML 页面内容' });
   }
   const sensitivePath = findSensitiveOutputPath(output);
   if (sensitivePath) errors.push({ code: 'SENSITIVE_OUTPUT_DETECTED', message: `返回值包含敏感字段: ${sensitivePath}` });
+  const fetchEnvelope = isGeneratedFetchEnvelope(output);
+  if (fetchEnvelope && (!output.ok || output.status < 200 || output.status >= 300)) {
+    errors.push({ code: 'OUTPUT_HTTP_ERROR', message: '工具查询返回了失败的 HTTP 响应', status: output.status });
+  }
+  const businessOutput = capturedBusinessOutput(output, contract, fetchEnvelope);
   if (contract.kind === 'captured_sample' && contract.capturedShape) {
-    const runtimeShape = describeGenerationOutputShape(output);
+    const runtimeShape = describeGenerationOutputShape(businessOutput);
     const capturedShape = contract.capturedShape;
     const compatible = runtimeShape.rootKind === capturedShape.rootKind
       || (capturedShape.containsKinds || []).includes(runtimeShape.rootKind)
@@ -210,7 +241,7 @@ export function validateGenerationPreviewOutputV2(output, contract = {}) {
       });
     }
   }
-  errors.push(...validateFixture(output, contract.verificationFixture));
+  errors.push(...validateFixture(businessOutput, contract.verificationFixture));
   return {
     passed: errors.length === 0,
     errors,

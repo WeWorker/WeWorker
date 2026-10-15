@@ -2350,7 +2350,10 @@ function getKnowledgePath(value, dotPath) {
 }
 
 function isSensitiveKnowledgeKey(key) {
-    return /token|access.?token|authorization|cookie|session|ticket|password|passwd|secret|credential|key/i.test(safeString(key));
+    const name = safeString(key);
+    // These are ordinary search field names, never captured search values.
+    if (/^keywords?$/i.test(name)) return false;
+    return /token|access.?token|authorization|cookie|session|ticket|password|passwd|secret|credential|key/i.test(name);
 }
 
 function redactKnowledgeString(value) {

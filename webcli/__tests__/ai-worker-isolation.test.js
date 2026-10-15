@@ -26,6 +26,26 @@ function runInternalWorker(input) {
 }
 
 describe('AI worker process isolation', () => {
+  it('kills only the owned model worker on abort and uses a fresh worker for the next request', async () => {
+    const session = new LanguageModelWorkerSession({ workerScript: path.join(repoDir, '__tests__/fixtures/ai-session-worker.mjs') });
+    const controller = new AbortController();
+    try {
+      const first = await session.call({ prompt: 'first' });
+      const pending = session.call({ prompt: 'late', config: { delayMs: 5000 }, signal: controller.signal, retryOnCrash: false });
+      controller.abort(new DOMException('cancel fixture', 'AbortError'));
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      const next = await session.call({ prompt: 'next' });
+      expect(next.text).toBe('reply:next');
+      expect(next.pid).not.toBe(first.pid);
+    } finally { await session.close(); }
+  });
+
+  it('does not spawn on an already aborted call', async () => {
+    const session = new LanguageModelWorkerSession({ workerScript: path.join(repoDir, '__tests__/fixtures/ai-session-worker.mjs') });
+    const controller = new AbortController(); controller.abort();
+    await expect(session.call({ prompt: 'unused', signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(session.session).toBe(null);
+  });
   it('does not create additional one-shot AI processes for Harness fallback calls', () => {
     expect(shouldRunLanguageModelDirect({ WEBCLI_GENERATION_WORKER: '1' })).toBe(true);
     expect(shouldRunLanguageModelDirect({ WEBCLI_AI_DIRECT: '1' })).toBe(true);

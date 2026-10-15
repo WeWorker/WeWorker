@@ -2,7 +2,8 @@ import path from 'node:path';
 import { resolveAdaptersDir, resolveAdapterPaths } from '../paths.js';
 import { publishAdapterDraft } from './adapter-workspace.js';
 import { verifyGeneratedWriteTools } from './write-tool-verifier.js';
-import { isPackageDraft } from './package-inspection.js';
+import { isPackageDraft, readGenerationEvidence } from './package-inspection.js';
+import { verifyRetainedPackage } from './existing-site.js';
 import { validateAdapterDraft } from './static-validator.js';
 import { installAdapter } from '../adapter-install-store.js';
 import { readPackageDirectory, adapterError } from '../adapter-package-files.js';
@@ -41,6 +42,10 @@ export function createAdapterPublisher({ adaptersDir = resolveAdaptersDir(), pat
       // Pass immutable validated bytes. Existing publication consent does not
       // silently grant additional permissions, downgrade or source changes.
       const pkg = readPackageDirectory(draft.adapterDir);
+      const retention = readGenerationEvidence(draft.adapterDir);
+      const expectedRetention = run.snapshot.input?.memory?.generationBaseline;
+      if (expectedRetention && (retention.retainedPackage?.digest !== expectedRetention.digest || retention.retainedPackage?.name !== expectedRetention.name)) throw adapterError('RETAINED_ADAPTER_CHANGED', 'Existing package retention evidence changed.');
+      verifyRetainedPackage(pkg, retention, { paths: adapterPaths });
       if (pkg.digest !== validation.packageDigest) throw new Error('Draft changed during installation review.');
       const review = describeGeneratedInstall(draft, { paths: adapterPaths, pkg });
       if (review.baselineDigest !== baseline.digest) throw adapterError('ADAPTER_BASE_CHANGED', 'Adapter changed since this draft was created.');

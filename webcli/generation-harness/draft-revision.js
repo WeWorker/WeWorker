@@ -55,7 +55,7 @@ export function listDraftFiles(adapterDir) {
   return result.sort().slice(0, 200);
 }
 
-function cloneDraftRevision({ previousAdapterDir, nextDraftRoot, siteKey, packageFormat }) {
+export function cloneDraftRevision({ previousAdapterDir, nextDraftRoot, siteKey, packageFormat }) {
   const nextAdapterDir = path.join(nextDraftRoot, siteKey);
   fs.mkdirSync(nextDraftRoot, { recursive: true });
   copyAdapterDirectorySafe(previousAdapterDir, nextAdapterDir);
@@ -122,7 +122,7 @@ export function findPlanToolByName(planTools, toolName) {
   return (planTools || []).find((tool) => normalizedToolLocalName(tool?.name) === target) || null;
 }
 
-function remapDraftFiles(files, previousAdapterDir, nextAdapterDir) {
+export function remapDraftFiles(files, previousAdapterDir, nextAdapterDir) {
   if (!files || typeof files !== 'object') return files;
   return Object.fromEntries(Object.entries(files).map(([key, value]) => {
     if (typeof value !== 'string' || !path.isAbsolute(value)) return [key, value];
@@ -214,8 +214,8 @@ export async function reviseAdapterDraft({
         run.trace(`revision_loop_${event.type}`, event);
       },
       tools: [
-      ...createDraftEvidenceTools(() => adapterDir, commandId => {
-        writes.push({ path: `fixture:${commandId}`, reason: 'mock verification' });
+      ...createDraftEvidenceTools(() => adapterDir, (commandId, kind) => {
+        writes.push({ path: `${kind}:${commandId}`, reason: kind === 'command' ? 'update generated command' : 'mock verification' });
         runtimeValidation = null;
       }),
       {

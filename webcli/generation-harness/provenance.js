@@ -11,7 +11,8 @@ export function writeGenerationHarnessProvenance({ run, draft, validation, runti
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const provenance = {
     version: GENERATION_HARNESS_VERSION,
-    mode: run.snapshot.input?.mode === 'quick' ? 'quick' : 'smart',
+    mode: ['auto', 'quick'].includes(run.snapshot.input?.mode) ? run.snapshot.input.mode : 'smart',
+    automatic_repair: run.snapshot.artifacts?.automaticRepair || null,
     run_id: run.id,
     generated_at: new Date().toISOString(),
     revision_count: Number(run.snapshot.revisionCount || 0),

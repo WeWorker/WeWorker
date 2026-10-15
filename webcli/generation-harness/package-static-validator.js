@@ -1,4 +1,5 @@
 import { inspectPackageRegistration, readGenerationEvidence, resolveDraftToolName } from './package-inspection.js';
+import { verifyRetainedPackage } from './existing-site.js';
 
 export function validatePackageDraft({ adapterDir, expectedSiteKey = '', expectedToolNames = [] }) {
   const errors = [];
@@ -9,19 +10,21 @@ export function validatePackageDraft({ adapterDir, expectedSiteKey = '', expecte
     const { pkg, names, manifest } = inspectPackageRegistration(adapterDir);
     checkedFiles = pkg.files.size;
     packageDigest = pkg.digest;
+    const evidence = readGenerationEvidence(adapterDir);
+    const retained = verifyRetainedPackage(pkg, evidence);
     if (expectedSiteKey && manifest.name !== expectedSiteKey) fail('MANIFEST_ID_MISMATCH', 'Package identity differs from the planned site.');
     const expected = expectedToolNames.map(name => resolveDraftToolName(manifest, name));
     if (new Set(expected).size !== expected.length) fail('DUPLICATE_TOOL_NAME', 'Planned names resolve to the same command.');
     for (const name of expected) if (!names.includes(name)) fail('MISSING_PLANNED_TOOL', `Planned tool is not registered: ${name}`);
     for (const name of names) {
-      if (expected.length && !expected.includes(name) && name !== `${manifest.name}.check-login-status`) fail('UNPLANNED_TOOL', `Unplanned tool is registered: ${name}`);
+      if (expected.length && !expected.includes(name) && !retained.has(name.slice(manifest.name.length + 1)) && name !== `${manifest.name}.check-login-status`) fail('UNPLANNED_TOOL', `Unplanned tool is registered: ${name}`);
     }
     for (const command of pkg.commands) if (!names.includes(command.name)) fail('MISSING_REGISTERED_TOOL', `Manifest command is not registered: ${command.name}`);
     if (new Set(names).size !== names.length) fail('DUPLICATE_REGISTERED_TOOL', 'Registered tools must be unique.');
-    const evidence = readGenerationEvidence(adapterDir);
     if (evidence.format !== 2 || evidence.name !== manifest.name) fail('INVALID_GENERATION_EVIDENCE', 'Draft evidence identity differs from its package.');
     const fixtures = readGenerationEvidence(adapterDir, 'write-verification.json', { optional: true });
     for (const command of manifest.commands) {
+      if (retained.has(command.id)) continue;
       const source = pkg.files.get(command.module).toString('utf8');
       const origin = evidence.commands?.[command.id];
       if (!origin) fail('MISSING_GENERATION_EVIDENCE', `Missing source binding: ${command.id}`);
