@@ -33,16 +33,22 @@ const SLASH_MENU_GAP = 8
 const SLASH_MENU_INSET_X = 10
 const SLASH_MENU_SHELL_PADDING = 6
 
-// 命令路由友好别名（与后端 api-query-router/tool-overrides.ts 的 !my-todo 别名对齐）。
+// 命令路由友好别名。**生效口径以后端 `/router/aliases` 为准**（它读的是
+// `router-config/aliases.json` + 用户覆盖层，经 Adapter 作用域过滤）；随包的
+// `config/route-aliases.json` 只是后端暂不可用时的兜底，不再需要手工与后端对齐。
 // !<工具全名> 与 !<友好别名> 直接点名工具 → 发聊天走智能路由；其余 !xxx 仍是 shell 命令。
-const ROUTER_BANG_ALIASES = new Set(routeAliases)
+const BUNDLED_ROUTER_BANG_ALIASES = new Set(routeAliases)
 
 function isKnownRouterToolName(command) {
   const token = String(command || '').trim().split(/\s+/)[0]
   if (!token) return false
-  if (ROUTER_BANG_ALIASES.has(token)) return true
-  const sites = useSitesStore.getState().sites || []
-  for (const site of sites) {
+  const state = useSitesStore.getState()
+  const configuredAliases = Array.isArray(state.routerAliases) ? state.routerAliases : []
+  const aliasPool = configuredAliases.length > 0
+    ? new Set(configuredAliases)
+    : BUNDLED_ROUTER_BANG_ALIASES
+  if (aliasPool.has(token)) return true
+  for (const site of state.sites || []) {
     for (const tool of site?.tools || []) {
       if (tool?.name === token) return true
     }
@@ -123,6 +129,7 @@ export default function InputBar({
   const terminalSessions = useTerminalStore((s) => s.sessions)
   const commandHistory = useTerminalStore((s) => s.commandHistory)
   const sites = useSitesStore((s) => Array.isArray(s.sites) ? s.sites : [])
+  const routerAliases = useSitesStore((s) => Array.isArray(s.routerAliases) ? s.routerAliases : [])
   const webcliSlashCommands = useMemo(() => buildWebcliSlashCommands(sites), [sites])
   const buildBangSlashItems = useCallback((query) => {
     const command = query || ''
@@ -139,7 +146,7 @@ export default function InputBar({
       source: bangCompletionSource || 'auto',
       includeEmpty: true,
     })
-    return candidates.map((candidate) => ({
+    const items = candidates.map((candidate) => ({
       id: `bang:${candidate.kind || 'file'}:${candidate.value || candidate.name}`,
       title: candidate.name || candidate.value || 'command',
       command: candidate.value || candidate.name || '',
@@ -148,7 +155,28 @@ export default function InputBar({
       isDirectory: candidate.isDirectory,
       candidate,
     }))
-  }, [bangCompletionSource, sites, terminalSessions, userFiles, userFilesRoot])
+    // 路由别名与站点工具同列展示：别名是配置里写的（`router-config/aliases.json`），
+    // 用户看不到就会以为 `!xxx` 只能走 shell。别名排在目录候选之后，不与文件/命令抢焦点。
+    const seen = new Set(items.map((item) => item.command.trim().replace(/\s+/g, '').toLowerCase()))
+    const queryKey = command.trim().replace(/\s+/g, '').toLowerCase()
+    for (const alias of routerAliases) {
+      const text = String(alias || '').replace(/^!/, '').trim()
+      if (!text || seen.has(text.toLowerCase())) continue
+      if (queryKey && !text.toLowerCase().startsWith(queryKey)) continue
+      seen.add(text.toLowerCase())
+      items.push({
+        id: `bang:alias:${text}`,
+        title: `!${text}`,
+        command: `${text} `,
+        description: '智能路由直达别名',
+        kind: 'alias',
+        isDirectory: false,
+        // 值为「去掉 `!` 的别名 + 空格」：applySlashItem 会补回 `!` 前缀。
+        candidate: { name: `!${text}`, value: `${text} `, kind: 'alias' },
+      })
+    }
+    return items
+  }, [bangCompletionSource, routerAliases, sites, terminalSessions, userFiles, userFilesRoot])
   const slashItems = useMemo(() => {
     if (!slashMenuState) return []
     if (slashMenuState.kind === 'bang') return buildBangSlashItems(slashMenuState.query)
@@ -980,6 +1008,7 @@ function commandCompletionKindLabel(item) {
   if (item?.kind === 'option') return 'arg'
   if (item?.kind === 'tool') return 'tool'
   if (item?.kind === 'site') return 'site'
+  if (item?.kind === 'alias') return 'route'
   if (item?.isDirectory) return 'dir'
   return 'file'
 }

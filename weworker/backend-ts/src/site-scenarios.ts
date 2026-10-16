@@ -10,6 +10,24 @@ export interface RegistryScenarioPrompt {
   reply?: string
 }
 
+/**
+ * 卡片路由声明（manifest `scenarios[].route`）。三形态互斥：
+ * - `tool`：本卡片的推荐话术可由某个只读直调工具直接回答；
+ * - `plan`：本卡片是多跳入口（终点工具由 `plan-terminals.json` 白名单约束）；
+ * - `direct:false`：本卡片**不做直连**，同时抑制下层宽泛层抢答（`reason` 必填）。
+ *
+ * 编译与校验见 `api-query-router/scenario-route-compiler.ts`；产物 `router-config/scenario-routes.json`。
+ */
+export interface ScenarioRouteDecl {
+  tool?: string
+  args?: Record<string, unknown>
+  plan?: { terminal?: string; input?: Record<string, string> }
+  direct?: boolean
+  reason?: string
+  enabled?: boolean
+  guard?: { negative?: string[] }
+}
+
 /** Registry optional field — do not rename existing registry keys. */
 export interface RegistryScenarioDef {
   id?: string
@@ -19,6 +37,8 @@ export interface RegistryScenarioDef {
   tool_names?: string[]
   /** Suggested user prompts for this scenario. Each prompt can carry its own AI reply preview. */
   prompts?: RegistryScenarioPrompt[]
+  /** 卡片路由声明（可选）；无声明且话术含占位符时 `gen:routes` 会报错。 */
+  route?: ScenarioRouteDecl
   updated_at?: string
 }
 

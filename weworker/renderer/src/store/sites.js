@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { fetchSites, setWelcomeVisibility } from '../api/sites-api.js'
+import { fetchRouterAliases, fetchSites, setWelcomeVisibility } from '../api/sites-api.js'
 import { backendFetch } from '../api/http.js'
 
 const API = 'http://127.0.0.1:8765'
@@ -11,6 +11,11 @@ async function reloadSites(set) {
 export const useSitesStore = create((set) => ({
   sites: [],
   systemTools: [],
+  /**
+   * 后端当前生效的 `!别名`（含 `!` 前缀）。输入框据此把 `!xxx` 判成路由命令。
+   * 空数组＝「后端没给」，输入框回退到随包静态清单，不影响既有行为。
+   */
+  routerAliases: [],
   loading: false,
   togglingIds: [],
   toggleError: null,
@@ -25,12 +30,13 @@ export const useSitesStore = create((set) => ({
   load: async () => {
     set({ loading: true })
     try {
-      const [sites, sysRes] = await Promise.all([
+      const [sites, sysRes, routerAliases] = await Promise.all([
         fetchSites(),
         backendFetch(`${API}/system-tools`),
+        fetchRouterAliases().catch(() => []),
       ])
       const systemTools = sysRes.ok ? await sysRes.json() : []
-      set({ sites, systemTools, loading: false })
+      set({ sites, systemTools, routerAliases, loading: false })
     } catch {
       set({ loading: false })
     }

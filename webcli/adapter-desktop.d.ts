@@ -7,6 +7,7 @@ export interface DesktopAdapter {
   homepage_url?: string
   requires_auth?: boolean
   auth_check_tool?: string
+  gate_aliases?: string[]
   hidden?: boolean
   icon?: string
   test_prompts?: string[]

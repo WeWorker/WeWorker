@@ -24,6 +24,10 @@ const PROMPT_BRACE_EXPRESSION = /{+[^{}]*}+/g
 const QUERY_ROUTES_CONFIG = process.env.WEWORKER_QUERY_ROUTES_CONFIG
   ? path.resolve(process.env.WEWORKER_QUERY_ROUTES_CONFIG)
   : path.resolve(__dirname, '../query-routes.public.json')
+// 智能路由分层配置：随包默认目录，可被 Profile Overlay 指向内部配置目录
+const ROUTER_CONFIG_DIR = process.env.WEWORKER_ROUTER_CONFIG_DIR
+  ? path.resolve(process.env.WEWORKER_ROUTER_CONFIG_DIR)
+  : path.resolve(__dirname, '../router-config')
 
 const KEYRING_PLATFORM_PACKAGES = {
   'win32-x64': '@napi-rs/keyring-win32-x64-msvc',
@@ -170,6 +174,19 @@ function bundleBackend(options = {}) {
   if (fs.existsSync(QUERY_ROUTES_CONFIG)) {
     fs.copyFileSync(QUERY_ROUTES_CONFIG, path.join(outDir, 'query-routes.json'))
     console.log(`[bundle-backend-ts] Copied query routes: ${QUERY_ROUTES_CONFIG}`)
+  }
+
+  // 分层配置文件与 server.cjs 同目录，运行时按 MODULE_DIR/router-config 命中
+  if (fs.existsSync(ROUTER_CONFIG_DIR)) {
+    const routerOutDir = path.join(outDir, 'router-config')
+    fs.mkdirSync(routerOutDir, { recursive: true })
+    const copied = fs.readdirSync(ROUTER_CONFIG_DIR).filter((name) => name.endsWith('.json'))
+    for (const name of copied) {
+      fs.copyFileSync(path.join(ROUTER_CONFIG_DIR, name), path.join(routerOutDir, name))
+    }
+    console.log(`[bundle-backend-ts] Copied router config (${copied.length} files): ${ROUTER_CONFIG_DIR}`)
+  } else {
+    console.warn(`[bundle-backend-ts] Router config dir not found, skipping: ${ROUTER_CONFIG_DIR}`)
   }
 
   fs.writeFileSync(

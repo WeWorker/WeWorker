@@ -745,3 +745,29 @@ def test_finish_replay_persists_runtime_target_before_terminal_status(tmp_path: 
 
     assert store.read_task(task_id)["active_target_id"] == "target-cancelled"
     assert store.read_replay(cancelled_id)["status"] == "cancelled"
+
+
+def test_spawn_does_not_inherit_parent_stdin(monkeypatch, tmp_path: Path) -> None:
+    """Worker 不得继承父进程 stdin。
+
+    服务器自身的 stdin 是启动方（Electron/node）给的管道，子解释器在启动引导阶段 stat
+    该句柄会挂在核态，表现为 worker 一直起不来。只把 stdin 换成 DEVNULL 即恢复健康，
+    而 worker 全都不读自己的 stdin，所以这条是纯收益的隔离。
+    """
+    manager = ProcessManager(store=TaskStore(tmp_path / "tasks"))
+    captured: dict = {}
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    log_path = tmp_path / "worker.log"
+    manager._spawn(["python-test", "-m", "worker"], log_path)
+
+    assert captured["stdin"] is subprocess.DEVNULL
+    # stdout/stderr 仍按既有约定汇入同一个日志句柄。
+    assert captured["stderr"] is subprocess.STDOUT
+    assert getattr(captured["stdout"], "name", "") == str(log_path)

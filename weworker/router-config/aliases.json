@@ -1,0 +1,209 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * aliases.json —— 第 11 层之一：`!` 显式点名别名
+ *
+ * 【本层负责什么】
+ *   用户显式打出 `!别名`（如 `!hn`）→ **全等匹配**后直连工具，参数来自本条的 `args`。
+ *   这是「用户已经知道要什么」的通道：不猜、不模糊、不打分。
+ *
+ * 【文件结构与怎么写】
+ *   1. `aliases` 是条目容器；容器内按 adapter 分节（key = adapter id），条目 `tool` 必须属于该分节。
+ *      ⚠️ 分节必须嵌在 `aliases` 键里面——把分节提到顶层会让 `aliases` 字段缺席，
+ *      校验器认为「本层没配任何条目」而放行，整层静默失效且无任何报错；
+ *   2. `alias` 必须以 `!` 开头，走**归一化全等**（去空白 + 转小写）——`!HN` 与 `!hn` 等价，
+ *      但 `！hn`（全角）不等价，别混用；
+ *   3. 同一工具可以配多个别名（`!github`/`!repos`/`!trending` 都指 github.com.repos）；
+ *   4. `render` 与 routes/shortcuts 同口径：少了它，同一份数据经 `!别名` 进来只能渲染成
+ *      通用表格，会出现「同一份数据两条入口两种长相」；
+ *   5. `examples` 必填，写别名原文本身。
+ *
+ * 【一条完整成功示例】
+ *   "aliases": {
+ *     "news.ycombinator.com": [
+ *       { "id": "alias-hn-top", "alias": "!hn", "tool": "news.ycombinator.com.top",
+ *         "args": { "limit": 20 }, "examples": ["!hn"] }
+ *     ]
+ *   }
+ *   → 用户输入「!hn」：直接调 news.ycombinator.com.top(limit=20)。
+ *
+ * 【常见的写坏方式（都会被当场拦下）】
+ *   ✗ 分节提到顶层 → 整层静默失效（见上）
+ *   ✗ `!` 未命中时**不会降级**：整轮被阻断（alias_gate），不会再往下层猜。
+ *     所以别指望「写个概差别名兜底」——它兜不了，它只会把这一轮堵死。
+ *   ✗ 同层 id 重复、缺 `examples`、条目放错 adapter 分节 → 同 routes.json 的四条红线。
+ *   ✗ 别名撞名（两条指向不同工具却同名）→ 校验器报「先命中者赢，另一条永远拿不到」。
+ *
+ * 【本层不放什么】
+ *   ✗ 非 `!` 开头的自然语言触发词 → 那是 routes.json / shortcuts.json 的活
+ *   ✗ 写操作工具 → 只读准入会丢弃
+ * ═══════════════════════════════════════════════════════════════════════════ */
+{
+  "aliases": {
+    "news.ycombinator.com": [
+      {
+        "id": "alias-hn-top",
+        "alias": "!hn",
+        "tool": "news.ycombinator.com.top",
+        "args": { "limit": 20 },
+        "examples": ["!hn"]
+      },
+      {
+        // 与 !hn 同义但更显眼，给「怕记不住缩写」的人
+        "id": "alias-hn-top-explicit",
+        "alias": "!hntop",
+        "tool": "news.ycombinator.com.top",
+        "args": { "limit": 20 },
+        "examples": ["!hntop"]
+      },
+      {
+        "id": "alias-hn-best",
+        "alias": "!hnbest",
+        "tool": "news.ycombinator.com.best",
+        "args": { "limit": 20 },
+        "examples": ["!hnbest"]
+      },
+      {
+        "id": "alias-hn-new",
+        "alias": "!hnnew",
+        "tool": "news.ycombinator.com.new",
+        "args": { "limit": 20 },
+        "examples": ["!hnnew"]
+      },
+      {
+        "id": "alias-hn-ask",
+        "alias": "!hnask",
+        "tool": "news.ycombinator.com.ask",
+        "args": { "limit": 20 },
+        "examples": ["!hnask"]
+      },
+      {
+        "id": "alias-hn-show",
+        "alias": "!hnshow",
+        "tool": "news.ycombinator.com.show",
+        "args": { "limit": 20 },
+        "examples": ["!hnshow"]
+      },
+      {
+        "id": "alias-hn-jobs",
+        "alias": "!hnjobs",
+        "tool": "news.ycombinator.com.jobs",
+        "args": { "limit": 20 },
+        "examples": ["!hnjobs"]
+      }
+    ],
+
+    "v2ex.com": [
+      {
+        "id": "alias-v2ex-hot",
+        "alias": "!v2ex",
+        "tool": "v2ex.com.hot",
+        "args": { "limit": 20 },
+        "render": { "type": "schema", "schemaId": "v2ex-topic-list" },
+        "examples": ["!v2ex"]
+      },
+      {
+        "id": "alias-v2ex-hot-explicit",
+        "alias": "!v2exhot",
+        "tool": "v2ex.com.hot",
+        "args": { "limit": 20 },
+        "render": { "type": "schema", "schemaId": "v2ex-topic-list" },
+        "examples": ["!v2exhot"]
+      },
+      {
+        "id": "alias-v2ex-latest",
+        "alias": "!v2exlatest",
+        "tool": "v2ex.com.latest",
+        "args": { "limit": 20 },
+        "render": { "type": "schema", "schemaId": "v2ex-topic-list" },
+        "examples": ["!v2exlatest"]
+      },
+      {
+        "id": "alias-v2ex-nodes",
+        "alias": "!v2exnodes",
+        "tool": "v2ex.com.nodes",
+        "args": { "limit": 50 },
+        "render": { "type": "schema", "schemaId": "v2ex-node-list" },
+        "examples": ["!v2exnodes"]
+      }
+    ],
+
+    "github.com": [
+      {
+        // 三个别名同指一个工具：!github / !repos / !trending 都是「GitHub 趋势」
+        "id": "alias-github-trending",
+        "alias": "!github",
+        "tool": "github.com.repos",
+        "args": { "since": "daily", "limit": 25 },
+        "examples": ["!github"]
+      },
+      {
+        "id": "alias-github-repos",
+        "alias": "!repos",
+        "tool": "github.com.repos",
+        "args": { "since": "daily", "limit": 25 },
+        "examples": ["!repos"]
+      },
+      {
+        "id": "alias-github-trending-word",
+        "alias": "!trending",
+        "tool": "github.com.repos",
+        "args": { "since": "daily", "limit": 25 },
+        "examples": ["!trending"]
+      }
+    ],
+
+    "36kr.com": [
+      {
+        "id": "alias-36kr",
+        "alias": "!36kr",
+        "tool": "36kr.com.news",
+        "args": { "limit": 20 },
+        "examples": ["!36kr"]
+      }
+    ],
+
+    "toutiao.com": [
+      {
+        "id": "alias-toutiao",
+        "alias": "!toutiao",
+        "tool": "toutiao.com.hot",
+        "args": { "limit": 20 },
+        "render": { "type": "schema", "schemaId": "toutiao-hot-list" },
+        "examples": ["!toutiao"]
+      }
+    ],
+
+    "weread.qq.com": [
+      {
+        "id": "alias-weread",
+        "alias": "!weread",
+        "tool": "weread.qq.com.ranking",
+        "args": { "limit": 20 },
+        "examples": ["!weread"]
+      }
+    ],
+
+    "wikipedia.org": [
+      {
+        "id": "alias-wiki-random",
+        "alias": "!wiki",
+        "tool": "wikipedia.org.random",
+        "args": { "lang": "zh" },
+        "examples": ["!wiki"]
+      },
+      {
+        "id": "alias-wiki-random-explicit",
+        "alias": "!wikirandom",
+        "tool": "wikipedia.org.random",
+        "args": { "lang": "zh" },
+        "examples": ["!wikirandom"]
+      },
+      {
+        "id": "alias-wiki-trending",
+        "alias": "!wikitrending",
+        "tool": "wikipedia.org.trending",
+        "args": { "lang": "zh", "limit": 20 },
+        "examples": ["!wikitrending"]
+      }
+    ]
+  }
+}

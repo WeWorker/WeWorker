@@ -94,7 +94,15 @@ import { execFile } from 'node:child_process'
 import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveSiteMemoryFromWorkflow } from './site-memory.js'
 import * as store from './works-store.js'
 import { tryBackendProfileQueryRoute } from './profile-query-route.js'
-import { buildConfiguredModelEnv, streamChat } from './agent.js'
+import { buildConfiguredModelEnv, streamChat, type SSEEvent } from './agent.js'
+import { matchSiteAdapter, resolveSiteToolkitPrompt } from './site-gate.js'
+import { listToolkitSkills, resolveToolkitSkillPrompt, toolkitGateCandidates } from './toolkit-skills.js'
+import { decideTier4, openTier4Turn } from './tier4-dispatch.js'
+import { checkWebwrightHealth, fetchWebwrightTask } from './webwright-client.js'
+import { graduationHint, recordTier4HostUsage, shouldSuggestGraduation } from './tier4-graduation.js'
+import { computeRoutableSitesFromConfig, getScopedRouterConfig } from './router-config/index.js'
+import { listAliasTexts } from './api-query-router/aliases.js'
+import { tryIntelligentQueryRoute } from './api-query-router/index.js'
 import { disposeChatSession, disposeIdleChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
 import { ensureRuntimeSkillsDir } from './runtime-skills-dir.js'
@@ -1470,7 +1478,34 @@ app.get('/sites', (_req, res) => {
     })),
     tools: formatAdapterToolsForApi(resolvedTools),
   }})
-  res.json(sites)
+  // 路由直达徽标（第 3/4 层之上的配置面）：只对**已启用**站点计算，且条目必须落在当前
+  // Adapter 集合内（作用域过滤），因此站点被禁用或它的路由条目引用了不存在的工具时，
+  // 徽标会如实熄灭，而不是留下一个「配置里还写着」的假亮。
+  // 坏配置不能让只读接口 500：加载失败一律退化为「全部不可直达」。
+  const enabledIds = new Set(sites.filter((site) => site.enabled).map((site) => site.id))
+  const { routable: routableIds, entryCount: routeEntryCount } = computeRoutableSitesFromConfig(enabledIds)
+  res.json(sites.map((site) => ({
+    ...site,
+    routable: routableIds.has(site.id),
+    routeEntryCount: routeEntryCount.get(site.id) ?? 0,
+  })))
+})
+
+// 当前生效的 `!别名` 清单（`router-config/aliases.json` + 用户覆盖层，经作用域过滤）。
+// 输入框据此判断「`!xxx` 是路由命令还是 shell 命令」，从而与后端别名**同源**——
+// 改配置后前端不需要跟着改硬编码清单，避免两边漂移。
+app.get('/router/aliases', (_req, res) => {
+  try {
+    const enabledIds = new Set(
+      [...parseAllAdapters().values()]
+        .filter(a => getSiteEnabled(a.id, a.defaultEnabled, a.managed?.enabled))
+        .map(a => a.id),
+    )
+    res.json({ aliases: listAliasTexts(getScopedRouterConfig(enabledIds).bundle.aliases?.aliases) })
+  } catch (error) {
+    log.warn('router aliases unavailable', error)
+    res.json({ aliases: [] })
+  }
 })
 
 app.post('/sites/:id/toggle', async (req, res) => {
@@ -2994,6 +3029,34 @@ app.post('/works/:id/chat', async (req, res) => {
     return
   }
 
+  // Deterministic routing layers (weworker/router-config, see
+  // docs/intelligent_routing_design.md). Every layer answers "not mine" when
+  // unsure and `tryIntelligentQueryRoute` returns false, so a message that no
+  // layer claims continues into the normal LLM pipeline below — exactly the
+  // pre-routing behaviour. `WEWORKER_API_QUERY_ROUTE=0` turns the whole layer
+  // off. Skipped on retry-with-compaction, which must re-run the turn through
+  // the model rather than replay the same routed answer.
+  if (retryCompaction !== true && message?.trim()) {
+    const routed = await tryIntelligentQueryRoute({
+      message,
+      workId,
+      turnId,
+      chatStartTime,
+      send,
+      log: (m: string) => chatLog.info(`${tag} ${m}`),
+      // Messages *before* the current turn: the follow-up gate needs them to
+      // tell "那第二个呢" apart from a fresh query.
+      history: workWithMessages.messages.filter((msg) => msg.id !== savedUserMessage?.id),
+    })
+    if (routed) {
+      finished = true
+      res.off('close', onClose)
+      broadcastSSE({ type: 'works_changed', workId })
+      res.end()
+      return
+    }
+  }
+
   const unsubscribeTerminalEvents = onTerminalEvent((event) => {
     if (event.workId !== workId) return
     send({ type: 'terminal_event', data: event })
@@ -3027,13 +3090,61 @@ app.post('/works/:id/chat', async (req, res) => {
       adapters: memoryAdapters,
       toolCalls: [],
     }).scope as { user: string }
-    for await (const ev of streamChat(modelMessages, settings, abortController, {
+    // siteGate（第3层聚焦，第14行）：确定性快路未命中后，按保守站点信号预注入该 adapter 工具清单，
+    // 省「激活 Skill」一整轮推理；未命中维持现状（漏判免费）。已毕业 toolkit skill 并入候选：
+    // 已毕业站点同样回第3层并预注入 toolkit 工具清单，不再被第4层重复探索。
+    const toolkitSkills = listToolkitSkills()
+    const toolkitById = new Map(toolkitSkills.map((skill) => [skill.id, skill]))
+    const siteGate = matchSiteAdapter(
+      message,
+      [...allAdapters.values(), ...toolkitGateCandidates(toolkitSkills)],
+      // toolkit skill 不在站点设置里，恒视为启用；不动 enabledAdapterIds 本体。
+      new Set([...enabledAdapterIds, ...toolkitById.keys()]),
+    )
+    const toolkitHit = siteGate.adapterId ? toolkitById.get(siteGate.adapterId) : undefined
+    const siteToolkit = siteGate.adapterId
+      ? (toolkitHit ? resolveToolkitSkillPrompt(toolkitHit) : resolveSiteToolkitPrompt(siteGate.adapterId))
+      : null
+    if (siteGate.reason !== 'miss') {
+      chatLog.info(
+        `${tag} sitegate: ${siteGate.reason}` +
+          (siteGate.adapterId ? ` adapter=${siteGate.adapterId}` : '') +
+          (siteGate.signals.length ? ` signals=${siteGate.signals.join(',')}` : '') +
+          (siteToolkit ? ` tools=${siteToolkit.toolCount}/${siteToolkit.total}` : ''),
+      )
+    }
+    // 第4层即时执行（第15行）：siteGate miss + 消息含未注册站点 URL 信号 + 网站探索agent健康 +
+    // 建任务成功 → 该轮转交网站探索agent，事件源换成第4层流；任一条件不过 → 第3层 streamChat
+    // （今天的行为，漏判免费）。急停 WEWORKER_TIER4=0 时 decideTier4 直接返回不转发。
+    let tier4Task: { taskId: string; startUrl: string; startedAt: number } | null = null
+    let tier4Source: AsyncGenerator<SSEEvent> | null = null
+    const tier4 = decideTier4(message, siteGate, allAdapters)
+    if (tier4.dispatch) {
+      const health = await checkWebwrightHealth()
+      if (!health.ok) {
+        chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)
+      } else {
+        const opened = await openTier4Turn({ message, startUrl: tier4.startUrl!, abortSignal: abortController.signal })
+        if (opened.ok) {
+          tier4Task = { taskId: opened.taskId, startUrl: tier4.startUrl!, startedAt: Date.now() }
+          tier4Source = opened.run
+          chatLog.info(`${tag} tier4: task=${opened.taskId} url=${tier4.startUrl}`)
+        } else {
+          chatLog.info(`${tag} tier4: unavailable reason=create-${opened.code}${opened.message ? ` (${opened.message})` : ''}`)
+        }
+      }
+    } else if (siteGate.reason === 'miss') {
+      // miss 时 siteGate 无日志行，这里补观测：为什么没走第4层。
+      chatLog.info(`${tag} tier4: skip reason=${tier4.reason}`)
+    }
+    for await (const ev of tier4Source ?? streamChat(modelMessages, settings, abortController, {
       enabledAdapterIds,
       workId,
       zcfRole: zcfPrefs.zcfRole,
       zcfMode: zcfPrefs.zcfMode,
       thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, thinkingEffort),
       memoryScope: initialMemoryScope,
+      ...(siteToolkit ? { siteToolkitPrompt: siteToolkit.prompt } : {}),
       onAskUser: (event) => send(event),
       // Keep this work's Claude Code process between turns (skips the CLI cold start).
       reuseSession: true,
@@ -3108,6 +3219,30 @@ app.post('/works/:id/chat', async (req, res) => {
       } else {
         if (ev.type === 'error') streamFailed = true
         send(ev)
+      }
+    }
+    // 第4层回合收尾（第16行）：只观测 + 毕业提示，不改写本轮结果。
+    if (tier4Task) {
+      const tier4View = await fetchWebwrightTask(tier4Task.taskId)
+      chatLog.info(
+        `${tag} tier4: done task=${tier4Task.taskId} status=${tier4View?.status ?? 'unknown'}` +
+          ` steps=${tier4View?.current_step ?? 0} ms=${Date.now() - tier4Task.startedAt}` +
+          ` final_chars=${(tier4View?.final_response ?? '').length}`,
+      )
+      // 毕业引导：同 host 第 N 次成功探索后提示可固化为本地 Toolkit（只提示，不自动生成）。
+      if (tier4View?.status === 'succeeded') {
+        try {
+          const host = new URL(tier4Task.startUrl).hostname.toLowerCase()
+          const count = recordTier4HostUsage(host)
+          if (shouldSuggestGraduation(count)) {
+            const hint = graduationHint(host, count)
+            send({ type: 'text_delta', content: hint })
+            currentText += hint
+            chatLog.info(`${tag} tier4: graduation host=${host} count=${count}`)
+          }
+        } catch {
+          // 计数落盘失败不影响本轮结果——毕业提示只是锦上添花。
+        }
       }
     }
     turnSucceeded = !streamFailed && !abortController.signal.aborted

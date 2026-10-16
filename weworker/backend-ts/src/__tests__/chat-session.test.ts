@@ -155,6 +155,27 @@ describe('desktop chat session reuse', () => {
     expect(sessions[1].received[0]).toContain('改过的问题')
   })
 
+  it('keeps the current site toolkit prompt on both the first and reused turns', async () => {
+    const sessions = installFakeCli()
+    const first = [message('u1', 'First site question')]
+    await collect(first, { siteToolkitPrompt: 'Site A tool catalog' })
+    await collect([...first, message('a1', 'reply 1', 'assistant'), message('u2', 'Second site question')], {
+      siteToolkitPrompt: 'Site B tool catalog',
+    })
+    expect(mocks.query).toHaveBeenCalledTimes(1)
+    expect(sessions[0].received[0]).toContain('Site A tool catalog')
+    expect(sessions[0].received[1]).toBe('Site B tool catalog\n\nSecond site question')
+  })
+
+  it('injects site toolkit context after adopting a prewarmed session', async () => {
+    const sessions = installFakeCli()
+    await collect([], { warmupOnly: true })
+    await collect([message('u1', 'First question')], { siteToolkitPrompt: 'Site tool catalog' })
+    expect(mocks.query).toHaveBeenCalledTimes(1)
+    expect(sessions[0].received[0]).toContain('Site tool catalog')
+    expect(sessions[0].received[0]).toContain('First question')
+  })
+
   it('does not reuse a session after an unseen user message (for example a routed answer)', async () => {
     installFakeCli()
     await collect([message('u1', '第一问')])

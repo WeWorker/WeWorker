@@ -1,6 +1,7 @@
 // self 模式：独立启动 backend-ts dev 后端（无 token，http-security.ts:23 放行），
 // 轮询 GET /status 直到就绪。stopBackend 在 win32 用 taskkill /T 清整棵进程树（tsx→node 孙进程）。
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 
 /**
@@ -33,11 +34,16 @@ export async function waitForReady(getStatus, { timeout = 60000, interval = 500 
  */
 export function startBackend({ backendDir, onLog }) {
   const tsxEntry = path.join(backendDir, 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  // 给这次起的后端盖个唯一戳，回写进 `/status` 的 backend_instance_id（server.ts:330）。
+  // 用途：8765 上很可能还挂着已运行的客户端，光轮询 `/status` 会立刻「就绪」——
+  // 结果是整批用例打到了**旧进程**上，测的根本不是当前代码。有了这个戳就能认准自己起的那个。
+  const instanceId = randomUUID()
   const child = spawn(process.execPath, [tsxEntry, '--experimental-sqlite', 'src/server.ts'], {
     cwd: backendDir,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env },
+    env: { ...process.env, WEWORKER_BACKEND_INSTANCE_ID: instanceId },
   })
+  child.instanceId = instanceId
   const prefix = '[backend]'
   const pipe = (stream, log, streamName) => stream?.on('data', (d) => {
     String(d).split('\n').forEach((l) => {

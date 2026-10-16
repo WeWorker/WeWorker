@@ -1,0 +1,66 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * plan-terminals.json —— 支撑文件：第 9 层「计划终端」入口白名单
+ *
+ * 【本文件负责什么】
+ *   plans.json 里的终端工具（`terminals[].tool`）要先在这里**登记**：声明它属于哪个 adapter、
+ *   叫什么终端 key、入口参数有哪些。作用是让「计划的终端工具确实属于该 adapter、且入口参数是
+ *   它 schema 的子集」这件事**在编译期与测试期就能查**，而不是等运行时拿到空结果。
+ *   运行时不读本文件——它只服务校验。
+ *
+ * 【本文件天然按 adapter 分组】
+ *   顶层 `adapters` 的 key **就是 adapterId**，与其余各层的分节形态一致；故本文件无需额外说明
+ *   adapter 归属，键本身就是归属。
+ *
+ * 【怎么写】
+ *   1. `adapters["<adapterId>"]["<终端 key>"]` 里的 `tool` 必须属于该 adapter；
+ *   2. 那个「终端 key」必须与 plans.json 里 `entry.terminal` / `terminals[].key` 逐字一致；
+ *   3. `input` 列出入口参数：`type` 取自工具的 schema，`required: true` 表示该参数必填。
+ *
+ * 【一条完整成功示例】
+ *   "adapters": {
+ *     "wikipedia.org": {
+ *       "summary": {
+ *         "tool": "wikipedia.org.summary",
+ *         "input": { "title": { "type": "string", "required": true },
+ *                    "lang":  { "type": "string", "required": false } }
+ *       }
+ *     }
+ *   }
+ *   → 对应 plans.json 里 `entry.terminal: "summary"` 的那条计划；校验器据此确认
+ *     wikipedia.org.summary 属于 wikipedia.org，且 title/lang 是它认识的参数。
+ *
+ * 【常见的写坏方式（都会被当场拦下）】
+ *   ✗ 终端 key 与 plans.json 里的 `entry.terminal` 写得不一致 → 找不到注册，视为未登记
+ *   ✗ 登记的工具不属于该 adapter 分节
+ *   ✗ `input` 里写了工具 schema 里没有的参数名 → 参数会被工具静默丢弃
+ *   ✗ 只在 plans.json 里加了计划、忘了在这里登记终端 → 结构自检报「终端未注册」
+ *
+ * 【本文件不放什么】
+ *   ✗ plans.json 的链路声明（resolvers / terminals 的依赖关系在那边）
+ *   ✗ 公开基线之外的 adapter：未声明 `route.plan` 的 adapter 不需要登记
+ * ═══════════════════════════════════════════════════════════════════════════ */
+{
+  "version": 1,
+  "note": "层 9 入口白名单：manifest 的 route.plan 形态按 adapterId + terminal 反查这里的工具与入口参数。运行时不读本文件，只在编译期与测试期校验「计划的终端工具确实属于该 adapter、且入口参数是它的 schema 子集」。公开基线 adapter 未声明 route.plan，故本表仅为 plans.json 的两个公开计划做注册。",
+  "adapters": {
+    "wikipedia.org": {
+      "summary": {
+        "tool": "wikipedia.org.summary",
+        "input": {
+          "title": { "type": "string", "required": true },
+          "lang": { "type": "string", "required": false }
+        }
+      }
+    },
+    "weread.qq.com": {
+      "book-search": {
+        "tool": "weread.qq.com.book-search",
+        "input": {
+          "book": { "type": "string", "required": true },
+          "query": { "type": "string", "required": true },
+          "limit": { "type": "number", "required": false }
+        }
+      }
+    }
+  }
+}

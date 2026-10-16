@@ -219,6 +219,10 @@
     },
     {
       "id": "download-attachment",
+      "route": {
+        "direct": false,
+        "reason": "写操作（下载附件），不得进路由面"
+      },
       "title": "下载附件",
       "summary": "打开163邮箱，下载我这个月收到的联通发票",
       "prompts": [

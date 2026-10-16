@@ -30,6 +30,12 @@ export interface StaticToolDef {
 export interface ToolExecution {
   type?: 'api' | 'dom' | 'mixed' | string
   runtime?: 'background' | 'page' | 'node' | string
+  /**
+   * 该工具调用前必须先打开的页面 URL（page-prep 编排的唯一输入）。
+   * manifest 里 `tool_execution` 是**按工具名索引的对象**（`{ [toolName]: {...} }`，不是数组），
+   * 其 `navigate_before` 原样带进来；缺省 = 无页面依赖，page-prep 不动手（回到盲调行为）。
+   */
+  navigate_before?: string
 }
 
 /**
@@ -55,6 +61,11 @@ export interface ParsedAdapter {
   name: string
   description: string
   match: string[]
+  /**
+   * siteGate S2 信号词表（manifest 可选 `gate_aliases`）。拉丁词按 ASCII 字母数字判边界
+   * （`XXITSMYY` 不命中 `itsm`），CJK 词直接子串。缺省 = 只靠域名信号，没有任何站点名推断。
+   */
+  gateAliases: string[]
   homepageUrl: string
   tools: StaticToolDef[]
   testPrompts: string[]
@@ -80,6 +91,7 @@ type RegistryAdapterEntry = {
   description?: string
   detail_description?: string
   match?: string[]
+  gate_aliases?: string[]
   homepage_url?: string
   homepage?: string
   requires_auth?: boolean
@@ -387,6 +399,7 @@ function parseAdaptersFromDir(
         description: manifest.i18n?.zh?.description || manifest.description || registryEntry?.i18n?.zh?.description || registryEntry?.description || '',
         detailDescription: manifest.detail_description?.trim() || registryEntry?.detail_description?.trim() || '',
         match: manifest.match || registryEntry?.match || [dir],
+        gateAliases: manifest.gate_aliases ?? registryEntry?.gate_aliases ?? [],
         homepageUrl: manifest.homepage_url || registryEntry?.homepage_url || `http://${(manifest.match || [dir])[0]}/`,
         tools,
         testPrompts: manifest.test_prompts ?? registryEntry?.test_prompts ?? [],
@@ -449,10 +462,14 @@ export function parseAllAdapters(): Map<string, ParsedAdapter> {
   const inventory = describeDesktopAdapters({ catalog: getDesktopAdapterCatalog() })
   const result = new Map(parseLegacyAdapters())
   for (const manifest of inventory.adapters) {
+    // 已存在的同名条目（v1 遗留 registry 路径）在桌面 manifest 未声明 gate_aliases 时继续供词表，
+    // 避免两套注册路径下同一站点信号表现不一致。
+    const legacy = result.get(manifest.id)
     result.set(manifest.id, {
       id: manifest.id, name: manifest.i18n?.zh?.name || manifest.display || manifest.name,
       description: manifest.i18n?.zh?.description || manifest.description || '',
       detailDescription: manifest.description || '', match: manifest.match || [],
+      gateAliases: manifest.gate_aliases ?? legacy?.gateAliases ?? [],
       homepageUrl: manifest.homepage_url || (manifest.match?.[0] ? 'https://' + manifest.match[0].replace(/^\*\./, '') + '/' : ''),
       tools: manifest.commands.map(command => ({ name: command.name, aliases: (command.aliases || []).map(alias => manifest.name + '.' + alias),
         ...(command.execution ? { execution: command.execution, directCapable: true, executionMode: 'direct' as const } : {}),

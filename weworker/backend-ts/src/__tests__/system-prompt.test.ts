@@ -10,6 +10,7 @@ function makeAdapter(overrides: Partial<ParsedAdapter> = {}): ParsedAdapter {
     name: '京东',
     description: '京东：导航主页、查看购物车、查看订单、购买商品、支付',
     match: ['jd.com'],
+    gateAliases: [],
     homepageUrl: 'https://www.jd.com/',
     tools: [
       {

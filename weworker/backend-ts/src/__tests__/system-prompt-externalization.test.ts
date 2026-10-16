@@ -31,6 +31,7 @@ function makeAdapter(overrides: Partial<ParsedAdapter> = {}): ParsedAdapter {
     name: '示例邮箱',
     description: '示例邮箱：收发邮件',
     match: ['mail.example.com'],
+    gateAliases: [],
     homepageUrl: 'https://mail.example.com/',
     tools: [],
     testPrompts: [],

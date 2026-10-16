@@ -1,0 +1,190 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * routes.json —— 第 1 层：配置路由（一句话直达一个只读工具）
+ *
+ * 【本层负责什么】
+ *   用户消息与这里配置的 `match` 命中（`aliases` 全等 / `keywords` 包含）→ 直接派发 `tool`，
+ *   不再问大模型（命中即 llmMs=0）。这是「零延迟、零猜测」的一层。
+ *
+ * 【文件结构与怎么写】
+ *   1. `routes` 是条目容器；容器内**按 adapter 分节**：分节 key 必须是 adapter id
+ *      （= `adapters/` 下的目录名），分节值是条目数组；
+ *   2. 分节里的每条 `tool` 必须属于该分节（形如 `<adapterId>.<工具名>`）——写错位置会被
+ *      加载器拒掉，绝不会静默生效；
+ *   3. `match.keywords` 走「去掉全部空白 + 转小写」后的**包含**匹配；`match.aliases` 走全等；
+ *   4. `args` 是本条固定参数，会原样发给工具；
+ *   5. `examples` **必填**：写一条「应当命中本条」的用户原文，它会作为正例进硬门实跑，
+ *      写错的关键词当场变红，而不是上线后静默不命中。
+ *
+ *   ⚠️ 分节必须嵌在 `routes` 键里面。整份文件若直接写成
+ *      `{ "wikipedia.org": [...] }`（把分节提到顶层），`routes` 字段就是缺席的，
+ *      校验器认为「这一层没配任何条目」而放行——整层静默失效，且没有任何报错。
+ *      这是最容易犯的错，务必对照下面的成功示例。
+ *
+ * 【一条完整成功示例】
+ *   "routes": {
+ *     "news.ycombinator.com": [
+ *       { "id": "hn-top", "tool": "news.ycombinator.com.top",
+ *         "match": { "keywords": ["hn头条", "hackernews头条"] },
+ *         "args": { "limit": 20 },
+ *         "examples": ["hn头条"] }
+ *     ]
+ *   }
+ *   → 用户输入「hn头条」：直接调 news.ycombinator.com.top(limit=20)，返回 HN 头条列表。
+ *
+ * 【常见的写坏方式（都会被当场拦下）】
+ *   ✗ 分节提到顶层、`routes` 键缺席 → **整层静默失效**（见上）
+ *   ✗ 条目写进了别的 adapter 的分节 → belongs to "a", not to section "b"
+ *   ✗ 关键词归一化后不足 3 字符的裸词（「新闻」「列表」）→ 会大面积误伤，污染整层
+ *   ✗ 短词是另一条长词的子串且两条工具不同（「热榜」放在「头条热榜」的另一条里）
+ *     → 短的先命中，长的那条**永远拿不到**，且没有任何日志
+ *   ✗ 同层 id 重复 → 覆盖层合并时静默覆盖，表现为「配了两条只生效一条」
+ *   ✗ 缺 `examples` → 校验失败，整层回退到上一份可用配置
+ *
+ * 【本层不放什么】
+ *   ✗ 写操作 / 需确认的工具（只读准入会直接丢弃，白配）
+ *   ✗ 带槽位的话术（如「帮我查询 ${X} 的产品有哪些」）→ 那是第 2 层模板，写在
+ *     adapter manifest 的 `route_templates` 里；重复写第二遍会形成互相遮蔽的两个层
+ *   ✗ 讨论态问句（「智能路由怎么工作的」）→ 会被硬门①直接拦掉
+ * ═══════════════════════════════════════════════════════════════════════════ */
+{
+  "routes": {
+    "wikipedia.org": [
+      {
+        "id": "wiki-random",
+        "tool": "wikipedia.org.random",
+        "match": {
+          "keywords": ["维基百科随机", "随机维基百科词条", "维基百科随机条目", "wikipedia随机"]
+        },
+        "args": { "lang": "zh" },
+        "title": "随机维基百科词条",
+        "render": { "type": "generic" },
+        "examples": ["维基百科随机"]
+      },
+      {
+        "id": "wiki-trending",
+        "tool": "wikipedia.org.trending",
+        "match": {
+          "keywords": ["维基百科热榜", "维基百科热门", "维基百科最热", "wikipedia热榜"]
+        },
+        "args": { "lang": "zh", "limit": 20 },
+        "title": "维基百科热门条目",
+        "render": { "type": "generic" },
+        "examples": ["维基百科热榜"]
+      }
+    ],
+
+    "weread.qq.com": [
+      {
+        "id": "weread-ranking",
+        "tool": "weread.qq.com.ranking",
+        "match": {
+          "keywords": ["微信读书排行榜", "微信读书榜单", "微信读书热榜", "微信读书排行", "微信读书飙升榜"]
+        },
+        "args": { "limit": 20 },
+        "title": "微信读书排行榜",
+        "render": { "type": "generic" },
+        "examples": ["微信读书排行榜"]
+      }
+    ],
+
+    "toutiao.com": [
+      {
+        "id": "toutiao-hot",
+        "tool": "toutiao.com.hot",
+        "match": {
+          // 注意：「头条热榜」与「今日头条热榜」同属本条，故二者互为子串也不报错；
+          // 若把「头条热榜」单拎到另一条（不同工具）下，校验器会拦下——短的会把长的吃掉。
+          "keywords": ["今日头条热榜", "头条热榜", "今日头条热搜", "头条热搜"]
+        },
+        "args": { "limit": 20 },
+        "title": "今日头条热榜",
+        "render": { "type": "schema", "schemaId": "toutiao-hot-list" },
+        "examples": ["今日头条热榜"]
+      }
+    ],
+
+    "36kr.com": [
+      {
+        "id": "36kr-news",
+        "tool": "36kr.com.news",
+        "match": {
+          "keywords": ["36氪资讯", "36kr资讯", "36氪新闻", "36kr新闻", "36氪最新"]
+        },
+        "args": { "limit": 20 },
+        "title": "36氪最新资讯",
+        "render": { "type": "generic" },
+        "examples": ["36氪资讯"]
+      }
+    ],
+
+    "news.ycombinator.com": [
+      {
+        "id": "hn-top",
+        "tool": "news.ycombinator.com.top",
+        "match": {
+          "keywords": ["hn头条", "hackernews头条", "hackernews热榜", "hn热榜", "hackernews首页"]
+        },
+        "args": { "limit": 20 },
+        "title": "Hacker News 头条",
+        "render": { "type": "generic" },
+        "examples": ["hn头条"]
+      },
+      {
+        "id": "hn-best",
+        "tool": "news.ycombinator.com.best",
+        "match": {
+          // 「hackernews最佳」是「hackernews最佳帖子」的子串，但两者同工具，属于正常冗余
+          "keywords": ["hn最佳帖子", "hackernews最佳", "hackernews最佳帖子"]
+        },
+        "args": { "limit": 20 },
+        "title": "Hacker News 最佳",
+        "render": { "type": "generic" },
+        "examples": ["hn最佳帖子"]
+      },
+      {
+        "id": "hn-new",
+        "tool": "news.ycombinator.com.new",
+        "match": {
+          "keywords": ["hn最新帖子", "hn最新话题", "hackernews最新", "hackernews最新帖子"]
+        },
+        "args": { "limit": 20 },
+        "title": "Hacker News 最新",
+        "render": { "type": "generic" },
+        "examples": ["hn最新话题"]
+      },
+      {
+        "id": "hn-ask",
+        "tool": "news.ycombinator.com.ask",
+        "match": {
+          "keywords": ["askhn", "hackernewsask"]
+        },
+        "args": { "limit": 20 },
+        "title": "Hacker News Ask",
+        "render": { "type": "generic" },
+        "examples": ["askhn"]
+      },
+      {
+        "id": "hn-show",
+        "tool": "news.ycombinator.com.show",
+        "match": {
+          "keywords": ["showhn", "hackernewsshow"]
+        },
+        "args": { "limit": 20 },
+        "title": "Hacker News Show",
+        "render": { "type": "generic" },
+        "examples": ["showhn"]
+      },
+      {
+        "id": "hn-jobs",
+        "tool": "news.ycombinator.com.jobs",
+        "match": {
+          "keywords": ["hn招聘", "hackernews招聘", "hn职位", "hackernews职位"]
+        },
+        "args": { "limit": 20 },
+        "title": "Hacker News 招聘",
+        "render": { "type": "generic" },
+        "examples": ["hn招聘"]
+      }
+    ]
+  }
+}

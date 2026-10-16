@@ -63,6 +63,8 @@ function normalizeCase(c, fallbackId, source) {
     category: obj.category || undefined,
     expectTools: expectTools && expectTools.length ? expectTools : undefined,
     expectMaxMs: obj.expectMaxMs != null ? Number(obj.expectMaxMs) : undefined,
+    // 期望是否走快速路由：true=应当命中路由层，false=应当落回 LLM。未声明则不判定。
+    expectRoute: typeof obj.expectRoute === 'boolean' ? obj.expectRoute : undefined,
     availableTools: obj.availableTools || undefined,
     source,
   }
@@ -82,6 +84,48 @@ export function loadCustomCases(path) {
   return list
     .map((c, i) => normalizeCase(c, `custom-${i + 1}`, 'custom'))
     .filter(Boolean)
+}
+
+/** 去掉反引号与首尾空白 */
+function unquote(raw) {
+  return String(raw || '').trim().replace(/`/g, '').trim()
+}
+
+/** 清单里有的单元格是「`消息`（补充说明）」：说明不是消息的一部分，得剥掉。 */
+function stripComment(raw) {
+  return unquote(raw).replace(/[（(][^）)]*[）)]\s*$/, '').trim()
+}
+
+/**
+ * 从 `docs/router-config-manual-testcases.md` 读路由用例。
+ *
+ * 与 `route:replay`（引擎级复查）读**同一份文档**，所以「命中判定」与「端到端表现」永远跑同一批
+ * 句子，不会出现两张皮。三列表（负例）＝期望不走路由；四列及以上（正例）＝期望走路由。
+ *
+ * 这里只断言「走没走路由」，不比对具体工具/参数：那是 `route:replay` 的活（它分得清 plan 与 tool，
+ * 也看得到命中第几层）；chat-bench 的职责是端到端——真实回答、真实耗时。
+ */
+export function loadRouterCases(docPath) {
+  if (!docPath) return []
+  const raw = fs.readFileSync(docPath, 'utf8')
+  const cases = []
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim().startsWith('|')) continue
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim())
+    if (cells.length < 3) continue
+    const n = Number(cells[0])
+    if (!Number.isInteger(n)) continue // 表头与分隔行
+    const prompt = stripComment(cells[1])
+    if (!prompt) continue
+    const negative = cells.length === 3
+    cases.push({
+      id: `router-${negative ? 'neg' : 'pos'}-${n}`,
+      prompt,
+      category: negative ? 'router/负例（期望落回 LLM）' : 'router/正例（期望命中路由）',
+      expectRoute: !negative,
+    })
+  }
+  return cases.map((c, i) => normalizeCase(c, `router-${i + 1}`, 'router-doc')).filter(Boolean)
 }
 
 /** 拉取后端 test-prompts 并转成 CaseDef（按 --sites 过滤）。不设 expectTools（仅参考）。 */

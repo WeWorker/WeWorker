@@ -16,6 +16,8 @@
     "build:renderer": "cd renderer && npm run build",
     "build:backend": "cd backend && pyinstaller build.spec --distpath ../build/backend-dist --workpath ../build/backend-work --noconfirm",
     "build:backend-ts": "node scripts/bundle-backend-ts.cjs",
+    "gen:routes": "node scripts/gen-routes.mjs",
+    "gen:routes:check": "node scripts/gen-routes.mjs --check",
     "build:bridge": "node scripts/bundle-bridge.cjs",
     "build:bridge:win": "node scripts/bundle-bridge.cjs",
     "build:webcli": "node scripts/bundle-webcli.cjs",
@@ -56,6 +58,7 @@
         "filter": [
           "server.cjs",
           "query-routes.json",
+          "router-config/**",
           "api-exploration-skills/**",
           "node_modules/**"
         ]

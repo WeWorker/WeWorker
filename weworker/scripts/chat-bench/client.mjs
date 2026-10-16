@@ -27,7 +27,14 @@ export function createClient({ base, token }) {
     // —— 靶子状态 / 预检 ——
     getStatus: () => json('/status').catch(() => null),
     getSettings: () => json('/settings'),
-    testProvider: () => json('/settings/test', { method: 'POST' }),
+    // 探活走 provider probe（`server.ts` 的 POST /settings/provider/probe，target=weworker）。
+    // 曾经写成 `/settings/test`——那个端点不存在，预检对任何后端都必然 404。
+    // provider 必填：空串会被 build 白名单直接拒（400 Provider '' is not allowed in this build）。
+    testProvider: (provider) =>
+      json('/settings/provider/probe', {
+        method: 'POST',
+        body: JSON.stringify({ provider, target: 'weworker' }),
+      }),
 
     // —— 用例源 / 分析 ——
     testPrompts: () => json('/health-check/test-prompts'),

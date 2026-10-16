@@ -154,6 +154,10 @@
   "scenarios": [
     {
       "id": "search-video",
+      "route": {
+        "direct": false,
+        "reason": "搜索视频需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件"
+      },
       "title": "搜索视频",
       "summary": "按关键词搜索 B 站视频并整理结果",
       "prompts": [

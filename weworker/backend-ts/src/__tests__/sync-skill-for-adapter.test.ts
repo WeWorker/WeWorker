@@ -15,6 +15,7 @@ function makeAdapter(overrides?: Partial<ParsedAdapter>): ParsedAdapter {
     name: 'Test Adapter',
     description: 'A test adapter',
     match: ['test.com'],
+    gateAliases: [],
     homepageUrl: 'https://test.com/',
     tools: [
       {

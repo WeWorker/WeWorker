@@ -194,6 +194,21 @@ export function buildDisallowedTools(
     'CronCreate',
     'CronDelete',
     'AskUserQuestion',
+    // Hide definitions as well as denying execution in createWeWorkerToolPolicy.
+    // These SDK tools are not supported by WeWorker, even in full mode.
+    'EnterWorktree',
+    'ExitWorktree',
+    'ListAgents',
+    'ReportFindings',
+    'ScheduleWakeup',
+    'SendMessage',
+    'TaskCreate',
+    'TaskGet',
+    'TaskList',
+    'TaskStop',
+    'TaskUpdate',
+    'WebSearch',
+    'Workflow',
     alternateCommandTool,
   ]
   const restrictedBuiltInTools = [
@@ -205,7 +220,6 @@ export function buildDisallowedTools(
     'Write',
     'NotebookEdit',
     'TodoWrite',
-    'WebSearch',
   ]
   if (channelPermissionMode === 'qa_only' || restrictBuiltInTools) {
     return [...baseDisallowed, nativeCommandTool, ...restrictedBuiltInTools]
@@ -1001,6 +1015,8 @@ async function* streamChatWithBaseUrl(
     mcpServerOverride?: ReturnType<typeof _buildMcpServer>;
     restrictBuiltInTools?: boolean;
     memoryScope?: MemoryScope;
+    /** siteGate 预注入的站点工具清单（server.ts 计算；与 loadedSkills 同通道前缀进 prompt）。 */
+    siteToolkitPrompt?: string;
     memoryEnabled?: boolean;
     memoryExpectedType?: import('./memory/memory-types.js').MemoryType;
     memoryTriggerHint?: import('./memory/memory-types.js').MemoryEventTrigger | 'chat';
@@ -1175,6 +1191,9 @@ async function* streamChatWithBaseUrl(
   const skillContextCollector = createSkillContextCollector(skillRoots)
   log.info('skill_context_replay', { present: !!loadedSkills, chars: loadedSkills.length })
   phase.mark('loaded_skill_replay')
+  // Site-specific tools and replayed Skills share the prompt prefix.
+  const siteToolkitPrompt = String(opts.siteToolkitPrompt ?? '').trim()
+  const skillContextPrefix = [siteToolkitPrompt, loadedSkills].filter(Boolean).join('\n\n')
   const storedCompactedConversation = getStoredCompactedConversation(opts.workId, messages)
   const conversationMessages: Message[] = storedCompactedConversation
     ? [{
@@ -1233,7 +1252,7 @@ async function* streamChatWithBaseUrl(
       'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Skill', 'TodoWrite',
     ].join('\n'),
     skillIndex,
-    loadedSkills,
+    loadedSkills: skillContextPrefix,
     mcpDynamicTools: opts.mcpServerOverride ? '' : getMcpToolDefinitionSummary(channelPermissionMode),
     subagentDefinitions: '',
     recalledMemory: longTermMemory.recalled,
@@ -1536,7 +1555,7 @@ async function* streamChatWithBaseUrl(
       // A live CLI already holds the conversation and loaded Skills: send only the new message.
       firstPrompt = prewarmed
         ? fullFirstPrompt
-        : `${recalledMemoryBlock}${messagePromptText(messages[messages.length - 1])}`
+        : `${siteToolkitPrompt ? `${siteToolkitPrompt}\n\n` : ''}${recalledMemoryBlock}${messagePromptText(messages[messages.length - 1])}`
     } else {
       const created = startSession()
       registerChatSession(created)

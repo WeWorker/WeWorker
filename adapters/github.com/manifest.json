@@ -176,6 +176,10 @@
     },
     {
       "id": "search-repository",
+      "route": {
+        "direct": false,
+        "reason": "仓库搜索需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件"
+      },
       "title": "搜索仓库",
       "summary": "按关键词搜索 GitHub 仓库并整理结果",
       "prompts": [
@@ -186,6 +190,10 @@
     },
     {
       "id": "repository-detail",
+      "route": {
+        "direct": false,
+        "reason": "仓库详情需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件"
+      },
       "title": "查看仓库",
       "summary": "读取仓库简介、README 摘要、语言和关键链接",
       "prompts": [

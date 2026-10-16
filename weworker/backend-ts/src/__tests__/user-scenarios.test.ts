@@ -18,6 +18,7 @@ function mockAdapter(): ParsedAdapter {
     description: '公开邮箱示例',
     detailDescription: '',
     match: ['mail.163.com'],
+    gateAliases: [],
     homepageUrl: 'https://mail.163.com/',
     tools: [],
     testPrompts: [],

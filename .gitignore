@@ -91,3 +91,6 @@ officialWeb/src/lib/sites.generated.json
 
 # Local browser profiles used for adapter training; may contain cookies/session data
 .codex-browser-profiles/
+
+# 智能路由本地复跑产物（route-replay 日志、dry-run 报告、临时扫描脚本，每次重新生成）
+.scratch-router/

@@ -1,0 +1,116 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * renderers.json —— 支撑文件：声明式渲染 schema（把工具返回直接渲染成表格，不走 LLM）
+ *
+ * 【本文件负责什么】
+ *   路由命中后，结果是渲染成通用列表还是**声明式表格**，由这里定义的 schema 决定。
+ *   routes / aliases / shortcuts / plans 里的 `render: { type: "schema", schemaId: "…" }`
+ *   都指到本文件的 key。
+ *
+ * 【为什么本文件不按 adapter 分节】
+ *   schema 的 key 是 **schemaId**，刻意做成跨 adapter 可复用（同一份「话题列表」长相可以被多个
+ *   站点声明引用）；它和 adapter 不是一对一关系，套分节会把人误导成「一个站点一套 schema」。
+ *   adapter 归属体现在**引用侧**：`schemaId` 由哪个 adapter 的条目声明，就是给谁用的。
+ *   结构自检要求每个 schema 的 `dataSource` 都能对应到某个 adapter 真实返回的字段。
+ *
+ * 【怎么写】
+ *   1. key 是 schemaId（自定义、全局唯一），值是 schema；
+ *   2. `columns[].key` **必须来自该 adapter 自己的列声明**（`extension/internal/opencli.js` 里的
+ *      `columns`）——声明了工具不返回的列会渲染出空列，结构自检会拦下；
+ *   3. 列类型只支持 `text | number | date | status | link`；
+ *   4. `maxRows` 超出即截断并追加「仅显示前 N」尾注；`emptyMessage` 是空结果时的文案；
+ *   5. 需要分节用 `sections`（**最多一层**，不允许再嵌套）。
+ *
+ * 【一条完整成功示例】
+ *   "toutiao-hot-list": {
+ *     "title": "今日头条热榜",
+ *     "columns": [
+ *       { "type": "number", "key": "rank", "title": "排名" },
+ *       { "type": "text",   "key": "title", "title": "标题" },
+ *       { "type": "number", "key": "hot_value", "title": "热度" },
+ *       { "type": "link",   "key": "url", "title": "链接" }
+ *     ],
+ *     "maxRows": 20,
+ *     "emptyMessage": "没有取到今日头条热榜。"
+ *   }
+ *   → toutiao.com.hot 的结果被渲染成 4 列表格；超 20 行截断并加尾注。
+ *   （在 routes.json 里以 `"render": { "type": "schema", "schemaId": "toutiao-hot-list" }` 引用）
+ *
+ * 【常见的写坏方式】
+ *   ✗ 列 key 与 adapter 的列声明不一致（拼错、抄了别的站点）→ 空列
+ *   ✗ 同一个工具在不同层声明了不同的 schemaId → 同一份数据两种长相（结构自检会拦）
+ *   ✗ 在 `sections` 里再写 `sections` → 嵌套被拒
+ *   ✗ 指望用渲染层做计算/条件分支 → **不支持**，本层只做「取值 + 排版 + 截断」
+ *
+ * 【本文件不放什么】
+ *   ✗ 取数逻辑（渲染层不写代码，取数由工具负责）
+ *   ✗ 路由判定（只认 render 引用，不参与匹配）
+ * ═══════════════════════════════════════════════════════════════════════════ */
+{
+  "schemas": {
+    // ── 被 v2ex.com 的 hot / latest 引用（两处共用一套长相）──────────────────
+    "v2ex-topic-list": {
+      "title": "V2EX 话题列表",
+      "columns": [
+        { "type": "number", "key": "rank", "title": "排名" },
+        { "type": "text", "key": "title", "title": "标题" },
+        { "type": "text", "key": "node", "title": "节点" },
+        { "type": "number", "key": "replies", "title": "回复" },
+        { "type": "link", "key": "url", "title": "链接" }
+      ],
+      "maxRows": 20,
+      "emptyMessage": "没有取到 V2EX 话题。"
+    },
+    // ── 被 v2ex.com 的 node 引用（单节点话题，列不同故单独一套）───────────────
+    "v2ex-node-topics": {
+      "title": "V2EX 节点话题",
+      "columns": [
+        { "type": "number", "key": "rank", "title": "排名" },
+        { "type": "text", "key": "title", "title": "标题" },
+        { "type": "text", "key": "author", "title": "作者" },
+        { "type": "number", "key": "replies", "title": "回复" },
+        { "type": "link", "key": "url", "title": "链接" }
+      ],
+      "maxRows": 20,
+      "emptyMessage": "该节点下没有取到话题。"
+    },
+    // ── 被 v2ex.com 的 nodes 引用（行数上限与上两套不同：50）──────────────────
+    "v2ex-node-list": {
+      "title": "V2EX 节点列表",
+      "columns": [
+        { "type": "number", "key": "rank", "title": "排名" },
+        { "type": "text", "key": "name", "title": "节点" },
+        { "type": "text", "key": "title", "title": "说明" },
+        { "type": "number", "key": "topics", "title": "主题数" },
+        { "type": "number", "key": "stars", "title": "收藏数" }
+      ],
+      "maxRows": 50,
+      "emptyMessage": "没有取到 V2EX 节点。"
+    },
+    // ── 被 arxiv.org 的 search 引用 ──────────────────────────────────────────
+    "arxiv-papers": {
+      "title": "arXiv 论文",
+      "columns": [
+        { "type": "text", "key": "id", "title": "编号" },
+        { "type": "text", "key": "title", "title": "标题" },
+        { "type": "text", "key": "authors", "title": "作者" },
+        { "type": "date", "key": "published", "title": "发布" },
+        { "type": "text", "key": "primary_category", "title": "分类" },
+        { "type": "link", "key": "url", "title": "链接" }
+      ],
+      "maxRows": 20,
+      "emptyMessage": "没有检索到 arXiv 论文。"
+    },
+    // ── 被 toutiao.com 的 hot 引用（routes / aliases 两处声明了同一个 schemaId）──
+    "toutiao-hot-list": {
+      "title": "今日头条热榜",
+      "columns": [
+        { "type": "number", "key": "rank", "title": "排名" },
+        { "type": "text", "key": "title", "title": "标题" },
+        { "type": "number", "key": "hot_value", "title": "热度" },
+        { "type": "link", "key": "url", "title": "链接" }
+      ],
+      "maxRows": 20,
+      "emptyMessage": "没有取到今日头条热榜。"
+    }
+  }
+}

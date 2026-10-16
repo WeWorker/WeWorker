@@ -8,6 +8,8 @@ vi.mock('../ai-analyzer.js', async (importOriginal) => ({
 }));
 
 const config = { provider: 'custom', protocol: 'anthropic', model: 'glm-5.3', api_key: 'fake-test-key', base_url: 'https://model.example.com' };
+// 桥接层存储的是 normalizeAiConfig 规范化后的配置，base_url_is_full 缺省补 false。
+const normalizedConfig = { ...config, base_url_is_full: false };
 const capture = { tabId: 7, site: 'example.com', actionName: 'like_article', capturedActions: [] };
 let bridge;
 let ws;
@@ -43,7 +45,7 @@ describe('client capture model context', () => {
     expect(forwarded).not.toHaveProperty('modelConfig');
     expect(JSON.stringify(forwarded)).not.toContain(config.api_key);
     expect(await analyze(forwarded.analysisContextId)).toMatchObject({ ok: true });
-    expect(analyzeActionCaptureResult).toHaveBeenCalledWith({ captureResult: capture, modelConfig: config });
+    expect(analyzeActionCaptureResult).toHaveBeenCalledWith({ captureResult: capture, modelConfig: normalizedConfig });
     expect(bridge._captureModelContexts.size).toBe(0);
     expect(await analyze(forwarded.analysisContextId)).toMatchObject({ ok: false });
     expect(analyzeActionCaptureResult).toHaveBeenCalledTimes(1);

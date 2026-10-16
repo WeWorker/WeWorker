@@ -157,6 +157,10 @@
     },
     {
       "id": "search",
+      "route": {
+        "direct": false,
+        "reason": "邮件搜索需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件"
+      },
       "title": "搜索下载",
       "summary": "按关键词搜索邮件并下载附件（如发票）",
       "prompts": [

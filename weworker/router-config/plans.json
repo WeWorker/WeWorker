@@ -1,0 +1,121 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * plans.json —— 第 9 层：多跳锚点 DAG（一条请求需要先查 A 再拿结果查 B）
+ *
+ * 【本层负责什么】
+ *   有些话术一次工具调用答不了：「维基百科 量子力学」得先**搜**出词条标题，再拿标题**取摘要**。
+ *   本层把这种链路声明成 DAG：`entry` 认领入口 → `resolvers` 产出锚点 → `terminals` 消费锚点。
+ *   命中后整条计划接管本轮，**不再往下层走**。
+ *
+ * 【文件结构与怎么写】
+ *   1. `plans` 是条目容器；容器内按 adapter 分节（key = adapter id），条目里的 `adapterId`
+ *      必须与该分节一致。⚠️ 分节必须嵌在 `plans` 键里面——把分节提到顶层会让 `plans` 字段
+ *      缺席，校验器认为「本层没配任何条目」而放行，整层静默失效且无任何报错；
+ *   2. `entry.positive` 是入口正则（**必须自带命名捕获组**，如 `(?<topic>...)`，槽位从组名取）；
+ *      `entry.negative` 是入口否决词——「维基百科 简介」要靠它挡住，否则会被当纯主题；
+ *   3. `entry.terminal` 必须等于下面某个 `terminals[].key`（写错会被校验器拦下）；
+ *   4. `resolvers[].produces` 声明它产出什么锚点；`terminals[].needs` 声明它依赖哪些锚点，
+ *      **每个 needs 必须有某个 resolver 产出**，否则链路永远断（校验器会拦）；
+ *   5. 参数值三种写法：字面量 / `$锚点名`（从已解析锚点取）/ `$$槽位名`（从入口捕获组取）；
+ *   6. `examples` 必填：写一条应当命中本条入口的原文，会作为正例实跑并校验命中的 planId。
+ *
+ * 【一条完整成功示例】
+ *   "plans": {
+ *     "wikipedia.org": [
+ *       { "id": "wikipedia-topic-summary", "adapterId": "wikipedia.org",
+ *         "entry": { "terminal": "summary",
+ *                    "positive": ["^(?:维基百科|wikipedia)\\s*[:：]?\\s*(?<topic>\\S{1,30})$"],
+ *                    "negative": ["简介", "摘要", "搜索", "热榜", "有哪些"] },
+ *         "resolvers": [{ "produces": "pageTitle", "tool": "wikipedia.org.search",
+ *                         "args": { "query": "$$topic", "lang": "zh", "limit": 5 },
+ *                         "extract": { "source": "rows", "pick": "latest", "value": "title" } }],
+ *         "terminals": [{ "key": "summary", "needs": ["pageTitle"],
+ *                         "tool": "wikipedia.org.summary",
+ *                         "args": { "title": "$pageTitle", "lang": "zh" } }],
+ *         "examples": ["维基百科 量子力学"] }
+ *     ]
+ *   }
+ *   → 输入「维基百科 量子力学」：入口捕获 topic=量子力学 → search 取到标题 → summary 取摘要。
+ *   → 输入「维基百科 简介」：负向词命中 → 本条不认领，落到后面的层。
+ *
+ * 【常见的写坏方式（都会被当场拦下）】
+ *   ✗ 分节提到顶层 → 整层静默失效（见上）
+ *   ✗ `entry.positive` 的捕获组没写名字 → 槽位取不到值，整条计划必然缺参
+ *   ✗ `entry.terminal` 打错字，或指向了不存在的终端 key
+ *   ✗ `terminals[].needs` 写了没人产出的锚点 → 链路永远断
+ *   ✗ 入口正则太宽（去掉 negative）→ 把「维基百科热榜」这类本该走 routes 的话术吃掉
+ *   ✗ 两条计划的入口正则完全相同 → 先判定者赢，另一条永远轮不到（校验器会拦）
+ *   ✗ 缺 `examples` / id 重复 / adapterId 与分节不符 → 同上
+ *
+ * 【本层不放什么】
+ *   ✗ 单跳就能答的话术 → 放 routes.json / shortcuts.json（更快、更好排查）
+ *   ✗ 需要写操作的链路（如「下载并改名」）→ 只读准入会丢弃
+ *   ✗ 需要人工确认的岔路 → `onAmbiguous: 'ask'` 是给「同一锚点多个候选」用的，
+ *     不是给「不确定要不要做」用的
+ * ═══════════════════════════════════════════════════════════════════════════ */
+{
+  "plans": {
+    "wikipedia.org": [
+      {
+        "id": "wikipedia-topic-summary",
+        "adapterId": "wikipedia.org",
+        "entry": {
+          "terminal": "summary",
+          "positive": [
+            "^(?:维基百科|wikipedia)\\s*[:：]?\\s*(?<topic>\\S{1,30})$"
+          ],
+          // 负向词是入口的「否决集合」：先说清楚本条**不**处理的意图，其余才轮到它
+          "negative": [
+            "简介|摘要|导语|概述|词条|条目|正文|全文|搜索|查找|检索|查一下|热榜|热门|随机|列表|有哪些|哪些"
+          ]
+        },
+        "resolvers": [
+          {
+            "produces": "pageTitle",
+            "tool": "wikipedia.org.search",
+            "args": { "query": "$$topic", "lang": "zh", "limit": 5 },
+            "extract": { "source": "rows", "pick": "latest", "value": "title" }
+          }
+        ],
+        "terminals": [
+          {
+            "key": "summary",
+            "needs": ["pageTitle"],
+            "tool": "wikipedia.org.summary",
+            "args": { "title": "$pageTitle", "lang": "zh" }
+          }
+        ],
+        "examples": ["维基百科 量子力学"]
+      }
+    ],
+
+    "weread.qq.com": [
+      {
+        "id": "weread-search-in-book",
+        "adapterId": "weread.qq.com",
+        "entry": {
+          "terminal": "book-search",
+          "positive": [
+            "^(?:微信读书|weread)\\s*[《「](?<book>[^《》「」\\s]{1,24})[》」]\\s*(?:里|中|内|书内)?\\s*(?:搜索|搜一下|搜|查找|检索)\\s*[:：]?\\s*(?<query>.{1,40})$"
+          ]
+        },
+        "resolvers": [
+          {
+            "produces": "bookId",
+            "tool": "weread.qq.com.search",
+            "args": { "query": "$$book", "limit": 5 },
+            "extract": { "source": "rows", "pick": "latest", "value": "bookId" }
+          }
+        ],
+        "terminals": [
+          {
+            "key": "book-search",
+            "needs": ["bookId"],
+            "tool": "weread.qq.com.book-search",
+            "args": { "book": "$bookId", "query": "$$query", "limit": 20 }
+          }
+        ],
+        "examples": ["微信读书《三体》里搜索 黑暗森林"]
+      }
+    ]
+  }
+}

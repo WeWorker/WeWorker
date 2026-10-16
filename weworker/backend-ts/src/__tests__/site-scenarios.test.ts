@@ -8,6 +8,7 @@ const mockAdapter = (overrides: Partial<ParsedAdapter> = {}): ParsedAdapter => (
   description: 'ExpenseDemo费用管理示例：团建预算提单，团建报销',
   detailDescription: 'ExpenseDemo detail description',
   match: ['expense.example.com'],
+  gateAliases: [],
   homepageUrl: 'https://expense.example.com/',
   tools: [
     { name: 'expense.example.com.navigate_to_budget_request', description: 'nav', parameters: {} },

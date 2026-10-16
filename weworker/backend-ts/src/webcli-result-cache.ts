@@ -173,6 +173,36 @@ export function readCacheResult(filePath: string): unknown {
   }
 }
 
+/**
+ * fast-path 回读：把 `large_output` 指针还原成落盘内容的 JSON 串。
+ *
+ * LLM 路径上指针就是终点——模型按需用 `webcli_result` 工具回读文件。但路由 fast-path 回合
+ * **零 LLM**，落库的只有渲染出的那段 md，指针便成了「查到了但没给数据」。调用方（渲染期）
+ * 用本函数把内容取回来自己渲染。
+ *
+ * 任一条不成立即返回 null，调用方退回指针文案（行为与不做回读完全一致）：
+ * 不是指针 / 路径越出缓存根 / 文件不存在或已过期 TTL / 内容读不出来。
+ */
+export function rehydratePointer(pointerText: string, rootDir?: string): string | null {
+  let record: any
+  try {
+    record = JSON.parse(pointerText)
+  } catch {
+    return null
+  }
+  if (!record || typeof record !== 'object' || record.type !== 'large_output') return null
+  const file = typeof record.file === 'string' ? record.file : ''
+  if (!file) return null
+  try {
+    assertInsideRoot(file, resolveRoot(rootDir))
+    if (!isCacheFresh(file)) return null
+    return JSON.stringify(readCacheResult(file))
+  } catch (e) {
+    log.warn(`rehydrate skipped: ${e instanceof Error ? e.message : String(e)}`)
+    return null
+  }
+}
+
 export interface PointerOptions {
   rootDir?: string
   ttlMs?: number

@@ -1,0 +1,217 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * shortcuts.json —— 第 11 层之二：守卫式短路（带门槛的精细正则）
+ *
+ * 【本层负责什么】
+ *   比 routes.json 更「聪明」的一层：用**正则**识别带参数的话术，并从消息里**抽参**后直连工具。
+ *   与 Tier -1（patterns.json）的分工：本层每条自带 `negative` 负向门槛，且**必须**过 adapter
+ *   关键词硬门——消息里得真的出现这个站点的名字，否则不认领。
+ *   例：「v2ex 节点 python」→ 抽出 name=python → 调 v2ex.com.node。
+ *
+ * 【文件结构与怎么写】
+ *   1. `shortcuts` 是条目容器；容器内按 adapter 分节（key = adapter id），条目 `tool` 必须属于该分节。
+ *      ⚠️ 分节必须嵌在 `shortcuts` 键里面——把分节提到顶层会让 `shortcuts` 字段缺席，
+ *      校验器认为「本层没配任何条目」而放行，整层静默失效且无任何报错；
+ *   2. `patterns.positive` 是正则数组（任一命中即可）；`patterns.negative` 是**否决**门槛
+ *      （命中即放弃本条，落回下层）；负向词是「防误判」的主要手段，宁多勿少；
+ *   3. `extract` 说明「从消息里抽哪个参数」：`regex` 必须**自带捕获组**，`arg` 必须是
+ *      该工具 schema 里真实存在的属性名（写错会被结构自检拦下）；
+ *   4. `priority` 同类命中时数值大者优先；
+ *   5. `examples` 必填：写一条**应当命中本条**的完整原文（含参数），会作为正例实跑，
+ *      并校验抽出来的参数与配置声明逐字一致。
+ *
+ * 【一条完整成功示例】
+ *   "shortcuts": {
+ *     "v2ex.com": [
+ *       { "id": "v2ex-node", "tool": "v2ex.com.node", "priority": 10,
+ *         "patterns": { "positive": ["\\bv2ex\\b[\\s\\S]{0,8}?(?:节点|node)\\s*[:：]?\\s*[A-Za-z0-9_-]{1,30}"],
+ *                       "negative": ["节点列表", "全部节点", "所有节点", "\\bnodes\\b"] },
+ *         "extract": [{ "from": "message",
+ *                       "regex": "(?:节点|node)\\s*[:：]?\\s*([A-Za-z0-9_-]{1,30})",
+ *                       "arg": "name", "type": "string" }],
+ *         "examples": ["v2ex 节点 python"] }
+ *     ]
+ *   }
+ *   → 输入「v2ex 节点 python」：过 adapter 词门 → 抽 name=python → 调 v2ex.com.node。
+ *   → 输入「v2ex 节点列表」（负向词命中）→ 本条放弃，交给下面的层。
+ *
+ * 【常见的写坏方式（都会被当场拦下 / 被负例集打红）】
+ *   ✗ 分节提到顶层 → 整层静默失效（见上）
+ *   ✗ positive 写得太松（如「v2ex 最新」不带后面的动作词）→ 把「v2ex 最新动态」也吃进来。
+ *     请让站点词与动作词**相邻**，并用 negative 挡住提问式用法。
+ *   ✗ 抽参正则忘了捕获组 → 抽不到参数，工具收到空值或默认值。
+ *   ✗ 抽参 `arg` 名与工具 schema 不一致 → 参数被工具静默丢弃（结构自检会拦）。
+ *   ✗ 同层 id 重复 / 缺 `examples` / 条目放错 adapter 分节 → 同 routes.json 的红线。
+ *
+ * 【本层不放什么】
+ *   ✗ 不带参数、只需关键词的简单直达 → 放 routes.json（本层正则更贵，别滥用）
+ *   ✗ 无 negative 门槛的宽泛正则 → 宁可落回 LLM，也不要在这里赌
+ *   ✗ 写操作工具 → 只读准入会丢弃
+ * ═══════════════════════════════════════════════════════════════════════════ */
+{
+  "shortcuts": {
+    "v2ex.com": [
+      {
+        "id": "v2ex-hot",
+        "tool": "v2ex.com.hot",
+        "priority": 20,
+        "patterns": {
+          "positive": ["v2ex\\s*(?:热门|热榜|最热|热帖|热门话题)"],
+          "negative": ["哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "args": { "limit": 20 },
+        "render": { "type": "schema", "schemaId": "v2ex-topic-list" },
+        "examples": ["v2ex 热门"]
+      },
+      {
+        "id": "v2ex-latest",
+        "tool": "v2ex.com.latest",
+        "priority": 20,
+        "patterns": {
+          // 必须「最新」紧贴站点词，故「v2ex 最新版本是哪一版」不会命中（见负例集）
+          "positive": ["v2ex\\s*(?:最新话题|最新帖子|最新主题|最新)"],
+          "negative": ["哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "args": { "limit": 20 },
+        "render": { "type": "schema", "schemaId": "v2ex-topic-list" },
+        "examples": ["v2ex 最新"]
+      },
+      {
+        "id": "v2ex-nodes",
+        "tool": "v2ex.com.nodes",
+        "priority": 30,
+        "patterns": {
+          "positive": ["v2ex\\s*(?:节点列表|全部节点|所有节点|nodes)"],
+          "negative": ["哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "args": { "limit": 50 },
+        "render": { "type": "schema", "schemaId": "v2ex-node-list" },
+        "examples": ["v2ex nodes"]
+      },
+      {
+        "id": "v2ex-topic",
+        "tool": "v2ex.com.topic",
+        "priority": 20,
+        "patterns": {
+          // 单主题必须有数字 id：裸「v2ex 主题列表」不算
+          "positive": [
+            "^\\s*v2ex\\s*[:#/]?\\s*\\d{1,9}\\s*$",
+            "\\bv2ex\\b[\\s\\S]{0,8}?(?:主题|帖子|话题|topic)\\s*[:#/]?\\s*\\d{1,9}"
+          ],
+          "negative": ["列表", "排行", "哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "extract": [
+          {
+            "from": "message",
+            "regex": "(?:^\\s*v2ex\\s*[:#/]?|(?:主题|帖子|话题|topic)\\s*[:#/]?)\\s*(\\d{1,9})",
+            "arg": "id",
+            "type": "integer",
+            "min": 1,
+            "max": 999999999
+          }
+        ],
+        "examples": ["v2ex 主题 12345", "v2ex 987"]
+      },
+      {
+        "id": "v2ex-member",
+        "tool": "v2ex.com.member",
+        "priority": 20,
+        "patterns": {
+          "positive": ["\\bv2ex\\b[\\s\\S]{0,8}?(?:用户|会员|member)\\s*[:：]?\\s*@?[A-Za-z0-9_-]{1,30}"],
+          // 「功能」是负向词：把「v2ex 用户功能有哪些」这类讨论态挡住
+          "negative": ["哪个|哪些|怎么|为什么|如何|是否|功能"]
+        },
+        "extract": [
+          {
+            "from": "message",
+            "regex": "(?:用户|会员|member)\\s*[:：]?\\s*@?([A-Za-z0-9_-]{1,30})",
+            "arg": "username",
+            "type": "string"
+          }
+        ],
+        "examples": ["v2ex 用户 livid"]
+      },
+      {
+        "id": "v2ex-node",
+        "tool": "v2ex.com.node",
+        "priority": 10,
+        "patterns": {
+          "positive": ["\\bv2ex\\b[\\s\\S]{0,8}?(?:节点|node)\\s*[:：]?\\s*[A-Za-z0-9_-]{1,30}"],
+          // 负向词把「nodes 列表」的三种写法都挡住，留给 v2ex-nodes
+          "negative": ["节点列表", "全部节点", "所有节点", "\\bnodes\\b", "哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "args": { "limit": 20 },
+        "extract": [
+          {
+            "from": "message",
+            "regex": "(?:节点|node)\\s*[:：]?\\s*([A-Za-z0-9_-]{1,30})",
+            "arg": "name",
+            "type": "string"
+          }
+        ],
+        "render": { "type": "schema", "schemaId": "v2ex-node-topics" },
+        "examples": ["v2ex 节点 python"]
+      }
+    ],
+
+    "github.com": [
+      {
+        "id": "github-trending",
+        "tool": "github.com.repos",
+        "priority": 10,
+        "patterns": {
+          // 站点词必须紧贴动作词：「github 上有什么热门仓库」不命中（见负例集）
+          "positive": [
+            "github\\s*trending",
+            "github\\s*(?:热榜|趋势榜|趋势|热门仓库|热门项目|热门|排行)"
+          ],
+          "negative": ["仓库信息", "这个仓库", "某仓库", "哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "args": { "since": "daily", "limit": 25 },
+        "examples": ["github trending", "github 热门仓库"]
+      }
+    ],
+
+    "arxiv.org": [
+      {
+        "id": "arxiv-search",
+        "tool": "arxiv.org.search",
+        "priority": 20,
+        "patterns": {
+          "positive": ["\\barxiv\\b[\\s\\S]{0,16}?(?:搜索|搜一下|搜|查找|检索|找|search)\\s*[:：]?\\s*\\S"],
+          // 「有什么」不在检索动词里，故「arxiv 上有什么关于 RAG 的论文」不命中
+          "negative": ["哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "args": { "limit": 20 },
+        "extract": [
+          {
+            "from": "message",
+            "regex": "arxiv[\\s\\S]{0,16}?(?:搜索|搜一下|搜|查找|检索|找|search)\\s*[:：]?\\s*(.+?)(?:\\s*(?:相关)?(?:论文|paper|文章))?$",
+            "flags": "i",
+            "arg": "query",
+            "type": "string"
+          }
+        ],
+        "render": { "type": "schema", "schemaId": "arxiv-papers" },
+        "examples": ["arxiv 搜索 transformer", "帮我在 arxiv 上搜索 RAG 相关论文"]
+      },
+      {
+        "id": "arxiv-paper",
+        "tool": "arxiv.org.paper",
+        "priority": 30,
+        "patterns": {
+          "positive": ["\\barxiv\\b[\\s\\S]{0,24}\\b\\d{4}\\.\\d{4,5}(?:v\\d+)?\\b"],
+          "negative": ["哪个|哪些|怎么|为什么|如何|是否"]
+        },
+        "extract": [
+          {
+            "from": "message",
+            "regex": "\\b(\\d{4}\\.\\d{4,5}(?:v\\d+)?)\\b",
+            "arg": "id",
+            "type": "string"
+          }
+        ],
+        "examples": ["arxiv 2401.12345"]
+      }
+    ]
+  }
+}

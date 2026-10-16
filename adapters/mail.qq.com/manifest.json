@@ -204,6 +204,10 @@
     },
     {
       "id": "download-attachment",
+      "route": {
+        "direct": false,
+        "reason": "写操作（下载附件），不得进路由面"
+      },
       "title": "下载附件",
       "summary": "帮我下载QQ邮箱本月所有发票",
       "prompts": [
@@ -214,6 +218,10 @@
     },
     {
       "id": "auto-download-invoice",
+      "route": {
+        "direct": false,
+        "reason": "写操作（批量下载发票），不得进路由面"
+      },
       "title": "自动下载发票",
       "summary": "帮我下载QQ邮箱本月所有发票",
       "prompts": [

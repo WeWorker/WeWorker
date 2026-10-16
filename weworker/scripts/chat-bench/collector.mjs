@@ -8,6 +8,8 @@
 // collector 只做"累积 + 摘要"，不调用任何后端接口。
 
 const SNIPPET_MAX = 500
+/** 单条回答最多留存多少字符（超出截断；`textLength` 始终是精确值）。 */
+const ANSWER_MAX = 20000
 
 function snippet(value) {
   if (value == null) return ''
@@ -39,6 +41,7 @@ export function createCollector(caseDef, startedAt = Date.now()) {
   const trace = []            // 每事件一行（轻量字段），用于 JSONL 明细
   let turnId = ''
   let textLength = 0
+  let answer = ''             // 回答原文（**用户实际看到的那段**），上限 ANSWER_MAX 字符
   let status = 'running'      // running → ok | error | timeout | aborted
   let error = null
   const steps = new Map()     // toolId -> step accumulator
@@ -56,11 +59,15 @@ export function createCollector(caseDef, startedAt = Date.now()) {
         record(event, { turnId: event.turnId, workId: event.workId })
         break
 
-      case 'text_delta':
-        // 文本可能很长，trace 只记长度，不内联 content（避免 JSONL 膨胀）。
-        textLength += (event.content || '').length
-        record(event, { len: (event.content || '').length })
+      case 'text_delta': {
+        // trace（JSONL）可能很长，只记长度避免膨胀；**回答原文**另存在结果里（cases.json + 报告）。
+        // 走快速路由的回合只发一次 text_delta（渲染好的 md），走 LLM 的回合按 token 增量发。
+        const chunk = event.content || ''
+        textLength += chunk.length
+        if (answer.length < ANSWER_MAX) answer += chunk.slice(0, ANSWER_MAX - answer.length)
+        record(event, { len: chunk.length })
         break
+      }
 
       case 'tool_call_start': {
         const id = event.id
@@ -113,9 +120,15 @@ export function createCollector(caseDef, startedAt = Date.now()) {
           llmMs: event.llmMs,
           execMs: event.execMs,
           steps: event.steps,
+          // 路由自描述字段：只有**走了快速路由**的回合才带（api-query-router/index.ts 的 emitRoutedAnswer）。
+          // 走 LLM 的回合由 agent 侧发 turn_end，这些字段为 undefined —— 所以「有没有 routeTool」
+          // 就是「有没有走路由」的唯一判据，不必去猜。
+          routeTool: event.routeTool ?? null,
+          routeSource: event.routeSource ?? null,
+          routeArgs: event.routeArgs ?? null,
         }
         if (status === 'running') status = 'ok'
-        record(event)
+        record(event, { routeTool: event.routeTool, routeSource: event.routeSource })
         break
 
       case 'error':
@@ -160,6 +173,17 @@ export function createCollector(caseDef, startedAt = Date.now()) {
       assertions.expectMaxMs = caseDef.expectMaxMs
       assertions.maxMsOk = timing.totalMs <= caseDef.expectMaxMs
     }
+    // 路由命中断言：唯一判据是 turn_end 有没有带 routeTool（见 ingest 的 turn_end 分支）。
+    const route = {
+      hit: !!timing?.routeTool,
+      tool: timing?.routeTool || null,
+      source: timing?.routeSource || null,
+      args: timing?.routeArgs || null,
+    }
+    if (typeof caseDef.expectRoute === 'boolean') {
+      assertions.expectRoute = caseDef.expectRoute
+      assertions.routeOk = route.hit === caseDef.expectRoute
+    }
 
     // 兜底：流正常结束但未收到 turn_end（理论上不应发生）。
     if (status === 'running') status = timing ? 'ok' : 'aborted'
@@ -178,9 +202,12 @@ export function createCollector(caseDef, startedAt = Date.now()) {
       endedAt,
       wallMs: endedAt - t0,
       timing,
+      route,
       usage,
       steps: stepList,
       stepCount: stepList.length,
+      answer,
+      answerTruncated: textLength > answer.length,
       textLength,
       assertions,
       error,

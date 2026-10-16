@@ -188,6 +188,10 @@
     },
     {
       "id": "view-order",
+      "route": {
+        "direct": false,
+        "reason": "消费金额依赖登录态页面数据，无直调只读命令可承接"
+      },
       "title": "查看订单",
       "summary": "帮我看看我这个月在京东消费了多少钱",
       "prompts": [
@@ -198,6 +202,10 @@
     },
     {
       "id": "buy-product",
+      "route": {
+        "direct": false,
+        "reason": "写操作（下单），不得进路由面"
+      },
       "title": "购买商品",
       "summary": "帮我在京东再买一个我之前买过的牙膏",
       "prompts": [
@@ -208,6 +216,10 @@
     },
     {
       "id": "pay-order",
+      "route": {
+        "direct": false,
+        "reason": "写操作（支付），不得进路由面"
+      },
       "title": "支付",
       "summary": "在京东中确认订单后完成支付流程",
       "prompts": [

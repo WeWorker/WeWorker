@@ -360,7 +360,17 @@ function SiteListRow({
           <SiteIcon site={site} size={22} />
         </div>
         <div className="cap-site-row-copy">
-          <h3>{site.name}</h3>
+          <div className="cap-site-row-title">
+            <h3>{site.name}</h3>
+            {site.routable ? (
+              <span
+                className="cap-site-row-badge"
+                title={`已配置 ${site.routeEntryCount} 条直达规则：这类请求不用逐工具试探，命中即直接调用`}
+              >
+                路由直达
+              </span>
+            ) : null}
+          </div>
           <p>{site.description}</p>
         </div>
       </div>
@@ -419,6 +429,13 @@ function SiteMiniTile({
       >
         <SiteIcon site={site} size={20} />
         <span>{site.name}</span>
+        {site.routable ? (
+          <span
+            className="cap-site-mini-badge"
+            aria-hidden="true"
+            title={`已配置 ${site.routeEntryCount} 条直达规则`}
+          />
+        ) : null}
       </article>
       {tooltip.node}
     </>
@@ -645,6 +662,19 @@ const CAPABILITY_CSS = `
   border: 0;
 }
 .cap-site-row-copy { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.cap-site-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cap-site-row-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.5;
+  white-space: nowrap;
+}
 .cap-site-row-copy h3 {
   margin: 0; font-size: 13px; font-weight: 800; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -686,6 +716,15 @@ const CAPABILITY_CSS = `
   width: 100%; min-width: 0;
   text-align: center; font-size: 10.5px; font-weight: 700; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 「路由直达」角标：网格视图放不下文字徽标，用一个小圆点保留同一信息。
+   选择器要比上面那条 cap-site-mini span 更具体，否则会被它的 width:100% 撑满整格。 */
+.cap-site-mini span.cap-site-mini-badge {
+  position: absolute; top: 5px; right: 5px;
+  width: 5px; height: 5px; min-width: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.85;
 }
 
 .cap-scenario-list {

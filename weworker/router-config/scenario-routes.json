@@ -1,0 +1,229 @@
+{
+  "version": 2,
+  "generatedAt": "2026-10-14T02:49:24.246Z",
+  "routes": [
+    {
+      "adapter": "bilibili.com",
+      "scenarioId": "search-video",
+      "optout": true,
+      "reason": "搜索视频需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件",
+      "enabled": true,
+      "slotNames": [
+        "开源项目介绍"
+      ],
+      "promptTemplates": [
+        "帮我在 B 站搜索${开源项目介绍}相关视频"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我在B站搜索(?<s0>.+?)相关视频$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "github.com",
+      "scenarioId": "search-repository",
+      "optout": true,
+      "reason": "仓库搜索需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件",
+      "enabled": true,
+      "slotNames": [
+        "playwright"
+      ],
+      "promptTemplates": [
+        "帮我在 GitHub 搜索${playwright}相关仓库"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我在GitHub搜索(?<s0>.+?)相关仓库$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "github.com",
+      "scenarioId": "repository-detail",
+      "optout": true,
+      "reason": "仓库详情需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件",
+      "enabled": true,
+      "slotNames": [
+        "microsoft/playwright"
+      ],
+      "promptTemplates": [
+        "帮我查看 GitHub 仓库${microsoft/playwright}的信息"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我查看GitHub仓库(?<s0>.+?)的信息$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "jd.com",
+      "scenarioId": "view-order",
+      "optout": true,
+      "reason": "消费金额依赖登录态页面数据，无直调只读命令可承接",
+      "enabled": true,
+      "slotNames": [
+        "这个月"
+      ],
+      "promptTemplates": [
+        "帮我看看我${这个月}在京东消费了多少钱"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我看看我(?<s0>.+?)在京东消费了多少钱$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "jd.com",
+      "scenarioId": "buy-product",
+      "optout": true,
+      "reason": "写操作（下单），不得进路由面",
+      "enabled": true,
+      "slotNames": [
+        "牙膏"
+      ],
+      "promptTemplates": [
+        "帮我在京东再买一个我之前买过的${牙膏}"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我在京东再买一个我之前买过的(?<s0>.+)$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "jd.com",
+      "scenarioId": "pay-order",
+      "optout": true,
+      "reason": "写操作（支付），不得进路由面",
+      "enabled": true,
+      "slotNames": [
+        "牙膏"
+      ],
+      "promptTemplates": [
+        "帮我在京东再买一个我之前买过的${牙膏}"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我在京东再买一个我之前买过的(?<s0>.+)$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "mail.163.com",
+      "scenarioId": "download-attachment",
+      "optout": true,
+      "reason": "写操作（下载附件），不得进路由面",
+      "enabled": true,
+      "slotNames": [
+        "这个月",
+        "发票"
+      ],
+      "promptTemplates": [
+        "打开163邮箱，下载我${这个月}收到的${发票}"
+      ],
+      "patterns": [
+        {
+          "regex": "^打开163邮箱，下载我(?<s0>.+?)收到的(?<s1>.+)$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "mail.google.com",
+      "scenarioId": "search",
+      "optout": true,
+      "reason": "邮件搜索需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件",
+      "enabled": true,
+      "slotNames": [
+        "发票"
+      ],
+      "promptTemplates": [
+        "搜索最近收到的${发票}邮件"
+      ],
+      "patterns": [
+        {
+          "regex": "^搜索最近收到的(?<s0>.+?)邮件$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "mail.qq.com",
+      "scenarioId": "download-attachment",
+      "optout": true,
+      "reason": "写操作（下载附件），不得进路由面",
+      "enabled": true,
+      "slotNames": [
+        "本",
+        "发票"
+      ],
+      "promptTemplates": [
+        "打开QQ邮箱，下载我${本}月收到的${发票}"
+      ],
+      "patterns": [
+        {
+          "regex": "^打开QQ邮箱，下载我(?<s0>.+?)月收到的(?<s1>.+)$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "mail.qq.com",
+      "scenarioId": "auto-download-invoice",
+      "optout": true,
+      "reason": "写操作（批量下载发票），不得进路由面",
+      "enabled": true,
+      "slotNames": [
+        "本",
+        "发票"
+      ],
+      "promptTemplates": [
+        "打开QQ邮箱，下载我${本}月收到的${发票}"
+      ],
+      "patterns": [
+        {
+          "regex": "^打开QQ邮箱，下载我(?<s0>.+?)月收到的(?<s1>.+)$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "xiaohongshu.com",
+      "scenarioId": "search",
+      "optout": true,
+      "reason": "笔记搜索需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件",
+      "enabled": true,
+      "slotNames": [
+        "好吃的蛋糕"
+      ],
+      "promptTemplates": [
+        "帮我在小红书搜索${好吃的蛋糕}推荐"
+      ],
+      "patterns": [
+        {
+          "regex": "^帮我在小红书搜索(?<s0>.+?)推荐$",
+          "flags": "i"
+        }
+      ],
+      "guardNegative": []
+    }
+  ]
+}

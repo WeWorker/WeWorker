@@ -879,6 +879,10 @@
     },
     {
       "id": "search",
+      "route": {
+        "direct": false,
+        "reason": "笔记搜索需在页面上下文执行，该命令未声明 execution(type:api,runtime:background)，不具备直调条件"
+      },
       "title": "搜索笔记",
       "summary": "按关键词搜索小红书笔记并整理结果",
       "prompts": [

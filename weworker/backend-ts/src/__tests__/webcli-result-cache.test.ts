@@ -12,6 +12,7 @@ import {
   isCacheFresh,
   sweepWorkCache,
   readCacheResult,
+  rehydratePointer,
   _resetWebcliResultCacheForTests,
   WEBCLI_RESULT_CACHE_TTL_MS,
 } from '../webcli-result-cache.js'
@@ -111,5 +112,41 @@ describe('webcli-result-cache', () => {
     fs.writeFileSync(plain, 'not json at all', 'utf8')
     const obj2 = readCacheResult(plain) as any
     expect(obj2._rawText).toContain('not json')
+  })
+
+  describe('rehydratePointer（fast-path 回读）', () => {
+    it('新鲜指针 → 还原成落盘内容（含条目数据）', () => {
+      const output = largeJson()
+      const pointerStr = offloadIfLarge('t.tool', output, 'work-r1', { rootDir: TMP })!
+      const restored = rehydratePointer(pointerStr, TMP)
+      expect(restored).not.toBeNull()
+      expect(JSON.parse(restored!)).toEqual(JSON.parse(output))
+    })
+
+    it('非指针文本 / 非 JSON → null（调用方退回指针文案）', () => {
+      expect(rehydratePointer('{"ok":true}', TMP)).toBeNull()
+      expect(rehydratePointer('not json', TMP)).toBeNull()
+      expect(rehydratePointer(JSON.stringify({ type: 'large_output' }), TMP)).toBeNull() // 无 file
+    })
+
+    it('指针里的文件越出缓存根 → null（防穿越）', () => {
+      const outside = path.join(TMP, '..', `weworker-outside-${process.pid}.json`)
+      fs.writeFileSync(outside, '{"secret":1}', 'utf8')
+      try {
+        const pointer = JSON.stringify({ type: 'large_output', file: outside })
+        expect(rehydratePointer(pointer, TMP)).toBeNull()
+      } finally {
+        fs.rmSync(outside, { force: true })
+      }
+    })
+
+    it('文件已过期或不存在 → null', () => {
+      const { filePath } = saveLargeResult('t.tool', largeJson(), 'work-r2', { rootDir: TMP })
+      ageFile(filePath, WEBCLI_RESULT_CACHE_TTL_MS + 5000)
+      expect(rehydratePointer(JSON.stringify({ type: 'large_output', file: filePath }), TMP)).toBeNull()
+
+      const gone = path.join(TMP, 'tool-results', 'work-r3', 'gone.json')
+      expect(rehydratePointer(JSON.stringify({ type: 'large_output', file: gone }), TMP)).toBeNull()
+    })
   })
 })

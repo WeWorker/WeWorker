@@ -93,6 +93,7 @@ function arbitraryParsedAdapter(): fc.Arbitrary<ParsedAdapter> {
       name: r.name,
       description: r.description,
       match: r.domains,
+      gateAliases: [],
       homepageUrl: r.homepageUrl,
       tools: r.tools,
       testPrompts: r.testPrompts,

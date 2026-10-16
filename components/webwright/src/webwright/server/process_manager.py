@@ -256,6 +256,11 @@ class ProcessManager:
                 process_options["start_new_session"] = True
             process = subprocess.Popen(
                 command,
+                # 不继承父进程 stdin：服务器自身的 stdin 是启动方（Electron/node）给的管道，
+                # 该句柄在子解释器启动引导阶段被 stat 时会挂在内核态（受控实验：同一条命令行、
+                # 同一个父进程，只把 stdin 换成 DEVNULL 即 6/6 健康，原样 6/6 冻结）。
+                # worker 全都不读自己的 stdin，故安全。
+                stdin=subprocess.DEVNULL,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 cwd=str(Path(cwd).expanduser().resolve()) if cwd is not None else None,
