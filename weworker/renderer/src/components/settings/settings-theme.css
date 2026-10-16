@@ -930,15 +930,225 @@
   border: 1px dashed currentColor;
 }
 
-.settings-custom-styles .settings-card-header {
+/* 自定义风格卡片：外层容器承担卡片外观与选中态，内层仍是原来的选择按钮，
+   卡片内「编辑」入口绝对定位到右上角：脱离文档流、不参与高度计算，
+   因此自定义卡片高度与内置卡片完全一致。relative 只用于给它当定位父级。 */
+.settings-style-option-wrap {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-primary, #fff);
+  overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.settings-custom-style-editor {
-  margin-top: 12px;
+.settings-style-option-wrap:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+}
+
+.settings-style-option-wrap.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, #fff);
+}
+
+.settings-style-option-wrap > .settings-style-option {
+  flex: 1;
+  /* 外层容器自带 1px 边框（内置卡片边框画在按钮自身上），这里扣掉 2px，
+     保证自定义卡片总高度与内置卡片严格一致（均为 72px）。 */
+  min-height: calc(72px - 2px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-style-option-wrap > .settings-style-option:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+.settings-style-option-wrap > .settings-style-option.is-selected {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 卡片被外层容器裁切，聚焦用背景表达，避免 outline 被裁掉。 */
+.settings-style-option-wrap > .settings-style-option:focus-visible {
+  outline: none;
+  background: var(--accent-soft, rgba(51, 156, 255, 0.1));
+}
+
+/* 「编辑」入口容器：绝对定位到卡片右上角，脱离文档流 —— 卡片高度只由内层选择按钮决定，
+   与内置卡片一致。纵向压在标题行上沿、横向越过 radio 列占右侧留白，
+   底边停在 radio 顶边之上（不遮 radio），描述行在标题行下方（不遮描述）。 */
+.settings-style-option-actions {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 标题行让出右上角按钮的位置：宽卡片 40px；空间不够时先收窄到刚好放下徽标
+   （100% - 50px = 徽标 + 间距），但绝不低于 26px —— 实测按钮左缘到标题列右缘
+   是 21px（8px 右偏移 + 57px 按钮宽 - 44px 右侧 padding/radio/gap），26px 留出
+   5px 余量，所以标题/徽标在任何卡片宽度下都不会画到按钮下面。
+   这里用 margin 而不是 padding：标题行的盒子右缘因此落在安全线左侧，
+   配合 overflow:hidden，即使徽标已无法继续收缩（border-box 不会小于自身
+   padding+border）也只是被容器裁掉，不会跑到按钮底下。
+   标题文字（.settings-style-option__title-text）优先收缩并省略号截断，
+   徽标只在标题缩到 0 后才跟着收缩；标题固定单行，不会换行把卡片撑高。 */
+.settings-style-option-wrap .settings-style-option__title {
+  margin-right: clamp(26px, 100% - 50px, 40px);
+  overflow: hidden;
+}
+
+.settings-style-option-wrap .settings-style-option__title-text {
+  min-width: 0;
+  flex-shrink: 100;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 徽标：只在标题已经缩到 0 时才跟着收缩（flex-shrink:1 + min-width:0），
+   且固定单行 —— 否则被压缩时会自己折行，把标题行和整张卡片撑高。 */
+.settings-style-option-wrap .settings-style-option__badge {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.settings-style-option-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-primary, #fff);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.settings-style-option-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 色板图标（BgColorsOutlined）：跟随按钮文字颜色，尺寸与卡片内既有图标协调。 */
+.settings-style-option-edit .anticon {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+/* 聚焦用边框/背景表达，不加外圈阴影。 */
+.settings-style-option-edit:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft, rgba(51, 156, 255, 0.1));
+}
+
+/* 窄屏（≤480px 窗口）：编辑入口收紧（更贴右上角、更窄），按钮左缘到标题列右缘
+   降到 14px，安全距离放到 20px；按钮仍不溢出卡片、不压住标题与徽标。 */
+@media (max-width: 480px) {
+  .settings-style-option-actions {
+    top: 3px;
+    right: 6px;
+  }
+
+  .settings-style-option-edit {
+    gap: 3px;
+    padding: 0 6px;
+  }
+
+  .settings-style-option-wrap .settings-style-option__title {
+    margin-right: clamp(20px, 100% - 50px, 40px);
+  }
+}
+
+/* 自定义风格编辑弹窗：portal 到 body，这里重新声明设置页的浅色变量，
+   保证弹窗配色与设置页一致（不跟随 html.dark）。 */
+.settings-style-dialog-overlay {
+  --bg-primary: #ffffff;
+  --bg-secondary: #ffffff;
+  --border: #e8e8e8;
+  --border-strong: #e0e0e0;
+  --text-primary: #333333;
+  --text-secondary: #555555;
+  --text-muted: #888888;
+  --accent: #339cff;
+  --accent-hover: #66b3ff;
+  --accent-soft: rgba(51, 156, 255, 0.1);
+  --success: #16a34a;
+  --error: #dc2626;
+}
+
+/* 提高一级特异性，确保覆盖 index.css 里 .weworker-dialog 的宽度（CSS 打包顺序不保证）。 */
+.weworker-dialog.settings-style-dialog {
+  width: min(460px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+
+.settings-style-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.settings-style-dialog__field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* 覆盖 .settings-input 的固定高度（textarea 需要自适应高度）。 */
+.settings-style-dialog .settings-style-dialog__prompt {
+  height: auto;
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.settings-style-dialog__hint {
+  display: block;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* 弹窗底部左「删除」：次要层级（弱于右侧 primary 的「保存」），只在编辑已存在风格时渲染。 */
+.settings-style-dialog .settings-style-dialog__delete {
+  margin-right: auto;
+  color: var(--error);
+}
+
+.settings-style-dialog .settings-style-dialog__delete:hover:not(:disabled),
+.settings-style-dialog .settings-style-dialog__delete:focus-visible {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.settings-style-dialog .settings-style-dialog__delete:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+@media (max-width: 480px) {
+  .weworker-dialog.settings-style-dialog {
+    width: calc(100vw - 24px);
+    padding: 14px;
+  }
 }
 
 .settings-actions {
