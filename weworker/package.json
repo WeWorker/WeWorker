@@ -13,7 +13,6 @@
     "dev:renderer": "cd renderer && npm run dev",
     "dev:electron": "wait-on --timeout 30000 tcp:localhost:5173 && cross-env NODE_ENV=development electron .",
     "build:renderer": "cd renderer && npm run build",
-    "build:backend": "cd backend && pyinstaller build.spec --distpath ../build/backend-dist --workpath ../build/backend-work --noconfirm",
     "build:backend-ts": "node scripts/bundle-backend-ts.cjs",
     "gen:routes": "node scripts/gen-routes.mjs",
     "gen:routes:check": "node scripts/gen-routes.mjs --check",

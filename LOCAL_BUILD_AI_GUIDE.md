@@ -11,12 +11,14 @@
 - 不要尝试在 Windows 上生成正式可用的 macOS DMG。
 - 本地构建只生成安装包，不会自动创建 GitHub Release 或上传产物。
 
-构建入口位于 `weworker/package.json`：
+桌面应用统一使用 `weworker/package.json` 中的 npm 构建入口，在 `weworker` 目录执行：
 
 ```text
 Windows: npm run build:win
 macOS:   npm run build:mac
 ```
+
+原 `scripts/build-win.bat`、`scripts/build-mac.sh` 和 Python 后端 `build:backend` 命令已移除，不应重新使用或恢复其中的旧打包步骤。上述完整构建均会重新编译 `backend-ts`，任一步骤失败即停止，避免继续封装旧后端；`electron-builder` 本身不负责重新编译源码。
 
 构建产物输出到：
 

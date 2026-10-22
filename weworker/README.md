@@ -100,6 +100,10 @@ Electron 主进程会自动从 `components/webwright` 源码启动 Webwright，�
 
 ## 构建桌面应用
 
+桌面应用统一通过本目录的 `package.json` 中的 npm 命令打包，按当前操作系统选择下面的入口。请先安装上述各模块的依赖，并切回 `weworker` 目录执行。
+
+原 `scripts/build-win.bat`、`scripts/build-mac.sh` 和 Python 后端 `build:backend` 命令已移除。完整构建会重新编译 TypeScript 后端（包括 `backend-ts/src/agent.ts` 中的系统提示词），任一步骤失败即停止；修改源码后请运行完整构建，直接调用 `electron-builder` 只会封装已有产物。
+
 ### macOS
 
 ```bash
