@@ -2,7 +2,7 @@ import { browserHelp } from './browser-commands.js';
 import { explorationHelp } from './exploration-commands.js';
 import { profileHelp } from './browser-profiles.js';
 
-const top = ['help', 'list', 'call', 'adapter', 'adapterhub', 'service', 'trace', 'install', 'extension-path', 'stats', 'mcp', 'mcp-logs', 'completion', 'skills', 'browser', 'exploration', 'profile'];
+const top = ['help', 'list', 'call', 'route', 'adapter', 'adapterhub', 'service', 'trace', 'install', 'extension-path', 'stats', 'mcp', 'mcp-logs', 'completion', 'skills', 'browser', 'exploration', 'profile'];
 const portable = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(value);
 const ordered = values => [...new Set(values.filter(portable))].sort();
 

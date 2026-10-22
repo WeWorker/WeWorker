@@ -9,6 +9,11 @@
   },
   "files": [
     "index.js",
+    "route-command.js",
+    "auto-route-catalog.js",
+    "auto-route-decision-tree.js",
+    "auto-route-d3-client.js",
+    "decision-service-config.js",
     "exploration-commands.js",
     "exploration-client.js",
     "exploration-evidence.js",

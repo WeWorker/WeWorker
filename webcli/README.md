@@ -45,6 +45,15 @@ webcli adapter info <adapter-id>
 
 ## 工作原理
 
+### 自然语言选择命令
+
+```text
+webcli route --help
+webcli route github.com "List repository issues" --json
+```
+
+`route` 从当前生效的托管 Adapter 目录推荐规范命令，不执行命令。调用进程通过 `WEBCLI_D3_URL` 配置决策服务，未配置时不会使用固定地址。完整流程、结果与配置见 [自然语言路由说明](../docs/webcli-route.md)。
+
 ```
 CLI / 桌面端                WebCLI Bridge              Chrome 扩展
     │                      ws://localhost:3711              │

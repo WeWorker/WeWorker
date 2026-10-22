@@ -160,6 +160,9 @@ Skills:
 Extension:
   extension-path                 输出扩展目录路径
 
+Routing:
+  route [<adapter>] <request>    用自然语言推荐命令（不执行）
+
 Tracing:
   trace <traceID>                按 traceID 查询服务日志
 
@@ -206,6 +209,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "auth", usage: "webcli auth <status|check|save|forget|autologin>", description: "网站登录状态与自动登录" },
         { name: "stats", usage: "webcli stats", description: "调用频次统计" },
         { name: "install --skills", usage: "webcli install --skills [adapter-id]", description: "安装 adapter skills" },
+        { name: "route", usage: "webcli route [<adapter>] <request>", description: "用自然语言推荐命令（不执行）" },
         { name: "trace <id>", usage: "webcli trace <traceID>", description: "按 traceID 查日志" },
         { name: "extension-path", usage: "webcli extension-path", description: "输出扩展目录路径" },
       ],
@@ -993,7 +997,7 @@ function readRecentLogFile(filePath, maxBytes) {
 
 const BUILTIN_COMMANDS = new Set([
   "--version", "-v", "--help", "-h", "-help", "--service",
-  "extension-path", "adapter", "service", "call", "trace", "install",
+  "extension-path", "adapter", "service", "call", "route", "trace", "install",
   "list", "skills", "completion", "mcp", "mcp-logs", "browser", "login", "auth",
 ]);
 // 渐进式 help 不拦截的顶层命令（其 <sub> help 属于自身命令域）
@@ -1246,6 +1250,12 @@ async function runProgressiveHelp(args, outputFormat) {
 }
 
 async function main() {
+  // Route has its own natural-language argument parser, including a literal --.
+  if (process.argv[2] === 'route') {
+    const { runRouteCommand } = await import('./route-command.js');
+    await runRouteCommand(process.argv.slice(3));
+    return;
+  }
   if (['completion', '--get-completions'].includes(process.argv[2])) {
     const { runCompletion } = await import('./completion.js');
     process.stdout.write(await runCompletion(process.argv.slice(2)));
@@ -1254,6 +1264,11 @@ async function main() {
   const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(process.argv.slice(2));
   const cmd  = args[0];
   const sub  = args[1];
+  if (cmd === 'route') {
+    const { runRouteCommand } = await import('./route-command.js');
+    await runRouteCommand(args.slice(1), { verbose, outputFormat });
+    return;
+  }
   if (cmd === 'skills') {
     const { runSkillsCli } = await import('./skills-cli.js');
     runSkillsCli(args.slice(1), { outputFormat }); return;
