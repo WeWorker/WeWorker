@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules() })
+afterEach(() => { vi.doUnmock('../provider-config.js'); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules() })
 
 it('keeps deployment keys out of settings during activation, unrelated saves and reload', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-fixture-'))
@@ -42,6 +42,15 @@ it('encrypts the user coding key and restores it across reload and provider swit
   vi.stubEnv('WEWORKER_BANK_CODING_API_KEY', 'fixture-ignored-reference-key')
   vi.stubEnv('WEWORKER_BANK_CODING_BASE_URL', 'https://example.com/public')
   vi.resetModules()
+  vi.doMock('../provider-config.js', async importOriginal => {
+    const actual = await importOriginal<typeof import('../provider-config.js')>()
+    const template = actual.configuredProvider('anthropic')!
+    const providers = [...actual.CONFIGURED_PROVIDERS, { ...template, id: 'bank_coding', name: 'Fixture coding provider',
+      authType: 'auth_token' as const, allowMultiple: false, baseUrlEnv: 'WEWORKER_BANK_CODING_BASE_URL',
+      weworker: { ...template.weworker, baseUrl: 'https://example.com/public' } }]
+    return { ...actual, CONFIGURED_PROVIDERS: providers,
+      configuredProvider: (id: string | undefined) => providers.find(provider => provider.id === id) }
+  })
   const { setMasterKeyForTests } = await import('../secret-store.js')
   setMasterKeyForTests('0123456789abcdef0123456789abcdef')
   try {
@@ -59,5 +68,6 @@ it('encrypts the user coding key and restores it across reload and provider swit
     expect(saved).not.toContain('fixture-user-key')
     expect(saved).not.toContain('fixture-ignored-reference-key')
     expect(JSON.parse(saved).api_key_bank_coding).toBe('')
+    expect(JSON.parse(saved)._encrypted.fields.api_key_bank_coding).toBeTruthy()
   } finally { setMasterKeyForTests(null) }
 })

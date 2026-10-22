@@ -232,7 +232,7 @@ describe('System Prompt - behavioral rules retained (Req 4.3)', () => {
 
     expect(prompt).toContain('type=api, runtime=background')
     expect(prompt).toContain('mode=direct')
-    expect(prompt).toContain('不要预先打开网站或检测登录')
+    expect(prompt).toContain('无需先打开业务页或检测页面登录')
   })
 
   it('retains ask_user rules and forbids AskUserQuestion', async () => {
