@@ -90,7 +90,8 @@ test('electron packaging derives its publish URL from deployment.json', (t) => {
   t.after(() => fs.rmSync(path.dirname(outputPath), { recursive: true, force: true }))
   const configPath = createElectronBuilderConfig({ outputPath })
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  assert.deepEqual(config.publish, [{ provider: 'generic', url: 'https://111.230.33.112/downloads/' }])
+  const deployment = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8'))
+  assert.deepEqual(config.publish, [{ provider: 'generic', url: deployment.downloadUrl }])
 })
 
 test('macOS packages use a complete ad-hoc signature for internal distribution', () => {

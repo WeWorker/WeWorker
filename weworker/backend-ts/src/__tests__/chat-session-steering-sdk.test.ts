@@ -57,9 +57,8 @@ it('delivers steering at the next tool boundary without interrupting the running
   })] })
   let session: ChatSession | undefined
   try {
-    const cliRoot = path.resolve(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-code')
-    const cli = [path.join(cliRoot, 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'), path.join(cliRoot, 'cli.js')].find(file => fs.existsSync(file))
-    expect(cli).toBeDefined()
+    const cli = path.resolve(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe')
+    expect(fs.existsSync(cli)).toBe(true)
     const queue = new PromptQueue()
     const handle = query({ prompt: queue, options: {
       pathToClaudeCodeExecutable: cli,

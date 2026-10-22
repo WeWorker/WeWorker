@@ -6,6 +6,9 @@ const adapterMap = new Map<string, ParsedAdapter>()
 const enabledSites = new Set<string>()
 const blacklistEntries: UserDirectoryBlacklistEntry[] = []
 
+vi.mock('@napi-rs/keyring', () => { throw new Error('prompt tests must not load native keyring') })
+vi.mock('../tools.js', () => ({ buildMcpServer: () => ({}), getMcpToolDefinitionSummary: () => '' }))
+
 vi.mock('../adapter-parser.js', () => ({
   parseAllAdapters: () => adapterMap,
 }))
