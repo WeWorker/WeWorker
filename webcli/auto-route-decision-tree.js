@@ -25,13 +25,19 @@ export async function routeRequest(request, { adapters, knownSite, url, predict 
   let siteConfidence = 1;
   if (knownSite && !adapter) throw new Error('Adapter unavailable: ' + knownSite);
   if (!adapter) {
-    const pool = {};
-    const groups = buildSiteGroups(adapters.map(a => a.id));
-    for (const [i, group] of groups.entries()) {
-      Object.assign(pool, await choose(`q_g${i + 1}r0`, Object.fromEntries(group.map(id =>
-        [id, adapters.find(a => a.id === id).description || id])), '需求应由哪个站点处理'));
-    }
-    const shortlist = ranked(pool).slice(0, 3).map(([id]) => id);
+    let shortlist = adapters.map(a => a.id);
+    let round = 0;
+    do {
+      const groups = buildSiteGroups(shortlist);
+      const candidates = [];
+      for (const [i, group] of groups.entries()) {
+        const scores = await choose(`q_g${i + 1}r${round}`, Object.fromEntries(group.map(id =>
+          [id, adapters.find(a => a.id === id).description || id])), '需求应由哪个站点处理');
+        candidates.push(...ranked(scores).slice(0, 3).map(([id]) => id));
+      }
+      shortlist = candidates;
+      round++;
+    } while (shortlist.length > 9);
     const final = await choose('q_f0', Object.fromEntries(shortlist.map(id =>
       [id, adapters.find(a => a.id === id).description || id])), '从候选站点中选择负责该需求的');
     const [id, confidence] = ranked(final)[0];

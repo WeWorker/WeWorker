@@ -96,6 +96,25 @@ describe('routing decisions', () => {
     expect(predict.mock.calls.map(c => Object.keys(c[1])[0])).toEqual(['q_g1r0', 'q_f0', 'q_c0']);
     expect(predict.mock.calls.every(c => c[0] === '用户需求: search')).toBe(true);
   });
+  it('keeps a candidate from every site group until the groups can be compared', async () => {
+    const adapters = Array.from({ length: 36 }, (_, i) => {
+      const id = `site${String(i).padStart(2, '0')}.example.com`;
+      return { id, description: id, commands: [{ id: 'search', name: `${id}.search`, description: 'Search' }] };
+    });
+    const correctSite = adapters[0].id;
+    const predict = vi.fn(async (_state, questions) => {
+      const [id, question] = Object.entries(questions)[0];
+      const keys = Object.keys(question.criteria);
+      expect(keys.length).toBeLessThanOrEqual(9);
+      const selected = id === 'q_f0' ? correctSite : keys.includes(correctSite) ? correctSite : keys[0];
+      const confidence = id === 'q_g1r0' ? 0.6 : 0.95;
+      return { answers: { [id]: { type: 'choice', choice: selected, probabilities: Object.fromEntries(keys.map(key =>
+        [key, key === selected ? confidence : (1 - confidence) / (keys.length - 1)])) } } };
+    });
+    const result = await routeRequest('search', { adapters, predict });
+    expect(result.callCommand).toBe(`webcli call ${correctSite}.search`);
+    expect(predict.mock.calls.find(([, questions]) => 'q_f0' in questions)[1].q_f0.criteria).toHaveProperty(correctSite);
+  });
   it('skips site decisions for an exact Adapter ID', async () => {
     install(); const predict = vi.fn(async (_s, q) => prediction(q));
     await routeRequest('search', { adapters: buildRouteCatalog(), knownSite: 'example.com', predict });
@@ -141,6 +160,14 @@ describe('decision transport', () => {
   });
   it.each([{ a: 1 }, { a: 1.1, b: 0 }, { a: 0.9, b: 0.1, invented: 0 }])('rejects malformed probabilities %j', async probabilities => {
     await service(() => ({ answers: { q: { type: 'choice', choice: 'a', probabilities } } }));
+    await expect(d3Predict('request', { q: { criteria: { a: 'A', b: 'B' } } })).rejects.toThrow('响应无效');
+  });
+  it.each([
+    { choice: 'b', probabilities: { a: 0.95, b: 0.95 } },
+    { choice: 'b', probabilities: { a: 0.9, b: 0.1 } },
+    { choice: 'a', probabilities: { a: 0.6, b: 0.3 } },
+  ])('rejects unnormalized or inconsistent choice responses %j', async answer => {
+    await service(() => ({ answers: { q: { type: 'choice', ...answer } } }));
     await expect(d3Predict('request', { q: { criteria: { a: 'A', b: 'B' } } })).rejects.toThrow('响应无效');
   });
   it('blocks redirects and sanitizes invalid JSON errors', async () => {

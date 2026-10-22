@@ -28,10 +28,13 @@ export async function d3Predict(state, questions, opts = {}) {
       catch { throw new Error('d3-flash response is not valid JSON.'); }
       const answer = json?.answers?.[id];
       const probabilities = answer?.probabilities;
+      const values = entries.map(([option]) => probabilities?.[option]);
       if (answer?.type !== 'choice' || !probabilities ||
           !Object.hasOwn(question.criteria, answer.choice) ||
-          entries.some(([option]) => !Number.isFinite(probabilities[option]) || probabilities[option] < 0 || probabilities[option] > 1) ||
-          Object.keys(probabilities).some(option => !Object.hasOwn(question.criteria, option))) {
+          values.some(value => !Number.isFinite(value) || value < 0 || value > 1) ||
+          Object.keys(probabilities).some(option => !Object.hasOwn(question.criteria, option)) ||
+          Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) > 0.01 ||
+          probabilities[answer.choice] < Math.max(...values) - 1e-6) {
         throw new Error('d3-flash choice 响应无效');
       }
       answers[id] = answer;

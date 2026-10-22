@@ -22,14 +22,14 @@ webcli route github.com "List repository issues"
 
 CLI 不读取桌面端模型配置。部署启动器可以从其独立配置读取环境默认值并注入子进程；已经存在的进程环境变量优先。实际部署地址应保存在部署配置中。
 
-客户端向 `<WEBCLI_D3_URL>/v1/systemone` 逐题发送 POST，使用 `model: "vllm-sr/d3-flash"`、`state` 和 `questions`。每个问题包含 `type: "choice"`、`instructions` 和以真实候选 ID 为键的 `criteria`；应答需提供对应的 `answers[id]`，包含 `type: "choice"`、合法 `choice` 和覆盖所有候选的 `[0, 1]` 概率。拒绝重定向，单题超时为 30 秒，不附带认证凭据。
+客户端向 `<WEBCLI_D3_URL>/v1/systemone` 逐题发送 POST，使用 `model: "vllm-sr/d3-flash"`、`state` 和 `questions`。每个问题包含 `type: "choice"`、`instructions` 和以真实候选 ID 为键的 `criteria`；应答需提供对应的 `answers[id]`，包含 `type: "choice"`、合法 `choice` 和覆盖所有候选的 `[0, 1]` 概率。概率总和应接近 1，`choice` 应对应最高概率候选；不满足时拒绝路由。拒绝重定向，单题超时为 30 秒，不附带认证凭据。
 
 需求原文与候选名称、说明会发送给配置的决策服务。参数 Schema、用户数据、模型 Key 和浏览器凭据不在请求中。只有一个候选的问题直接确定，不请求服务。
 
 ## 选择流程与结果
 
 1. 从宿主当前生效的托管 Adapter 目录提取规范命令，按完整 Adapter ID 分组。不扫描旧目录，不将别名或旧版本作为新候选；停用或损坏的包不可参与选择。
-2. 每组最多九个站点，粗筛后取前三名进入终选。终选概率达到 0.85 才进入命令层。
+2. 每组最多九个站点，各组分别取前三名；候选仍超过九个时继续分组筛选，不直接比较不同组的概率。最终将不超过九个候选放在同一题终选，概率达到 0.85 才进入命令层。
 3. 对目标 Adapter 的规范命令进行选择，概率达到 0.85 时返回 `kind: "routed"`、`callCommand`、`helpCommand` 和置信度。普通文本输出同时展示当前命令的参数与安全提示。
 4. 概率不足返回 `kind: "low-confidence"`、停止层级和最多三个候选，不给出唯一推荐。
 
