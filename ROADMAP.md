@@ -1,5 +1,9 @@
 # WeWorker Roadmap
 
+- 2026-10-22（第 11 项 BFCache 修复）：托管页面只读命令遇到明确 BFCache 通道断连时等待原页面恢复，重新校验包快照并注入，在原截止时间内最多恢复两次；写操作、需要确认的命令和普通错误不重放。221 项自动化通过，构建/语法/差异及生成扩展一致性通过；真实 51job 请求中进入 BFCache 连续两次自动恢复返回结果，热门/豆瓣详情/携程单程回归通过。修复与验收记录整理提交至 develop；未构建发布安装包，详见验收文档。
+
+- 2026-10-22（develop 第 10–12 项实机复验）：基于 origin/develop `79a913a` 启动完整桌面开发实例，使用同份生成扩展与内置包。豆瓣搜索→详情/图片、携程单程/往返/再次单程及城市/酒店查询通过。51job 普通查询和真实 BFCache 恢复后的查询通过，但请求进行中进入 BFCache 时复现消息通道关闭，**第 11 项仍存在**；未新增业务修复或构建安装包。详见 `docs/adapter-a01-a02-a05-a07-verification.md`。
+
 - 2026-10-21（A03/A04/A06/A08 修复）：WebCLI 打包注入自身版本，统一远程统计帮助与配置提示，`adapter install --file` 支持 v2 `.adapt` 并复用统一安装门禁，knowledge 帮助明确旧式包边界与 skill 迁移。GitHub 1.0.1 详情采用只读宿主导航续执行，修复列表/详情往返、绝对链接选择、空结果成功与 max_comments=0；404、登录、未就绪明确失败。相关 WebCLI 222 项及脚本/扩展 17 项通过，public 33 包与 WebCLI 构建、配置/语法/差异检查通过；正式 bundle/Windows 包装器版本、隔离归档安装及真实 Chrome 列表到详情读取通过。真实页面验证为 CDP handler + 宿主运行时，未覆盖完整桌面 Extension/Bridge 链路、截图原 trace、完整安装包或 macOS；保留既有列映射资产缺失提示。详见 `docs/webcli-a03-a04-a06-a08-fixes.md`。通过修复分支提交 PR 至 develop；未合并或发布。
 
 - 2026-10-21（A01/A02/A05/A07 迁入 develop）：基于远端 `3b0780d` 迁入携程 32 MiB 响应捕获/错误分类/IATA 提示、Wikipedia 官方 Action API 随机导语及相关回归与验收记录；保留 develop 已有 B 站导航、豆瓣搜索修复和安全验证指引，不合入 dev-1.1.0 其他功能。WebCLI 179 项、Wikipedia 专项 23 项、扩展/构建 profile 54 项共 256 项测试通过；WebCLI/public 33 包构建、配置与产物逐字节一致性校验通过。既有 api-adapter-packaging 测试仍失败于未改动的旧源码断言，详见验收文档；本分支未重跑完整桌面实机或安装包。
