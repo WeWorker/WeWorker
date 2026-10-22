@@ -2,18 +2,22 @@ import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import updater from 'electron-updater'
+import deploymentRaw from '../deployment.json' with { type: 'json' }
+import deploymentConfigModule from '../deployment-config.cjs'
+
+const DEPLOYMENT = deploymentConfigModule.normalizeDeploymentConfig(deploymentRaw)
 
 const SUPPORTED_PLATFORMS = new Set(['win32', 'darwin'])
 const UPDATE_SOURCES = [
   {
     id: 'official',
     label: '官网',
-    url: 'http://weworker.example.com/downloads/',
+    url: DEPLOYMENT.downloadUrl,
   },
   {
     id: 'github',
     label: 'GitHub latest',
-    url: 'https://github.com/WeWorker/WeWorker/releases/download/latest/',
+    url: DEPLOYMENT.githubUrl,
   },
 ]
 const DEFAULT_UPDATE_SETTINGS = {

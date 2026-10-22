@@ -47,7 +47,9 @@
     "afterPack": "scripts/after-pack.cjs",
     "files": [
       "electron/**",
-      "renderer/dist/**"
+      "renderer/dist/**",
+      "deployment.json",
+      "deployment-config.cjs"
     ],
     "extraResources": [
       {
@@ -172,7 +174,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://example.com/downloads/"
+        "url": "https://111.230.33.112/downloads/"
       }
     ]
   }

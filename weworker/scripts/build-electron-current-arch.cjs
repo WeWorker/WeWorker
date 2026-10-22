@@ -1,5 +1,9 @@
 const { spawnSync } = require('child_process')
+const fs = require('fs')
 const path = require('path')
+
+const WEWORKER_ROOT = path.resolve(__dirname, '..')
+const { normalizeDeploymentConfig } = require('../deployment-config.cjs')
 
 function buildElectronArgs(target, platform = process.platform, arch = process.arch) {
   if (target === '--mac') {
@@ -21,16 +25,35 @@ function buildElectronCommand(
   arch = process.arch,
   nodeExecutable = process.execPath,
   cliPath = require.resolve('electron-builder/cli.js'),
+  configPath,
 ) {
+  const args = [cliPath, ...buildElectronArgs(target, platform, arch)]
+  if (configPath) args.push('--config', configPath)
   return {
     executable: nodeExecutable,
-    args: [cliPath, ...buildElectronArgs(target, platform, arch)],
+    args,
   }
+}
+
+function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) {
+  const packagePath = path.join(root, 'package.json')
+  const deploymentPath = path.join(root, 'deployment.json')
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+  const deployment = normalizeDeploymentConfig(JSON.parse(fs.readFileSync(deploymentPath, 'utf8')))
+  const config = {
+    ...packageJson.build,
+    publish: [{ provider: 'generic', url: deployment.downloadUrl }],
+  }
+  const targetPath = outputPath || path.join(root, 'build', '.electron-builder-config.json')
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  fs.writeFileSync(targetPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+  return targetPath
 }
 
 function main(argv = process.argv.slice(2)) {
   if (argv.length !== 1) throw new Error('Usage: node scripts/build-electron-current-arch.cjs --mac|--win')
-  const { executable, args } = buildElectronCommand(argv[0])
+  const configPath = createElectronBuilderConfig()
+  const { executable, args } = buildElectronCommand(argv[0], process.platform, process.arch, process.execPath, require.resolve('electron-builder/cli.js'), configPath)
   const result = spawnSync(executable, args, { cwd: path.resolve(__dirname, '..'), stdio: 'inherit', shell: false })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`electron-builder exited with code ${result.status}`)
@@ -45,4 +68,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { buildElectronArgs, buildElectronCommand }
+module.exports = { buildElectronArgs, buildElectronCommand, createElectronBuilderConfig }

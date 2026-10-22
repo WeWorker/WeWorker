@@ -5,7 +5,7 @@ const path = require('path')
 const test = require('node:test')
 const { COMPONENT_ROOT, ensureWebwright } = require('../ensure-webwright.cjs')
 const { validateRuntime } = require('../build-webwright.cjs')
-const { buildElectronArgs, buildElectronCommand } = require('../build-electron-current-arch.cjs')
+const { buildElectronArgs, buildElectronCommand, createElectronBuilderConfig } = require('../build-electron-current-arch.cjs')
 const { mergeMacMetadata } = require('../merge-mac-update-metadata.cjs')
 const afterPack = require('../after-pack.cjs')
 const packageJson = require('../../package.json')
@@ -85,6 +85,14 @@ test('electron packaging launches the JavaScript CLI without a Windows command s
   assert.doesNotMatch(command.executable, /\.cmd$/i)
 })
 
+test('electron packaging derives its publish URL from deployment.json', (t) => {
+  const outputPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-deployment-')), 'builder.json')
+  t.after(() => fs.rmSync(path.dirname(outputPath), { recursive: true, force: true }))
+  const configPath = createElectronBuilderConfig({ outputPath })
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+  assert.deepEqual(config.publish, [{ provider: 'generic', url: 'https://111.230.33.112/downloads/' }])
+})
+
 test('macOS packages use a complete ad-hoc signature for internal distribution', () => {
   assert.equal(packageJson.build.afterPack, 'scripts/after-pack.cjs')
   assert.equal(packageJson.build.mac.identity, null)
@@ -138,4 +146,9 @@ test('electron packaging uses the generated profile-specific extension', () => {
   const extensionResource = packageJson.build.extraResources.find((entry) => entry.to === 'extension')
   assert.equal(extensionResource.from, 'build/extension-dist/')
   assert.equal(packageJson.build.extraResources.some((entry) => entry.to === 'extension/adapters'), false)
+})
+
+test('electron packaging includes the shared deployment configuration', () => {
+  assert.ok(packageJson.build.files.includes('deployment.json'))
+  assert.ok(packageJson.build.files.includes('deployment-config.cjs'))
 })

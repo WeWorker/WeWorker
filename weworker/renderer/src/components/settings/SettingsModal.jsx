@@ -44,11 +44,12 @@ import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.
 import { showConfirm } from '../../store/dialog.js'
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
+import { deploymentConfig } from '../../config/deployment.js'
 
 const API = 'http://127.0.0.1:8765'
-const OFFICIAL_URL = 'http://weworker.weoa.com'
-const DOWNLOAD_URL = 'http://weworker.weoa.com/downloads/'
-const GITHUB_UPDATE_URL = 'https://github.com/WeWorker/WeWorker/releases/download/latest/'
+const OFFICIAL_URL = deploymentConfig.officialUrl
+const DOWNLOAD_URL = deploymentConfig.downloadUrl
+const GITHUB_UPDATE_URL = deploymentConfig.githubUrl
 
 const EXACT_PATH_PLACEHOLDER = '例如 folder-b/foo/.env 或 .env'
 const REGEX_PATH_PLACEHOLDER = '例如 ^folder-b/.*\\.env$'
