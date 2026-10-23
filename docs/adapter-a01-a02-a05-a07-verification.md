@@ -33,3 +33,36 @@
 上述真实站点结果是在 dev-1.1.0 环境取得；迁入 develop 后重新验证自动化、构建与打包一致性，未重跑该分支完整桌面端真实站点验收。WebCLI 三文件 179 项、Wikipedia 专项 23 项、扩展与构建 profile 聚焦 54 项通过（共 256 项）。公开配置校验、WebCLI/public 33 包构建以及携程/Wikipedia/扩展源码与生成产物逐字节一致性检查通过。
 
 原有 api-adapter-packaging 测试在资源准备完成后仍失败于 `copyTreeSync(srcDir, destDir)` 旧源码断言；该测试和 prepare-build 脚本均与远端基线完全相同，基线同样不包含此调用。本轮未修改这项既有测试或构建逻辑。首轮测试另因资源准备尚未完成而失败，完成构建后已顺序复验。
+
+
+## 2026-10-22：develop 桌面端真实复验（第 10–12 项）
+
+基线为 origin/develop `79a913a`，在独立工作目录启动 Electron、Renderer（5174）、Backend（8765）、Bridge（3711）和网站探索agent（8766）。使用该工作目录重新生成的 WebCLI、内置包与扩展，扩展 service-worker 与基线源码逐字节一致。Chrome 复用此前登录的本机专用配置，通过临时测试驱动加载 develop 扩展；这不是验证 develop 自带专用浏览器启动能力。没有更改业务代码或构建发布安装包。
+
+| 报告项 | 真实调用与场景 | 结论 |
+| --- | --- | --- |
+| 10 豆瓣导航权限 | 内置 0.1.2：电影搜索返回 2 条，继续读取 movie.douban.com 的 subject 详情返回 1 条、photos 返回 2 条。 | 本轮通过，未出现 navigation host 拒绝；未触发 sec.douban.com 安全验证，不能覆盖验证页重定向分支。 |
+| 11 51job BFCache | 内置 0.1.0：普通 search 返回 2 条；页面离开并通过 history.back 返回，记录 pagehide.persisted=true、pageshow.persisted=true；恢复后 search/hot 各返回 2 条。 | 页面已经恢复后再发起调用通过，但不能据此关闭故障。 |
+| 11 51job 请求进行中进入 BFCache | 在实际 search 的 browser_fetch 请求发出后，通过临时扩展消息观察器安排测试页跳转，再返回；未修改 Adapter、响应或网络数据。实际记录进入与恢复缓存。 | **复现失败**：当前调用返回 `The page keeping the extension port is moved into back/forward cache, so the message channel is closed.` 因此第 11 项仍存在。 |
+| 12 携程 empty body | 内置 0.3.7：BJS→SHA 2026-10-28 单程、10-28 至 10-30 原生往返各返回 2 条；往返后再次查询单程返回 2 条；上海城市联想和 10-28 至 10-29 酒店查询各返回 2 条。 | 本轮通过，没有 empty body；仅覆盖这些实际样本，不代表所有交通/旅游命令或超出 32 MiB 的响应均通过。 |
+
+第 11 项代码线索：托管 Adapter 的调用路径显式给 callToolInTab 传入 allowTransportRetry=false，所以既有兼容路径的 BFCache 重试不会用于该调用。不能简单地给全部工具打开重放，否则可能重复执行写操作；后续修复应针对可安全重试的只读调用，并在当前页面状态重新满足要求后执行。本轮仅核验并记录问题，没有加入新的业务修复。
+
+测试只操作本任务打开的页面，未关闭用户原有页面，未提交业务写操作。临时驱动与真实业务输出留在本机临时目录，不进入仓库；登录信息、账号、Cookie 和真实会话标识不写入本文。桌面开发实例保留运行。
+
+
+## 2026-10-22：第 11 项 BFCache 断连修复
+
+修复位于共享 Extension 托管页面运行时，不改变 51job 的页面上下文 API、鉴权来源、命令定义或权限。Service Worker 只将 Chrome 明确的 BFCache 传输异常分类为可恢复错误；业务错误、普通通道断开和超时不做自动重放。宿主依据当前包快照中的 command.safety 决定是否恢复：仅 read 且无需显式确认的命令适用，写操作始终不重放。
+
+发生该断连后保持当前标签页执行队列，等待原 URL 完成加载并稳定，不主动覆盖用户跳转、不在其他页面注入或执行。恢复后重新校验包快照并注入；每次调用最多两次恢复，每次等待最多 25 秒，沿用原有总截止时间。未返回原业务页时明确提示返回后重试。
+
+验证：
+
+- WebCLI 托管运行时、宿主管理、内置包构建及批量 Adapter 共 161 项通过；Extension BFCache/真实消息分发/运行时 helper/探索协议 32 项通过；路由与构建 profile 28 项通过，合计 221 项。覆盖写操作与确认边界、错误分类、串行队列、两次上限、总超时、包变更及错误页面不执行。
+- public 33 包与 WebCLI 重新构建通过；桌面扩展生成目录的 host-adapter-runtime 和 service-worker 与修改后源码逐字节一致，语法与差异检查通过。既有可选列映射资产缺失警告保留，未构建发布安装包。
+- 修复后用真实 51job search 在 browser_fetch 请求发出后导航至本地临时测试页，再 history.back 返回；连续两次记录到 pagehide.persisted=true 和 pageshow.persisted=true，同一个 CLI trace 内均出现两次 Content Script 调用，最终各返回 2 条职位。确认实际发生断连恢复，不能仅凭快速请求结束后的页面切换算通过。
+- 51job hot 返回 2 条，豆瓣 subject 返回 1 条，携程 BJS→SHA 单程返回 2 条，回归通过。
+- 复验期间发现系统浏览器旧扩展与测试扩展同时连接同一 Bridge，部分调用被路由到旧版本而报导航错误；这些调用不计入修复验证。以上通过样本均确认选中修复版扩展、测试标签页和对应 trace；未修改旧扩展或用户原有页面。
+
+本次修改和验收记录基于 develop 独立工作目录整理提交至 develop。第 10–12 项在上述实测范围内通过；仍需使用包含修复的新构建与对应扩展，旧安装包或仍加载旧代码的扩展不会自动获得修复。

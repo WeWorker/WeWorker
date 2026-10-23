@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import vm from 'node:vm';
-import { createHostAdapterRuntime, navigateAdapterTab, assertAdapterNavigationUrl } from '../../extension/background/host-adapter-runtime.js';
+import { createHostAdapterRuntime, navigateAdapterTab, assertAdapterNavigationUrl, waitForAdapterPageRecovery } from '../../extension/background/host-adapter-runtime.js';
 import { buildV2Bootstrap } from '../../extension/background/v2-loader.js';
 
 const manifest = (digest) => ({ name: 'demo', _hostSnapshot: { profile: 'public', digest } });
@@ -230,5 +230,106 @@ describe('navigation rejection diagnostics', () => {
     expect(calls).toBe(phase === 'initial' ? 0 : 1);
     url = 'https://example.com/detail';
     expect(await runtime.execute(1, pkg, url, () => 'recovered', { id: 'read' })).toBe('recovered');
+  });
+});
+
+describe('managed BFCache recovery', () => {
+  const read = { id: 'search', safety: 'read' };
+  const pkg = { name: 'example.com', match: ['example.com'], commands: [read] };
+  const disconnected = () => Object.assign(new Error('BFCache channel closed'), { code: 'ADAPTER_BFCACHE_DISCONNECTED' });
+  function setup(overrides = {}) {
+    const events = [];
+    const runtime = createHostAdapterRuntime({
+      bundle: async () => { events.push('bundle'); return {}; },
+      prepare: async () => {}, clear: async () => {}, inject: async () => { events.push('inject'); },
+      ready: async () => 'https://example.com/search',
+      recover: async () => { events.push('recover'); }, ...overrides,
+    });
+    return { runtime, events };
+  }
+  it('revalidates and reinjects a read after BFCache restoration within the same invocation', async () => {
+    const { runtime, events } = setup(); let calls = 0;
+    expect(await runtime.execute(1, pkg, 'https://example.com/search', () => {
+      if (++calls === 1) throw disconnected(); return ['result'];
+    }, read)).toEqual(['result']);
+    expect(events).toEqual(['bundle', 'inject', 'recover', 'bundle', 'inject']);
+    expect(calls).toBe(2);
+  });
+  it.each([
+    { id: 'search', safety: 'write', requires_confirmation: false },
+    { id: 'search', safety: 'write', requires_confirmation: true },
+    { id: 'search', safety: 'read', requires_confirmation: true },
+    { id: 'search' },
+  ])('never retries an unsafe or confirmation-required policy: %j', async policy => {
+    const { runtime, events } = setup(); let calls = 0;
+    await expect(runtime.execute(1, { ...pkg, commands: [policy] }, 'https://example.com/search', () => {
+      calls++; throw disconnected();
+    }, read)).rejects.toThrow('BFCache');
+    expect(calls).toBe(1); expect(events).not.toContain('recover');
+  });
+  it.each([new Error('bfcache business error'), new Error('channel closed'), new Error('timed out')])('does not retry unclassified errors: %s', async error => {
+    const { runtime, events } = setup(); let calls = 0;
+    await expect(runtime.execute(1, pkg, 'https://example.com/search', () => { calls++; throw error; }, read)).rejects.toBe(error);
+    expect(calls).toBe(1); expect(events).not.toContain('recover');
+  });
+  it('bounds repeated BFCache losses to two recoveries', async () => {
+    const { runtime, events } = setup(); let calls = 0;
+    await expect(runtime.execute(1, pkg, 'https://example.com/search', () => { calls++; throw disconnected(); }, read)).rejects.toThrow('BFCache');
+    expect(calls).toBe(3); expect(events.filter(x => x === 'recover')).toHaveLength(2);
+  });
+  it('keeps the queue locked while waiting for restoration', async () => {
+    const entered = deferred(), finish = deferred(); let firstCalls = 0, secondCalls = 0;
+    const { runtime } = setup({ recover: async () => { entered.resolve(); await finish.promise; } });
+    const first = runtime.execute(1, pkg, 'https://example.com/search', () => { if (++firstCalls === 1) throw disconnected(); return 'first'; }, read);
+    await entered.promise;
+    const second = runtime.execute(1, pkg, 'https://example.com/search', () => { secondCalls++; return 'second'; }, read);
+    await Promise.resolve(); expect(secondCalls).toBe(0);
+    finish.resolve(); expect(await first).toBe('first'); expect(await second).toBe('second');
+  });
+  it('does not reset the deadline or execute when recovery fails', async () => {
+    for (const fail of [false, true]) {
+      let time = 0, calls = 0;
+      const { runtime } = setup({ now: () => time, timeoutMs: 50, recover: async (_id, _pkg, url, budget) => {
+        expect(url).toBe('https://example.com/search'); expect(budget).toBe(50);
+        if (fail) throw new Error('page did not return'); time = 51;
+      } });
+      await expect(runtime.execute(1, pkg, 'https://example.com/search', () => { calls++; throw disconnected(); }, read)).rejects.toThrow(fail ? 'page did not return' : 'timed out');
+      expect(calls).toBe(1);
+    }
+  });
+  it('rejects a changed package before replay', async () => {
+    let bundles = 0, calls = 0;
+    const { runtime } = setup({ bundle: async () => { if (++bundles > 1) throw new Error('package changed'); return {}; } });
+    await expect(runtime.execute(1, pkg, 'https://example.com/search', () => { calls++; throw disconnected(); }, read)).rejects.toThrow('package changed');
+    expect(calls).toBe(1);
+  });
+});
+
+describe('BFCache page restoration wait', () => {
+  const pkg = { match: ['example.com'] };
+  const url = 'https://example.com/search';
+  function fixture(tabs) {
+    let time = 0, reads = 0;
+    return { api: { tabs: { get: async () => tabs[Math.min(reads++, tabs.length - 1)] } },
+      clock: { now: () => time, sleep: async ms => { time += ms; } } };
+  }
+  it('waits through other hosts and in-progress navigation until the original page is stable', async () => {
+    const { api, clock } = fixture([
+      { url: 'https://other.example.org/', status: 'complete' },
+      { url, status: 'loading' }, { url, status: 'complete', pendingUrl: 'https://other.example.org/' },
+      { url, status: 'complete' }, { url, status: 'complete' },
+    ]);
+    expect(await waitForAdapterPageRecovery(api, 1, pkg, url, 1000, clock)).toBe(url);
+    expect(clock.now()).toBe(600);
+  });
+  it('does not accept another page even on an allowed host, or wait forever', async () => {
+    const { api, clock } = fixture([{ url: 'https://example.com/another', status: 'complete' }]);
+    await expect(waitForAdapterPageRecovery(api, 1, pkg, url, 300, clock)).rejects.toThrow('return to the original');
+    expect(clock.now()).toBe(300);
+  });
+  it('fails on a closed tab or disallowed starting URL', async () => {
+    const { api, clock } = fixture([undefined]);
+    await expect(waitForAdapterPageRecovery(api, 1, pkg, url, 300, clock)).rejects.toThrow('closed');
+    await expect(waitForAdapterPageRecovery(api, 1, pkg, 'https://other.example.org/', 300, clock)).rejects.toThrow('not allowed');
   });
 });

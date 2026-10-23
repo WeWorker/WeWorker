@@ -2,7 +2,7 @@ import { scopedGenerationPreviewScripts } from './generation-preview-bundle.js';
 import { buildV2Bootstrap, v2InjectionFiles } from "./v2-loader.js";
 import { injectAdapterSources } from './adapter-script-loader.js';
 import { createHostAdapterClient } from './host-adapter-client.js';
-import { createHostAdapterRuntime, assertAdapterNavigationUrl, navigateAdapterTab } from './host-adapter-runtime.js';
+import { createHostAdapterRuntime, assertAdapterNavigationUrl, navigateAdapterTab, waitForAdapterPageRecovery } from './host-adapter-runtime.js';
 import { createManagedBackgroundRuntime, MANAGED_RUNNER_PATH } from './managed-background-runtime.js';
 
 /**
@@ -4951,6 +4951,14 @@ async function callToolInTab(tabId, toolName, args, traceID = null, allowTranspo
       lastError = err;
       const errMsg = err.message || String(err);
 
+      // Managed calls recover at the host boundary, where the pinned read/write
+      // policy, page preparation and total deadline are enforced together.
+      if (!allowTransportRetry && /back\/forward cache|bfcache/i.test(errMsg)) {
+        const error = new Error('Adapter page entered back/forward cache; its message channel closed.');
+        error.code = 'ADAPTER_BFCACHE_DISCONNECTED';
+        throw error;
+      }
+
       // 检测 bfcache 或页面跳转导致的断连
       if (
         attempt < maxRetries &&
@@ -6967,6 +6975,7 @@ function getHostAdapterRuntime() {
     },
     inject: injectV2AdapterWithCode,
     ready: (tabId, manifest, timeoutMs) => waitForManagedPageReady(tabId, manifest, true, timeoutMs),
+    recover: (tabId, manifest, url, timeoutMs) => waitForAdapterPageRecovery(chrome, tabId, manifest, url, timeoutMs),
     navigate: (tabId, url, manifest, resume, timeoutMs) => navigateAdapterTab(chrome, tabId, url, manifest, resume, timeoutMs),
   });
 }

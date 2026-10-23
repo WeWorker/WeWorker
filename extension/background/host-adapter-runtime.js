@@ -1,5 +1,5 @@
 /** Serialize page replacement and calls so an update cannot replace a running command's globals. */
-export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navigate, ready, now = Date.now, maxNavigations = 4, timeoutMs = 105000 }) {
+export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navigate, ready, recover, now = Date.now, maxNavigations = 4, timeoutMs = 105000 }) {
   const queues = new Map();
   const stamps = new Map();
   const documents = new Map();
@@ -13,7 +13,8 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
       const task = (queues.get(tabId) || Promise.resolve()).catch(() => {}).then(async () => {
         const policy = command && manifest.commands?.find(entry => entry.id === command.id);
         let currentUrl = url;
-        for (let step = 0; ; step++) {
+        let recoveries = 0;
+        for (let step = 0; ;) {
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
           for (let attempt = 0; ; attempt++) {
             if (ready) currentUrl = await ready(tabId, manifest, Math.min(25000, deadline - now()));
@@ -39,12 +40,25 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
             }
           }
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
-          const result = operation ? await operation(Math.max(1, deadline - now())) : undefined;
+          let result;
+          try {
+            result = operation ? await operation(Math.max(1, deadline - now())) : undefined;
+          } catch (error) {
+            // Only Chrome's classified BFCache transport loss is replayable.
+            // Keep writes, business errors and ambiguous disconnects fail-closed.
+            if (error.code !== 'ADAPTER_BFCACHE_DISCONNECTED' || policy?.safety !== 'read'
+                || policy.requires_confirmation === true || !recover || recoveries >= 2) throw error;
+            recoveries++;
+            stamps.delete(tabId);
+            if (now() >= deadline) throw new Error('Adapter page execution timed out.');
+            await recover(tabId, manifest, currentUrl, Math.min(25000, deadline - now()));
+            continue;
+          }
           const next = result?.__webcli_navigation;
           if (!next) return result;
           if (!policy || !navigate || next.version !== 1 || typeof next.resume !== 'boolean') throw new Error('Invalid Adapter navigation continuation.');
           // Never replay writes, regardless of confirmation policy. A write may
-          // request terminal navigation only; errors and timeouts are never replayed.
+          // request terminal navigation only; write errors and timeouts are never replayed.
           if (next.resume && policy.safety !== 'read') throw new Error('Write commands cannot be replayed after navigation.');
           if (step >= maxNavigations) throw new Error('Adapter navigation limit exceeded.');
           const target = assertAdapterNavigationUrl(manifest, next.url, next.resume);
@@ -54,6 +68,7 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
           assertAdapterNavigationUrl(manifest, currentUrl, next.resume);
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
           if (!next.resume) return next.result ?? { status: 'navigation_complete', url: currentUrl };
+          step++;
         }
       });
       queues.set(tabId, task);
@@ -61,6 +76,22 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
       return task;
     },
   };
+}
+
+/** Wait for the original page without undoing the user's navigation or executing on another host. */
+export async function waitForAdapterPageRecovery(api, tabId, manifest, expectedUrl, timeoutMs, { now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  assertAdapterNavigationUrl(manifest, expectedUrl);
+  const deadline = now() + timeoutMs;
+  let stable = false;
+  while (now() < deadline) {
+    const tab = await api.tabs.get(tabId);
+    if (!tab) throw new Error('Adapter tab was closed.');
+    const restored = tab.status === 'complete' && tab.url === expectedUrl && !tab.pendingUrl;
+    if (restored && stable) return assertAdapterNavigationUrl(manifest, tab.url);
+    stable = restored;
+    await sleep(150);
+  }
+  throw new Error('Adapter page entered back/forward cache; return to the original business page and retry.');
 }
 
 /** Navigation is limited to declared page hosts; helper hosts allow terminal navigation only. */
