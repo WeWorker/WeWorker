@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { validateBuildProfile } = require('./build-profile-validator.cjs');
 const { loadBuildProfile, mergeConfiguredProfile } = require('./model-provider-config.cjs');
+const { prepareMetricsClientConfig } = require('./metrics-client-config.cjs');
 const {
   DEFAULT_ICON,
   buildRegistryFromManifests,
@@ -77,6 +78,11 @@ async function main() {
     console.error(`[prepare-build] ERROR: ${err.message}`);
     process.exit(1);
   }
+
+  prepareMetricsClientConfig({
+    modelPath: path.resolve(WEWORKER_ROOT, profile.modelProviders),
+    outputPath: path.resolve(WEWORKER_ROOT, 'build/metrics-client.json'),
+  });
 
   console.log(
     `[prepare-build] Profile "${options.profileName}" validated` +

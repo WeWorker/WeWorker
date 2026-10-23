@@ -53,6 +53,10 @@
     ],
     "extraResources": [
       {
+        "from": "build/metrics-client.json",
+        "to": "metrics-client.json"
+      },
+      {
         "from": "build/backend-ts-dist/",
         "to": "backend-ts",
         "filter": [

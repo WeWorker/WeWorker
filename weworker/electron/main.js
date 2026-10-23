@@ -24,6 +24,7 @@ import {
 import { createTrayManager } from './tray-manager.js'
 import { BrowserControlClient, normalizeBrowserMode } from './dedicated-browser.js'
 import { sanitizeSiteAuthRequest, siteAuthNotification } from './site-auth-ipc.js'
+import { packagedMetricsEnvironment } from './metrics-environment.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
@@ -33,7 +34,7 @@ const devRendererUrl = process.env.WEWORKER_RENDERER_DEV_URL || process.env.WEWO
 // 从固定路径读取埋点上报配置（KEY=VALUE），注入 process.env。
 // Bridge 子进程（utilityProcess.fork）继承主进程 env，从而拿到三件套：
 //   WEBCLI_METRICS_UPLOAD=on / WEBCLI_METRICS_ENDPOINT / WEBCLI_METRICS_TOKEN
-// 文件不存在或读取失败则静默跳过（不上报，不影响主流程）。
+// 文件不存在或读取失败则沿用包内默认（公开包默认关闭），不影响主流程。
 function loadMetricsEnv() {
   try {
     const envFile = path.join(os.homedir(), '.webcli', 'metrics.env')
@@ -49,6 +50,7 @@ function loadMetricsEnv() {
     }
   } catch { /* 文件不存在或不可读：静默，不上报 */ }
 }
+Object.assign(process.env, packagedMetricsEnvironment({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }))
 loadMetricsEnv()
 
 protocol.registerSchemesAsPrivileged([
