@@ -1024,6 +1024,12 @@
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.settings-update-action {
+  min-width: 84px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 @keyframes settings-overlay-enter {
   from { opacity: 0; }
   to { opacity: 1; }
