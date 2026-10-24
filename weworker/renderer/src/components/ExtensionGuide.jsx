@@ -49,17 +49,17 @@ function DedicatedBrowserCard({ status, onStatus }) {
       </p>
       <div className="extension-guide-actions">
         {view.canShow && (
-          <button type="button" disabled={busy} className="extension-guide-button extension-guide-button--primary" onClick={() => run(() => window.electronAPI.showDedicatedBrowser())}>
+          <button data-app-button="action" type="button" disabled={busy} className="extension-guide-button extension-guide-button--primary" onClick={() => run(() => window.electronAPI.showDedicatedBrowser())}>
             显示 WeWorker 浏览器
           </button>
         )}
         {view.canShow && (
-          <button type="button" disabled={busy} className="extension-guide-button" onClick={() => run(() => window.electronAPI.hideDedicatedBrowser())}>
+          <button data-app-button="action" type="button" disabled={busy} className="extension-guide-button" onClick={() => run(() => window.electronAPI.hideDedicatedBrowser())}>
             隐藏
           </button>
         )}
         {view.canRestart && (
-          <button type="button" disabled={busy} className="extension-guide-button" onClick={() => run(() => window.electronAPI.restartDedicatedBrowser())}>
+          <button data-app-button="action" type="button" disabled={busy} className="extension-guide-button" onClick={() => run(() => window.electronAPI.restartDedicatedBrowser())}>
             重新启动
           </button>
         )}
@@ -146,7 +146,7 @@ export default function ExtensionGuide({ onClose }) {
                   ? 'WeWorker 浏览器启动后，扩展会自动安装并连接，无需手动操作。'
                   : '未检测到扩展。安装完成后打开 Chrome，可在此查看连接状态。'}
             </p>
-            {!connected && !dedicatedMode && <div className="extension-guide-actions"><button
+            {!connected && !dedicatedMode && <div className="extension-guide-actions"><button data-app-button="action"
               type="button"
               onClick={() => window.electronAPI?.openChrome()}
               className="extension-guide-button"
@@ -164,7 +164,7 @@ export default function ExtensionGuide({ onClose }) {
         </div>
 
         <footer className="extension-guide-footer">
-          <button type="button" className="extension-guide-button extension-guide-button--primary" onClick={requestClose}>知道了</button>
+          <button data-app-button="action" type="button" className="extension-guide-button extension-guide-button--primary" onClick={requestClose}>知道了</button>
         </footer>
       </div>
     </div>

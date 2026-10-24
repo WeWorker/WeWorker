@@ -25,6 +25,7 @@ import SkillComposer from './SkillComposer.jsx'
 import WecomQrBind, { BotChannelPicker } from './WecomQrBind.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
 import { codeBadgeStyle, fieldStyle, hintStyle, labelStyle, sectionStyle, titleStyle } from './styles.js'
+import './agent-create-wizard.css'
 
 const PAIR_POLL_MS = 2500
 
@@ -50,12 +51,12 @@ function SitePicker({ sites, selectedId, onSelect }) {
   const [query, setQuery] = useState('')
   const visible = filterSites(sites, query)
   return (
-    <div>
+    <div className="agent-site-picker">
       <Input.Search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索网站名称或域名" style={{ maxWidth: 360, marginBottom: 12 }} allowClear aria-label="搜索网站" />
       {visible.length === 0 ? (
         <div style={hintStyle}>没有找到可用的网站。请先在「SKILLS与场景」中启用对应网站。</div>
       ) : (
-        <div role="listbox" aria-label="选择网站" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
+        <div className="agent-site-picker__list" role="listbox" aria-label="选择网站" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
           {visible.map((site) => {
             const active = site.id === selectedId
             return (
@@ -113,7 +114,7 @@ function PairingStep({ agent, draftKey, onDone }) {
         title={`「${current.name}」已就绪`}
         subTitle={`现在直接在${im}里和这个机器人对话就可以了。`}
         extra={[
-          <Button type="primary" key="open" onClick={() => onDone(current)}>查看 Agent</Button>,
+          <Button data-app-button="action" type="primary" key="open" onClick={() => onDone(current)}>查看 Agent</Button>,
         ]}
       >
         {current.examples?.length > 0 && (
@@ -136,7 +137,7 @@ function PairingStep({ agent, draftKey, onDone }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <span style={codeBadgeStyle}>{pairingCommand(current?.pairing_code)}</span>
-        <Button onClick={() => navigator.clipboard?.writeText(pairingCommand(current?.pairing_code)).catch(() => {})}>复制</Button>
+        <Button data-app-button="action" onClick={() => navigator.clipboard?.writeText(pairingCommand(current?.pairing_code)).catch(() => {})}>复制</Button>
       </div>
       <ul style={{ ...hintStyle, paddingLeft: 18 }}>
         <li>
@@ -275,7 +276,7 @@ export default function AgentCreateWizard({ draftKey }) {
   }
 
   return (
-    <div style={{ maxWidth: 860 }}>
+    <div className={stepKey === 'site' ? 'agent-create-wizard--site' : undefined} style={{ maxWidth: 860 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <h2 style={titleStyle}>
@@ -293,14 +294,14 @@ export default function AgentCreateWizard({ draftKey }) {
             )}
           </h2>
         </div>
-        {!createdAgent && <Button onClick={cancelCreate}>保存并返回</Button>}
+        {!createdAgent && <Button data-app-button="action" onClick={cancelCreate}>保存并返回</Button>}
       </div>
       <div style={{ ...hintStyle, marginBottom: 18 }}>一个专属 Agent = 一个网站的能力 + 你的专属知识 + 一个企业微信或微信机器人。大约 5 分钟完成。</div>
       <Steps size="small" current={step} items={WIZARD_STEPS.map((item) => ({ title: item.title }))} style={{ marginBottom: 20 }} />
 
-      <div style={sectionStyle}>
+      <div className="agent-create-wizard__section" style={sectionStyle}>
         {stepKey === 'site' && (
-          <div>
+          <div className="agent-create-wizard__site">
             <div style={{ ...labelStyle, marginBottom: 10 }}><span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>这个 Agent 主要操作哪个网站？</div>
             <SitePicker sites={available} selectedId={draft.siteId} onSelect={selectSite} />
             {site && (
@@ -341,7 +342,7 @@ export default function AgentCreateWizard({ draftKey }) {
                 showIcon
                 style={{ marginTop: 16 }}
                 message={error}
-                action={<Button size="small" onClick={() => { setError(''); setBindKey((value) => value + 1) }}>重新扫码</Button>}
+                action={<Button data-app-button="action" size="small" onClick={() => { setError(''); setBindKey((value) => value + 1) }}>重新扫码</Button>}
               />
             )}
           </div>
@@ -356,8 +357,8 @@ export default function AgentCreateWizard({ draftKey }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {error && stepKey !== 'bind' && <span style={{ ...hintStyle, color: 'var(--error, #ef4444)', flex: 1 }}>{error}</span>}
           <Space style={{ marginLeft: 'auto' }}>
-            {step > 0 && <Button onClick={back} disabled={saving}>上一步</Button>}
-            {stepKey !== 'bind' && <Button type="primary" onClick={next}>下一步</Button>}
+            {step > 0 && <Button data-app-button="action" onClick={back} disabled={saving}>上一步</Button>}
+            {stepKey !== 'bind' && <Button data-app-button="action" type="primary" onClick={next}>下一步</Button>}
           </Space>
         </div>
       )}

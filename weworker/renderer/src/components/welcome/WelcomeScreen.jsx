@@ -37,7 +37,7 @@ import {
 } from './welcome-utils.js'
 import { FEATURED_GRID_COLUMN_GAP, useWelcomeResponsiveLayout } from './welcome-responsive.js'
 
-const FEATURED_LAYOUT_TRANSITION_MS = 220
+const FEATURED_LAYOUT_TRANSITION_MS = 180
 const SHOWCASE_TOGGLE_TRANSITION_MS = 220
 const FLOATING_PICKER_GAP = 6
 const FLOATING_PICKER_MARGIN = 14
@@ -497,6 +497,8 @@ export default function WelcomeScreen({ onFillInput }) {
   useLayoutEffect(() => {
     const gridRect = featuredGridRef.current?.getBoundingClientRect()
     const nextRects = new Map()
+    const animations = []
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     for (const [layoutId, node] of featuredLayoutRefs.current.entries()) {
       if (!node?.isConnected) continue
       const rawNextRect = node.getBoundingClientRect()
@@ -509,35 +511,35 @@ export default function WelcomeScreen({ onFillInput }) {
       const previousRect = previousFeaturedLayoutRects.current.get(layoutId)
       nextRects.set(layoutId, nextRect)
 
+      if (reduceMotion) continue
+
       if (!previousRect) {
-        node.animate(
+        animations.push(node.animate(
           [
-            { opacity: 0, transform: 'translateY(-6px) scale(0.98)' },
-            { opacity: 1, transform: 'translateY(0) scale(1)' },
+            { opacity: 0 },
+            { opacity: 1 },
           ],
           { duration: 170, easing: 'ease-out' },
-        )
+        ))
         continue
       }
 
       const deltaX = previousRect.left - nextRect.left
       const deltaY = previousRect.top - nextRect.top
-      const scaleX = previousRect.width > 0 && nextRect.width > 0 ? previousRect.width / nextRect.width : 1
-      const scaleY = previousRect.height > 0 && nextRect.height > 0 ? previousRect.height / nextRect.height : 1
       const moved = Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1
-      const resized = Math.abs(scaleX - 1) > 0.02 || Math.abs(scaleY - 1) > 0.02
+      const resized = Math.abs(previousRect.width - nextRect.width) > 1 || Math.abs(previousRect.height - nextRect.height) > 1
       if (!moved && !resized) continue
 
-      node.animate(
+      animations.push(node.animate(
         [
-          { transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})` },
-          { transform: 'translate(0, 0) scale(1, 1)' },
+          { opacity: 0.65 },
+          { opacity: 1 },
         ],
-        { duration: FEATURED_LAYOUT_TRANSITION_MS, easing: 'ease' },
-      )
+        { duration: FEATURED_LAYOUT_TRANSITION_MS, easing: 'ease-out' },
+      ))
     }
     previousFeaturedLayoutRects.current = nextRects
-    return undefined
+    return () => animations.forEach((animation) => animation.cancel())
   }, [featuredLayoutSignature])
 
   useEffect(() => {
@@ -895,7 +897,7 @@ export default function WelcomeScreen({ onFillInput }) {
                 </div>
               </div>
 
-              <button type="button" onClick={() => fillScenario(active)} style={tryButtonStyle}>
+              <button data-app-button="action" type="button" onClick={() => fillScenario(active)} style={tryButtonStyle}>
                 在对话中使用
               </button>
 
@@ -936,7 +938,7 @@ export default function WelcomeScreen({ onFillInput }) {
             </button>
           </div>
           <div style={featuredHeaderActionsStyle}>
-            <button type="button" onClick={handleOpenAllScenarios} style={allScenariosButtonStyle}>
+            <button type="button" onClick={handleOpenAllScenarios} style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
               {capabilitiesPanelOpen ? <ClosePanelIcon /> : <ListIcon />}
               {capabilitiesPanelOpen ? '关闭所有场景' : '查看所有场景'}
             </button>
@@ -1742,8 +1744,6 @@ const featuredSquareAddIconStyle = {
 const featuredSiteWrapStyle = {
   position: 'relative',
   minWidth: 0,
-  transformOrigin: 'top left',
-  willChange: 'transform, opacity',
   overflow: 'visible',
 }
 

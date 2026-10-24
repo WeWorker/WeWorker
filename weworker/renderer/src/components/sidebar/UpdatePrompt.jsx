@@ -184,9 +184,9 @@ export default function UpdatePrompt() {
             )}
 
             <div style={actionsStyle}>
-              <button type="button" onClick={() => setOpen(false)} style={secondaryButtonStyle}>稍后</button>
+              <button data-app-button="action" type="button" onClick={() => setOpen(false)} style={secondaryButtonStyle}>稍后</button>
               {primaryAction && (
-                <button
+                <button data-app-button="action"
                   type="button"
                   onClick={primaryAction.onClick}
                   disabled={primaryDisabled}

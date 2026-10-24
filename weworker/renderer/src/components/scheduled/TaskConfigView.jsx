@@ -250,7 +250,7 @@ export default function TaskConfigView({ taskId }) {
   const handleDelete = async () => {
     const confirmed = await showConfirm(
       `确定要删除任务「${task.title || '未命名任务'}」吗？\n\n这将同时删除该任务的所有执行记录，此操作不可撤销。`,
-      '删除定时任务',
+      '删除定时任务', { danger: true },
     )
     if (confirmed) {
       try { await deleteTask(taskId) }
@@ -289,7 +289,7 @@ export default function TaskConfigView({ taskId }) {
               <AppSwitch checked={task.enabled} onChange={handleToggleEnabled} />
               {task.enabled ? '已启用' : '已禁用'}
             </label>
-            <button onClick={handleDelete} style={deleteBtnStyle}>删除</button>
+            <button data-app-button="action" data-variant="danger" onClick={handleDelete} style={deleteBtnStyle}>删除</button>
           </div>
         </div>
 
@@ -307,13 +307,11 @@ export default function TaskConfigView({ taskId }) {
               {FREQUENCY_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
+                  type="button"
+                  data-app-button="action"
+                  aria-pressed={schedule.frequency === opt.value}
                   onClick={() => updateSchedule({ frequency: opt.value })}
-                  style={{
-                    ...presetBtnStyle,
-                    background: schedule.frequency === opt.value ? 'var(--accent)' : 'var(--bg-secondary)',
-                    color: schedule.frequency === opt.value ? '#fff' : 'var(--text-secondary)',
-                    borderColor: schedule.frequency === opt.value ? 'var(--accent)' : 'var(--border)',
-                  }}
+                  style={presetBtnStyle}
                 >
                   {opt.label}
                 </button>
@@ -392,7 +390,7 @@ export default function TaskConfigView({ taskId }) {
 
           {/* Save */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button onClick={handleSave} disabled={!canSave || saving} style={{ ...saveBtnStyle, opacity: canSave && !saving ? 1 : 0.5, cursor: canSave && !saving ? 'pointer' : 'not-allowed' }}>
+            <button data-app-button="action" onClick={handleSave} disabled={!canSave || saving} style={{ ...saveBtnStyle, opacity: canSave && !saving ? 1 : 0.5, cursor: canSave && !saving ? 'pointer' : 'not-allowed' }}>
               {saving ? '保存中...' : saved ? '已保存 ✓' : '保存'}
             </button>
           </div>

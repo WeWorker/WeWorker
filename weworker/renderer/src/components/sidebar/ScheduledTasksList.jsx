@@ -109,7 +109,7 @@ function ScheduledTaskItem({ task, active, onSelect }) {
     setBusy(true)
     setError('')
     try {
-      const confirmed = await showConfirm(`确定要删除任务「${title}」吗？\n\n这将同时删除该任务的所有执行记录，此操作不可撤销。`, '删除定时任务')
+      const confirmed = await showConfirm(`确定要删除任务「${title}」吗？\n\n这将同时删除该任务的所有执行记录，此操作不可撤销。`, '删除定时任务', { danger: true })
       if (confirmed) await deleteTask(task.id)
     } catch (err) {
       setError(err.message || '删除失败，请重试')
@@ -188,16 +188,16 @@ function ScheduledTaskItem({ task, active, onSelect }) {
         </span>
         {error && <span role="alert" style={{ display: 'block', fontSize: 11, color: 'var(--error, #ef4444)' }}>{error}</span>}
       </div>
-      <div style={{ display: 'flex', flexShrink: 0, gap: 2 }} onClick={(event) => event.stopPropagation()}>
+      <div className="sidebar-row-actions" style={{ opacity: draftTitle !== null ? 0 : undefined, pointerEvents: draftTitle !== null ? 'none' : undefined }} onClick={(event) => event.stopPropagation()}>
         <Tooltip text="重命名">
-          <button type="button" className="sidebar-icon-button" aria-label={`重命名定时任务 ${title}`} disabled={busy || draftTitle !== null}
+          <button type="button" className="sidebar-row-action" aria-label={`重命名定时任务 ${title}`} disabled={busy || draftTitle !== null}
             onClick={() => { cancelled.current = false; setError(''); setDraftTitle(task.title || '') }}>
-            <RenameIcon />
+            <RenameIcon size={13} />
           </button>
         </Tooltip>
         <Tooltip text="删除">
-          <button type="button" className="sidebar-icon-button" aria-label={`删除定时任务 ${title}`} disabled={busy || draftTitle !== null} onClick={remove}>
-            <TrashIcon />
+          <button type="button" className="sidebar-row-action" aria-label={`删除定时任务 ${title}`} disabled={busy || draftTitle !== null} onClick={remove}>
+            <TrashIcon size={13} />
           </button>
         </Tooltip>
       </div>

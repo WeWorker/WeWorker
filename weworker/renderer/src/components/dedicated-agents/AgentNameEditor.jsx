@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { EditOutlined } from '@ant-design/icons'
 import { updateAgent } from '../../api/dedicated-agents-api.js'
 import { normalizeAgentName } from '../../utils/dedicated-agents.js'
@@ -12,7 +12,7 @@ import { normalizeAgentName } from '../../utils/dedicated-agents.js'
  * Escape cancels. The pencil and the input stop click propagation so the
  * surrounding list row keeps its own select behaviour while renaming.
  */
-export default function AgentNameEditor({
+const AgentNameEditor = forwardRef(function AgentNameEditor({
   agentId,
   name,
   onSave,
@@ -22,12 +22,21 @@ export default function AgentNameEditor({
   iconSize = 12,
   textStyle,
   inputStyle,
-}) {
+  hideEditButton = false,
+}, ref) {
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const committing = useRef(false)
   const cancelled = useRef(false)
+
+  const beginEdit = () => {
+    cancelled.current = false
+    setError('')
+    setDraft(name)
+  }
+
+  useImperativeHandle(ref, () => ({ edit: beginEdit }), [name])
 
   const save = async () => {
     if (draft === null || committing.current || cancelled.current) return
@@ -79,12 +88,12 @@ export default function AgentNameEditor({
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%' }}>
       <span title={name} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...textStyle }}>{name}</span>
-      <button
+      {!hideEditButton && <button
         type="button"
         title="修改名称"
         aria-label={`修改名称 ${name}`}
         disabled={disabled || saving}
-        onClick={(event) => { event.stopPropagation(); cancelled.current = false; setError(''); setDraft(name) }}
+        onClick={(event) => { event.stopPropagation(); beginEdit() }}
         onKeyDown={(event) => event.stopPropagation()}
         style={{
           display: 'inline-flex',
@@ -100,7 +109,9 @@ export default function AgentNameEditor({
         }}
       >
         <EditOutlined style={{ fontSize: iconSize }} aria-hidden="true" />
-      </button>
+      </button>}
     </span>
   )
-}
+})
+
+export default AgentNameEditor

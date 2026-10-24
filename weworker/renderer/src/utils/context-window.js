@@ -18,7 +18,7 @@ export function parseContextLimitInput(value) {
   }
 
   const text = String(value ?? '').trim().replace(/,/g, '')
-  const match = text.match(/^(\d+(?:\.\d+)?)\s*([km])?$/iu)
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*([km])$/iu)
   if (!match) return null
   const suffix = match[2]?.toLowerCase()
   const parsed = Number(match[1]) * (suffix === 'm' ? 1_000_000 : suffix === 'k' ? 1_000 : 1)

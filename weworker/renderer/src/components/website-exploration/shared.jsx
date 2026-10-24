@@ -125,7 +125,7 @@ export function Modal({ title, children, onClose }) {
     return () => { panel.removeEventListener('keydown', trap); previous?.focus?.() }
   }, [])
   return createPortal(<div className="website-exploration wx-overlay"><section className="wx-modal" role="dialog" aria-modal="true" aria-labelledby={id} ref={ref}>
-    <header><h2 id={id}>{title}</h2><button type="button" onClick={onClose} aria-label="关闭">关闭</button></header>{children}
+    <header><h2 id={id}>{title}</h2><button data-app-button="action" type="button" onClick={onClose} aria-label="关闭">关闭</button></header>{children}
   </section></div>, document.body)
 }
 

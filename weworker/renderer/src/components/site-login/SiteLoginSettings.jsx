@@ -42,7 +42,7 @@ export default function SiteLoginSettings() {
     void act(entry.site, () => api.siteAuthControl('set_autologin', { site: entry.site, enabled }))
   }
   const forget = async (entry) => {
-    if (!await showConfirm(`删除为 ${entry.name} 保存的账号密码？删除后需要时会改为手动登录。`, '删除保存的密码')) return
+    if (!await showConfirm(`删除为 ${entry.name} 保存的账号密码？删除后需要时会改为手动登录。`, '删除保存的密码', { danger: true })) return
     void act(entry.site, () => api.siteAuthControl('forget_credential', { site: entry.site }))
   }
 
@@ -59,7 +59,7 @@ export default function SiteLoginSettings() {
             </div>
           </div>
           <div className="settings-row-control">
-            <button type="button" className="settings-btn settings-btn-secondary" disabled={!!busy} onClick={() => act('refresh', () => refresh(true))}>刷新状态</button>
+            <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" disabled={!!busy} onClick={() => act('refresh', () => refresh(true))}>刷新状态</button>
           </div>
         </div>
         {error && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
@@ -78,14 +78,14 @@ export default function SiteLoginSettings() {
                 <div className="settings-row-desc">{entry.site} · {describeAutologin(entry)}</div>
               </div>
               <div className="settings-row-control" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <button type="button" className="settings-btn settings-btn-secondary" disabled={busy === entry.site || !!entry.flow}
+                <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" disabled={busy === entry.site || !!entry.flow}
                   onClick={() => act(entry.site, () => api.siteAuthControl('login', { site: entry.site }))}>登录</button>
                 {auto.supported && auto.configured && (
-                  <button type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site}
+                  <button data-app-button="action" type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site}
                     onClick={() => setDialog({ site: entry.site, name: entry.name })}>更新密码</button>
                 )}
                 {auto.supported && auto.configured && (
-                  <button type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site} onClick={() => forget(entry)}>删除密码</button>
+                  <button data-app-button="action" data-variant="danger" type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site} onClick={() => forget(entry)}>删除密码</button>
                 )}
                 {auto.supported && (
                   <AppSwitch aria-label={`${entry.name} 自动登录`} checked={auto.enabled === true} disabled={busy === entry.site}

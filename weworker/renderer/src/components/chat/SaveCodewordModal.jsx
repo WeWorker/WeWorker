@@ -148,8 +148,8 @@ export default function SaveCodewordModal({ selectedMessages, onClose }) {
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '8px 16px', fontSize: 13, fontWeight: 600 }}>取消</button>
-          <button
+          <button data-app-button="action" onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '8px 16px', fontSize: 13, fontWeight: 600 }}>取消</button>
+          <button data-app-button="action"
             onClick={handleSave}
             disabled={loading || saving || saved}
             style={{ background: saved ? 'var(--success)' : 'var(--accent)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: loading || saving ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1 }}

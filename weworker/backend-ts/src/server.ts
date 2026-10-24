@@ -674,7 +674,7 @@ app.post('/settings/provider', (req, res) => {
   }
   const parsedContextLimit = context_limit === undefined ? undefined : parseContextLimit(context_limit)
   if (context_limit !== undefined && parsedContextLimit === null) {
-    res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的整数，可使用 K/M 单位' })
+    res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位' })
     return
   }
   const updates: Partial<ReturnType<typeof getSettings>> = { ...nameUpdates }

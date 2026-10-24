@@ -171,7 +171,7 @@ export default function WorksList({ searchQuery = '' }) {
 
   const handleDeleteProject = async (group) => {
     if (!group.id || group.items.length > 0) return
-    if (!await showConfirm(`确定删除项目“${group.name}”及其空文件夹吗？`, '删除项目')) return
+    if (!await showConfirm(`确定删除项目“${group.name}”及其空文件夹吗？`, '删除项目', { danger: true })) return
     try {
       await deleteProject(group.id)
     } catch (error) {
@@ -311,7 +311,7 @@ function WorkItem({ work, active, onSelect, onDelete }) {
     if (deletePendingRef.current) return
     deletePendingRef.current = true
     try {
-      if (!await showConfirm(`确定删除对话“${work.title || '新任务'}”吗？删除后无法恢复。`, '删除对话')) return
+      if (!await showConfirm(`确定删除对话“${work.title || '新任务'}”吗？删除后无法恢复。`, '删除对话', { danger: true })) return
       await onDelete()
     } catch {
       // The store displays the deletion error and preserves the conversation.
@@ -454,24 +454,14 @@ function WorkItem({ work, active, onSelect, onDelete }) {
           )}
         </span>
         {!isRenaming && (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 2,
-              flexShrink: 0,
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? 'auto' : 'none',
-              transition: 'opacity 0.1s',
-            }}
-          >
+          <span className="sidebar-row-actions">
             <button
               type="button"
               title="重命名"
               aria-label={`重命名 ${work.title || '新任务'}`}
+              className="sidebar-row-action work-item-action"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); startRename() }}
-              style={workActionButtonStyle}
             >
               <RenameIcon size={13} />
             </button>
@@ -479,9 +469,9 @@ function WorkItem({ work, active, onSelect, onDelete }) {
               type="button"
               title="删除"
               aria-label={`删除 ${work.title || '新任务'}`}
+              className="sidebar-row-action work-item-action"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); handleDelete() }}
-              style={workActionButtonStyle}
             >
               <TrashIcon size={13} />
             </button>
@@ -642,7 +632,6 @@ const WorkContextMenu = React.forwardRef(({ x, y, currentLabel, onRename, onSele
     </div>
   )
 })
-
 function RenameIcon({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -650,20 +639,4 @@ function RenameIcon({ size = 14 }) {
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   )
-}
-
-const workActionButtonStyle = {
-  width: 18,
-  height: 18,
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'none',
-  border: 'none',
-  color: 'var(--text-muted)',
-  cursor: 'pointer',
-  padding: 0,
-  flexShrink: 0,
-  lineHeight: 1,
-  WebkitAppRegion: 'no-drag',
 }

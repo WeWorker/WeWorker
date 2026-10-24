@@ -68,8 +68,8 @@ export default function AutoLoginDialog({ site, name, onClose, onSaved }) {
         </label>
         {error && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <button type="button" className="settings-btn settings-btn-secondary" disabled={saving} onClick={() => onClose?.()}>取消</button>
-          <button type="submit" className="settings-btn settings-btn-primary" disabled={saving}>{saving ? '正在保存…' : '保存并开启'}</button>
+          <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" disabled={saving} onClick={() => onClose?.()}>取消</button>
+          <button data-app-button="action" type="submit" className="settings-btn settings-btn-primary" disabled={saving}>{saving ? '正在保存…' : '保存并开启'}</button>
         </div>
       </form>
     </div>

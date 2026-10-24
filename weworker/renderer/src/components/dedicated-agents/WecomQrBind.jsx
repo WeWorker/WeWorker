@@ -142,7 +142,7 @@ export default function WecomQrBind({ onBound, busy = false, autoStart = true, c
           {showQr && qrUrl && <canvas ref={canvasRef} aria-label={copy.qrLabel} />}
           {state === 'loading' && <LoadingOutlined style={{ fontSize: 28, color: '#999' }} />}
           {(state === 'expired' || state === 'error' || state === 'idle') && (
-            <Button onClick={start}>{state === 'idle' ? '获取二维码' : '刷新二维码'}</Button>
+            <Button data-app-button="action" onClick={start}>{state === 'idle' ? '获取二维码' : '刷新二维码'}</Button>
           )}
           {state === 'success' && <span style={{ color: '#16a34a', fontSize: 40 }} aria-label="扫码成功">✓</span>}
         </div>
@@ -180,7 +180,7 @@ export default function WecomQrBind({ onBound, busy = false, autoStart = true, c
               <label style={labelStyle} htmlFor="agent-bot-secret">Secret</label>
               <Input.Password id="agent-bot-secret" value={manual.secret} onChange={(event) => setManual((value) => ({ ...value, secret: event.target.value }))} placeholder="长连接 Secret" style={{ marginBottom: 10 }} autoComplete="off" />
               <Space>
-                <Button type="primary" onClick={submitManual} disabled={busy}>使用这个机器人</Button>
+                <Button data-app-button="action" type="primary" onClick={submitManual} disabled={busy}>使用这个机器人</Button>
               </Space>
             </div>
           )}
@@ -197,7 +197,7 @@ export function BotChannelPicker({ value, onChange, disabled = false }) {
       {[['wecom', '企业微信'], ['weixin', '微信']].map(([key, label]) => {
         const active = value === key
         return (
-          <button
+          <button data-app-button="action"
             key={key}
             type="button"
             role="radio"

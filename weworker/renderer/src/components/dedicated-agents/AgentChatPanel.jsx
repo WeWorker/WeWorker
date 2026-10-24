@@ -154,7 +154,7 @@ export default function AgentChatPanel({ agent, siteName, conversations, onConve
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <div style={hintStyle}>选择左侧的对话，或开始一个新对话。</div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={startConversation} disabled={creating}>开始新对话</Button>
+            <Button data-app-button="action" type="primary" icon={<PlusOutlined />} onClick={startConversation} disabled={creating}>开始新对话</Button>
           </div>
         )}
       </div>

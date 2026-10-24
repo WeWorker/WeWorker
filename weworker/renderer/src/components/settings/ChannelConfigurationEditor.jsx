@@ -294,7 +294,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
           </h4>
           {currentChannel && <div className="channel-settings-toolbar-actions">
           <ChannelProbeButton state={probeState} disabled={saving || appBotQrBusy[currentChannel.id] || !!appBotQrPending[currentChannel.id] || (currentChannel.id === 'weixin' && wxQrBusy) || (currentChannel.id === 'wecom' && (wecomQrBusy || !!wecomQrPending))} onClick={() => channelProbe.run(currentChannel.id)} />
-          <button type="button" onClick={handleSave} disabled={saving || wxQrBusy || wecomQrBusy || !!wecomQrPending || appBotQrActive} className="settings-btn settings-btn-primary">
+          <button data-app-button="action" type="button" onClick={handleSave} disabled={saving || wxQrBusy || wecomQrBusy || !!wecomQrPending || appBotQrActive} className="settings-btn settings-btn-primary">
             {saving ? '保存中…' : saved ? '已保存' : '保存配置'}
           </button></div>}
         </header>
@@ -401,15 +401,6 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
         </div>
         <div className="channel-settings-group channel-settings-group--config" role="group" aria-label="通道信息">
 
-        {/* Status indicator */}
-        <div className="channel-connection-row">
-          <span>说明</span>
-          <span className={`channel-connection-status${weixin.has_token ? ' is-connected' : ''}`} role="status">
-            <span className="channel-connection-status__dot" aria-hidden="true" />
-            <span>{weixin.has_token ? '已连接' : '未连接'}</span>
-          </span>
-        </div>
-
         <Field label="服务地址" hint="留空使用微信官方地址；仅支持已允许的服务地址">
           <input className="settings-input" aria-label="微信服务地址" disabled={wxQrBusy || saving}
             value={wxForm.base_url} onChange={e => setWxForm(f => ({ ...f, base_url: e.target.value }))}
@@ -423,11 +414,11 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
 
         {/* QR Login */}
         <div style={{ marginBottom: 12 }}>
-          <button onClick={startQrLogin} disabled={wxQrBusy || saving} style={{ ...btnSmallStyle, marginBottom: 8 }}>
+          <button data-app-button="action" onClick={startQrLogin} disabled={wxQrBusy || saving} style={{ ...btnSmallStyle, marginBottom: 8 }}>
             {qrStatus === 'loading' ? '获取中...' : weixin.has_token ? '重新扫码登录' : '扫码登录'}
           </button>
 
-          {wxQrBusy && <button type="button" className="settings-btn settings-btn-secondary" onClick={() => { stopPolling(); setQrStatus(''); setQrMsg(''); setQrData(null) }}>取消扫码</button>}
+          {wxQrBusy && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { stopPolling(); setQrStatus(''); setQrMsg(''); setQrData(null) }}>取消扫码</button>}
           {qrData && (
             <div style={{ textAlign: 'center', padding: 12, background: '#fff', borderRadius: 8, marginBottom: 8 }}>
               <canvas ref={canvasRef} />
@@ -480,7 +471,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
         <div className="channel-settings-group channel-settings-group--config" role="group" aria-label="通道信息">
         {wecomQrPending && <div role="status" className="channel-settings-feedback">
           {wecomQrSaving ? '正在保存机器人配置…' : '机器人已创建，配置尚未保存。请重试保存，无需重新扫码。'}
-          {!wecomQrSaving && <button type="button" className="settings-btn settings-btn-secondary" onClick={async () => {
+          {!wecomQrSaving && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={async () => {
             setSaveMessage(null)
             try {
               await saveWecomQr()

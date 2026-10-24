@@ -176,7 +176,7 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
   const handleDeleteSelected = async () => {
     if (selected.size === 0) return
     const ids = [...selected].sort((a, b) => a - b).map(i => messages[i]?.id).filter(Boolean)
-    if (!ids.length || !await showConfirm(`确定删除 ${ids.length} 条消息？`, '删除消息')) return
+    if (!ids.length || !await showConfirm(`确定删除 ${ids.length} 条消息？`, '删除消息', { danger: true })) return
     exitSelectMode()
     try {
       await backendFetch(`${API}/works/${workId}/messages/delete`, {
@@ -189,7 +189,7 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
 
   const handleDeleteSingle = async (i) => {
     const msg = messages[i]
-    if (!msg?.id || !await showConfirm('确定删除这条消息？', '删除消息')) return
+    if (!msg?.id || !await showConfirm('确定删除这条消息？', '删除消息', { danger: true })) return
     try {
       await backendFetch(`${API}/works/${workId}/messages/delete`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -535,7 +535,7 @@ function TbBtn({ label, onClick, primary, danger, disabled }) {
   const color = disabled ? 'var(--text-muted)' : primary ? '#fff' : danger ? 'var(--error)' : 'var(--text-secondary)'
   const border = primary || disabled ? 'none' : `1px solid ${danger ? 'var(--error)' : 'var(--border)'}`
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button data-app-button="action" data-variant={danger ? 'danger' : undefined} onClick={onClick} disabled={disabled}
       style={{ height: 26, background: bg, color, border, borderRadius: 7, padding: '0 11px', fontSize: 12, cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: primary ? 600 : 500, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
       {label}
     </button>

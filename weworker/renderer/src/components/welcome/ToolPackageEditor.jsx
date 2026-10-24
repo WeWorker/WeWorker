@@ -1561,7 +1561,7 @@ export default function ToolPackageEditor({
       throw new Error('官方场景不可删除')
     }
     const scenarioName = selectedScenario.title || '未命名场景'
-    if (!await showConfirm(`确定删除自定义场景「${scenarioName}」吗？删除后无法直接恢复。`, '删除场景')) return false
+    if (!await showConfirm(`确定删除自定义场景「${scenarioName}」吗？删除后无法直接恢复。`, '删除场景', { danger: true })) return false
     const scenarioSiteId = resolveScenarioSiteId(selectedScenario, scenarioSiteIds, site.id)
     const apiScenarioId = resolveScenarioApiId(selectedScenario)
     const listKey = scenarioKey(selectedScenario)
@@ -1720,7 +1720,7 @@ export default function ToolPackageEditor({
   const deleteCustomSkill = async () => {
     if (!selectedIsCustom || !selectedTool) return
     const skillName = selectedTool.name || selectedTool.id || '未命名 skill'
-    if (!await showConfirm(`确定删除自定义 skill「${skillName}」吗？删除后无法直接恢复。`, '删除 Skill')) return
+    if (!await showConfirm(`确定删除自定义 skill「${skillName}」吗？删除后无法直接恢复。`, '删除 Skill', { danger: true })) return
     if (selectedTool.source === 'public-custom') {
       const diskName = selectedTool.id || selectedTool.name
       try {
@@ -1789,7 +1789,7 @@ export default function ToolPackageEditor({
         <aside className={`scrollbar-hover-only${showSkillsRightPane ? ' skill-catalog-workspace' : ''}${showScenarioWorkspace ? ' scenario-workspace-sidebar' : ''}`} style={{ ...leftPaneStyle, flex: showSkillsRightPane ? '1 1 0' : `0 0 ${leftPaneWidth}px`, width: showSkillsRightPane ? undefined : leftPaneWidth, maxWidth: showSkillsRightPane ? undefined : leftPaneWidth }}>
           {showScenarioWorkspace ? (
             <>
-              <button
+              <button data-app-button="action"
                 type="button"
                 className="tool-package-primary-btn"
                 onClick={addScenario}
@@ -1851,7 +1851,7 @@ export default function ToolPackageEditor({
             />
             <SkillAddMenu busy={importingSkillZip} onUpload={importSkillZipFile} onCreate={createBlankSkill} />
           </div>
-          {skillsLoadError && <div role="alert">{skillsLoadError}<button type="button" onClick={() => reloadPublicSkills().catch(error => setSkillsLoadError(error.message))}>重试</button></div>}
+          {skillsLoadError && <div role="alert">{skillsLoadError}<button data-app-button="action" type="button" onClick={() => reloadPublicSkills().catch(error => setSkillsLoadError(error.message))}>重试</button></div>}
           <ToolList tools={visibleSkills} selectedTool={selectedTool} onSelect={selectTool} getTags={getTags} onToggle={toggleSkill} togglingSkills={togglingSkills} />
           {!visibleSkills.length && <div style={emptyEditorStyle}>没有匹配的 skill。</div>}
             </>
@@ -3217,7 +3217,7 @@ function SkillDocumentEditor({ tags, onTagsChange, tool, site, scenarios, editab
     const confirmMessage = isFolder
       ? `确定删除文件夹「${name}」及其中的所有文件吗？`
       : `确定删除资源文件「${name}」吗？`
-    if (!await showConfirm(confirmMessage, '删除资源')) return
+    if (!await showConfirm(confirmMessage, '删除资源', { danger: true })) return
     const nextResources = isFolder
       ? removeResourcePath(resources, relativePath)
       : removeResourceFile(resources, relativePath)
@@ -3273,7 +3273,7 @@ function SkillDocumentEditor({ tags, onTagsChange, tool, site, scenarios, editab
                 <OpenSkillFolderButton site={site} tool={tool} />
               )}
               <CustomSkillBuiltinVarsHelp site={site} tool={tool} />
-              <button type="button" onClick={onDelete} style={dangerButtonStyle}>删除</button>
+              <button data-app-button="action" data-variant="danger" type="button" onClick={onDelete} style={dangerButtonStyle}>删除</button>
             </div>
           )}
         </>
@@ -3437,7 +3437,7 @@ function OpenSkillFolderButton({ site, tool }) {
   }
 
   return (
-    <button
+    <button data-app-button="action"
       type="button"
       onClick={handleOpenFolder}
       disabled={opening}

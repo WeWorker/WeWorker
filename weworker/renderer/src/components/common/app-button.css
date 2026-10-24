@@ -1,0 +1,137 @@
+/* Shared action-button skin, including confirmation-dialog buttons.
+   Native actions opt in with data-app-button="action".
+   Destructive actions use data-variant="danger" (Ant Design: danger).
+   Icons, navigation, menus, tabs, disclosures and switches keep their original skin.
+   The layer's important declarations intentionally override legacy inline and
+   page-specific skins without specificity races or changing click handlers. */
+:root,
+html.light {
+  --button-bg: #f3f3f4;
+  --button-hover-bg: #e8e8e8;
+  --button-active-bg: #dedee0;
+  --button-text: #1a1c1f;
+  --button-danger-bg: #fbeae9;
+  --button-danger-hover-bg: #f9d5d4;
+  --button-danger-active-bg: #f5c1bf;
+  --button-danger-text: #e02e2a;
+  --button-focus-ring: #74767a;
+  --button-height: 32px;
+  --button-radius: 12px;
+}
+
+html.dark {
+  --button-bg: #2b2c2f;
+  --button-hover-bg: #383a3e;
+  --button-active-bg: #45474c;
+  --button-text: #f1f1f2;
+  --button-danger-bg: #422627;
+  --button-danger-hover-bg: #593032;
+  --button-danger-active-bg: #6b3739;
+  --button-danger-text: #ff8b86;
+  --button-focus-ring: #b8bbc1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --button-bg: #2b2c2f;
+    --button-hover-bg: #383a3e;
+    --button-active-bg: #45474c;
+    --button-text: #f1f1f2;
+    --button-danger-bg: #422627;
+    --button-danger-hover-bg: #593032;
+    --button-danger-active-bg: #6b3739;
+    --button-danger-text: #ff8b86;
+    --button-focus-ring: #b8bbc1;
+  }
+}
+
+@layer app-buttons {
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn) {
+    --action-bg: var(--button-bg);
+    --action-hover-bg: var(--button-hover-bg);
+    --action-active-bg: var(--button-active-bg);
+    --action-text: var(--button-text);
+    box-sizing: border-box !important;
+    background: var(--action-bg) !important;
+    color: var(--action-text) !important;
+    border: 1px solid transparent !important;
+    border-radius: var(--button-radius) !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    font-family: inherit !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    line-height: 20px !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    transform: none !important;
+    transition: background-color 140ms ease, opacity 140ms ease !important;
+    -webkit-app-region: no-drag;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn):is([data-variant='danger'], .ant-btn-dangerous) {
+    --action-bg: var(--button-danger-bg);
+    --action-hover-bg: var(--button-danger-hover-bg);
+    --action-active-bg: var(--button-danger-active-bg);
+    --action-text: var(--button-danger-text);
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn) {
+    display: inline-flex;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 6px !important;
+    min-height: var(--button-height) !important;
+    padding: 5px 12px !important;
+  }
+
+  [data-app-button='action'] {
+    height: auto !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn).ant-btn-sm {
+    min-height: 28px !important;
+    padding: 3px 10px !important;
+    border-radius: 10px !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn).ant-btn-lg {
+    min-height: 40px !important;
+    padding: 9px 16px !important;
+    font-size: 14px !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn):not(:disabled):not([aria-disabled='true']):not(.ant-btn-loading):is(:hover, :focus-visible) {
+    background: var(--action-hover-bg) !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn):not(:disabled):not([aria-disabled='true']):not(.ant-btn-loading):is(:active, [aria-pressed='true'], [aria-expanded='true'], .is-active) {
+    background: var(--action-active-bg) !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn):focus-visible {
+    outline: 2px solid var(--button-focus-ring) !important;
+    outline-offset: 2px !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn):is(:disabled, [aria-disabled='true'], .ant-btn-loading) {
+    background: var(--action-bg) !important;
+    opacity: 0.45 !important;
+    cursor: not-allowed !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn).ant-btn-loading {
+    cursor: progress !important;
+  }
+
+  :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn) > .anticon {
+    color: inherit !important;
+    font-size: 14px !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn) {
+      transition: none !important;
+    }
+  }
+}

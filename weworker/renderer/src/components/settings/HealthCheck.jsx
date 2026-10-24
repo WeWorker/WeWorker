@@ -109,7 +109,7 @@ export default function HealthCheck({ onClose }) {
                       {site.prompts.map((prompt, pi) => (
                         <div key={pi} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderTop: pi > 0 ? '1px solid var(--border)' : 'none' }}>
                           <span style={{ flex: 1, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prompt}</span>
-                          <button
+                          <button data-app-button="action"
                             onClick={() => runTest({ siteId: site.siteId, siteName: site.siteName, toolNames: site.toolNames, prompt })}
                             style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 8px', fontSize: 10, cursor: 'pointer', color: 'var(--text-muted)', fontFamily: 'inherit', flexShrink: 0 }}
                           >

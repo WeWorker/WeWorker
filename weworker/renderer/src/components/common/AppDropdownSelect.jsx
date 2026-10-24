@@ -159,7 +159,11 @@ export default function AppDropdownSelect({
               aria-expanded={open}
               aria-controls={listId}
               aria-autocomplete="list"
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                const list = menuRef.current?.querySelector('[role="listbox"]')
+                if (list) list.scrollTop = 0
+              }}
               onKeyDown={handleSearchKeyDown}
             />
           </div>
@@ -180,6 +184,18 @@ export default function AppDropdownSelect({
             triggerRef.current?.focus()
           }
         }}>
+          {customOption ? (
+            <button
+              type="button"
+              role="option"
+              aria-selected={value === customOption.value}
+              onClick={() => commitValue(customOption.value)}
+              className={`${dropdownMenuItemClassName({ selected: value === customOption.value })} app-dropdown-select__custom-option`}
+            >
+              <span className="app-dropdown-menu-item__label">{customOptionText}</span>
+              <DropdownMenuCheck selected={value === customOption.value} />
+            </button>
+          ) : null}
           {visibleOptions.map((option) => {
             const removable = option.removable === true && typeof onRemoveOption === 'function'
             const optionButton = (
@@ -227,18 +243,6 @@ export default function AppDropdownSelect({
               </div>
             ) : React.cloneElement(optionButton, { key: option.value })
           })}
-          {customOption ? (
-            <button
-              type="button"
-              role="option"
-              aria-selected={value === customOption.value}
-              onClick={() => commitValue(customOption.value)}
-              className={`${dropdownMenuItemClassName({ selected: value === customOption.value })} app-dropdown-select__custom-option`}
-            >
-              <span className="app-dropdown-menu-item__label">{customOptionText}</span>
-              <DropdownMenuCheck selected={value === customOption.value} />
-            </button>
-          ) : null}
           {searchable && !customOption && visibleOptions.length === 0 ? (
             <div className="app-dropdown-select__empty" role="presentation">
               {String(query).trim() ? '没有匹配项' : '暂无可选内容，可直接输入'}

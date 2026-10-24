@@ -73,7 +73,7 @@ export default function FirstLaunchGuide({ onClose }) {
 
         <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>之后可在左下角"?"重新查看此指南</span>
-          <button
+          <button data-app-button="action"
             onClick={onClose}
             disabled={!agreed}
             style={{

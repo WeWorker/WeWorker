@@ -67,21 +67,21 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
   return <div className="website-exploration wx-page">
     <header className="wx-topbar"><div className="wx-actions"><button className="wx-icon-button" title="Adapter 列表" aria-label="Adapter 列表" aria-expanded={treeVisible} onClick={() => setTreeVisible(!treeVisible)}><Icon name="panel" /></button><h1>网站探索agent</h1></div>
       <div className="wx-actions">
-        {globalBusy && <button className="wx-quiet" onClick={() => { const activity = status.data.activity; void changeWebsiteContext({ toolkitId: activity.toolkit_id || toolkitId, toolId: activity.tool_id || toolId, workspace: activity.kind === 'development' ? 'develop' : activity.kind === 'debug' ? 'verify' : 'explore' }) }}>查看当前活动</button>}
+        {globalBusy && <button data-app-button="action" className="wx-quiet" onClick={() => { const activity = status.data.activity; void changeWebsiteContext({ toolkitId: activity.toolkit_id || toolkitId, toolId: activity.tool_id || toolId, workspace: activity.kind === 'development' ? 'develop' : activity.kind === 'debug' ? 'verify' : 'explore' }) }}>查看当前活动</button>}
         <ActionMenu label={unavailable ? '服务未就绪' : status.data?.browser.running ? '浏览器已连接' : '浏览器未连接'}>
           <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(tool?.start_url || ''))}>打开浏览器</button>
         </ActionMenu>
-        {!unavailable && !status.data?.browser.running && <button onClick={() => action.run(() => api.openBrowser(tool?.start_url || ''))} disabled={action.busy}>连接浏览器</button>}
+        {!unavailable && !status.data?.browser.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(tool?.start_url || ''))} disabled={action.busy}>连接浏览器</button>}
       </div>
     </header>
     <ErrorMessage>{status.error || catalog.error || action.error}</ErrorMessage>
     {!modelConnection && <p role="status">正在检查模型连接…</p>}
     {modelConnection && !modelConnection.ok && <div className="wx-actions" role="status">
       <p>{connectionMessage(modelConnection)}</p>
-      <button onClick={() => setModelRetry(value => value + 1)}>重试</button>
-      <button onClick={onOpenSettings}>模型设置</button>
+      <button data-app-button="action" onClick={() => setModelRetry(value => value + 1)}>重试</button>
+      <button data-app-button="action" onClick={onOpenSettings}>模型设置</button>
     </div>}
-    {unavailable && <div className="wx-actions"><p>正在等待客户端托管的网站探索服务。连接恢复后会自动同步。</p><button onClick={() => action.run(async () => {})}>重新检查</button></div>}
+    {unavailable && <div className="wx-actions"><p>正在等待客户端托管的网站探索服务。连接恢复后会自动同步。</p><button data-app-button="action" onClick={() => action.run(async () => {})}>重新检查</button></div>}
     <div className="wx-layout">
       {treeVisible && <aside className="wx-tree" aria-label="Adapter 目录">
         <header><h2>Adapters</h2><button className="wx-icon-button" aria-label="新建 Adapter" title="新建 Adapter" disabled={unavailable || globalBusy} onClick={() => setModal({ kind: 'kit', create: true })}><Icon name="plus" /></button></header>
@@ -146,9 +146,9 @@ function ManageModal({ config, toolkitId, onClose, onSaved }) {
         const props = { 'aria-label': label, required, 'aria-invalid': invalid, disabled: name === 'name' && !config.create, value: values[name] || '', onBlur: () => setTouched(current => ({ ...current, [name]: true })), onChange: e => setValues({ ...values, [name]: e.target.value }) }
         return <label key={name}><span>{label}{required && <RequiredMark />}</span>{name === 'allowed_domains' ? <textarea {...props} rows={4} /> : <input {...props} />}{invalid && <small className="wx-required">请填写{label.split('，')[0]}</small>}</label>
       })}
-      <ErrorMessage>{action.error}</ErrorMessage><footer>{!config.create && <button type="button" className="wx-danger" onClick={() => setDeleting(true)}>删除</button>}<button type="button" onClick={onClose}>取消</button><button className="wx-primary" disabled={action.busy || incomplete} title={incomplete ? '请填写所有必填项' : undefined}>保存</button></footer>
+      <ErrorMessage>{action.error}</ErrorMessage><footer>{!config.create && <button data-app-button="action" data-variant="danger" type="button" className="wx-danger" onClick={() => setDeleting(true)}>删除</button>}<button data-app-button="action" type="button" onClick={onClose}>取消</button><button data-app-button="action" className="wx-primary" disabled={action.busy || incomplete} title={incomplete ? '请填写所有必填项' : undefined}>保存</button></footer>
     </form>
-    {deleting && <section className="wx-delete"><p>确认删除{isKit ? '此 Adapter 及其 Tool' : '此 Tool'}？相关内容将被移除。</p><button onClick={() => setDeleting(false)}>取消删除</button><button className="wx-danger" disabled={action.busy} onClick={() => action.run(async () => {
+    {deleting && <section className="wx-delete"><p>确认删除{isKit ? '此 Adapter 及其 Tool' : '此 Tool'}？相关内容将被移除。</p><button data-app-button="action" onClick={() => setDeleting(false)}>取消删除</button><button data-app-button="action" data-variant="danger" className="wx-danger" disabled={action.busy} onClick={() => action.run(async () => {
       if (!await useStore.getState().guard()) return
       if (isKit) await api.deleteToolkit(toolkitId)
       else await api.deleteTool(toolkitId, config.value.tool_id)
@@ -168,7 +168,7 @@ function VerifyWorkspace({ kit, tool, disabled, globalBusy }) {
   const action = useAction(snapshot.refresh)
   const eligible = snapshot.data?.export_eligible
   return <div className="wx-verify"><header><div><h2>正式产物验证</h2><p>全部正式 Tool 通过当前产物验证后，即可导出或安装。</p></div><div className="wx-actions">
-    <button disabled={!eligible || disabled || globalBusy || action.busy} onClick={() => action.run(async () => {
+    <button data-app-button="action" disabled={!eligible || disabled || globalBusy || action.busy} onClick={() => action.run(async () => {
       if (window.electronAPI?.downloadWebsiteAdapter) {
         setDownloading(true)
         try {
@@ -182,15 +182,15 @@ function VerifyWorkspace({ kit, tool, disabled, globalBusy }) {
       const link = document.createElement('a'); link.href = url; link.download = kit.name + '.zip'; link.click()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
     })}>导出 Adapter</button>
-    {downloading && <button onClick={() => window.electronAPI?.cancelWebsiteAdapterDownload?.()}>取消导出</button>}
-    <button className={eligible ? "wx-primary" : "wx-quiet"} disabled={!eligible || disabled || globalBusy || action.busy} onClick={() => action.run(async () => {
+    {downloading && <button data-app-button="action" onClick={() => window.electronAPI?.cancelWebsiteAdapterDownload?.()}>取消导出</button>}
+    <button data-app-button="action" className={eligible ? "wx-primary" : "wx-quiet"} disabled={!eligible || disabled || globalBusy || action.busy} onClick={() => action.run(async () => {
       const result = await api.installToolkitToWeWorker(kit.toolkit_id)
       setInstalledSkill(result.skill_name || '')
       setMessage(result.status === 'updated' ? 'Adapter 已更新' : result.status === 'unchanged' ? '已安装最新版本' : 'Adapter 已安装')
       useToolPackagePageStore.setState(s => ({ openSessionId: s.openSessionId + 1 }))
     })}>安装到 WeWorker</button>
   </div></header>
-    <ErrorMessage>{snapshot.error || snapshot.data?.error || action.error}</ErrorMessage>{message && <p role="status">{message} {installedSkill && <button onClick={async () => { if (await useStore.getState().guard()) { useStore.setState({ open: false }); useToolPackagePageStore.getState().openPage('', { publicSkillName: installedSkill }) } }}>查看已安装能力</button>}</p>}
+    <ErrorMessage>{snapshot.error || snapshot.data?.error || action.error}</ErrorMessage>{message && <p role="status">{message} {installedSkill && <button data-app-button="action" onClick={async () => { if (await useStore.getState().guard()) { useStore.setState({ open: false }); useToolPackagePageStore.getState().openPage('', { publicSkillName: installedSkill }) } }}>查看已安装能力</button>}</p>}
     {!eligible && <p>待验证：{snapshot.data?.unverified_tools?.join('、') || '请先将开发中版本应用到 Adapter'}</p>}
     <table><thead><tr><th>Tool</th><th>当前产物</th></tr></thead><tbody>{snapshot.data?.tools?.map(item => <tr key={item.tool_id}><td><button className="wx-quiet" aria-current={formal?.tool_id === item.tool_id ? 'true' : undefined} onClick={() => setSelectedId(item.tool_id)}>{item.tool_id}</button></td><td>{item.verified ? '已验证' : '待验证'}</td></tr>)}</tbody></table>
     {formal && <section><h3>{formal.name}</h3><TestRunner key={formal.tool_id + formal.distribution_hash} toolkitId={kit.toolkit_id} tool={formal} slot={formal} channel="formal" primary={!eligible} disabled={disabled || globalBusy} onRefresh={snapshot.refresh} onEvidence={run => action.run(async () => {
@@ -229,6 +229,6 @@ export function WebsiteExplorationGuard() {
   }, [])
   if (!leave) return null
   return <Modal title="有未保存的代码修改" onClose={() => useStore.getState().resolveLeave(false)}><p>保存当前代码后继续，或明确放弃修改。</p><ErrorMessage>{action.error}</ErrorMessage><footer>
-    <button onClick={() => useStore.getState().resolveLeave(false)}>留在当前页</button><button disabled={action.busy} onClick={() => { useStore.setState({ codeDraft: null }); useStore.getState().resolveLeave(true) }}>放弃修改</button><button className="wx-primary" disabled={action.busy || emptyCode} title={emptyCode ? '请先填写代码' : undefined} onClick={() => action.run(async () => { await useStore.getState().saveCode(); useStore.getState().resolveLeave(true) })}>保存并继续</button>
+    <button data-app-button="action" onClick={() => useStore.getState().resolveLeave(false)}>留在当前页</button><button data-app-button="action" data-variant="danger" disabled={action.busy} onClick={() => { useStore.setState({ codeDraft: null }); useStore.getState().resolveLeave(true) }}>放弃修改</button><button data-app-button="action" className="wx-primary" disabled={action.busy || emptyCode} title={emptyCode ? '请先填写代码' : undefined} onClick={() => action.run(async () => { await useStore.getState().saveCode(); useStore.getState().resolveLeave(true) })}>保存并继续</button>
   </footer></Modal>
 }

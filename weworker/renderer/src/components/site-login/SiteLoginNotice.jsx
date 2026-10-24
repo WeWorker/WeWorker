@@ -75,7 +75,7 @@ export default function SiteLoginNotice() {
               {notice.view.actions.length > 0 && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                   {notice.view.actions.map((action) => (
-                    <button key={action} type="button" style={buttonStyle} onClick={() => run(notice, action)}>{LOGIN_ACTION_LABELS[action]}</button>
+                    <button data-app-button="action" key={action} type="button" style={buttonStyle} onClick={() => run(notice, action)}>{LOGIN_ACTION_LABELS[action]}</button>
                   ))}
                 </div>
               )}

@@ -98,7 +98,7 @@ function ReviseBox({ siteId, skillName, markdown, onRevised }) {
           disabled={busy}
           aria-label="让 AI 修改 Skill"
         />
-        <Button onClick={run} disabled={!instruction.trim() || busy} icon={busy ? <LoadingOutlined /> : null}>
+        <Button data-app-button="action" onClick={run} disabled={!instruction.trim() || busy} icon={busy ? <LoadingOutlined /> : null}>
           {busy ? '修改中' : 'AI 修改'}
         </Button>
       </Space.Compact>
@@ -239,7 +239,7 @@ export default function SkillComposer({ draft, onChange, site }) {
               <label style={labelStyle} htmlFor="agent-skill-name">{requiredMark}Skill 名称</label>
               <Input id="agent-skill-name" value={draft.skillName} onChange={(event) => onChange({ skillName: event.target.value.trim() })} placeholder="例如 invoice-review-helper" />
             </div>
-            <Button type="primary" onClick={generate} disabled={generating || (!draft.goal?.trim() && !draft.knowledge?.trim())} icon={generating ? <LoadingOutlined /> : null}>
+            <Button data-app-button="action" type="primary" onClick={generate} disabled={generating || (!draft.goal?.trim() && !draft.knowledge?.trim())} icon={generating ? <LoadingOutlined /> : null}>
               {generating ? 'AI 正在整理（约 30–90 秒）' : draft.skillMarkdown ? '重新生成' : '生成 Skill'}
             </Button>
           </div>
@@ -283,7 +283,7 @@ export default function SkillComposer({ draft, onChange, site }) {
                 />
               </div>
             </div>
-            <Button onClick={importExistingSkill} loading={importing} icon={<UploadOutlined />}>导入 .md / .zip</Button>
+            <Button data-app-button="action" onClick={importExistingSkill} loading={importing} icon={<UploadOutlined />}>导入 .md / .zip</Button>
           </div>
           <div style={hintStyle}>可以从本机导入单个 Markdown，或导入含有 `SKILL.md` 的 ZIP 包。导入的 Skill 默认仅专属 Agent 使用，不影响主对话。</div>
           {importMessage && <Alert type="success" showIcon style={{ marginTop: 10 }} message={importMessage} />}
@@ -361,8 +361,8 @@ export function SkillEditorCard({ skillName, siteId }) {
       <Input.TextArea value={markdown} onChange={(event) => setMarkdown(event.target.value)} style={markdownEditorStyle} aria-label="专属 Skill 内容" />
       <ReviseBox siteId={siteId} skillName={skillName} markdown={markdown} onRevised={setMarkdown} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
-        <Button type="primary" onClick={save} disabled={!dirty || state === 'saving'}>{state === 'saving' ? '保存中…' : '保存 Skill'}</Button>
-        {dirty && <Button onClick={() => setMarkdown(original)}>撤销修改</Button>}
+        <Button data-app-button="action" type="primary" onClick={save} disabled={!dirty || state === 'saving'}>{state === 'saving' ? '保存中…' : '保存 Skill'}</Button>
+        {dirty && <Button data-app-button="action" onClick={() => setMarkdown(original)}>撤销修改</Button>}
         {message && <span style={{ ...hintStyle, color: message.ok ? 'var(--success, #22c55e)' : 'var(--error, #ef4444)' }}>{message.text}</span>}
       </div>
     </div>

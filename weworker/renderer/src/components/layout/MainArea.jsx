@@ -22,7 +22,7 @@ import { requestChatWarmup } from '../../api/backend.js'
 import { buildOpenWarmupRequest } from '../../utils/chat-warmup.js'
 import { scheduledTasksPageState } from '../../utils/scheduled-tasks-view.js'
 
-export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSection }) {
+export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSection, compactLayout = false }) {
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
   const createWork = useWorksStore((s) => s.createWork)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
@@ -101,7 +101,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
   if (dedicatedAgentsOpen) {
     return (
       <MainWorkspaceShell>
-        <DedicatedAgentsPage sidebarWidth={sidebarWidth} />
+        <DedicatedAgentsPage sidebarWidth={sidebarWidth} compactLayout={compactLayout} />
       </MainWorkspaceShell>
     )
   }
@@ -141,7 +141,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
           ) : tasksPageState === 'error' ? (
             <>
               <p style={{ margin: '10px 0 0', fontSize: 13 }}>请检查服务连接后重试。</p>
-              <button
+              <button data-app-button="action"
                 type="button"
                 onClick={() => { void loadTasks() }}
                 style={{ marginTop: 16, padding: '7px 14px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer' }}

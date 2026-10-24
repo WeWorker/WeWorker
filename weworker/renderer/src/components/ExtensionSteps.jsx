@@ -80,7 +80,7 @@ export function StepList({ steps, onCopy, copied }) {
                     padding: '5px 8px', color: 'var(--accent)',
                     fontFamily: 'monospace', wordBreak: 'break-all',
                   }}>{step.path}</code>
-                  <button
+                  <button data-app-button="action"
                     onClick={onCopy}
                     style={{
                       flexShrink: 0, background: 'var(--bg-primary)',
@@ -97,7 +97,7 @@ export function StepList({ steps, onCopy, copied }) {
             )}
 
             {step.action && (
-              <button
+              <button data-app-button="action"
                 onClick={step.action.onClick}
                 style={{
                   marginTop: 8, background: 'var(--accent)', color: '#fff',

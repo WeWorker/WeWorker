@@ -41,8 +41,8 @@ export default function DialogHost() {
         <h2 id="weworker-dialog-title">{current.title}</h2>
         <p>{current.message}</p>
         <footer>
-          {isConfirm && <button type="button" className="weworker-dialog__button" onClick={() => resolve(false)}>取消</button>}
-          <button type="button" className={`weworker-dialog__button${isConfirm ? ' is-primary' : ''}`} onClick={() => resolve(true)}>
+          {isConfirm && <button data-app-button="action" type="button" className="weworker-dialog__button" onClick={() => resolve(false)}>取消</button>}
+          <button data-app-button="action" data-variant={isConfirm && current.danger ? 'danger' : undefined} type="button" className={`weworker-dialog__button${isConfirm ? ' is-primary' : ''}`} onClick={() => resolve(true)}>
             {isConfirm ? '确定' : '知道了'}
           </button>
         </footer>

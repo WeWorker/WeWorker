@@ -14,7 +14,7 @@ export default function MessageQueue({ state, controller, disabled = false }) {
           {collapsed ? <DownOutlined /> : <UpOutlined />}<span>{state.items.length} 条排队中</span>
         </button>
         {state.pausedReason && !state.transitioning
-          ? <button type="button" disabled={locked} onClick={() => controller.resume()}>继续队列</button>
+          ? <button data-app-button="action" type="button" disabled={locked} onClick={() => controller.resume()}>继续队列</button>
           : <span>当前回复结束后依次发送</span>}
       </div>
       {state.pausedReason && <div className="message-queue__notice" role="status">{state.pausedReason}</div>}
@@ -31,15 +31,15 @@ export default function MessageQueue({ state, controller, disabled = false }) {
                     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); controller.saveEdit(item.id, draft) }
                   }} />
                 <div className="message-queue__edit-actions">
-                  <button type="button" disabled={locked} onClick={() => controller.cancelEdit()}>取消</button>
-                  <button type="button" disabled={locked || (!draft.trim() && !item.files.length)} onClick={() => controller.saveEdit(item.id, draft)}>保存</button>
+                  <button data-app-button="action" type="button" disabled={locked} onClick={() => controller.cancelEdit()}>取消</button>
+                  <button data-app-button="action" type="button" disabled={locked || (!draft.trim() && !item.files.length)} onClick={() => controller.saveEdit(item.id, draft)}>保存</button>
                 </div>
               </div>
             ) : <div className="message-queue__preview" title={item.text}>{item.text || '附件消息'}</div>}
             {item.files.length > 0 && <div className="message-queue__files">{item.files.map((file, fileIndex) => <span key={fileIndex} title={file.name}>📎 {file.name}</span>)}</div>}
           </div>
           {state.editingId !== item.id && <div className="message-queue__actions">
-            <button type="button" disabled={locked} title="立即发送：作为补充指令接入当前执行，不中断工具" aria-label={'立即发送第 ' + (index + 1) + ' 条消息'} onClick={() => { void controller.sendNow(item.id).catch(() => {}) }}>
+            <button data-app-button="action" type="button" disabled={locked} title="立即发送：作为补充指令接入当前执行，不中断工具" aria-label={'立即发送第 ' + (index + 1) + ' 条消息'} onClick={() => { void controller.sendNow(item.id).catch(() => {}) }}>
               <SendOutlined /><span>立即发送</span>
             </button>
             <button type="button" disabled={locked} title="编辑" aria-label={'编辑第 ' + (index + 1) + ' 条消息'} onClick={() => controller.beginEdit(item.id)}><EditOutlined /></button>

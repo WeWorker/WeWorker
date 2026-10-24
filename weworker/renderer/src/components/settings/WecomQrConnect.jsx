@@ -80,10 +80,10 @@ export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChan
 
   return <div className="wecom-qr-connect">
     <div className="wecom-qr-connect__actions">
-      <button type="button" className="settings-btn settings-btn-secondary" onClick={start} disabled={busy || disabled}>
+      <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={start} disabled={busy || disabled}>
         {state.status === 'loading' ? <LoadingOutlined spin aria-hidden="true" /> : <QrcodeOutlined aria-hidden="true" />} {state.status === 'expired' || state.status === 'error' ? '重新获取二维码' : channel === 'qq' ? '扫码绑定机器人' : '扫码创建机器人'}
       </button>
-      {busy && state.status !== 'saving' && <button type="button" className="settings-btn settings-btn-secondary" onClick={() => { cancelRun(); setState({ status: 'idle', message: '', image: '' }) }}>取消扫码</button>}
+      {busy && state.status !== 'saving' && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { cancelRun(); setState({ status: 'idle', message: '', image: '' }) }}>取消扫码</button>}
       {!state.message && <span>扫码确认后自动保存并启用，也可在下方手动填写</span>}
     </div>
     {channel === 'qq' && <p>还没有机器人？<a href="https://q.qq.com/qqbot/openclaw/login.html" target="_blank" rel="noreferrer">扫码创建 QQ 机器人</a>，完成后返回这里扫码绑定。</p>}

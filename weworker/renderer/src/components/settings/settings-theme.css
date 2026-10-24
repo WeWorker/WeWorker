@@ -251,6 +251,13 @@
   max-width: 320px;
 }
 
+/* Offset only: keep the chooser inside its original pill, aligned with Save.
+   The inset compensates for the pill's 6px end padding and 1px border. */
+.settings-pill--directory {
+  position: relative;
+  inset-inline-start: 7px;
+}
+
 .settings-pill-input {
   flex: 1;
   min-width: 0;
@@ -1354,42 +1361,6 @@
 .channel-settings-status { margin-left: auto; white-space: nowrap; color: var(--text-muted); font-size: 10px; }
 .channel-settings-status.is-enabled { color: var(--success); }
 
-.channel-connection-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 44px;
-  padding: 12px 0;
-  margin-bottom: 14px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  color: var(--text-primary);
-  font-size: 12px;
-}
-
-.channel-connection-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  color: var(--text-primary);
-  font-size: 12px;
-  line-height: 20px;
-}
-
-.channel-connection-status__dot {
-  flex: 0 0 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.channel-connection-status.is-connected .channel-connection-status__dot {
-  background: var(--success);
-}
 .channel-settings-menu-hint { font-size: 10px; color: var(--text-muted); }
 .channel-settings-field {
   display: grid;
@@ -1599,20 +1570,17 @@
   min-height: 42px;
   padding: 1px 4px 1px 2px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .model-settings-provider-row:hover {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
-  background: var(--accent-soft);
+  background: var(--bg-hover);
 }
 
 .model-settings-provider-row.is-selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--bg-active);
 }
 
 .model-settings-provider-row .model-settings-provider {

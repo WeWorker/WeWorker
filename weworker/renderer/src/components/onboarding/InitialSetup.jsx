@@ -130,7 +130,7 @@ export default function InitialSetup({ onComplete }) {
                   disabled={saving || completing}
                 />
               </div>
-              <button type="submit" className="initial-setup__save" disabled={saving || completing || !apiKey.trim()}>
+              <button data-app-button="action" type="submit" className="initial-setup__save" disabled={saving || completing || !apiKey.trim()}>
                 {saving ? <LoadingOutlined spin /> : hasSavedKey ? '重新保存' : '保存'}
               </button>
             </div>
@@ -148,7 +148,7 @@ export default function InitialSetup({ onComplete }) {
           </div>
         )}
         {error && <div className="initial-setup__error" role="alert">{error}</div>}
-        <button type="button" className="initial-setup__continue" onClick={handleContinue} disabled={completing || !canContinue}>
+        <button data-app-button="action" type="button" className="initial-setup__continue" onClick={handleContinue} disabled={completing || !canContinue}>
           {completing ? <><LoadingOutlined spin /> 正在进入</> : '下一步'}
         </button>
       </section>

@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { ConfigProvider } from 'antd'
-import { MinusOutlined, BorderOutlined, CloseOutlined } from '@ant-design/icons'
 import { RestoreWindowIcon } from './components/icons/PanelIcons'
 import zhCN from 'antd/locale/zh_CN'
 import Sidebar from './components/layout/Sidebar.jsx'
@@ -12,6 +11,7 @@ import CapabilitiesToggleButton from './components/capabilities/CapabilitiesTogg
 import GlobalFileDropLayer from './components/files/GlobalFileDropLayer.jsx'
 import NativeTitleTooltipLayer from './components/NativeTitleTooltipLayer.jsx'
 import DialogHost from './components/DialogHost.jsx'
+import NotificationHost from './components/NotificationHost.jsx'
 import { FolderIcon } from './components/icons/PanelIcons.jsx'
 import { useCapabilitiesPanelStore } from './store/capabilities-panel.js'
 import { useWorksStore } from './store/works.js'
@@ -422,13 +422,13 @@ export default function App() {
         {!isMac && (
           <div className="app-window-controls" aria-label="窗口控制">
             <button type="button" className="app-window-control" aria-label="最小化" onClick={() => window.electronAPI?.minimizeWindow?.()}>
-              <MinusOutlined aria-hidden="true" />
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true" focusable="false"><path d="M2 10h16" /></svg>
             </button>
             <button type="button" className="app-window-control" aria-label={windowMaximized ? '还原窗口' : '最大化'} onClick={() => window.electronAPI?.toggleMaximizeWindow?.()}>
-              {windowMaximized ? <RestoreWindowIcon size={12} /> : <BorderOutlined aria-hidden="true" />}
+              {windowMaximized ? <RestoreWindowIcon size={16} strokeWidth={0.8} /> : <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true" focusable="false"><rect x="2.5" y="2.5" width="15" height="15" /></svg>}
             </button>
             <button type="button" className="app-window-control app-window-control--close" aria-label="关闭窗口" onClick={() => window.electronAPI?.closeWindow?.()}>
-              <CloseOutlined aria-hidden="true" />
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true" focusable="false"><path d="m3 3 14 14M17 3 3 17" /></svg>
             </button>
           </div>
         )}
@@ -440,7 +440,7 @@ export default function App() {
           <div className="initial-setup-loading" aria-label={settingsLoadError ? '初始化配置加载失败' : '正在加载初始化配置'}>
             {settingsLoadError ? <div role="alert">
               <p>{settingsLoadError}</p>
-              <button type="button" className="btn btn-secondary" onClick={loadSettings}>重试</button>
+              <button data-app-button="action" type="button" className="btn btn-secondary" onClick={loadSettings}>重试</button>
             </div> : '正在加载…'}
           </div>
         ) : !onboardingCompleted ? (
@@ -521,7 +521,7 @@ export default function App() {
           )}
           {showSettings
             ? <SettingsPage onClose={() => setShowSettings(false)} />
-            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} onOpenSettings={() => setShowSettings((current) => !current)} />}
+            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} compactLayout={compactLayout} onOpenSettings={() => setShowSettings((current) => !current)} />}
         </div>
         </>}
       </div>
@@ -531,6 +531,7 @@ export default function App() {
       <WebsiteExplorationGuard />
       <NativeTitleTooltipLayer />
       <DialogHost />
+      <NotificationHost />
     </div>
     </ConfigProvider>
   )

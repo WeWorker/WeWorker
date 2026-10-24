@@ -211,7 +211,7 @@ export function updateModelConfiguration(settings: Settings, id: string, input: 
   }
   if (input.context_limit !== undefined) {
     const limit = parseContextLimit(input.context_limit)
-    if (limit === null) throw new Error('上下文窗口请输入 1K 到 100M 之间的整数，可使用 K/M 单位')
+    if (limit === null) throw new Error('上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位')
     next.context_limit = limit
   }
   if (current.provider_id === 'custom' && input.base_url_is_full !== undefined && input.base_url === undefined && next.base_url) {

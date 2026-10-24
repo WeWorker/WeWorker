@@ -791,7 +791,7 @@ function TerminalAssistantCard({ reply, running, onRun }) {
         </div>
         {reply.command && (
           <div className="weworker-terminal-agent-card__actions">
-            <button
+            <button data-app-button="action"
               type="button"
               className="weworker-terminal-agent-card__run"
               onClick={() => onRun(reply.command, reply.cwd, shell)}

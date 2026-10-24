@@ -32,8 +32,8 @@ export default function StatusAlerts({ alerts, onOpenGuide }) {
       <p className="status-alert-description">{selected?.detail}</p>
       {selected?.command && <pre className="status-alert-command">{selected.command}</pre>}
       <div className="status-alert-detail-actions">
-        {selected?.guide && <button type="button" onClick={() => { setSelected(null); onOpenGuide() }}>查看扩展连接指引</button>}
-        <button type="button" onClick={() => setSelected(null)}>关闭</button>
+        {selected?.guide && <button data-app-button="action" type="button" onClick={() => { setSelected(null); onOpenGuide() }}>查看扩展连接指引</button>}
+        <button data-app-button="action" type="button" onClick={() => setSelected(null)}>关闭</button>
       </div>
     </Modal>
   </span>
