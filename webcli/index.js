@@ -102,7 +102,8 @@ Adapters:
   adapter knowledge <id> --json            输出 WEBCLI_KNOWLEDGE.json 内容
   adapter skills-path                      输出 adapters 目录路径
   adapter install --url <url> [--reload]   从 URL 安装（仅 https）
-  adapter install --file <path> [--reload] 从本地文件安装
+  adapter install --directory <dir>       安装解包后的 v2 目录
+  adapter install --file <path.adapt>      安装 v2 归档（旧式 .js 仍兼容）
   adapter remove  <id>  [--reload]         移除 adapter
 
 AdapterHub:
@@ -243,6 +244,10 @@ Agent tip: use 'webcli call <tool> --key=value ...' to invoke a tool.
 }
 
 async function printVersion() {
+  if (typeof __WEBCLI_VERSION__ !== "undefined") {
+    console.log(`webcli ${__WEBCLI_VERSION__}`);
+    return;
+  }
   try {
     const pkgPath = join(__dirname, "package.json");
     const pkg = JSON.parse(await readFile(pkgPath, "utf8"));

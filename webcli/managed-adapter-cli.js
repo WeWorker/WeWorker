@@ -1,4 +1,6 @@
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { readAdapterPackage } from './adapterhub-package-v2.js';
 import { managedAdapterViews } from './adapter-views.js';
 import { installAdapter, registerDevelopmentAdapter, removeInstalledAdapter, selectAdapter } from './adapter-install-store.js';
 import { ejectAdapter } from './adapter-export.js';
@@ -13,16 +15,22 @@ export function runManagedAdapterCommand(args, options = {}) {
     }
     return ejectAdapter(values[0], values[2], options);
   }
-  if (command === 'install' && rest.includes('--directory')) {
+  const fileIndex = rest.indexOf('--file');
+  const archiveInput = fileIndex !== -1 && /\.adapt$/i.test(rest[fileIndex + 1] || '');
+  if (command === 'install' && (rest.includes('--directory') || archiveInput)) {
     const flags = new Set(['--allow-downgrade', '--allow-permission-change', '--change-source', '--inactive', '--json']);
-    let directory;
+    let directory, archive;
     for (let i = 0; i < rest.length; i++) {
       if (rest[i] === '--directory' && directory === undefined) {
         directory = rest[++i];
         if (!directory || directory.startsWith('--')) throw new Error('--directory requires a package directory.');
+      } else if (rest[i] === '--file' && archiveInput && archive === undefined) {
+        archive = rest[++i];
       } else if (!flags.has(rest[i])) throw new Error('Unsupported local package option: ' + rest[i]);
     }
-    const result = installAdapter({ directory: resolve(directory), origin: { kind: 'local' },
+    if (directory && archive) throw new Error('Choose either --directory or --file, not both.');
+    const source = archive ? { files: readAdapterPackage(readFileSync(resolve(archive))).files } : { directory: resolve(directory) };
+    const result = installAdapter({ ...source, origin: { kind: 'local' },
       allowDowngrade: rest.includes('--allow-downgrade'), allowPermissionChange: rest.includes('--allow-permission-change'),
       allowSourceChange: rest.includes('--change-source'), activate: !rest.includes('--inactive'),
     }, options);
