@@ -60,13 +60,19 @@ function isSamePage(targetUrl) {
   }
 }
 
-function navigateAndAskRetry(targetUrl, reason) {
-  window.location.assign(targetUrl);
+function requestNavigation(targetUrl, reason, resume = false) {
   return {
-    ok: true,
-    needs_retry: true,
-    url: targetUrl,
-    message: reason || '已跳转页面，请等待页面加载完成后再次调用该工具。',
+    __webcli_navigation: {
+      version: 1,
+      url: targetUrl,
+      resume,
+      result: {
+        ok: true,
+        needs_retry: true,
+        url: targetUrl,
+        message: reason || '已跳转页面，请等待页面加载完成后再次调用该工具。',
+      },
+    },
   };
 }
 
@@ -225,8 +231,8 @@ async function searchVideos({ query = 'weworker', limit = 5 } = {}) {
   const keyword = String(query || 'weworker').trim();
   const safeLimit = Math.max(1, Math.min(Number(limit) || 5, 10));
   const targetUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`;
-  if (!isSamePage(targetUrl)) {
-    return navigateAndAskRetry(targetUrl, '已打开 B 站搜索页，请等待搜索结果加载后再次调用该工具。');
+  if (!isSamePage(targetUrl) || new URL(window.location.href).searchParams.get('keyword') !== keyword) {
+    return requestNavigation(targetUrl, '已打开 B 站搜索页。', true);
   }
 
   const results = [];
@@ -276,7 +282,7 @@ async function searchVideos({ query = 'weworker', limit = 5 } = {}) {
 async function openVideoDetail({ video_url = '' } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
-    return navigateAndAskRetry(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
+    return requestNavigation(targetUrl, '已打开 B 站视频详情页。', true);
   }
 
   const title = firstText(['h1.video-title', '.video-title', 'h1[title]', 'h1']);
@@ -416,7 +422,7 @@ async function readComments({ limit = 10 } = {}) {
 async function likeVideo({ video_url = '', confirm = false, __confirmed = false } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
-    return navigateAndAskRetry(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
+    return requestNavigation(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
   }
 
   const control = findControl([/点赞|like/i, /video-like/i]);
@@ -527,7 +533,7 @@ async function favoriteVideoViaApi({ folder_name = '' } = {}) {
 async function favoriteVideo({ video_url = '', folder_name = '', confirm = false, __confirmed = false } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
-    return navigateAndAskRetry(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
+    return requestNavigation(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
   }
 
   const control = findControl([/收藏|favorite|fav/i, /video-fav/i]);

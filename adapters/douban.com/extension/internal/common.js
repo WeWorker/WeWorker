@@ -554,7 +554,6 @@ function inferDoubanSearchResultType(searchType, item = {}) {
 }
 async function searchDouban(type, keyword, limit) {
     const safeLimit = clampLimit(limit);
-    const inferDoubanSearchResultTypeSource = inferDoubanSearchResultType.toString();
     const searchUrl = buildDoubanSearchUrl(type, keyword);
     const data = await withDetachedRetry(async () => {
 
@@ -610,7 +609,7 @@ async function searchDouban(type, keyword, limit) {
       }
       return results;
     })()
-  ))(type,inferDoubanSearchResultTypeSource,safeLimit);
+  ))(type,inferDoubanSearchResultType,safeLimit);
     });
     return Array.isArray(data) ? data : [];
 }

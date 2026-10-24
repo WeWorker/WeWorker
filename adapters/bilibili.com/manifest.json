@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "bilibili.com",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Bilibili / B 站：登录检查、搜索视频、打开视频详情、读取评论、点赞/收藏视频",
   "discovery_terms": [
     "B站",
@@ -50,7 +50,7 @@
       "id": "search-videos",
       "runtime": "extension",
       "module": "extension/commands/search-videos.js",
-      "description": "根据关键词搜索 B 站视频，并返回标题、链接、UP 主、播放信息和摘要。首次调用可能会跳转搜索页，页面加载后再次调用可读取结果。",
+      "description": "根据关键词搜索 B 站视频，并返回标题、链接、UP 主、播放信息和摘要。宿主自动导航到搜索页并读取结果。",
       "safety": "read",
       "schema": {
         "type": "object",
@@ -74,7 +74,7 @@
       "id": "open-video-detail",
       "runtime": "extension",
       "module": "extension/commands/open-video-detail.js",
-      "description": "打开或读取 B 站视频详情页，返回标题、UP 主、播放量、弹幕数、发布时间、简介和关键链接。首次调用可能会跳转视频页，页面加载后再次调用可读取详情。",
+      "description": "打开或读取 B 站视频详情页，返回标题、UP 主、播放量、弹幕数、发布时间、简介和关键链接。宿主自动导航到视频页并读取详情。",
       "safety": "read",
       "schema": {
         "type": "object",
