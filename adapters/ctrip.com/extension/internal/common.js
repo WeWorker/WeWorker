@@ -34,7 +34,7 @@
 
   function iata(name, value) {
     const result = typeof value === "string" ? value.trim().toUpperCase() : "";
-    if (!/^[A-Z]{3}$/.test(result)) fail("INVALID_ARGS", `${name} must be a 3-letter IATA code`);
+    if (!/^[A-Z]{3}$/.test(result)) fail("INVALID_ARGS", `${name} must be a 3-letter IATA city or airport code (e.g. 北京=BJS, 上海=SHA); Chinese city names are not accepted`);
     return result;
   }
 

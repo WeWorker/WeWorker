@@ -140,6 +140,7 @@ function summarizePrivilegedResult(action, result) {
         method: entry.method,
         responseStatus: entry.responseStatus,
         responseBodyFullSize: entry.responseBodyFullSize,
+        responseBodyError: entry.responseBodyError,
         responseBodyTruncated: entry.responseBodyTruncated,
       })),
     };

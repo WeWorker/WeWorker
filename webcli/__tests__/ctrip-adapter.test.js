@@ -390,6 +390,8 @@ describe("Ctrip v2 adapter", () => {
     [{ responseStatus: 403, responsePreview: "{}" }, "AUTH_REQUIRED"],
     [{ responseStatus: 200, responsePreview: "{}", responseBodyTruncated: true }, "COMMAND_EXEC"],
     [{ responseStatus: 200, responsePreview: "not-json" }, "COMMAND_EXEC"],
+    [{ responseStatus: 200, responsePreview: "", responseBodyError: "BODY_EVICTED" }, "CAPTURE_BODY_UNAVAILABLE"],
+    [{ responseStatus: 200, responsePreview: "" }, "CAPTURE_EMPTY_RESPONSE"],
     [{ responseStatus: 200, responsePreview: JSON.stringify({ status: 0, data: { context: { finished: false }, flightItineraryList: [] } }) }, "COMMAND_EXEC"],
   ])("maps single-flight capture failures to %s", async (entry, code) => {
     const target = "https://flights.ctrip.com/online/list/oneway-bjs-sha?depdate=2026-10-01&cabin=Y_S_C_F&adult=1&child=0&infant=0";

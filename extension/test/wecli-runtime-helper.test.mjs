@@ -187,6 +187,7 @@ function loadServiceWorker(options = {}) {
           }
         }
         if (command === 'Network.getResponseBody') {
+          if (options.networkResponseError) throw new Error(options.networkResponseError)
           return {
             body: options.networkResponseBase64
               ? Buffer.from(options.networkResponseBody || '', 'utf8').toString('base64')
@@ -427,7 +428,7 @@ test('service worker allows ProjectDemo runtime helpers to read SDL sibling-doma
 })
 
 test('service worker captures only matching same-host Adapter responses and releases its debugger', async () => {
-  const payload = JSON.stringify({ status: 0, data: { context: { finished: true }, items: [] } })
+  const payload = JSON.stringify({ status: 0, data: { context: { finished: true }, items: [], padding: 'x'.repeat(9 * 1024 * 1024) } })
   const worker = loadServiceWorker({
     tab: { id: 7, url: 'https://api.example.com/online/list', windowId: 1 },
     networkResponseBody: payload,
@@ -437,6 +438,9 @@ test('service worker captures only matching same-host Adapter responses and rele
     pattern: '/api/query',
   })
   assert.equal(started.ok, true)
+  const captureNetwork = worker.debuggerCalls.filter(call => call.command === 'Network.enable').at(-1).params
+  assert.equal(captureNetwork.maxResourceBufferSize, 32 * 1024 * 1024)
+  assert.equal(captureNetwork.maxTotalBufferSize, 64 * 1024 * 1024)
   const emitDebuggerEvent = worker.context.chrome.debugger.onEvent.listeners[0]
   await emitDebuggerEvent({ tabId: 7 }, 'Network.requestWillBeSent', {
     requestId: 'ignored',
@@ -469,8 +473,20 @@ test('service worker captures only matching same-host Adapter responses and rele
   assert.equal(worker.context.ensureCdpState(7).entries.length, 0)
 })
 
+test('Adapter capture distinguishes a missing CDP body from an empty server response', async () => {
+  const worker = loadServiceWorker({ tab: { id: 7, url: 'https://api.example.com/', windowId: 1 }, networkResponseError: 'Request content was evicted from inspector cache' })
+  await worker.request('network_capture_start', { pattern: '/query' })
+  const emit = worker.context.chrome.debugger.onEvent.listeners[0]
+  await emit({ tabId: 7 }, 'Network.requestWillBeSent', { requestId: 'missing', request: { url: 'https://api.example.com/query', method: 'POST' } })
+  await emit({ tabId: 7 }, 'Network.responseReceived', { requestId: 'missing', response: { status: 200, mimeType: 'application/json' } })
+  await emit({ tabId: 7 }, 'Network.loadingFinished', { requestId: 'missing' })
+  const captured = await worker.request('network_capture_read', { finish: true })
+  assert.equal(captured.result.entries[0].responseBodyError, 'BODY_EVICTED')
+  assert.deepEqual(plain(worker.debuggerDetachCalls), [{ tabId: 7 }])
+})
+
 test('Adapter response capture enforces its body limit and keeps a borrowed debugger attached', async () => {
-  const payload = 'x'.repeat(8 * 1024 * 1024 + 1)
+  const payload = 'x'.repeat(32 * 1024 * 1024 + 1)
   const worker = loadServiceWorker({
     tab: { id: 7, url: 'https://api.example.com/online/list', windowId: 1 },
     networkResponseBody: payload,
@@ -491,7 +507,7 @@ test('Adapter response capture enforces its body limit and keeps a borrowed debu
   const captured = await worker.request('network_capture_read', { finish: true })
   assert.equal(captured.ok, true)
   assert.equal(captured.result.entries[0].responseBodyFullSize, payload.length)
-  assert.equal(captured.result.entries[0].responsePreview.length, 8 * 1024 * 1024)
+  assert.equal(captured.result.entries[0].responsePreview.length, 32 * 1024 * 1024)
   assert.equal(captured.result.entries[0].responseBodyTruncated, true)
   assert.deepEqual(plain(worker.debuggerAttachCalls), [{ tabId: 7 }])
   assert.deepEqual(plain(worker.debuggerDetachCalls), [])

@@ -25,7 +25,7 @@
     return String(value).replace(/<[^>]*>/g, '').replace(/&(?:amp|lt|gt|quot|apos|nbsp);/g,
       entity => ({'&amp;':'&','&lt;':'<','&gt;':'>','&quot;':'"','&apos;':"'",'&nbsp;':' '})[entity]);
   }
-  async function request(lang, path, params, randomRedirects = 0) {
+  async function request(lang, path, params) {
     const url = new URL('https://' + lang + '.wikipedia.org' + path);
     for (const [key, value] of Object.entries(params || {})) url.searchParams.set(key, String(value));
     let r;
@@ -36,17 +36,6 @@
           headers: { Accept: 'application/json', 'User-Agent': 'WeWorker/1.0 (https://github.com/WeWorker/WeWorker)' } },
       });
     } catch { fail('FETCH_ERROR', 'Wikipedia request failed; retain trace for diagnosis'); }
-    // The random endpoint may select a summary via an HTTP redirect. Follow
-    // only that documented read flow, bounded and confined to this language's
-    // summary endpoint; never enable general HTTP redirect following.
-    if (r?.status >= 300 && r?.status < 400 && randomRedirects > 0) {
-      const location = r.headers?.location || r.headers?.Location;
-      let next;
-      try { next = new URL(location, url); } catch { fail('HTTP_ERROR', 'Invalid random article redirect'); }
-      if (!location || next.origin !== url.origin || next.username || next.password
-          || !next.pathname.startsWith('/api/rest_v1/page/summary/') || next.search || next.hash) fail('HTTP_ERROR', 'Unexpected random article redirect');
-      return request(lang, next.pathname, undefined, randomRedirects - 1);
-    }
     if (r?.redirected || (r?.url && r.url !== url.href) || (r?.status >= 300 && r?.status < 400)) fail('HTTP_ERROR', 'Unexpected HTTP redirect');
     if (!r?.ok) fail(r?.status === 404 ? 'NOT_FOUND' : 'HTTP_ERROR', 'Wikipedia HTTP ' + r?.status);
     let data;
@@ -90,7 +79,18 @@
     },
     async random(args) {
       const lang = language(args);
-      return [summaryRow(await request(lang, '/api/rest_v1/page/random/summary', undefined, 2), lang)];
+      const data = await request(lang, '/w/api.php', {
+        action: 'query', format: 'json', formatversion: 2,
+        generator: 'random', grnnamespace: 0, grnlimit: 1, grnfilterredir: 'nonredirects',
+        prop: 'extracts|description|pageprops', exintro: 1, explaintext: 1, ppprop: 'disambiguation',
+      });
+      const pages = rowsAt(data.query?.pages, 'random pages');
+      if (pages.length !== 1) fail('PARSE_ERROR', 'Expected one random article');
+      const page = pages[0];
+      if (!page || typeof page !== 'object' || Array.isArray(page)) fail('PARSE_ERROR', 'Random article is malformed');
+      if (Object.hasOwn(page, 'missing') || Object.hasOwn(page, 'invalid')) fail('NOT_FOUND', 'Random article is unavailable');
+      if (typeof page.extract === 'string' && !page.extract.trim()) fail('EMPTY_RESULT', 'Random article has no plain-text lead');
+      return [summaryRow({ ...page, type: Object.hasOwn(page.pageprops || {}, 'disambiguation') ? 'disambiguation' : 'standard' }, lang)];
     },
     async trending(args) {
       const lang = language(args), limit = integer(args.limit, 10, 1, 50);

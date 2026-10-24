@@ -190,7 +190,9 @@
     for (const entry of captured) {
       if (entry.responseStatus === 401 || entry.responseStatus === 403) common.fail("AUTH_REQUIRED", `Ctrip flight API returned HTTP ${entry.responseStatus}`);
       if (entry.responseStatus !== 200) common.fail("COMMAND_EXEC", `Ctrip flight API returned HTTP ${entry.responseStatus || "unknown"}`);
-      if (entry.responseBodyTruncated) common.fail("COMMAND_EXEC", "Ctrip flight response exceeded the capture limit");
+      if (entry.responseBodyTruncated) common.fail("COMMAND_EXEC", `Ctrip flight response exceeded the capture limit (${entry.responseBodyFullSize || "unknown"} bytes)`);
+      if (entry.responseBodyError) common.fail("CAPTURE_BODY_UNAVAILABLE", `Ctrip flight response body could not be read from the browser (${entry.responseBodyError})`);
+      if (!String(entry.responsePreview || "").trim()) common.fail("CAPTURE_EMPTY_RESPONSE", "Ctrip flight API response body is empty; no flight data was captured");
       let payload;
       try {
         payload = JSON.parse(entry.responsePreview);

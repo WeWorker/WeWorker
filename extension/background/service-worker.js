@@ -304,7 +304,7 @@ const cdpExecutionContexts = new Map();
 const CDP_NETWORK_ENTRY_LIMIT = 200;
 const CDP_RESPONSE_PREVIEW_LIMIT = 4000;
 const CDP_REQUEST_PREVIEW_LIMIT = 2000;
-const ADAPTER_RESPONSE_CAPTURE_LIMIT = 8 * 1024 * 1024;
+const ADAPTER_RESPONSE_CAPTURE_LIMIT = 32 * 1024 * 1024;
 const ADAPTER_CAPTURE_ENTRY_LIMIT = 20;
 const ACTION_CAPTURE_VERSION = 'opencli-action-capture-v1';
 
@@ -2391,6 +2391,7 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
 
       let responsePreview = '';
       let responseBody = '';
+      let responseBodyError;
       try {
         const body = await chrome.debugger.sendCommand({ tabId }, 'Network.getResponseBody', { requestId: params.requestId });
         if (body?.base64Encoded) {
@@ -2400,7 +2401,9 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
           responseBody = body?.body || '';
         }
         responsePreview = truncateText(responseBody, CDP_RESPONSE_PREVIEW_LIMIT);
-      } catch { }
+      } catch (error) {
+        responseBodyError = /evict/i.test(String(error?.message)) ? 'BODY_EVICTED' : 'BODY_UNAVAILABLE';
+      }
 
       pushCdpNetworkEntry(tabId, {
         kind: 'cdp',
@@ -2436,6 +2439,7 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
             : responseBody,
           responseBodyFullSize: encodedBody.byteLength,
           responseBodyTruncated: truncated,
+          ...(responseBodyError ? { responseBodyError } : {}),
         });
         if (adapterSession.entries.length > ADAPTER_CAPTURE_ENTRY_LIMIT) {
           adapterSession.entries.splice(0, adapterSession.entries.length - ADAPTER_CAPTURE_ENTRY_LIMIT);

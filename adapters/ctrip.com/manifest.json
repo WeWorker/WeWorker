@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "ctrip.com",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "携程：目的地、酒店、交通、景点、邮轮、旅游产品及浏览器登录能力",
   "match": [
     "m.ctrip.com",
@@ -312,11 +312,11 @@
         "properties": {
           "from": {
             "type": "string",
-            "description": "出发城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。"
+            "description": "出发城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。例如北京城市 BJS、上海城市 SHA（不是中文名称，也不是酒店数字 cityId）。"
           },
           "to": {
             "type": "string",
-            "description": "到达城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。"
+            "description": "到达城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。例如北京城市 BJS、上海城市 SHA（不是中文名称，也不是酒店数字 cityId）。"
           },
           "date": {
             "type": "string",
@@ -347,11 +347,11 @@
         "properties": {
           "from": {
             "type": "string",
-            "description": "出发城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。"
+            "description": "出发城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。例如北京城市 BJS、上海城市 SHA（不是中文名称，也不是酒店数字 cityId）。"
           },
           "to": {
             "type": "string",
-            "description": "到达城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。"
+            "description": "到达城市或机场 IATA 三字码；保留用户指定的机场范围，不能把城市代码当作唯一机场。例如北京城市 BJS、上海城市 SHA（不是中文名称，也不是酒店数字 cityId）。"
           },
           "depart": {
             "type": "string",
