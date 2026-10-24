@@ -2,6 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const PUBLIC_SITE_URL = 'https://www.weworker.cc'
+const PUBLIC_REPO_URL = 'https://github.com/WeWorker/WeWorker'
+const PUBLIC_RELEASES_URL = `${PUBLIC_REPO_URL}/releases`
+const PUBLIC_UPDATE_URL = `${PUBLIC_RELEASES_URL}/latest/download/`
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'))
 }
@@ -58,6 +63,42 @@ export function validatePublicConfig(repoRoot) {
   const downloadConfig = fs.readFileSync(path.join(repoRoot, 'officialWeb', 'src', 'lib', 'downloadConfig.js'), 'utf8')
   if (!downloadConfig.includes(`APP_VERSION = '${publicVersion}'`)) {
     errors.push(`officialWeb APP_VERSION must be ${publicVersion}`)
+  }
+
+  const deployment = readJson(path.join(repoRoot, 'weworker', 'renderer', 'src', 'config', 'deployment.json'))
+  if (deployment.officialUrl !== PUBLIC_SITE_URL) {
+    errors.push(`public officialUrl must be ${PUBLIC_SITE_URL}`)
+  }
+  if (deployment.downloadUrl !== PUBLIC_RELEASES_URL) {
+    errors.push(`public downloadUrl must be ${PUBLIC_RELEASES_URL}`)
+  }
+
+  const desktopPackage = readJson(path.join(repoRoot, 'weworker', 'package.json'))
+  if (desktopPackage.build?.publish?.[0]?.url !== PUBLIC_UPDATE_URL) {
+    errors.push(`desktop publish URL must be ${PUBLIC_UPDATE_URL}`)
+  }
+
+  const publicUrlSources = [
+    ['weworker/electron/update-manager.js', PUBLIC_UPDATE_URL],
+    ['weworker/renderer/src/components/settings/SettingsModal.jsx', PUBLIC_UPDATE_URL],
+    ['officialWeb/src/lib/siteConfig.js', PUBLIC_REPO_URL],
+    ['officialWeb/index.html', `${PUBLIC_SITE_URL}/`],
+  ]
+  for (const [relativePath, expected] of publicUrlSources) {
+    const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+    if (!content.includes(expected)) errors.push(`${relativePath} must reference ${expected}`)
+  }
+
+  const retiredReferences = [
+    ['weworker/electron/update-manager.js', 'weworker.example.com'],
+    ['weworker/renderer/src/components/settings/SettingsModal.jsx', '/releases/download/latest/'],
+    ['docs/github-repo-settings.md', 'github.com/aiceflower/WeWorker'],
+    ['docs/assets/social-preview.html', 'github.com/aiceflower/WeWorker'],
+    ['docs/assets/social-preview.svg', 'github.com/aiceflower/WeWorker'],
+  ]
+  for (const [relativePath, retired] of retiredReferences) {
+    const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+    if (content.includes(retired)) errors.push(`${relativePath} still references retired address ${retired}`)
   }
 
   // webcli ships to npm on its own release cadence, so its version is decoupled

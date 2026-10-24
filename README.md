@@ -8,6 +8,8 @@
 
 WeWorker 是一个 AI 驱动的桌面端网页自动化工具。它将自然语言任务交给 AI Agent，通过浏览器扩展或内置 Toolkit Adapter 调用网站能力，并在涉及登录、提交、下单、支付等关键步骤时保留用户确认环节。
 
+官网：[https://www.weworker.cc](https://www.weworker.cc)
+
 ## 功能
 
 - **自然语言操作网站**：通过桌面端对话描述任务，由 AI 选择并调用网站工具。
@@ -41,7 +43,7 @@ WeWorker 初次开源版本已内置一批常用网站 Adapter。常用示例：
 
 ### 下载桌面应用
 
-从 [GitHub Releases](https://github.com/WeWorker/WeWorker/releases) 下载对应平台的安装包：
+可从[官网](https://www.weworker.cc/download)选择平台，安装包由 [GitHub Releases](https://github.com/WeWorker/WeWorker/releases) 提供：
 
 - Windows 10/11 x64：`.exe`
 - macOS Intel：x64 `.dmg`

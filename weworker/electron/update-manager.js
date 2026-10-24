@@ -7,14 +7,9 @@ import { normalizeUpdateSettings } from './update-settings.js'
 const SUPPORTED_PLATFORMS = new Set(['win32', 'darwin'])
 const UPDATE_SOURCES = [
   {
-    id: 'official',
-    label: '官网',
-    url: 'http://weworker.example.com/downloads/',
-  },
-  {
     id: 'github',
     label: 'GitHub latest',
-    url: 'https://github.com/WeWorker/WeWorker/releases/download/latest/',
+    url: 'https://github.com/WeWorker/WeWorker/releases/latest/download/',
   },
 ]
 function normalizeError(error) {

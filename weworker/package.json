@@ -176,7 +176,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://example.com/downloads/"
+        "url": "https://github.com/WeWorker/WeWorker/releases/latest/download/"
       }
     ]
   }
