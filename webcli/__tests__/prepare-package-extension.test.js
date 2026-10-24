@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { checkPackageResources, syncPackageExtension } from '../scripts/prepare-package-extension.js'
+import { checkPackageResources, syncPackageExtension, syncPackageMetrics } from '../scripts/prepare-package-extension.js'
 
 const tempDirs = []
 
@@ -22,9 +22,10 @@ describe('prepare package extension', () => {
     const webcliDir = path.join(root, 'webcli')
     const sourceExtensionDir = path.join(root, 'prepared/extension')
     const sourceBuiltinDir = path.join(root, 'prepared/adapters')
-    fs.mkdirSync(sourceExtensionDir, { recursive: true })
+    fs.mkdirSync(path.join(sourceExtensionDir, 'background'), { recursive: true })
     fs.mkdirSync(sourceBuiltinDir, { recursive: true })
     fs.writeFileSync(path.join(sourceExtensionDir, 'manifest.json'), '{"version":"1"}')
+    fs.writeFileSync(path.join(sourceExtensionDir, 'background', 'service-worker.js'), 'const WS_URL = "ws://localhost:3711";\n')
     fs.writeFileSync(path.join(sourceBuiltinDir, '.profile.json'), JSON.stringify({ schema_version: 1, profile: 'internal', adapters: [], legacy: [] }))
     fs.mkdirSync(path.join(webcliDir, 'adapters/stale'), { recursive: true })
     const options = { webcliDir, sourceExtensionDir, sourceBuiltinDir }
@@ -47,7 +48,9 @@ describe('prepare package extension', () => {
     fs.mkdirSync(siteGeneratedDir, { recursive: true })
     fs.mkdirSync(path.join(sourceExtensionDir, 'node_modules', 'left-pad'), { recursive: true })
     fs.mkdirSync(path.join(sourceExtensionDir, 'test'), { recursive: true })
+    fs.mkdirSync(path.join(sourceExtensionDir, 'background'), { recursive: true })
     fs.writeFileSync(path.join(sourceExtensionDir, 'manifest.json'), '{"version":"1"}\n')
+    fs.writeFileSync(path.join(sourceExtensionDir, 'background', 'service-worker.js'), 'const WS_URL = "ws://localhost:3711";\n')
     fs.writeFileSync(path.join(sourceExtensionDir, 'adapters', 'site.test', 'manifest.json'), '{"id":"site.test"}\n')
     fs.writeFileSync(path.join(siteGeneratedDir, 'site.test.index-snippet.generated.txt'), 'snippet')
     fs.writeFileSync(path.join(siteGeneratedDir, 'site.test.integration.generated.md'), '# integration\n')
@@ -58,7 +61,7 @@ describe('prepare package extension', () => {
 
     const result = syncPackageExtension({ webcliDir, sourceExtensionDir })
 
-    expect(result.fileCount).toBe(2)
+    expect(result.fileCount).toBe(3)
     expect(fs.existsSync(path.join(webcliDir, 'extension', 'manifest.json'))).toBe(true)
     expect(fs.existsSync(path.join(webcliDir, 'extension', 'adapters', 'site.test', 'manifest.json'))).toBe(true)
     expect(fs.existsSync(path.join(webcliDir, 'extension', 'adapters', 'site.test', 'webcli-generated', 'site.test.index-snippet.generated.txt'))).toBe(false)
@@ -67,7 +70,47 @@ describe('prepare package extension', () => {
     expect(fs.existsSync(path.join(webcliDir, 'extension', 'test'))).toBe(false)
     expect(fs.existsSync(path.join(webcliDir, 'extension', 'stale'))).toBe(false)
   })
-})
+  it('generates disabled packaged metrics for a public model and requires a token when enabled', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'webcli-npm-metrics-pack-'))
+    tempDirs.push(root)
+    const webcliDir = path.join(root, 'webcli')
+    const publicModel = path.join(root, 'public-model.json')
+    fs.writeFileSync(publicModel, JSON.stringify({ providers: [] }))
+
+    expect(syncPackageMetrics({ webcliDir, modelPath: publicModel, env: {} })).toEqual({ enabled: false })
+    expect(JSON.parse(fs.readFileSync(path.join(webcliDir, 'metrics-client.json'), 'utf8'))).toEqual({ enabled: false })
+
+    const enabledModel = path.join(root, 'enabled-model.json')
+    fs.writeFileSync(enabledModel, JSON.stringify({ environment: { WEBCLI_METRICS_ENDPOINT: 'https://example.com/v1/metrics/batch', WEBCLI_METRICS_UPLOAD: 'on' } }))
+    expect(() => syncPackageMetrics({ webcliDir, modelPath: enabledModel, env: {} })).toThrow(/token/)
+    expect(syncPackageMetrics({ webcliDir, modelPath: enabledModel, env: { WEWORKER_METRICS_TEST_BUILD: '1' } })).toEqual({ enabled: false })
+    expect(syncPackageMetrics({ webcliDir, modelPath: enabledModel, env: { WEBCLI_METRICS_CLIENT_TOKEN: 'fixture-metrics-client-token-123456' } }))
+      .toEqual({ enabled: true, endpoint: 'https://example.com/v1/metrics/batch', token: 'fixture-metrics-client-token-123456' })
+  })
+  it('rewrites only the packaged npm worker to the npm Bridge port', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'webcli-npm-worker-'))
+    tempDirs.push(root)
+    const webcliDir = path.join(root, 'webcli')
+    const sourceExtensionDir = path.join(root, 'prepared/extension')
+    const sourceBuiltinDir = path.join(root, 'prepared/adapters')
+    fs.mkdirSync(path.join(sourceExtensionDir, 'background'), { recursive: true })
+    fs.mkdirSync(sourceBuiltinDir, { recursive: true })
+    fs.writeFileSync(path.join(sourceBuiltinDir, '.profile.json'), JSON.stringify({ schema_version: 1, profile: 'public', adapters: [], legacy: [] }))
+    fs.writeFileSync(path.join(sourceExtensionDir, 'manifest.json'), '{"version":"1"}\n')
+    fs.writeFileSync(path.join(sourceExtensionDir, 'background', 'service-worker.js'),
+      'const WS_URL = "ws://localhost:3711";\nconst other = "unchanged";\n')
+    const options = { webcliDir, sourceExtensionDir, sourceBuiltinDir }
+    syncPackageExtension(options)
+    const packagedWorker = fs.readFileSync(path.join(webcliDir, 'extension', 'background', 'service-worker.js'), 'utf8')
+    expect(packagedWorker).toContain('ws://127.0.0.1:3712')
+    expect(packagedWorker).not.toContain('ws://localhost:3711')
+    expect(fs.readFileSync(path.join(sourceExtensionDir, 'background', 'service-worker.js'), 'utf8'))
+      .toContain('ws://localhost:3711')
+    expect(() => checkPackageResources(options)).not.toThrow()
+    fs.writeFileSync(path.join(webcliDir, 'extension', 'background', 'service-worker.js'),
+      'const WS_URL = "ws://localhost:3711";\nconst other = "unchanged";\n')
+    expect(() => checkPackageResources(options)).toThrow(/content is stale/)
+  })
   it('rejects linked package resources instead of silently omitting or following them', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'webcli-package-link-'))
     tempDirs.push(root)
@@ -76,10 +119,13 @@ describe('prepare package extension', () => {
     const sourceBuiltinDir = path.join(root, 'prepared/adapters')
     const linkedTarget = path.join(root, 'linked-target')
     fs.mkdirSync(path.join(sourceExtensionDir, 'regular'), { recursive: true })
+    fs.mkdirSync(path.join(sourceExtensionDir, 'background'), { recursive: true })
     fs.mkdirSync(sourceBuiltinDir, { recursive: true })
+    fs.writeFileSync(path.join(sourceExtensionDir, 'background', 'service-worker.js'), 'const WS_URL = "ws://localhost:3711";\n')
     fs.mkdirSync(linkedTarget, { recursive: true })
     fs.writeFileSync(path.join(linkedTarget, 'manifest.json'), '{"version":"1"}')
     fs.writeFileSync(path.join(sourceBuiltinDir, '.profile.json'), JSON.stringify({ schema_version: 1, profile: 'public', adapters: [], legacy: [] }))
     symlinkSync(linkedTarget, path.join(sourceExtensionDir, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
     expect(() => syncPackageExtension({ webcliDir, sourceExtensionDir, sourceBuiltinDir })).toThrow(/symbolic link/)
   })
+})

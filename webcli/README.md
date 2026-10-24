@@ -2,7 +2,11 @@
 
 连接 AI 工具与网站 Adapter 的统一命令行入口。
 
-Extension Adapter 通过本地 WebSocket Bridge（端口 3711）连接 Chrome 扩展；Toolkit Adapter 通过 WeWorker 内嵌 Toolkit Runtime 执行。CLI 和桌面端统一使用 `webcli call` 调用网站工具。
+Extension Adapter 通过本地 WebSocket Bridge 连接 Chrome 扩展；Toolkit Adapter 通过 WeWorker 内嵌 Toolkit Runtime 执行。CLI 和桌面端统一使用 `webcli call` 调用网站工具。
+
+**两类入口使用独立的 Bridge**：WeWorker 桌面端内置的 CLI 与扩展固定使用 `ws://localhost:3711`；npm 安装的独立 `webcli` 固定使用 `ws://127.0.0.1:3712`，并拥有独立的 PID/日志、浏览器 Profile 和 Adapter 数据目录。两者可以同时运行，登录态和浏览器实例不共享；如果 3712 被其他进程占用，npm CLI 会明确失败，不会连接桌面端的 3711。
+
+**指标上报**：公开 npm 包默认关闭（包内 `metrics-client.json` 为 `{enabled:false}`）。发布方可在构建时通过 `weworker/model.json` 的 `environment.WEBCLI_METRICS_ENDPOINT`/`WEBCLI_METRICS_UPLOAD` 加构建环境变量 `WEBCLI_METRICS_CLIENT_TOKEN` 生成启用配置；用户进程环境变量始终优先，可用 `WEBCLI_METRICS_UPLOAD=off` 关闭。
 
 ## Adapter 定义
 
@@ -55,8 +59,8 @@ webcli route github.com "List repository issues" --json
 `route` 从当前生效的托管 Adapter 目录推荐规范命令，不执行命令。调用进程通过 `WEBCLI_D3_URL` 配置决策服务，未配置时不会使用固定地址。完整流程、结果与配置见 [自然语言路由说明](../docs/webcli-route.md)。
 
 ```
-CLI / 桌面端                WebCLI Bridge              Chrome 扩展
-    │                      ws://localhost:3711              │
+桌面端 3711 / npm 3712      WebCLI Bridge              Chrome 扩展（同端口）
+    │                      ws://…                     │
     │  call_tool ─────────►│──────── 转发 ────────►│  Service Worker
     │                      │                         │      │
     │                      │◄──────── 结果 ─────────│  Injector → DOM

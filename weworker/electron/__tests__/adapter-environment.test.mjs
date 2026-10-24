@@ -31,6 +31,13 @@ test('packaged desktop, CLI and workers agree on the internal profile and all ro
   assert.deepEqual(childPaths, activePaths);
 });
 
+test('desktop children stay pinned to the desktop Bridge port and never inherit npm isolation', (t) => {
+  const options = fixture(t);
+  const env = buildAdapterEnvironment({ ...options, env: { WEBCLI_BRIDGE_PORT: '3712', WEWORKER_WEBCLI_DISTRIBUTION: 'npm' } });
+  assert.equal(env.WEBCLI_BRIDGE_PORT, '3711');
+  assert.equal(env.WEWORKER_WEBCLI_DISTRIBUTION, undefined);
+});
+
 test('explicit user roots isolate metadata and conflicting overrides fail', (t) => {
   const options = fixture(t, 'public');
   const userDir = path.join(options.root, 'custom-user');

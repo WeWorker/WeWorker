@@ -55,9 +55,11 @@ import { buildPreviousFailureContext } from './generation-harness/failure-attrib
 import { modelOutputErrorDetails } from './generation-harness/model-output-policy.js';
 import { TabOperationLocks } from './tab-operation-locks.js';
 import { assertReadRequest } from './exploration-host.js';
+import { resolveBridgeInstance } from './bridge-instance.js';
 
 const execFileAsync = promisify(execFile);
-const WS_PORT = 3711;
+const DEFAULT_INSTANCE = resolveBridgeInstance();
+const WS_PORT = DEFAULT_INSTANCE.port;
 const SAFE_ADAPTER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const SAFE_ADAPTER_WRITE_FILE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
 const ADAPTER_ROOT_WRITABLE_FILES = new Set([
@@ -512,9 +514,18 @@ function parseCurlResponseHeaders(rawHeaders) {
 }
 
 export class WebSocketBridge extends EventEmitter {
-  constructor({ workspaceDir, port = WS_PORT } = {}) {
+  constructor({
+    workspaceDir,
+    port = WS_PORT,
+    host = DEFAULT_INSTANCE.bindHost,
+    instanceKind = DEFAULT_INSTANCE.kind,
+    serviceTokenHash = null,
+  } = {}) {
     super();
     this._port = port;
+    this._host = host;
+    this._instanceKind = instanceKind;
+    this._serviceTokenHash = serviceTokenHash;
 
     /** @type {Map<string, { resolve: Function, reject: Function }>} */
     this._pendingRequests = new Map();
@@ -579,9 +590,10 @@ export class WebSocketBridge extends EventEmitter {
     this._adapterStateWatcher = null;
   }
   async init(opts = {}) {
+    this._version = opts.webcliVersion ?? "unknown";
     try {
       this._metricsCfg = await buildUploadConfig({
-        webcliVersion: opts.webcliVersion ?? "unknown",
+        webcliVersion: this._version,
       });
       if (this._metricsCfg.endpoint) {
         process.stderr.write(`[Bridge] Metrics upload enabled → ${this._metricsCfg.endpoint}\n`);
@@ -596,7 +608,16 @@ export class WebSocketBridge extends EventEmitter {
 
   _startServer() {
     try {
-      this._wss = new WebSocketServer({ port: this._port ?? WS_PORT });
+      this._wss = new WebSocketServer({
+        port: this._port ?? WS_PORT,
+        ...(this._host ? { host: this._host } : {}),
+      });
+      // Report the actually bound port (ephemeral ports start at 0); the
+      // underlying listen is asynchronous, so backfill on 'listening'.
+      this._wss.on('listening', () => {
+        const bound = this._wss.address();
+        if (bound && typeof bound === 'object' && bound.port) this._port = bound.port;
+      });
 
       this._wss.on("connection", (ws, req) => {
         const origin = req?.headers?.origin;
@@ -658,6 +679,21 @@ export class WebSocketBridge extends EventEmitter {
 
             const dispatch = () => {
               // 根据消息类型判断来源并处理
+              if (msg.type === 'service_info') {
+                // Instance identity probe: must be reachable before any client
+                // attaches, so handle it directly instead of routing through
+                // the extension-facing request whitelist below.
+                this._reply(ws, {
+                  type: 'service_info_result', id: msg.id, ok: true,
+                  instance: {
+                    kind: this._instanceKind,
+                    port: this._port,
+                    webcliVersion: this._version || null,
+                    tokenHash: this._serviceTokenHash,
+                  },
+                });
+                return;
+              }
               if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result') {
                 // 来自Chrome扩展的消息
                 this._handleExtensionMessage(msg, ws);
@@ -773,17 +809,17 @@ export class WebSocketBridge extends EventEmitter {
 
       this._wss.on("error", (err) => {
         if (err.code === 'EADDRINUSE') {
-          process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${WS_PORT} is already in use\n`);
+          process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${this._port} is already in use\n`);
           process.stderr.write(`[${ts()}] [Bridge] Another instance may be running. Please stop it first.\n`);
           process.exit(1);
         }
         process.stderr.write(`[${ts()}] [Bridge] WS server error: ${err.message}\n${err.stack}\n`);
       });
 
-      process.stderr.write(`[${ts()}] [Bridge] WebSocket server listening on ws://localhost:${WS_PORT}\n`);
+      process.stderr.write(`[${ts()}] [Bridge] WebSocket server listening on ws://${this._host || 'localhost'}:${this._port}\n`);
     } catch (err) {
       if (err.code === 'EADDRINUSE') {
-        process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${WS_PORT} is already in use\n`);
+        process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${this._port} is already in use\n`);
         process.stderr.write(`[${ts()}] [Bridge] Another instance may be running. Please stop it first.\n`);
         process.exit(1);
       }
@@ -1010,6 +1046,19 @@ export class WebSocketBridge extends EventEmitter {
   async _handleClientRequest(msg, ws) {
     const traceID = msg.traceID || null;
     const tracePrefix = traceID ? `[${traceID}] ` : '';
+
+    if (msg.type === 'service_info') {
+      this._reply(ws, {
+        type: 'service_info_result', id: msg.id, ok: true,
+        instance: {
+          kind: this._instanceKind,
+          port: this._port,
+          webcliVersion: this._version || null,
+          tokenHash: this._serviceTokenHash,
+        },
+      });
+      return;
+    }
 
     if (msg.type === 'call_tool') {
       const { toolName, args, id } = msg;

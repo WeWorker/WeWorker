@@ -34,6 +34,7 @@ import { findToolkitAdapter, loadToolkitAdapters } from "./adapter-registry.js";
 import { managedAdapterViews, managedAdapterView, managedAdapterSkill } from './adapter-views.js';
 import { runManagedAdapterCommand } from './managed-adapter-cli.js';
 import { formatCallOutput, resolveOutputFormat } from './output-format.js';
+import { bridgeUrl, resolveBridgeInstance } from './bridge-instance.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -60,7 +61,8 @@ const HUB_URL = process.env.WEBMCP_HUB || "https://webmcphub.dev";
 // Registry 和 Adapters URL 自动构建
 const HUB_REGISTRY_URL = `${HUB_URL}/hub/registry.json`;
 const HUB_ADAPTER_BASE_URL = `${HUB_URL}/hub/adapters`;
-const WS_PORT = 3711;
+const BRIDGE_INSTANCE = resolveBridgeInstance();
+const WS_PORT = BRIDGE_INSTANCE.port;
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
@@ -1403,7 +1405,7 @@ async function writeAdapter(adapterId, code) {
 async function cmdRefresh() {
   console.log("Refreshing Hub adapter registry...");
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+    const ws = new WebSocket(bridgeUrl(BRIDGE_INSTANCE));
 
     const timeout = setTimeout(() => {
       ws.terminate();
@@ -1443,7 +1445,7 @@ export async function reloadExtension({ quiet = false } = {}) {
   if (!quiet) process.stdout.write("Sending reload signal to Chrome extension... ");
 
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+    const ws = new WebSocket(bridgeUrl(BRIDGE_INSTANCE));
 
     const timeout = setTimeout(() => {
       ws.terminate();

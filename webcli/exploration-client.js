@@ -1,11 +1,14 @@
 import { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
+import { bridgeUrl, resolveBridgeInstance } from './bridge-instance.js';
+
+const DEFAULT_BRIDGE_URL = bridgeUrl(resolveBridgeInstance());
 
 export function callExploration(command, args, options = {}) {
   return callLocalCommand('exploration', command, args, options);
 }
 
-export function callLocalCommand(namespace, command, args, { url = 'ws://127.0.0.1:3711', timeoutMs = 20000, signal, profile = process.env.WEBCLI_PROFILE, connectionId } = {}) {
+export function callLocalCommand(namespace, command, args, { url = DEFAULT_BRIDGE_URL, timeoutMs = 20000, signal, profile = process.env.WEBCLI_PROFILE, connectionId } = {}) {
   return new Promise(resolve => {
     if (signal?.aborted) { resolve({ schemaVersion: 1, ok: false, command: `${namespace}.${command}`, error: { code: 'ABORTED', message: 'Local request canceled.' } }); return; }
     const socket = new WebSocket(url);

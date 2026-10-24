@@ -5,10 +5,15 @@
   "type": "module",
   "main": "index.js",
   "bin": {
-    "webcli": "index.js"
+    "webcli": "npm-entry.js"
   },
   "files": [
     "index.js",
+    "npm-entry.js",
+    "npm-environment.js",
+    "npm-metrics.js",
+    "bridge-instance.js",
+    "metrics-client.json",
     "route-command.js",
     "auto-route-catalog.js",
     "auto-route-decision-tree.js",
