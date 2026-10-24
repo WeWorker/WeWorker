@@ -38,9 +38,9 @@ function buildCron({ frequency, hour, minute, weekday, minuteInterval }) {
     case 'hourly':
       return `${minute || 0} * * * *`
     case 'daily':
-      return `${minute || 0} ${hour || 9} * * *`
+      return `${minute ?? 0} ${hour ?? 9} * * *`
     case 'weekly':
-      return `${minute || 0} ${hour || 9} * * ${weekday || 1}`
+      return `${minute ?? 0} ${hour ?? 9} * * ${weekday ?? 1}`
     default:
       return '0 * * * *'
   }
@@ -110,7 +110,7 @@ function getNextRuns({ frequency, hour, minute, weekday, minuteInterval }, count
       candidate.setDate(candidate.getDate() + 1)
     }
   } else if (frequency === 'weekly') {
-    const h = hour ?? 9, m = minute || 0, dow = parseInt(weekday || '1', 10)
+    const h = hour ?? 9, m = minute ?? 0, dow = parseInt(weekday ?? '1', 10)
     const candidate = new Date(now)
     candidate.setHours(h, m, 0, 0)
     // Advance to next matching weekday

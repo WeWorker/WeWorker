@@ -174,6 +174,10 @@ export default function App() {
           useWorksStore.getState().loadWorks()
           return
         }
+        if (parsed.type === 'title_update' && parsed.workId) {
+          useWorksStore.getState().updateTitleLocal(parsed.workId, parsed.title)
+          return
+        }
         if (parsed.type !== 'task_notification') return
 
         const { taskId, taskTitle, workId, status, summary } = parsed.data

@@ -279,6 +279,24 @@ function buildResourceHint(resource, skillName) {
   return `本技能所需文件 \`${fileName}\` 的路径为 \`${fullPath}\`。`
 }
 
+function renameResourceHints(markdown, resources, oldPath, nextPath, skillName) {
+  const oldRoot = normalizeResourcePath(oldPath)
+  const newRoot = normalizeResourcePath(nextPath)
+  const replacements = new Map()
+  for (const resource of resources || []) {
+    if (resource.is_directory === true) continue
+    const relativePath = normalizeResourcePath(resource.relativePath || resource.name)
+    if (relativePath !== oldRoot && !relativePath.startsWith(`${oldRoot}/`)) continue
+    const nextResource = { ...resource, relativePath: newRoot + relativePath.slice(oldRoot.length) }
+    replacements.set(buildResourceHint(resource, skillName), buildResourceHint(nextResource, skillName))
+  }
+  // Only replace generated resource hints, never matching text in user prose.
+  return String(markdown || '').split('\n').map((line) => {
+    const replacement = replacements.get(line.trim())
+    return replacement ? line.replace(line.trim(), () => replacement) : line
+  }).join('\n')
+}
+
 function getResourceFileToken(resource) {
   const relativePath = resource?.relativePath || resource?.name || ''
   const normalized = String(relativePath).replace(/\\/g, '/')
@@ -3103,9 +3121,10 @@ function SkillDocumentEditor({ tags, onTagsChange, tool, site, scenarios, editab
     const nextPath = resolveRenamedResourcePath(oldPath, trimmed)
     onChange?.({
       resources: nextResources,
+      markdown: renameResourceHints(storedMarkdown, resources, oldPath, nextPath, tool.name),
     })
     if (expandedPath === oldPath) setExpandedPath(nextPath)
-    else if (expandedPath.startsWith(`${oldPath}/`)) {
+    else if (expandedPath?.startsWith(`${oldPath}/`)) {
       setExpandedPath(`${nextPath}${expandedPath.slice(oldPath.length)}`)
     }
     setRenamingPath(null)
