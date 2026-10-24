@@ -1,6 +1,6 @@
 # WeWorker Roadmap
 
-- 2026-10-24（公开地址收敛）：项目文档、官网元信息和桌面端公开配置统一使用正式官网 `https://www.weworker.cc` 与公开仓库 `WeWorker/WeWorker`；移除旧个人仓库和示例更新源。自动更新继续从 GitHub Releases 的 latest release 读取元数据，官网 `/downloads/` 当前仅返回 SPA 页面，不作为更新源。验证：公开配置校验、官网构建、Renderer 构建及相关语法检查通过；未创建 Release 或部署官网。
+- 2026-10-24（公开地址与品牌资产收敛）：项目文档、官网元信息和桌面端公开配置统一使用正式官网 `https://www.weworker.cc` 与公开仓库 `WeWorker/WeWorker`；社交预览与分享元数据统一引用官网的新 Logo；移除旧个人仓库和示例更新源。自动更新继续从 GitHub Releases 的 latest release 读取元数据，官网 `/downloads/` 当前仅返回 SPA 页面，不作为更新源。验证：公开配置校验、官网构建、Renderer 构建及相关语法检查通过；未创建 Release 或部署官网。
 
 - 2026-10-22（第 11 项 BFCache 修复）：托管页面只读命令遇到明确 BFCache 通道断连时等待原页面恢复，重新校验包快照并注入，在原截止时间内最多恢复两次；写操作、需要确认的命令和普通错误不重放。221 项自动化通过，构建/语法/差异及生成扩展一致性通过；真实 51job 请求中进入 BFCache 连续两次自动恢复返回结果，热门/豆瓣详情/携程单程回归通过。修复与验收记录整理提交至 develop；未构建发布安装包，详见验收文档。
 

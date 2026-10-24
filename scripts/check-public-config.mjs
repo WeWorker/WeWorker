@@ -83,6 +83,9 @@ export function validatePublicConfig(repoRoot) {
     ['weworker/renderer/src/components/settings/SettingsModal.jsx', PUBLIC_UPDATE_URL],
     ['officialWeb/src/lib/siteConfig.js', PUBLIC_REPO_URL],
     ['officialWeb/index.html', `${PUBLIC_SITE_URL}/`],
+    ['officialWeb/index.html', `${PUBLIC_SITE_URL}/logo.png`],
+    ['docs/assets/social-preview.html', '../../officialWeb/public/logo.png'],
+    ['docs/assets/social-preview.svg', '../../officialWeb/public/logo.png'],
   ]
   for (const [relativePath, expected] of publicUrlSources) {
     const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')

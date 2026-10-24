@@ -55,10 +55,10 @@ function buildFixtureRepo({ webcliVersion = '1.0.4', ledgerOverrides = {} } = {}
   writeText('weworker/electron/update-manager.js', `const updateUrl = '${PUBLIC_UPDATE_URL}'\n`)
   writeText('weworker/renderer/src/components/settings/SettingsModal.jsx', `const updateUrl = '${PUBLIC_UPDATE_URL}'\n`)
   writeText('officialWeb/src/lib/siteConfig.js', `export const GITHUB_REPO = '${PUBLIC_REPO_URL}'\n`)
-  writeText('officialWeb/index.html', `<link rel="canonical" href="${PUBLIC_SITE_URL}/">\n`)
+  writeText('officialWeb/index.html', `<link rel="canonical" href="${PUBLIC_SITE_URL}/"><meta property="og:image" content="${PUBLIC_SITE_URL}/logo.png">\n`)
   writeText('docs/github-repo-settings.md', `${PUBLIC_REPO_URL}\n${PUBLIC_SITE_URL}\n`)
-  writeText('docs/assets/social-preview.html', `${PUBLIC_SITE_URL}\n`)
-  writeText('docs/assets/social-preview.svg', `${PUBLIC_SITE_URL}\n`)
+  writeText('docs/assets/social-preview.html', `${PUBLIC_SITE_URL}\n../../officialWeb/public/logo.png\n`)
+  writeText('docs/assets/social-preview.svg', `${PUBLIC_SITE_URL}\n../../officialWeb/public/logo.png\n`)
 
   writeJson('webcli/package.json', { version: webcliVersion })
   writeJson('webcli/version.json', { version: ledgerOverrides.versionJson ?? webcliVersion })

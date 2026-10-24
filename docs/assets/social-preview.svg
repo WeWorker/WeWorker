@@ -20,14 +20,15 @@
   <!-- Main content container -->
   <rect x="80" y="120" width="1120" height="400" rx="20" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
 
-  <!-- Logo area -->
+  <!-- Logo area: keep the social preview aligned with the shared product logo. -->
+  <clipPath id="logoClip">
+    <rect x="120" y="180" width="200" height="200" rx="20"/>
+  </clipPath>
   <rect x="120" y="180" width="200" height="200" rx="20" fill="white"/>
-  <text x="220" y="310"
-        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif"
-        font-weight="700"
-        font-size="48"
-        fill="#1a1a2e"
-        text-anchor="middle">WeWorker</text>
+  <image href="../../officialWeb/public/logo.png"
+         x="120" y="180" width="200" height="200"
+         preserveAspectRatio="xMidYMid slice"
+         clip-path="url(#logoClip)"/>
 
   <!-- Title -->
   <text x="380" y="240"
