@@ -1,11 +1,11 @@
-name: Close Linked Issues on Develop
+name: Close Linked Issues
 
 on:
   pull_request:
     types:
       - closed
     branches:
-      - develop
+      - dev-*
 
 permissions:
   contents: read
@@ -31,6 +31,7 @@ jobs:
           const pr = event.pull_request || {}
           const body = String(pr.body || '')
           const prNumber = pr.number
+          const baseRef = String(pr.base?.ref || '')
           const repo = String(process.env.GH_REPO || '')
           const escapedRepo = repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -71,7 +72,7 @@ jobs:
                   '--repo',
                   process.env.GH_REPO,
                   '--comment',
-                  `已通过 PR #${prNumber} 合并到 develop，自动关闭。`,
+                  `已通过 PR #${prNumber} 合并到 ${baseRef}，自动关闭。`,
                 ],
                 { stdio: 'inherit' },
               )
