@@ -178,7 +178,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://111.230.33.112/downloads/"
+        "url": "https://github.com/WeWorker/WeWorker/releases/latest/download/"
       }
     ]
   }

@@ -85,13 +85,13 @@ test('electron packaging launches the JavaScript CLI without a Windows command s
   assert.doesNotMatch(command.executable, /\.cmd$/i)
 })
 
-test('electron packaging derives its publish URL from deployment.json', (t) => {
+test('electron packaging derives its publish URL from the GitHub update endpoint', (t) => {
   const outputPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-deployment-')), 'builder.json')
   t.after(() => fs.rmSync(path.dirname(outputPath), { recursive: true, force: true }))
   const configPath = createElectronBuilderConfig({ outputPath })
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
   const deployment = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8'))
-  assert.deepEqual(config.publish, [{ provider: 'generic', url: deployment.downloadUrl }])
+  assert.deepEqual(config.publish, [{ provider: 'generic', url: deployment.githubUrl }])
 })
 
 test('macOS packages use a complete ad-hoc signature for internal distribution', () => {

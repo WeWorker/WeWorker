@@ -10,11 +10,6 @@ const DEPLOYMENT = deploymentConfigModule.normalizeDeploymentConfig(deploymentRa
 const SUPPORTED_PLATFORMS = new Set(['win32', 'darwin'])
 const UPDATE_SOURCES = [
   {
-    id: 'official',
-    label: '官网',
-    url: DEPLOYMENT.downloadUrl,
-  },
-  {
     id: 'github',
     label: 'GitHub latest',
     url: DEPLOYMENT.githubUrl,

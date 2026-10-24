@@ -373,7 +373,6 @@ function AboutTab({ appVersion, commitHash }) {
   const updateSources = Array.isArray(updateState?.updateSources) && updateState.updateSources.length > 0
     ? updateState.updateSources
     : [
-        { id: 'official', label: '官网', metadataUrl: `${DOWNLOAD_URL}${updateMetadataFile}` },
         { id: 'github', label: 'GitHub latest', metadataUrl: `${GITHUB_UPDATE_URL}${updateMetadataFile}` },
       ]
   const activeUpdateSourceId = updateState?.activeUpdateSource?.id || ''
