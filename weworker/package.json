@@ -22,7 +22,7 @@
     "build:mac": "node scripts/prepare-build.cjs && npm run build:webwright && npm run build:renderer && npm run build:backend-ts && npm run build:bridge && npm run build:webcli && node scripts/build-electron-current-arch.cjs --mac",
     "build:decrypt": "node scripts/build-decrypt.cjs",
     "build:win": "node scripts/prepare-build.cjs && npm run build:webwright && npm run build:renderer && npm run build:backend-ts && npm run build:bridge:win && npm run build:webcli && npm run build:decrypt && node scripts/build-electron-current-arch.cjs --win",
-    "install:all": "npm run ensure:webwright && npm run sync:webwright && npm install && cd renderer && npm install && cd ../backend-ts && npm install && cd ../../webcli && npm install && cd ../weworker && npm run build:webcli"
+    "install:all": "npm run ensure:webwright && npm run sync:webwright && npm ci && cd renderer && npm ci && cd ../backend-ts && npm ci && cd ../../webcli && npm ci && cd ../weworker && npm run build:webcli"
   },
   "dependencies": {
     "electron-updater": "^6.1.0"

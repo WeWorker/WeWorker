@@ -1,7 +1,7 @@
 # WeWorker
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/WeWorker/WeWorker/actions/workflows/ci.yml/badge.svg)](https://github.com/WeWorker/WeWorker/actions/workflows/ci.yml)
+[![Validate](https://github.com/WeWorker/WeWorker/actions/workflows/validate.yml/badge.svg)](https://github.com/WeWorker/WeWorker/actions/workflows/validate.yml)
 [![GitHub release](https://img.shields.io/github/v/release/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/releases)
 [![GitHub stars](https://img.shields.io/github/stars/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/issues)
@@ -53,10 +53,20 @@ WeWorker 初次开源版本已内置一批常用网站 Adapter。常用示例：
 
 前置环境：
 
-- Node.js 22
+- Node.js 22.x（不支持使用其他主版本代替）
 - npm
 - [uv](https://docs.astral.sh/uv/)
 - Chrome 或 Chromium 浏览器
+
+先确认实际生效的版本：
+
+```bash
+node --version
+npm --version
+uv --version
+```
+
+`node --version` 必须输出 `v22.x.x`。项目所需的 Python 由 `uv` 自动准备，不需要预先安装系统 Python 或 PyInstaller。
 
 ```bash
 git clone https://github.com/WeWorker/WeWorker.git
@@ -65,7 +75,7 @@ npm run install:all
 npm run dev
 ```
 
-首次安装会同步网站探索agent运行环境，并安装桌面端、Renderer、Backend 和 WebCLI 的依赖。
+首次安装会同步网站探索agent运行环境，并安装桌面端、Renderer、Backend 和 WebCLI 的锁定依赖。期间会下载 Python 运行环境和 Electron（约 120 MB），可能出现一段时间没有新日志；请确保能够访问 npm registry、GitHub Releases 和相关 CDN。
 
 ### 加载浏览器扩展
 
@@ -156,6 +166,21 @@ npm run build:win
 cd weworker
 npm run build:mac
 ```
+
+Windows 构建产物位于 `weworker/dist-app/`，成功后至少包含 `.exe`、`.exe.blockmap`、`latest.yml` 和 `win-unpacked/`。
+
+### Windows 下载与权限问题
+
+如果 Electron 下载长期停留在 GitHub，可在**同一个 PowerShell 窗口**临时使用镜像后重新安装或构建：
+
+```powershell
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+npm run install:all
+npm run build:win
+```
+
+这些变量只影响当前 PowerShell 会话，不建议写入项目文件。如果 `electron-builder` 报“无法创建符号链接/客户端没有所需的特权”，请开启 Windows 开发者模式，或从管理员 PowerShell 构建。如果刚生成的网站探索 Agent 或解密工具报 `EPERM`/“拒绝访问”，通常是终端安全软件阻止未签名的 PyInstaller 产物；不要关闭安全防护，应让管理员放行构建目录或改用允许执行本地构建产物的可信机器。
 
 详细说明见：
 
