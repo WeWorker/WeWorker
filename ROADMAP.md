@@ -1,6 +1,6 @@
 # WeWorker Roadmap
 
-- 2026-10-24（本地源码构建文档）：在干净的公开 `main` 提交上按根 README 复现 Windows x64 构建，确认 Node.js 必须使用 22.x、首次 Electron 下载需可访问 GitHub Releases/CDN，`npm run install:all` 改用 lockfile 驱动的 `npm ci`。补充 Electron/electron-builder 镜像、Windows 符号链接权限和终端安全软件拦截新生成 PyInstaller 可执行文件时的识别与安全处理。实际完成 Renderer、Backend、Bridge、WebCLI、Windows 解密工具及 NSIS 安装包生成，产出 `.exe`、`.blockmap`、`latest.yml` 和 win-unpacked；本机终端安全软件仍会拒绝执行本次新生成的未签名 PyInstaller 文件，因此完整一键命令及安装后网站探索agent运行需在放行目录或可信构建机复验，不能标记为已完成。
+- 2026-10-24（本地源码构建文档）：在干净的公开 `main` 提交上按根 README 复现 Windows x64 构建，确认 Node.js 必须使用 22.x、首次 Electron 下载需可访问 GitHub Releases/CDN，`npm run install:all` 改用 lockfile 驱动的 `npm ci`。补充 Electron/electron-builder 镜像、Windows 符号链接权限和终端安全软件拦截新生成 PyInstaller 可执行文件时的识别与安全处理。本地实际完成 Renderer、Backend、Bridge、WebCLI、Windows 解密工具及 NSIS 安装包生成，产出 `.exe`、`.blockmap`、`latest.yml` 和 win-unpacked；本机终端安全软件仍拒绝执行本次新生成的未签名 PyInstaller 文件。GitHub Actions 已在可信 Windows Runner 上完整执行同一 `npm run build:win` 并通过 runtime 自检、安装包校验、SHA-256/provenance 生成和 Artifact 上传；安装后人工冒烟仍未执行。
 
 - 2026-10-24（公开 Workflow 收敛）：将公开 CI 拆分为 `Validate`、`Common Build`、`Build Desktop`、`Release Desktop` 和 `Build Website`，保留配置检查、单元测试和各模块编译检查；桌面测试支持 Windows x64、macOS x64、macOS arm64 单独或全量打包，官网仅上传带校验和及来源信息的构建产物。公共构建直接使用当前仓库源码，不包含内部目录覆盖、内部仓库访问或内部凭据；关联 Issue 自动关闭规则同步适配 `dev-*`。验证：Workflow YAML、配置检查、单元测试、各模块编译检查及 GitHub Actions Windows x64 完整安装包构建通过，安装包 Artifact 已生成；macOS x64、macOS arm64、全平台手动入口和 Draft Release 待流程进入默认分支后验证。
 
