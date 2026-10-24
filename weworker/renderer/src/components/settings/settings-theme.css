@@ -1929,6 +1929,12 @@
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.settings-update-action {
+  min-width: 84px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .settings-close,
   .settings-tab,

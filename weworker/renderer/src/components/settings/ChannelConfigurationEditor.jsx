@@ -14,9 +14,9 @@ import { ChannelProbeButton, ChannelProbeChecklist, useChannelProbe } from './Ch
 const API = 'http://127.0.0.1:8765'
 
 const OWNER_PERMISSION_OPTIONS = [
-  { value: 'qa_only', label: '问答权限', hint: '仅知识问答，与访客相同' },
-  { value: 'no_bash', label: '禁用原生命令', hint: '可使用标准 Skill 和文件工具，不能执行 Adapter 或其他 Bash／PowerShell 命令' },
-  { value: 'full', label: '完全权限', hint: '包含 Bash 与全部 Agent 能力' },
+  { value: 'qa_only', label: '问答权限', hint: '仅可进行知识问答，与访客权限相同' },
+  { value: 'no_bash', label: '禁用原生命令', hint: '可使用标准技能和文件工具，不能执行适配器或其他本地命令' },
+  { value: 'full', label: '完全权限', hint: '包含命令行与全部智能体能力' },
 ]
 
 export default function ChannelConfigurationEditor({ type, profileId, onBusyChange, profileSelector }) {

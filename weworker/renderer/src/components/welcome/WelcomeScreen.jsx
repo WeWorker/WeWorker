@@ -29,6 +29,8 @@ import {
   clampText,
   fallbackScenarios,
   filterScenarios,
+  getFeaturedSiteAvailability,
+  getHiddenFeaturedSites,
   readFeaturedOrder,
   readFeaturedSquareCards,
   readFeaturedVisibleCount,
@@ -221,6 +223,7 @@ function ScenarioPickerListItem({
 export default function WelcomeScreen({ onFillInput }) {
   const sites = useSitesStore((s) => s.sites)
   const loadSites = useSitesStore((s) => s.load)
+  const toggleSiteVisibility = useSitesStore((s) => s.toggleVisibility)
   const settingsLoaded = useSettingsStore((s) => s.loaded)
   const loadSettings = useSettingsStore((s) => s.load)
   const welcomeFeaturedSiteLimit = useSettingsStore((s) => s.welcomeFeaturedSiteLimit)
@@ -316,9 +319,9 @@ export default function WelcomeScreen({ onFillInput }) {
     return () => window.removeEventListener('resize', bumpFeaturedGridLayout)
   }, [bumpFeaturedGridLayout])
 
-  const rows = useMemo(() => {
+  const enabledRows = useMemo(() => {
     return sites
-      .filter((site) => site.enabled && site.visible)
+      .filter((site) => site.enabled)
       .map((site) => {
         const scenarios = normalizeSiteScenarios(site)
         const visibleScenarios = scenarios.length ? scenarios : fallbackScenarios(site)
@@ -327,30 +330,45 @@ export default function WelcomeScreen({ onFillInput }) {
       .filter((row) => row.scenarios.length > 0)
   }, [sites])
 
+  const rows = useMemo(() => enabledRows.filter(({ site }) => site.visible), [enabledRows])
+
   const showcaseItems = useMemo(() => {
     return rows.flatMap(({ site, scenarios }) =>
       scenarios.map((scenario) => ({ site, scenario, prompt: getScenarioPromptText(site, scenario) }))
     ).slice(0, 6)
   }, [rows])
 
-  const orderedRows = useMemo(() => {
-    const byId = new Map(rows.map((row) => [row.site.id, row]))
+  const orderedEnabledRows = useMemo(() => {
+    const byId = new Map(enabledRows.map((row) => [row.site.id, row]))
     const ordered = featuredOrder.map((id) => byId.get(id)).filter(Boolean)
     const orderedIds = new Set(ordered.map((row) => row.site.id))
-    return [...ordered, ...rows.filter((row) => !orderedIds.has(row.site.id))]
-  }, [rows, featuredOrder])
+    return [...ordered, ...enabledRows.filter((row) => !orderedIds.has(row.site.id))]
+  }, [enabledRows, featuredOrder])
+
+  const orderedRows = useMemo(() => orderedEnabledRows.filter(({ site }) => site.visible), [orderedEnabledRows])
+  const hiddenWelcomeSites = useMemo(() => orderedEnabledRows.filter(({ site }) => !site.visible), [orderedEnabledRows])
 
   const featuredSiteLimit = Math.max(1, Number(welcomeFeaturedSiteLimit) || DEFAULT_WELCOME_FEATURED_SITE_LIMIT)
-  const maxVisibleFeaturedCount = Math.min(featuredSiteLimit, orderedRows.length)
+  const maxVisibleFeaturedCount = Math.min(featuredSiteLimit, orderedEnabledRows.length)
   const visibleFeaturedCount = Math.min(
     Math.max(0, featuredVisibleCount),
     maxVisibleFeaturedCount,
+    orderedRows.length,
   )
   const featuredSites = orderedRows.slice(0, visibleFeaturedCount)
-  const hiddenFeaturedSites = orderedRows.slice(visibleFeaturedCount)
-  const featuredSiteLimitReached = visibleFeaturedCount >= featuredSiteLimit
+  const hiddenFeaturedSites = getHiddenFeaturedSites({
+    visibleSites: orderedRows,
+    enabledSites: hiddenWelcomeSites,
+    visibleCount: visibleFeaturedCount,
+  })
+  const featuredAvailability = getFeaturedSiteAvailability({
+    siteLimit: featuredSiteLimit,
+    visibleCount: visibleFeaturedCount,
+    availableCount: hiddenFeaturedSites.length,
+  })
+  const featuredSiteLimitReached = featuredAvailability.limitReached
+  const canAddFeaturedSite = featuredAvailability.canAdd
   const allAvailableFeaturedSitesShown = hiddenFeaturedSites.length === 0
-  const canAddFeaturedSite = visibleFeaturedCount < featuredSiteLimit && hiddenFeaturedSites.length > 0
   const addFeaturedLimitTitle = featuredSiteLimitReached
     ? `已达上限 ${featuredSiteLimit} 个，可在设置 → 配置中调整「欢迎页常用场景网站上限」`
     : (allAvailableFeaturedSitesShown ? '已添加全部可用网站' : undefined)
@@ -799,14 +817,22 @@ export default function WelcomeScreen({ onFillInput }) {
     setAddPickerOpen((open) => !open)
   }
 
-  const selectFeaturedSite = (siteId) => {
-    const ids = orderedRows.map((row) => row.site.id)
+  const selectFeaturedSite = async (siteId) => {
+    const selectedRow = hiddenFeaturedSites.find(({ site }) => site.id === siteId)
+    if (!selectedRow) return
+    if (!selectedRow.site.visible) {
+      await toggleSiteVisibility(siteId)
+      const site = useSitesStore.getState().sites.find((item) => item.id === siteId)
+      if (!site?.visible) return
+    }
+
+    const ids = orderedEnabledRows.map((row) => row.site.id)
     const sourceIndex = ids.indexOf(siteId)
     if (sourceIndex < 0) return
     const next = [...ids]
     const [selected] = next.splice(sourceIndex, 1)
     next.splice(visibleFeaturedCount, 0, selected)
-    const nextCount = Math.min(maxVisibleFeaturedCount, visibleFeaturedCount + 1)
+    const nextCount = featuredAvailability.nextVisibleCount
     persistFeaturedOrder(next)
     persistFeaturedVisibleCount(nextCount)
     focusSitePreview(siteId)
