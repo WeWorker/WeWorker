@@ -35,6 +35,27 @@ function buildElectronCommand(
   }
 }
 
+const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+
+/**
+ * Optional distribution version override: when `version.json` exists next to
+ * package.json, its version replaces the packaged app version (installer
+ * filename, updater metadata and the displayed app version) without forking
+ * package.json itself. Missing file keeps the source version.
+ */
+function readVersionOverride(root) {
+  const overridePath = path.join(root, 'version.json')
+  if (!fs.existsSync(overridePath)) return null
+  let override
+  try { override = JSON.parse(fs.readFileSync(overridePath, 'utf8')) }
+  catch { throw new Error('version.json is not valid JSON') }
+  if (!override || typeof override !== 'object' || Array.isArray(override)
+      || typeof override.version !== 'string' || !SEMVER_RE.test(override.version)) {
+    throw new Error('version.json must contain an object with a semver "version" string')
+  }
+  return override.version
+}
+
 function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) {
   const packagePath = path.join(root, 'package.json')
   const deploymentPath = path.join(root, 'deployment.json')
@@ -43,6 +64,11 @@ function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) 
   const config = {
     ...packageJson.build,
     publish: [{ provider: 'generic', url: deployment.downloadUrl }],
+  }
+  const versionOverride = readVersionOverride(root)
+  if (versionOverride) {
+    config.version = versionOverride
+    config.extraMetadata = { ...config.extraMetadata, version: versionOverride }
   }
   const targetPath = outputPath || path.join(root, 'build', '.electron-builder-config.json')
   fs.mkdirSync(path.dirname(targetPath), { recursive: true })

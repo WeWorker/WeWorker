@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-10-24（桌面包版本覆盖机制）：`createElectronBuilderConfig` 支持可选 `weworker/version.json` 覆盖——存在时以其中 semver `version` 设置 electron-builder `config.version` 与 `extraMetadata.version`，同时决定安装包文件名、更新器元数据和应用内显示版本；文件缺失或非法时保持源码版本并明确报错。发布方（如行内仓库同路径覆盖）无需 fork 整份 package.json。验证：新增聚焦测试 3 项与既有打包 13 项测试通过。真实行内版本覆盖与安装包验收由配套内部发布流程执行。
+
 - 2026-10-24（npm WebCLI 指标打包默认）：npm prepack 从检出 `weworker/model.json` 生成包内 `metrics-client.json`——公开模型生成禁用配置，行为与现状一致；显式启用上报的模型要求构建环境提供 `WEBCLI_METRICS_CLIENT_TOKEN`，测试构建可显式豁免。npm 入口在加载核心前应用包内默认值，用户进程环境变量优先，配置缺失或损坏时失败关闭。Bridge 在消息分发层直接应答 `service_info` 身份探测（修复处理器存在但分发白名单未路由导致探测永远超时的问题），并回填实际绑定端口；npm 冷启动等待从 5 秒延长到 30 秒且守护进程未就绪时不再清理 PID/属主文件，改为提示稍后重试。验证：真实 Bridge 的 service_info 端到端探测、npm 指标运行时、prepack 生成、端口隔离及 Bridge/浏览器聚焦测试通过；全量 WebCLI 测试仅剩 2 项 Windows 符号链接环境既有失败。未验证真实启用构建的上报入库。
 
 - 2026-10-24（npm WebCLI 独立 Bridge）：npm 安装的 `webcli` 改用专用入口，在加载共享核心前固定使用 `ws://127.0.0.1:3712` 及独立的 PID/日志、浏览器 Profile、Adapter 数据目录；桌面端 CLI、Bridge 和扩展继续使用 3711。npm 打包只改写复制后的扩展 worker，源扩展和桌面扩展保持 3711；npm Bridge 对外校验实例身份，端口被其他服务占用时失败关闭，`service stop` 只处理已确认归属的实例。验证：端口解析、npm 入口、worker 改写、桌面环境锁定及 Bridge/浏览器相关聚焦测试通过；全量 WebCLI 测试仅剩 2 项 Windows 符号链接环境既有失败。未验证真实双浏览器登录态及完整安装包。
