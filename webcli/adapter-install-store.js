@@ -221,6 +221,15 @@ export function installAdapter(input, options = {}) {
 export function removeInstalledAdapter(name, options = {}) {
   assertAdapterIdentity(name);
   return runLocked(options, (paths, state) => {
+    if (options.expectedStateRevision !== undefined && state.revision !== options.expectedStateRevision) {
+      throw adapterError('ADAPTER_REVIEW_CHANGED', 'Adapter state changed after deletion review.');
+    }
+    if (options.expectedSourceDigest !== undefined) {
+      const active = buildAdapterCatalog({ paths, state }).effective.find((entry) => entry.name === name);
+      if ((active?.digest || null) !== options.expectedSourceDigest) {
+        throw adapterError('ADAPTER_BASE_CHANGED', 'Adapter changed after deletion review.');
+      }
+    }
     const target = assertManagedFile(paths.userDir, name);
     if (!state.installations[name]) {
       const current = buildAdapterCatalog({ paths, state });

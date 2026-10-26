@@ -79,6 +79,24 @@ def test_standalone_does_not_register_weworker_install_route(tmp_path: Path) -> 
     assert response.status_code == 404
 
 
+def test_tool_deletion_prepare_and_restore_routes(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    store = ToolkitStore(paths.toolkits)
+    store.create_toolkit(name="demo", allowed_domains=["example.com"])
+    store.create_tool("demo", name="read_page", goal="Read page",
+                      start_url="https://example.com/")
+    client = create_app(paths=paths).test_client()
+
+    prepared = client.post("/api/toolkits/demo/tools/read_page/delete-prepare")
+    assert prepared.status_code == 200
+    assert client.get("/api/toolkits/demo/tools").get_json()["tools"] == []
+    transaction_id = prepared.get_json()["transaction_id"]
+    restored = client.post("/api/toolkits/demo/tools/read_page/delete-finish",
+                           json={"transaction_id": transaction_id, "restore": True})
+    assert restored.status_code == 200
+    assert client.get("/api/toolkits/demo/tools").get_json()["tools"][0]["tool_id"] == "read_page"
+
+
 def test_weworker_user_files_environment_enables_install_capability(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -88,7 +106,8 @@ def test_weworker_user_files_environment_enables_install_capability(
     app = create_app(paths=_paths(tmp_path))
     health = app.test_client().get("/api/health").get_json()
 
-    assert health["capabilities"]["install_to_weworker"] is True
+    assert health["capabilities"]["install_to_weworker"] is False
+    assert health["capabilities"]["adapter_v2_package"] is True
     assert app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] == user_files_dir.resolve()
 
 

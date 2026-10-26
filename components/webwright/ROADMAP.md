@@ -6,6 +6,12 @@
 
 ## 已完成
 
+- 2026-10-24：为 WeWorker 统一 Adapter 树删除流程增加 Tool／开发中目录暂存、恢复与完成接口；安装器失败可恢复原 Tool，安装成功后从可见目录移除。Python 存储与 Server API 聚焦测试 40 项、Python 编译通过；与宿主安装器的联合场景由根目录 Roadmap 记录。跨进程崩溃后的暂存需人工检查。
+
+- 2026-10-24：Developer Slot 移除页面前置／后置状态文字数组；槽位直接读取，不保留旧字段过滤逻辑。删除当前持久目录中带旧字段的 4 个槽位文件，同步生成契约、旧 Skill 文本、开发界面、夹具及设计。本轮槽位、发布和调试聚焦测试 61 项通过；此前聚焦测试 80 项通过、1 项真实 CDP 跳过，单元全量 269 项通过、3 项跳过、1 项因既有 OpenAI 完整 URL 拼接问题失败。Renderer 4 项单测、生产构建及 Web JS 语法检查通过。
+
+- 2026-10-24：Developer Slot 移除 `side_effects` 字段，新生成的 v2 Adapter 命令暂时固定 `safety: "read"`；同步槽位校验、Skill 内容、页面展示、示例与设计。Python 聚焦测试 84 项通过、1 项真实 CDP 测试跳过；Web JS 语法检查通过。后续安全分类规则待定。
+
 - 2026-09-22：健康接口返回 Electron 注入的探索实例 ID，与 Backend 托管实例校验对齐。独立运行返回空 ID，不绕过宿主校验；健康接口与生命周期聚焦测试 35/35 通过。用户随后确认客户端问题已修复，详见根目录 Roadmap。
 
 - 2026-08-09：在现有三工作区前端完成开发中 Tool 代码的手动编辑与保存。开发代码卡在代码下方显示「编辑代码」，进入编辑态后原位切换为「取消修改／保存修改」，编辑期间禁用发布、重新开始和 Developer Agent 提交；所有界面隐藏 `code_hash`／`artifact_hash` 原始值，版本关系改用首次开发、已发布版本、当前产物和旧产物表达。保存接口只替换代码正文，保留 Exploration／正式基线／Debug Run 证据等槽位元数据，使用预期 `code_hash` 防止覆盖并受全局活动互斥保护。保存继续复用 Tool Slot 的 Python 语法、唯一异步函数、业务参数与 Schema 校验，成功后生成新哈希，使旧 Debug Run 自然失去发布资格；正式代码、Schema 和运行契约保持只读。
@@ -49,7 +55,7 @@
 - 2026-07-18：修复 Windows 正式版 Debug 子进程编码链路：外层 Debug 进程与内层已发布 CLI 统一通过 `PYTHONIOENCODING=utf-8` 输出，捕获端显式按 UTF-8 解码，不再将 GBK 中文误解码为 `U+FFFD`，避免 Tool 已成功却因结果日志打印失败被判定为 Debug 失败。
 - 2026-07-18：修复首次开发误用“从探索重新开发”交互：从未发布且无开发中版本的 Tool 选择成功 Exploration 后，开发工作区改为显示「开始开发」、所选 Exploration 和必填首次开发指令，提交走普通 `/development/start`；已有正式版本的独立重新开发入口和清空语义保持不变。
 - 2026-07-18：完成「从探索重新开发」专项：已发布 Tool 可从当前 Tool 的一次成功 Exploration 清空开发中槽位并重新开发；Developer 输入通过显式 `exploration_only` 隔离正式／开发中代码和历史 Debug 证据，Development Run 固定空 `based_on_formal_hash`／`debug_run_evidence_id`；独立 API、开发工作区双入口和显式确认弹窗已接通，运行失败保持正式版本有效且开发槽位为空，发布前正式 Skill、`artifact_hash`、formal Debug 证据和导出资格保持不变。
-- 2026-07-18：修复 Developer Agent 元数据字符串被拆成字符数组：提示词明确 `requires`／`ensures`／`side_effects` 应为字符串数组，Tool 槽位写入时将单个字符串归一化为单元素数组并拒绝其他错误类型，不再生成逐字符插入分号的 `SKILL.md`。
+- 2026-07-18：修复旧版 Developer Agent 文本数组元数据被拆成字符的问题：当时通过提示词约束和槽位归一化避免 `SKILL.md` 逐字符插入分号；该元数据契约后来已移除。
 - 2026-07-18：完成 Toolkit 正式交付闭环：标准五文件 Skill、Runtime 状态外置、formal Debug、当前产物验证、五文件只读导出、旧生成物迁移清理及系统验收全部通过，进展已归并至 `docs/toolkit_roadmap.md`。
 - 2026-07-17：探索循环发送模型历史时，仅在临时请求副本中将最近一次 assistant 动作还原为包含 `thought`、完整 `python_code`／`bash_command`、`done`、`final_response` 的 JSON；更早动作继续只传 thought，持久化 trajectory 和 UI 展示结构不变。正常探索、20 步历史压缩与 Follow-up 恢复统一遵守该规则。
 - 2026-07-16：修复 Toolkit 发布正确性与 Tool 代码边界：发布恢复不再只依赖 journal 阶段，而是按目标 `code_hash` 核对正式槽位，补齐 `prepared` 后已转正但产物未构建的崩溃窗口；开发／正式槽位变更统一加锁，发布通过期望哈希条件转正和清理，开发代码在发布期间变化时中止或保留新版本，不再误删；Tool 槽位限制为唯一同名顶层异步函数，并校验业务参数、必填性与参数 Schema 完全一致，阻止多 Tool 拼接时的顶层符号污染。

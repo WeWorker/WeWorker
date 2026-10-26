@@ -50,6 +50,27 @@ def test_toolkit_and_tool_persist_with_exact_domain_rules(tmp_path: Path) -> Non
         )
 
 
+def test_tool_deletion_can_be_staged_restored_and_finished(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.create_tool("blog_admin", name="search_blog", goal="Search posts",
+                      start_url="https://blog.example.com/admin/posts")
+    development = store.development_path("blog_admin", "search_blog")
+    development.parent.mkdir(parents=True)
+    development.write_text("draft", encoding="utf-8")
+
+    first = store.stage_tool_deletion("blog_admin", "search_blog")
+    assert store.list_tools("blog_admin") == []
+    assert not development.exists()
+    store.finish_tool_deletion("blog_admin", "search_blog", first, restore=True)
+    assert store.get_tool("blog_admin", "search_blog")["tool_id"] == "search_blog"
+    assert development.read_text(encoding="utf-8") == "draft"
+
+    second = store.stage_tool_deletion("blog_admin", "search_blog")
+    store.finish_tool_deletion("blog_admin", "search_blog", second, restore=False)
+    assert store.list_tools("blog_admin") == []
+    assert not development.exists()
+
+
 def test_tool_ids_are_global_and_paths_reject_unsafe_ids(tmp_path: Path) -> None:
     store = _store(tmp_path)
     store.create_tool(
@@ -260,63 +281,6 @@ def test_slot_rejects_code_outside_isolated_async_contract(
                 "code": code,
                 "parameters_schema": parameters_schema,
                 "result_schema": {"type": "object"},
-            },
-        )
-
-
-@pytest.mark.parametrize("field", ["requires", "ensures", "side_effects"])
-def test_slot_normalizes_string_to_single_item_list(
-    tmp_path: Path, field: str
-) -> None:
-    store = _store(tmp_path)
-    store.create_tool(
-        "blog_admin",
-        name="search_blog",
-        goal="Search posts",
-        start_url="https://blog.example.com/admin/posts",
-    )
-
-    written = store.write_development_slot(
-        "blog_admin",
-        "search_blog",
-        {
-            "code": "async def search_blog(ctx):\n    return {}",
-            "parameters_schema": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-            "result_schema": {"type": "object"},
-            field: "Signed in",
-        },
-    )
-
-    assert written[field] == ["Signed in"]
-
-
-@pytest.mark.parametrize("value", [42, ["Signed in", 42]])
-def test_slot_rejects_invalid_text_list_value(tmp_path: Path, value: object) -> None:
-    store = _store(tmp_path)
-    store.create_tool(
-        "blog_admin",
-        name="search_blog",
-        goal="Search posts",
-        start_url="https://blog.example.com/admin/posts",
-    )
-
-    with pytest.raises(ValueError, match="requires must be a string or a list of strings"):
-        store.write_development_slot(
-            "blog_admin",
-            "search_blog",
-            {
-                "code": "async def search_blog(ctx):\n    return {}",
-                "parameters_schema": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-                "result_schema": {"type": "object"},
-                "requires": value,
             },
         )
 

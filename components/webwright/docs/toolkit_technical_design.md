@@ -262,9 +262,6 @@ Task metadata 新增：
   "description": "根据关键词搜索博客",
   "parameters_schema": {},
   "result_schema": {},
-  "requires": [],
-  "ensures": [],
-  "side_effects": [],
   "risk_notice": "",
   "source_exploration_id": "",
   "based_on_formal_hash": "",
@@ -632,9 +629,7 @@ Toolkit／Tool 产品定义与允许域名
 - 参数 JSON Schema。
 - 返回值 JSON Schema。
 - 描述。
-- `requires`。
-- `ensures`。
-- `side_effects` 和 `risk_notice`。
+- `risk_notice`。
 - Tool 起始 URL。
 - 稳定错误码约定。
 
@@ -790,7 +785,7 @@ flowchart TD
 - frontmatter `description` 由 Toolkit 描述和 `allowed_domains` 组成，使用「当需要操作以下域名的网页时可使用：<allowed_domains>」列出域名，不列举 Tool 名称。
 - 只描述业务参数。
 - 不包含 `target_id`。
-- 描述 `requires`、`ensures`、返回值、错误和副作用。
+- 描述返回值、错误和风险提示。
 - 描述多个 Tool 的组合方式。
 - 对保存、发布、提交、删除等副作用给出风险提示。
 
@@ -855,7 +850,7 @@ search_blog(keyword)
 - Runtime 自动复用同一个浏览器页面。
 - 每个 Tool 输出统一 JSON。
 - 前一步 `data` 可以作为后一步业务参数。
-- `requires／ensures` 写入 Skill，供 AI 判断组合是否成立。
+- 调用 AI 根据前一步结果与当前页面状态判断是否继续组合。
 - 某一步失败后由调用 AI 决定是否重试或停止。
 
 调试工作区的固定顺序组合只是一组按顺序执行的 Debug Run，不引入新的 Workflow 领域对象。
@@ -1089,7 +1084,7 @@ MVP 与现有 Exploration 保持相同信任模型：
 - 模型生成代码在独立子进程中执行。
 - 支持超时、取消和强制结束。
 - 不增加 OS 沙箱、容器或权限系统。
-- Tool 的副作用通过 `side_effects`、`risk_notice` 和 Skill 明确提示。
+- Tool 的风险通过 `risk_notice` 和 Skill 提示。当前网站探索agent新生成的 Adapter 命令统一声明 `safety: "read"`。
 - 不向 Tool 进程注入模型 API Key。
 
 ### 15.2 文件写入边界

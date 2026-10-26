@@ -91,9 +91,6 @@ def test_publish_formal_debug_export_and_external_cli_real_cdp(tmp_path: Path) -
                     "required": ["label", "title", "url"],
                     "additionalProperties": False,
                 },
-                "requires": [],
-                "ensures": [],
-                "side_effects": [],
                 "risk_notice": "",
             },
         )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import base64
 import json
 import os
 import time
@@ -38,6 +39,7 @@ from webwright.server.browser import (
     browser_tabs,
 )
 from webwright.server.debug_store import DebugRunStore
+from webwright.server.adapter_v2 import bind_base, current_package, read_base
 from webwright.server.development_store import DevelopmentRunStore
 from webwright.server.publisher import ToolkitPublisher, skill_name
 from webwright.server.process_manager import BusyError, InvalidStateError, NotFoundError, ProcessManager
@@ -126,10 +128,13 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/development-runs/{development_run_id}": {"get": op("Get Development Run details")},
             "/api/development-runs/{development_run_id}/files/{path}": {"get": op("Read a Development Run artifact")},
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/publish": {"post": op("Publish the development Tool")},
-            "/api/toolkits/{toolkit_id}/export-status": {"get": op("Get formal artifact export eligibility")},
-            "/api/toolkits/{toolkit_id}/export": {"get": op("Download the verified Toolkit ZIP")},
+            "/api/toolkits/{toolkit_id}/export-status": {"get": op("Get v2 Adapter package export eligibility")},
+            "/api/toolkits/{toolkit_id}/export": {"get": op("Download the verified v2 Adapter ZIP")},
+            "/api/toolkits/{toolkit_id}/bind-adapter": {"post": op("Bind a host-validated v2 Adapter baseline in embedded mode")},
+            "/api/toolkits/{toolkit_id}/adapter-base": {"get": op("Read the bound Adapter identity in embedded mode")},
+            "/api/toolkits/{toolkit_id}/v2-package": {"get": op("Read the verified complete v2 package in embedded mode")},
             "/api/toolkits/{toolkit_id}/install-to-weworker": {
-                "post": op("Install an export-eligible Toolkit into the embedded WeWorker host")
+                "post": op("Legacy direct installation is unavailable; use the host review and installer")
             },
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/debug-runs": {
                 "get": op("List Debug Runs"),
@@ -705,8 +710,8 @@ def create_app(
                 "bind": app.config["WEBWRIGHT_BIND_HOST"],
                 "port": str(configured_port if configured_port is not None else request_port or ""),
                 "capabilities": {
-                    "install_to_weworker": app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"]
-                    is not None,
+                    "install_to_weworker": False,
+                    "adapter_v2_package": app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None,
                 },
             }
         )
@@ -873,6 +878,19 @@ def create_app(
     @app.delete("/api/toolkits/<toolkit_id>/tools/<tool_id>")
     def delete_tool(toolkit_id: str, tool_id: str):
         toolkits.delete_tool(toolkit_id, tool_id)
+        return jsonify({"ok": True})
+
+    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/delete-prepare")
+    def prepare_tool_deletion(toolkit_id: str, tool_id: str):
+        return jsonify({"transaction_id": toolkits.stage_tool_deletion(toolkit_id, tool_id)})
+
+    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/delete-finish")
+    def finish_tool_deletion(toolkit_id: str, tool_id: str):
+        payload = _request_json()
+        toolkits.finish_tool_deletion(
+            toolkit_id, tool_id, str(payload.get("transaction_id") or ""),
+            restore=payload.get("restore") is True,
+        )
         return jsonify({"ok": True})
 
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/formal")
@@ -1062,6 +1080,37 @@ def create_app(
     def toolkit_export_status(toolkit_id: str):
         return jsonify(toolkit_publisher.export_status(toolkit_id))
 
+    if app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None:
+
+        @app.post("/api/toolkits/<toolkit_id>/bind-adapter")
+        def bind_existing_adapter(toolkit_id: str):
+            payload = _request_json()
+            return jsonify(bind_base(
+                toolkits, toolkit_id,
+                profile=payload.get("profile"), digest=payload.get("digest"),
+                files=payload.get("files"),
+            ))
+
+        @app.get("/api/toolkits/<toolkit_id>/adapter-base")
+        def get_adapter_base(toolkit_id: str):
+            base = read_base(toolkits, toolkit_id)
+            if base is None:
+                return _error("not_found", "Adapter workspace has no baseline.", 404)
+            return jsonify({"name": base["name"], "profile": base["profile"], "digest": base["digest"]})
+
+        @app.get("/api/toolkits/<toolkit_id>/v2-package")
+        def get_v2_package(toolkit_id: str):
+            status = toolkit_publisher.export_status(toolkit_id)
+            if not status["export_eligible"]:
+                return _error("invalid_state", "Adapter requires successful formal Debug Runs.", 409)
+            metadata, files, _ = current_package(toolkits, toolkit_id)
+            return jsonify({
+                "name": metadata["name"], "digest": metadata["digest"],
+                "files": {name: base64.b64encode(content).decode("ascii")
+                          for name, content in files.items()},
+                "base": read_base(toolkits, toolkit_id),
+            })
+
     @app.get("/api/toolkits/<toolkit_id>/export")
     def export_toolkit(toolkit_id: str):
         archive = io.BytesIO(toolkit_publisher.export_zip(toolkit_id))
@@ -1070,28 +1119,14 @@ def create_app(
             archive,
             mimetype="application/zip",
             as_attachment=True,
-            download_name=f"{skill_name(toolkit_id)}.zip",
+            download_name=f"{toolkit_publisher.export_status(toolkit_id)['adapter_name']}.zip",
         )
 
     if app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None:
 
         @app.post("/api/toolkits/<toolkit_id>/install-to-weworker")
         def install_toolkit_to_weworker(toolkit_id: str):
-            status = toolkit_publisher.export_status(toolkit_id)
-            if not status["export_eligible"]:
-                return _error(
-                    "invalid_state",
-                    "Toolkit is not eligible for export.",
-                    409,
-                )
-            return jsonify(
-                toolkit_publisher.install_to_weworker(
-                    toolkit_id,
-                    user_files_dir=app.config[
-                        "WEBWRIGHT_WEWORKER_USER_FILES_DIR"
-                    ],
-                )
-            )
+            return _error("host_installer_required", "Use the WeWorker Adapter installer.", 409)
 
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/debug-runs")
     def list_debug_runs(toolkit_id: str, tool_id: str):
