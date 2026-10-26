@@ -4,6 +4,8 @@
 
 PR #170 的首轮 Linux CI：WebCLI 1666 项通过、1 项失败。失败来自 `wecli-shorthand.test.js` 对旧解析器内部字段 `argsJson` 的断言未同步；`call` 当前已将结构化参数合入 `flagArgs`，不再重复传入原始 JSON。修正该断言，并新增真实 Node 子进程覆盖两种 `--args` 写法、参数顺序、JSON 数字及前导零字符串 ID；相关 3 文件 36 项通过。此项在此前聚焦测试之外，完整回归状态以 PR 最新 CI 为准。
 
+随后 Linux CI 的 WebCLI 全量 1668 项通过，Backend 1392 项通过、1 项失败、2 项跳过：失败为完整系统提示词内联快照未同步本次两处 browser.open 说明。逐段核对并更新快照，相关 3 项通过。Windows 本机全量仍有额外失败：WebCLI 两处符号链接 EPERM、一处上传夹具大小差异；Backend 两处 SDK spawn UNKNOWN、一处属性测试超时。上述用例在该轮 Linux CI 通过，不能将本机全量称为通过，也不通过放宽这些断言掩盖差异。
+
 本轮基于公开 `origin/dev-1.0.1` 的 `4ca11071cbf535c6683754500bdc6367f6103e46`，工作分支 `codex/webcli-exploration-reliability`。按内部覆盖方式组装完整开发客户端；通用修改留在公开仓库，内部原工作区及其已有改动保留，内部测试使用独立分支。2026-10-26 已获授权提交 PR 到 `dev-1.0.1`；未发布、未验证正式安装包。目标分支已移除根目录 ROADMAP，本轮持续记录保留在本文。下文 2026-10-18 的交付授权、分支与暂停状态是历史记录，不作为本轮发布授权。
 
 已实现六组改进：参数文件/多行源码传入；显式 WebCLI 路由及 HTTP 页面快照；generate 计划冲突/replan；helper 契约和固定错误诊断；验证覆盖/断言变更提示；运行来源与客户端完整链路验收。具体契约见 [开发设计](api_exploration_cli_design.md#2026-10-26-可靠性增量)。额外修复 HTTP Runner 的普通 flag 数字与 JSON 验证参数差异；CLI 层仍不按业务 schema 转型。
