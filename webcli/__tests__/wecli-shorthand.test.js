@@ -102,13 +102,27 @@ describe('WeCLI-style shorthand invocation', () => {
   it('keeps built-in commands out of shorthand parsing', () => {
     expect(runIndexHelper(`m.resolveCliInvocation(['service', 'status'])`)).toEqual({ type: 'builtin', command: 'service' })
     expect(runIndexHelper(`m.resolveCliInvocation(['adapter', 'list'])`)).toEqual({ type: 'builtin', command: 'adapter' })
-    expect(runIndexHelper(`m.resolveCliInvocation(['call', 'itsm.ls', '--args', '{}'])`)).toMatchObject({
+    expect(runIndexHelper(`m.resolveCliInvocation(['call', 'itsm.ls', '--args', '{}'])`)).toEqual({
       type: 'call',
       toolName: 'itsm.ls',
-      argsJson: '{}',
+      flagArgs: {},
     })
     expect(runIndexHelper(`m.resolveCliInvocation(['install', '--skills'])`)).toEqual({ type: 'builtin', command: 'install' })
     expect(runIndexHelper(`m.resolveCliInvocation(['trace', 'abc123'])`)).toEqual({ type: 'builtin', command: 'trace' })
+  })
+
+  it('passes structured call arguments once and keeps their priority over flags', () => {
+    for (const args of [
+      ['--page=9', '--args', '{"page":2,"id":"007"}'],
+      ['--args', '{"page":2,"id":"007"}', '--page=9'],
+      ['--args={"page":2,"id":"007"}', '--page=9'],
+    ]) {
+      expect(runIndexHelper(`m.resolveCliInvocation(${JSON.stringify(['call', 'example.com.list', ...args])})`)).toEqual({
+        type: 'call',
+        toolName: 'example.com.list',
+        flagArgs: { page: 2, id: '007' },
+      })
+    }
   })
 
   it('treats npm global junction paths as direct CLI execution', () => {
