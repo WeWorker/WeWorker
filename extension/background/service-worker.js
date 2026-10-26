@@ -1019,7 +1019,7 @@ function extractDetailUrlCandidatesFromNetworkEntries(entries, limit = 5) {
   const results = [];
   const patterns = [
     /https?:\/\/[^"'\\\s]+?(?:detail|requestdetail|eventdetail|changedetail|problemdetail|securitydetail)[^"'\\\s]*/gi,
-    /\/itsm\/[^"'\\\s#]*?(?:detail|requestdetail|eventdetail|changedetail|problemdetail|securitydetail)[^"'\\\s]*/gi,
+    /\/tickets\/[^"'\\\s#]*?(?:detail|requestdetail|eventdetail|changedetail|problemdetail|securitydetail)[^"'\\\s]*/gi,
     /#\/(?:requestDetail|eventDetail|changeDetail|problemDetail|securityDetail)\/\d+/gi,
   ];
 
@@ -2169,7 +2169,7 @@ function scoreActionDeltaEntry(step, entry) {
   if (step === 'search' || step === 'refine_search') {
     if (/getcilist|getcigroup/.test(probe)) score += 18;
     if (/keyword|search|currentpage|pagesize|totalcount|pagetotal|typeid|history=|history\\":|detailurl/.test(probe)) score += 10;
-    if (/globalsearch\.html|gettotalitems|systemmanage\/getsysvaluebykey|getmappinguser|getenv|menu\/getmenus|itsm_horn_info|contact_users|llm_append_keyword/.test(probe)) score -= 8;
+    if (/globalsearch\.html|gettotalitems|systemmanage\/getsysvaluebykey|getmappinguser|getenv|menu\/getmenus|tickets_horn_info|contact_users|llm_append_keyword/.test(probe)) score -= 8;
   } else if (step === 'pagination') {
     if (/getcilist/.test(probe)) score += 18;
     if (/currentpage|pagesize|pagecount|paging/.test(probe)) score += 10;

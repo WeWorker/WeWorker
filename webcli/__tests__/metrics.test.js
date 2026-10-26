@@ -7,8 +7,8 @@ import { aggregate, parseDuration, percentile, renderRouteTable } from '../stats
 
 describe('classifyTool', () => {
   it('adapter 工具按最后一个点切出 domain', () => {
-    expect(classifyTool('itsm.example.com.search_tickets')).toEqual({
-      domain: 'itsm.example.com',
+    expect(classifyTool('tickets.example.com.search_tickets')).toEqual({
+      domain: 'tickets.example.com',
       kind: 'adapter',
     })
   })
@@ -68,22 +68,22 @@ describe('percentile', () => {
 
 describe('aggregate', () => {
   const recs = [
-    { ts: 1, tool: 'itsm.example.com.search', domain: 'itsm.example.com', kind: 'adapter', ok: true, ms: 100 },
-    { ts: 2, tool: 'itsm.example.com.search', domain: 'itsm.example.com', kind: 'adapter', ok: false, ms: 300 },
+    { ts: 1, tool: 'tickets.example.com.search', domain: 'tickets.example.com', kind: 'adapter', ok: true, ms: 100 },
+    { ts: 2, tool: 'tickets.example.com.search', domain: 'tickets.example.com', kind: 'adapter', ok: false, ms: 300 },
     { ts: 3, tool: 'open_browser', domain: 'open_browser', kind: 'builtin', ok: true, ms: 50 },
   ]
   it('按 domain 聚合：calls / okRate / topTool', () => {
     const rows = aggregate(recs, { by: 'domain' })
-    const itsm = rows.find((r) => r.key === 'itsm.example.com')
-    expect(itsm.calls).toBe(2)
-    expect(itsm.okRate).toBe(50)
-    expect(itsm.topTool).toBe('itsm.example.com.search')
-    expect(itsm.topToolCalls).toBe(2)
+    const tickets = rows.find((r) => r.key === 'tickets.example.com')
+    expect(tickets.calls).toBe(2)
+    expect(tickets.okRate).toBe(50)
+    expect(tickets.topTool).toBe('tickets.example.com.search')
+    expect(tickets.topToolCalls).toBe(2)
   })
   it('kind 过滤 adapter 排除 builtin', () => {
     const rows = aggregate(recs, { by: 'domain', kind: 'adapter' })
     expect(rows.length).toBe(1)
-    expect(rows[0].key).toBe('itsm.example.com')
+    expect(rows[0].key).toBe('tickets.example.com')
   })
 })
 

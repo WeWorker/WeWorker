@@ -4,7 +4,7 @@ import { generateSkillContent } from '../skill-writer.js'
 describe('adapter skill writer security policy', () => {
   it('generates skills that only allow webcli call commands', () => {
     const skill = generateSkillContent(
-      { id: 'expense.example.com', name: 'ExpenseDemo', description: 'cost', match: ['expense.example.com'] },
+      { id: 'expense.example.com', name: 'ExpenseExample', description: 'cost', match: ['expense.example.com'] },
       [{ name: 'expense.example.com.check_login_status', description: 'check', params: [] }],
     )
 

@@ -37,9 +37,9 @@ describe('generateCustomSkillSkillContent', () => {
 
   it('documents direct execution without requiring the target page first', () => {
     const content = generateSkillContent(
-      { id: 'itsm.example.com', name: 'ITSM', description: 'ITSM', match: ['itsm.example.com'], requires_auth: true },
+      { id: 'tickets.example.com', name: 'Tickets', description: 'Tickets', match: ['tickets.example.com'], requires_auth: true },
       [{
-        name: 'itsm.example.com.list_tickets',
+        name: 'tickets.example.com.list_tickets',
         description: '列表查询',
         directCapable: true,
         executionMode: 'direct',
@@ -56,9 +56,9 @@ describe('generateCustomSkillSkillContent', () => {
 
   it('treats manifest API background execution metadata as direct', () => {
     const content = generateSkillContent(
-      { id: 'itsm.example.com', name: 'ITSM', description: 'ITSM', match: ['itsm.example.com'] },
+      { id: 'tickets.example.com', name: 'Tickets', description: 'Tickets', match: ['tickets.example.com'] },
       [{
-        name: 'itsm.example.com.ls',
+        name: 'tickets.example.com.ls',
         description: '列表查询',
         execution: { type: 'api', runtime: 'background' },
         params: [],

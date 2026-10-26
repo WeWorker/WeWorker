@@ -5,11 +5,11 @@
     "category": "qa"
   },
   {
-    "id": "itsm-todo",
+    "id": "tickets-todo",
     "prompt": "查看我的待办工单",
-    "siteId": "itsm.example.com",
-    "category": "itsm",
-    "expectTools": ["itsm.example.com.my_todo"],
+    "siteId": "tickets.example.com",
+    "category": "tickets",
+    "expectTools": ["tickets.example.com.my_todo"],
     "expectMaxMs": 20000
   }
 ]

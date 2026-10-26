@@ -1,6 +1,6 @@
 # WeWorker Roadmap
 
-- 2026-10-26（开源可见性清理·仅限本批改动）：把本次路由/站点门工作中指向已移出仓库的测试文件的引用改为「内部回归套件」表述（架构说明、设计记录、人工测试清单、`router-config/README.md`、`types.ts`/`validate.ts` 注释），并把本批改动引入的内部系统名示例（`site-gate.ts`、`adapter-parser.ts`、`EXTENSION_DEV_GUIDE.md` 的 `gate_aliases` 说明、本条目所在的历史记录）换成公开占位 `tickets`。他人提交中的同类写法（Adapters、WebCLI/扩展测试、metrics-server、`prompts/api-router.md` 等）保持原样不动。验证：`git blame` 逐行核对，改动仅覆盖本人 commit 的行；`git grep` 复查无遗留的本人内部名引用；本次仅改注释与文档，未跑测试。
+- 2026-10-26（开源仓库可见性清理）：把路由/站点门测试移出仓库跟踪（本机保留副本，并在 `.gitignore` 登记路径），文档与代码注释中指向这些用例的引用改为「内部回归套件」表述；测试与文档里的内部系统名统一换成公开占位（`tickets.example.com`、`pipeline.example.com`、`defects.example.com`），`prompts/api-router.md` 的领域示例改为通用站点类别。验证：`git grep` 复扫内部域名与系统名，仅剩发布脚本 `webcli/publish.sh` 的守卫词表；扩展站点鉴权 6 项、工具路由 44 项、运行时助手 11 项，metrics-server 12 项，Renderer 终端补全 38 项与斜杠命令 5 项测试通过。未执行 Backend/WebCLI 全量测试（本机未安装依赖）。
 
 - 2026-10-24（npm WebCLI 指标打包默认）：npm prepack 从检出 `weworker/model.json` 生成包内 `metrics-client.json`——公开模型生成禁用配置，行为与现状一致；显式启用上报的模型要求构建环境提供 `WEBCLI_METRICS_CLIENT_TOKEN`，测试构建可显式豁免。npm 入口在加载核心前应用包内默认值，用户进程环境变量优先，配置缺失或损坏时失败关闭。Bridge 在消息分发层直接应答 `service_info` 身份探测（修复处理器存在但分发白名单未路由导致探测永远超时的问题），并回填实际绑定端口；npm 冷启动等待从 5 秒延长到 30 秒且守护进程未就绪时不再清理 PID/属主文件，改为提示稍后重试。验证：真实 Bridge 的 service_info 端到端探测、npm 指标运行时、prepack 生成、端口隔离及 Bridge/浏览器聚焦测试通过；全量 WebCLI 测试仅剩 2 项 Windows 符号链接环境既有失败。未验证真实启用构建的上报入库。
 

@@ -8,12 +8,12 @@ describe('adapter parser public route metadata', () => {
       window.__webmcpRegister({
         tools: [
           {
-            name: "itsm.example.com.get_workbench_tickets",
-            publicName: "itsm.ls",
-            handlerName: "itsm.example.com.get_workbench_tickets",
-            adapterId: "itsm.example.com",
-            routeDomain: "itsm.example.com",
-            description: "List ITSM tickets",
+            name: "tickets.example.com.get_workbench_tickets",
+            publicName: "tickets.ls",
+            handlerName: "tickets.example.com.get_workbench_tickets",
+            adapterId: "tickets.example.com",
+            routeDomain: "tickets.example.com",
+            description: "List ticket records",
             parameters: {
               type: "object",
               properties: {
@@ -28,12 +28,12 @@ describe('adapter parser public route metadata', () => {
 
     const [tool] = parseToolsFromSource(source)
     expect(tool).toMatchObject({
-      name: 'itsm.ls',
-      canonicalName: 'itsm.ls',
-      handlerName: 'itsm.example.com.get_workbench_tickets',
-      adapterId: 'itsm.example.com',
-      routeDomain: 'itsm.example.com',
-      description: 'List ITSM tickets',
+      name: 'tickets.ls',
+      canonicalName: 'tickets.ls',
+      handlerName: 'tickets.example.com.get_workbench_tickets',
+      adapterId: 'tickets.example.com',
+      routeDomain: 'tickets.example.com',
+      description: 'List ticket records',
       params: [
         {
           name: 'status',
@@ -47,21 +47,21 @@ describe('adapter parser public route metadata', () => {
 
   it('expands manifest command aliases into public catalog tools without duplicating alias tools', () => {
     const manifest = {
-      id: 'pace.example.com',
+      id: 'pipeline.example.com',
       command_aliases: {
-        'pace-pipeline.params': 'pace-pipeline.update-params',
+        'pipeline-config.params': 'pipeline-config.update-params',
       },
     }
     const source = `
       window.__webmcpRegister({
         tools: [
           {
-            name: "pace.example.com.pipeline_update_params",
-            publicName: "pace-pipeline.update-params",
-            handlerName: "pace.example.com.pipeline_update_params",
-            adapterId: "pace.example.com",
-            routeDomain: "pace.example.com",
-            aliases: ["pace-pipeline.params"],
+            name: "pipeline.example.com.pipeline_update_params",
+            publicName: "pipeline-config.update-params",
+            handlerName: "pipeline.example.com.pipeline_update_params",
+            adapterId: "pipeline.example.com",
+            routeDomain: "pipeline.example.com",
+            aliases: ["pipeline-config.params"],
             description: "Update pipeline params",
             parameters: { type: "object", properties: {}, required: [] }
           }
@@ -75,9 +75,9 @@ describe('adapter parser public route metadata', () => {
       canonicalName: tool.canonicalName,
     }))).toEqual([
       {
-        name: 'pace-pipeline.update-params',
-        aliases: ['pace-pipeline.params'],
-        canonicalName: 'pace-pipeline.update-params',
+        name: 'pipeline-config.update-params',
+        aliases: ['pipeline-config.params'],
+        canonicalName: 'pipeline-config.update-params',
       },
     ])
   })
@@ -87,7 +87,7 @@ describe('adapter parser public route metadata', () => {
       window.__webmcpRegister({
         tools: [
           {
-            name: "itsm.confirm",
+            name: "tickets.confirm",
             parameters: {
               type: "object",
               properties: {

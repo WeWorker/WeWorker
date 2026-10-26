@@ -42,8 +42,8 @@ METRICS_PORT=8787 METRICS_DB=/var/lib/webcli/metrics.db METRICS_TOKEN=xxx node s
   "webcliVersion": "1.0.6",
   "os": "win32",
   "batch": [
-    { "ts": 1733300000000, "tool": "itsm.example.com.search_tickets",
-      "domain": "itsm.example.com", "kind": "adapter", "ok": true,
+    { "ts": 1733300000000, "tool": "tickets.example.com.search_tickets",
+      "domain": "tickets.example.com", "kind": "adapter", "ok": true,
       "ms": 1840, "traceID": "abc123", "err": null }
   ]
 }

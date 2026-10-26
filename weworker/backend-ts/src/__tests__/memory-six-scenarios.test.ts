@@ -297,7 +297,7 @@ describe('长期记忆 3 类经验 x 2 种发现方式', () => {
       candidate: {
         action: 'create',
         memory_type: 'task_execution',
-        key: 'itsm_login_check',
+        key: 'tickets_login_check',
         content: '查询 支持工单示例 待办工单前先确认页面已登录。',
         scope: plan.scope,
       },
@@ -328,7 +328,7 @@ describe('长期记忆 3 类经验 x 2 种发现方式', () => {
       candidate: {
         action: 'create',
         memory_type: 'task_execution',
-        key: 'itsm_query_retry',
+        key: 'tickets_query_retry',
         content: '查询 支持工单示例 待办时，首次入口失败后改用可用入口继续完成查询。',
        facts: { task_assessment: { completed: true } },
       },
@@ -368,7 +368,7 @@ describe('长期记忆 3 类经验 x 2 种发现方式', () => {
       candidate: {
         action: 'create',
         memory_type: 'task_execution',
-        key: 'itsm_recovered',
+        key: 'tickets_recovered',
         content: '修正入口后成功恢复 支持工单示例待办查询。',
         facts: { task_assessment: { completed: true, recovered: true, failure_kind: 'procedural' } },
       },
@@ -452,7 +452,7 @@ describe('长期记忆 3 类经验 x 2 种发现方式', () => {
       candidate: {
         action: 'create',
         memory_type: 'task_execution',
-        key: 'itsm_login',
+        key: 'tickets_login',
         content: '查询 支持工单示例 待办工单前需要确认登录状态。',
         scope: failedPlan.scope,
       },
@@ -474,7 +474,7 @@ describe('长期记忆 3 类经验 x 2 种发现方式', () => {
       candidate: {
         action: 'update',
         memory_type: 'task_execution',
-        key: 'itsm_login',
+        key: 'tickets_login',
         content: '查询 支持工单示例 待办工单前确认登录；登录后可继续原查询。',
         related_memory_ids: [oldMemory.id],
         scope: recoveredPlan.scope,
