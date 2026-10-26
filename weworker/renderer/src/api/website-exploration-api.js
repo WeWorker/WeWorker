@@ -79,6 +79,22 @@ export async function listToolkits() {
   return (await request("/api/toolkits")).toolkits;
 }
 
+export async function listInstalledAdapters() {
+  return (await request('/api/adapter-catalog')).adapters
+}
+
+export function extendAdapter(name) {
+  return post(`/api/adapters/${encode(name)}/extend`)
+}
+
+export function getInstallReview(toolkitId) {
+  return request(`/api/toolkits/${encode(toolkitId)}/install-review`)
+}
+
+export function applyAdapter(toolkitId, reviewId, acceptChanges = false) {
+  return post(`/api/toolkits/${encode(toolkitId)}/install-apply`, { reviewId, acceptChanges })
+}
+
 export async function listTools(toolkitId) {
   return (await request(`/api/toolkits/${encode(toolkitId)}/tools`)).tools;
 }
@@ -162,8 +178,12 @@ export function updateTool(toolkitId, toolId, body) {
   return request(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}`, { method: "PUT", body });
 }
 
-export function deleteTool(toolkitId, toolId) {
-  return request(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}`, { method: "DELETE" });
+export function deleteTool(toolkitId, toolId, expectedDigest) {
+  return request(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}`, { method: 'DELETE', body: { expectedDigest } });
+}
+
+export function deleteInstalledCommand(adapterName, commandId, expectedDigest) {
+  return request(`/api/adapters/${encode(adapterName)}/commands/${encode(commandId)}`, { method: 'DELETE', body: { expectedDigest } });
 }
 
 export function createExploration(toolkitId, toolId, instruction, targetId) {
@@ -244,10 +264,6 @@ export function exportToolkitUrl(toolkitId) {
 
 export function getHealth() {
   return request("/api/health");
-}
-
-export function installToolkitToWeWorker(toolkitId) {
-  return post(`/api/toolkits/${encode(toolkitId)}/install-to-weworker`);
 }
 
 export function runDebugTool(toolkitId, toolId, channel, parameters, expectedDistributionHash) {

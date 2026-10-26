@@ -25,12 +25,6 @@
       "message"
     ]
   },
-  "requires": [],
-  "ensures": [
-    "查询结果页面显示",
-    "打印证明按钮被点击"
-  ],
-  "side_effects": [],
   "risk_notice": "该工具会触发网页查询和打印操作，可能产生实际的打印请求。",
   "source_exploration_id": "",
   "based_on_formal_hash": "sha256:3bb10d60e4430896bcb8181e8f12e26059aa3a9c7978db3ebb3653cdb4b90155",

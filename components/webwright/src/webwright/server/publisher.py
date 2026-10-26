@@ -17,10 +17,12 @@ from pathlib import Path
 from typing import Any
 
 from webwright.server.debug_store import DebugRunStore
+from webwright.server.adapter_v2 import current_package, snapshot_package
 from webwright.server.records import atomic_write_json, now_iso
 from webwright.server.toolkit_store import ToolkitStore
 from webwright.resources import BundledResources
 from webwright.runtime_launcher import RuntimeLauncher
+from webwright.runtime_identity import RuntimeIdentity
 from webwright.tool_runtime.toolkit_runtime import PLAYWRIGHT_REQUIREMENT
 
 
@@ -252,12 +254,6 @@ if __name__ == "__main__":
                 f"参数 Schema：`{json.dumps(slot['parameters_schema'], ensure_ascii=False, sort_keys=True)}`",
                 "",
                 f"返回 Schema：`{json.dumps(slot['result_schema'], ensure_ascii=False, sort_keys=True)}`",
-                "",
-                f"前置条件：{'；'.join(slot['requires']) or '无'}",
-                "",
-                f"完成效果：{'；'.join(slot['ensures']) or '无'}",
-                "",
-                f"副作用：{'；'.join(slot['side_effects']) or '无'}",
                 "",
                 f"风险提示：{slot['risk_notice'] or '无'}",
                 "",
@@ -568,21 +564,6 @@ class ToolkitPublisher:
                 code_hash=str(development["code_hash"]),
             ):
                 raise ValueError("Current development code has no succeeded Debug Run.")
-            artifacts = render_artifacts(
-                self.store,
-                toolkit_id,
-                override=development,
-                resources=self.resources,
-            )
-            self._validate(
-                artifacts,
-                tool_ids=[
-                    str(item["tool"]["tool_id"])
-                    for item in _formal_tools(
-                        self.store, toolkit_id, override=development
-                    )
-                ],
-            )
             atomic_write_json(
                 self.journal_path(toolkit_id),
                 {
@@ -612,12 +593,7 @@ class ToolkitPublisher:
                     "created_at": now_iso(),
                 },
             )
-            build = self._install(
-                toolkit_id,
-                render_artifacts(
-                    self.store, toolkit_id, resources=self.resources
-                ),
-            )
+            build = snapshot_package(self.store, toolkit_id)
             self.store.clear_development_slot(
                 toolkit_id,
                 tool_id,
@@ -627,9 +603,8 @@ class ToolkitPublisher:
             return {"formal": formal, "build": build}
 
     def export_status(self, toolkit_id: str) -> dict[str, Any]:
-        root = self.store.toolkit_dir(toolkit_id) / skill_name(toolkit_id)
         try:
-            package = read_distribution(root)
+            metadata, files, _ = current_package(self.store, toolkit_id)
         except (OSError, ValueError) as error:
             return {
                 "toolkit_id": toolkit_id, "artifact_hash": "", "distribution_hash": "",
@@ -637,32 +612,38 @@ class ToolkitPublisher:
                 "artifacts_consistent": False, "export_eligible": False,
                 "error": str(error),
             }
+        manifest = json.loads(files["manifest.json"])
+        runtime = RuntimeIdentity.resolve().as_health_fields()
         tools = []
-        for definition in package["manifest"]["tools"]:
+        for definition in manifest["commands"]:
+            if definition["runtime"] != "wewright":
+                continue
             tool_id = definition["id"].replace("-", "_")
-            verified = self.debug_store.has_successful_run(
-                toolkit_id=toolkit_id, tool_id=tool_id, channel="formal",
-                distribution_hash=package["distribution_hash"],
+            verified = any(
+                run.get("status") == "succeeded"
+                and run.get("channel") == "formal"
+                and run.get("distribution_hash") == metadata["digest"]
+                and run.get("runtime_identity") == runtime
+                for run in self.debug_store.list_for_tool(tool_id, toolkit_id)
             )
             tools.append({
-                **definition, "tool_id": tool_id,
-                "code_hash": package["artifact_hash"],
-                "distribution_hash": package["distribution_hash"],
+                **definition, "tool_id": tool_id, "name": definition["id"],
+                "parameters_schema": definition["schema"],
+                "code_hash": "sha256:" + metadata["digest"],
+                "distribution_hash": metadata["digest"],
                 "verified": verified,
             })
         unverified = [item["tool_id"] for item in tools if not item["verified"]]
         return {
             "toolkit_id": toolkit_id,
-            "artifact_hash": package["artifact_hash"],
-            "distribution_hash": package["distribution_hash"],
-            "distribution_checksums": {
-                name: _content_checksum(package["artifacts"][name])
-                for name in DISTRIBUTION_CHECKSUM_NAMES
-            },
+            "adapter_name": metadata["name"], "version": metadata["version"],
+            "artifact_hash": metadata["digest"],
+            "distribution_hash": metadata["digest"],
+            "distribution_checksums": {},
             "tools": tools,
             "unverified_tools": unverified,
             "artifacts_consistent": True,
-            "export_eligible": not unverified,
+            "export_eligible": bool(tools) and not unverified,
         }
 
     def export_zip(self, toolkit_id: str) -> bytes:
@@ -671,41 +652,19 @@ class ToolkitPublisher:
             if not status.get("artifacts_consistent"):
                 raise ValueError("Published Toolkit distribution files changed during export.")
             raise ValueError("Toolkit is not eligible for export.")
-        root = self.store.toolkit_dir(toolkit_id) / skill_name(toolkit_id)
-        package = read_distribution(root)
-        artifacts = package["artifacts"]
-        if package["distribution_hash"] != status["distribution_hash"]:
+        metadata, files, _ = current_package(self.store, toolkit_id)
+        if metadata["digest"] != status["distribution_hash"]:
             raise ValueError("Published Toolkit distribution files changed during export.")
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for name, content in artifacts.items():
-                archive.writestr(f"{skill_name(toolkit_id)}/{name}", content)
+            for name, content in files.items():
+                archive.writestr(f"{metadata['name']}/{name}", content)
         return output.getvalue()
 
     def install_to_weworker(
         self, toolkit_id: str, *, user_files_dir: Path | str
     ) -> dict[str, Any]:
-        with self._lock:
-            status = self.export_status(toolkit_id)
-            if not status["export_eligible"]:
-                raise ValueError("Toolkit is not eligible for export.")
-            name = skill_name(toolkit_id)
-            root = self.store.toolkit_dir(toolkit_id) / name
-            package = read_distribution(root)
-            artifacts = package["artifacts"]
-            if package["distribution_hash"] != status["distribution_hash"]:
-                raise ValueError("Published Toolkit artifacts changed during installation.")
-            install_status = _replace_skill_directory(
-                Path(user_files_dir) / ".claude" / "skills" / name,
-                artifacts,
-            )
-            return {
-                "status": install_status,
-                "toolkit_id": toolkit_id,
-                "skill_name": name,
-                "artifact_hash": status["artifact_hash"],
-                "distribution_hash": status["distribution_hash"],
-            }
+        raise ValueError("Install v2 Adapters through the WeWorker host installer.")
 
     def ensure_consistent(self, toolkit_id: str) -> dict[str, Any] | None:
         artifacts = render_artifacts(
@@ -751,12 +710,10 @@ class ToolkitPublisher:
         expected_code_hash = str(journal["code_hash"])
         formal = self.store.read_formal_slot(toolkit_id, tool_id)
         if formal and formal.get("code_hash") == expected_code_hash:
-            self.ensure_consistent(toolkit_id)
+            snapshot_package(self.store, toolkit_id)
             self.store.clear_development_slot(
                 toolkit_id,
                 tool_id,
                 expected_code_hash=expected_code_hash,
             )
-        else:
-            self.ensure_consistent(toolkit_id)
         path.unlink(missing_ok=True)

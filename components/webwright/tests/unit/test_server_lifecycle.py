@@ -11,7 +11,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from webwright.runtime_identity import RuntimeIdentity
+from webwright.runtime_identity import RuntimeIdentity, source_build_id
 from webwright.run.server_lifecycle import (
     ParentProcessWatchdog,
     ServerLifecycle,
@@ -68,6 +68,7 @@ def test_runtime_identity_reads_embedded_manifest(tmp_path: Path) -> None:
                 "platform": "darwin",
                 "arch": "arm64",
                 "mode": "embedded",
+                "build_id": "test-build",
             }
         ),
         encoding="utf-8",
@@ -80,7 +81,17 @@ def test_runtime_identity_reads_embedded_manifest(tmp_path: Path) -> None:
         "platform": "darwin",
         "arch": "arm64",
         "mode": "embedded",
+        "build": "test-build",
     }
+
+
+def test_source_build_id_changes_with_runtime_source(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "webwright" / "tool_runtime" / "toolkit_runtime.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VERSION = 1\n", encoding="utf-8")
+    first = source_build_id(tmp_path)
+    source.write_text("VERSION = 2\n", encoding="utf-8")
+    assert source_build_id(tmp_path) != first
 
 
 def test_server_lifecycle_stop_is_idempotent() -> None:

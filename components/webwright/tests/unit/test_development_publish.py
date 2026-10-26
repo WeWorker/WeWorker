@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import os
@@ -27,6 +28,8 @@ from webwright.server.process_manager import (
 from webwright.server.weworker_model_config import ManagedModelConfig
 from webwright.server import publisher as publisher_module
 from webwright.server.publisher import ToolkitPublisher, artifact_hash, render_artifacts
+from webwright.server.adapter_v2 import bind_base, current_package, package_digest, snapshot_package
+from webwright.runtime_identity import RuntimeIdentity
 from webwright.server.records import TaskStore, atomic_write_json
 from webwright.server.status import DebugRunStatus, DevelopmentRunStatus
 from webwright.server.toolkit_store import ToolkitStore
@@ -44,6 +47,21 @@ def _stores(tmp_path: Path):
         start_url="https://blog.example.com/posts",
     )
     return toolkits, DebugRunStore(toolkits), DevelopmentRunStore(toolkits)
+
+
+def _verified_formal_run(toolkits: ToolkitStore, debug_runs: DebugRunStore, tool_id: str, build: dict):
+    run = debug_runs.create(
+        tool_id=tool_id,
+        toolkit_id="blog_admin",
+        channel="formal",
+        code_hash="sha256:" + build["digest"],
+        artifact_hash=build["digest"],
+        distribution_hash=build["digest"],
+        runtime_identity=RuntimeIdentity.resolve().as_health_fields(),
+        parameters={"keyword": "x"},
+    )
+    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
+    return run
 
 
 def _managed_model() -> ManagedModelConfig:
@@ -76,9 +94,6 @@ def _slot(code_suffix: str = ""):
             "properties": {"keyword": {"type": "string"}},
             "required": ["keyword"],
         },
-        "requires": ["Signed in"],
-        "ensures": ["Results visible"],
-        "side_effects": [],
         "risk_notice": "",
     }
 
@@ -204,17 +219,8 @@ def test_exploration_only_start_clears_draft_and_preserves_formal_artifact(
     _exploration(task_store)
     publisher = ToolkitPublisher(toolkits, debug_runs)
     build = publisher.ensure_consistent("blog_admin")
-    formal_debug = debug_runs.create(
-        tool_id="search_blog",
-        channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "Webwright"},
-    )
-    debug_runs.update(
-        formal_debug["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value
-    )
+    v2_build = snapshot_package(toolkits, "blog_admin")
+    formal_debug = _verified_formal_run(toolkits, debug_runs, "search_blog", v2_build)
     skill_root = toolkits.toolkit_dir("blog_admin") / "blog-admin"
     artifact_before = {
         path.relative_to(skill_root).as_posix(): path.read_bytes()
@@ -255,6 +261,7 @@ def test_exploration_only_start_clears_draft_and_preserves_formal_artifact(
     assert evidence["debug_run_evidence"] is None
     assert build["artifact_hash"] == publisher.ensure_consistent("blog_admin")["artifact_hash"]
     assert publisher.export_status("blog_admin")["export_eligible"] is True
+    assert current_package(toolkits, "blog_admin")[0] == v2_build
     assert artifact_before == {
         path.relative_to(skill_root).as_posix(): path.read_bytes()
         for path in skill_root.rglob("*")
@@ -347,7 +354,7 @@ def test_exploration_only_success_is_published_before_formal_artifact_changes(
     published = publisher.publish("blog_admin", "search_blog")
 
     assert published["formal"]["code_hash"] == development["code_hash"]
-    assert published["build"]["artifact_hash"] != old_build["artifact_hash"]
+    assert published["build"]["digest"] == current_package(toolkits, "blog_admin")[0]["digest"]
     assert toolkits.read_development_slot("blog_admin", "search_blog") is None
     assert publisher.export_status("blog_admin")["export_eligible"] is False
 
@@ -380,37 +387,6 @@ def test_finish_development_validates_and_overwrites_single_slot(tmp_path: Path)
     assert saved["status"] == "succeeded"
     assert development["source_exploration_id"] == "exp_1"
     assert saved["code_hash"] == development["code_hash"]
-
-
-def test_finish_development_normalizes_string_metadata_without_splitting_characters(
-    tmp_path: Path,
-) -> None:
-    toolkits, debug_runs, development_runs = _stores(tmp_path)
-    manager = ProcessManager(
-        store=TaskStore(tmp_path / "tasks"),
-        toolkit_store=toolkits,
-        debug_store=debug_runs,
-        development_store=development_runs,
-    )
-    run = development_runs.create(
-        toolkit_id="blog_admin", tool_id="search_blog", instruction="Build it"
-    )
-    development_runs.update(
-        run["development_run_id"],
-        status=DevelopmentRunStatus.RUNNING.value,
-        source_exploration_id="exp_1",
-    )
-    invalid = _slot()
-    invalid["requires"] = "Signed in"
-    run_dir = development_runs.run_dir("blog_admin", run["development_run_id"])
-    atomic_write_json(run_dir / "result.json", {"ok": True, "slot": invalid})
-
-    manager._finish_development(run["development_run_id"], 0)
-
-    saved = development_runs.read(run["development_run_id"])
-    development = toolkits.read_development_slot("blog_admin", "search_blog")
-    assert saved["status"] == "succeeded"
-    assert development["requires"] == ["Signed in"]
 
 
 def test_tool_slot_rejects_runtime_internal_business_parameter(tmp_path: Path) -> None:
@@ -477,8 +453,10 @@ def test_developer_child_writes_structured_slot(monkeypatch, tmp_path: Path) -> 
     assert model.payloads[0]["mode"] == "structured"
     assert model.payloads[0]["schema_name"] == "developer_slot"
     assert model.payloads[0]["schema"]["additionalProperties"] is False
+    assert model.payloads[0]["schema"]["required"] == [
+        "code", "description", "parameters_schema", "result_schema", "risk_notice"
+    ]
     assert "EXAMPLE JSON OUTPUT" in model.payloads[0]["messages"][0]["content"]
-    assert "requires, ensures, and side_effects must each be a JSON array of strings" in tool_development._SYSTEM_PROMPT
 
 
 def test_developer_decodes_json_schema_strings_before_local_validation(
@@ -724,7 +702,6 @@ def test_publisher_is_deterministic_and_old_hash_does_not_qualify(tmp_path: Path
     assert artifact_hash(changed_requirements) == artifact_hash(first)
     assert "async def search_blog" in first["scripts/toolkit.py"]
     assert "target_id" not in first["SKILL.md"]
-    assert "前置条件：Signed in" in first["SKILL.md"]
     assert "调用：`webcli call blog-admin.search-blog --参数名=参数值`" in first["SKILL.md"]
     assert "网站自动化运行环境已内嵌" in first["SKILL.md"]
     assert "python scripts/toolkit.py" not in first["SKILL.md"]
@@ -930,7 +907,7 @@ def test_generated_cli_starts_from_isolated_artifact_directory(tmp_path: Path) -
     assert not (isolated / ".server").exists()
 
 
-def test_export_requires_every_formal_tool_for_current_artifact(tmp_path: Path) -> None:
+def test_export_requires_every_formal_tool_for_current_artifact(monkeypatch, tmp_path: Path) -> None:
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     search_formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     toolkits.create_tool(
@@ -945,17 +922,8 @@ def test_export_requires_every_formal_tool_for_current_artifact(tmp_path: Path) 
     }
     open_formal = toolkits.write_formal_slot("blog_admin", "open_blog", open_slot)
     publisher = ToolkitPublisher(toolkits, debug_runs)
-    build = publisher.ensure_consistent("blog_admin")
-
-    search_run = debug_runs.create(
-        tool_id="search_blog",
-        channel="formal",
-        code_hash=search_formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(search_run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
+    build = snapshot_package(toolkits, "blog_admin")
+    _verified_formal_run(toolkits, debug_runs, "search_blog", build)
 
     pending = publisher.export_status("blog_admin")
     assert pending["export_eligible"] is False
@@ -963,51 +931,71 @@ def test_export_requires_every_formal_tool_for_current_artifact(tmp_path: Path) 
     with pytest.raises(ValueError, match="not eligible"):
         publisher.export_zip("blog_admin")
 
-    open_run = debug_runs.create(
-        tool_id="open_blog",
-        channel="formal",
-        code_hash=open_formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(open_run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
+    _verified_formal_run(toolkits, debug_runs, "open_blog", build)
 
     ready = publisher.export_status("blog_admin")
     assert ready["export_eligible"] is True
     archive = zipfile.ZipFile(io.BytesIO(publisher.export_zip("blog_admin")))
     assert set(archive.namelist()) == {
         "blog-admin/manifest.json",
-        "blog-admin/SKILL.md",
-        "blog-admin/scripts/toolkit.py",
-        "blog-admin/scripts/toolkit_runtime.py",
-        "blog-admin/scripts/requirements.txt",
+        "blog-admin/wewright/commands/open-blog.py",
+        "blog-admin/wewright/commands/search-blog.py",
     }
-    assert archive.read("blog-admin/scripts/requirements.txt").decode() == "playwright==1.60.0\n"
-    canonical_runtime = (
-        Path(__file__).parents[2]
-        / "src"
-        / "webwright"
-        / "tool_runtime"
-        / "toolkit_runtime.py"
+    manifest = json.loads(archive.read("blog-admin/manifest.json"))
+    assert manifest["schema_version"] == 2
+    assert {command["id"] for command in manifest["commands"]} == {"open-blog", "search-blog"}
+    changed_runtime = {**RuntimeIdentity.resolve().as_health_fields(), "build": "changed-build"}
+    monkeypatch.setattr(publisher_module.RuntimeIdentity, "resolve", lambda: SimpleNamespace(as_health_fields=lambda: changed_runtime))
+    assert publisher.export_status("blog_admin")["export_eligible"] is False
+
+
+def test_mixed_v2_package_retains_extension_bytes_and_validates_with_host(tmp_path: Path) -> None:
+    toolkits, debug_runs, _development_runs = _stores(tmp_path)
+    extension_source = b"window.__webcliRegisterCommand('list', () => ({ok:true}));\n"
+    base_manifest = {
+        "schema_version": 2, "name": "mixed.example.com", "version": "1.2.3",
+        "description": "Example site commands", "match": ["example.com"],
+        "commands": [{"id": "list", "runtime": "extension", "module": "extension/commands/list.js",
+                      "description": "List items", "schema": {"type": "object", "properties": {}}}],
+    }
+    base_files = {
+        "manifest.json": (json.dumps(base_manifest) + "\n").encode(),
+        "extension/commands/list.js": extension_source,
+    }
+    bind_base(toolkits, "blog_admin", profile="public", digest=package_digest(base_files),
+              files={name: base64.b64encode(content).decode() for name, content in base_files.items()})
+    toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
+    build = snapshot_package(toolkits, "blog_admin")
+    metadata, files, _ = current_package(toolkits, "blog_admin")
+    assert metadata == build
+    assert files["extension/commands/list.js"] == extension_source
+    manifest = json.loads(files["manifest.json"])
+    assert manifest["commands"][0] == base_manifest["commands"][0]
+    assert manifest["version"] == "1.2.4"
+    command = manifest["commands"][1]
+    assert (command["id"], command["runtime"]) == ("search-blog", "wewright")
+    assert command["safety"] == "read"
+    node_source = """import {validatePackageFiles} from './webcli/adapter-package-files.js';
+const payload = JSON.parse(await new Promise(resolve => { let data=''; process.stdin.on('data', part => data+=part); process.stdin.on('end', () => resolve(data)); }));
+const files = new Map(Object.entries(payload.files).map(([name, value]) => [name, Buffer.from(value, 'base64')]));
+const result = validatePackageFiles(files);
+if (result.digest !== payload.digest || result.commands.length !== 2) process.exit(2);
+"""
+    verified = subprocess.run(
+        ["node", "--input-type=module", "-e", node_source],
+        input=json.dumps({"files": {name: base64.b64encode(content).decode() for name, content in files.items()},
+                          "digest": build["digest"]}),
+        text=True, capture_output=True, cwd=Path(__file__).parents[4], check=False,
     )
-    assert archive.read("blog-admin/scripts/toolkit_runtime.py") == canonical_runtime.read_bytes()
+    assert verified.returncode == 0, verified.stderr
 
 
 def test_export_api_rechecks_eligibility_and_old_artifact_is_invalidated(tmp_path: Path) -> None:
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     publisher = ToolkitPublisher(toolkits, debug_runs)
-    build = publisher.ensure_consistent("blog_admin")
-    run = debug_runs.create(
-        tool_id="search_blog",
-        channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
+    build = snapshot_package(toolkits, "blog_admin")
+    _verified_formal_run(toolkits, debug_runs, "search_blog", build)
     app = create_app(
         paths=WebwrightPaths.resolve(home=tmp_path),
         toolkit_store=toolkits,
@@ -1050,16 +1038,8 @@ def test_embedded_capability_directly_overwrites_project_skill(
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     publisher = ToolkitPublisher(toolkits, debug_runs)
-    build = publisher.ensure_consistent("blog_admin")
-    run = debug_runs.create(
-        tool_id="search_blog",
-        channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
+    build = snapshot_package(toolkits, "blog_admin")
+    _verified_formal_run(toolkits, debug_runs, "search_blog", build)
 
     user_files_dir = tmp_path / "user-files"
     target = user_files_dir / ".claude" / "skills" / "blog-admin"
@@ -1077,25 +1057,19 @@ def test_embedded_capability_directly_overwrites_project_skill(
 
     health = client.get("/api/health").get_json()
     installed = client.post("/api/toolkits/blog_admin/install-to-weworker")
-    unchanged = client.post("/api/toolkits/blog_admin/install-to-weworker")
+    package = client.get("/api/toolkits/blog_admin/v2-package")
 
-    assert health["capabilities"]["install_to_weworker"] is True
-    assert installed.status_code == 200
-    assert installed.get_json()["status"] == "updated"
-    assert unchanged.get_json()["status"] == "unchanged"
-    assert installed.get_json()["artifact_hash"] == build["artifact_hash"]
+    assert health["capabilities"]["install_to_weworker"] is False
+    assert health["capabilities"]["adapter_v2_package"] is True
+    assert installed.status_code == 409
+    assert package.status_code == 200
+    assert package.get_json()["digest"] == build["digest"]
     assert {
         path.relative_to(target).as_posix()
         for path in target.rglob("*")
         if path.is_file()
-    } == {
-        "manifest.json",
-        "SKILL.md",
-        "scripts/toolkit.py",
-        "scripts/toolkit_runtime.py",
-        "scripts/requirements.txt",
-    }
-    assert "manual skill" not in (target / "SKILL.md").read_text(encoding="utf-8")
+    } == {"SKILL.md", "manual.txt"}
+    assert (target / "SKILL.md").read_text(encoding="utf-8") == "manual skill"
 
 
 def test_direct_install_restores_existing_skill_when_directory_switch_fails(
@@ -1130,7 +1104,7 @@ def test_direct_install_restores_existing_skill_when_directory_switch_fails(
 
     monkeypatch.setattr(Path, "replace", fail_staged_switch)
 
-    with pytest.raises(OSError, match="simulated"):
+    with pytest.raises(ValueError, match="host installer"):
         publisher.install_to_weworker(
             "blog_admin", user_files_dir=user_files_dir
         )
@@ -1173,23 +1147,15 @@ def test_export_rejects_distribution_file_changes_without_repairing(
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     publisher = ToolkitPublisher(toolkits, debug_runs)
-    build = publisher.ensure_consistent("blog_admin")
-    run = debug_runs.create(
-        tool_id="search_blog",
-        channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
-    skill_path = toolkits.toolkit_dir("blog_admin") / "blog-admin" / "SKILL.md"
-    skill_path.write_text("corrupted", encoding="utf-8")
+    build = snapshot_package(toolkits, "blog_admin")
+    _verified_formal_run(toolkits, debug_runs, "search_blog", build)
+    source_path = current_package(toolkits, "blog_admin")[2] / "wewright/commands/search-blog.py"
+    source_path.write_text("corrupted", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="not eligible"):
+    with pytest.raises(ValueError, match="changed"):
         publisher.export_zip("blog_admin")
 
-    assert skill_path.read_text(encoding="utf-8") == "corrupted"
+    assert source_path.read_text(encoding="utf-8") == "corrupted"
 
 
 def test_startup_preserves_package_and_development_but_old_formal_run_is_unverified(
@@ -1207,9 +1173,9 @@ def test_startup_preserves_package_and_development_but_old_formal_run_is_unverif
         last_title="Posts",
     )
     root = toolkits.toolkit_dir("blog_admin")
-    ToolkitPublisher(toolkits, debug_runs).ensure_consistent("blog_admin")
-    skill_file = root / "blog-admin" / "SKILL.md"
-    skill_file.write_text("# Package documentation preserved across restart\n")
+    build = snapshot_package(toolkits, "blog_admin")
+    source_file = current_package(toolkits, "blog_admin")[2] / "wewright/commands/search-blog.py"
+    original_source = source_file.read_bytes()
     legacy_run = debug_runs.create(
         tool_id="search_blog",
         channel="formal",
@@ -1224,7 +1190,7 @@ def test_startup_preserves_package_and_development_but_old_formal_run_is_unverif
         debug_store=debug_runs,
     )
 
-    assert skill_file.read_text(encoding="utf-8") == "# Package documentation preserved across restart\n"
+    assert source_file.read_bytes() == original_source
     assert toolkits.read_runtime("blog_admin")["target_id"] == "existing-target"
     assert toolkits.read_development_slot("blog_admin", "search_blog")[
         "code_hash"
@@ -1233,6 +1199,7 @@ def test_startup_preserves_package_and_development_but_old_formal_run_is_unverif
     status = app.test_client().get("/api/toolkits/blog_admin/export-status").get_json()
     assert status["export_eligible"] is False
     assert status["unverified_tools"] == ["search_blog"]
+    assert status["distribution_hash"] == build["digest"]
 
 
 def test_reset_from_formal_discards_source_binding(tmp_path: Path) -> None:
@@ -1278,19 +1245,11 @@ def test_publish_installs_all_artifacts_and_clears_development(tmp_path: Path) -
     assert result["formal"]["code_hash"] == development["code_hash"]
     assert toolkits.read_development_slot("blog_admin", "search_blog") is None
     assert toolkits.read_formal_slot("blog_admin", "open_blog")["code_hash"] == other_formal["code_hash"]
-    assert all(
-        (root / "blog-admin" / name).is_file()
-        for name in (
-            "manifest.json",
-            "SKILL.md",
-            "scripts/toolkit.py",
-            "scripts/toolkit_runtime.py",
-            "scripts/requirements.txt",
-        )
-    )
-    toolkit_source = (root / "blog-admin" / "scripts" / "toolkit.py").read_text(encoding="utf-8")
-    assert "'search_blog':" in toolkit_source
-    assert "'open_blog':" in toolkit_source
+    metadata, files, package_root = current_package(toolkits, "blog_admin")
+    assert metadata == result["build"]
+    assert {"manifest.json", "wewright/commands/search-blog.py", "wewright/commands/open-blog.py"} == set(files)
+    assert "async def search_blog" in (package_root / "wewright/commands/search-blog.py").read_text(encoding="utf-8")
+    assert "async def open_blog" in (package_root / "wewright/commands/open-blog.py").read_text(encoding="utf-8")
     assert not publisher.journal_path("blog_admin").exists()
 
 
@@ -1308,13 +1267,14 @@ def test_publish_preserves_newer_development_written_during_install(
     )
     debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
     publisher = ToolkitPublisher(toolkits, debug_runs)
-    original_install = publisher._install
+    from webwright.server import publisher as publisher_module
+    original_snapshot = publisher_module.snapshot_package
 
-    def install_after_new_development(toolkit_id: str, artifacts: dict[str, str]):
+    def snapshot_after_new_development(store: ToolkitStore, toolkit_id: str):
         toolkits.write_development_slot(toolkit_id, "search_blog", newer)
-        return original_install(toolkit_id, artifacts)
+        return original_snapshot(store, toolkit_id)
 
-    monkeypatch.setattr(publisher, "_install", install_after_new_development)
+    monkeypatch.setattr(publisher_module, "snapshot_package", snapshot_after_new_development)
 
     publisher.publish("blog_admin", "search_blog")
 
@@ -1381,14 +1341,14 @@ def test_publish_journal_recovers_formal_installed_phase(tmp_path: Path) -> None
 
     assert toolkits.read_development_slot("blog_admin", "search_blog") is None
     assert not publisher.journal_path("blog_admin").exists()
-    assert publisher.build_path("blog_admin").is_file()
+    assert current_package(toolkits, "blog_admin")[0]["digest"]
 
 
 def test_publish_journal_recovers_prepared_phase_after_formal_write(tmp_path: Path) -> None:
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     publisher = ToolkitPublisher(toolkits, debug_runs)
-    publisher.ensure_consistent("blog_admin")
+    snapshot_package(toolkits, "blog_admin")
     development = toolkits.write_development_slot(
         "blog_admin", "search_blog", _slot(", 'recovered': True")
     )
@@ -1405,8 +1365,7 @@ def test_publish_journal_recovers_prepared_phase_after_formal_write(tmp_path: Pa
 
     publisher.recover("blog_admin")
 
-    root = toolkits.toolkit_dir("blog_admin")
-    assert "recovered" in (root / "blog-admin" / "scripts" / "toolkit.py").read_text(encoding="utf-8")
+    assert "recovered" in current_package(toolkits, "blog_admin")[1]["wewright/commands/search-blog.py"].decode("utf-8")
     assert toolkits.read_development_slot("blog_admin", "search_blog") is None
     assert not publisher.journal_path("blog_admin").exists()
 

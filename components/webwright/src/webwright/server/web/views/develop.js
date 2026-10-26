@@ -485,9 +485,6 @@ function slotMeta(slot, codeContent = `<pre class="code"><code>${esc(slot.code)}
   return `
     <div class="kv"><span>参数</span><span>${paramSummary(slot.parameters_schema)}</span></div>
     <div class="kv"><span>返回</span><span>${paramSummary(slot.result_schema)}</span></div>
-    <div class="kv"><span>requires</span><span>${esc((slot.requires || []).join("、") || "—")}</span></div>
-    <div class="kv"><span>ensures</span><span>${esc((slot.ensures || []).join("、") || "—")}</span></div>
-    <div class="kv"><span>副作用</span><span>${(slot.side_effects || []).length ? toneBadge(slot.side_effects.join("、"), "warn") : `<span class="muted">无</span>`}</span></div>
     ${codeContent}`;
 }
 

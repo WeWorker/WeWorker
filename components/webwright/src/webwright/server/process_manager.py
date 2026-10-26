@@ -21,13 +21,11 @@ from webwright.server.browser import (
     browser_target,
 )
 from webwright.server.debug_store import DebugRunStore
+from webwright.server.adapter_v2 import current_package, read_base
 from webwright.server.development import build_development_input
 from webwright.server.development_store import DevelopmentRunStore
 from webwright.server.weworker_model_config import ManagedModelConfig, load_managed_model_config
-from webwright.server.publisher import (
-    read_distribution,
-    skill_name,
-)
+from webwright.server.publisher import skill_name
 from webwright.server.records import TaskStore, atomic_write_json, make_run_id, now_iso, sanitize_id, timestamp_compact
 from webwright.server.status import (
     AGENT_EXIT_ERROR_MESSAGES,
@@ -41,6 +39,7 @@ from webwright.server.status import (
 )
 from webwright.server.toolkit_store import DevelopmentSlotConflictError, ToolkitStore
 from webwright.runtime_launcher import RuntimeLauncher
+from webwright.runtime_identity import RuntimeIdentity
 from webwright.utils.local_cdp import normalize_page_url
 from webwright.utils.logging import append_process_log
 
@@ -396,18 +395,21 @@ class ProcessManager:
         artifact_hash = ""
         distribution_hash = ""
         if channel == "formal":
-            skill_root = self.toolkit_store.toolkit_dir(toolkit_id) / skill_name(toolkit_id)
             try:
-                package = read_distribution(skill_root)
+                metadata, package_files, _ = current_package(self.toolkit_store, toolkit_id)
             except (OSError, ValueError) as error:
                 raise InvalidStateError("Published Adapter package is invalid.") from error
-            if tool_id.replace("_", "-") not in {item["id"] for item in package["manifest"]["tools"]}:
+            manifest = json.loads(package_files["manifest.json"])
+            if tool_id.replace("_", "-") not in {
+                item["id"] for item in manifest["commands"] if item["runtime"] == "wewright"
+            }:
                 raise InvalidStateError("Tool is not present in the Adapter manifest.")
-            artifact_hash = package["artifact_hash"]
-            distribution_hash = package["distribution_hash"]
+            package = package_files
+            artifact_hash = metadata["digest"]
+            distribution_hash = metadata["digest"]
             if expected_distribution_hash is not None and expected_distribution_hash != distribution_hash:
                 raise InvalidStateError("Adapter package changed. Refresh the validation form.")
-            code_hash = artifact_hash
+            code_hash = "sha256:" + artifact_hash
         else:
             slot = self.toolkit_store.read_development_slot(toolkit_id, tool_id)
             if slot is None:
@@ -423,16 +425,25 @@ class ProcessManager:
                 toolkit_id=toolkit_id,
                 distribution_hash=distribution_hash,
                 artifact_hash=artifact_hash,
+                runtime_identity=RuntimeIdentity.resolve().as_health_fields() if package else None,
                 parameters=parameters,
             )
             debug_run_id = str(run["debug_run_id"])
             run_dir = self.debug_store.run_dir(tool_id, debug_run_id)
-            adapter_root = run_dir / "artifacts" / skill_name(toolkit_id)
+            adapter_name = metadata["name"] if package else skill_name(toolkit_id)
+            adapter_root = run_dir / "catalog" / adapter_name
             if package:
-                for name, content in package["artifacts"].items():
+                for name, content in package.items():
                     target = adapter_root / name
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(content.encode("utf-8"))
+                    target.write_bytes(content)
+                base = read_base(self.toolkit_store, toolkit_id)
+                profile = str(base["profile"] if base else os.environ.get("WEWORKER_BUILD_PROFILE") or "public")
+                atomic_write_json(run_dir / "catalog" / ".profile.json", {
+                    "schema_version": 1, "profile": profile,
+                    "adapters": [{"name": adapter_name, "version": metadata["version"], "digest": distribution_hash}],
+                })
+                (run_dir / "empty-adapters").mkdir(exist_ok=True)
             spec_path = run_dir / "debug_spec.json"
             atomic_write_json(
                 spec_path,
@@ -444,6 +455,8 @@ class ProcessManager:
                     "code_hash": code_hash,
                     "distribution_hash": distribution_hash,
                     "adapter_root": str(adapter_root) if package else "",
+                    "v2": bool(package),
+                    "profile": profile if package else "",
                     "artifact_hash": artifact_hash,
                     "parameters": parameters,
                     "timeout_seconds": timeout_seconds,

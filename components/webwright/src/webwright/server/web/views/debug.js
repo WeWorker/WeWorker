@@ -32,7 +32,7 @@ export async function renderDebug(container) {
           <form id="paramForm">${renderParamForm(activeSlot.parameters_schema)}</form>
           <div class="run-bar">
             <button class="btn btn-primary" id="runTool" ${blocked || running ? "disabled" : ""}>运行</button>
-            <span class="muted small">运行前校验：域名归属、版本存在、参数合法、页面基本满足 requires</span>
+            <span class="muted small">运行前校验：域名归属、版本存在、参数合法</span>
           </div>
         </div>
 

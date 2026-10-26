@@ -109,6 +109,7 @@ def test_embedded_build_keeps_raw_onedir_and_writes_runtime_manifest(
         "mode": "embedded",
         "platform": "darwin",
         "webwright_version": "0.1.0",
+        "build_id": build._runtime_manifest()["build_id"],
     }
     assert (runtime_dir / "LICENSE.webwright").read_text(encoding="utf-8").startswith(
         "    MIT License"

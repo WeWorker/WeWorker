@@ -56,7 +56,7 @@ toolkit-fixture/
 
 manifest 使用 `schema_version: 2`，每个命令声明 `id`、`runtime: "wewright"`、`module`、`description`、`safety` 和 `schema`。此处 runtime/module 是既有机器契约。命令脚本从 stdin 读取 JSON，命令 ID 为脚本参数，stdout 输出 JSON，非零退出码传回 CLI。WebCLI 原样传递参数，样例特意验证 schema 写 integer 时字符串 `"007"` 仍保持字符串。
 
-写命令必须声明 `safety: "write"` 并经过统一确认门；不能另建安装目录、注册表或绕过 Profile。生成器应产出完整 v2 包，再走统一安装管理器；UI、Skill 调用入口统一为 `webcli call <adapter-id>.<tool-id>`。
+已分类为写命令的 Adapter 必须声明 `safety: "write"` 并经过统一确认门；不能另建安装目录、注册表或绕过 Profile。网站探索agent当前生成的新命令暂时统一声明 `safety: "read"`，写语义分类规则待后续确定，这个值不能作为无业务副作用的保证。生成器应产出完整 v2 包，再走统一安装管理器；UI、Skill 调用入口统一为 `webcli call <adapter-id>.<tool-id>`。
 
 仓库根目录下复现（PowerShell）：
 

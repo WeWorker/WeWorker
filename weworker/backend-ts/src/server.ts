@@ -7,6 +7,7 @@ import { createChatTurnRegistry } from './chat-turn-lifecycle.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
+import { createWebsiteExplorationAdapterRouter } from './website-exploration-adapters.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -313,6 +314,14 @@ app.get('/internal/webwright/model-config', (req, res) => {
 })
 app.use(requireHttpAuth)
 app.use(express.json({ limit: '50mb' }))
+app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
+  onInstalled: ({ name, revision, profile }) => {
+    clearAdapterCache()
+    refreshDesktopAdapterSkills(SKILLS_DIR)
+    clearAdapterCache()
+    broadcastSSE({ type: 'adapter_state_changed', profile, revision, adapters: [name] })
+  },
+}))
 app.use('/api/website-exploration', createWebsiteExplorationRouter())
 registerDedicatedAgentRoutes(app)
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -465,7 +465,7 @@ Prompt 输入区固定在 Exploration 详情底部，中间历史流滚动时保
 - 起始 URL。
 - 运行后达成的页面效果。
 
-`parameters_schema`、`result_schema`、`requires`、`ensures` 和副作用属于具体代码槽位，必须在开发中／正式版本内部展示，不能合并成唯一的 Tool 契约。
+`parameters_schema` 和 `result_schema` 属于具体代码槽位，必须在开发中／正式版本内部展示，不能合并成唯一的 Tool 契约。
 
 ### 9.4 当前开发依据
 
@@ -486,9 +486,6 @@ Prompt 输入区固定在 Exploration 详情底部，中间历史流滚动时保
 - 描述。
 - 参数 Schema。
 - 返回 Schema。
-- `requires`。
-- `ensures`。
-- 副作用。
 - 当前代码。
 
 代码区可提供：

@@ -74,12 +74,15 @@ def _distribution_architecture() -> str:
 
 
 def _runtime_manifest() -> dict[str, object]:
+    from webwright.runtime_identity import source_build_id
+
     return {
         "webwright_version": version("webwright"),
         "platform": sys.platform,
         "arch": _distribution_architecture(),
         "mode": "embedded",
         "entrypoint": "Webwright.exe" if sys.platform == "win32" else "Webwright",
+        "build_id": source_build_id(ROOT),
     }
 
 

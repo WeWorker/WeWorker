@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { consumeSSE } from '../api/website-exploration-events.js'
-import { resourcePath } from '../api/website-exploration-api.js'
+import { resourcePath, deleteTool, deleteInstalledCommand } from '../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as store, leaveWebsiteExploration, changeWebsiteContext } from '../store/website-exploration.js'
 
 test('SSE handles named events, CRLF, UTF-8 split bytes and multiline JSON', async () => {
@@ -17,6 +17,25 @@ test('resource URLs stay behind the backend', () => {
   assert.throws(() => resourcePath('https://example.com/a'))
   assert.throws(() => resourcePath('/api/explorations/a/files/../secret'))
   assert.throws(() => resourcePath('/api/website-exploration/../settings'))
+})
+
+test('Tool deletion sends the reviewed Adapter digest to one backend operation', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  const calls = []
+  globalThis.window = { electronAPI: {} }
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, method: options.method, body: JSON.parse(options.body) })
+    return Response.json({ ok: true })
+  }
+  try {
+    await deleteTool('demo', 'read_page', 'digest-1')
+    await deleteInstalledCommand('demo.example.com', 'read-page', 'digest-2')
+    assert.deepEqual(calls, [
+      { url: 'http://127.0.0.1:8765/api/website-exploration/toolkits/demo/tools/read_page', method: 'DELETE', body: { expectedDigest: 'digest-1' } },
+      { url: 'http://127.0.0.1:8765/api/website-exploration/adapters/demo.example.com/commands/read-page', method: 'DELETE', body: { expectedDigest: 'digest-2' } },
+    ])
+  } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })
 
 test('leaving a dirty workspace waits for explicit decision and preserves drafts on cancel', async () => {

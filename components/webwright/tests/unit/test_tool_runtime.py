@@ -11,6 +11,8 @@ import pytest
 
 from webwright.server.debug_store import DebugRunStore
 from webwright.server.publisher import ToolkitPublisher, artifact_hash, render_artifacts
+from webwright.server.adapter_v2 import snapshot_package
+from webwright.runtime_identity import RuntimeIdentity
 from webwright.server.status import DebugRunStatus
 from webwright.server.toolkit_store import ToolkitStore, code_hash
 from webwright.tool_runtime.browser import ToolkitBrowserSession
@@ -741,6 +743,7 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
         ).run(tool_id="print_property_certificate", parameters={})
     )
     assert published_output["ok"] is True
+    v2_build = snapshot_package(store, "tianjin_property")
     assert publisher.export_status("tianjin_property")["export_eligible"] is False
 
     stale_run = debug_store.create(
@@ -758,9 +761,10 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     formal_run = debug_store.create(
         tool_id="print_property_certificate",
         channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
+        code_hash="sha256:" + v2_build["digest"],
+        artifact_hash=v2_build["digest"],
+        distribution_hash=v2_build["digest"],
+        runtime_identity=RuntimeIdentity.resolve().as_health_fields(),
         parameters={},
     )
     debug_store.update(
@@ -771,8 +775,5 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     archive = zipfile.ZipFile(io.BytesIO(publisher.export_zip("tianjin_property")))
     assert set(archive.namelist()) == {
         "tianjin-property/manifest.json",
-        "tianjin-property/SKILL.md",
-        "tianjin-property/scripts/toolkit.py",
-        "tianjin-property/scripts/toolkit_runtime.py",
-        "tianjin-property/scripts/requirements.txt",
+        "tianjin-property/wewright/commands/print-property-certificate.py",
     }

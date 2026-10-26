@@ -10,7 +10,7 @@ from typing import Any
 
 from webwright.server.records import atomic_write_json
 from webwright.server.toolkit_store import ToolkitStore
-from webwright.server.publisher import read_distribution
+from webwright.server.adapter_v2 import package_digest
 from webwright.runtime_launcher import RuntimeLauncher
 from webwright.tool_runtime.runner import ToolRunner
 from webwright.tool_runtime.state import FileRuntimeStore
@@ -31,11 +31,14 @@ async def run_debug(spec: dict[str, Any]) -> dict[str, Any]:
         runtime_store = FileRuntimeStore(toolkit_dir / "runtime.json")
         before_runtime = runtime_store.read()
         adapter_root = Path(spec["adapter_root"])
-        package = read_distribution(adapter_root)
-        if package["distribution_hash"] != spec["distribution_hash"]:
+        files = {str(path.relative_to(adapter_root)): path.read_bytes()
+                 for path in adapter_root.rglob("*") if path.is_file()}
+        if package_digest(files) != spec["distribution_hash"]:
             raise ValueError("Adapter snapshot changed before validation.")
         output = await _run_formal_cli(spec, adapter_root, toolkit_dir / "runtime.json")
-        if read_distribution(adapter_root)["distribution_hash"] != spec["distribution_hash"]:
+        files = {str(path.relative_to(adapter_root)): path.read_bytes()
+                 for path in adapter_root.rglob("*") if path.is_file()}
+        if package_digest(files) != spec["distribution_hash"]:
             raise ValueError("Adapter snapshot changed during validation.")
     else:
         store = ToolkitStore(toolkit_root)
@@ -78,9 +81,15 @@ async def _run_formal_cli(
         node, entry, "call", f"{adapter_root.name}.{str(spec['tool_id']).replace('_', '-')}",
         "--args", json.dumps(parameters, ensure_ascii=False), "--output-format=json",
     ]
+    isolated = Path(spec["result_path"]).parent
     env = launcher.external_process_environment({
         "ELECTRON_RUN_AS_NODE": "1",
-        "WEWORKER_ADAPTERS_DIR": str(adapter_root.parent),
+        "WEWORKER_ADAPTERS_DIR": str(isolated / "empty-adapters"),
+        "WEWORKER_BUILTIN_ADAPTERS_DIR": str(adapter_root.parent),
+        "WEWORKER_USER_ADAPTERS_DIR": str(isolated / "empty-adapters"),
+        "WEBCLI_ADAPTERS_DIR": str(isolated / "empty-adapters"),
+        "WEWORKER_ADAPTER_DATA_DIR": str(isolated / "host-data"),
+        "WEWORKER_BUILD_PROFILE": str(spec["profile"]),
         "WEWORKER_TOOLKIT_RUNTIME": launcher.executable,
         "WEWORKER_TOOLKIT_RUNTIME_MODE": "embedded" if launcher.frozen else "python",
         "PYTHONIOENCODING": "utf-8",
@@ -89,6 +98,17 @@ async def _run_formal_cli(
         "WEBWRIGHT_SCREENSHOT_PATH": str(spec["screenshot_path"]),
         "WEBWRIGHT_RUNTIME_PATH": str(runtime_path),
     })
+    listing = await asyncio.create_subprocess_exec(
+        node, entry, "adapter", "list", "--json",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env=env, cwd=str(adapter_root),
+    )
+    listing_output, listing_error = await listing.communicate()
+    if listing.returncode != 0:
+        raise RuntimeError("Isolated Adapter catalog failed: " + listing_error.decode("utf-8", errors="replace"))
+    entries = json.loads(listing_output)
+    if not any(item.get("id") == adapter_root.name and item.get("digest") == spec["distribution_hash"] for item in entries):
+        raise ValueError("Isolated catalog did not select the exact Adapter snapshot.")
     process = await asyncio.create_subprocess_exec(
         *command,
         stdin=asyncio.subprocess.PIPE,

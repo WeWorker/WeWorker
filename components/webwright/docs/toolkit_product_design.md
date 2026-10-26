@@ -396,15 +396,13 @@ AI 只分析当前选中的 Exploration：
 - 返回值 Schema。
 - 支持的域名和 URL 范围。
 - 是否要求登录。
-- 页面前置状态 `requires`。
-- 页面后置状态 `ensures`。
 - 成功判定。
 - 稳定错误码。
 - 副作用和风险说明。
 
 `target_id` 和 `cdp_url` 都由 Toolkit Runtime 管理，不属于 Tool 业务参数，不写入 Tool 参数 Schema，也不向调用 Tool 的 AI 暴露。
 
-Tool 函数只接收业务参数和 Runtime 注入的页面对象。多个 Tool 能否组合仍由页面状态契约决定：前一个 Tool 的 `ensures` 应满足后一个 Tool 的 `requires`。
+Tool 函数只接收业务参数和 Runtime 注入的页面对象。多个 Tool 的组合由调用方结合前一步结果与当前页面状态判断。
 
 ### 6.3 Toolkit Runtime Store
 
@@ -457,14 +455,12 @@ Tool 函数只接收业务参数和 Runtime 注入的页面对象。多个 Tool 
 - 页面域名是否属于 Toolkit。
 - 所选版本是否存在。
 - 参数是否合法。
-- 页面是否基本满足 `requires`。
 
 运行后展示：
 
 - 是否成功。
 - 结构化业务结果。
 - 页面执行前后变化。
-- 是否满足 `ensures`。
 - 日志、异常和截图。
 - 错误是否适合重试。
 
@@ -629,7 +625,7 @@ search_blog(keyword)
 - 每一步必须引用明确的 Tool。
 - 所有 Tool 通过 Toolkit Runtime Store 自动复用同一个浏览器页面。
 - 前一步输出可以映射为后一步输入。
-- 前一步 `ensures` 应满足后一步 `requires`。
+- 调用方根据前一步结果与当前页面状态决定是否继续。
 - 任一步失败后停止。
 - 每一步分别生成 Debug Run。
 

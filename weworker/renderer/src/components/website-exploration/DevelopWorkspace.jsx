@@ -99,7 +99,7 @@ function DevelopmentPrompt({ label, value, onChange, placeholder, hint, submitLa
 
 function SlotContract({ slot }) {
   const describe = schema => Object.entries(schema?.properties || {}).map(([name, field]) => name + (schema.required?.includes(name) ? '*' : '') + ':' + field.type).join('、') || '—'
-  return <dl className="wx-dev-facts"><dt>参数</dt><dd>{describe(slot.parameters_schema)}</dd><dt>返回</dt><dd>{describe(slot.result_schema)}</dd><dt>requires</dt><dd>{slot.requires?.join('、') || '—'}</dd><dt>ensures</dt><dd>{slot.ensures?.join('、') || '—'}</dd><dt>副作用</dt><dd>{slot.side_effects?.join('、') || '无'}</dd></dl>
+  return <dl className="wx-dev-facts"><dt>参数</dt><dd>{describe(slot.parameters_schema)}</dd><dt>返回</dt><dd>{describe(slot.result_schema)}</dd></dl>
 }
 
 export function collectParameters(schema, values) {
@@ -139,14 +139,17 @@ export function TestRunner({ toolkitId, tool, slot, channel, disabled, onRefresh
   let parameterError = ''
   try { collectParameters(slot.parameters_schema, values) } catch (error) { parameterError = error.message }
   const [message, setMessage] = useState('')
+  const [pendingWrite, setPendingWrite] = useState(null)
+  const submitRun = parameters => action.run(async () => {
+    const result = await api.runDebugTool(toolkitId, tool.tool_id, channel, parameters, slot.distribution_hash)
+    useStore.getState().selectRecord(scope + '/run', result.debug_run_id)
+    setMessage('已提交测试运行')
+    setPendingWrite(null)
+  })
   return <>
     <section className={development ? 'wx-dev-card' : undefined}>
     {development && <h3>即时调试</h3>}
-    <form onSubmit={e => { e.preventDefault(); if (parameterError) return; void action.run(async () => {
-      const result = await api.runDebugTool(toolkitId, tool.tool_id, channel, collectParameters(slot.parameters_schema, values), slot.distribution_hash)
-      useStore.getState().selectRecord(scope + '/run', result.debug_run_id)
-      setMessage('已提交测试运行')
-    }) }}>
+    <form onSubmit={e => { e.preventDefault(); if (parameterError) return; const parameters = collectParameters(slot.parameters_schema, values); if (channel === 'formal' && (slot.safety === 'write' || slot.requires_confirmation)) setPendingWrite(parameters); else void submitRun(parameters) }}>
       <fieldset disabled={disabled || action.busy} onBlur={() => setParametersTouched(true)} onChange={() => setParametersTouched(true)}>
       {Object.entries(slot.parameters_schema?.properties || {}).map(([name, field]) => <label key={name}><span>{name}{slot.parameters_schema.required?.includes(name) && <RequiredMark />}</span>
         {field.type === 'boolean' || field.enum ? <AppDropdownSelect className="wx-dropdown" ariaLabel={name + (slot.parameters_schema.required?.includes(name) ? ' *' : '')} required={slot.parameters_schema.required?.includes(name)} disabled={disabled || action.busy} value={String(values[name] ?? field.default ?? '')} onChange={value => { setValues({ ...values, [name]: value }); setParametersTouched(true) }} options={[{ value: '', label: '请选择' }, ...(field.type === 'boolean' ? [{ value: 'true', label: '是' }, { value: 'false', label: '否' }] : field.enum.map(value => ({ value: String(value), label: String(value) })))]} /> : <input aria-label={name + (slot.parameters_schema.required?.includes(name) ? ' *' : '')} required={slot.parameters_schema.required?.includes(name)} type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} step={field.type === 'integer' ? '1' : 'any'} value={typeof (values[name] ?? field.default) === 'object' ? JSON.stringify(values[name] ?? field.default) : values[name] ?? field.default ?? ''} onChange={e => setValues({ ...values, [name]: e.target.value })} />}
@@ -159,6 +162,7 @@ export function TestRunner({ toolkitId, tool, slot, channel, disabled, onRefresh
     {message && <p role="status">{message}</p>}
     <ErrorMessage>{(parametersTouched && parameterError) || action.error || runs.error || snapshot.error}</ErrorMessage>
     </section>
+    {pendingWrite && <Modal title="确认正式调试写入" onClose={() => setPendingWrite(null)}><p>命令：{tool.tool_id}。本次运行可能修改网站数据。</p><pre>{JSON.stringify(pendingWrite, null, 2)}</pre><ErrorMessage>{action.error}</ErrorMessage><footer><button onClick={() => setPendingWrite(null)}>取消</button><button className="wx-primary" disabled={action.busy} onClick={() => submitRun({ ...pendingWrite, __confirmed: true })}>确认运行</button></footer></Modal>}
     <section className={development ? 'wx-dev-card' : undefined}>
     {development && <h3>试运行历史</h3>}
     <label>运行历史<AppDropdownSelect ariaLabel="运行历史" className="wx-dropdown" value={id || ""} onChange={value => useStore.getState().selectRecord(scope + "/run", value)} options={[{ value: "", label: "暂无运行" }, ...history.map(item => ({ value: item.debug_run_id, label: item.created_at + " · " + item.status }))]} /></label>

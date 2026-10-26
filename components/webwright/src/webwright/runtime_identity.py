@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import platform
 import sys
 from dataclasses import dataclass
@@ -18,12 +19,24 @@ def _architecture() -> str:
     return machine
 
 
+def source_build_id(root: Path) -> str:
+    digest = hashlib.sha256()
+    sources = sorted((root / "src" / "webwright").rglob("*.py"))
+    lockfile = root / "uv.lock"
+    for path in [*sources, *([lockfile] if lockfile.is_file() else [])]:
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 @dataclass(frozen=True)
 class RuntimeIdentity:
     version: str
     platform: str
     arch: str
     mode: str
+    build: str = ""
 
     @classmethod
     def resolve(
@@ -44,12 +57,14 @@ class RuntimeIdentity:
                 platform=str(payload.get("platform") or ""),
                 arch=str(payload.get("arch") or ""),
                 mode=str(payload.get("mode") or ""),
+                build=str(payload.get("build_id") or ""),
             )
         return cls(
             version=__version__,
             platform=sys.platform,
             arch=_architecture(),
             mode="standalone" if is_frozen else "source",
+            build="" if is_frozen else source_build_id(Path(__file__).resolve().parents[2]),
         )
 
     def as_health_fields(self) -> dict[str, str]:
@@ -58,6 +73,7 @@ class RuntimeIdentity:
             "platform": self.platform,
             "arch": self.arch,
             "mode": self.mode,
+            "build": self.build,
         }
 
 

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import ast
+import base64
 import json
 import re
 import shutil
 import threading
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -136,23 +138,11 @@ def validate_tool_slot(tool_id: str, slot: dict[str, Any]) -> dict[str, Any]:
         )
     if schema_properties & forbidden:
         raise ValueError("Tool parameter schema must not expose target_id or cdp_url.")
-    text_lists: dict[str, list[str]] = {}
-    for field in ("requires", "ensures", "side_effects"):
-        value = slot.get(field, [])
-        if isinstance(value, str):
-            text_lists[field] = [value]
-        elif isinstance(value, list) and all(isinstance(item, str) for item in value):
-            text_lists[field] = list(value)
-        else:
-            raise ValueError(f"{field} must be a string or a list of strings.")
     return {
         "code": code,
         "description": str(slot.get("description") or ""),
         "parameters_schema": slot["parameters_schema"],
         "result_schema": slot["result_schema"],
-        "requires": text_lists["requires"],
-        "ensures": text_lists["ensures"],
-        "side_effects": text_lists["side_effects"],
         "risk_notice": str(slot.get("risk_notice") or ""),
     }
 
@@ -293,6 +283,15 @@ class ToolkitStore:
     ) -> dict[str, Any]:
         toolkit = self.get_toolkit(toolkit_id)
         tool_id = _validate_slug(name, field="name")
+        base_path = self.toolkit_dir(toolkit_id) / ".server" / "adapter-base.json"
+        if base_path.is_file():
+            base = json.loads(base_path.read_text(encoding="utf-8"))
+            manifest = json.loads(base64.b64decode(base["files"]["manifest.json"]))
+            if tool_id.replace("_", "-") in {
+                name for command in manifest["commands"]
+                for name in [command["id"], *(command.get("aliases") or [])]
+            }:
+                raise ValueError("Tool command ID conflicts with an existing Adapter command.")
         try:
             self.find_tool(tool_id)
         except FileNotFoundError:
@@ -363,6 +362,44 @@ class ToolkitStore:
         if dev_dir.exists():
             shutil.rmtree(dev_dir)
         shutil.rmtree(self.tool_dir(toolkit_id, tool_id))
+
+    def stage_tool_deletion(self, toolkit_id: str, tool_id: str) -> str:
+        self.get_tool(toolkit_id, tool_id)
+        transaction_id = uuid.uuid4().hex
+        staged = self.toolkit_dir(toolkit_id) / ".server" / "tool-deletions" / transaction_id
+        staged.mkdir(parents=True)
+        tool_dir = self.tool_dir(toolkit_id, tool_id)
+        development_dir = self.development_path(toolkit_id, tool_id).parent
+        try:
+            tool_dir.rename(staged / "tool")
+            if development_dir.exists():
+                development_dir.rename(staged / "development")
+        except Exception:
+            if (staged / "tool").exists():
+                (staged / "tool").rename(tool_dir)
+            shutil.rmtree(staged)
+            raise
+        return transaction_id
+
+    def finish_tool_deletion(self, toolkit_id: str, tool_id: str, transaction_id: str, *, restore: bool) -> None:
+        if not re.fullmatch(r"[a-f0-9]{32}", transaction_id):
+            raise ValueError("Invalid Tool deletion transaction.")
+        staged = self.toolkit_dir(toolkit_id) / ".server" / "tool-deletions" / transaction_id
+        if not (staged / "tool" / "tool.json").is_file():
+            raise FileNotFoundError("Tool deletion transaction not found.")
+        payload = json.loads((staged / "tool" / "tool.json").read_text(encoding="utf-8"))
+        if payload.get("toolkit_id") != toolkit_id or payload.get("tool_id") != tool_id:
+            raise ValueError("Tool deletion transaction does not match the Tool.")
+        if restore:
+            tool_dir = self.tool_dir(toolkit_id, tool_id)
+            development_dir = self.development_path(toolkit_id, tool_id).parent
+            if tool_dir.exists() or development_dir.exists():
+                raise ValueError("Tool changed while deletion was pending.")
+            (staged / "tool").rename(tool_dir)
+            if (staged / "development").exists():
+                development_dir.parent.mkdir(parents=True, exist_ok=True)
+                (staged / "development").rename(development_dir)
+        shutil.rmtree(staged)
 
     def read_formal_slot(self, toolkit_id: str, tool_id: str) -> dict[str, Any] | None:
         self.get_tool(toolkit_id, tool_id)
