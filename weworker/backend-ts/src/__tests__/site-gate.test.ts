@@ -76,6 +76,17 @@ describe('matchSiteAdapter：别名信号（S2）', () => {
     const result = matchSiteAdapter('帮我在示例站上查一下', [cand('example.com', ['example.com'], ['示例站'])], ALL)
     expect(result).toEqual({ adapterId: 'example.com', reason: 'hit-alias', signals: ['示例站'] })
   })
+  it('范妮思别名命中 weoa.webank.com，不要求用户写出域名', () => {
+    const candidates = [cand('weoa.webank.com', ['weoa.webank.com'], ['范妮思', '发票卡包', '月度补贴', '月度报销'])]
+    const enabled = new Set(['weoa.webank.com'])
+    expect(matchSiteAdapter(
+      '帮我在范妮思查看 2026-07 月的补贴额度和可用发票',
+      candidates,
+      enabled,
+    )).toEqual({ adapterId: 'weoa.webank.com', reason: 'hit-alias', signals: ['范妮思'] })
+    expect(matchSiteAdapter('帮我查看本月月度报销', candidates, enabled).adapterId).toBe('weoa.webank.com')
+    expect(matchSiteAdapter('今天天气怎么样', candidates, enabled).reason).toBe('miss')
+  })
 
   it('域名优先于别名：两者都命中时记为 hit-domain', () => {
     const result = matchSiteAdapter(

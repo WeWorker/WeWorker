@@ -5,10 +5,12 @@ import vm from 'node:vm'
 
 import {
   NAVIGATION_TARGET_SETTLE_MS,
+    adapterPageStartUrl,
   assertAdapterNavigationUrl,
   classifyNavigationTarget,
   createNavigationGuard,
   navigateAdapterTab,
+  tabMatchesPageStart,
 } from '../background/host-adapter-runtime.js'
 
 const MANIFEST = {
@@ -45,6 +47,30 @@ test('classifyNavigationTarget cannot judge non-page targets yet', () => {
   assert.equal(classifyNavigationTarget(MANIFEST, ''), 'unknown')
   assert.equal(classifyNavigationTarget(MANIFEST, 'not a url'), 'unknown')
   assert.equal(classifyNavigationTarget(MANIFEST, undefined), 'unknown')
+})
+test('adapterPageStartUrl prefers a same-host homepage with a special port and path', () => {
+  const manifest = {
+    name: 'weoa.webank.com',
+    match: ['weoa.webank.com'],
+    homepage_url: 'https://weoa.webank.com:8443/s_iv/#/',
+  }
+  assert.equal(adapterPageStartUrl(manifest, 'weoa.webank.com'), 'https://weoa.webank.com:8443/s_iv/#/')
+  assert.equal(adapterPageStartUrl({ match: ['example.com'] }, 'example.com'), 'http://example.com/')
+  assert.equal(
+    adapterPageStartUrl({ match: ['mail.example.com'], homepage_url: 'https://github.com/WeWorker/WeWorker' }, 'mail.example.com'),
+    'http://mail.example.com/',
+  )
+  assert.equal(
+    adapterPageStartUrl({ match: ['order.example.com'], homepage_url: 'https://www.example.com/' }, 'order.example.com'),
+    'http://order.example.com/',
+  )
+})
+
+test('tabMatchesPageStart rejects a same-host tab on a different origin', () => {
+  const start = 'https://weoa.webank.com:8443/s_iv/#/'
+  assert.equal(tabMatchesPageStart({ url: 'https://weoa.webank.com/#/submit?source=kaobao' }, start, 'weoa.webank.com'), false)
+  assert.equal(tabMatchesPageStart({ url: 'https://weoa.webank.com:8443/s_iv/#/' }, start, 'weoa.webank.com'), true)
+  assert.equal(tabMatchesPageStart({ url: 'https://example.com/other' }, 'http://example.com/', 'example.com'), true)
 })
 
 test('assertAdapterNavigationUrl keeps its error messages and behaviour', () => {

@@ -125,7 +125,9 @@ describe('managed background execution lifecycle', () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, {type:"object",properties:{ids:{type:"array",items:{type:"integer"}},names:{type:"array",items:{type:"string"}}}}));' });
     expect(await f.run({ ids: '1, 2,3', __confirmed: true })).toEqual({ ids: [1, 2, 3], __confirmed: true });
     await expect(f.run({ ids: '1,no', __confirmed: true })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
-    await expect(f.run({ names: 'one,two', __confirmed: true })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+     expect(await f.run({ names: 'one,two', __confirmed: true })).toEqual({ names: ['one,two'], __confirmed: true });
+    expect(await f.run({ names: 'single-path.pdf', __confirmed: true })).toEqual({ names: ['single-path.pdf'], __confirmed: true });
+    expect(await f.run({ names: '["one","two"]', __confirmed: true })).toEqual({ names: ['one', 'two'], __confirmed: true });
   });
   it('binds helper requests to the active document and immutable call context', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", async () => __webmcpWecliRuntime.requestPrivileged("fixture", { value: "ok" }));' });
