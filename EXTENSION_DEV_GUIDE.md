@@ -403,7 +403,7 @@ SW 处理流程：`debugger.attach` → `DOM.querySelector` → `DOM.setFileInpu
 |---|---|---|---|
 | `scenarios[].route` | object | - | 卡片话术的直达决策，三形态**三选一**：`{ "tool": "工具名", "args": {…} }`（单工具直达）、`{ "plan": { "terminal": "终点工具名", "input": "参数名" } }`（多跳计划）、`{ "direct": false, "reason": "…" }`（显式声明不可直达）。含 `${}` 占位符的卡片**必须**显式给其一，否则编译报错——避免把「装饰性文案」误当成路由规则 |
 | `route_templates` | array | - | Tier −2「模板直达」的逐字句式。`pattern` 与消息**锚定全等**（区分大小写）。槽位两种：`${A\|B\|C}` 是枚举槽，`enumArgs` 的 key 必须**正好等于各分支词**，值是该分支要并入 `args` 的参数片段；`${名}` 是自由槽，`slots` 里必须给 `{ arg, validate }`（`validate` 为闭合正则源，不可含 `^`/`$`、裸 `.+`/`.*`、`\s`/`\S` 接量词，也不可匹配空串）。单条模板 ≤4 槽、≤120 字符，且必须至少含一个槽；校验失败的条目整条跳过（warn + skip），不影响该 adapter 其余功能 |
-| `gate_aliases` | string[] | `[]` | 第 3 层 siteGate 的补充信号词表（除域名 `match` 外，还能用哪些词判断「用户在说这个站点」）。拉丁词按 ASCII 字母数字判边界（避免 `…XXITSMYY…` 误命中 `itsm` 这类子串），CJK 词直接子串匹配。**缺省 = 只靠域名信号**，不做任何站点名推断 |
+| `gate_aliases` | string[] | `[]` | 第 3 层 siteGate 的补充信号词表（除域名 `match` 外，还能用哪些词判断「用户在说这个站点」）。拉丁词按 ASCII 字母数字判边界（避免 `…XXTICKETSYY…` 误命中 `tickets` 这类子串），CJK 词直接子串匹配。**缺省 = 只靠域名信号**，不做任何站点名推断 |
 | `tool_execution` | object | - | **按工具名索引的对象**（`{ "<工具名>": {…} }`，**不是数组**）。当前只消费一个子字段：`navigate_before`（string）＝该工具调用前必须先打开的页面 URL。命中的直调工具会先 `open_browser(url)` 再等待、然后才真正调用；缺省 = 无页面依赖，客户端不做任何额外编排 |
 
 上表 `scenarios[].route` 与 `route_templates` 里的工具必须同时满足**只读（`safety: "read"`）+ 可直调（`execution: { "type": "api", "runtime": "background" }`，或工具显式声明直调）**。这是准入硬门：写操作、变更类工具一律不得进入路由面，编译期即报错。

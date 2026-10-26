@@ -97,3 +97,22 @@ artifacts/api-adapter-certification/
 
 # 智能路由本地复跑产物（route-replay 日志、dry-run 报告、临时扫描脚本，每次重新生成）
 .scratch-router/
+
+# 路由/站点门测试：仅内部开发使用，不进开源提交；本机保留副本，便于对照内部规则调试
+weworker/backend-ts/src/__tests__/site-gate.test.ts
+weworker/backend-ts/src/__tests__/site-scenarios.test.ts
+weworker/backend-ts/src/__tests__/tier4-dispatch.test.ts
+weworker/backend-ts/src/__tests__/tier4-graduation.test.ts
+weworker/backend-ts/src/__tests__/router-config.test.ts
+weworker/backend-ts/src/__tests__/router-routable.test.ts
+weworker/backend-ts/src/__tests__/router-aliases-endpoint.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/cascade.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/config-layers.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/declarative-link-render.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/generic-renderer.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/page-prep.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/route-eval.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/scenario-route-compiler.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/scenario-routes.test.ts
+weworker/backend-ts/src/api-query-router/__tests__/shipped-router-config.test.ts
+weworker/renderer/src/__tests__/sites-routable-badge.test.js
