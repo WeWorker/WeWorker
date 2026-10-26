@@ -35,7 +35,7 @@ function loadInjector(runtimeResponse = { ok: true, result: { value: 'ok' } }) {
   const window = {
     __webmcpInjectorLoaded: false,
     addEventListener() {},
-    location: { hostname: 'tickets.example.com', href: 'https://tickets.example.com/' },
+    location: { hostname: 'itsm.example.com', href: 'https://itsm.example.com/' },
   }
   const context = vm.createContext({
     AbortController,
@@ -102,11 +102,11 @@ test('injector exposes browser-safe WeCLI runtime utilities', async () => {
   assert.equal(validated['dry-run'], true)
 
   assert.throws(
-    () => runtime.requireConfirmation({}, 'tickets.approve'),
+    () => runtime.requireConfirmation({}, 'itsm.approve'),
     (error) => error.code === 'CONFIRMATION_REQUIRED',
   )
-  assert.deepEqual(plain(runtime.requireConfirmation({ 'dry-run': true }, 'tickets.approve')), { confirmed: false, dryRun: true })
-  assert.equal(runtime.requireConfirmation({ __confirmed: true }, 'tickets.approve'), true)
+  assert.deepEqual(plain(runtime.requireConfirmation({ 'dry-run': true }, 'itsm.approve')), { confirmed: false, dryRun: true })
+  assert.equal(runtime.requireConfirmation({ __confirmed: true }, 'itsm.approve'), true)
 
   assert.deepEqual(await runtime.fetchJson('/api/tickets'), { ok: true })
   assert.equal(fetchCalls.at(-1).input, '/api/tickets')
@@ -148,7 +148,7 @@ function loadServiceWorker(options = {}) {
   const tabs = [{
     active: true,
     status: 'complete',
-    ...(options.tab || { id: 7, url: 'https://tickets.example.com/workbench', windowId: 1 }),
+    ...(options.tab || { id: 7, url: 'https://itsm.example.com/workbench', windowId: 1 }),
   }]
 
   class FakeWebSocket {
@@ -318,9 +318,9 @@ function loadServiceWorker(options = {}) {
         action,
         payload,
         route: {
-          adapterId: 'tickets.example.com',
-          routeDomain: 'tickets.example.com',
-          tabDomain: 'tickets.example.com',
+          adapterId: 'itsm.example.com',
+          routeDomain: 'itsm.example.com',
+          tabDomain: 'itsm.example.com',
           ...route,
         },
       },
@@ -364,12 +364,12 @@ test('direct authentication response detection covers HTTP, SSO HTML, and applic
   }), true)
   assert.equal(context.isDirectAuthenticationResponse({
     status: 200,
-    url: 'https://tickets.example.com/api',
+    url: 'https://itsm.example.com/api',
     body: '{"retCode":3001,"retDetail":"登录超时，请重新登录!"}',
   }), true)
   assert.equal(context.isDirectAuthenticationResponse({
     status: 200,
-    url: 'https://tickets.example.com/api',
+    url: 'https://itsm.example.com/api',
     body: '{"retCode":0,"data":[]}',
   }), false)
 })
@@ -377,7 +377,7 @@ test('direct authentication response detection covers HTTP, SSO HTML, and applic
 test('service worker provides host-scoped privileged runtime helpers', async () => {
   const { request, cookieCalls, debuggerCalls, executeCalls, downloadCalls } = loadServiceWorker()
 
-  assert.equal((await request('cookies_get', { url: 'https://tickets.example.com/api' })).ok, true)
+  assert.equal((await request('cookies_get', { url: 'https://itsm.example.com/api' })).ok, true)
   assert.equal(cookieCalls.length, 1)
 
   assert.deepEqual(plain(await request('storage_get', { key: 'token', area: 'local' })), {
@@ -387,7 +387,7 @@ test('service worker provides host-scoped privileged runtime helpers', async () 
   assert.equal(executeCalls.at(-1).target.tabId, 7)
 
   assert.deepEqual(plain(await request('download', {
-    url: 'https://tickets.example.com/export.csv',
+    url: 'https://itsm.example.com/export.csv',
     filename: 'exports/tickets.csv',
   })), {
     ok: true,
@@ -412,7 +412,7 @@ test('service worker provides host-scoped privileged runtime helpers', async () 
   assert.match(rejected.error.message, /host/i)
 })
 
-test('service worker allows ProjectExample runtime helpers to read SDL sibling-domain cookies', async () => {
+test('service worker allows ProjectDemo runtime helpers to read SDL sibling-domain cookies', async () => {
   const { request, cookieCalls } = loadServiceWorker({
     tab: { id: 7, url: 'https://project.example.com/workbench', windowId: 1 },
     runtimeAllowedHosts: ['sdl.example.com'],
@@ -497,7 +497,7 @@ test('Adapter response capture enforces its body limit and keeps a borrowed debu
   assert.deepEqual(plain(worker.debuggerDetachCalls), [])
 })
 
-test('direct browser_fetch reuses the existing Tickets tab and browser credentials', async () => {
+test('direct browser_fetch reuses the existing ITSM tab and browser credentials', async () => {
   const {
     directRequest,
     cookieCalls,
@@ -508,7 +508,7 @@ test('direct browser_fetch reuses the existing Tickets tab and browser credentia
   } = loadServiceWorker()
 
   const response = await directRequest('cookies_get', {
-    url: 'https://tickets.example.com/tickets/request/getRequestList.spr',
+    url: 'https://itsm.example.com/itsm/request/getRequestList.spr',
   })
 
   assert.equal(response.ok, true)
@@ -533,7 +533,7 @@ test('direct browser fetch closes its inactive background tab when the target si
     tab: { id: 7, url: 'https://example.com/workbench', windowId: 1 },
   })
   const payload = {
-    url: 'https://tickets.example.com/tickets/request/getRequestList.spr',
+    url: 'https://itsm.example.com/itsm/request/getRequestList.spr',
     options: {
       method: 'POST',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -547,7 +547,7 @@ test('direct browser fetch closes its inactive background tab when the target si
   assert.equal(first.result.replay.tabId, 8)
   assert.deepEqual(plain(createCalls), [{ url: 'about:blank', active: false }])
   assert.deepEqual(plain(updateCalls.slice(0, 2)), [
-    { id: 8, update: { url: 'https://tickets.example.com/', active: false } },
+    { id: 8, update: { url: 'https://itsm.example.com/', active: false } },
   ])
   assert.equal(executeCalls.at(-1).target.tabId, 8)
   assert.equal(tabs.find((tab) => tab.id === 7).active, true)
@@ -559,7 +559,7 @@ test('direct browser fetch closes its inactive background tab when the target si
   assert.equal(second.result.replay.tabId, 8)
   assert.equal(createCalls.length, 2)
   assert.deepEqual(plain(updateCalls.slice(1)), [
-    { id: 8, update: { url: 'https://tickets.example.com/', active: false } },
+    { id: 8, update: { url: 'https://itsm.example.com/', active: false } },
   ])
   assert.deepEqual(removeCalls, [8, 8])
 })
@@ -569,12 +569,12 @@ test('direct browser_fetch rejects a redirected response from an unapproved host
     browserFetchResult: { redirected: true, url: 'https://evil.example/leak' },
   })
 
-  const response = await directRequest('browser_fetch', { url: 'https://tickets.example.com/api' })
+  const response = await directRequest('browser_fetch', { url: 'https://itsm.example.com/api' })
 
   assert.equal(response.ok, false)
   assert.equal(response.error.code, 'HOST_NOT_ALLOWED')
   assert.deepEqual(plain(response.error.details), {
-    tabHost: 'tickets.example.com',
+    tabHost: 'itsm.example.com',
     targetHost: 'evil.example',
   })
 })
@@ -621,7 +621,7 @@ test('cache-only storage reads never consult or create a business page', async (
   const stored = {};
   f.context.chrome.storage.local.get = async () => stored;
   f.context.chrome.storage.local.set = async value => Object.assign(stored, value);
-  const payload = { key: 'example_token', area: 'local', url: 'https://tickets.example.com/', cacheOnly: true };
+  const payload = { key: 'example_token', area: 'local', url: 'https://itsm.example.com/', cacheOnly: true };
   const missing = await f.directRequest('storage_get', payload);
   assert.equal(missing.ok, false);
   assert.equal(missing.error.code, 'PAGE_CONTEXT_REQUIRED');

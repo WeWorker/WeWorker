@@ -1,7 +1,7 @@
 /**
  * Pure projection helpers for cached webcli large outputs.
  *
- * 背景：tickets.example.com.ls 这类列表/详情工具的返回里，每条记录都带 `raw`
+ * 背景：itsm.example.com.ls 这类列表/详情工具的返回里，每条记录都带 `raw`
  * 原始 blob、顶层还带一份 `raw: payload`，整份结果动辄数十万字符，强行内联给
  * 大模型会触发超限截断 + 模型自己用 jq/python 解析落盘文件的连锁失败。
  *

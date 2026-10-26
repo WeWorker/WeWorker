@@ -6,56 +6,56 @@ describe('skill generation for public WebCLI tools', () => {
   it('documents the public site.command name instead of the internal handler name', () => {
     const content = generateSkillContent(
       {
-        id: 'tickets.example.com',
-        name: 'Tickets',
-        match: ['tickets.example.com'],
+        id: 'itsm.example.com',
+        name: 'ITSM',
+        match: ['itsm.example.com'],
       },
       [
         {
-          name: 'tickets.ls',
-          handlerName: 'tickets.example.com.get_workbench_tickets',
+          name: 'itsm.ls',
+          handlerName: 'itsm.example.com.get_workbench_tickets',
           description: 'List tickets',
           params: [],
         },
       ],
     )
 
-    expect(content).toContain('### tickets.ls')
-    expect(content).toContain('webcli call tickets.ls')
-    expect(content).not.toContain('webcli call tickets.example.com.get_workbench_tickets')
+    expect(content).toContain('### itsm.ls')
+    expect(content).toContain('webcli call itsm.ls')
+    expect(content).not.toContain('webcli call itsm.example.com.get_workbench_tickets')
   })
 
   it('documents aliases as compatible invocation names without exposing duplicate tools', () => {
     const content = generateSkillContent(
       {
-        id: 'pipeline.example.com',
-        name: 'Pipeline',
-        match: ['pipeline.example.com'],
+        id: 'pace.example.com',
+        name: 'Pace',
+        match: ['pace.example.com'],
       },
       [
         {
-          name: 'pipeline-config.update-params',
-          aliases: ['pipeline-config.params', 'pipeline-config.show-params'],
+          name: 'pace-pipeline.update-params',
+          aliases: ['pace-pipeline.params', 'pace-pipeline.show-params'],
           description: 'Update pipeline parameters',
           params: [],
         },
       ],
     )
 
-    expect(content).toContain('Aliases: `pipeline-config.params`, `pipeline-config.show-params`')
+    expect(content).toContain('Aliases: `pace-pipeline.params`, `pace-pipeline.show-params`')
     expect(content.match(/^### /gm)).toHaveLength(1)
   })
 
   it('requires user confirmation for mutating public tools', () => {
     const content = generateSkillContent(
       {
-        id: 'tickets.example.com',
-        name: 'Tickets',
-        match: ['tickets.example.com'],
+        id: 'itsm.example.com',
+        name: 'ITSM',
+        match: ['itsm.example.com'],
       },
       [
         {
-          name: 'tickets.approve',
+          name: 'itsm.approve',
           description: 'Approve a ticket',
           params: [],
           safety: 'high_risk',

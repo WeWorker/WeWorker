@@ -29,7 +29,7 @@ describe('backend runtime helpers', () => {
     })))
 
     const result = await handleBackendRuntimeFetch({
-      url: 'https://tickets.example.com/api',
+      url: 'https://itsm.example.com/api',
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{"query":1}',
@@ -37,7 +37,7 @@ describe('backend runtime helpers', () => {
 
     expect(result.status).toBe(201)
     expect(result.body).toBe('{"ok":true}')
-    expect(fetch).toHaveBeenCalledWith('https://tickets.example.com/api', expect.objectContaining({
+    expect(fetch).toHaveBeenCalledWith('https://itsm.example.com/api', expect.objectContaining({
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{"query":1}',
@@ -76,7 +76,7 @@ describe('backend runtime helpers', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('ok', { status: 200 })))
 
     const result = await handleBackendRuntimeFetch({
-      url: 'https://tickets.example.com/upload',
+      url: 'https://itsm.example.com/upload',
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream' },
       body: Buffer.from('abc').toString('base64'),

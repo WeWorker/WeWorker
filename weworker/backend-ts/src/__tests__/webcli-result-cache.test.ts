@@ -47,16 +47,16 @@ describe('webcli-result-cache', () => {
   })
 
   it('offloadIfLarge：小结果返回 null（不落盘）', () => {
-    expect(offloadIfLarge('tickets.example.com.ls', '{"ok":true}', 'work-1', { rootDir: TMP })).toBeNull()
+    expect(offloadIfLarge('itsm.example.com.ls', '{"ok":true}', 'work-1', { rootDir: TMP })).toBeNull()
   })
 
   it('offloadIfLarge：大结果落盘并返回最小指针（不含条目数据）', () => {
     const output = largeJson()
-    const pointerStr = offloadIfLarge('tickets.example.com.ls', output, 'work-1', { rootDir: TMP })
+    const pointerStr = offloadIfLarge('itsm.example.com.ls', output, 'work-1', { rootDir: TMP })
     expect(pointerStr).not.toBeNull()
     const pointer = JSON.parse(pointerStr!)
     expect(pointer.type).toBe('large_output')
-    expect(pointer.tool).toBe('tickets.example.com.ls')
+    expect(pointer.tool).toBe('itsm.example.com.ls')
     expect(pointer.file).toContain(path.join('tool-results', 'work-1'))
     expect(pointer.count).toBe(2)
     expect(pointer.header).toContain('count=2')
@@ -74,7 +74,7 @@ describe('webcli-result-cache', () => {
   })
 
   it('getLatestCacheFile：命中最近一次；mtime 过期后判 miss 并清理内存表', () => {
-    offloadIfLarge('tickets.example.com.ls', largeJson(), 'work-2', { rootDir: TMP })
+    offloadIfLarge('itsm.example.com.ls', largeJson(), 'work-2', { rootDir: TMP })
     const latest = getLatestCacheFile('work-2', { rootDir: TMP })
     expect(latest).not.toBeNull()
     expect(fs.existsSync(latest!)).toBe(true)

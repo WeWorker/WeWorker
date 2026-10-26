@@ -12,7 +12,7 @@ import {
 } from '../background/site-auth.js';
 
 const sso = {
-  name: 'tickets.example.com', match: ['tickets.example.com'],
+  name: 'itsm.example.com', match: ['itsm.example.com'],
   auth: { login_url: 'https://sso.example.com/login', login_hosts: ['*.passport.example.com'] },
 };
 const sameHost = {
@@ -26,7 +26,7 @@ test('declared login hosts, the login URL host and its path are login pages', ()
   assert.deepEqual(loginHosts(sso).sort(), ['*.passport.example.com', 'sso.example.com']);
   assert.equal(isLoginPageUrl(sso, 'https://sso.example.com/anything?return=1'), true);
   assert.equal(isLoginPageUrl(sso, 'https://cn.passport.example.com/'), true);
-  assert.equal(isLoginPageUrl(sso, 'https://tickets.example.com/tickets'), false);
+  assert.equal(isLoginPageUrl(sso, 'https://itsm.example.com/tickets'), false);
   // A login path on a business host.
   assert.deepEqual(loginHosts(sameHost), []);
   assert.equal(isLoginPageUrl(sameHost, 'https://www.example.com/signin?next=%2F'), true);
@@ -71,11 +71,11 @@ test('cookie checks support all, any, equals and not', () => {
 });
 
 test('structured auth fields keep only the site and phase', () => {
-  const error = authRequiredError({ site: 'tickets.example.com', pageUrl: 'https://sso.example.com/login', phase: 'navigation' });
+  const error = authRequiredError({ site: 'itsm.example.com', pageUrl: 'https://sso.example.com/login', phase: 'navigation' });
   assert.equal(error.code, 'AUTH_REQUIRED');
-  assert.deepEqual(authErrorFields(error), { site: 'tickets.example.com', phase: 'navigation', pageUrl: 'https://sso.example.com/login' });
+  assert.deepEqual(authErrorFields(error), { site: 'itsm.example.com', phase: 'navigation', pageUrl: 'https://sso.example.com/login' });
   const thrown = Object.assign(new Error('x'), { code: 'AUTH_REQUIRED', details: { phase: 'weird', secret: 'fixture' } });
-  assert.deepEqual(authErrorFields(thrown, sso), { site: 'tickets.example.com', phase: 'handler' });
+  assert.deepEqual(authErrorFields(thrown, sso), { site: 'itsm.example.com', phase: 'handler' });
   assert.equal(authErrorFields(new Error('other')), null);
   assert.equal(siteDisplayName({ name: 'a.example.com', i18n: { zh: { name: '示例' } } }), '示例');
   assert.equal(siteDisplayName({ name: 'a.example.com', auth: { display_name: '示例站' } }), '示例站');

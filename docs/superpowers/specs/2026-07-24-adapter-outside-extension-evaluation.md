@@ -209,7 +209,7 @@ Adapter 加载优先级建议为：
 ```js
 window.__webmcpRegister({
   tools: [{
-    name: "tickets.search",
+    name: "itsm.search",
     handler: async (args) => {
       return document.querySelector("...").textContent;
     },
@@ -222,7 +222,7 @@ window.__webmcpRegister({
 ```js
 export default defineAdapter({
   tools: [{
-    name: "tickets.search",
+    name: "itsm.search",
     async run(ctx, args) {
       return ctx.page.evaluate(`
         // 在目标页面中批量执行必要逻辑

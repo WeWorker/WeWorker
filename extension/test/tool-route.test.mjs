@@ -628,7 +628,7 @@ function loadInjector() {
   const window = {
     __webmcpInjectorLoaded: false,
     addEventListener() {},
-    location: { hostname: "tickets.example.com", href: "https://tickets.example.com/" },
+    location: { hostname: "itsm.example.com", href: "https://itsm.example.com/" },
   };
   const context = vm.createContext({
     JSON,
@@ -674,14 +674,14 @@ test("content injector reports explicit ToolRoute metadata while keeping handler
   const { window, runtimeMessages } = loadInjector();
 
   window.__webmcpRegister({
-    name: "Tickets",
+    name: "ITSM",
     tools: [{
-      name: "tickets.example.com.list_tickets",
-      publicName: "tickets.ls",
-      adapterId: "tickets.example.com",
-      routeDomain: "tickets.example.com",
-      tabDomain: "workbench.tickets.example.com",
-      excludeTabDomain: "pay.tickets.example.com",
+      name: "itsm.example.com.list_tickets",
+      publicName: "itsm.ls",
+      adapterId: "itsm.example.com",
+      routeDomain: "itsm.example.com",
+      tabDomain: "workbench.itsm.example.com",
+      excludeTabDomain: "pay.itsm.example.com",
       description: "List tickets",
       parameters: { type: "object" },
       generationSource: {
@@ -696,13 +696,13 @@ test("content injector reports explicit ToolRoute metadata while keeping handler
 
   const tools = runtimeMessages.at(-1).tools;
   assert.deepEqual(plain(tools), [{
-    name: "tickets.ls",
-    publicName: "tickets.ls",
-    handlerName: "tickets.example.com.list_tickets",
-    adapterId: "tickets.example.com",
-    routeDomain: "tickets.example.com",
-    tabDomain: "workbench.tickets.example.com",
-    excludeTabDomain: "pay.tickets.example.com",
+    name: "itsm.ls",
+    publicName: "itsm.ls",
+    handlerName: "itsm.example.com.list_tickets",
+    adapterId: "itsm.example.com",
+    routeDomain: "itsm.example.com",
+    tabDomain: "workbench.itsm.example.com",
+    excludeTabDomain: "pay.itsm.example.com",
     description: "List tickets",
     parameters: { type: "object" },
     generationSource: {
@@ -714,25 +714,25 @@ test("content injector reports explicit ToolRoute metadata while keeping handler
   }]);
 });
 
-test("content injector applies adapter route metadata to short and legacy Tickets tools", () => {
+test("content injector applies adapter route metadata to short and legacy ITSM tools", () => {
   const { window, runtimeMessages } = loadInjector();
 
   window.__webmcpRegister({
-    name: "Tickets",
-    adapterId: "tickets.example.com",
-    routeDomain: "tickets.example.com",
-    tabDomain: "tickets.example.com",
+    name: "ITSM",
+    adapterId: "itsm.example.com",
+    routeDomain: "itsm.example.com",
+    tabDomain: "itsm.example.com",
     tools: [
       {
-        name: "tickets.example.com.ls",
-        publicName: "tickets.ls",
-        handlerName: "tickets.example.com.ls",
+        name: "itsm.example.com.ls",
+        publicName: "itsm.ls",
+        handlerName: "itsm.example.com.ls",
         description: "List tickets",
         parameters: {},
         handler: () => [],
       },
       {
-        name: "tickets.example.com.check_login_status",
+        name: "itsm.example.com.check_login_status",
         description: "Check login",
         parameters: {},
         handler: () => ({ logged_in: true }),
@@ -743,94 +743,94 @@ test("content injector applies adapter route metadata to short and legacy Ticket
   const tools = runtimeMessages.at(-1).tools;
   assert.equal(tools.length, 2);
   for (const tool of tools) {
-    assert.equal(tool.adapterId, "tickets.example.com");
-    assert.equal(tool.routeDomain, "tickets.example.com");
-    assert.equal(tool.tabDomain, "tickets.example.com");
+    assert.equal(tool.adapterId, "itsm.example.com");
+    assert.equal(tool.routeDomain, "itsm.example.com");
+    assert.equal(tool.tabDomain, "itsm.example.com");
   }
 });
 
-test("service worker keeps legacy Tickets routing stable after short tools register", async () => {
-  const tab = { id: 12, windowId: 1, url: "https://tickets.example.com/" };
+test("service worker keeps legacy ITSM routing stable after short tools register", async () => {
+  const tab = { id: 12, windowId: 1, url: "https://itsm.example.com/" };
   const { registerTools, callNativeTool, sentToTabs } = loadServiceWorker({ tabs: [tab] });
 
   const registration = await registerTools([
     {
-      name: "tickets.ls",
-      publicName: "tickets.ls",
-      handlerName: "tickets.example.com.ls",
-      adapterId: "tickets.example.com",
-      routeDomain: "tickets.example.com",
-      tabDomain: "tickets.example.com",
+      name: "itsm.ls",
+      publicName: "itsm.ls",
+      handlerName: "itsm.example.com.ls",
+      adapterId: "itsm.example.com",
+      routeDomain: "itsm.example.com",
+      tabDomain: "itsm.example.com",
       description: "List tickets",
       parameters: {},
     },
     {
-      name: "tickets.example.com.check_login_status",
-      publicName: "tickets.example.com.check_login_status",
-      handlerName: "tickets.example.com.check_login_status",
-      adapterId: "tickets.example.com",
-      routeDomain: "tickets.example.com",
-      tabDomain: "tickets.example.com",
+      name: "itsm.example.com.check_login_status",
+      publicName: "itsm.example.com.check_login_status",
+      handlerName: "itsm.example.com.check_login_status",
+      adapterId: "itsm.example.com",
+      routeDomain: "itsm.example.com",
+      tabDomain: "itsm.example.com",
       description: "Check login",
       parameters: {},
     },
   ], tab);
 
   assert.equal(registration.ok, true);
-  const response = await callNativeTool("tickets.example.com.check_login_status");
+  const response = await callNativeTool("itsm.example.com.check_login_status");
 
   assert.equal(response.type, "call_tool_result");
   assert.equal(sentToTabs.at(-1).tabId, 12);
-  assert.equal(sentToTabs.at(-1).message.toolName, "tickets.example.com.check_login_status");
+  assert.equal(sentToTabs.at(-1).message.toolName, "itsm.example.com.check_login_status");
 });
 
-test("service worker routes public tickets.ls to the mapped handler on its constrained tab domain", async () => {
-  const tab = { id: 11, windowId: 1, url: "https://workbench.tickets.example.com/" };
+test("service worker routes public itsm.ls to the mapped handler on its constrained tab domain", async () => {
+  const tab = { id: 11, windowId: 1, url: "https://workbench.itsm.example.com/" };
   const { registerTools, callNativeTool, sentToTabs } = loadServiceWorker({ tabs: [tab] });
 
   const registration = await registerTools([{
-    name: "tickets.ls",
-    publicName: "tickets.ls",
-    handlerName: "tickets.example.com.list_tickets",
-    adapterId: "tickets.example.com",
-    routeDomain: "tickets.example.com",
-    tabDomain: "workbench.tickets.example.com",
+    name: "itsm.ls",
+    publicName: "itsm.ls",
+    handlerName: "itsm.example.com.list_tickets",
+    adapterId: "itsm.example.com",
+    routeDomain: "itsm.example.com",
+    tabDomain: "workbench.itsm.example.com",
     description: "List tickets",
     parameters: {},
   }], tab);
 
   assert.equal(registration.ok, true);
-  const response = await callNativeTool("tickets.ls", { status: "open" });
+  const response = await callNativeTool("itsm.ls", { status: "open" });
 
   assert.equal(response.type, "call_tool_result");
   assert.equal(sentToTabs.at(-1).tabId, 11);
   assert.deepEqual(plain(sentToTabs.at(-1).message), {
     type: "call_tool",
-    toolName: "tickets.example.com.list_tickets",
+    toolName: "itsm.example.com.list_tickets",
     args: { status: "open" },
   });
 });
 
-test("service worker allows multiple public sites to route through pipeline.example.com", async () => {
-  const tab = { id: 21, windowId: 1, url: "https://pipeline.example.com/" };
+test("service worker allows multiple public sites to route through pace.example.com", async () => {
+  const tab = { id: 21, windowId: 1, url: "https://pace.example.com/" };
   const { registerTools, callNativeTool, sentToTabs } = loadServiceWorker({ tabs: [tab] });
 
   const registration = await registerTools([
     {
-      name: "pipeline-config.run",
-      publicName: "pipeline-config.run",
-      handlerName: "pipeline.example.com.pipeline_run",
-      adapterId: "pipeline.example.com",
-      routeDomain: "pipeline.example.com",
+      name: "pace-pipeline.run",
+      publicName: "pace-pipeline.run",
+      handlerName: "pace.example.com.pipeline_run",
+      adapterId: "pace.example.com",
+      routeDomain: "pace.example.com",
       description: "Run pipeline",
       parameters: {},
     },
     {
-      name: "pipeline-publishorder.run",
-      publicName: "pipeline-publishorder.run",
-      handlerName: "pipeline.example.com.publishorder_run",
-      adapterId: "pipeline.example.com",
-      routeDomain: "pipeline.example.com",
+      name: "pace-publishorder.run",
+      publicName: "pace-publishorder.run",
+      handlerName: "pace.example.com.publishorder_run",
+      adapterId: "pace.example.com",
+      routeDomain: "pace.example.com",
       description: "Run publish order",
       parameters: {},
     },
@@ -838,33 +838,33 @@ test("service worker allows multiple public sites to route through pipeline.exam
 
   assert.equal(registration.ok, true);
 
-  await callNativeTool("pipeline-config.run");
-  assert.equal(sentToTabs.at(-1).message.toolName, "pipeline.example.com.pipeline_run");
+  await callNativeTool("pace-pipeline.run");
+  assert.equal(sentToTabs.at(-1).message.toolName, "pace.example.com.pipeline_run");
 
-  await callNativeTool("pipeline-publishorder.run");
-  assert.equal(sentToTabs.at(-1).message.toolName, "pipeline.example.com.publishorder_run");
+  await callNativeTool("pace-publishorder.run");
+  assert.equal(sentToTabs.at(-1).message.toolName, "pace.example.com.publishorder_run");
 });
 
 test("service worker rejects duplicate public names with deterministic route details", async () => {
   const tabs = [
-    { id: 31, windowId: 1, url: "https://tickets.example.com/" },
+    { id: 31, windowId: 1, url: "https://itsm.example.com/" },
     { id: 32, windowId: 1, url: "https://project.example.com/" },
   ];
   const { registerTools } = loadServiceWorker({ tabs });
 
   assert.equal((await registerTools([{
-    name: "tickets.ls",
-    publicName: "tickets.ls",
-    handlerName: "tickets.example.com.list_tickets",
-    adapterId: "tickets.example.com",
-    routeDomain: "tickets.example.com",
+    name: "itsm.ls",
+    publicName: "itsm.ls",
+    handlerName: "itsm.example.com.list_tickets",
+    adapterId: "itsm.example.com",
+    routeDomain: "itsm.example.com",
     description: "List tickets",
     parameters: {},
   }], tabs[0])).ok, true);
 
   const response = await registerTools([{
-    name: "tickets.ls",
-    publicName: "tickets.ls",
+    name: "itsm.ls",
+    publicName: "itsm.ls",
     handlerName: "project.example.com.list_demands",
     adapterId: "project.example.com",
     routeDomain: "project.example.com",
@@ -873,8 +873,8 @@ test("service worker rejects duplicate public names with deterministic route det
   }], tabs[1]);
 
   assert.equal(response.ok, false);
-  assert.match(response.error, /Duplicate public tool name "tickets\.ls"/);
-  assert.match(response.error, /existing=.*adapterId=tickets\.example\.com.*handlerName=tickets\.example\.com\.list_tickets.*routeDomain=tickets\.example\.com/);
+  assert.match(response.error, /Duplicate public tool name "itsm\.ls"/);
+  assert.match(response.error, /existing=.*adapterId=itsm\.example\.com.*handlerName=itsm\.example\.com\.list_tickets.*routeDomain=itsm\.example\.com/);
   assert.match(response.error, /incoming=.*adapterId=project\.example\.com.*handlerName=project\.example\.com\.list_demands.*routeDomain=project\.example\.com/);
 });
 
@@ -1027,32 +1027,32 @@ test("service worker includes static direct tools in list_tools when no live tab
 });
 
 test("service worker smoke covers list_tools, missing tab, and login failure", async () => {
-  const tab = { id: 51, windowId: 1, url: "https://tickets.example.com/" };
+  const tab = { id: 51, windowId: 1, url: "https://itsm.example.com/" };
   const worker = loadServiceWorker({
     tabs: [tab],
-    tabResponse: { error: "LOGIN_REQUIRED: Tickets session is missing" },
+    tabResponse: { error: "LOGIN_REQUIRED: ITSM session is missing" },
   });
 
   assert.equal((await worker.registerTools([{
-    name: "tickets.ls",
-    publicName: "tickets.ls",
-    handlerName: "tickets.example.com.list_tickets",
-    adapterId: "tickets.example.com",
-    routeDomain: "tickets.example.com",
+    name: "itsm.ls",
+    publicName: "itsm.ls",
+    handlerName: "itsm.example.com.list_tickets",
+    adapterId: "itsm.example.com",
+    routeDomain: "itsm.example.com",
     description: "List tickets",
     parameters: {},
   }], tab)).ok, true);
 
   const listed = await worker.listNativeTools();
   assert.equal(listed.type, "list_tools_result");
-  assert.equal(listed.tools.some((tool) => tool.name === "tickets.ls"), true);
+  assert.equal(listed.tools.some((tool) => tool.name === "itsm.ls"), true);
 
-  const loginFailure = await worker.callNativeTool("tickets.ls");
+  const loginFailure = await worker.callNativeTool("itsm.ls");
   assert.equal(loginFailure.type, "call_tool_error");
   assert.match(loginFailure.error, /LOGIN_REQUIRED/)
 
   const missingTabWorker = loadServiceWorker({ tabs: [] });
-  const missingTab = await missingTabWorker.callNativeTool("tickets.ls");
+  const missingTab = await missingTabWorker.callNativeTool("itsm.ls");
   assert.equal(missingTab.type, "call_tool_error");
   // 自动打开站点后仍未就绪：提示可能需登录
   assert.match(missingTab.error, /已自动打开站点|未找到域名/)

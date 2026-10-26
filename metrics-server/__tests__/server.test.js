@@ -82,10 +82,10 @@ test("queryStats 聚合 domain：calls / okRate / topTool", () => {
   });
   const { rows, totalCalls } = queryStats(db, { by: "domain", since: "1d" });
   assert.equal(totalCalls, 3);
-  const tickets = rows.find((r) => r.key === "tickets.example.com");
-  assert.equal(tickets.calls, 2);
-  assert.equal(tickets.okRate, 50);
-  assert.equal(tickets.topTool, "tickets.example.com.search_tickets");
+  const itsm = rows.find((r) => r.key === "tickets.example.com");
+  assert.equal(itsm.calls, 2);
+  assert.equal(itsm.okRate, 50);
+  assert.equal(itsm.topTool, "tickets.example.com.search_tickets");
 });
 
 test("queryStats kind 过滤 builtin", () => {
@@ -106,7 +106,7 @@ test("queryStats kind 过滤 builtin", () => {
 test("queryStats by=user：返回 user×domain 二维分布", () => {
   const db = freshDb();
   const now = Date.now();
-  // rickhuang 调 tickets 2 次、mail 1 次；alice 调 tickets 1 次；无 user 的不入统计
+  // rickhuang 调 itsm 2 次、mail 1 次；alice 调 itsm 1 次；无 user 的不入统计
   insertBatch(db, {
     clientId: "c1",
     user: "rickhuang",
@@ -128,7 +128,7 @@ test("queryStats by=user：返回 user×domain 二维分布", () => {
 
   const { rows, totalCalls } = queryStats(db, { by: "user", since: "1d" });
   assert.equal(totalCalls, 3); // 只算有 user 的 3 条
-  // rickhuang: tickets(1) + mail(1) = 2；alice: tickets(1) = 1
+  // rickhuang: itsm(1) + mail(1) = 2；alice: itsm(1) = 1
   const rick = rows.filter((r) => r.user === "rickhuang");
   const alice = rows.filter((r) => r.user === "alice");
   assert.equal(rick.length, 2);
@@ -151,7 +151,7 @@ test("queryStats by=user：kind 过滤 + top 限制每用户 domain 数", () => 
     ],
   });
   const { rows } = queryStats(db, { by: "user", kind: "adapter", since: "1d" });
-  // builtin 被过滤，只剩 tickets
+  // builtin 被过滤，只剩 itsm
   assert.equal(rows.length, 1);
   assert.equal(rows[0].domain, "tickets.example.com");
 });

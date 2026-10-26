@@ -194,7 +194,7 @@ login_required
 
 `off` 适用于明确不支持二维码、页面上的二维码与登录无关、或自动点击登录方式不合适的网站。它既降低无意义的页面扫描，也为误识别提供明确退出机制。
 
-当前已经实现 `auto/off`：`auto` 是默认值；不再要求共用 Passport 登录页的 Adapter 重复声明二维码配置。
+当前已经实现 `auto/off`：`auto` 是默认值；不再要求 PACE 等共用 Passport 登录页的 Adapter 重复声明二维码配置。
 
 ### 通用二维码发现
 
@@ -216,7 +216,7 @@ login_required
 </div>
 ```
 
-因此共享该类登录页的 Adapter（发布平台、工单系统、缺陷管理等）不需要分别配置二维码选择器。
+因此 PACE、ITSM、DPMS 等共享该类登录页的 Adapter 不需要分别配置二维码选择器。
 
 ### `auth.qr.command`：计划中的精确扩展点
 

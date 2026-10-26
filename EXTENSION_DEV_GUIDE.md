@@ -524,9 +524,9 @@ window.__webmcpWecliRuntime.authRequired('会话已过期');
 
 ```js
 window.__webmcpGeneratedSupport = window.__webmcpGeneratedSupport || {};
-window.__webmcpGeneratedSupport['tickets.example.com'] = {
+window.__webmcpGeneratedSupport['itsm.example.com'] = {
   tools: [
-    { name: 'tickets.example.com.search_records', description: '...',
+    { name: 'itsm.example.com.search_records', description: '...',
       parameters: { type: 'object', properties: {} },
       handler: async () => ({ ok: true }) },
   ],
@@ -536,16 +536,16 @@ window.__webmcpGeneratedSupport['tickets.example.com'] = {
 再在 `index.js` 的 tools 数组里接入：
 
 ```js
-...(window.__webmcpGeneratedSupport?.['tickets.example.com']?.tools || []),
+...(window.__webmcpGeneratedSupport?.['itsm.example.com']?.tools || []),
 ```
 
 对应 `manifest.json`：
 
 ```json
 {
-  "id": "tickets.example.com",
-  "match": ["tickets.example.com"],
-  "support_files": ["webcli-generated/tickets.example.com.site-memory.generated.js"]
+  "id": "itsm.example.com",
+  "match": ["itsm.example.com"],
+  "support_files": ["webcli-generated/itsm.example.com.site-memory.generated.js"]
 }
 ```
 
