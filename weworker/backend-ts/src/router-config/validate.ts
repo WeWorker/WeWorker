@@ -150,7 +150,7 @@ function checkExtractRules(value: unknown, label: string, errors: string[]): voi
 //   ④ 条目写进了别的 adapter 的分节 → 归属错位（由 `adapter-grouped.ts` 负责）。
 //
 // 前三条在本文件拦（配置一写错就整层回退并记原因），第四条在归一化时拦。
-// 剩下的「示例真的能命中吗」由 `shipped-router-config.test.ts` 拿 examples 当正例实跑。
+// 剩下的「示例真的能命中吗」由回归套件拿 examples 当正例实跑。
 
 /** 取字符串数组里的非空串；非数组或含非字符串元素一律视为空（类型错误已由 checkStringArray 报） */
 function stringsOf(value: unknown): string[] {

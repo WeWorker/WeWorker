@@ -8,8 +8,8 @@
  *
  * 信号（保守，两类）：
  * - S1 域名/IP 子串：manifest 的 `match` 数组，直接子串命中；
- * - S2 manifest 可选 `gate_aliases`：拉丁词按 ASCII 字母数字判边界（`XXITSMYY` 不命中 `itsm`，
- *   而 `在 itsm 上` 命中），CJK 词直接子串。
+ * - S2 manifest 可选 `gate_aliases`：拉丁词按 ASCII 字母数字判边界（`XXTICKETSYY` 不命中 `tickets`，
+ *   而 `在 tickets 上` 命中），CJK 词直接子串。
  * 站点名**不做**自动信号（「内部文档」这类通用词误判风险高）。
  *
  * 急停：`WEWORKER_SITE_GATE=0`（与 `WEWORKER_SCENARIO_ROUTE` 同机制）。
@@ -38,7 +38,7 @@ export function isSiteGateEnabled(): boolean {
   return process.env.WEWORKER_SITE_GATE !== '0'
 }
 
-/** 拉丁/数字信号按 ASCII 字母数字判词边界（`XXITSMYY` 不命中 `ITSM`，`在 itsm 上` 命中）；CJK 信号直接子串。 */
+/** 拉丁/数字信号按 ASCII 字母数字判词边界（`XXTICKETSYY` 不命中 `tickets`，`在 tickets 上` 命中）；CJK 信号直接子串。 */
 function signalInText(signal: string, lowerText: string): boolean {
   if (/^[\w.-]+$/.test(signal)) {
     const escaped = signal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
