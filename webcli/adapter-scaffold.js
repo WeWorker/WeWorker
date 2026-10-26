@@ -771,6 +771,8 @@ function buildSharedRuntimeFile() {
     return body.toString();
   }
 
+  // Contract: returns {ok, status, url, data: parsedResponseBody, rawText}.
+  // Business response.code and response.data live inside the returned data.
   async function fetchGet(url, params) {
     const requestUrl = new URL(url, window.location.origin);
     Object.entries(params || {}).forEach(([key, value]) => {

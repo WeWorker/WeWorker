@@ -22,7 +22,7 @@ export function archiveExplorationDraft(run, expectedHash, reason) {
   if (expectedHash !== draftHash) throw fail('STALE_DRAFT', 'Draft or verification cases changed; read the current draftHash before replanning.');
   const revision = { revision: (run.revisions?.length || 0) + 1, at: new Date().toISOString(), reason, draftHash,
     draft: clone(run.draft), draftFiles: clone(run.draftFiles), plan: clone(run.plan), candidates: clone(run.candidates), pageSources: clone(run.pageSources || []),
-    verification: clone(run.verification || {}), validation: clone(run.validation || null), runtimeSummary: clone(run.runtimeSummary || null),
+    verification: clone(run.verification || {}), verificationWarnings: clone(run.verificationWarnings || {}), validation: clone(run.validation || null), runtimeSummary: clone(run.runtimeSummary || null),
     ...(run.plan?.tools?.some(tool => tool.risk === 'write') ? { writeFixtures: readGenerationEvidence(run.draft.adapterDir, 'write-verification.json', { optional: true }) } : {}),
     status: run.status, error: clone(run.error || null) };
   return [...(run.revisions || []), revision];
@@ -30,7 +30,7 @@ export function archiveExplorationDraft(run, expectedHash, reason) {
 export function explorationRevisionView(revision) {
   return { revision: revision.revision, at: revision.at, reason: revision.reason, draftHash: revision.draftHash,
     status: revision.status, toolNames: revision.draft.toolNames, plan: clone(revision.plan), files: revision.draftFiles,
-    verification: clone(revision.verification), ...(revision.writeFixtures ? { writeFixtures: clone(revision.writeFixtures) } : {}),
+    verification: clone(revision.verification), verificationWarnings: clone(revision.verificationWarnings || {}), ...(revision.writeFixtures ? { writeFixtures: clone(revision.writeFixtures) } : {}),
     validation: revision.validation, runtimeValidation: revision.runtimeSummary, error: revision.error };
 }
 export function readExplorationRevision(run, number, file) {

@@ -1,5 +1,31 @@
 # API 自动探索 CLI 改造跟进与交接
 
+## 2026-10-26：探索可靠性与本地客户端验收
+
+本轮基于公开 `origin/dev-1.0.1` 的 `4ca11071cbf535c6683754500bdc6367f6103e46`，工作分支 `codex/webcli-exploration-reliability`。按内部覆盖方式组装完整开发客户端；通用修改留在公开仓库，内部原工作区及其已有改动保留，内部测试使用独立分支。2026-10-26 已获授权提交 PR 到 `dev-1.0.1`；未发布、未验证正式安装包。目标分支已移除根目录 ROADMAP，本轮持续记录保留在本文。下文 2026-10-18 的交付授权、分支与暂停状态是历史记录，不作为本轮发布授权。
+
+已实现六组改进：参数文件/多行源码传入；显式 WebCLI 路由及 HTTP 页面快照；generate 计划冲突/replan；helper 契约和固定错误诊断；验证覆盖/断言变更提示；运行来源与客户端完整链路验收。具体契约见 [开发设计](api_exploration_cli_design.md#2026-10-26-可靠性增量)。额外修复 HTTP Runner 的普通 flag 数字与 JSON 验证参数差异；CLI 层仍不按业务 schema 转型。
+
+### 真实开发客户端结果
+
+使用本地公开排行榜夹具（`127.0.0.1`，三类榜单和分页，嵌套响应），从单句请求开始，通过普通聊天完成观察、生成、编写 cases、验证、审阅、安装和查询，中途没有人工提供修复命令。Tier4 开启，显式 WebCLI 请求日志为 `explicit-webcli`；未知页面走 `browser.open`。
+
+- 首次流程耗时 601.84 秒，47 次工具调用，其中 7 次标记失败；模型及等待 391.02 秒，执行 210.82 秒。成功不代表全程无错，也不能与其他站点的历史耗时直接作性能比较。
+- 首包验证使用 JSON 数字通过，普通 `--page=1` 调用失败，Agent 自行 repair 后安装 1.0.1。此缺陷随后在 HTTP Runner 修正，并分别通过源码和打包 CLI 的真实子进程回归；没有把初次流程重写成修正后的零失败证明。
+- 最终只读 HTTP 工具覆盖 rating 第 1 页、votes 第 2 页、hot 默认参数，包含精确 ID/分值断言。安装来源为 user；实际查询前核对版本和包摘要。本例不依赖 Cookie 或业务页面。
+- 关闭仅由该测试创建的页面后，新会话自然语言查询 votes 第 2 页：直接一次标准 `webcli call 127.0.0.1.query-rankings --kind=votes --page=2 --size=2`，22.075 秒返回 B/9、D/3；前后浏览器业务标签列表均为空。此为重复使用验收，不是新一轮冷生成。
+
+### 自动化及边界
+
+- WebCLI 探索、生成器、CLI 参数与调用聚焦：22 文件、333 项通过；HTTP Runner 19 项通过（另用打包 CLI 重跑 19 项）。
+- Tier4 31 项、Backend 类型检查、HTTP 快照/compound/shadow 13 项通过；内部 31 个包 prepare-build、CLI/Bridge/Backend 打包通过。测试构建使用现有 metrics 测试豁免，无正式指标凭据。
+- Windows 验收脚本使用 junction；固定隔离 Bridge 端口与 system 浏览器模式，避免源码入口仍尝试 3711 或普通调用切到另一个 profile。Chrome 137+ 使用显式 `--cdp-extension`，与旧 `--load-extension`/允许列表启动参数互斥。早期扩展连接失败和错误 profile 的失败记录保留，不计为通过。
+- 完整 OpenCLI 对齐、macOS、真实业务站点重新生成、正式安装包与正式指标上报不在此次通过范围。断言审阅提示只是启发式检查，不能自动证明业务字段、排序和筛选全部正确。当前运行状态与实际构建内容以本地 `.internal-dev.json` 和本轮报告为准。
+
+最终双打包验收：HTTP 24 项通过（系统临时目录 `webcli-http-discovery-VDTu9g/report.json`）；Chrome 156 后台浏览器 9 项通过（`webcli-browser-acceptance-0yDDBo/report.json`），含无业务页普通 GET/POST、混合页面/后台包、修复不退化、Bridge 重启、缺失 Cookie 与服务端登录过期。复跑入口分别为 `verify-exploration-http.mjs --bundled` 和 `verify-exploration-browser.mjs --background-only --bundled-cli --bundled-bridge --cdp-extension --playwright=<path> --chromium=<path>`。报告可能被系统清理；本轮没有重跑浏览器完整 77 项历史验收。
+
+最终源码已同步并重启本次开发客户端。重启后核对同一 user 包及摘要，普通 CLI 热度榜返回 A/40、B/30，业务标签列表仍为空。开发客户端与本地夹具保留运行供继续检查；更详细的本机路径、包摘要和进程证据在仓库外的验收记录中，不写入公开源码。
+
 2026-10-18 PR 交付授权：用户已明确选择“推送源分支与原始基线，创建 PR 到目标分支”，解除本次交付的历史不推送/不建 PR 限制。仓库为 `WeWorker/WeWorker`，源分支 `codex/api-exploration-cli`，目标 `codex/api-exploration-base`；原始基线保持 `baf9f98`，覆盖截至 `ea61385` 的全部 59 个提交，并附交付记录和一处验收脚本行尾空白清理。交付前工作区干净、基线是源分支祖先，远端尚无这两个分支或对应 PR；不先合并基线、不同步新的 develop/dev-1.1.0、不改变最终发布目标。推送及 PR 的最终状态以 GitHub 为准。下文“未推送/未建 PR”均为当时快照；客户端目标已完成、全面对齐暂停及全部欠账保持。
 
 本次交付检查：完整差异 `git diff --check` 与验收脚本 `node --check` 通过；`node webcli/scripts/verify-output-formats.mjs --python=<已有隔离 Python>` 的真实 CLI/HTTP 与独立 YAML/CSV 解析 **5 组检查通过**，未操作用户浏览器或 Bridge。新增差异和全部功能提交历史已在本地完成常见敏感信息模式检查。没有重跑全仓测试或实站生成，下述各阶段功能证据保持其原验证范围。

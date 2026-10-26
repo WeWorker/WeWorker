@@ -5,6 +5,18 @@ description: 通过 WebCLI 探索公开/鉴权 HTTP API，或通过浏览器插�
 
 # API 探索与 Adapter 生成
 
+## 可靠调用入口
+
+未知站点从 `webcli call browser.open --session=explore --url=<url>` 开始，再用返回的 tabId 创建探索任务。不要使用依赖已安装 Adapter 允许列表的 open_browser；允许列表错误不通过改用 HTTPS 解决。
+
+Windows 和其他 shell 都优先将完整参数对象写入 UTF-8 JSON 文件，再执行 `webcli call exploration.draft-write --args-file "<file path>"`。content 必须是 JSON 对象内的字符串；不要把多行源码直接拼进 shell 命令，也不要反复尝试引号转义。文件支持 BOM，最大 2 MiB；--args 与 --args-file 只能选一个。
+
+已有草稿的 generate 只可复用相同计划；PLAN_CONFLICT 时读取 draft-read 的 draftHash，用 replan 保留旧方案后重新生成。不要通过只改 manifest 绕过计划，也不要安装 t1 等临时调试命令。
+
+PAGE_FETCH 的 fetchGet 返回 `{ok,status,url,data:解析后的响应体,rawText}`。先检查 HTTP 层，再按实际观察读取业务层，不能假定业务 code 在顶层。draft-read 提供相关契约；运行失败先核对契约、具体 case 和响应结构，不反复修改断言猜测答案。
+
+审阅时逐项核对标准命令名、参数边界、源字段映射、缺失值和分页。verificationCoverage 的结构类警告不是业务正确性证明；VERIFICATION_CHANGED 要检查是否弱化原需求。执行策略与实际路径分开记录：无需用户手动开页不等于底层完全无页，普通调用可能由宿主管理标签页。
+
 ## 先固定本次业务契约
 
 生成前从本轮用户请求列清：允许的参数值、默认选择范围、返回字段、计算精度和缺失值语义，并用它们检查 manifest、实现和每组 cases。用户明确给出的枚举应原样使用，不沿用历史记忆、旧草稿里的别名或额外分类；观察到接口还含其他业务数据，不代表用户要求把它一起封装。数值计算保留来源精度，只有用户明确要求展示舍入时才舍入。安装前逐项复核当前需求，不能仅以自己写的 cases 全绿作为需求全部满足的证明。

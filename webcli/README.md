@@ -149,6 +149,10 @@ webcli extension-path                   输出扩展目录路径
 
 ## Skill 系统
 
+复杂参数和多行代码建议写入 UTF-8 JSON 对象文件，通过 `webcli call exploration.draft-write --args-file "args.json"` 传入。支持带 BOM 的文件和含空格的路径，文件上限 2 MiB；`content` 字段必须是字符串。`--args-file` 与 `--args` 只能出现一个，结构化对象中的字段覆盖同名 `--key=value`。不要把多行源码拼进 shell 命令；工具名之后的多余位置参数会报错。
+
+未知站点探索用 `webcli call browser.open --session=explore --url=https://example.com`，再用返回的 tabId 开始探索。`open_browser` 用于已有 Adapter 的导航与登录契约，可能受允许列表限制。参数文件只负责保留 JSON 类型；HTTP 运行器对明确声明为 number/integer 且不允许 string 的字段转换非空数字字符串，字符串 ID（如 `007`）保留原样。
+
 `webcli install --skills` 会把已安装适配器安装成 Claude Code skill 文件。对于生成式 adapter，优先直接复制 adapter 目录下已有的 `SKILL.md`；再次 scaffold 时如果目录里已经存在手工优化过的 `SKILL.md`，自动生成的新草稿会写入 `SKILL.generated.md`，避免覆盖成熟说明。安装时还会一并复制 `SKILL.generated.md`、`WEBCLI_KNOWLEDGE.md`、`WEBCLI_KNOWLEDGE.json` 等优化上下文文件，方便后续 Agent 多轮优化。对于传统单文件 adapter，则从 `index.js` 解析工具并生成 skill，让 Claude 知道如何通过 `webcli call` 操作对应网站：
 
 生成式 adapter 还会在 adapter 目录下维护 `WEBCLI_KNOWLEDGE.md` 和 `WEBCLI_KNOWLEDGE.json`。这些文件保存自动探索、动作录制和生成工具时沉淀的接口结构、业务字段映射、样例摘要和已知问题，适合后续用 WeWorker、Claude Code、OpenClaw 或用户自己的 Agent 做多轮优化时读取：

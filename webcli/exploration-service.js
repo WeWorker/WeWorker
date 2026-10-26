@@ -22,7 +22,7 @@ import { createPreviewRuntimeValidator } from './generation-harness/runtime-vali
 import { describeGeneratedInstall } from './generation-harness/install-review.js';
 import { createAdapterPublisher } from './generation-harness/adapter-publisher.js';
 import { TabOperationLocks } from './tab-operation-locks.js';
-import { normalizeVerificationCases } from './exploration-verification.js';
+import { normalizeVerificationCases, auditVerification } from './exploration-verification.js';
 import { ExplorationKnowledge } from './exploration-knowledge.js';
 import { buildAdapterCatalog } from './adapter-catalog.js';
 import { repairTarget, writeRepairDraft } from './exploration-repair.js';
@@ -42,6 +42,22 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 const active = new Set(['collecting', 'validating', 'installing', 'verifying_write']);
 const terminal = new Set(['cancelled', 'installed']);
 const clone = value => JSON.parse(JSON.stringify(value));
+const canonical = value => JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
+  ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+const helperContract = {
+  PAGE_FETCH: { fetchGet: '{ok, status, url, data: parsedResponseBody, rawText}',
+    example: 'const response = await fetchGet(url, params); if (!response.ok) throw Object.assign(new Error("HTTP request failed"), {code:"HTTP_ERROR"}); const body = response.data; // business status/data belong to body, not response',
+    note: 'Inspect the observed response shape before selecting body.data. Missing required data is INVALID_RESPONSE, not an empty list.' },
+  nextAction: 'Read the generated runtime and inspect the observed response contract before editing. Use --args-file for source content.'
+};
+const diagnosticHints = {
+  HTTP_ERROR: ['transport', 'Check the observed HTTP status and request contract.'],
+  API_ERROR: ['business', 'Check business status inside the parsed response body.'],
+  INVALID_RESPONSE: ['response', 'Check the observed envelope and required fields; do not replace malformed data with an empty list.'],
+  INVALID_ARGS: ['arguments', 'Check parameter types, enums and bounds.'],
+  RUNTIME_EXCEPTION: ['execution', 'Read the helper return contract and module before changing code; fetchGet.data is the parsed body.'],
+  TOOL_TIMEOUT: ['transport', 'Inspect runtime availability and request timing; do not repeatedly change output assertions.'],
+};
 
 /** Owned by the existing Bridge. No desktop Backend, Python, or model credentials. */
 export class ExplorationService {
@@ -116,6 +132,10 @@ export class ExplorationService {
       pageSourceCount: run.pageSources?.length || 0,
       draftRevision: (run.revisions?.length || 0) + 1, preservedRevisions: run.revisions?.length || 0,
       toolNames: run.draft?.toolNames || [], validation: run.validation || null, runtimeValidation: run.runtimeSummary || null,
+      diagnostics: (run.runtimeSummary?.errors || []).map(error => {
+        const [stage, nextAction] = diagnosticHints[error.code] || ['validation', 'Read the case result and assertion path, then collect new evidence before repairing.'];
+        return { stage, nextAction };
+      }),
       writeExecutions: (run.writeExecutions || []).map(({ http, effect, resultBinding, ...record }) => record),
       ...(run.repairScope ? { repair: { ...run.repairScope, editableFiles: run.editableFiles, knowledge: run.repairKnowledge } } : {}),
       error: run.error || null, nextActions: (next[run.status] || []).filter(name => name !== 'replan' || (run.draft && !run.repairScope)).map(name => `exploration.${name}`) };
@@ -279,8 +299,8 @@ export class ExplorationService {
     if (command === 'replan') {
       const revisions = archiveExplorationDraft(run, args.expectedDraftHash, textArg(args.reason, 'reason'));
       run.revisions = revisions;
-      for (const key of ['draft', 'plan', 'memory', 'validation', 'runtimeSummary', 'runtimeDigest', 'review', 'verifiedAt', 'error', 'preWriteDigest']) run[key] = null;
-      run.verification = {}; run.draftFiles = []; run.actions = [];
+      for (const key of ['draft', 'plan', 'memory', 'validation', 'runtimeSummary', 'runtimeDigest', 'review', 'verifiedAt', 'error', 'preWriteDigest', 'generationRequestDigest']) run[key] = null;
+      run.verification = {}; run.verificationWarnings = {}; run.draftFiles = []; run.actions = [];
       this.update(run, 'evidence_ready', 'Previous draft preserved. Inspect alternatives, collect evidence and generate a new plan; all verification must run again.');
       return this.summary(run);
     }
@@ -375,10 +395,14 @@ export class ExplorationService {
       if (!this.capabilities().capabilities.includes('strict_output_contract_v1')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the extension to enable authored output assertions.');
       if (args.expectedHash !== hash(JSON.stringify(cases))) throw fail('STALE_VERIFICATION', 'Cases changed; read their current hash before editing.');
       const normalized = normalizeVerificationCases(args.cases);
+      run.verificationWarnings = { ...run.verificationWarnings, [tool]: [
+        ...(run.verificationWarnings?.[tool] || []).filter(item => item.code === 'VERIFICATION_CHANGED'),
+        ...auditVerification(normalized, cases),
+      ].slice(-100) };
       run.verification = { ...run.verification, [tool]: normalized };
       run.validation = null; run.runtimeSummary = null; run.runtimeDigest = null; run.review = null;
       this.update(run, 'draft', 'Verification cases changed; validate again.');
-      return { tool, caseCount: normalized.length, hash: hash(JSON.stringify(normalized)) };
+      return { tool, caseCount: normalized.length, hash: hash(JSON.stringify(normalized)), warnings: run.verificationWarnings[tool] };
     }
     if (command === 'draft-add') {
       if (run.repairScope) throw fail('REPAIR_SCOPE_CHANGED', 'Scoped repair cannot add shared or command files. Edit only the selected modules and their schema/description.');
@@ -395,7 +419,7 @@ export class ExplorationService {
       return { file, hash: hash(args.content) };
     }
     if (command === 'draft-read') {
-      if (args.file === undefined) return { files: run.draftFiles, draftHash: explorationDraftHash(run), revision: (run.revisions?.length || 0) + 1, ...(run.repairScope ? { editableFiles: run.editableFiles } : {}) };
+      if (args.file === undefined) return { files: run.draftFiles, draftHash: explorationDraftHash(run), helperContract, revision: (run.revisions?.length || 0) + 1, ...(run.repairScope ? { editableFiles: run.editableFiles } : {}) };
       const file = textArg(args.file, 'file', 200);
       if (!run.draftFiles.includes(file)) throw fail('INVALID_ARGUMENT', 'File is not in this draft.');
       const content = fs.readFileSync(assertManagedFile(run.draft.adapterDir, file));
@@ -419,6 +443,10 @@ export class ExplorationService {
       run.review = describeGeneratedInstall(run.draft, { paths: this.paths });
       this.save(run);
       return { ...run.review, tools: readPackageDirectory(run.draft.adapterDir).manifest.commands,
+        qualityWarnings: (run.plan?.tools || []).filter(tool => /^(?:t\d+|test|debug)$/i.test(tool.name)).map(tool => ({ code: 'TEMPORARY_TOOL_NAME', tool: tool.name, message: 'Review the final command name; aliases do not change the standard ID. Use replan for an unpublished draft.' })),
+        verificationCoverage: Object.entries(run.verification || {}).map(([tool, cases]) => ({ tool, cases: clone(cases), warnings: run.verificationWarnings?.[tool] || auditVerification(cases) })),
+        plannedExecution: (run.plan?.tools || []).map(tool => ({ name: tool.name, strategy: tool.strategy,
+          note: 'Declared strategy is not proof of page-free ordinary calls. Check the actual runner and page creation/fallback during acceptance.' })),
         ...(run.repairScope ? { repair: { ...run.repairScope, editableFiles: run.editableFiles } } : {}) };
     }
     if (command === 'install') {
@@ -474,7 +502,11 @@ export class ExplorationService {
   }
 
   generate(run, proposedPlan, repair = null) {
-    if (run.draft) return this.summary(run); // Repeated generation never overwrites an authored draft.
+    const requestDigest = hash(canonical({ plan: proposedPlan || null, repair: repair || null }));
+    if (run.draft) {
+      if (proposedPlan && run.generationRequestDigest !== requestDigest) throw fail('PLAN_CONFLICT', 'An existing draft uses another plan (or predates plan fingerprints). Read draft-read for expectedDraftHash, then use exploration.replan with a reason before generate. No changes were applied.');
+      return { ...this.summary(run), generation: { reused: true, applied: false, draftHash: explorationDraftHash(run) } };
+    }
     if (run.mode === 'http' && (!proposedPlan?.tools?.length || proposedPlan.tools.some(tool => !['PUBLIC_API', 'AUTH_API'].includes(tool?.strategy) || tool.sourcePageId))) throw fail('HTTP_PLAN_REQUIRED', 'Host tasks require an explicit PUBLIC_API/AUTH_API plan bound to actual HTTP evidence.');
     if (repair && (!proposedPlan || typeof proposedPlan !== 'object')) throw fail('INVALID_PLAN', 'Repair requires an explicit plan naming existing command IDs and current source indexes.');
     const candidates = run.candidates.filter(item => analyzeApiCandidate(item).eligible);
@@ -489,6 +521,7 @@ export class ExplorationService {
     run.siteKey = facade.snapshot.siteKey; run.memory = facade.snapshot.input.memory;
     const plan = clone(proposedPlan || buildQuickGenerationPlan({ ...run.memory, listApiCandidates: run.memory.listApiCandidates.map(item => item.method === 'GET' && !new URL(item.url).pathname.includes(':id') && analyzeApiCandidate(item).verdict === 'likely_data' && candidates.some(candidate => candidate.id === item.id) ? item : { ...item, url: '' }) }));
     if (!Array.isArray(plan.tools) || !plan.tools.length || plan.tools.length > 50) throw fail('INVALID_PLAN', 'Provide 1–50 tools per draft. Split larger plans into incremental tasks.');
+    if (!repair && plan.tools.some(tool => tool?.risk !== 'write' && !tool?.sourcePageId && (!tool?.strategy || tool.strategy === 'PAGE_FETCH') && (typeof tool.name !== 'string' || !/^[a-z][a-z0-9_]*$/.test(tool.name)))) throw fail('INVALID_PLAN', 'New PAGE_FETCH API plan tool names must use snake_case, for example list_items. Installed command IDs are normalized to kebab-case.');
     for (const tool of plan.tools) {
       if (tool?.sourcePageId) {
         const observed = (run.pageSources || []).find(item => item.id === tool.sourcePageId);
@@ -549,6 +582,7 @@ export class ExplorationService {
       run.plan = repairRun.plan; run.draft = prepared.draft; run.repairScope = prepared.scope; run.editableFiles = prepared.editableFiles;
       run.repairKnowledge = repairKnowledge; run.verification = verification;
       run.draftFiles = [...readPackageDirectory(run.draft.adapterDir).files.keys()];
+      run.generationRequestDigest = requestDigest;
       this.update(run, 'draft', 'Scoped repair created. Review historical cases and verify against the current page before installation.');
       return this.summary(run);
     }
@@ -567,6 +601,7 @@ export class ExplorationService {
       : writePackageDraft({ memory: run.memory, adapterDir: path.join(outputRoot, run.siteKey), supportBundle: { toolFiles: pageTools }, paths: this.paths });
     run.draft = { ...draft, toolNames: run.plan.tools.map(tool => `${run.siteKey}.${tool.name.replace(/_/g, '-')}`) };
     run.draftFiles = [...readPackageDirectory(run.draft.adapterDir).files.keys()];
+    run.generationRequestDigest = requestDigest;
     this.update(run, 'draft', 'Draft created. Inspect and edit it, then validate. No model was called.');
     return this.summary(run);
   }

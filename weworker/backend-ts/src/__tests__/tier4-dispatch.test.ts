@@ -340,3 +340,9 @@ describe('runWebwrightTaskTurn：任务事件 → chat SSEEvent', () => {
     expect(text).toContain('\nhttp://127.0.0.1:8766/ui\n')
   })
 })
+
+it('keeps explicit WebCLI exploration in chat with Tier4 enabled',()=>{
+ for(const message of ['使用webcli的api探索工具 https://unknown.example.org','use WebCLI to explore https://unknown.example.org','使用 exploration.start 探索 https://unknown.example.org'])
+ expect(decideTier4(message,MISS,ADAPTERS)).toMatchObject({dispatch:false,reason:'explicit-webcli'});
+ expect(decideTier4('探索 https://unknown.example.org',MISS,ADAPTERS).dispatch).toBe(true);
+});

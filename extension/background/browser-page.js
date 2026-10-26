@@ -101,7 +101,11 @@ export async function runBrowserPageCommand(command, args = {}) {
       if (args.metricsOnly) return {ok:true,data:{url:location.href,title:document.title,metrics:{source:'dom',interactiveNodes:nodes.length,
         namedInteractiveNodes:nodes.filter(node=>label(node)).length,textChars:Math.min(document.body?.innerText.length||0,12000),
         roles:Object.fromEntries([...new Set(nodes.map(role))].map(value=>[value,nodes.filter(node=>role(node)===value).length])),truncated:nodes.length>limit||(document.body?.innerText.length||0)>12000}}};
-      const snapshotId = crypto.randomUUID(); const refs = new Map();
+      // randomUUID is unavailable on HTTP documents. getRandomValues is also
+      // available in insecure contexts; keep identifiers unique across reloads.
+      const snapshotId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+      const refs = new Map();
       const elements = nodes.slice(0, limit).map((node, index) => { const ref = `${shadow||node.getRootNode() instanceof ShadowRoot?'shadow:':''}${snapshotId}:${index + 1}`; refs.set(ref, { node, label: label(node), role: role(node) }); return describe(node, ref); });
       globalThis.__weworkerBrowserSnapshot = { refs, url: location.href, snapshotId, source: 'dom' };
       return { ok: true, data: { url: location.href, title: document.title, snapshotId, matches: nodes.length, elements,

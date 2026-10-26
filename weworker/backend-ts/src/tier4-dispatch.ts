@@ -114,6 +114,9 @@ export function decideTier4(
   allAdapters: Map<string, ParsedAdapter>,
 ): Tier4Decision {
   if (process.env.WEWORKER_TIER4 === '0') return { dispatch: false, startUrl: null, reason: 'env-off' }
+  // Explicit CLI requests belong to the chat Agent, which owns exploration.*.
+  // A false negative here only preserves chat; it never grants tool permission.
+  if (/\bwebcli\b|\bexploration\.[a-z-]+\b|\bbrowser\.open\b/i.test(message)) return { dispatch: false, startUrl: null, reason: 'explicit-webcli' }
   if (siteGate.reason !== 'miss') return { dispatch: false, startUrl: null, reason: `sitegate-${siteGate.reason}` }
   const startUrl = extractUnknownSiteUrl(message, buildKnownHosts(allAdapters))
   if (!startUrl) return { dispatch: false, startUrl: null, reason: 'no-unknown-site-signal' }

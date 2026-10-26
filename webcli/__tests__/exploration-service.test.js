@@ -832,3 +832,21 @@ it('requires declared task origins for page navigation and limits cross-origin t
   await expect(f.service.checkTab(run, [{ origin: 'https://example.org', pathname: '/different' }])).rejects.toMatchObject({ code: 'TAB_CHANGED' });
   expect((await f.service.checkTab(run, [{ origin: 'https://example.org', pathname: '/items/:id' }])).id).toBe(7);
 });
+
+it('returns explicit reuse and rejects a changed plan without modifying the draft',async()=>{
+ const f=setup();const taskId=await start(f.service);
+ const plan={tools:[{name:'list_items',purpose:'Read items',risk:'read',sourceApiKind:'list',sourceApiIndexes:[0]}]};
+ expect((await f.service.execute('generate',{taskId,plan})).ok).toBe(true);
+ const before=(await f.service.execute('draft-read',{taskId})).data;
+ expect((await f.service.execute('generate',{taskId,plan})).data.generation).toMatchObject({reused:true,applied:false});
+ const changed=structuredClone(plan);changed.tools[0].name='renamed_items';
+ expect((await f.service.execute('generate',{taskId,plan:changed})).error.code).toBe('PLAN_CONFLICT');
+ expect((await f.service.execute('draft-read',{taskId})).data.draftHash).toBe(before.draftHash);
+ expect(before.helperContract.PAGE_FETCH.fetchGet).toContain('parsedResponseBody');
+ f.service.runs.get(taskId).verificationWarnings={'example.com.list-items':[{code:'VERIFICATION_CHANGED'}]};
+ expect((await f.service.execute('replan',{taskId,expectedDraftHash:before.draftHash,reason:'Use a meaningful final name'})).ok).toBe(true);
+ expect(f.service.runs.get(taskId).verificationWarnings).toEqual({});
+ expect(f.service.runs.get(taskId).generationRequestDigest).toBeNull();
+ expect((await f.service.execute('revisions',{taskId})).data.revisions[0].verificationWarnings['example.com.list-items'][0].code).toBe('VERIFICATION_CHANGED');
+ expect((await f.service.execute('generate',{taskId,plan:changed})).data.toolNames).toContain('example.com.renamed-items');
+});

@@ -57,7 +57,7 @@ try {
   const executablePath = process.argv.find(arg => arg.startsWith('--chromium='))?.slice(11);
   const { chromium } = await import(playwrightPath ? pathToFileURL(playwrightPath).href : 'playwright');
   await fs.cp(source, copy, { recursive: true, filter: entry => !['node_modules', '__tests__', 'extension', 'adapters', 'e2e-results'].includes(path.basename(entry)) });
-  await fs.symlink(path.join(source, 'node_modules'), path.join(copy, 'node_modules'));
+  await fs.symlink(path.join(source, 'node_modules'), path.join(copy, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   await fs.cp(path.resolve(source, '../weworker/build/extension-dist'), extension, { recursive: true });
   const bridgePort = await unusedPort();
   // Only temporary copies change transport port; production protocol/code stays intact.
@@ -74,6 +74,8 @@ try {
       .replace(/\(0, import_os\d+\.homedir\)\(\)|\bimport_(?:node_)?os\d*\.default\.homedir\(\)/g, JSON.stringify(path.join(root, 'cli-config-root'))));
   }
   const env = { ...process.env, WEWORKER_USER_ADAPTERS_DIR: path.join(root, 'user'), WEBCLI_ADAPTERS_DIR: path.join(root, 'user'),
+    WEBCLI_BRIDGE_PORT: String(bridgePort), WEWORKER_WEBCLI_DISTRIBUTION: 'desktop', WEWORKER_BROWSER_MODE: 'system',
+    WEWORKER_BROWSER_HOME: path.join(root, 'browser-state'), WEBCLI_METRICS: 'off', WEBCLI_METRICS_UPLOAD: 'off',
     WEWORKER_ADAPTER_DATA_DIR: path.join(root, 'data'), WEWORKER_BUILTIN_ADAPTERS_DIR: path.join(root, 'builtin'), WEWORKER_BUILD_PROFILE: 'public',
     EXAMPLE_HTTP_ACCEPTANCE_KEY: 'example-host-auth-placeholder' };
   delete env.WEWORKER_RESOURCES_PATH;
@@ -257,8 +259,28 @@ try {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  browser = await chromium.launchPersistentContext(path.join(root, 'browser-profile'), { channel: 'chromium', executablePath, headless: true, acceptDownloads: true, downloadsPath: path.join(root, 'downloads'),
-    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, '--host-resolver-rules=MAP shared-repair.example.org 127.0.0.1,MAP background.example.org 127.0.0.1', '--no-proxy-server'] });
+  async function launchContext(profile, options = {}) {
+    const viaCdp = process.argv.includes('--cdp-extension');
+    const context = await chromium.launchPersistentContext(path.join(root, profile), { channel: 'chromium', executablePath,
+      ignoreDefaultArgs: ['--disable-extensions'], headless: true, ...options,
+      args: [...(viaCdp ? ['--enable-unsafe-extension-debugging'] : [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]),
+        '--host-resolver-rules=MAP shared-repair.example.org 127.0.0.1,MAP background.example.org 127.0.0.1', '--no-proxy-server'] });
+    // Chrome 137+ needs CDP loading. Do not combine it with legacy extension
+    // allowlist flags: they can leave a loaded extension without a running worker.
+    if (viaCdp) {
+      try {
+        const cdp = await context.browser().newBrowserCDPSession();
+        await cdp.send('Extensions.loadUnpacked', { path: extension });
+        await cdp.detach();
+      } catch (error) { await context.close(); throw error; }
+    }
+    return context;
+  }
+  browser = await launchContext('browser-profile', { acceptDownloads: true, downloadsPath: path.join(root, 'downloads') });
+  browser.on('console', message => {
+    if (message.location().url.startsWith('chrome-extension://') && browserEvents.length < 2000)
+      browserEvents.push({ type: 'extension-console', level: message.type(), message: message.text() });
+  });
   browser.on('page', current => {
     current.on('framenavigated', frame => { if (frame === current.mainFrame()) browserEvents.push({ at: Date.now(), type: 'navigation', url: frame.url() }); });
     current.on('pageerror', error => browserEvents.push({ type: 'error', message: error.message }));
@@ -281,15 +303,13 @@ try {
   });
   if (process.argv.includes('--background-only')) { await backgroundApi(); return; }
   const profiles = () => verifyBrowserProfiles({ browser, cliEntry, env, record, passed,
-    launchSecond: () => chromium.launchPersistentContext(path.join(root, 'browser-profile-second'), { channel: 'chromium', executablePath, headless: true,
-      args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }),
+    launchSecond: () => launchContext('browser-profile-second'),
     stopBridge: async () => { const closed = new Promise(resolve => bridge.once('exit', resolve)); bridge.kill('SIGTERM'); await closed; },
     startBridge: async () => { await startBridge(); await connected(); },
   });
   if (process.argv.includes('--profiles-only')) { await profiles(); return; }
   const hostHttp = () => verifyHostHttp({ browser, cliEntry, env, root, record, passed,
-    launchSecond: () => chromium.launchPersistentContext(path.join(root, 'http-profile-second'), { channel: 'chromium', executablePath, headless: true,
-      args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`] }),
+    launchSecond: () => launchContext('http-profile-second'),
   });
   if (process.argv.includes('--http-only')) { await hostHttp(); return; }
   const hashNavigation = () => verifyHashNavigation({ cli, record, passed,

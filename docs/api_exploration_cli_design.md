@@ -1,5 +1,16 @@
 # API 自动探索 CLI 开发设计与首版实现
 
+## 2026-10-26 可靠性增量
+
+- 显式包含 WebCLI / exploration.* / browser.open 的请求由聊天 Agent 处理，Tier4 不抢占；`WEWORKER_TIER4=0` 仍优先关闭分流，其他未知站点路由保持原规则。未知页面使用带 session 的 `browser.open`，已有 Adapter 的 `open_browser` 不承担任意 URL 入口。
+- `call` 固定第二个 token 为工具名，拒绝多余位置参数；多行 `content` 保持字符串。新增 `--args-file`，读取最多 2 MiB 的 UTF-8 JSON 对象（支持 BOM），不与 `--args` 混用；结构化参数覆盖同名 flag。CLI 不按业务 schema 转型，HTTP Runner 仅转换明确的 number/integer 字段，保留字符串 ID、允许 string 的 union 及空白/非法值。
+- HTTP 非安全上下文缺少 `crypto.randomUUID` 时，页面快照使用 `crypto.getRandomValues` 生成标识，保持旧 ref 失效规则。
+- generate 保存规范化请求摘要。同计划复用返回 `generation.reused=true, applied=false`；改变计划返回 `PLAN_CONFLICT`，通过 `draft-read → replan → generate` 保留旧方案。replan 清空本轮摘要和验证警告，历史版本保留断言及警告。旧草稿缺摘要时，显式重新提交计划也需要 replan。
+- draft-read 提供 PAGE_FETCH helper 契约，`fetchGet.data` 是已解析响应体；HTTP 状态与业务状态不可混用。任务摘要附固定错误阶段/下一步提示，不暴露任意异常正文。
+- review 展示作者 cases、结构类断言提示、断言删除/变更提示及临时命令名提示。这些是审阅提示，不阻断合法修正，也不等于已证明业务语义。plannedExecution 是声明；普通调用的 runtime/source/version/digest、页依赖与回退须另行验收。
+
+实际客户端、打包验收与剩余边界见 [交接记录](api_exploration_cli_handoff.md)。此增量不表示全部 OpenCLI 对齐完成。
+
 2026-10-18 通用流程修正：新增 EXTENSION_API 探索策略，复用既有 Extension 后台 Runner；生成保留 execution，验证按实际运行时分流，后台 repair 禁止退化到页面策略。登录态与业务页依赖分开判断，详见 [后台 API 探索](background_api_exploration.md)。最终证据见交接末尾，整体对齐仍暂停。
 
 ## 显式共享文件修复（2026-10-18）

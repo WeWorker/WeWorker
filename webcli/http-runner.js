@@ -7,6 +7,23 @@ import { httpWorkerMain } from './http-worker.js';
 
 const fail = (code, message) => adapterError('HTTP_' + code, message);
 
+// Normalize only explicitly numeric schema fields at the runtime boundary.
+// CLI strings and authored JSON cases must reach the same handler types without
+// changing string identifiers, union types that allow strings, or blank input.
+export function normalizeHttpArguments(args = {}, schema = {}) {
+  if (schema.type !== 'object') return args;
+  const result = { ...args };
+  for (const [key, definition] of Object.entries(schema.properties || {})) {
+    const types = Array.isArray(definition.type) ? definition.type : [definition.type];
+    const value = result[key];
+    if (typeof value !== 'string' || !value.trim() || types.includes('string')) continue;
+    const number = Number(value);
+    if (types.includes('integer') && Number.isSafeInteger(number)) result[key] = number;
+    else if (types.includes('number') && Number.isFinite(number)) result[key] = number;
+  }
+  return result;
+}
+
 /** Execute a verified package snapshot. Credentials exist only in the host request closure. */
 export async function runHttpTool(match, args = {}, options = {}) {
   const pkg = readPackageDirectory(match.adapter.root);
@@ -14,6 +31,7 @@ export async function runHttpTool(match, args = {}, options = {}) {
   const command = pkg.commands.find(entry => entry.id === match.command.id);
   if (!command || command.runtime !== 'http') throw fail('COMMAND_UNAVAILABLE', 'HTTP command is unavailable.');
   validateHttpContract(command);
+  args = normalizeHttpArguments(args, command.schema);
   if (!options.mockRequest && (command.requires_confirmation || command.safety === 'write') && args.__confirmed !== true) throw fail('CONFIRMATION_REQUIRED', 'Explicit confirmation is required for this command.');
   if (options.signal?.aborted) throw fail('ABORTED', 'HTTP operation cancelled.');
   const controller = new AbortController();

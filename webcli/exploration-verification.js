@@ -3,6 +3,25 @@ import { explorationError as fail } from './exploration-commands.js';
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const sensitive = /password|passwd|secret|cookie|authorization|token|credential|api.?key|csrf|session/i;
 const invalid = message => { throw fail('INVALID_VERIFICATION', message); };
+
+// Advisory coverage, never a claim that a business mapping has been proved.
+export function auditVerification(cases = [], previous = []) {
+  const warnings = [];
+  for (const item of cases) {
+    const expect = item.expect || {};
+    const semanticPaths = [...Object.keys(expect.equals || {}), ...Object.keys(expect.patterns || {})]
+      .filter(key => !Object.hasOwn(item.args || {}, key));
+    if (!semanticPaths.length) warnings.push({ code: 'STRUCTURE_ONLY_VERIFICATION', caseId: item.id,
+      message: 'Structure/count/input echoes do not prove source-field mapping or filtering. Add assertions on business result fields.' });
+  }
+  for (const old of previous) {
+    const current = cases.find(item => item.id === old.id);
+    // Changed assertions need review even when a change is a valid correction.
+    if (!current || JSON.stringify(current.expect) !== JSON.stringify(old.expect)) warnings.push({
+      code: 'VERIFICATION_CHANGED', caseId: old.id, message: 'An earlier case was removed or its assertions changed. Recheck the original requirement; a new pass does not validate the old contract.' });
+  }
+  return warnings;
+}
 function checkKeys(value, allowed) {
   if (!object(value) || Object.keys(value).some(key => !allowed.includes(key))) invalid('Verification contains unsupported fields.');
 }

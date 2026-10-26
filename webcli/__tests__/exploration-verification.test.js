@@ -20,3 +20,13 @@ it('author arguments fix missing schema defaults but cannot promote write or evi
   expect(applyVerificationCases([{ ...test, risk: { level: 'write', confidence: 1 } }], { [test.toolName]: cases })[0].execute).toBe(false);
   expect(applyVerificationCases([{ ...test, contract: { kind: 'json' } }], { [test.toolName]: cases })[0].execute).toBe(false);
 });
+
+import { auditVerification } from '../exploration-verification.js';
+it('reports structure-only cases and assertion changes',()=>{
+ const cases=[{id:'one',args:{kind:'rating'},expect:{equals:{kind:'rating'},types:{items:'array'}}}];
+ expect(auditVerification(cases).map(x=>x.code)).toContain('STRUCTURE_ONLY_VERIFICATION');
+ const strong=[{id:'one',args:{kind:'rating'},expect:{equals:{'items.0.score':10}}}];
+ expect(auditVerification(strong)).toEqual([]);
+ expect(auditVerification(cases,strong).map(x=>x.code)).toContain('VERIFICATION_CHANGED');
+ expect(auditVerification([],strong).map(x=>x.code)).toContain('VERIFICATION_CHANGED');
+});

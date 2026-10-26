@@ -29,7 +29,7 @@ try {
   const portProbe = net.createServer(); await new Promise(resolve => portProbe.listen(0, '127.0.0.1', resolve));
   const bridgePort = portProbe.address().port; await new Promise(resolve => portProbe.close(resolve));
   await fs.cp(source, copy, { recursive: true, filter: entry => !['node_modules', '__tests__', 'extension', 'adapters', 'e2e-results'].includes(path.basename(entry)) });
-  await fs.symlink(path.join(source, 'node_modules'), path.join(copy, 'node_modules'));
+  await fs.symlink(path.join(source, 'node_modules'), path.join(copy, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   await fs.cp(path.resolve(source, '../weworker/build/extension-dist'), path.join(copy, 'extension'), { recursive: true });
   for (const file of ['index.js', 'bridge.js', 'exploration-client.js']) {
     const target = path.join(copy, file);
@@ -50,6 +50,8 @@ try {
     bridgeArgs = [bridgeEntry, '--service'];
   }
   const env = { ...process.env, WEWORKER_BUILD_PROFILE: 'public', WEWORKER_USER_ADAPTERS_DIR: path.join(root, 'user'), WEBCLI_ADAPTERS_DIR: path.join(root, 'user'),
+    WEBCLI_BRIDGE_PORT: String(bridgePort), WEWORKER_WEBCLI_DISTRIBUTION: 'desktop', WEWORKER_BROWSER_MODE: 'system',
+    WEWORKER_BROWSER_HOME: path.join(root, 'browser-state'),
     WEWORKER_ADAPTER_DATA_DIR: path.join(root, 'data'), WEWORKER_BUILTIN_ADAPTERS_DIR: path.join(root, 'builtin'), WEBCLI_PROFILE: 'example-offline',
     WEBCLI_METRICS: 'off', WEBCLI_METRICS_UPLOAD: 'off', EXAMPLE_DISCOVERY_KEY: 'example-auth-placeholder' };
   delete env.WEWORKER_RESOURCES_PATH;

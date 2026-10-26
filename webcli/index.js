@@ -20,7 +20,7 @@
  */
 
 import { spawn } from "child_process";
-import { openSync, existsSync, statSync, readSync, closeSync, realpathSync } from "fs";
+import { openSync, existsSync, statSync, readSync, closeSync, realpathSync, readFileSync } from "fs";
 import { mkdir, writeFile, readFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
@@ -158,7 +158,7 @@ Tools:
   call <tool_name> [--key=value ...] [-v, --verbose] [--output-format=json|markdown|table|plain|csv|yaml]
                                   调用 Adapter 工具（Extension 自动启动 Bridge；Toolkit 直接运行）
                                   打开已知 Adapter 网站：open_browser --url=<Homepage> --adapter=<adapter-id>
-                                  打开未知/通用网页时可省略 --adapter，此时不处理登录
+                                  未知站点探索：webcli call browser.open --session=explore --url=https://example.com
                                   参数直接以 --key=value 形式传递：
                                     webcli call open_browser --url=http://jd.com --adapter=jd.com
                                     webcli call jd.com.search_products --keyword=手机 --limit=5
@@ -168,6 +168,8 @@ Tools:
                                   同名 flag 重复出现会聚合成数组：
                                     webcli call tool --tags=web --tags=api
                                   兼容旧格式：--args '{"url":"http://jd.com"}'
+                                  多行代码/复杂参数：--args-file <UTF-8 JSON对象文件>（最大 2 MiB，支持 BOM）
+                                  --args 与 --args-file 只能选一个，结构化参数优先于同名 flag
                                   输出格式：终端默认 markdown（按站点列名映射渲染），管道/脚本默认 json；
                                   需要结构化数据时显式用 --output-format=json
   webcli <site> <command...> [--key=value ...] [-v, --verbose] [--output-format=json|markdown|table|plain|csv|yaml]
@@ -1373,26 +1375,32 @@ function assignArg(args, key, value) {
 function extractFlagArgs(argv, startIndex = 0) {
   const args = {};
   const rest = [];
+  let structuredArgs;
   for (let i = startIndex; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--args") {
-      // 兼容旧格式：--args 'JSON'
-      i++;
-      if (i < argv.length) {
-        const parsed = parseArgsJson(argv[i]);
-        for (const [k, v] of Object.entries(parsed)) assignArg(args, k, v);
-      }
+    if (arg === '--args' || arg === '--args-file' || arg.startsWith('--args-file=') || arg.startsWith('--args=')) {
+      if (structuredArgs !== undefined) throw new Error('Use exactly one --args or --args-file input.');
+      const fromFile = arg.startsWith('--args-file');
+      const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+      if (!value || value.startsWith('--')) throw new Error('Missing --args or --args-file value.');
+      if (fromFile) {
+        try {
+          if (!statSync(value).isFile() || statSync(value).size > 2 * 1024 * 1024) throw new Error();
+          structuredArgs = JSON.parse(readFileSync(value, 'utf8').replace(/^\uFEFF/, ''));
+        } catch { throw new Error('--args-file requires a readable UTF-8 JSON object file (maximum 2 MiB).'); }
+      } else structuredArgs = parseArgsJson(value);
+      if (!structuredArgs || typeof structuredArgs !== 'object' || Array.isArray(structuredArgs)) throw new Error('Structured arguments must be a JSON object.');
       continue;
     }
-    const flagMatch = arg.match(/^--([^=]+)=(.*)$/);
+    const flagMatch = arg.match(/^--([^=]+)=([\s\S]*)$/);
     if (flagMatch) {
       const [, key, value] = flagMatch;
-      assignArg(args, key, inferType(value));
+      assignArg(args, key, key === 'content' ? value : inferType(value));
       continue;
     }
     rest.push(arg);
   }
-  return { args, rest };
+  return { args: { ...args, ...structuredArgs }, rest };
 }
 
 function resolveCliInvocation(args) {
@@ -1400,11 +1408,11 @@ function resolveCliInvocation(args) {
   if (cmd === "call") {
     if (['browser.console', 'browser.network'].includes(args[1])) args = args.map(arg => arg === '--follow' ? '--follow=true' : arg);
     const { args: flagArgs, rest } = extractFlagArgs(args, 2);
-    const argsIdx = args.indexOf("--args");
+    if (rest.some(arg => !['--help', '-h'].includes(arg))) throw new Error('Unexpected positional argument after the tool name. Use --key=value or --args-file <file>.');
     return {
       type: "call",
-      toolName: rest[0] || args[1],
-      argsJson: argsIdx !== -1 ? args[argsIdx + 1] : undefined,
+      toolName: args[1],
+      argsJson: undefined,
       flagArgs,
     };
   }
