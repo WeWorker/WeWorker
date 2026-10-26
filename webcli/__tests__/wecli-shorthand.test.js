@@ -68,17 +68,17 @@ describe('WeCLI-style shorthand invocation', () => {
   })
 
   it('resolves a simple site command with --key=value flags', () => {
-    expect(runIndexHelper(`m.resolveCliInvocation(['itsm', 'ls', '--status=open'])`)).toMatchObject({
+    expect(runIndexHelper(`m.resolveCliInvocation(['tickets', 'ls', '--status=open'])`)).toMatchObject({
       type: 'shorthand',
-      toolName: 'itsm.ls',
+      toolName: 'tickets.ls',
       flagArgs: { status: 'open' },
     })
   })
 
   it('resolves a simple site command with --args (backward compat)', () => {
-    expect(runIndexHelper(`m.resolveCliInvocation(['itsm', 'ls', '--args', '{"status":"open"}'])`)).toMatchObject({
+    expect(runIndexHelper(`m.resolveCliInvocation(['tickets', 'ls', '--args', '{"status":"open"}'])`)).toMatchObject({
       type: 'shorthand',
-      toolName: 'itsm.ls',
+      toolName: 'tickets.ls',
       argsJson: '{"status":"open"}',
       flagArgs: { status: 'open' },
     })
@@ -93,18 +93,18 @@ describe('WeCLI-style shorthand invocation', () => {
   })
 
   it('preserves alias-compatible site.command names for downstream catalog resolution', () => {
-    expect(runIndexHelper(`m.resolveCliInvocation(['pace-pipeline', 'params'])`)).toMatchObject({
+    expect(runIndexHelper(`m.resolveCliInvocation(['pipeline-config', 'params'])`)).toMatchObject({
       type: 'shorthand',
-      toolName: 'pace-pipeline.params',
+      toolName: 'pipeline-config.params',
     })
   })
 
   it('keeps built-in commands out of shorthand parsing', () => {
     expect(runIndexHelper(`m.resolveCliInvocation(['service', 'status'])`)).toEqual({ type: 'builtin', command: 'service' })
     expect(runIndexHelper(`m.resolveCliInvocation(['adapter', 'list'])`)).toEqual({ type: 'builtin', command: 'adapter' })
-    expect(runIndexHelper(`m.resolveCliInvocation(['call', 'itsm.ls', '--args', '{}'])`)).toMatchObject({
+    expect(runIndexHelper(`m.resolveCliInvocation(['call', 'tickets.ls', '--args', '{}'])`)).toMatchObject({
       type: 'call',
-      toolName: 'itsm.ls',
+      toolName: 'tickets.ls',
       argsJson: '{}',
     })
     expect(runIndexHelper(`m.resolveCliInvocation(['install', '--skills'])`)).toEqual({ type: 'builtin', command: 'install' })

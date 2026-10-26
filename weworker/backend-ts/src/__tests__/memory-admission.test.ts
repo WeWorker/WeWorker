@@ -187,7 +187,7 @@ describe('memory admission (candidate-first)', () => {
       candidate: {
         action: 'create',
         memory_type: 'task_execution',
-        key: 'itsm_single_step',
+        key: 'tickets_single_step',
         content: '查看 支持工单示例 待办列表。',
         facts: {
           task_assessment: { completed: true },

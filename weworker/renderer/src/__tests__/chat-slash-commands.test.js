@@ -40,7 +40,7 @@ describe('chat slash commands', () => {
     const commands = buildWebcliSlashCommands([
       {
         id: 'expense.example.com',
-        name: 'ExpenseDemo费用管理示例',
+        name: 'ExpenseExample费用管理示例',
         tools: [
           {
             name: 'expense.example.com.create_budget',

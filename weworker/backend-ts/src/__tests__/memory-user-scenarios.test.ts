@@ -99,7 +99,7 @@ describe('真实用户输入记忆场景', () => {
       candidate: {
         action: 'create',
         memory_type: 'task_execution',
-        key: 'itsm_ticket_query_login',
+        key: 'tickets_ticket_query_login',
         content: '查询 支持工单示例 待办工单前需要先确认页面已登录。',
         facts: { reason: '页面未登录' },
         scope,
@@ -115,7 +115,7 @@ describe('真实用户输入记忆场景', () => {
       candidate: {
         action: 'update',
         memory_type: 'task_execution',
-        key: 'itsm_ticket_query_login',
+        key: 'tickets_ticket_query_login',
         content: '查询 支持工单示例 待办工单前先确认页面已登录，登录后即可继续查询。',
         facts: { recovered: true },
         related_memory_ids: failure ? [failure.id] : [],

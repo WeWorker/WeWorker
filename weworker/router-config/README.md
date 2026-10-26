@@ -38,7 +38,7 @@
 >
 > 所以：**改配置时若编辑器给红线，不用管**（那是它在按严格 JSON 校验）；但**代码里要读这些文件，必须用 `parseJsonc`，不能用 `JSON.parse`**。
 >
-> 历史教训：`route-eval.test.ts` 里曾用裸 `JSON.parse` 读 `plan-terminals.json`，抛错被 `catch` 吞成 `null`，白名单静默变空——`--check` 于是拿空白名单编译，与产物悄悄分叉却一直报绿（公开基线恰好没有 `route.plan` 卡片，掩盖了这个洞）。现已改走 `parseJsonc`，并加了一条「白名单必须非空」的断言防复发。
+> 历史教训：回归套件（`route-eval`）里曾用裸 `JSON.parse` 读 `plan-terminals.json`，抛错被 `catch` 吞成 `null`，白名单静默变空——`--check` 于是拿空白名单编译，与产物悄悄分叉却一直报绿（公开基线恰好没有 `route.plan` 卡片，掩盖了这个洞）。现已改走 `parseJsonc`，并加了一条「白名单必须非空」的断言防复发。
 >
 > 加载器侧也已收紧：**文件读不懂**现在与「校验不过」同权处理——写进 `sources[].rejected`（带 `解析失败` 字样），并**保留上一份可用配置**，而不是只打一行 WARN 就让整层静默变空。症状是「所有层同时不命中」时，先看这条。
 
@@ -189,10 +189,11 @@ node scripts/chat-bench/bench.mjs --router-cases --no-test-prompts --out ./bench
 - `patterns.json` / `plans.json` 的正则要求站点词与动作词之间存在**显式分隔符**（空格或冒号）。`维基百科搜索 量子力学` 命中，`维基百科搜索引擎` 不命中（否则会把 `引擎` 当作检索词）。这类不命中的写法落回 LLM，结果相同、只是慢一点。
 - `shortcuts.json` 的每条 `positive` 都是正则；配套的 `negative` 用来挡住同站点的另一种意图（如 `v2ex 节点列表` 不被「单节点」规则吃掉）。
 
-每条进入 `routes` / `aliases` / `shortcuts` / `patterns` / `plans` 的条目（`patterns` 精确到每条规则）都必须自带 `examples`，[`shipped-router-config.test.ts`](../backend-ts/src/api-query-router/__tests__/shipped-router-config.test.ts) **直接从配置里把它们抽出来当正例实跑**，并断言「配置里的每条启用条目都被覆盖」（`positiveChecked === routeCount`，防止引擎未加载导致的假绿）；对抗性负例集与「负例精度必须 100%」的硬门在那份测试与 `route-eval.test.ts` 里。示例与条目同处一份文件，不会漂移。同一批样例的人肉版（在客户端里一条一条发的清单 + 判定口径）见 [`docs/router-config-manual-testcases.md`](../../docs/router-config-manual-testcases.md)。
+每条进入 `routes` / `aliases` / `shortcuts` / `patterns` / `plans` 的条目（`patterns` 精确到每条规则）都必须自带 `examples`，内部回归套件（不在开源仓库）**直接从配置里把它们抽出来当正例实跑**，并断言「配置里的每条启用条目都被覆盖」（`positiveChecked === routeCount`，防止引擎未加载导致的假绿）；对抗性负例集与「负例精度必须 100%」的硬门也在该套件里（`route-eval`）。示例与条目同处一份文件，不会漂移。同一批样例的人肉版（在客户端里一条一条发的清单 + 判定口径）见 [`docs/router-config-manual-testcases.md`](../../docs/router-config-manual-testcases.md)。
 
 ```bash
-cd weworker/backend-ts && npx vitest --run src/api-query-router/__tests__/shipped-router-config.test.ts
+# 回归套件在内部环境
+cd weworker/backend-ts && npx vitest --run src/api-query-router
 ```
 
 ## 红线

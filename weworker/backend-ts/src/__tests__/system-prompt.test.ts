@@ -217,15 +217,15 @@ describe('System Prompt - behavioral rules retained (Req 4.3)', () => {
   })
 
   it('uses API type metadata for planning and direct mode for runtime routing', async () => {
-    const itsmAdapter = makeAuthAdapter({
-      id: 'itsm.example.com',
-      match: ['itsm.example.com'],
+    const ticketsAdapter = makeAuthAdapter({
+      id: 'tickets.example.com',
+      match: ['tickets.example.com'],
       toolExecution: {
-        'itsm.example.com.ls': { type: 'api', runtime: 'background' },
+        'tickets.example.com.ls': { type: 'api', runtime: 'background' },
       },
     })
-    mockAdapterMap.set(itsmAdapter.id, itsmAdapter)
-    enabledSites.add(itsmAdapter.id)
+    mockAdapterMap.set(ticketsAdapter.id, ticketsAdapter)
+    enabledSites.add(ticketsAdapter.id)
 
     const { buildSystemPrompt } = await import('../agent.js')
     const prompt = buildSystemPrompt()

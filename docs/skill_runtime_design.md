@@ -120,7 +120,7 @@ Runner 使用 `spawn` 与 `shell=false`，以 Adapter 根目录为 `cwd`，通�
 
 ## 六、MCP 与结果缓存
 
-面向 Agent 的 `webcli_call` MCP 已移除。Backend 内部 ITSM 快捷路径继续复用 `runWebcliCall()`，这不是 Agent 的 Adapter 入口。
+面向 Agent 的 `webcli_call` MCP 已移除。Backend 内部的工单系统快捷路径继续复用 `runWebcliCall()`，这不是 Agent 的 Adapter 入口。
 
 `webcli_result`、大结果落盘和结果投影暂时保留。后续将这些能力下沉到 WebCLI CLI，作为独立 Roadmap 事项，不与 Toolkit Adapter 改造混合。
 

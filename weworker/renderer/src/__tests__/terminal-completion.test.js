@@ -21,7 +21,7 @@ const files = [
 const sites = [
   {
     id: 'expense.example.com',
-    name: 'ExpenseDemo费用管理示例',
+    name: 'ExpenseExample费用管理示例',
     enabled: true,
     tools: [
       {
@@ -34,7 +34,7 @@ const sites = [
       },
       {
         name: 'expense.example.com.wecli watch',
-        description: '监听 ExpenseDemo 状态',
+        description: '监听 ExpenseExample 状态',
         parameters: [
           { name: 'target', required: true },
           { name: 'timeout', required: true },

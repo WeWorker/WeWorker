@@ -21,7 +21,7 @@ node scripts/chat-bench/bench.mjs \
   --no-test-prompts --out ./bench-out
 
 # 2) 跑某站点内置测试词（来自 GET /health-check/test-prompts）
-node scripts/chat-bench/bench.mjs --prompts --sites itsm.example.com
+node scripts/chat-bench/bench.mjs --prompts --sites tickets.example.com
 
 # 3) 驱动正在运行的客户端（remote）
 node scripts/chat-bench/bench.mjs \
@@ -55,8 +55,8 @@ JSON 数组：
 ```json
 [
   { "id": "qa-1", "prompt": "你好" },
-  { "id": "itsm-todo", "prompt": "查看我的待办工单", "siteId": "itsm.example.com",
-    "expectTools": ["itsm.example.com.my_todo"], "expectMaxMs": 15000 }
+  { "id": "tickets-todo", "prompt": "查看我的待办工单", "siteId": "tickets.example.com",
+    "expectTools": ["tickets.example.com.my_todo"], "expectMaxMs": 15000 }
 ]
 ```
 
@@ -65,7 +65,7 @@ CSV（首行表头，`expectTools` 用 `;` 分隔）：
 ```csv
 id,prompt,siteId,category,expectTools,expectMaxMs
 qa-1,你好,,,,
-itsm-todo,查看我的待办工单,itsm.example.com,itsm,itsm.example.com.my_todo,15000
+tickets-todo,查看我的待办工单,tickets.example.com,tickets,tickets.example.com.my_todo,15000
 ```
 
 字段：`id`(可选) / `prompt`(必填) / `siteId` / `category` / `expectTools`(数组或`;`分隔) / `expectMaxMs` / `expectRoute`。声明了才会在报告「断言」列显示 ✓/✗。
@@ -139,7 +139,7 @@ node scripts/chat-bench/report.mjs --from-cases ./bench-out/<时间戳>
 
 ## 约束
 
-- 网站/DOM 操作类 prompt 依赖浏览器扩展 bridge；独立后端无扩展时这类会失败（如实记为 error，不影响其他用例）。纯问答、文件、API 类（如 `itsm.example.com.my_todo`）可正常测。
+- 网站/DOM 操作类 prompt 依赖浏览器扩展 bridge；独立后端无扩展时这类会失败（如实记为 error，不影响其他用例）。纯问答、文件、API 类（如 `tickets.example.com.my_todo`）可正常测。
 - 目标站点在本机不可达时，走路由的条目会**命中但结果为「报错」**（约 30s 的 curl 超时后才返回，`⚠️ 查询失败：…`）；两跳计划则会在首跳失败后按设计落回 LLM，表现为「未命中(LLM)」且整轮很慢。两者都不是路由缺陷——先 `curl` 复核站点可达性。
 - 并发：不同 workId 天然隔离；提高 `--concurrency` 可加速，但注意 provider 限流。
 
