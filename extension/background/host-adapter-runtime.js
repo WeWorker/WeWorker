@@ -1,5 +1,41 @@
-import { adapterHelperPatterns, adapterPagePatterns, hostMatchesPattern } from './host-scope.js';
+import { adapterHelperPatterns, adapterPagePatterns, hostMatchesPattern, isAdapterPageHost } from './host-scope.js';
 
+/**
+ * First URL to open when a page command has no matching tab.
+ * Prefer `homepage_url` when it is a page of this adapter and lives on the
+ * command's route host, so special ports/paths (for example `:8443/s_iv/`)
+ * are opened instead of `http://{route}/`. Docs-only or other-host homepage
+ * URLs fall back to the generic route root.
+ */
+export function adapterPageStartUrl(manifest, route) {
+  const host = String(route || '').trim().toLowerCase();
+  const fallback = host ? `http://${host}/` : '';
+  if (!fallback) return fallback;
+  try {
+    const home = new URL(String(manifest?.homepage_url || ''));
+    if (home.protocol !== 'https:' && home.protocol !== 'http:') return fallback;
+    if (home.username || home.password) return fallback;
+    if (home.hostname.toLowerCase() !== host) return fallback;
+    if (!isAdapterPageHost(manifest, home.hostname)) return fallback;
+    return home.href;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Same-host tabs on another origin (for example :443 vs :8443) are not substitutes. */
+export function tabMatchesPageStart(tab, startUrl, route) {
+  if (!tab?.url) return false;
+  try {
+    const home = new URL(startUrl);
+    const host = String(route || '').trim().toLowerCase();
+    const special = home.origin !== `http://${host}` && home.origin !== `https://${host}`;
+    if (!special) return true;
+    return new URL(tab.url).origin === home.origin;
+  } catch {
+    return true;
+  }
+}
 /** Serialize page replacement and calls so an update cannot replace a running command's globals. */
 export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navigate, ready, query, now = Date.now, maxNavigations = 4, timeoutMs = 105000 }) {
   const queues = new Map();

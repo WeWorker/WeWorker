@@ -1057,6 +1057,22 @@ test("service worker smoke covers list_tools, missing tab, and login failure", a
   // 自动打开站点后仍未就绪：提示可能需登录
   assert.match(missingTab.error, /已自动打开站点|未找到域名/)
 });
+test("managed page calls open homepage_url when it is a same-host page with a special port", async () => {
+  const manifest = {
+    name: 'weoa.webank.com',
+    match: ['weoa.webank.com'],
+    homepage_url: 'https://weoa.webank.com:8443/s_iv/#/',
+    _hostSnapshot: { profile: 'public', digest: 'fixture' },
+    commands: [{ id: 'check-login-status', runtime: 'extension', routeDomain: 'weoa.webank.com', safety: 'read' }],
+  };
+  const worker = loadServiceWorker({
+    tabs: [{ id: 7, url: 'https://weoa.webank.com/#/submit?source=kaobao', status: 'complete' }],
+    managedCatalog: { available: true, managedNames: ['weoa.webank.com'], adapters: [manifest] },
+  });
+  const result = await worker.callNativeTool('weoa.webank.com.check-login-status');
+  assert.equal(result.result.tabId, 999);
+  assert.equal((await worker.context.chrome.tabs.get(999)).url, 'https://weoa.webank.com:8443/s_iv/#/');
+});
 
 test("managed page calls open the declared route without user setup and do not replay transport errors", async () => {
   const manifest = { name: 'fixture', match: ['example.com'], _hostSnapshot: { profile: 'public', digest: 'fixture' },

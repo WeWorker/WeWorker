@@ -8,7 +8,7 @@ import { buildV2Bootstrap, v2CommandDefs, v2InjectionFiles } from "./v2-loader.j
 import { injectAdapterSources } from './adapter-script-loader.js';
 import { createPackagedAdapterMatcher, injectPackagedAdapter } from './packaged-adapter-loader.js';
 import { createHostAdapterClient } from './host-adapter-client.js';
-import { createHostAdapterRuntime, assertAdapterNavigationUrl, createNavigationGuard, navigateAdapterTab } from './host-adapter-runtime.js';
+import { createHostAdapterRuntime, assertAdapterNavigationUrl, adapterPageStartUrl, tabMatchesPageStart, createNavigationGuard, navigateAdapterTab } from './host-adapter-runtime.js';
 import {
   adapterHelperPatterns,
   adapterPrimaryHost,
@@ -2792,11 +2792,16 @@ async function handleNativeMessage(msg) {
           }
         }
         // The route host, or the host it was last redirected to (order.jd.com → order.jd.hk).
+        const startUrl = assertAdapterNavigationUrl(selected.manifest, adapterPageStartUrl(selected.manifest, route));
         let tab = pageTab || pickRouteTab(tabs, route, { aliases: managedRouteRedirects.aliases(selected.manifest, route), excludeTabDomain });
+        if (tab && !pageTab && !tabMatchesPageStart(tab, startUrl, route)) tab = null;
         // A command without a declared route runs on any page of its package (match and
         // domains, never runtime_allowed_hosts helpers): a page command may have moved its
         // tab to another host in its scope (search.*, order.* …).
-        if (!tab && !declaredRoute) tab = pickRecentScopeTab(tabs, selected.manifest, excludeTabDomain);
+         if (!tab && !declaredRoute) {
+          tab = pickRecentScopeTab(tabs, selected.manifest, excludeTabDomain);
+          if (tab && !tabMatchesPageStart(tab, startUrl, route)) tab = null;
+        }
         if (!tab?.id) {
           // A preceding generic open_browser may have redirected the only site tab to SSO.
           // Do not open a second business tab: hand the existing SSO tab to the host login flow,
@@ -2813,9 +2818,8 @@ async function handleNativeMessage(msg) {
               message: '网站正在登录，登录完成后将继续调用。',
             });
           }
-          // HTTP is the neutral managed-page entry: HTTPS-only sites redirect themselves,
-          // while internal sites that do not serve HTTPS remain reachable.
-          const startUrl = assertAdapterNavigationUrl(selected.manifest, 'http://' + route + '/');
+          // homepage_url wins when it is a same-host adapter page (port/path included).
+          // Otherwise HTTP is the neutral managed-page entry.
           tab = await createBrowserTab({ url: startUrl, active: false });
           // Learn where the site sends this host (regional or brand domains) before the first call.
           const landed = await waitForManagedPageReady(tab.id, selected.manifest, true, 25000);

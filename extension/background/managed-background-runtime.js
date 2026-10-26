@@ -51,6 +51,15 @@ function initializeRuntime(token, context) {
             const parts = value.split(',').map(part => part.trim()).filter(Boolean);
             const numbers = parts.map(Number);
             if (parts.length > 0 && numbers.every(Number.isInteger)) value = numbers;
+            } else if (types.includes('array') && definition.items?.type === 'string') {
+            const trimmed = value.trim();
+            if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed) && parsed.every((item) => typeof item === 'string')) value = parsed;
+              } catch { /* keep the original string */ }
+            }
+            if (!Array.isArray(value)) value = [trimmed];
           }
           result[name] = value;
         }
