@@ -1056,7 +1056,7 @@ src/webwright/server/web/
 
 顶栏不设置独立的 Tool 选择器，Tool 切换只通过左侧 Toolkit Tree 完成。
 
-顶栏模型和浏览器状态均为可操作按钮：模型按钮打开完整 CRUD／激活弹窗；浏览器按钮调用 `/api/browser/open` 启动或聚焦浏览器。「新建探索」弹窗调用 `/api/browser/match` 精确匹配 Tool 起始 URL，成功后将 `target_id` 提交给产品 Exploration API；未匹配时，弹窗调用 `POST /api/browser/open` 并提交 `{"url": tool.start_url}`，后端复用完全匹配的标签页或新建标签页直接打开该 URL。窗口重新获得焦点和用户点击全局刷新时同步刷新模型、浏览器、Toolkit Tree、当前工作区及全局活动状态。
+顶栏模型和浏览器状态均为可操作按钮：模型按钮打开完整 CRUD／激活弹窗；浏览器按钮调用 `/api/browser/open` 启动或聚焦浏览器。「新建探索」弹窗调用 `/api/browser/match` 并携带 `toolkit_id`、`tool_id`，服务端读取 Tool 起始 URL 和 Adapter 允许域名，返回候选 `targets` 与唯一优先匹配的 `target`；候选不唯一时由用户选择。提交 Exploration 后按真实 `target_id` 校验页面仍存在、URL 使用 HTTP／HTTPS 且 hostname 在允许列表内。允许域名快照传入 Worker 配置，在绑定页面时再次检查；已绑定的初始页面不注入起始 URL 导航。路径、查询参数和片段变化不阻止探索。默认打开入口仍调用 `POST /api/browser/open` 并提交 `{"url": tool.start_url}`。窗口重新获得焦点和用户点击全局刷新时同步刷新模型、浏览器、Toolkit Tree、当前工作区及全局活动状态。
 
 开发工作区必须按版本状态区分入口：正式槽位和开发中槽位都为空时，探索工作区选中的 `sourceExplorationId` 只作为普通首次开发输入，页面显示「开始开发」和必填的首次开发指令输入框，提交 `POST /development/start`；已有正式版本或开发中版本时，可通过「从探索重新开发」选择成功 Exploration，随后同样回到首次开发输入页。该模式的「开始开发」提交独立 restart API，服务端才执行清空和 `exploration_only` 启动。首次开发不得复用带清空警告的重新开发弹窗。
 

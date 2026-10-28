@@ -38,6 +38,23 @@ def _paths(tmp_path: Path) -> WebwrightPaths:
     return WebwrightPaths.resolve(home=tmp_path)
 
 
+def test_exploration_match_reads_domains_and_start_url_from_store(tmp_path, monkeypatch):
+    paths = _paths(tmp_path)
+    store = ToolkitStore(paths.toolkits)
+    store.create_toolkit(name="demo", allowed_domains=["example.com"])
+    store.create_tool("demo", name="read_page", goal="Read", start_url="https://example.com/")
+    calls = []
+    def match(*args):
+        calls.append(args)
+        return {"status": "choose", "target": None, "targets": []}
+    monkeypatch.setattr("webwright.server.app.browser_match", match)
+    response = create_app(paths=paths).test_client().get(
+        "/api/browser/match?toolkit_id=demo&tool_id=read_page&url=https://other.example.org/"
+    )
+    assert response.status_code == 200
+    assert calls[0][1:] == ("https://example.com/", ["example.com"])
+
+
 def test_health_endpoint(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("WEWORKER_EXPLORATION_INSTANCE_ID", "managed-instance")
     app = create_app(
@@ -209,7 +226,7 @@ def test_toolkit_ui_exposes_stage_seven_controls() -> None:
     assert "活动" not in explore_source
     assert "新建 Exploration</" not in explore_source
     assert "openBrowser(tool.start_url)" in explore_source
-    assert "请<strong>务必完成登录</strong>后再回来继续探索" in explore_source
+    assert "请打开起始网址并<strong>完成登录</strong>" in explore_source
     assert "overflow-wrap:anywhere" in styles_source
     assert 'class="explore-card-title" title="${esc(e.exploration_id)}"' in explore_source
     assert "screenshot_url" in explore_source

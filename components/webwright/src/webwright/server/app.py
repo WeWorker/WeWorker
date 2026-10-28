@@ -750,6 +750,13 @@ def create_app(
 
     @app.get("/api/browser/match")
     def match_browser_tab():
+        toolkit_id = str(request.args.get("toolkit_id") or "")
+        if toolkit_id:
+            toolkit = toolkits.get_toolkit(toolkit_id)
+            tool = toolkits.get_tool(toolkit_id, str(request.args.get("tool_id") or ""))
+            return jsonify(browser_match(
+                app.config["WEBWRIGHT_CDP_URL"], tool["start_url"], toolkit["allowed_domains"],
+            ))
         return jsonify(
             browser_match(
                 app.config["WEBWRIGHT_CDP_URL"],

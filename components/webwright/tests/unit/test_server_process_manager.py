@@ -94,8 +94,12 @@ def _manager(
     return manager, store, commands
 
 
+@pytest.mark.parametrize("prepared_url", [
+    "https://blog.example.com/admin/posts",
+    "https://blog.example.com/orders?page=2#open",
+])
 def test_start_exploration_uses_tool_definition_and_persists_ownership(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, prepared_url: str
 ) -> None:
     toolkit_store = ToolkitStore(tmp_path / "toolkits")
     toolkit_store.create_toolkit(
@@ -115,7 +119,7 @@ def test_start_exploration_uses_tool_definition_and_persists_ownership(
         "webwright.server.process_manager.browser_target",
         lambda cdp_url, target_id: {
             "target_id": target_id,
-            "url": "https://blog.example.com/admin/posts",
+            "url": prepared_url,
         },
     )
     monkeypatch.setattr(
@@ -141,6 +145,21 @@ def test_start_exploration_uses_tool_definition_and_persists_ownership(
     assert saved["initial_supplement"] == "Only published posts"
     assert spec["activity_type"] == "exploration"
     assert spec["target_id"] == "prepared-target"
+    assert 'environment.allowed_domains=["blog.example.com"]' in spec["config_spec"]
+
+
+@pytest.mark.parametrize("target", [None, {"url": "https://other.example.org/"}, {"url": "file:///tmp/test"}])
+def test_exploration_rejects_missing_or_outside_page(monkeypatch, tmp_path, target):
+    toolkits = ToolkitStore(tmp_path / "toolkits")
+    toolkits.create_toolkit(name="demo", allowed_domains=["example.com"])
+    toolkits.create_tool("demo", name="read_page", goal="Read", start_url="https://example.com/")
+    manager, _, commands = _manager(tmp_path, monkeypatch, toolkit_store=toolkits)
+    monkeypatch.setattr("webwright.server.process_manager.browser_target", lambda *_: target)
+    with pytest.raises(InvalidStateError):
+        manager.start_exploration(toolkit_id="demo", tool_id="read_page", target_id="stale")
+    assert commands == []
+    with pytest.raises(InvalidStateError, match="请选择"):
+        manager.start_exploration(toolkit_id="demo", tool_id="read_page")
 
 
 def test_start_task_writes_absolute_spec_and_clears_stale_control(monkeypatch, tmp_path: Path) -> None:

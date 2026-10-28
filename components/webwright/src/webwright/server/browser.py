@@ -45,6 +45,7 @@ from webwright.utils.local_cdp import (
     launch_browser,
     normalize_page_url,
     page_origin,
+    page_in_allowed_domains,
     page_targets,
 )
 
@@ -130,8 +131,22 @@ def browser_open(cdp_url: str = DEFAULT_CDP_URL, url: str = "") -> dict[str, Any
 
 
 @_host_browser()
-def browser_match(cdp_url: str, url: str) -> dict[str, Any]:
+def browser_match(cdp_url: str, url: str, allowed_domains: list[str] | None = None) -> dict[str, Any]:
     normalized = normalize_page_url(url)
+    if allowed_domains is not None:
+        targets = [
+            _target_view(target) for target in page_targets(cdp_url)
+            if target.get("type") == "page"
+            and page_in_allowed_domains(str(target.get("url") or ""), allowed_domains)
+        ]
+        exact = [target for target in targets if normalize_page_url(target["url"]) == normalized]
+        preferred = exact if exact else targets
+        target = preferred[0] if len(preferred) == 1 else None
+        return {
+            "status": "exact" if target and exact else "allowed" if target else "choose" if targets else "missing",
+            "target": target,
+            "targets": targets,
+        }
     origin = page_origin(normalized)
     same_origin: list[dict[str, Any]] = []
     for target in page_targets(cdp_url):

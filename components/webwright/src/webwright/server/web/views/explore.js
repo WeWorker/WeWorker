@@ -327,8 +327,10 @@ function openNewExplorationModal(tool) {
           placeholder="不能改变 Tool 根本目标，仅作为本次探索的补充说明"></textarea>
       </label>
       <div class="url-check" id="preparedPageStatus">正在检测 Agent 浏览器中的目标页面…</div>
+      <label class="field" id="preparedPageField" hidden><span class="field-label">探索页面</span><select id="preparedPageSelect"></select></label>
+      <p class="muted small">探索从所选页面的当前状态开始，不会自动返回起始网址。</p>
       <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="openBrowserForExp">打开 Agent 浏览器</button>
+        <button type="button" class="btn btn-ghost" id="openBrowserForExp">打开起始网址</button>
         <button type="button" class="btn btn-ghost" id="recheckPreparedPage">重新检测</button>
         <button type="button" class="btn btn-ghost" data-cancel>取消</button>
         <button type="button" class="btn btn-primary" id="startExpBtn" disabled>启动探索</button>
@@ -337,7 +339,15 @@ function openNewExplorationModal(tool) {
   document.body.appendChild(overlay);
 
   let matchedTargetId = "";
+  let checkVersion = 0;
+  let submitting = false;
+  const pageSelect = overlay.querySelector("#preparedPageSelect");
+  pageSelect.addEventListener("change", () => {
+    matchedTargetId = pageSelect.value;
+    overlay.querySelector("#startExpBtn").disabled = !matchedTargetId || isBusy() || submitting;
+  });
   const close = () => {
+    checkVersion++;
     window.removeEventListener("focus", checkPreparedPage);
     overlay.remove();
   };
@@ -349,40 +359,59 @@ function openNewExplorationModal(tool) {
   });
   overlay.querySelector("#recheckPreparedPage").addEventListener("click", checkPreparedPage);
   overlay.querySelector("#startExpBtn").addEventListener("click", async () => {
+    if (!matchedTargetId || submitting) return;
     const instruction = overlay.querySelector("#expInstruction").value.trim();
-    close();
-    const created = await api.createExploration(state.toolkitId, tool.tool_id, instruction, matchedTargetId);
-    await refreshActivity();
-    toast("已创建探索，正在执行…");
-    selected = { toolId: tool.tool_id, explorationId: created.exploration_id };
-    setState({});
+    submitting = true;
+    checkVersion++;
+    overlay.querySelector("#startExpBtn").disabled = true;
+    try {
+      const created = await api.createExploration(state.toolkitId, tool.tool_id, instruction, matchedTargetId);
+      close();
+      await refreshActivity();
+      toast("已创建探索，正在执行…");
+      selected = { toolId: tool.tool_id, explorationId: created.exploration_id };
+      setState({});
+    } catch (error) {
+      overlay.querySelector("#preparedPageStatus").textContent = error.message;
+    } finally {
+      submitting = false;
+      overlay.querySelector("#startExpBtn").disabled = !matchedTargetId || isBusy();
+    }
   });
   window.addEventListener("focus", checkPreparedPage);
   checkPreparedPage();
   overlay.querySelector("#expInstruction").focus();
 
   async function checkPreparedPage() {
+    if (submitting) return;
+    const version = ++checkVersion;
     const status = overlay.querySelector("#preparedPageStatus");
     const startButton = overlay.querySelector("#startExpBtn");
+    const previousTargetId = matchedTargetId;
     matchedTargetId = "";
+    pageSelect.replaceChildren();
+    overlay.querySelector("#preparedPageField").hidden = true;
     startButton.disabled = true;
     status.className = "url-check";
     status.textContent = "正在检测 Agent 浏览器中的目标页面…";
     try {
-      const result = await api.matchBrowser(tool.start_url);
-      if (result.status === "exact" && result.target) {
-        matchedTargetId = result.target.target_id;
+      const result = await api.matchBrowser(tool.start_url, state.toolkitId, tool.tool_id);
+      if (version !== checkVersion) return;
+      if (result.targets?.length) {
+        const preferred = result.targets.find(item => item.target_id === previousTargetId) || result.target;
+        matchedTargetId = preferred?.target_id || "";
+        pageSelect.innerHTML = `<option value="" disabled>请选择要探索的页面</option>` + result.targets.map(item => `<option value="${esc(item.target_id)}">${esc(item.title ? item.title + ' — ' : '')}${esc(item.url)}</option>`).join("");
+        pageSelect.value = matchedTargetId;
+        overlay.querySelector("#preparedPageField").hidden = false;
         status.className = "url-check ok";
-        status.textContent = `已找到目标页面：${result.target.title || result.target.url}`;
-        startButton.disabled = isBusy();
-      } else if (result.status === "same_origin") {
-        status.className = "url-check warn";
-        status.textContent = "已打开同站点页面，但 URL 与 Tool 起始 URL 不一致。请切换到准确页面后重新检测。";
+        status.textContent = "已找到允许域名内的页面，请确认探索页面。";
+        startButton.disabled = !matchedTargetId || isBusy();
       } else {
         status.className = "url-check warn";
-        status.innerHTML = "未找到目标页面。请打开 Agent 浏览器，如网页需登录，请<strong>务必完成登录</strong>后再回来继续探索";
+        status.innerHTML = "未找到允许域名内的页面。请打开起始网址并<strong>完成登录</strong>，或修改 Adapter 允许域名后重新检测。";
       }
     } catch (error) {
+      if (version !== checkVersion) return;
       status.className = "url-check error";
       status.textContent = error.message;
     }

@@ -1,7 +1,27 @@
 from __future__ import annotations
 
+import pytest
+
 from webwright.server import browser
 from webwright.utils.local_cdp import normalize_page_url
+
+
+@pytest.mark.parametrize("urls,expected,status", [
+    (["https://example.com/orders?page=2#open"], "0", "allowed"),
+    (["https://auth.example.com/signed-in"], "0", "allowed"),
+    (["https://example.com/other", "https://example.com/"], "1", "exact"),
+    (["https://example.com/a", "https://example.com/b"], None, "choose"),
+    (["https://example.com/", "https://example.com/"], None, "choose"),
+    (["https://other.example.org/", "https://sub.example.com/", "about:blank", "file:///tmp/test"], None, "missing"),
+])
+def test_exploration_candidates_use_explicit_domains(monkeypatch, urls, expected, status):
+    monkeypatch.setattr(browser, "page_targets", lambda _: [
+        {"id": str(index), "type": "page", "url": url} for index, url in enumerate(urls)
+    ])
+    result = browser.browser_match("http://127.0.0.1:9222", "https://example.com/", ["example.com", "auth.example.com"])
+    assert result["status"] == status
+    assert (result["target"]["target_id"] if result["target"] else None) == expected
+    assert len(result["targets"]) == (0 if status == "missing" else len(urls))
 
 
 def test_managed_status_and_tabs_do_not_start_browser(monkeypatch):

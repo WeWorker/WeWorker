@@ -34,7 +34,7 @@ export function allowedExplorationRequest(method: string, raw: string): boolean 
   if (pathname.split('/').some(part => part === '.' || part === '..')) return false
   if (!rules.some(([methods, pattern]) => methods.split(' ').includes(method) && pattern.test(pathname))) return false
   const params = new URLSearchParams(query)
-  const allowed = pathname === '/api/browser/match' ? ['url'] : pathname.endsWith('/cancel') ? ['force'] : []
+  const allowed = pathname === '/api/browser/match' ? ['url', 'toolkit_id', 'tool_id'] : pathname.endsWith('/cancel') ? ['force'] : []
   return [...params.keys()].every(key => allowed.includes(key))
 }
 

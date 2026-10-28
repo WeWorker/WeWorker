@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-10-28（探索起始网址约束放松）：起始网址作为默认入口，探索改为选择 Adapter 允许域名内的页面；唯一完整匹配或唯一允许页面默认选中，多候选由用户选择。桌面端、内置网页、Backend 代理、服务端与 Worker 同步支持，保留页面身份与占用检查，取消所选页面的首次强制导航，模型示例改为先观察当前状态。起始网址仍用于正式调用缺少页面时的恢复。已更新产品／技术规范。验证：Python 聚焦 101 项通过，1 项既有 OpenAI 完整 URL 拼接测试失败；Backend 19 项测试及类型检查、Renderer 6 项测试与构建、JS 语法、配置解析、差异检查通过。Chrome 隔离测试以模拟接口验证两套真实界面的 URL 变化、多页选择、所选 target 提交、错误保留输入和无候选阻止启动；桌面界面另验证 Escape 不关闭及 390px 无横向溢出。未验证真实模型与业务站点的完整探索、Electron 安装包和跨平台运行。
+
 - 2026-10-28（共享浏览器 PR 准备）：基于官方 `dev-1.1.0` 隔离共享浏览器改动，排除已合入的调试截断修复。公开 profile 预处理、Node 59 项、扩展与 Electron 338 项通过；Python 聚焦 66 项通过、1 项既有 URL 测试失败。启动时浏览器窗口直接显示的原因仍待定位，完整桌面与跨平台验收未完成，按 Draft 提交。
 
 - 2026-10-27（共享浏览器实现与本机验收）：[原方案](docs/shared_browser_implementation_plan.md) 已逐字节保存；[实施记录](docs/shared_browser_implementation_status.md) 记录实际范围与验收边界。Bridge 同时提供 Pipe 和本机动态 CDP，探索／调试／回放与独立 Toolkit command 共用受管实例；增加任务占用、跨入口页面协调、Toolkit 状态互斥、实例失效和顺序退出清理。Node 97 项、扩展 332 项、Electron 16 项通过；Python 全量 282 项通过、4 项跳过，仍有既有 OpenAI 完整 URL 拼接测试 1 项失败。CLI、Bridge、embedded 构建和 macOS arm64 的隔离真实调用闭环通过，覆盖无探索服务 Toolkit 调用、两条 Runner 入口、并发启动、页面复用／冲突、后台无业务页调用、取消和重启。完整 Electron 安装包、macOS x64、Windows x64／Edge 待验收；不迁移旧探索 Profile，不计为跨平台验收完成。
