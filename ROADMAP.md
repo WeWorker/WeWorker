@@ -1,5 +1,10 @@
 # WeWorker Roadmap
 
+- 2026-10-28（共享浏览器 PR 准备）：基于官方 `dev-1.1.0` 隔离共享浏览器改动，排除已合入的调试截断修复。公开 profile 预处理、Node 59 项、扩展与 Electron 338 项通过；Python 聚焦 66 项通过、1 项既有 URL 测试失败。启动时浏览器窗口直接显示的原因仍待定位，完整桌面与跨平台验收未完成，按 Draft 提交。
+
+- 2026-10-27（共享浏览器实现与本机验收）：[原方案](docs/shared_browser_implementation_plan.md) 已逐字节保存；[实施记录](docs/shared_browser_implementation_status.md) 记录实际范围与验收边界。Bridge 同时提供 Pipe 和本机动态 CDP，探索／调试／回放与独立 Toolkit command 共用受管实例；增加任务占用、跨入口页面协调、Toolkit 状态互斥、实例失效和顺序退出清理。Node 97 项、扩展 332 项、Electron 16 项通过；Python 全量 282 项通过、4 项跳过，仍有既有 OpenAI 完整 URL 拼接测试 1 项失败。CLI、Bridge、embedded 构建和 macOS arm64 的隔离真实调用闭环通过，覆盖无探索服务 Toolkit 调用、两条 Runner 入口、并发启动、页面复用／冲突、后台无业务页调用、取消和重启。完整 Electron 安装包、macOS x64、Windows x64／Edge 待验收；不迁移旧探索 Profile，不计为跨平台验收完成。
+  - 补充异常退出验收：测试命令完成一次本机提交后强制结束自有 Bridge，当前命令失败、浏览器随 Pipe 关闭退出；新调用恢复为新实例，提交没有重放，确认无探针 Bridge／浏览器残留。
+
 - 2026-10-28（正式 Adapter 调试输出与异常）：WebCLI 的两条 Toolkit 调用路径改用自然退出，等待管道中的大 JSON 输出完成并保留原退出码；网站探索agent的 Debug Worker 异常写入结果文件，写入失败时由进程管理器从日志恢复原始错误，避免只显示退出码。新增中文大结果成功／失败、异常落盘及错误优先级回归。验证：WebCLI 聚焦测试 15 项通过；Python 调试与进程管理测试 40 项通过、1 项模型完整 URL 测试失败，已在未修改的官方 dev-1.1.0 基线上复现相同失败；JS 语法与差异检查通过。未重跑真实站点、冻结运行时或安装包，Windows 未验证。
 
 - 2026-10-24（统一 Adapter 树删除 Tool）：桌面端删除 Tool 现在同时移除探索工作区 Tool 与生成的用户 Adapter 同名命令；草稿已删除时也可在已安装命令行直接删除，唯一命令明确提示并卸载整包。Backend 校验安装摘要、暂存 Tool 后调用安装器事务，安装失败恢复 Tool，完成后刷新目录与 Skill；同名内置包回退和非生成来源拒绝此入口。已同步未发布更新日志。验证：Python 存储与 API 聚焦 40 项、Backend 删除及安装评审 8 项、WebCLI 安装器 21 项、Renderer 网站探索 5 项通过；Backend 类型检查／构建、Renderer 构建、Python 编译、差异检查通过。未验证真实桌面流程；跨进程崩溃后遗留暂存需人工检查。

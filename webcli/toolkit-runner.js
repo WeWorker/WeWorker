@@ -39,6 +39,15 @@ function toolkitEnvironment(source = process.env) {
   env.PYTHONNOUSERSITE = "1";
   env.PYTHONDONTWRITEBYTECODE = "1";
   env.WEBWRIGHT_PARAMETERS_STDIN = "1";
+  env.WEWORKER_BROWSER_MANAGED = "1";
+  env.WEWORKER_TOOLKIT_PARENT_PID = String(process.pid);
+  env.WEWORKER_WEBCLI_NODE ||= process.execPath;
+  env.WEWORKER_WEBCLI_ENTRY ||= [
+    ...(env.WEWORKER_RESOURCES_PATH ? [join(env.WEWORKER_RESOURCES_PATH, "webcli", "webcli.cjs")] : []),
+    join(moduleDir, "webcli.cjs"), join(moduleDir, "index.js"),
+    join(moduleDir, "..", "webcli", "webcli.cjs"), join(moduleDir, "bridge.cjs"),
+  ].find(existsSync);
+  if (!env.WEWORKER_WEBCLI_ENTRY) throw new Error("宿主浏览器控制入口不可用。");
   return env;
 }
 
@@ -56,6 +65,15 @@ async function webcliVersion() {
 
 export async function runToolkitTool(match, parameters, options = {}) {
   const runtime = options.runtimePath || resolveToolkitRuntime(options);
+  // Historical exports carried their own launcher. Updating the host cannot
+  // replace those frozen sources, so reject known uncoordinated runtimes.
+  const legacyRuntime = join(dirname(match.adapter.entryPath), 'toolkit_runtime.py');
+  if (existsSync(legacyRuntime)) {
+    const source = await readFile(legacyRuntime, 'utf8');
+    if (source.includes('def launch_browser(') && !source.includes('WEWORKER_BROWSER_MANAGED')) {
+      throw Object.assign(new Error('此 Toolkit 自带旧浏览器运行时，请重新生成并安装后再调用；不会启动第二个浏览器。'), { code: 'TOOLKIT_RUNTIME_UPGRADE_REQUIRED' });
+    }
+  }
   const traceID = options.traceID || randomUUID().replace(/-/g, "").slice(0, 12);
   const startedAt = Date.now();
   const runtimeArgs = options.runtimeArgs || [];

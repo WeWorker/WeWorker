@@ -100,6 +100,7 @@ class LocalBrowserEnvironment:
         self._local_cdp_page = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._local_cdp_process: subprocess.Popen | None = None
+        self._managed_browser = None
         self._connected_over_cdp = False
         self._step_index = 0
         self._prepared_task: dict[str, Any] = {}
@@ -114,6 +115,7 @@ class LocalBrowserEnvironment:
         self._resume_target_id = ""
         self._resume_last_url = ""
         self._resume_last_title = ""
+        self._resume_browser_instance_id = ""
         self._start_url_ready = False
         self._last_url = ""
         self._last_title = ""
@@ -149,6 +151,7 @@ class LocalBrowserEnvironment:
         self._resume_target_id = str(kwargs.get("resume_target_id", "") or "")
         self._resume_last_url = str(kwargs.get("resume_last_url", "") or "")
         self._resume_last_title = str(kwargs.get("resume_last_title", "") or "")
+        self._resume_browser_instance_id = str(kwargs.get("resume_browser_instance_id", "") or "")
         self._page_target_id = ""
         self._page_selection_source = ""
         start_url = kwargs.get("start_url") or self.config.start_url
@@ -313,7 +316,15 @@ class LocalBrowserEnvironment:
         )
 
     async def _prepare_async(self) -> None:
+        try:
+            await self._prepare_connected_async()
+        except BaseException:
+            await self._close_async()
+            raise
+
+    async def _prepare_connected_async(self) -> None:
         from playwright.async_api import async_playwright
+        from webwright.tool_runtime.managed_browser import ManagedBrowser, managed_browser_enabled
 
         if self._page is not None and self._context is not None:
             return
@@ -330,7 +341,15 @@ class LocalBrowserEnvironment:
         }
 
         if self.config.browser_mode == "local_cdp":
-            self._ensure_local_cdp_browser()
+            if managed_browser_enabled():
+                self._managed_browser = ManagedBrowser()
+                await asyncio.to_thread(self._managed_browser.acquire, visible=True)
+                self._managed_browser.watch_current_task()
+                self.config.local_cdp_url = self._managed_browser.http_url
+                if self._resume_browser_instance_id and self._resume_browser_instance_id != self._managed_browser.descriptor["instanceId"]:
+                    raise RuntimeError("浏览器实例已变化，旧探索页面绑定已失效，请重新选择页面")
+            else:
+                self._ensure_local_cdp_browser()
             created_target = _ensure_local_cdp_page_target(self.config.local_cdp_url)
             self._browser = await chromium.connect_over_cdp(self.config.local_cdp_url)
             self._connected_over_cdp = True
@@ -415,7 +434,7 @@ class LocalBrowserEnvironment:
                     self._page = matched_page
                     self._page_selection_source = source
 
-            if self._page is None and (self.config.local_cdp_new_page or not self._context.pages):
+            if self._page is None and (self._managed_browser or self.config.local_cdp_new_page or not self._context.pages):
                 existing_ids = {
                     str(target.get("id", "") or "")
                     for target in _local_cdp_page_targets(self.config.local_cdp_url)
@@ -435,6 +454,8 @@ class LocalBrowserEnvironment:
                     self._page = self._context.pages[0]
                     self._page_selection_source = "first_existing_page"
                 await self._refresh_page_runtime_state()
+            if self._managed_browser:
+                await asyncio.to_thread(self._managed_browser.claim, self._page_target_id)
         elif self.config.browser_mode == "local_persistent":
             self.config.user_data_dir.mkdir(parents=True, exist_ok=True)
             self._context = await chromium.launch_persistent_context(
@@ -495,6 +516,8 @@ class LocalBrowserEnvironment:
         return self._run(self._execute_async(action))
 
     async def _execute_async(self, action: dict[str, Any]) -> dict[str, Any]:
+        if self._managed_browser:
+            self._managed_browser.watch_current_task()
         self._step_index += 1
         self._step_console = []
         self._step_python_output = ""
@@ -718,6 +741,8 @@ class LocalBrowserEnvironment:
             "last_title": self._last_title,
             "page_selection_source": self._page_selection_source,
         }
+        if self._managed_browser:
+            runtime_state["browser_instance_id"] = self._managed_browser.descriptor["instanceId"]
         if self._page is not None:
             try:
                 runtime_state["last_url"] = str(getattr(self._page, "url", "") or "")
@@ -776,5 +801,10 @@ class LocalBrowserEnvironment:
             elif browser is not None:
                 await browser.close()
         finally:
-            if playwright is not None:
-                await playwright.stop()
+            try:
+                if playwright is not None:
+                    await playwright.stop()
+            finally:
+                if self._managed_browser:
+                    await asyncio.to_thread(self._managed_browser.close)
+                    self._managed_browser = None

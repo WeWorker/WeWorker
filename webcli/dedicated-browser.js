@@ -20,7 +20,8 @@
  *   registered for an unpacked extension, across restarts and version changes.
  *   A changed extension build is therefore reinstalled once on start
  *   (`refreshChangedExtension`), carrying chrome.storage.local over.
- * - CDP runs over the inherited pipe (fd 3/4); no debugging port is opened.
+ * - Management CDP runs over the inherited pipe (fd 3/4). Python clients use
+ *   a loopback-only dynamic debugging port on the same browser.
  *   Chrome exits when that pipe closes, so a Bridge that dies (even when
  *   force-killed) leaves no browser behind.
  *
@@ -37,6 +38,8 @@ import { createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import http from 'node:http';
+import { BrowserLeases } from './browser-leases.js';
 import { capturePage } from './page-screenshot.js';
 
 export const BROWSER_INSTANCE_STORAGE_KEY = 'weworkerBrowserInstance';
@@ -125,6 +128,8 @@ export function buildBrowserArgs({ userDataDir }) {
   return [
     `--user-data-dir=${userDataDir}`,
     '--remote-debugging-pipe',
+    '--remote-debugging-port=0',
+    '--remote-debugging-address=127.0.0.1',
     // The pipe alone makes navigator.webdriver true, which sites such as jd.com treat as a bot.
     '--disable-blink-features=AutomationControlled',
     '--enable-unsafe-extension-debugging',
@@ -232,6 +237,37 @@ export function createCdpPipe(writable, readable, { timeoutMs = COMMAND_TIMEOUT_
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function localJson(port, pathname) {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 1000 }, response => {
+      let body = '';
+      response.on('data', data => { body += data; });
+      response.on('end', () => { try { resolve(JSON.parse(body)); } catch (error) { reject(error); } });
+    });
+    request.on('timeout', () => request.destroy(new Error('CDP discovery timed out')));
+    request.on('error', reject);
+  });
+}
+
+/** Verify a target created through our inherited pipe; stale discovery files cannot match it. */
+export async function discoverCdpEndpoint(userDataDir, targetId, { timeoutMs = READY_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const [portText, browserPath] = fs.readFileSync(path.join(userDataDir, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+      const port = Number(portText);
+      if (!Number.isInteger(port) || port < 1 || port > 65535 || !/^\/devtools\/browser\/[\w-]+$/.test(browserPath)) throw new Error('Invalid discovery file');
+      const pages = await localJson(port, '/json/list');
+      const version = await localJson(port, '/json/version');
+      if (pages.some(page => page.id === targetId) && new URL(version.webSocketDebuggerUrl).pathname === browserPath) {
+        return `ws://127.0.0.1:${port}${browserPath}`;
+      }
+    } catch { /* Startup and discovery can race; only return a verified endpoint. */ }
+    await wait(100);
+  }
+  throw new Error('无法确认本次 WeWorker 浏览器的 CDP 地址');
+}
 
 async function withTimeout(promise, ms, message) {
   let timer;
@@ -376,10 +412,13 @@ export class DedicatedBrowserManager {
     onStatusChange = () => {},
     /** Tests: () => digest of the extension build (default: hash the directory). */
     extensionDigest = null,
+    discoverEndpoint = discoverCdpEndpoint,
   } = {}) {
     this._log = log;
     this._extensionDir = extensionDir;
     this._extensionDigestOverride = extensionDigest;
+    this._discoverEndpoint = discoverEndpoint;
+    this._descriptor = null;
     this._browserHome = browserHome;
     this._userDataDir = path.join(browserHome, 'profile');
     this._instanceToken = instanceToken;
@@ -406,12 +445,30 @@ export class DedicatedBrowserManager {
 
   get userDataDir() { return this._userDataDir; }
   get isRunning() { return this._status === 'running' && !!this._cdp; }
+  get descriptor() { return this.isRunning ? this._descriptor : null; }
+
+  async pageIdentity(targetId) {
+    const { targetInfo } = await this._cdp.send('Target.getTargetInfo', { targetId });
+    if (targetInfo.type !== 'page') throw new Error('只能占用浏览器页面');
+    const { targetInfos } = await this._cdp.send('Target.getTargets');
+    const worker = targetInfos.find(target => target.type === 'service_worker' && target.url.startsWith(`chrome-extension://${this._extensionId}/`));
+    if (!worker) return { targetId, tabId: undefined };
+    const { sessionId } = await this._cdp.send('Target.attachToTarget', { targetId: worker.targetId, flatten: true });
+    try {
+      const { result } = await this._cdp.send('Runtime.evaluate', {
+        expression: 'chrome.debugger.getTargets().then(items => items.map(({id, tabId}) => ({id, tabId})))',
+        awaitPromise: true, returnByValue: true,
+      }, sessionId);
+      return { targetId, tabId: result.value?.find(item => item.id === targetId)?.tabId };
+    } finally { await this._cdp.send('Target.detachFromTarget', { sessionId }).catch(() => {}); }
+  }
 
   getStatus() {
     return {
       status: this._status,
       browser: this._browserName,
       extensionLoaded: !!this._extensionId,
+      cdpReady: !!this.descriptor,
       ...(this._detail ? { detail: this._detail } : {}),
     };
   }
@@ -474,6 +531,8 @@ export class DedicatedBrowserManager {
       this._extensionId = extensionId;
       // One off-screen window: tabs opened by the extension land here, later windows inherit its position.
       const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true });
+      const cdpUrl = await this._discoverEndpoint(this._userDataDir, targetId);
+      this._descriptor = { instanceId: randomBytes(16).toString('hex'), cdpUrl };
       const { windowId } = await cdp.send('Browser.getWindowForTarget', { targetId });
       this._windowId = windowId;
       await markExtensionInstance(cdp, extensionId, { kind: 'dedicated', token: this._instanceToken });
@@ -497,6 +556,7 @@ export class DedicatedBrowserManager {
   _handleExit(child, { code, signal, ready, startedAt }) {
     if (this._child !== child) return;
     this._child = null;
+    this._descriptor = null;
     this._cdp?.close();
     this._cdp = null;
     this._windowId = null;
@@ -775,6 +835,11 @@ export class BrowserHost {
     this._attached = new Set();
     this._idleTimer = null;
     this._listeners = new Set();
+    this.leases = new BrowserLeases();
+    this._acquiring = 0;
+    this._manualVisible = false;
+    this._changing = false;
+    this._shuttingDown = false;
   }
 
   get mode() { return this._modeState.mode; }
@@ -806,6 +871,7 @@ export class BrowserHost {
       ...(this._modeState.locked ? { modeLocked: true } : {}),
       ...browser,
       extensionConnected: !!this._isDedicatedConnected(),
+      activeTasks: this.leases.size,
     };
   }
 
@@ -815,6 +881,13 @@ export class BrowserHost {
   }
 
   notify() {
+    const instanceId = this._manager?.descriptor?.instanceId;
+    for (const [id, entry] of this.leases.entries) {
+      if (entry.instanceId !== instanceId) {
+        try { entry.client.send?.(JSON.stringify({ type: 'browser_lease_lost', leaseId: id })); } catch {}
+        this.leases.release(entry.client, id);
+      }
+    }
     const snapshot = this.status();
     for (const listener of this._listeners) {
       try { listener(snapshot); } catch {}
@@ -823,6 +896,7 @@ export class BrowserHost {
 
   /** Make the WeWorker 浏览器 extension available; a no-op (false) in system mode. */
   async ensureReady() {
+    this.assertStable();
     if (this.mode !== 'dedicated') return false;
     this.touch();
     if (this._isDedicatedConnected()) return true;
@@ -843,42 +917,47 @@ export class BrowserHost {
   touch() {
     if (this._idleTimer) clearTimeout(this._idleTimer);
     this._idleTimer = null;
-    if (!(this._idleStopMs > 0) || this._attached.size > 0) return;
+    if (!(this._idleStopMs > 0) || this._attached.size > 0 || this.leases.size > 0 || this._acquiring) return;
     this._idleTimer = setTimeout(() => { void this._stopWhenIdle(); }, this._idleStopMs);
     this._idleTimer.unref?.();
   }
 
   async _stopWhenIdle() {
     this._idleTimer = null;
-    if (this._attached.size > 0 || !this._manager?.isRunning) return;
+    if (this._attached.size > 0 || this.leases.size > 0 || this._acquiring || !this._manager?.isRunning) return;
     // The user may be signing in or reading a page.
     if (await this._manager.hasVisibleWindow()) {
       this.touch();
       return;
     }
+    if (this._attached.size || this.leases.size || this._acquiring || this._changing || this._shuttingDown) return;
     this._log('[browser] idle; stopping WeWorker browser');
-    await this._manager.stop();
+    await this.changeBrowser(() => this._manager.stop());
   }
 
   /** A client that keeps the browser running while connected (the desktop app). */
   attach(client) {
     this._attached.add(client);
     this.touch();
-    if (this.mode === 'dedicated') void this.manager.start();
+    if (this.mode === 'dedicated' && !this._changing && !this._shuttingDown) void this.manager.start();
   }
 
   detach(client) {
+    this.leases.detach(client);
+    this.touch();
     if (!this._attached.delete(client)) return;
     if (this._attached.size === 0) this.touch();
   }
 
   async setMode(mode) {
     if (this._modeState.locked) throw new Error('浏览器模式由环境变量 WEWORKER_BROWSER_MODE 固定，无法修改');
-    const next = writeBrowserMode(mode, { browserHome: this._browserHome });
-    this._modeState = { mode: next, locked: false };
-    if (next === 'system') await this._manager?.stop();
-    else if (this._attached.size > 0) void this.manager.start();
-    this.notify();
+    await this.changeBrowser(async () => {
+      const next = writeBrowserMode(mode, { browserHome: this._browserHome });
+      this._modeState = { mode: next, locked: false };
+      if (next === 'system') await this._manager?.stop();
+      else if (this._attached.size > 0) await this.manager.start();
+      this.notify();
+    });
   }
 
   /** Fixed control actions; no paths, URLs or executables are accepted from clients. */
@@ -893,24 +972,29 @@ export class BrowserHost {
         await this.setMode(params.mode);
         break;
       case 'start':
+        this.assertStable();
         if (this.mode !== 'dedicated') throw new Error('当前为「我自己的 Chrome」模式，不使用 WeWorker 浏览器');
         this.touch();
         await this.manager.start();
         break;
       case 'stop':
-        await this._manager?.stop();
+        await this.changeBrowser(() => this._manager?.stop());
         break;
       case 'restart':
         if (this.mode !== 'dedicated') throw new Error('当前为「我自己的 Chrome」模式，不使用 WeWorker 浏览器');
         this.touch();
-        await this.manager.restart();
+        await this.changeBrowser(() => this.manager.restart());
         break;
       case 'show':
+        this.assertStable();
         if (this.mode !== 'dedicated') throw new Error('当前为「我自己的 Chrome」模式，不使用 WeWorker 浏览器');
         this.touch();
         await this.manager.show();
+        this._manualVisible = true;
         break;
       case 'hide':
+        if (this.leases.visible || (params.soft && this._manualVisible)) break;
+        this._manualVisible = false;
         // Never starts a browser just to hide it.
         if (this._manager?.isRunning) await this._manager.hide();
         break;
@@ -921,6 +1005,7 @@ export class BrowserHost {
   }
 
   async shutdown() {
+    this._shuttingDown = true;
     if (this._idleTimer) clearTimeout(this._idleTimer);
     this._idleTimer = null;
     await this._manager?.stop();
@@ -940,7 +1025,42 @@ export class BrowserHost {
   }
 
   async hideWindows() {
+    if (this.leases.visible || this._manualVisible) return;
     if (this._manager?.isRunning) await this._manager.hide();
+  }
+
+  assertIdle() {
+    if (this.leases.size || this._acquiring) throw Object.assign(new Error('浏览器有正在执行的任务，请等待任务结束'), { code: 'BROWSER_BUSY' });
+  }
+
+  assertStable() {
+    if (this._changing || this._shuttingDown) throw Object.assign(new Error('浏览器正在停止或切换，请稍后重新发起任务'), { code: 'BROWSER_BUSY' });
+  }
+
+  async changeBrowser(operation) {
+    this.assertStable();
+    this.assertIdle();
+    this._changing = true;
+    try { return await operation(); }
+    finally { this._changing = false; }
+  }
+
+  async acquire(client, params = {}) {
+    this.assertStable();
+    if (this.mode !== 'dedicated') throw Object.assign(new Error('此操作需要 CDP，请切换到「WeWorker 浏览器」模式'), { code: 'BROWSER_MODE_REQUIRED' });
+    this._acquiring++;
+    let lease;
+    try {
+      await this.manager.start();
+      const descriptor = this.manager.descriptor;
+      if (!descriptor) throw new Error('WeWorker 浏览器 CDP 未就绪');
+      lease = this.leases.acquire(client, descriptor, params);
+      if (params.visible) { await this.manager.show(); this._manualVisible = true; }
+      return lease;
+    } catch (error) {
+      if (lease) this.leases.release(client, lease.leaseId);
+      throw error;
+    } finally { this._acquiring--; this.touch(); }
   }
 
   async screenshot(url) {

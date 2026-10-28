@@ -708,6 +708,8 @@ export class WebSocketBridge extends EventEmitter {
                 this._routeWorkerRequest(msg, ws, () => this._handleCancelGenerationRun(msg, ws));
               } else if (msg.type === 'publish_generation_run') {
                 this._routeWorkerRequest(msg, ws, () => this._handlePublishGenerationRun(msg, ws));
+              } else if (msg.type === 'shared_browser') {
+                void this._handleSharedBrowser(msg, ws);
               } else if (msg.type === 'browser_control') {
                 if (ws._browserConnection) throw profileError('LOCAL_CLIENT_REQUIRED', 'Extension connections cannot submit browser control commands.');
                 this._handleBrowserControl(msg, ws);
@@ -875,7 +877,9 @@ export class WebSocketBridge extends EventEmitter {
       const create = async () => {
         const module = await import(namespace === 'browser' ? './browser-service.js' : './exploration-service.js');
         const Service = namespace === 'browser' ? module.BrowserService : module.ExplorationService;
-        if (!this._profileLocks.has(route.contextId)) this._profileLocks.set(route.contextId, new TabOperationLocks());
+        if (!this._profileLocks.has(route.contextId)) this._profileLocks.set(route.contextId, new TabOperationLocks({
+          externallyBusy: tabId => route.connection?.instance === 'dedicated' && !!this._browserHost?.leases.hasTab(tabId),
+        }));
         return new Service({ rootDir: this._profiles.serviceRoot(route, namespace), readOnly: route.readOnly,
           tabLocks: this._profileLocks.get(route.contextId), requestExtension: (message, timeout) => this._request(message, timeout),
           capabilities: () => {
@@ -2064,10 +2068,50 @@ export class WebSocketBridge extends EventEmitter {
         reply({ ok: true, browser: this._browser().status(), skipped: 'login_waiting' });
         return;
       }
-      const browser = await this._browser().control(String(msg.action || ''), { mode: msg.mode }, ws);
+      const browser = await this._browser().control(String(msg.action || ''), { mode: msg.mode, ...(msg.soft !== undefined ? { soft: msg.soft === true } : {}) }, ws);
       reply({ ok: true, browser });
     } catch (err) {
       reply({ ok: false, error: err.message, browser: this._browser().status() });
+    }
+  }
+
+  async _handleSharedBrowser(msg, ws) {
+    const host = this._browser();
+    const params = msg.params || {};
+    try {
+      const extension = ws._browserConnection;
+      if (!extension && ws._explorationLocal !== true) throw new Error('浏览器控制仅允许本机客户端');
+      if (extension && extension.instance !== 'dedicated') throw new Error('仅受管浏览器可协调 CDP 页面');
+      let data;
+      if (msg.action === 'status') {
+        data = { ...host.status(), ...(host.manager.descriptor || {}) };
+      } else if (msg.action === 'acquire') {
+        data = await host.acquire(ws, { resource: String(params.resource || ''), visible: params.visible === true });
+        // A socket may close while the browser is starting.
+        if (ws.readyState !== 1) { host.detach(ws); return; }
+      } else if (msg.action === 'release') {
+        host.leases.release(ws, params.leaseId);
+        host.touch();
+        data = {};
+      } else if (msg.action === 'claim') {
+        const entry = host.leases.get(ws, params.leaseId, host.manager.descriptor?.instanceId);
+        const identity = await host.manager.pageIdentity(String(params.targetId || ''));
+        // A browser.* operation already holds its own profile lock. Ordinary
+        // Extension commands and Python callers must also respect that lock.
+        if (!(extension && params.profileOperation === true) && identity.tabId !== undefined) {
+          for (const connection of this._profiles.connections.values()) {
+            if (connection.instance === 'dedicated' && this._profileLocks.get(connection.contextId)?.leases.has(identity.tabId)) {
+              throw Object.assign(new Error('页面正在被浏览器命令使用'), { code: 'TAB_BUSY' });
+            }
+          }
+        }
+        host.leases.get(ws, params.leaseId, host.manager.descriptor?.instanceId);
+        host.leases.claim(entry, identity.targetId, identity.tabId);
+        data = identity;
+      } else throw new Error('Unknown shared browser action');
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'shared_browser_result', id: msg.id, ok: true, data }));
+    } catch (error) {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'shared_browser_result', id: msg.id, ok: false, error: { code: error.code || 'SHARED_BROWSER_FAILED', message: error.message } }));
     }
   }
 

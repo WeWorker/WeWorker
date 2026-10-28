@@ -133,3 +133,9 @@ WeWorker 将 Webwright 作为内置伴生服务和标准 Skill 的 Python/Playwr
 - Windows x64、macOS x64 实机验证。
 - 实现并验收 `full` 原生命令、标准 Skill 发现与 `webcli call` 统一 Adapter 入口复用 embedded Runtime。
 - 面向普通用户公开发布所需的 Developer ID 签名、Apple notarization 和自动更新规则变更。
+
+## 共享浏览器合同补充（2026-10-27）
+
+以 [共享浏览器实施方案](shared_browser_implementation_plan.md) 为本次浏览器资源与生命周期的实施基线。Bridge 唯一启动 WeWorker 浏览器，保留 CDP Pipe 并提供本机动态 CDP WebSocket；探索、调试、回放与独立 Toolkit Runtime 获取实例和占用后直连。托管模式禁止 Python 自行拉起另一浏览器；只读状态查询不启动浏览器。两类 Adapter 保持独立 Runner。
+
+「我自己的 Chrome」模式保留 Extension 能力，需要 CDP 的调用提示切换模式。共用现有 WeWorker Profile，旧探索 Profile 保留且不迁移；任务结束仅释放自身资源，应用退出先停止任务，再清理自身拥有的 Bridge／浏览器。Python 通过宿主注入的内部 WebCLI 控制通道获取地址，不读取浏览器 Profile 或宿主设置。

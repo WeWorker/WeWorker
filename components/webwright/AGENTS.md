@@ -13,6 +13,7 @@
 - 当前只关注 `local_browser + local_cdp` 模式，其他模式不作为默认维护范围。
 - Python 环境由 `uv` 管理；在本目录执行 Python 命令时使用 `uv run python`，不要使用系统 `pip` 修改环境。
 - 持久数据固定写入 `~/.weworker/webwright/`；不得读取、迁移或清理旧 `~/.webwright`。
+- WeWorker 托管模式统一通过宿主 WebCLI 控制通道获取 Bridge 浏览器实例、任务占用和页面锁；每次执行获取当前地址，禁止 Python 自行启动另一浏览器。状态查询不拉起浏览器，Toolkit 普通调用不依赖探索服务。
 
 ## 验证
 

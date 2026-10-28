@@ -103,6 +103,83 @@ class FakePlaywrightManager:
         return self.playwright
 
 
+def test_managed_session_uses_host_endpoint_claims_page_and_releases(tmp_path, monkeypatch):
+    from webwright.tool_runtime import toolkit_runtime as managed_browser
+    calls = []
+
+    class Control:
+        descriptor = {"instanceId": "fixture-instance"}
+        def acquire(self, **params):
+            calls.append(("acquire", params))
+            return "http://127.0.0.1:9222"
+
+        def watch_current_task(self):
+            pass
+
+        def claim(self, target_id):
+            calls.append(("claim", target_id))
+
+        def close(self):
+            calls.append(("close", None))
+
+    monkeypatch.setenv("WEWORKER_BROWSER_MANAGED", "1")
+    monkeypatch.setattr(managed_browser, "ManagedBrowser", Control)
+    playwright = FakePlaywright(FakeBrowser(FakeContext([])))
+    session = ToolkitBrowserSession(runtime_store=FileRuntimeStore(tmp_path / "runtime.json"),
+        allowed_domains=["example.com"], cdp_url="http://127.0.0.1:1",
+        playwright_factory=lambda: FakePlaywrightManager(playwright))
+
+    async def scenario():
+        try:
+            await session.open({"start_url": "https://example.com/"})
+            assert calls[0][0] == "acquire"
+            assert calls[0][1]["resource"].startswith("toolkit:")
+            assert calls[1] == ("claim", "new-target")
+        finally:
+            await session.close()
+
+    asyncio.run(scenario())
+    assert calls[-1][0] == "close"
+    assert playwright.stopped
+
+
+def test_managed_connection_failure_never_launches_a_second_browser(tmp_path, monkeypatch):
+    from webwright.tool_runtime import toolkit_runtime as managed_browser
+    launches = []
+    closed = []
+
+    class Control:
+        def acquire(self, **_kwargs):
+            return "http://127.0.0.1:9222"
+        def watch_current_task(self):
+            pass
+        def close(self):
+            closed.append(True)
+
+    class BrokenChromium:
+        async def connect_over_cdp(self, _url):
+            raise RuntimeError("fixture disconnected")
+
+    monkeypatch.setenv("WEWORKER_BROWSER_MANAGED", "1")
+    monkeypatch.setattr(managed_browser, "ManagedBrowser", Control)
+    playwright = FakePlaywright(FakeBrowser(FakeContext([])))
+    playwright.chromium = BrokenChromium()
+    session = ToolkitBrowserSession(runtime_store=FileRuntimeStore(tmp_path / "runtime.json"),
+        allowed_domains=["example.com"], playwright_factory=lambda: FakePlaywrightManager(playwright),
+        browser_launcher=lambda *_args: launches.append(True))
+
+    async def scenario():
+        try:
+            with pytest.raises(RuntimeRecoveryError, match="不会启动另一个"):
+                await session.open({"start_url": "https://example.com/"})
+        finally:
+            await session.close()
+
+    asyncio.run(scenario())
+    assert launches == []
+    assert closed == [True]
+
+
 def _store(tmp_path: Path) -> ToolkitStore:
     store = ToolkitStore(tmp_path / "toolkits")
     store.create_toolkit(name="blog_admin", allowed_domains=["blog.example.com"])

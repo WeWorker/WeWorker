@@ -2658,7 +2658,41 @@ function connectToNativeHost() {
 
 // ─── 处理来自 Native Host 的消息 ───────────────────────────────────────────
 
+async function sharedBrowserRequest(action, params) {
+  const reply = await requestBridge({ type: 'shared_browser', action, params }, 45000);
+  if (!reply.ok) throw Object.assign(new Error(reply.error?.message || reply.error || '共享浏览器协调失败'), { code: reply.error?.code || 'BROWSER_CONTROL_FAILED' });
+  return reply.data;
+}
+
+async function claimSharedPage(tabId, profileOperation = false, commandLease = null) {
+  if (!browserInstanceHelloFields().instanceToken) return async () => {};
+  const target = (await chrome.debugger.getTargets()).find(item => item.tabId === tabId);
+  if (!target) throw new Error('找不到页面的 CDP 身份');
+  const lease = commandLease || await sharedBrowserRequest('acquire', {});
+  try {
+    await sharedBrowserRequest('claim', { leaseId: lease.leaseId, targetId: target.id, profileOperation });
+  } catch (error) {
+    if (!commandLease) await sharedBrowserRequest('release', { leaseId: lease.leaseId }).catch(() => {});
+    throw error;
+  }
+  return commandLease ? async () => {} : () => sharedBrowserRequest('release', { leaseId: lease.leaseId });
+}
+
 async function handleNativeMessage(msg) {
+  // Profile-level exploration operations already own their Bridge tab lock.
+  const coordinated = Number.isInteger(msg.tabId) && (msg.type.startsWith('exploration_')
+    || ['browser_state', 'browser_network', 'browser_eval', 'browser_analyze', 'browser_explore_workflow', 'browser_action_capture_workflow'].includes(msg.type));
+  if (!coordinated) return handleNativeMessageInternal(msg);
+  let release;
+  try {
+    release = await claimSharedPage(msg.tabId, true);
+    return await handleNativeMessageInternal(msg);
+  } catch (error) {
+    sendToNative({ type: 'call_tool_error', id: msg.id, error: error.message, code: error.code });
+  } finally { await release?.().catch(() => {}); }
+}
+
+async function handleNativeMessageInternal(msg) {
   if (msg.type === 'http_credentials') {
     console.log('[WebMCP] <- native: http_credentials', { id: msg.id });
   } else if (msg.type === 'validate_generation_preview') {
@@ -2674,7 +2708,8 @@ async function handleNativeMessage(msg) {
   }
 
   if (
-    msg.type === "adapter_catalog_result"
+    msg.type === 'shared_browser_result'
+    || msg.type === "adapter_catalog_result"
     || msg.type === "adapter_bundle_result"
     || msg.type === "write_adapter_file_result"
     || msg.type === "generate_adapter_with_ai_result"
@@ -2752,7 +2787,10 @@ async function handleNativeMessage(msg) {
     console.log(`${tracePrefix}[WebMCP] <- native: call_tool ${toolName}`);
     traceLog(traceID, `[ServiceWorker] 收到 call_tool: ${toolName}`);
     let selectedManifest = null;
+    let releaseSharedPage;
+    let commandLease;
     try {
+      if (browserInstanceHelloFields().instanceToken) commandLease = await sharedBrowserRequest('acquire', {});
       const selected = await getHostAdapterClient().tool(toolName);
       if (selected.managed) selectedManifest = selected.manifest;
       if (msg.adapterSnapshot && (!selected.managed || msg.adapterSnapshot.name !== selected.manifest.name
@@ -2815,7 +2853,13 @@ async function handleNativeMessage(msg) {
           // HTTP is the neutral managed-page entry: HTTPS-only sites redirect themselves,
           // while internal sites that do not serve HTTPS remain reachable.
           const startUrl = assertAdapterNavigationUrl(selected.manifest, 'http://' + route + '/');
-          tab = await createBrowserTab({ url: startUrl, active: false });
+          if (commandLease) {
+            tab = await createBrowserTab({ url: 'about:blank', active: false });
+            releaseSharedPage = await claimSharedPage(tab.id, false, commandLease);
+            await chrome.tabs.update(tab.id, { url: startUrl });
+          } else {
+            tab = await createBrowserTab({ url: startUrl, active: false });
+          }
           // Learn where the site sends this host (regional or brand domains) before the first call.
           const landed = await waitForManagedPageReady(tab.id, selected.manifest, true, 25000);
           managedRouteRedirects.note(selected.manifest, startUrl, landed);
@@ -2823,6 +2867,7 @@ async function handleNativeMessage(msg) {
         }
         // All managed foreground commands, including pageWrite/uiWrite, become the
         // target of a following capture_screenshot call.
+        releaseSharedPage = await claimSharedPage(tab.id, false, commandLease);
         screenshotToolTabs.note(tab.id);
         if (selected.command.pageWrite || selected.command.uiWrite) {
           const connection = ws, request = (selected.command.uiWrite ? uiWriteRequest : pageWriteRequest)(selected.command, args || {}), deadline = Date.now() + 30000;
@@ -2927,6 +2972,7 @@ async function handleNativeMessage(msg) {
       }
       traceLog(traceID, `[ServiceWorker] 路由到 tab ${tabId}`);
 
+      releaseSharedPage = await claimSharedPage(tabId, false, commandLease);
       const result = await callToolInTab(tabId, handlerName, validatedArgs, traceID);
       const resultError = getToolErrorResultMessage(result);
       if (resultError) throw new Error(resultError);
@@ -2945,6 +2991,9 @@ async function handleNativeMessage(msg) {
         traceID,
       });
       traceLog(traceID, `[ServiceWorker] call_tool 错误: ${err.message}${err?.code ? ` (${err.code})` : ''}`);
+    } finally {
+      await releaseSharedPage?.().catch(() => {});
+      if (commandLease) await sharedBrowserRequest('release', { leaseId: commandLease.leaseId }).catch(() => {});
     }
 
   } else if (msg.type === 'auth_open_login') {
@@ -3470,9 +3519,15 @@ async function handleNativeMessage(msg) {
     const operation = () => executeBrowserCommand(msg, { chrome, ensureCdpAttached, cdpEvaluate, getCdpNetworkSnapshot, onBrowserDetach: clearBrowserDebuggerState });
     // Read-only download observers must not block the click they are observing.
     const observer = ['dialog', 'downloads', 'events'].includes(msg.command) || (msg.command === 'wait' && msg.args?.kind === 'download');
-    const result = Number.isInteger(msg.tabId) && !observer
-      ? await getHostAdapterRuntime().exclusive(msg.tabId, operation) : await operation();
-    sendToNative({ type: 'call_tool_result', id: msg.id, result });
+    let release;
+    try {
+      if (Number.isInteger(msg.tabId) && !observer) release = await claimSharedPage(msg.tabId, true);
+      const result = Number.isInteger(msg.tabId) && !observer
+        ? await getHostAdapterRuntime().exclusive(msg.tabId, operation) : await operation();
+      sendToNative({ type: 'call_tool_result', id: msg.id, result });
+    } catch (error) {
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: { ok: false, error: { code: error.code || 'BROWSER_OPERATION_FAILED', message: error.message } } });
+    } finally { await release?.().catch(() => {}); }
   } else if (msg.type === 'browser_state') {
     try {
       const tabId = await getExplorationTabId(msg.tabId);

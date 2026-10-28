@@ -48,6 +48,7 @@ WeWorker 是桌面端 AI 工作助手项目，包含 Electron 桌面端、TypeSc
 - Renderer 不得向主进程传入网站探索agent URL；只允许调用固定的 `openwebwright()` IPC 能力。
 - macOS 关闭最后一个窗口不等于退出应用；网站探索agent继续运行到应用真正退出。
 - Toolkit Skill 只使用 `webcli call <adapter-id>.<tool-id>`，不得生成或打包 `webcli-py`/`webcli-py.cmd`；WebCLI 不按业务 Schema 转换参数类型。
+- 共享浏览器遵守 `docs/shared_browser_implementation_plan.md`：Bridge 唯一启动受管浏览器，Python 托管入口通过宿主 WebCLI 获取实例和占用，再以本机 CDP 连接；禁止连接失败时另起浏览器。Toolkit 普通调用不依赖探索服务，Extension 与 Toolkit 保持独立 Runner。Python 不读取浏览器 Profile 或宿主设置；旧探索 Profile 不迁移、不清理。
 
 ## 敏感信息约束
 

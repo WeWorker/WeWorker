@@ -46,6 +46,23 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+test('dedicated page creation claims the target before navigating and releases the command lease', async () => {
+  const manifest = { name: 'example.com', match: ['example.com'], _hostSnapshot: { profile: 'public', digest: 'fixture' },
+    commands: [{ id: 'read', runtime: 'extension', safety: 'read' }] };
+  const worker = loadServiceWorker({ managedCatalog: { available: true, managedNames: [manifest.name], adapters: [manifest] } });
+  const events = [];
+  worker.context.browserInstanceHelloFields = () => ({ instanceToken: 'fixture' });
+  worker.context.sharedBrowserRequest = async action => { events.push(action); return { leaseId: 'fixture-lease' }; };
+  worker.context.claimSharedPage = async () => { events.push('claim'); return async () => {}; };
+  const tabs = worker.context.chrome.tabs;
+  const create = tabs.create, update = tabs.update;
+  tabs.create = async props => { events.push('create:' + props.url); return create(props); };
+  tabs.update = async (id, props) => { events.push('navigate:' + props.url); return update(id, props); };
+  await worker.callNativeTool('example.com.read');
+  assert.deepEqual(events.slice(0, 4), ['acquire', 'create:about:blank', 'claim', 'navigate:http://example.com/']);
+  assert.equal(events.at(-1), 'release');
+});
+
 function makeEvent() {
   const listeners = [];
   return {

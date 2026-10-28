@@ -224,6 +224,7 @@ export class WebwrightManager {
         ...buildWebwrightEnvironment(process.env, this._webwrightHome),
         WEWORKER_USER_FILES_DIR: this._userFilesDir,
         WEWORKER_WEBCLI_NODE: process.execPath,
+      WEWORKER_BROWSER_MANAGED: '1',
         WEWORKER_WEBCLI_ENTRY: this._isPackaged
           ? path.join(this._resourcesPath, 'webcli', 'webcli.cjs')
           : path.join(this._repoRoot, 'webcli', 'index.js'),

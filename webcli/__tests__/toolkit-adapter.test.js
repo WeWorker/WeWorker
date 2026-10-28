@@ -342,12 +342,24 @@ process.stdin.on('end', () => {
       .toThrow("Toolkit Runtime 不可用");
   });
 
+  it("rejects a historical self-launching runtime before spawning it", async () => {
+    const fixture = await createToolkit();
+    writeFileSync(join(fixture.adapterRoot, 'scripts', 'toolkit_runtime.py'), 'def launch_browser(url):\n    pass\n');
+    await expect(runToolkitTool({ adapter: { root: fixture.adapterRoot, entryPath: join(fixture.adapterRoot, 'scripts', 'toolkit.py') },
+      tool: { id: 'search-blog', name: 'blog-admin.search-blog' } }, {}, { runtimePath: process.execPath }))
+      .rejects.toMatchObject({ code: 'TOOLKIT_RUNTIME_UPGRADE_REQUIRED' });
+  });
+
   it("isolates Python environment variables without changing argument types", () => {
     expect(toolkitEnvironment({ PYTHONHOME: "x", PYTHONPATH: "y", KEEP: "yes" })).toEqual({
       KEEP: "yes",
       PYTHONNOUSERSITE: "1",
       PYTHONDONTWRITEBYTECODE: "1",
       WEBWRIGHT_PARAMETERS_STDIN: "1",
+      WEWORKER_BROWSER_MANAGED: "1",
+      WEWORKER_TOOLKIT_PARENT_PID: String(process.pid),
+      WEWORKER_WEBCLI_NODE: process.execPath,
+      WEWORKER_WEBCLI_ENTRY: expect.stringMatching(/index\.js$/),
     });
   });
 });

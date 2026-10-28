@@ -13,6 +13,7 @@ import {
   browserExecutableCandidates,
   buildBrowserArgs,
   createCdpPipe,
+  discoverCdpEndpoint,
   extensionBuildDigest,
   findBrowserExecutable,
   readLoadedExtensionBuild,
@@ -27,6 +28,51 @@ import {
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-browser-test-'))
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test('CDP discovery rejects a stale file pointing at a different live browser', async () => {
+  const { createServer } = await import('node:http')
+  const root = tempDir()
+  let identity = 'other-browser-page'
+  const server = createServer((req, res) => res.end(JSON.stringify(req.url === '/json/list'
+    ? [{ id: identity }]
+    : { webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/devtools/browser/fixture` })))
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  fs.writeFileSync(path.join(root, 'DevToolsActivePort'), `${server.address().port}\n/devtools/browser/fixture\n`)
+  try {
+    await assert.rejects(discoverCdpEndpoint(root, 'owned-page', { timeoutMs: 100 }), /无法确认/)
+    identity = 'owned-page'
+    assert.match(await discoverCdpEndpoint(root, identity), /^ws:\/\/127\.0\.0\.1:/)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+})
+
+test('concurrent Python leases launch once, do not wait for the extension, and block stop until released', async () => {
+  const fixture = manager()
+  const host = new BrowserHost({ env: { WEWORKER_BROWSER_MODE: 'dedicated' }, browserHome: fixture.browserHome,
+    createManager: () => fixture.instance, isDedicatedConnected: () => false, idleStopMs: 0 })
+  const a = { readyState: 1 }, b = { readyState: 1 }
+  const pending = host.acquire(a)
+  await assert.rejects(host.control('stop'), /正在执行/)
+  const [first, second] = await Promise.all([pending, host.acquire(b)])
+  assert.equal(fixture.launches.length, 1)
+  assert.equal(first.instanceId, second.instanceId)
+  assert.equal(host.status().extensionConnected, false)
+  await assert.rejects(host.control('restart'), /正在执行/)
+  host.detach(a)
+  assert.equal(host.leases.size, 1)
+  host.detach(b)
+  await host.control('stop')
+  await host.shutdown()
+})
+
+test('system mode rejects CDP consumers without launching or changing mode', async () => {
+  let launches = 0
+  const host = new BrowserHost({ env: { WEWORKER_BROWSER_MODE: 'system' }, browserHome: tempDir(),
+    createManager: () => { launches++; throw new Error('must not launch') } })
+  await assert.rejects(host.acquire({ readyState: 1 }), error => error.code === 'BROWSER_MODE_REQUIRED')
+  assert.equal(launches, 0)
+  assert.equal(host.mode, 'system')
+  await host.shutdown()
+})
 
 /**
  * Fake browser process: answers CDP requests written to fd 3 on fd 4.
@@ -108,6 +154,7 @@ function manager(options = {}) {
     browserHome,
     extensionDir: 'extensionDir' in options ? options.extensionDir : 'C:/weworker-fixtures/extension',
     instanceToken: 'fixture-instance-token-0123456789abcdef',
+    discoverEndpoint: async () => 'ws://127.0.0.1:12345/devtools/browser/fixture',
     platform: 'win32',
     findExecutable: options.findExecutable ?? (() => ({ path: 'C:/weworker-fixtures/chrome.exe', name: 'Chrome' })),
     spawn: (command, args, spawnOptions) => {
@@ -164,7 +211,9 @@ test('launch flags use a private profile, the CDP pipe and an off-screen window'
     assert.ok(args.includes(flag), flag)
   }
   assert.ok(args.includes(`--window-position=${OFFSCREEN_POSITION},${OFFSCREEN_POSITION}`))
-  assert.equal(args.some((arg) => arg.startsWith('--remote-debugging-port') || arg.startsWith('--load-extension')), false)
+  assert.ok(args.includes('--remote-debugging-port=0'))
+  assert.ok(args.includes('--remote-debugging-address=127.0.0.1'))
+  assert.equal(args.some((arg) => arg.startsWith('--load-extension')), false)
 })
 
 test('launch flags keep navigator.webdriver false despite the CDP pipe', () => {
@@ -240,7 +289,7 @@ test('marks the extension from inside its service worker, waiting for it to be r
 test('starts the browser off-screen with the extension and its instance marker, then stops it gracefully', async () => {
   const { instance, launches, killed, statuses } = manager()
   const status = await instance.start()
-  assert.deepEqual(status, { status: 'running', browser: 'Chrome', extensionLoaded: true })
+  assert.deepEqual(status, { status: 'running', browser: 'Chrome', extensionLoaded: true, cdpReady: true })
   const [{ browser, spawnOptions, args }] = launches
   assert.deepEqual(spawnOptions.stdio, ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'])
   assert.equal(spawnOptions.detached, false)
@@ -425,7 +474,7 @@ test('restarts after the browser exits and gives up after repeated failed starts
   const broken = manager({ browsers: Array.from({ length: 8 }, failing) })
   await broken.instance.start()
   await sleep(150)
-  assert.deepEqual(broken.instance.getStatus(), { status: 'error', browser: 'Chrome', extensionLoaded: false, detail: 'extension rejected' })
+  assert.deepEqual(broken.instance.getStatus(), { status: 'error', browser: 'Chrome', extensionLoaded: false, cdpReady: false, detail: 'extension rejected' })
   assert.equal(broken.launches.length, 5)
   await broken.instance.stop()
 })
@@ -507,7 +556,7 @@ test('dedicated mode starts the browser on demand and waits for its extension', 
   // Already connected: no second start.
   assert.equal(await instance.ensureReady(), true)
   assert.deepEqual(fake.calls, ['start'])
-  assert.deepEqual(instance.status(), { mode: 'dedicated', modeLocked: true, status: 'running', browser: 'Chrome', extensionLoaded: true, extensionConnected: true })
+  assert.deepEqual(instance.status(), { mode: 'dedicated', modeLocked: true, status: 'running', browser: 'Chrome', extensionLoaded: true, extensionConnected: true, activeTasks: 0 })
 })
 
 test('ensureReady explains why the browser is not usable', async () => {
