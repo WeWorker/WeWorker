@@ -798,11 +798,12 @@ async function cmdCall(toolName, argsStr, options = {}) {
           ? { ...completed.result, trace_id: completed.traceID }
           : { result: completed.result, trace_id: completed.traceID };
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
-        process.exit(completed.exitCode);
+        process.exitCode = completed.exitCode;
       } catch (error) {
         console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
-        process.exit(1);
+        process.exitCode = 1;
       }
+      return;
     }
     // v2 extension 命令：走 Bridge 转发，toolName = <name>.<command-id>（extension loader v2 负责注入）
   }
@@ -826,11 +827,12 @@ async function cmdCall(toolName, argsStr, options = {}) {
         ? { ...completed.result, trace_id: completed.traceID }
         : { result: completed.result, trace_id: completed.traceID };
       console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
-      process.exit(completed.exitCode);
+      process.exitCode = completed.exitCode;
     } catch (error) {
       console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
-      process.exit(1);
+      process.exitCode = 1;
     }
+    return;
   }
 
   await ensureBridgeRunning();
