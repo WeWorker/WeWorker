@@ -477,3 +477,52 @@ def test_debug_run_http_api_and_publish_eligibility(tmp_path: Path) -> None:
         "/api/toolkits/blog_admin/tools/search_blog/development"
     ).get_json()["publish_eligible"] is True
     assert "/api/debug-runs/{debug_run_id}" in client.get("/api/openapi.json").get_json()["paths"]
+
+
+@pytest.mark.parametrize("writable_result", [True, False])
+def test_debug_worker_persists_unexpected_error(monkeypatch, tmp_path: Path, capsys, writable_result: bool) -> None:
+    spec_path = tmp_path / "debug_spec.json"
+    result_path = tmp_path / "result.json"
+    atomic_write_json(spec_path, {"result_path": str(result_path)})
+
+    async def fail(spec):
+        json.loads('{"data": "unfinished')
+
+    monkeypatch.setattr(tool_debug, "run_debug", fail)
+    if not writable_result:
+        def fail_write(*args):
+            raise OSError("Fixture write failure")
+        monkeypatch.setattr(tool_debug, "atomic_write_json", fail_write)
+    assert tool_debug.main(["--spec", str(spec_path)]) == 1
+    logged = json.loads(capsys.readouterr().err)
+    assert "Unterminated string" in logged["error"]
+    if not writable_result:
+        assert not result_path.exists()
+        return
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert saved["ok"] is False
+    assert "Unterminated string" in saved["error"]
+    assert logged["error"] == saved["error"]
+
+
+@pytest.mark.parametrize("result_error,log_error,timed_out,expected", [
+    (None, "Invalid CLI JSON", False, "Invalid CLI JSON"),
+    ("Result error", "Log error", False, "Result error"),
+    (None, None, False, "Debug process exited with code 1."),
+    (None, "Log error", True, "Debug Run timed out."),
+])
+def test_finish_debug_recovers_worker_error_from_log(tmp_path: Path, result_error, log_error, timed_out, expected) -> None:
+    toolkits, debug_runs = _stores(tmp_path)
+    manager = ProcessManager(store=TaskStore(tmp_path / "tasks"), toolkit_store=toolkits, debug_store=debug_runs)
+    run = debug_runs.create(tool_id="search_blog", channel="development", code_hash="sha256:fixture", parameters={})
+    run_dir = debug_runs.run_dir("search_blog", run["debug_run_id"])
+    if log_error:
+        (run_dir / "process.log").write_text(
+            'worker_started\n' + json.dumps({"ok": False, "error": log_error}) + '\nworker_exited\n', encoding="utf-8"
+        )
+    if result_error:
+        atomic_write_json(run_dir / "result.json", {"ok": False, "error": result_error})
+    manager._finish_debug(run["debug_run_id"], 1, timed_out=timed_out)
+    saved = debug_runs.read(run["debug_run_id"])
+    assert saved["status"] == "failed"
+    assert saved["error"] == expected

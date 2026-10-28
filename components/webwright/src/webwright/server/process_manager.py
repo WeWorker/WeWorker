@@ -1548,7 +1548,11 @@ class ProcessManager:
         if timed_out:
             error = "Debug Run timed out."
         elif not succeeded:
-            error = str(result.get("error") or f"Debug process exited with code {returncode}.")
+            error = str(
+                result.get("error")
+                or self._last_process_error(run_dir / "process.log").get("error")
+                or f"Debug process exited with code {returncode}."
+            )
         screenshot_url = (
             f"/api/debug-runs/{debug_run_id}/files/screenshot.png"
             if (run_dir / "screenshot.png").is_file()

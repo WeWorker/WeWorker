@@ -136,10 +136,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one Toolkit Tool Debug Run.")
     parser.add_argument("--spec", required=True, type=Path)
     args = parser.parse_args(argv)
+    spec = None
     try:
-        result = asyncio.run(run_debug(_load_spec(args.spec)))
+        spec = _load_spec(args.spec)
+        result = asyncio.run(run_debug(spec))
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        result = {"ok": False, "error": str(exc)}
+        print(json.dumps(result, ensure_ascii=False), file=sys.stderr)
+        if spec and spec.get("result_path"):
+            try:
+                atomic_write_json(Path(spec["result_path"]), result)
+            except OSError:
+                pass  # The process log retains the original error if persistence fails.
         return 1
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result["ok"] else 1
