@@ -1,0 +1,59 @@
+name: Build Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Desktop target to build
+        required: true
+        type: choice
+        default: win
+        options:
+          - win
+          - mac
+          - mac-arm
+          - all
+  pull_request:
+    branches:
+      - main
+      - dev-*
+
+permissions:
+  contents: read
+
+jobs:
+  build-win:
+    if: github.event_name == 'pull_request' || inputs.target == 'win'
+    name: Build Windows x64
+    uses: ./.github/workflows/common-build.yml
+    with:
+      artifact_prefix: test-build
+      build_matrix: >-
+        [{"job":"windows-x64","os":"windows-latest","target":"windows","arch":"x64","machine":"x86_64"}]
+
+  build-mac:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'mac'
+    name: Build macOS x64
+    uses: ./.github/workflows/common-build.yml
+    with:
+      artifact_prefix: test-build
+      build_matrix: >-
+        [{"job":"macos-x64","os":"macos-15-intel","target":"macos","arch":"x64","machine":"x86_64"}]
+
+  build-mac-arm:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'mac-arm'
+    name: Build macOS arm64
+    uses: ./.github/workflows/common-build.yml
+    with:
+      artifact_prefix: test-build
+      build_matrix: >-
+        [{"job":"macos-arm64","os":"macos-15","target":"macos","arch":"arm64","machine":"arm64"}]
+
+  build-all:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'all'
+    name: Build all desktop platforms
+    uses: ./.github/workflows/common-build.yml
+    with:
+      artifact_prefix: test-build
+      build_matrix: >-
+        [{"job":"windows-x64","os":"windows-latest","target":"windows","arch":"x64","machine":"x86_64"},{"job":"macos-x64","os":"macos-15-intel","target":"macos","arch":"x64","machine":"x86_64"},{"job":"macos-arm64","os":"macos-15","target":"macos","arch":"arm64","machine":"arm64"}]

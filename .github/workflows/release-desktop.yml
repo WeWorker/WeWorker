@@ -1,0 +1,104 @@
+name: Release Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New release tag, for example v1.0.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify desktop packages
+    uses: ./.github/workflows/common-build.yml
+    with:
+      release_tag: ${{ inputs.tag }}
+      artifact_prefix: release
+      build_matrix: >-
+        [{"job":"windows-x64","os":"windows-latest","target":"windows","arch":"x64","machine":"x86_64"},{"job":"macos-arm64","os":"macos-15","target":"macos","arch":"arm64","machine":"arm64"},{"job":"macos-x64","os":"macos-15-intel","target":"macos","arch":"x64","machine":"x86_64"}]
+
+  release:
+    name: Create draft release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release utilities
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Download verified packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: dist
+
+      - name: Assemble and verify release assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          version="${version%%-*}"
+          for provenance in dist/release-*/provenance.json; do
+            jq -e \
+              --arg source_sha "$SOURCE_SHA" \
+              --arg package_version "$version" \
+              --arg tag "$RELEASE_TAG" \
+              '.sourceSha == $source_sha and .version == $package_version and .releaseTag == $tag' \
+              "$provenance" >/dev/null
+          done
+
+          mkdir -p dist/release
+          cp dist/release-windows-x64/WeWorker-*-win-x64.exe* dist/release/
+          cp dist/release-windows-x64/latest.yml dist/release/
+          cp dist/release-macos-arm64/WeWorker-*-mac-arm64.dmg* dist/release/
+          cp dist/release-macos-arm64/WeWorker-*-mac-arm64.zip* dist/release/
+          cp dist/release-macos-x64/WeWorker-*-mac-x64.dmg* dist/release/
+          cp dist/release-macos-x64/WeWorker-*-mac-x64.zip* dist/release/
+          node weworker/scripts/merge-mac-update-metadata.cjs \
+            dist/release-macos-arm64/latest-mac.yml \
+            dist/release-macos-x64/latest-mac.yml \
+            dist/release/latest-mac.yml
+
+          jq -n \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg package_version "$version" \
+            --arg tag "$RELEASE_TAG" \
+            '{schemaVersion: 1, sourceSha: $source_sha, version: $package_version, releaseTag: $tag}' \
+            > dist/release/provenance.json
+          (
+            cd dist/release
+            find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%P\0' |
+              sort -z |
+              xargs -0 sha256sum > SHA256SUMS.txt
+          )
+
+      - name: Create draft GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" \
+            --target "$SOURCE_SHA" \
+            --title "WeWorker $RELEASE_TAG" \
+            --generate-notes \
+            --draft \
+            "${args[@]}" \
+            dist/release/*
