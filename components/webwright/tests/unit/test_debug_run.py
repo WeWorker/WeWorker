@@ -526,4 +526,3 @@ def test_finish_debug_recovers_worker_error_from_log(tmp_path: Path, result_erro
     saved = debug_runs.read(run["debug_run_id"])
     assert saved["status"] == "failed"
     assert saved["error"] == expected
-
