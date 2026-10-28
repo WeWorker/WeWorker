@@ -23,6 +23,7 @@ from webwright.utils.local_cdp import (
     is_cdp_available as _is_local_cdp_available,
     launch_browser as _launch_local_cdp_browser,
     normalize_page_url as _normalize_page_url,
+    page_in_allowed_domains,
     page_targets as _local_cdp_page_targets,
     resolve_cdp_url as _resolve_local_cdp_url,
     resolve_user_data_dir as _resolve_user_data_dir,
@@ -34,6 +35,7 @@ _BROWSER_MODES = {"local_cdp", "local_launch", "local_persistent"}
 
 class LocalBrowserEnvironmentConfig(BaseModel):
     start_url: str | None = None
+    allowed_domains: list[str] | None = None
     browser_mode: str = "local_launch"
     headless: bool = False
     devtools: bool = False
@@ -172,6 +174,8 @@ class LocalBrowserEnvironment:
         page_url = str(getattr(self._page, "url", "") or "") if self._page is not None else ""
         self._last_url = page_url
         self._start_url_ready = bool(
+            self._initial_target_id and page_url
+        ) or bool(
             self.config.start_url
             and page_url
             and _normalize_page_url(page_url) == _normalize_page_url(self.config.start_url)
@@ -367,7 +371,10 @@ class LocalBrowserEnvironment:
                     raise RuntimeError(
                         f"Prepared browser target no longer exists: {self._initial_target_id}"
                     )
-                if _normalize_page_url(str(target_info.get("url", "") or "")) != _normalize_page_url(
+                if self.config.allowed_domains is not None:
+                    if not page_in_allowed_domains(str(target_info.get("url") or ""), self.config.allowed_domains):
+                        raise RuntimeError("所选页面不在 Adapter 允许域名内，请重新选择页面或修改允许域名")
+                elif _normalize_page_url(str(target_info.get("url", "") or "")) != _normalize_page_url(
                     self.config.start_url or ""
                 ):
                     raise RuntimeError("Prepared Agent browser page no longer matches start_url.")

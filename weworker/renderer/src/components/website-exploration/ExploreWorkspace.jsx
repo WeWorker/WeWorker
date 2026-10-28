@@ -28,18 +28,25 @@ export default function ExploreWorkspace({ toolkitId, tool, disabled, globalBusy
 function NewExploration({ toolkitId, tool, disabled, onClose, onCreated }) {
   const [instruction, setInstruction] = useDraft(toolkitId + '/' + tool.tool_id + '/new')
   const [target, setTarget] = useState(null)
+  const [targets, setTargets] = useState([])
   const action = useAction()
   return <Modal title="新建探索" onClose={onClose}>
     <p>{tool.goal}</p><p className="wx-url">{tool.start_url}</p>
-    <p>如网站需要登录，请先在 Agent 浏览器中完成登录，再检测目标页面。</p>
-    <div className="wx-actions"><button disabled={action.busy || disabled} onClick={() => action.run(() => api.openBrowser(tool.start_url))}>打开目标网站</button>
+    <p>如网站需要登录，请先在 Agent 浏览器中完成登录。探索将从所选页面的当前状态开始，网址路径和参数可以变化。</p>
+    <div className="wx-actions"><button disabled={action.busy || disabled} onClick={() => action.run(async () => { setTarget(null); setTargets([]); await api.openBrowser(tool.start_url) })}>打开起始网址</button>
       <button disabled={action.busy || disabled} onClick={() => action.run(async () => {
         setTarget(null)
-        const match = await api.matchBrowser(tool.start_url)
-        if (match.status !== 'exact' || !match.target) throw new Error('尚未找到准确的起始页面，请打开并登录后重新检测')
+        setTargets([])
+        const match = await api.matchBrowser(tool.start_url, toolkitId, tool.tool_id)
+        if (!match.targets?.length) throw new Error('未找到允许域名内的页面，请打开起始网址并完成登录，或修改 Adapter 允许域名后重新检测')
+        setTargets(match.targets)
         setTarget(match.target)
       })}>检测目标页面</button></div>
-    {target && <p>已找到：{target.title || target.url}</p>}
+    {targets.length > 0 && <label>探索页面<select value={target?.target_id || ''} disabled={action.busy || disabled} onChange={e => setTarget(targets.find(item => item.target_id === e.target.value) || null)}>
+      <option value="" disabled>请选择要探索的页面</option>
+      {targets.map(item => <option key={item.target_id} value={item.target_id}>{item.title ? item.title + ' — ' : ''}{item.url}</option>)}
+    </select></label>}
+    {target && <p className="wx-url">当前页面：{target.url}</p>}
     <label>补充探索指令<textarea value={instruction} onChange={e => setInstruction(e.target.value)} placeholder="说明本次需要探索的操作和预期结果" /></label>
     <ErrorMessage>{action.error}</ErrorMessage>
     <footer><button onClick={onClose}>取消</button><button className="wx-primary" disabled={!target || action.busy || disabled} onClick={() => action.run(async () => {

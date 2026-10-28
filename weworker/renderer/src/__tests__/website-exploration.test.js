@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { consumeSSE } from '../api/website-exploration-events.js'
-import { resourcePath, deleteTool, deleteInstalledCommand } from '../api/website-exploration-api.js'
+import { resourcePath, deleteTool, deleteInstalledCommand, matchBrowser } from '../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as store, leaveWebsiteExploration, changeWebsiteContext } from '../store/website-exploration.js'
 
 test('SSE handles named events, CRLF, UTF-8 split bytes and multiline JSON', async () => {
@@ -17,6 +17,25 @@ test('resource URLs stay behind the backend', () => {
   assert.throws(() => resourcePath('https://example.com/a'))
   assert.throws(() => resourcePath('/api/explorations/a/files/../secret'))
   assert.throws(() => resourcePath('/api/website-exploration/../settings'))
+})
+
+test('exploration page matching sends the Adapter and Tool identity and retains candidates', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  globalThis.window = { electronAPI: {} }
+  const candidates = { status: 'choose', target: null, targets: [
+    { target_id: 'one', url: 'https://example.com/a?x=1' },
+    { target_id: 'two', url: 'https://example.com/b#open' },
+  ] }
+  globalThis.fetch = async url => {
+    const params = new URL(url).searchParams
+    assert.equal(params.get('toolkit_id'), 'demo')
+    assert.equal(params.get('tool_id'), 'read_page')
+    assert.equal(params.get('url'), 'https://example.com/')
+    return Response.json(candidates)
+  }
+  try { assert.deepEqual(await matchBrowser('https://example.com/', 'demo', 'read_page'), candidates) }
+  finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })
 
 test('Tool deletion sends the reviewed Adapter digest to one backend operation', async () => {

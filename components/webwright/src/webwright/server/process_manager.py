@@ -41,7 +41,7 @@ from webwright.server.status import (
 from webwright.server.toolkit_store import DevelopmentSlotConflictError, ToolkitStore
 from webwright.runtime_launcher import RuntimeLauncher
 from webwright.runtime_identity import RuntimeIdentity
-from webwright.utils.local_cdp import normalize_page_url
+from webwright.utils.local_cdp import normalize_page_url, page_in_allowed_domains
 from webwright.utils.logging import append_process_log
 
 
@@ -354,6 +354,8 @@ class ProcessManager:
     ) -> dict[str, Any]:
         if self.toolkit_store is None:
             raise InvalidStateError("Toolkit Store is not configured.")
+        if not target_id.strip():
+            raise InvalidStateError("请选择允许域名内的探索页面")
         tool = self.toolkit_store.get_tool(toolkit_id, tool_id)
         instruction_parts = [str(tool["goal"])]
         expected_effect = str(tool.get("expected_effect") or "").strip()
@@ -774,11 +776,18 @@ class ProcessManager:
             raise ValueError("start_url is required.")
         with self.lock:
             self._ensure_not_busy_locked()
+            allowed_domains = (
+                self.toolkit_store.get_toolkit(toolkit_id)["allowed_domains"]
+                if activity_type == "exploration" and self.toolkit_store is not None else None
+            )
             if target_id:
                 target = browser_target(self.cdp_url, target_id)
                 if target is None:
                     raise InvalidStateError("Prepared Agent browser page no longer exists.")
-                if normalize_page_url(str(target.get("url") or "")) != normalize_page_url(
+                if allowed_domains is not None:
+                    if not page_in_allowed_domains(str(target.get("url") or ""), allowed_domains):
+                        raise InvalidStateError("所选页面不在 Adapter 允许域名内，请重新选择页面或修改允许域名")
+                elif normalize_page_url(str(target.get("url") or "")) != normalize_page_url(
                     start_url
                 ):
                     raise InvalidStateError(
@@ -826,6 +835,8 @@ class ProcessManager:
                 "toolkit_id": toolkit_id,
                 "tool_id": tool_id,
             }
+            if allowed_domains is not None:
+                spec["config_spec"].append(f"environment.allowed_domains={json.dumps(allowed_domains)}")
             atomic_write_json(self.store.spec_path(task_id), spec)
             process = self._spawn(
                 self.launcher.worker_command(

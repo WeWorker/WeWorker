@@ -108,8 +108,8 @@ export function openBrowser(url = "") {
   return post("/api/browser/open", url ? { url } : {});
 }
 
-export function matchBrowser(url) {
-  return request(`/api/browser/match?url=${encode(url)}`);
+export function matchBrowser(url, toolkitId, toolId) {
+  return request(`/api/browser/match?url=${encode(url)}${toolkitId ? `&toolkit_id=${encode(toolkitId)}&tool_id=${encode(toolId)}` : ''}`);
 }
 
 export function getActivity() {

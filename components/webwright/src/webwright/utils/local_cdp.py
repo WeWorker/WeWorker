@@ -326,6 +326,13 @@ def page_origin(value: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def page_in_allowed_domains(value: str, allowed_domains: list[str]) -> bool:
+    try:
+        return urlsplit(normalize_page_url(value)).hostname in allowed_domains
+    except ValueError:
+        return False
+
+
 async def target_id_for_page(context: Any, page: Any) -> str:
     """Resolve the real CDP target identity for one Playwright Page."""
     session = await context.new_cdp_session(page)
