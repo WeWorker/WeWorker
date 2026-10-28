@@ -43,6 +43,8 @@
     "tab-operation-locks.js",
     "bridge.js",
     "dedicated-browser.js",
+    "browser-leases.js",
+    "shared-browser-client.js",
     "page-screenshot.js",
     "site-login.js",
     "site-autologin.js",

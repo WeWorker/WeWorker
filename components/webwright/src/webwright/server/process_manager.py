@@ -20,6 +20,7 @@ from webwright.server.browser import (
     browser_activate,
     browser_target,
 )
+from webwright.tool_runtime.managed_browser import managed_browser_enabled
 from webwright.server.debug_store import DebugRunStore
 from webwright.server.adapter_v2 import current_package, read_base
 from webwright.server.development import build_development_input
@@ -87,7 +88,7 @@ def _default_config_spec(
         "environment.environment_class=local_browser",
         "environment.browser_mode=local_cdp",
         "environment.local_cdp_new_page=true",
-        "environment.local_cdp_auto_start=true",
+        f"environment.local_cdp_auto_start={'false' if managed_browser_enabled() else 'true'}",
         f"environment.local_cdp_url={cdp_url}",
         "model.action_field=python_code",
         *model_overrides,

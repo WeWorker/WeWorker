@@ -4,6 +4,24 @@ from webwright.server import browser
 from webwright.utils.local_cdp import normalize_page_url
 
 
+def test_managed_status_and_tabs_do_not_start_browser(monkeypatch):
+    calls = []
+    class Control:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            pass
+        def request(self, action):
+            calls.append(action)
+            assert action == "status"
+            return {"status": "stopped", "cdpReady": False}
+    monkeypatch.setenv("WEWORKER_BROWSER_MANAGED", "1")
+    monkeypatch.setattr(browser, "ManagedBrowser", Control)
+    assert browser.browser_status()["available"] is False
+    assert browser.browser_tabs() == {"tabs": []}
+    assert calls == ["status", "status"]
+
+
 def test_normalize_page_url_preserves_page_identity() -> None:
     assert normalize_page_url("HTTPS://Example.COM:443") == "https://example.com/"
     assert (

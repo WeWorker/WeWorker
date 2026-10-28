@@ -89,9 +89,9 @@ Toolkit Runner 在确认 Tool 属于 Toolkit Adapter 后直接执行：
 <embedded-runtime> --internal-script <adapter-root>/scripts/toolkit.py <tool-id>
 ```
 
-Runner 必须使用 `spawn` 且 `shell=false`，使用 Adapter 根目录作为 `cwd`，清除 `PYTHONHOME`／`PYTHONPATH`，设置 `PYTHONNOUSERSITE=1` 与 `PYTHONDONTWRITEBYTECODE=1`，继承固定 Toolkit 数据根，转发 stdin、stdout、stderr、真实退出码和终止信号。它保持前台子进程关系，不启动 daemon，不连接 `8766` Server，也不启动 Bridge。
+Runner 必须使用 `spawn` 且 `shell=false`，使用 Adapter 根目录作为 `cwd`，清除 `PYTHONHOME`／`PYTHONPATH`，设置 `PYTHONNOUSERSITE=1` 与 `PYTHONDONTWRITEBYTECODE=1`，继承固定 Toolkit 数据根，转发 stdin、stdout、stderr、真实退出码和终止信号。它保持前台子进程关系，不连接 `8766` Server；按需启动或连接 Bridge，由 Bridge 提供唯一受管浏览器及任务占用，业务仍由独立 embedded Runtime 执行。完整合同见 [共享浏览器实施方案](shared_browser_implementation_plan.md) 。
 
-Toolkit Runner 使用现有 WebCLI metrics 格式记录工具名、成功、耗时、trace 和脱敏错误，不记录参数、结果、密钥或用户路径。Extension Bridge 生命周期和 metrics 保持现状，避免重复计数。
+Toolkit Runner 使用现有 WebCLI metrics 格式记录工具名、成功、耗时、trace 和脱敏错误，不记录参数、结果、密钥或用户路径。两类命令纳入共享浏览器任务占用；业务 metrics 保持原执行入口计数，避免重复计数。
 
 ## 六、Skill Runtime 与权限
 
@@ -110,7 +110,7 @@ Toolkit `SKILL.md` 不再出现脚本路径或 `webcli-py`，只描述完整 Too
 
 删除面向 Agent 注册的 `webcli_call` MCP、描述、权限白名单和相关测试；删除 `webcli-py`／`webcli-py.cmd` 生成、打包资源、提示词、守卫和测试；不提供旧 Skill 兼容和迁移，旧 Skill 必须重新安装。
 
-保留 Backend 内部 `runWebcliCall()` 及内部快捷调用；保留 `webcli_result`、大结果缓存与结果投影，后续另行下沉；保留 Extension Bridge 协议和生命周期；保留 Toolkit formal Debug、`artifact_hash`、`export_eligible`、Runtime Store 和 Playwright/CDP；不恢复独立 installer 或第二套 Runtime。
+保留 Backend 内部 `runWebcliCall()` 及内部快捷调用；保留 `webcli_result`、大结果缓存与结果投影，后续另行下沉；Extension Bridge 增加共享浏览器控制和占用协议，业务执行协议保持不变；保留 Toolkit formal Debug、`artifact_hash`、`export_eligible`、Runtime Store 和 Playwright/CDP；不恢复独立 installer 或第二套 Runtime。
 
 ## 八、交付边界
 
@@ -119,8 +119,8 @@ Toolkit `SKILL.md` 不再出现脚本路径或 `webcli-py`，只描述完整 Too
 ## 九、验收
 
 - Extension Adapter 继续通过 `webcli call` 和 Bridge 运行。
-- 真实 export-eligible Toolkit 五文件产物无需修改即可通过 `webcli call` 运行。
-- Toolkit 调用不启动 Bridge 或 `8766` Server。
+- 当前使用宿主公共 Runtime 的 v2 Toolkit 产物无需重新生成业务代码即可共用浏览器；已识别的自带旧浏览器启动逻辑的历史 Runtime 明确要求重新生成安装，禁止默默启动第二个浏览器。
+- Toolkit 调用按需启动 Bridge 并复用受管浏览器，不启动或依赖 `8766` Server。
 - WebCLI 参数基础行为保持不变，Toolkit 自行完成 Schema 类型处理。
 - Toolkit 的 cwd、stdin、stdout、stderr、退出码和信号转发正确。
 - Agent 取消和应用退出后无 Toolkit Runtime 或 Playwright 子进程残留。

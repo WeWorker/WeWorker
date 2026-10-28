@@ -1,6 +1,11 @@
 # Webwright Roadmap
 
+- 2026-10-27：共享浏览器实现已接入探索、继续探索、开发中／正式调试、回放和公共 Toolkit Runtime；宿主控制通道获取 Bridge 实例与占用，托管模式禁止自启浏览器。原方案与详细验收见仓库 [实施记录](../../docs/shared_browser_implementation_status.md) 。Python unit／distribution 全量 282 项通过、4 项跳过；既有 OpenAI 完整 URL 拼接测试仍失败 1 项。macOS arm64 embedded 与打包 CLI 的真实探索／正式调试／回放及普通 Toolkit 调用通过；完整桌面安装包、macOS x64、Windows x64／Edge 仍待验收，旧 Profile 不迁移。
+  - 已验证长任务取消和 Bridge 强制退出时调用失败、占用释放与受管浏览器退出；后续调用获取新实例，已提交的测试操作未被重放。
+
 ## 当前阶段
+
+- 2026-10-28：共享浏览器 PR 在官方 `dev-1.1.0` 上复验，Python 聚焦 66 项通过、1 项既有完整 URL 测试失败。启动时显示浏览器窗口的原因及完整桌面验收待确认，PR 保持 Draft。
 
 推进 Python harness 的 `local_browser` + `local_cdp` 产品升级。Toolkit 阶段一至阶段七均已完成；下一阶段为阶段八「多 Tool 组合与系统验收」。总进度见 [`docs/toolkit_roadmap.md`](docs/toolkit_roadmap.md)。
 

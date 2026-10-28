@@ -24,6 +24,7 @@ function harness({ failed = false } = {}) {
     pendingWriteRequests: new Map(), setTimeout, clearTimeout,
     ws: { readyState: 1 }, WebSocket: { OPEN: 1 },
     console: { log() {} }, traceLog() {},
+    browserInstanceHelloFields: () => ({}),
     ...siteAuthBindings(),
     callManagedBackgroundTool: async () => ({ fixture: true }),
     sendToNative(message) {
@@ -38,7 +39,7 @@ function harness({ failed = false } = {}) {
       }));
     },
   });
-  vm.runInContext(productionFunction('requestBridge') + '\n' + productionFunction('handleNativeMessage'), context);
+  vm.runInContext(['requestBridge', 'sharedBrowserRequest', 'claimSharedPage', 'handleNativeMessageInternal', 'handleNativeMessage'].map(productionFunction).join('\n'), context);
   const client = createHostAdapterClient(message => context.requestBridge(message, 100));
   context.getHostAdapterClient = () => client;
   return { context, client, messages, requests };

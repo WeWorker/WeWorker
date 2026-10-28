@@ -5,6 +5,8 @@ import hashlib
 import inspect
 import json
 import os
+import queue
+import threading
 import shutil
 import subprocess
 import sys
@@ -47,6 +49,107 @@ _PYTHON_TYPES = {
 }
 _LOCAL_CDP_HOSTS = {"127.0.0.1", "localhost"}
 _CDP_OPENER = build_opener(ProxyHandler({}))
+
+
+def managed_browser_enabled() -> bool:
+    return os.environ.get("WEWORKER_BROWSER_MANAGED") == "1" or bool(
+        os.environ.get("WEWORKER_WEBCLI_NODE") and os.environ.get("WEWORKER_WEBCLI_ENTRY")
+    )
+
+
+def resource_key(value: str) -> str:
+    return "toolkit:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+class ManagedBrowser:
+    def __init__(self):
+        node = os.environ.get("WEWORKER_WEBCLI_NODE")
+        entry = os.environ.get("WEWORKER_WEBCLI_ENTRY")
+        if not node or not entry:
+            raise RuntimeError("宿主未提供浏览器控制入口，请从 WeWorker 或 WebCLI 运行")
+        env = _external_process_environment()
+        env["ELECTRON_RUN_AS_NODE"] = "1"
+        self.process = subprocess.Popen(
+            [node, entry, "--internal-browser-control"], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+            encoding="utf-8", env=env,
+        )
+        self.responses = queue.Queue()
+        self.descriptor = {}
+        self.closed = False
+        self.lost = False
+        self._watched = None
+        self._counter = 0
+        self._lock = threading.Lock()
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self):
+        try:
+            for line in self.process.stdout:
+                response = json.loads(line)
+                if response.get("event") == "disconnected":
+                    break
+                self.responses.put(response)
+        finally:
+            self.lost = True
+            self.responses.put(None)
+            if not self.closed and self._watched:
+                loop, task = self._watched
+                if not loop.is_closed():
+                    loop.call_soon_threadsafe(task.cancel)
+
+    def watch_current_task(self):
+        self.assert_connected()
+        self._watched = (asyncio.get_running_loop(), asyncio.current_task())
+
+    def assert_connected(self):
+        if self.lost or self.closed:
+            raise RuntimeError("共享浏览器控制连接已断开，请检查执行结果后重新发起任务；不会自动重放操作")
+
+    def request(self, action, **params):
+        with self._lock:
+            self.assert_connected()
+            self._counter += 1
+            self.process.stdin.write(json.dumps({"id": self._counter, "action": action, "params": params}) + "\n")
+            self.process.stdin.flush()
+            response = self.responses.get(timeout=50)
+            if response is None:
+                raise RuntimeError("共享浏览器连接已断开")
+            if not response.get("ok"):
+                error = response.get("error") or {}
+                raise RuntimeError(f"{error.get('code', 'BROWSER_FAILED')}: {error.get('message', '')}")
+            return response["data"]
+
+    def acquire(self, *, resource="", visible=False):
+        self.descriptor = self.request("acquire", resource=resource, visible=visible)
+        return self.descriptor["cdpUrl"]
+
+    @property
+    def http_url(self):
+        parsed = urlsplit(self.descriptor["cdpUrl"])
+        return f"http://{parsed.netloc}"
+
+    def claim(self, target_id):
+        return self.request("claim", leaseId=self.descriptor["leaseId"], targetId=target_id)
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        self._watched = None
+        self.process.stdin.close()
+        try:
+            self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self.process.terminate()
+            self.process.wait(timeout=3)
+        self.process.stdout.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
 
 
 class RuntimeRecoveryError(RuntimeError):
@@ -298,7 +401,7 @@ class RuntimeStore(Protocol):
     def read(self) -> dict[str, Any]: ...
 
     def write(
-        self, *, target_id: str, last_url: str, last_title: str
+        self, *, target_id: str, last_url: str, last_title: str, browser_instance_id: str = ""
     ) -> dict[str, Any]: ...
 
 
@@ -335,10 +438,13 @@ class FileRuntimeStore:
         payload = json.loads(self.path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("runtime.json must contain a JSON object.")
-        return {key: str(payload.get(key) or "") for key in EMPTY_RUNTIME_STATE}
+        result = {key: str(payload.get(key) or "") for key in EMPTY_RUNTIME_STATE}
+        if payload.get("browser_instance_id"):
+            result["browser_instance_id"] = str(payload["browser_instance_id"])
+        return result
 
     def write(
-        self, *, target_id: str, last_url: str, last_title: str
+        self, *, target_id: str, last_url: str, last_title: str, browser_instance_id: str = ""
     ) -> dict[str, Any]:
         payload = {
             "target_id": str(target_id or ""),
@@ -346,6 +452,8 @@ class FileRuntimeStore:
             "last_title": str(last_title or ""),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        if browser_instance_id:
+            payload["browser_instance_id"] = browser_instance_id
         _atomic_write_json(self.path, payload)
         return payload
 
@@ -425,8 +533,14 @@ class ToolkitBrowserSession:
         self.context = None
         self.page = None
         self.allowed_domains = {str(domain) for domain in allowed_domains}
+        self.managed_browser = None
 
     async def open(self, tool: dict[str, Any]) -> ToolContext:
+        if managed_browser_enabled():
+            self.managed_browser = ManagedBrowser()
+            resource = resource_key(str(getattr(self.runtime_store, "path", "") or getattr(self.runtime_store, "toolkit_id", "")))
+            self.cdp_url = await asyncio.to_thread(self.managed_browser.acquire, resource=resource)
+            self.managed_browser.watch_current_task()
         if self.playwright_factory is None:
             from playwright.async_api import async_playwright
 
@@ -437,6 +551,8 @@ class ToolkitBrowserSession:
         try:
             self.browser = await self.playwright.chromium.connect_over_cdp(self.cdp_url)
         except Exception as first_error:
+            if self.managed_browser:
+                raise RuntimeRecoveryError(code="browser_unavailable", message="共享浏览器连接失败；不会启动另一个浏览器或重放操作") from first_error
             if not _is_local_cdp_url(self.cdp_url):
                 raise RuntimeRecoveryError(
                     code="browser_unavailable",
@@ -466,6 +582,8 @@ class ToolkitBrowserSession:
 
         runtime = self.runtime_store.read()
         saved_target_id = str(runtime.get("target_id") or "")
+        if self.managed_browser and runtime.get("browser_instance_id") != self.managed_browser.descriptor["instanceId"]:
+            saved_target_id = ""
         if saved_target_id:
             page = await find_page_by_target_id(self.context, saved_target_id)
             try:
@@ -483,6 +601,8 @@ class ToolkitBrowserSession:
         if self.page is None:
             await self._rebuild_page(tool)
         else:
+            if self.managed_browser:
+                await asyncio.to_thread(self.managed_browser.claim, saved_target_id)
             try:
                 await self.persist()
             except Exception:
@@ -496,9 +616,12 @@ class ToolkitBrowserSession:
 
     async def _rebuild_page(self, tool: dict[str, Any]) -> None:
         last_error: Exception | None = None
-        for _attempt in range(2):
+        for _attempt in range(1 if self.managed_browser else 2):
             try:
                 self.page = await self.context.new_page()
+                if self.managed_browser:
+                    target_id = await target_id_for_page(self.context, self.page)
+                    await asyncio.to_thread(self.managed_browser.claim, target_id)
                 await self.page.goto(
                     str(tool["start_url"]), wait_until="domcontentloaded"
                 )
@@ -543,11 +666,16 @@ class ToolkitBrowserSession:
             target_id=target_id,
             last_url=view["url"],
             last_title=view["title"],
+            **({"browser_instance_id": self.managed_browser.descriptor["instanceId"]} if self.managed_browser else {}),
         )
 
     async def close(self) -> None:
-        if self.playwright is not None:
-            await self.playwright.stop()
+        try:
+            if self.playwright is not None:
+                await self.playwright.stop()
+        finally:
+            if self.managed_browser:
+                await asyncio.to_thread(self.managed_browser.close)
 
 
 def success_output(*, tool_id: str, data: Any, page: dict[str, str]) -> dict[str, Any]:
@@ -720,7 +848,9 @@ class PublishedToolkitRunner:
         parameters: dict[str, Any],
         screenshot_path: Path | None = None,
     ) -> dict[str, Any]:
-        self.runtime_store.ensure()
+        # Managed calls initialize state only after obtaining the Toolkit lease.
+        if not managed_browser_enabled():
+            self.runtime_store.ensure()
         tool = self.tool_specs.get(tool_id)
         function = self.tool_functions.get(tool_id)
         if tool is None or function is None:

@@ -510,7 +510,7 @@ class ToolkitStore:
         }
 
     def write_runtime(
-        self, toolkit_id: str, *, target_id: str, last_url: str, last_title: str
+        self, toolkit_id: str, *, target_id: str, last_url: str, last_title: str, browser_instance_id: str = ""
     ) -> dict[str, Any]:
         if not self.metadata_path(toolkit_id).is_file():
             raise FileNotFoundError(f"Toolkit not found: {toolkit_id}")
@@ -520,6 +520,8 @@ class ToolkitStore:
             "last_title": str(last_title or ""),
             "updated_at": now_iso(),
         }
+        if browser_instance_id:
+            payload["browser_instance_id"] = browser_instance_id
         atomic_write_json(self.runtime_path(toolkit_id), payload)
         return payload
 

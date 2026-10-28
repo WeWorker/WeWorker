@@ -301,9 +301,24 @@ async function cmdServiceStart(daemon, report = console.log) {
     const logFd  = openSync(LOG_FILE, "a");
     const child  = spawn(process.execPath, getServiceNodeArgs(), {
       detached: true,
-      stdio: ["ignore", logFd, logFd],
+      stdio: ["ignore", logFd, logFd, "ipc"],
     });
+    closeSync(logFd);
+    // Only the process which actually bound the port may publish the PID.
+    // Concurrent first calls can race to spawn, but cannot overwrite the
+    // winning daemon's PID with a losing EADDRINUSE process.
+    const ready = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('Bridge startup timed out')); }, 10000);
+      child.once('message', message => { clearTimeout(timer); resolve(message?.type === 'bridge_ready'); });
+      child.once('exit', () => { clearTimeout(timer); resolve(false); });
+      child.once('error', error => { clearTimeout(timer); reject(error); });
+    });
+    if (child.connected) child.disconnect();
     child.unref();
+    if (!ready) {
+      if (await checkPortListening()) { report('Bridge started by another local client'); return; }
+      throw new Error('Bridge failed to start');
+    }
     await writeFile(PID_FILE, String(child.pid));
 
     report(`✓ WebCLI service started in background (PID: ${child.pid})`);
@@ -381,6 +396,7 @@ async function runServiceMode() {
 
   process.stderr.write("[WebCLI] Starting WebSocket bridge...\n");
   const bridge = new WebSocketBridge();
+  bridge._wss.once('listening', () => { if (process.send) process.send({ type: 'bridge_ready' }); });
 
   // 初始化埋点上报配置（whoami / clientId / 版本号）；实时上报无需定时器。
   // 仅当 WEBCLI_METRICS_UPLOAD=on 且配置了 endpoint 才启用，失败一律静默。
@@ -1266,6 +1282,11 @@ async function main() {
   const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(process.argv.slice(2));
   const cmd  = args[0];
   const sub  = args[1];
+  if (cmd === '--internal-browser-control') {
+    const { runBrowserControlStdio } = await import('./shared-browser-client.js');
+    await runBrowserControlStdio({ ensureBridgeRunning, checkRunning: checkPortListening });
+    return;
+  }
   if (cmd === 'route') {
     const { runRouteCommand } = await import('./route-command.js');
     await runRouteCommand(args.slice(1), { verbose, outputFormat });

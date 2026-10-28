@@ -136,6 +136,7 @@ def run_one(
             ),
             resume_last_url=prior_runtime_state.get("last_url", ""),
             resume_last_title=prior_runtime_state.get("last_title", ""),
+            resume_browser_instance_id=prior_runtime_state.get("browser_instance_id", ""),
         )
         if resume_state is not None:
             result = agent.resume(
