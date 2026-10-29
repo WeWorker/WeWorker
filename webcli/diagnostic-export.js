@@ -31,7 +31,7 @@ export function checkDiagnosticDirectory(directory, protectedRoots = []) {
   return target;
 }
 
-function optionsFor(args, run, now) {
+function optionsFor(args, run, now, mode) {
   const parse = (value, fallback) => {
     if (value === undefined) return fallback;
     if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value) || !Number.isFinite(Date.parse(value))) throw fail('INVALID_ARGUMENT', 'since/until must be UTC ISO timestamps.');
@@ -43,13 +43,15 @@ function optionsFor(args, run, now) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !['number','string'].includes(typeof (args.limit ?? 200))) throw fail('INVALID_ARGUMENT', 'limit must be 1–200 per source.');
   if (args.screenshot !== undefined && ![true,false,'true','false'].includes(args.screenshot)) throw fail('INVALID_ARGUMENT', 'screenshot must be boolean; true explicitly includes unredacted task viewport pixels.');
   const traceIds = args.traceIds ?? [];
-  if (!Array.isArray(traceIds) || traceIds.length > 10 || traceIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{12,32}$/.test(id)) || new Set(traceIds).size !== traceIds.length) throw fail('INVALID_ARGUMENT', 'traceIds must be at most 10 unique hexadecimal call trace IDs.');
+  const validTraceId = id => typeof id === 'string' && (/^[a-f0-9]{12,32}$/.test(id)
+    || (mode === 'http' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)));
+  if (!Array.isArray(traceIds) || traceIds.length > 10 || traceIds.some(id => !validTraceId(id)) || new Set(traceIds).size !== traceIds.length) throw fail('INVALID_ARGUMENT', 'traceIds must be at most 10 unique supported call trace IDs.');
   return { lower, upper, limit, screenshot: args.screenshot === true || args.screenshot === 'true', traceIds };
 }
 
 /** An export of existing evidence, never a Runner or write-effect verifier. */
 export async function exportTaskDiagnostics(service, originalRun, args) {
-  const started = Date.now(), opts = optionsFor(args, originalRun, started);
+  const started = Date.now(), opts = optionsFor(args, originalRun, started, service.mode);
   const protectedRoots = [service.root, ...['workspaceDir','builtinDir','userDir','stateDir','packageDir','cacheDir'].map(key => service.paths[key])];
   const destination = checkDiagnosticDirectory(args.directory, protectedRoots);
   const run = structuredClone(originalRun); // One task snapshot; async collection cannot mix task revisions.

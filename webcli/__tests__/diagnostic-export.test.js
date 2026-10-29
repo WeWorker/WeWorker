@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ExplorationService } from '../exploration-service.js';
 import { resolveAdapterPaths } from '../paths.js';
@@ -56,6 +57,20 @@ it.each([{mode:'http',reason:'NOT_APPLICABLE_HOST_HTTP'},{connected:false,reason
   const f=setup(options); await f.export({screenshot:true,traceIds:['abcdef123456']});
   expect(f.requestExtension).not.toHaveBeenCalled();
   for(const name of ['network','console','state','call-trace','screenshot']) expect(receipt(f).sections[name].reason).toBe(options.reason);
+});
+it('accepts an actual host HTTP UUID but reports unavailable trace evidence without executing a request', async () => {
+  const f=setup({mode:'http'}), traceId=randomUUID();
+  const result=await f.export({traceIds:[traceId]});
+  expect(result.ok).toBe(true); expect(result.data.complete).toBe(false);
+  expect(receipt(f).sections['call-trace']).toMatchObject({status:'missing',reason:'NOT_APPLICABLE_HOST_HTTP',count:0});
+  expect(f.requestExtension).not.toHaveBeenCalled();
+  const contents=fs.readdirSync(f.directory).map(file=>fs.readFileSync(path.join(f.directory,file),'utf8')).join('');
+  expect(contents).not.toContain(traceId);
+});
+it('does not send a host HTTP UUID to a browser trace source', async () => {
+  const f=setup(), result=await f.export({traceIds:[randomUUID()]});
+  expect(result.error.code).toBe('INVALID_ARGUMENT'); expect(f.requestExtension).not.toHaveBeenCalled();
+  expect(fs.existsSync(f.directory)).toBe(false);
 });
 it.each([{since:'yesterday'},{until:'2999-01-01T00:00:00Z'},{limit:0},{limit:201},{limit:true},{screenshot:'yes'},{traceIds:['wrong']},{traceIds:Array(11).fill('abcdef123456')},{unexpected:true}])('rejects invalid selection before any read or directory creation: %j', async args => {
   const f=setup(); expect((await f.export(args)).ok).toBe(false); expect(f.requestExtension).not.toHaveBeenCalled(); expect(fs.existsSync(f.directory)).toBe(false);
