@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Settings } from './config.js'
 import { getProvider, PROVIDERS } from './provider-registry.js'
-import { configuredModel } from './provider-config.js'
+import { configuredModel, explorationResetPatch } from './provider-config.js'
 import { buildProviderVisibility, isFixedProvider } from './provider-visibility.js'
 import { isBuiltinProvider } from './builtin-provider.js'
 import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
@@ -168,6 +168,7 @@ export function activateModelConfiguration(settings: Settings, id: string): Part
     context_limit: configuration.context_limit,
     active_auth_type: configuration.auth_type,
     active_weworker_protocol: configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages',
+    ...explorationResetPatch(configuration.provider_id),
   }
 }
 

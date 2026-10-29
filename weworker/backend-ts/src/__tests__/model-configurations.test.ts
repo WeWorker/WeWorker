@@ -260,6 +260,24 @@ describe('multiple model configurations', () => {
     expect(resolveWebwrightModelConfig(independent)).toMatchObject({ base_url: 'https://example.com/exploration',
       api_key: 'fixture-exploration-key', model: 'fixture-exploration-model' })
     expect(suggestExplorationBaseUrl(independent)).toEqual({ url: 'https://example.com/exploration', generated: false })
+
+    const preset = createModelConfiguration(independent, 'glm')
+    let switched = { ...independent, ...preset.updates }
+    switched = { ...switched, ...updateModelConfiguration(switched, preset.id, { api_key: 'fixture-glm-key', model: 'glm-5.2' }) }
+    switched = { ...switched, ...activateModelConfiguration(switched, preset.id) }
+    expect(switched).toMatchObject({
+      exploration_base_url: '',
+      exploration_base_url_is_full: false,
+      exploration_model: '',
+      exploration_api_key: '',
+      exploration_use_main_key: true,
+    })
+    expect(resolveWebwrightModelConfig(switched)).toMatchObject({
+      provider_id: 'glm',
+      base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      model: 'glm-5.2',
+      api_key: 'fixture-glm-key',
+    })
   })
 
   it('rejects malformed configuration endpoints and providers outside the registered profile', () => {
@@ -339,6 +357,32 @@ describe('multiple model configurations', () => {
       expect(state.model_configurations).toEqual({})
       config.resetSettingsStateForTests()
       expect(config.getSettings().model_configurations).toEqual({})
+
+      // Stale exploration settings persisted alongside a preset provider are cleared on reload.
+      fs.writeFileSync(path.join(directory, '.weworker', 'settings.json'), JSON.stringify({
+        active_provider: 'glm',
+        model: 'glm-5.2',
+        model_glm: 'glm-5.2',
+        api_key_glm: 'persisted-glm-key',
+        exploration_base_url: 'https://example.org/stale-exploration/v1',
+        exploration_base_url_is_full: true,
+        exploration_model: 'stale-exploration-model',
+        exploration_use_main_key: true,
+      }, null, 2))
+      config.resetSettingsStateForTests()
+      await config.initSettings()
+      const cleaned = config.getSettings()
+      expect(cleaned).toMatchObject({
+        active_provider: 'glm',
+        exploration_base_url: '',
+        exploration_base_url_is_full: false,
+        exploration_model: '',
+        exploration_api_key: '',
+        exploration_use_main_key: true,
+      })
+      const cleanedOnDisk = JSON.parse(fs.readFileSync(path.join(directory, '.weworker', 'settings.json'), 'utf8'))
+      expect(cleanedOnDisk.exploration_base_url).toBe('')
+      expect(cleanedOnDisk.exploration_model).toBe('')
     } finally {
       homedir.mockRestore()
       setMasterKeyForTests(null)
