@@ -4,6 +4,7 @@ import { assertAllowedLlmBaseUrl, normalizeLlmBaseUrl, normalizeLlmUrlInput } fr
 import { buildRuntimeAllowedLlmBaseUrls, getProvider, PROVIDERS } from './provider-registry.js'
 import { getModelConfiguration } from './model-configurations.js'
 import { builtinProviderAccess, isBuiltinProvider } from './builtin-provider.js'
+export { explorationResetPatch } from './provider-config.js'
 
 export function isAuthorizedModelConfigRequest(authorization: string | undefined, expectedToken: string): boolean {
   const actual = authorization?.startsWith('Bearer ') ? authorization.slice(7) : ''

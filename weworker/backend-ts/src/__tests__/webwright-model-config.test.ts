@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Settings } from '../config.js'
-import { isAuthorizedModelConfigRequest, resolveWebwrightModelConfig, suggestExplorationBaseUrl } from '../webwright-model-config.js'
+import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig, suggestExplorationBaseUrl } from '../webwright-model-config.js'
 
 function settings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -130,6 +130,39 @@ describe('Webwright managed model config', () => {
       expect(value.model).toBe('glm-5.2')
       expect(resolveWebwrightModelConfig({ ...value, exploration_use_main_key: true, exploration_model: '' })).toMatchObject({ api_key: 'secret', model: 'glm-5.2' })
     }
+  })
+
+  it('resets independent exploration settings when activating a preset provider', () => {
+    for (const provider of ['anthropic', 'glm', 'deepseek', 'builtin']) {
+      expect(explorationResetPatch(provider)).toEqual({
+        exploration_base_url: '',
+        exploration_base_url_is_full: false,
+        exploration_model: '',
+        exploration_api_key: '',
+        exploration_use_main_key: true,
+      })
+    }
+    expect(explorationResetPatch('custom')).toEqual({})
+  })
+
+  it('falls back to the preset webwright config after switching to a preset provider', () => {
+    const stale = settings({
+      exploration_base_url: 'https://exploration.example.org/v1',
+      exploration_base_url_is_full: true,
+      exploration_api_key: 'fixture-independent-key',
+      exploration_model: 'explore-model',
+      exploration_use_main_key: false,
+    })
+    const switched = { ...stale, active_provider: 'glm' as const, ...explorationResetPatch('glm') }
+    expect(resolveWebwrightModelConfig(switched)).toEqual({
+      provider_id: 'glm',
+      protocol: 'openai_chat_completions',
+      model_class: 'zhipu',
+      base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      model: 'glm-5.2',
+      api_key: 'secret',
+      structured_output: 'openai_json_object',
+    })
   })
 
   it('accepts only the per-launch bearer token', () => {

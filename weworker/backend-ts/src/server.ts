@@ -74,7 +74,7 @@ import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
 import { configuredModel } from './provider-config.js'
 import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
-import { isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from './webwright-model-config.js'
+import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { assertAllowedWeixinBaseUrl, buildAllowedWeixinBaseUrls } from './channel-egress.js'
 import { resolveWeixinToken, syncWeixinChannel } from './channels/sync-weixin-channel.js'
 import { isProbeChannel, probeChannel } from './channels/channel-probe.js'
@@ -748,6 +748,7 @@ app.post('/settings/provider', (req, res) => {
     if (provider === 'custom' && base_url !== undefined) updates.base_url = allowedBaseUrl
     if (provider === 'custom' && base_url_is_full !== undefined) updates.base_url_is_full = base_url_is_full
     if (provider === 'custom' && isLlmProtocol(weworker_protocol)) updates.active_weworker_protocol = weworker_protocol
+    Object.assign(updates, explorationResetPatch(provider))
   }
   res.json(buildSettingsResponse(updateSettings(updates)))
 })
@@ -813,6 +814,8 @@ app.post('/settings/provider/activate', (req, res) => {
     context_limit: contextLimit,
     base_url: baseUrl,
     base_url_is_full: provider === 'custom' && current.base_url_is_full_custom === true,
+    // Stale independent exploration settings must not outlive the provider they were configured for.
+    ...explorationResetPatch(provider),
   }
   res.json(buildSettingsResponse(updateSettings(updates)))
 })

@@ -1,4 +1,4 @@
-import { DEFAULT_PROVIDER, configuredProvider, resolveConfiguredSettings } from './provider-config.js'
+import { DEFAULT_PROVIDER, configuredProvider, explorationResetPatch, resolveConfiguredSettings } from './provider-config.js'
 import { migrateChannelConfigurations, type ChannelConfigurations, type ChannelType } from './channels/channel-configurations.js'
 import { resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
 import { PROVIDERS } from './provider-registry.js'
@@ -640,6 +640,9 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
 
   const secrets = { ...decryptedSecrets, ...plaintextSecrets }
   const resolved = applySecrets(merged, secrets)
+  if (resolved.active_provider !== 'custom' && Boolean(resolved.exploration_base_url || resolved.exploration_base_url_is_full || resolved.exploration_model)) {
+    Object.assign(resolved, explorationResetPatch(resolved.active_provider))
+  }
 
   // Older settings files do not have the onboarding flag. Preserve a user's
   // existing configured setup while showing the flow for a genuinely new one.
@@ -730,6 +733,12 @@ export async function initSettings(): Promise<void> {
   if (raw && countInvalidBlacklistEntries(raw.user_directory_blacklist) > 0) {
     persistSettingsToDisk(_settings)
     log.info('Removed invalid user directory blacklist entries from settings')
+  }
+
+  if (raw && typeof raw.active_provider === 'string' && raw.active_provider !== 'custom'
+    && Boolean(raw.exploration_base_url || raw.exploration_base_url_is_full || raw.exploration_model)) {
+    persistSettingsToDisk(_settings)
+    log.info('Reset stale independent exploration model settings for active preset provider')
   }
 
 
