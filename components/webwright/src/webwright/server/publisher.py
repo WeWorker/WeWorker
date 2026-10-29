@@ -661,10 +661,6 @@ class ToolkitPublisher:
                 archive.writestr(f"{metadata['name']}/{name}", content)
         return output.getvalue()
 
-    def install_to_weworker(
-        self, toolkit_id: str, *, user_files_dir: Path | str
-    ) -> dict[str, Any]:
-        raise ValueError("Install v2 Adapters through the WeWorker host installer.")
 
     def ensure_consistent(self, toolkit_id: str) -> dict[str, Any] | None:
         artifacts = render_artifacts(

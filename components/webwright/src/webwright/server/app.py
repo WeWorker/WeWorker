@@ -13,10 +13,8 @@ from flask import (
     Flask,
     Response,
     jsonify,
-    redirect,
     request,
     send_file,
-    send_from_directory,
     stream_with_context,
 )
 
@@ -83,8 +81,6 @@ def _openapi_spec() -> dict[str, Any]:
         },
         "servers": [{"url": "http://127.0.0.1:8765"}],
         "paths": {
-            "/": {"get": op("Redirect to the Webwright UI")},
-            "/ui": {"get": op("Webwright task UI")},
             "/api/health": {"get": op("Server health")},
             "/api/docs": {"get": op("Markdown API documentation")},
             "/api/openapi.json": {"get": op("OpenAPI document")},
@@ -133,9 +129,6 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/toolkits/{toolkit_id}/bind-adapter": {"post": op("Bind a host-validated v2 Adapter baseline in embedded mode")},
             "/api/toolkits/{toolkit_id}/adapter-base": {"get": op("Read the bound Adapter identity in embedded mode")},
             "/api/toolkits/{toolkit_id}/v2-package": {"get": op("Read the verified complete v2 package in embedded mode")},
-            "/api/toolkits/{toolkit_id}/install-to-weworker": {
-                "post": op("Legacy direct installation is unavailable; use the host review and installer")
-            },
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/debug-runs": {
                 "get": op("List Debug Runs"),
                 "post": op("Create and start a Debug Run"),
@@ -218,8 +211,6 @@ Base URL: `{base_url}`
 
 ## Docs
 
-- `GET /` - Webwright task UI
-- `GET /ui` - Webwright task UI
 - `GET /api/docs` - this Markdown document
 - `GET /api/openapi.json` - OpenAPI-style endpoint index
 - `GET /api/health` - server health
@@ -264,7 +255,6 @@ It has no independent model configuration API or persistent model store.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/publish` - publish after a matching succeeded Debug Run.
 - `GET /api/toolkits/{{toolkit_id}}/export-status` - get current formal artifact hash, per-Tool verification, and export eligibility.
 - `GET /api/toolkits/{{toolkit_id}}/export` - download the verified Toolkit ZIP after server-side revalidation.
-- `POST /api/toolkits/{{toolkit_id}}/install-to-weworker` - embedded-only; install the current export-eligible Toolkit into its WeWorker host.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/debug-runs` - list Debug Runs.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/debug-runs` - run the formal or development slot.
   Body: `{{"channel":"development","parameters":{{}},"timeout_seconds":60}}`
@@ -566,7 +556,6 @@ def create_app(
 ) -> Flask:
     app = Flask(__name__)
     resources = BundledResources()
-    web_root = resources.web_root()
     paths = (paths or WebwrightPaths.resolve()).ensure()
     task_store = store or TaskStore(paths.tasks)
     toolkits = toolkit_store or ToolkitStore(paths.toolkits)
@@ -684,17 +673,6 @@ def create_app(
     def handle_invalid_state(exc: InvalidStateError):
         return _error("invalid_state", str(exc), 409)
 
-    @app.get("/")
-    def index():
-        return redirect("/ui")
-
-    @app.get("/ui")
-    def ui():
-        return send_from_directory(web_root, "index.html")
-
-    @app.get("/web/<path:relative_path>")
-    def web_asset(relative_path: str):
-        return send_from_directory(web_root, relative_path)
 
     @app.get("/api/health")
     def health():
@@ -710,7 +688,6 @@ def create_app(
                 "bind": app.config["WEBWRIGHT_BIND_HOST"],
                 "port": str(configured_port if configured_port is not None else request_port or ""),
                 "capabilities": {
-                    "install_to_weworker": False,
                     "adapter_v2_package": app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None,
                 },
             }
@@ -1129,11 +1106,6 @@ def create_app(
             download_name=f"{toolkit_publisher.export_status(toolkit_id)['adapter_name']}.zip",
         )
 
-    if app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None:
-
-        @app.post("/api/toolkits/<toolkit_id>/install-to-weworker")
-        def install_toolkit_to_weworker(toolkit_id: str):
-            return _error("host_installer_required", "Use the WeWorker Adapter installer.", 409)
 
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/debug-runs")
     def list_debug_runs(toolkit_id: str, tool_id: str):

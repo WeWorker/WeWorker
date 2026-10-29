@@ -56,8 +56,6 @@ function validateRuntime({ runtimeRoot, platform = expectedPlatform(), arch = ex
     path.join('licenses', 'playwright-1.60.0', 'playwright', 'driver', 'package', 'NOTICE'),
     path.join('licenses', 'certifi-2026.6.17', 'certifi-2026.6.17.dist-info', 'licenses', 'LICENSE'),
     path.join('licenses', 'pyinstaller-6.21.0', 'pyinstaller-6.21.0.dist-info', 'licenses', 'COPYING.txt'),
-    path.join('_internal', 'webwright', 'server', 'web', 'index.html'),
-    path.join('_internal', 'webwright', 'server', 'web', 'app.js'),
     path.join('_internal', 'webwright', 'tool_runtime', 'toolkit_runtime.py'),
     path.join('_internal', 'playwright', 'driver', 'package', 'cli.js'),
   ]
@@ -83,10 +81,8 @@ function validateRuntime({ runtimeRoot, platform = expectedPlatform(), arch = ex
     }
   }
   const webRoot = path.join(runtimeRoot, '_internal', 'webwright', 'server', 'web')
-  const webIndex = fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8')
-  const webApp = fs.readFileSync(path.join(webRoot, 'app.js'), 'utf8')
-  if (!webIndex.includes('WeWorker 网站探索') || webApp.includes('model_manager.js')) {
-    throw new Error('Webwright runtime contains stale model-management web assets')
+  if (fs.existsSync(webRoot)) {
+    throw new Error('Webwright runtime contains obsolete server web assets')
   }
   return { manifest, entrypoint }
 }

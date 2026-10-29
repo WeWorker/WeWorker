@@ -78,6 +78,6 @@ export function graduationHint(host: string, count: number): string {
   return (
     `\n\n💡 ${host} 已是第 ${count} 次由网站探索agent处理。` +
     '若这是常用站点，可在网站探索agent的 Toolkit 流程中把它固化为本地工具包并安装；' +
-    '安装后此类请求会直接走本地工具，无需再逐次探索。\n入口：http://127.0.0.1:8766/ui'
+    '安装后此类请求会直接走本地工具，无需再逐次探索。\n入口：客户端「网站探索」工作台'
   )
 }

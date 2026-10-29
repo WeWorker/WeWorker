@@ -329,7 +329,7 @@ describe('runWebwrightTaskTurn：任务事件 → chat SSEEvent', () => {
     expect(calls.some((url) => url.endsWith('/api/tasks/t1/cancel'))).toBe(true)
   })
 
-  it('入口链接独立成行（URL 不与中文相邻，否则被链接器吞成 404）', async () => {
+  it('产出带有任务号的网站探索工作台提示文案', async () => {
     const { fetchImpl } = stubFetch({
       taskView: { task_id: 't1', status: 'succeeded', final_response: 'x' },
       frames: [['task_succeeded', '{}']],
@@ -337,6 +337,6 @@ describe('runWebwrightTaskTurn：任务事件 → chat SSEEvent', () => {
     const text = await collect(
       runWebwrightTaskTurn({ taskId: 't1', startUrl: 'https://shop.example.org', deps: { fetchImpl } }),
     )
-    expect(text).toContain('\nhttp://127.0.0.1:8766/ui\n')
+    expect(text).toContain('（任务 t1；可在客户端「网站探索」工作台中把常用站点固化成工具）')
   })
 })
