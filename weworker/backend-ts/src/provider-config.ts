@@ -41,3 +41,15 @@ export function resolveConfiguredSettings(settings: Settings, providers: Provide
     }),
   }
 }
+
+// Activating or persisting a preset provider returns the exploration agent to that provider's preset webwright config.
+export function explorationResetPatch(provider: string): Partial<Pick<Settings, 'exploration_base_url' | 'exploration_base_url_is_full' | 'exploration_model' | 'exploration_api_key' | 'exploration_use_main_key'>> {
+  if (provider === 'custom') return {}
+  return {
+    exploration_base_url: '',
+    exploration_base_url_is_full: false,
+    exploration_model: '',
+    exploration_api_key: '',
+    exploration_use_main_key: true,
+  }
+}
