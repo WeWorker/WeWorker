@@ -75,7 +75,7 @@ def test_health_endpoint(tmp_path: Path, monkeypatch) -> None:
     assert "commit" not in response.get_json()
     assert response.get_json()["mode"] == "embedded"
     assert response.get_json()["instance_id"] == "managed-instance"
-    assert response.get_json()["capabilities"]["install_to_weworker"] is False
+    assert "install_to_weworker" not in response.get_json()["capabilities"]
 
 
 @pytest.mark.parametrize("instance_id", ["", "exploration-fixture"])
@@ -123,7 +123,7 @@ def test_weworker_user_files_environment_enables_install_capability(
     app = create_app(paths=_paths(tmp_path))
     health = app.test_client().get("/api/health").get_json()
 
-    assert health["capabilities"]["install_to_weworker"] is False
+    assert "install_to_weworker" not in health["capabilities"]
     assert health["capabilities"]["adapter_v2_package"] is True
     assert app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] == user_files_dir.resolve()
 
@@ -136,7 +136,7 @@ def test_relative_weworker_user_files_environment_is_rejected(
     app = create_app(paths=_paths(tmp_path))
     client = app.test_client()
 
-    assert client.get("/api/health").get_json()["capabilities"]["install_to_weworker"] is False
+    assert "install_to_weworker" not in client.get("/api/health").get_json()["capabilities"]
     assert client.post("/api/toolkits/demo/install-to-weworker").status_code == 404
 
 
@@ -167,155 +167,13 @@ def test_http_security_rejects_untrusted_host_and_cross_origin(tmp_path: Path) -
     assert wrong_port.status_code == 403
 
 
-def test_ui_endpoint(tmp_path: Path) -> None:
+def test_ui_endpoints_are_removed(tmp_path: Path) -> None:
     app = create_app(paths=_paths(tmp_path))
     client = app.test_client()
 
-    index_response = client.get("/")
-    ui_response = client.get("/ui")
-
-    assert index_response.status_code == 302
-    assert index_response.headers["Location"] == "/ui"
-    assert ui_response.status_code == 200
-    ui_html = ui_response.get_data(as_text=True)
-    assert "<title>WeWorker 网站探索</title>" in ui_html
-    assert "WeWorker 网站探索" in ui_html
-    assert 'id="toolkitSearchInput"' in ui_html
-    assert 'id="workspaceContext"' in ui_html
-    assert 'id="kitSelect"' not in ui_html
-    assert "Webwright Toolkit" not in ui_html
-    assert 'src="/web/app.js"' in ui_html
-    assert 'id="installToWeWorkerBtn" hidden disabled' in ui_html
-
-    app_response = client.get("/web/app.js")
-    nested_response = client.get("/web/views/explore.js")
-    assert app_response.status_code == 200
-    assert nested_response.status_code == 200
-    assert "三工作区" in app_response.get_data(as_text=True)
-    assert "capabilities?.install_to_weworker" in app_response.get_data(as_text=True)
-    assert "/api/tasks" not in nested_response.get_data(as_text=True)
-
-
-def test_toolkit_ui_uses_product_apis_only() -> None:
-    web_root = Path(__file__).parents[2] / "src" / "webwright" / "server" / "web"
-    api_source = (web_root / "api.js").read_text(encoding="utf-8")
-    active_sources = [
-        path.read_text(encoding="utf-8")
-        for path in web_root.rglob("*.js")
-        if "mock" not in path.parts
-    ]
-
-    assert 'fetch(path, init)' in api_source
-    assert "new EventSource(path)" in api_source
-    assert 'from "./mock/data.js"' not in api_source
-    assert all("/api/tasks" not in source for source in active_sources)
-
-
-def test_toolkit_ui_exposes_stage_seven_controls() -> None:
-    web_root = Path(__file__).parents[2] / "src" / "webwright" / "server" / "web"
-    styles_source = (web_root / "styles.css").read_text(encoding="utf-8")
-    api_source = (web_root / "api.js").read_text(encoding="utf-8")
-    explore_source = (web_root / "views" / "explore.js").read_text(encoding="utf-8")
-    develop_source = (web_root / "views" / "develop.js").read_text(encoding="utf-8")
-    debug_source = (web_root / "views" / "debug.js").read_text(encoding="utf-8")
-
-    assert "replayExploration" in explore_source
-    assert "+ 新建探索" in explore_source
-    assert 'class="agent-history"' in explore_source
-    assert 'class="agent-prompt"' in explore_source
-    assert "活动" not in explore_source
-    assert "新建 Exploration</" not in explore_source
-    assert "openBrowser(tool.start_url)" in explore_source
-    assert "请打开起始网址并<strong>完成登录</strong>" in explore_source
-    assert "overflow-wrap:anywhere" in styles_source
-    assert 'class="explore-card-title" title="${esc(e.exploration_id)}"' in explore_source
-    assert "screenshot_url" in explore_source
-    assert 'new Set(["running", "pause_requested", "waiting_for_user"])' in explore_source
-    assert "active_issue" in explore_source
-    assert "renderTimeline" in explore_source
-    assert "agent_step" in explore_source
-    assert "agent-user-message" in explore_source
-    assert "Agent 思考" in explore_source
-    assert "执行动作" in explore_source
-    assert "执行后页面" in explore_source
-    assert explore_source.index("Agent 思考") < explore_source.index("执行动作")
-    assert explore_source.index("执行动作") < explore_source.index("执行后页面")
-    assert "页面观察" not in explore_source
-    assert "format_error" not in explore_source
-    assert 'if (status === "error")' in explore_source
-    assert 'if (status === "done")' in explore_source
-    assert 'if (status === "ok" || done)' in explore_source
-    assert 'if (status === "unknown" || !status)' in explore_source
-    assert "toneBadge(meta.label, meta.tone)" in explore_source
-    assert 'data-step-status="${esc(s.status || "unknown")}"' in explore_source
-    assert "cancelDevelopment" in develop_source
-    assert "continueDevelopment(state.toolkitId, tool.tool_id, instruction, evidenceId || \"\")" in develop_source
-    assert "setState({ debugRunEvidenceId: null })" in develop_source
-    assert "基于已应用版本开发" in develop_source
-    assert "从探索重新开发" in develop_source
-    assert "restartDevelopmentFromExploration" in develop_source
-    assert "updateDevelopmentCode" in develop_source
-    assert 'id="editDevelopmentCode"' in develop_source
-    assert 'id="developmentCodeEditor"' in develop_source
-    assert 'id="saveDevelopmentCode"' in develop_source
-    assert 'id="cancelDevelopmentCodeEdit"' in develop_source
-    assert "${slotMeta(slot, codeContent)}\n    ${codeActions}" in develop_source
-    assert "expectedCodeHash" in api_source
-    assert "development-code-editor" in styles_source
-    assert "window.confirm" not in develop_source
-    assert "const firstDevelopment = !dev && !slots.formal" in develop_source
-    assert 'id="startInitialDevelopment"' in develop_source
-    assert 'id="initialDevInstruction"' in develop_source
-    assert "请先填写首次开发指令" in develop_source
-    assert "sourceExplorationId: state.sourceExplorationId" in develop_source
-    assert "instruction: initialInstruction" in develop_source
-    assert "data-cancel-run" in debug_source
-    assert "data-repeat-run" in debug_source
-    assert "screenshot_url" in debug_source
-
-
-def test_toolkit_ui_exposes_formal_verification_and_export_controls() -> None:
-    web_root = Path(__file__).parents[2] / "src" / "webwright" / "server" / "web"
-    index_source = (web_root / "index.html").read_text(encoding="utf-8")
-    api_source = (web_root / "api.js").read_text(encoding="utf-8")
-    app_source = (web_root / "app.js").read_text(encoding="utf-8")
-    develop_source = (web_root / "views" / "develop.js").read_text(encoding="utf-8")
-    debug_source = (web_root / "views" / "debug.js").read_text(encoding="utf-8")
-
-    assert 'id="exportToolkitBtn"' in index_source
-    assert 'id="exportProgress"' in index_source
-    assert "getExportStatus" in api_source
-    assert "refreshExportStatus" in app_source
-    assert "未验证 Tool" in app_source
-    assert "已成功应用到 Adapter" in develop_source
-    assert "当前正式产物 artifact_hash" not in debug_source
-    assert "<span>artifact_hash</span>" not in debug_source
-    assert "<span>code_hash</span>" not in debug_source
-    assert "${esc(activeSlot.code_hash)}" not in debug_source
-    assert "${esc(slot.code_hash)}" not in develop_source
-    assert "${status.artifact_hash}" not in app_source
-    assert "开发起点" in develop_source
-    assert "当前产物" in debug_source
-    assert "旧产物" in debug_source
-
-
-def test_toolkit_ui_modals_only_close_from_explicit_controls() -> None:
-    web_root = Path(__file__).parents[2] / "src" / "webwright" / "server" / "web"
-    active_sources = [
-        path.read_text(encoding="utf-8")
-        for path in web_root.rglob("*.js")
-        if "mock" not in path.parts
-    ]
-    index_source = (web_root / "index.html").read_text(encoding="utf-8")
-    lightbox_source = (web_root / "components" / "lightbox.js").read_text(
-        encoding="utf-8"
-    )
-
-    assert all("event.target === overlay" not in source for source in active_sources)
-    assert all("e.target === overlay" not in source for source in active_sources)
-    assert all('event.key !== "Escape"' not in source for source in active_sources)
-    assert 'id="lightboxClose"' in index_source
-    assert 'getElementById("lightboxClose").addEventListener("click"' in lightbox_source
+    assert client.get("/").status_code == 404
+    assert client.get("/ui").status_code == 404
+    assert client.get("/web/app.js").status_code == 404
 
 
 def test_docs_endpoint(tmp_path: Path) -> None:
@@ -343,7 +201,7 @@ def test_openapi_endpoint(tmp_path: Path) -> None:
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["openapi"] == "3.1.0"
-    assert "/ui" in payload["paths"]
+    assert "/ui" not in payload["paths"]
     assert "/api/browser/open" in payload["paths"]
     assert "/api/browser/match" in payload["paths"]
     assert "/api/activity" in payload["paths"]

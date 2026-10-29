@@ -1059,9 +1059,9 @@ def test_embedded_capability_directly_overwrites_project_skill(
     installed = client.post("/api/toolkits/blog_admin/install-to-weworker")
     package = client.get("/api/toolkits/blog_admin/v2-package")
 
-    assert health["capabilities"]["install_to_weworker"] is False
+    assert "install_to_weworker" not in health["capabilities"]
     assert health["capabilities"]["adapter_v2_package"] is True
-    assert installed.status_code == 409
+    assert installed.status_code == 404
     assert package.status_code == 200
     assert package.get_json()["digest"] == build["digest"]
     assert {
@@ -1070,48 +1070,6 @@ def test_embedded_capability_directly_overwrites_project_skill(
         if path.is_file()
     } == {"SKILL.md", "manual.txt"}
     assert (target / "SKILL.md").read_text(encoding="utf-8") == "manual skill"
-
-
-def test_direct_install_restores_existing_skill_when_directory_switch_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    toolkits, debug_runs, _development_runs = _stores(tmp_path)
-    formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
-    publisher = ToolkitPublisher(toolkits, debug_runs)
-    build = publisher.ensure_consistent("blog_admin")
-    run = debug_runs.create(
-        tool_id="search_blog",
-        channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
-
-    user_files_dir = tmp_path / "user-files"
-    target = user_files_dir / ".claude" / "skills" / "blog-admin"
-    target.mkdir(parents=True)
-    (target / "SKILL.md").write_text("manual skill", encoding="utf-8")
-    original_replace = Path.replace
-
-    def fail_staged_switch(source: Path, destination: Path | str):
-        if source.name == "blog-admin" and source.parent.name.startswith(
-            ".webwright-install-"
-        ):
-            raise OSError("simulated directory switch failure")
-        return original_replace(source, destination)
-
-    monkeypatch.setattr(Path, "replace", fail_staged_switch)
-
-    with pytest.raises(ValueError, match="host installer"):
-        publisher.install_to_weworker(
-            "blog_admin", user_files_dir=user_files_dir
-        )
-
-    assert (target / "SKILL.md").read_text(encoding="utf-8") == "manual skill"
-    assert not list(target.parent.glob(".webwright-install-*"))
-    assert not list(target.parent.glob(".blog-admin.webwright-backup-*"))
 
 
 def test_direct_install_preserves_existing_skill_when_staging_write_fails(

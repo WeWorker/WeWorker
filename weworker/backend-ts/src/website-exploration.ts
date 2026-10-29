@@ -19,7 +19,6 @@ const rules: [string, RegExp][] = [
   ['POST', new RegExp(`^${tool}/publish$`)],
   ['GET POST', new RegExp(`^${tool}/(explorations|debug-runs)$`)],
   ['GET', new RegExp(`^/api/toolkits/${id}/(export-status|export)$`)],
-  ['POST', new RegExp(`^/api/toolkits/${id}/install-to-weworker$`)],
   ['GET', new RegExp(`^/api/(explorations|debug-runs|development-runs|replays)/${id}$`)],
   ['GET', new RegExp(`^/api/explorations/${id}/(timeline|steps|messages|events)$`)],
   ['POST', new RegExp(`^/api/explorations/${id}/(messages|pause|resume|cancel|replay)$`)],

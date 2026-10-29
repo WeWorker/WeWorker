@@ -36,7 +36,7 @@ def test_build_is_onedir_and_collects_runtime_assets() -> None:
     assert 'f"--paths={ROOT / \'src\'}"' in source
     assert '"--collect-data=webwright"' not in source
     assert "ROOT / 'src' / 'webwright' / 'config'" in source
-    assert "ROOT / 'src' / 'webwright' / 'server' / 'web'" in source
+    assert "ROOT / 'src' / 'webwright' / 'server' / 'web'" not in source
     assert '"--collect-all=playwright"' in source
     assert '"--hidden-import=webwright.models.openai_chat_model"' in source
     assert "tool_runtime' / 'toolkit_runtime.py'" in source

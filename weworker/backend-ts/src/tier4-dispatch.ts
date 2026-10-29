@@ -20,21 +20,13 @@ import {
   type WebwrightClientDeps,
 } from './webwright-client.js'
 
-export const WEBWRIGHT_UI_URL = 'http://127.0.0.1:8766/ui'
-
 /**
- * 任务入口链接文案：URL **独立成行**，括号说明另起一行。
+ * 任务说明文案。
  *
- * 为什么不能把 URL 嵌进中文句子：聊天里的自动链接与系统「打开外部链接」会把紧贴 URL 的中文
- * 一并吞进 URL——实测 2026-10-12 用户点开失败文案里的入口，服务端收到的是
- * `/ui%EF%BF%BD…`（URL 后紧跟的全角「（任务」被按单字节解码成替换字符）→ 404，轨迹入口失效。
- * 故凡输出该链接处一律经此函数，URL 两侧只留行边界，绝不与中文直接相邻。
- *
- * 括号行只写**事实**：`/ui` 是 Adapter 工作台（站点能力固化入口），不展示这一次聊天任务的
- * 逐步轨迹，所以不能承诺「查看逐步轨迹/截图」。
+ * 注：自带 Web UI 已下线，统一引导至客户端内「网站探索」工作台。
  */
 function taskLink(taskId: string): string {
-  return `${WEBWRIGHT_UI_URL}\n（任务 ${taskId}；该入口是 Adapter 工作台，可把常用站点固化成工具）`
+  return `（任务 ${taskId}；可在客户端「网站探索」工作台中把常用站点固化成工具）`
 }
 
 // ─── 站点信号提取（纯）────────────────────────────────────────────────────
@@ -190,7 +182,7 @@ export async function* runWebwrightTaskTurn(input: {
     await cancelWebwrightTask(taskId, input.deps)
     yield {
       type: 'text_delta',
-      content: `任务事件流打开失败（${opened.reason}），已取消本次任务。原始请求请稍后重试，或直接在浏览器打开：\n${WEBWRIGHT_UI_URL}`,
+      content: `任务事件流打开失败（${opened.reason}），已取消本次任务。原始请求请稍后重试，或在客户端「网站探索」工作台中检查。`,
     }
     return
   }

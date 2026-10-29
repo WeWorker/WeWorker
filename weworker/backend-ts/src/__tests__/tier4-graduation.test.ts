@@ -147,7 +147,7 @@ describe('graduationHint', () => {
     expect(hint).toContain('shop.example.org')
     expect(hint).toContain('第 3 次')
     expect(hint).toContain('网站探索agent')
-    expect(hint).toContain('http://127.0.0.1:8766/ui')
+    expect(hint).toContain('客户端「网站探索」工作台')
     expect(hint.toLowerCase()).not.toContain('webwright')
   })
 })

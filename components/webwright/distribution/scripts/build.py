@@ -312,11 +312,6 @@ def _pyinstaller_arguments(
         ),
         (
             "--add-data="
-            f"{ROOT / 'src' / 'webwright' / 'server' / 'web'}"
-            f"{os.pathsep}webwright/server/web"
-        ),
-        (
-            "--add-data="
             f"{ROOT / 'src' / 'webwright' / 'tool_runtime' / 'toolkit_runtime.py'}"
             f"{os.pathsep}webwright/tool_runtime"
         ),
