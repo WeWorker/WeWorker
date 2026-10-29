@@ -259,6 +259,7 @@ describe('Feishu incoming messages', () => {
       { markdown: 'fixture model answer' }, { replyTo: 'fixture-message' }))
     expect(mocks.getChannelPermissionMode).toHaveBeenCalledWith('feishu', 'fixture-user')
     expect(mocks.runChannelChat).toHaveBeenCalledWith(mocks.getWorkWithMessages().messages, mocks.settings, {
+      workId: 'fixture-work',
       channelPermissionMode: 'qa_only', memoryScope: { user: 'feishu:fixture-user' }, askUserHandler: expect.any(Function),
       // Feishu replies with text only, so image tools must report they cannot deliver here.
       sendsImages: false,

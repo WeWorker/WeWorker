@@ -130,6 +130,8 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const useUserFilesStore = create((set, get) => ({
   open: false,
+  workspaceWorkId: null,
+  workspaceTaskId: null,
   directory: INITIAL_DIRECTORY,
   files: [],
   expandedPaths: INITIAL_EXPANDED_PATHS || [],
@@ -187,6 +189,13 @@ export const useUserFilesStore = create((set, get) => ({
     saveExpandedPaths(next)
     set({ expandedPaths: next })
   },
+  setWorkspaceContext: (workspaceWorkId, workspaceTaskId) => {
+    const nextWorkId = workspaceWorkId || null
+    const nextTaskId = workspaceTaskId || null
+    if (nextWorkId === get().workspaceWorkId && nextTaskId === get().workspaceTaskId) return
+    set({ workspaceWorkId: nextWorkId, workspaceTaskId: nextTaskId, directory: '', files: [], error: null })
+    if (get().open) get().load(nextWorkId, nextTaskId)
+  },
   openPanel: async () => {
     set({ open: true })
     await get().load()
@@ -197,12 +206,17 @@ export const useUserFilesStore = create((set, get) => ({
     set({ open: next })
     if (next) await get().load()
   },
-  load: async () => {
+  load: async (workspaceWorkId = get().workspaceWorkId, workspaceTaskId = get().workspaceTaskId) => {
     set({ loading: true, error: null })
     try {
-      const res = await backendFetchWithRetry('/user-files')
+      const params = new URLSearchParams()
+      if (workspaceWorkId) params.set('work_id', workspaceWorkId)
+      if (workspaceTaskId) params.set('task_id', workspaceTaskId)
+      const suffix = params.size ? '?' + params.toString() : ''
+      const res = await backendFetchWithRetry('/user-files' + suffix)
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u52a0\u8f7d\u7528\u6237\u76ee\u5f55\u5931\u8d25')
+      if (workspaceWorkId !== get().workspaceWorkId || workspaceTaskId !== get().workspaceTaskId) return
       const directory = data.directory || ''
       const shouldInitializeExpanded = !get().expandedPathsInitialized && directory
       const expandedPaths = shouldInitializeExpanded ? [directory] : get().expandedPaths
@@ -210,6 +224,7 @@ export const useUserFilesStore = create((set, get) => ({
       saveCachedDirectory(directory)
       set({ directory, files: data.files || [], expandedPaths, expandedPathsInitialized: true, loading: false })
     } catch (e) {
+      if (workspaceWorkId !== get().workspaceWorkId || workspaceTaskId !== get().workspaceTaskId) return
       set({ error: friendlyFileError(e, '\u52a0\u8f7d\u7528\u6237\u76ee\u5f55\u5931\u8d25'), loading: false })
     }
   },
@@ -221,7 +236,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parent_path: parentPath, name: folderName }),
+        body: JSON.stringify({ parent_path: parentPath, name: folderName, work_id: get().workspaceWorkId || undefined, task_id: get().workspaceTaskId || undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u521b\u5efa\u6587\u4ef6\u5939\u5931\u8d25')
@@ -241,7 +256,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parent_path: parentPath, name: fileName }),
+        body: JSON.stringify({ parent_path: parentPath, name: fileName, work_id: get().workspaceWorkId || undefined, task_id: get().workspaceTaskId || undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u521b\u5efa\u6587\u4ef6\u5931\u8d25')
@@ -261,7 +276,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/rename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_path: targetPath, name: nextName }),
+        body: JSON.stringify({ target_path: targetPath, name: nextName, work_id: get().workspaceWorkId || undefined, task_id: get().workspaceTaskId || undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u91cd\u547d\u540d\u5931\u8d25')
@@ -282,7 +297,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetchWithRetry('/user-files/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_path: targetPath }),
+        body: JSON.stringify({ target_path: targetPath, work_id: get().workspaceWorkId || undefined, task_id: get().workspaceTaskId || undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u5220\u9664\u5931\u8d25')
@@ -318,7 +333,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/paste', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_path: sourcePath, target_parent_path: targetParentPath, mode }),
+        body: JSON.stringify({ source_path: sourcePath, target_parent_path: targetParentPath, mode, work_id: get().workspaceWorkId || undefined, task_id: get().workspaceTaskId || undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u7c98\u8d34\u5931\u8d25')
@@ -352,7 +367,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/import-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paths, target_parent_path: targetParentPath || undefined }),
+        body: JSON.stringify({ paths, target_parent_path: targetParentPath || undefined, work_id: get().workspaceWorkId || undefined, task_id: get().workspaceTaskId || undefined }),
       })
       let job = await res.json()
       if (!res.ok) throw new Error(job.detail || '\u5bfc\u5165\u7528\u6237\u76ee\u5f55\u5931\u8d25')

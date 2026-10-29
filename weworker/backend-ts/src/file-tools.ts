@@ -3,6 +3,7 @@ import path from 'node:path'
 import { getDownloadDirectory } from './config.js'
 import {
   assertPathInsideUserDirectory,
+  assertPathInsideWorkspaceDirectory,
   isPathBlockedByBlacklist,
   resolveDirectoryInsideUserDirectory,
   resolveUserDirectoryRoot,
@@ -12,8 +13,11 @@ export function listDownloads(keyword = '', limit = 50): { files: Array<{ name: 
   return listFiles(getDownloadDirectory(), keyword, limit)
 }
 
-export function listFiles(directory = '', keyword = '', limit = 50): { directory: string; files: Array<{ name: string; path: string; size: number; modified: string; isDirectory: boolean }> } {
-  const resolved = resolveDirectoryInsideUserDirectory(directory)
+export function listFiles(directory = '', keyword = '', limit = 50, workspaceDirectory?: string): { directory: string; files: Array<{ name: string; path: string; size: number; modified: string; isDirectory: boolean }> } {
+  const root = workspaceDirectory ? path.resolve(workspaceDirectory) : resolveUserDirectoryRoot()
+  const resolved = workspaceDirectory
+    ? (directory ? assertPathInsideWorkspaceDirectory(directory, root, 'directory') : root)
+    : resolveDirectoryInsideUserDirectory(directory)
   if (!fs.existsSync(resolved)) return { directory: resolved, files: [] }
   if (!fs.statSync(resolved).isDirectory()) return { directory: resolved, files: [] }
   const entries = fs.readdirSync(resolved)
@@ -25,7 +29,7 @@ export function listFiles(directory = '', keyword = '', limit = 50): { directory
       } catch { return null }
     })
     .filter((e): e is NonNullable<typeof e> => e !== null && !e.name.startsWith('.'))
-    .filter((e) => !isPathBlockedByBlacklist(e.path))
+    .filter((e) => !isPathBlockedByBlacklist(e.path, root))
     .filter(e => !keyword || e.name.toLowerCase().includes(keyword.toLowerCase()))
     .sort((a, b) => b.mtime - a.mtime)
     .slice(0, limit)

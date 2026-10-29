@@ -10,6 +10,7 @@ import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { showAlert } from '../../store/dialog.js'
+import { useSettingsStore } from '../../store/settings.js'
 
 export default function Sidebar({ section, collapsed, width }) {
   const createWork = useWorksStore((s) => s.createWork)
@@ -17,10 +18,12 @@ export default function Sidebar({ section, collapsed, width }) {
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const createTask = useScheduledTasksStore((s) => s.createTask)
   const loadTasks = useScheduledTasksStore((s) => s.loadTasks)
+  const userDirectory = useSettingsStore((s) => s.userDirectory)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [showProjectDialog, setShowProjectDialog] = useState(false)
   const [projectName, setProjectName] = useState('')
+  const [projectFolder, setProjectFolder] = useState('')
   const projectNameInputRef = useRef(null)
   const [showLabelFilter, setShowLabelFilter] = useState(false)
   const labelFilterRef = useRef(null)
@@ -74,14 +77,20 @@ export default function Sidebar({ section, collapsed, width }) {
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
     setProjectName('')
+    setProjectFolder('')
     setShowProjectDialog(true)
+  }
+
+  const chooseProjectFolder = async () => {
+    const paths = await window.electronAPI?.selectDirectory?.({ defaultPath: userDirectory || undefined })
+    if (paths?.[0]) setProjectFolder(paths[0])
   }
 
   const submitCreateProject = async () => {
     const name = projectName.trim()
-    if (!name) return
+    if (!name || !projectFolder) return
     try {
-      const project = await createProject(name)
+      const project = await createProject(name, projectFolder)
       setShowProjectDialog(false)
       await createWork({ forceNew: true, projectId: project.id })
     } catch (error) {
@@ -333,9 +342,24 @@ export default function Sidebar({ section, collapsed, width }) {
               WebkitAppRegion: 'no-drag',
             }}
           />
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <input
+              value={projectFolder}
+              readOnly
+              placeholder="选择项目文件夹"
+              aria-label="项目文件夹"
+              style={{
+                flex: 1, minWidth: 0, boxSizing: 'border-box', height: 32,
+                padding: '0 9px', border: '1px solid var(--border)',
+                borderRadius: 6, outline: 'none', background: 'var(--bg-primary)',
+                color: 'var(--text-primary)', font: 'inherit', fontSize: 12,
+              }}
+            />
+            <button data-app-button="action" type="button" onClick={chooseProjectFolder} style={projectDialogButtonStyle}>选择</button>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
             <button data-app-button="action" type="button" onClick={() => setShowProjectDialog(false)} style={projectDialogButtonStyle}>取消</button>
-            <button data-app-button="action" type="submit" disabled={!projectName.trim()} style={{ ...projectDialogButtonStyle, background: 'var(--accent)', color: '#fff', opacity: projectName.trim() ? 1 : 0.5 }}>创建</button>
+            <button data-app-button="action" type="submit" disabled={!projectName.trim() || !projectFolder} style={{ ...projectDialogButtonStyle, background: 'var(--accent)', color: '#fff', opacity: projectName.trim() && projectFolder ? 1 : 0.5 }}>创建</button>
           </div>
         </form>
       </div>

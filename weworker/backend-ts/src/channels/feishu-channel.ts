@@ -192,6 +192,7 @@ export class FeishuChannel implements Channel {
 
     try {
       const result = await runChannelChat(workWithMessages.messages, settings, {
+        workId: work.id,
         channelPermissionMode: getChannelPermissionMode('feishu', userId),
         memoryScope: { user: `feishu:${userId}` },
         // This channel sends text only; image tools report that they cannot deliver here.

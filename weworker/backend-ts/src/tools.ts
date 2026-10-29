@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { getUserDirectory } from './config.js'
 import { listFiles } from './file-tools.js'
-import { assertPathInsideUserDirectory } from './user-directory-guard.js'
+import { assertPathInsideWorkspaceDirectory } from './user-directory-guard.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import * as store from './works-store.js'
 import { scheduler, Scheduler } from './scheduler.js'
@@ -279,6 +279,9 @@ function _findDecryptExe(): string | null {
 export function buildMcpServer(opts?: McpServerContext) {
   const fixedWorkId = opts?.workId ?? null
   const currentWorkId = (): string | null => (opts?.workIdRef ? opts.workIdRef.current : fixedWorkId)
+  const currentWorkspaceDirectory = (): string => store.getWorkspaceDirectoryForWork(currentWorkId() ?? undefined)
+  const assertCurrentWorkspacePath = (value: string, label: string): string =>
+    assertPathInsideWorkspaceDirectory(value, currentWorkspaceDirectory(), label)
   const abortSignal = opts?.abortSignal ?? null
   const askUserSSECallback = opts?.askUserSSECallback ?? null
   const channelAskUserHandler = opts?.channelAskUserHandler ?? null
@@ -315,7 +318,7 @@ export function buildMcpServer(opts?: McpServerContext) {
       },
       async ({ file, mode, fields, keyword, index, page, pageSize, includeRaw }) => {
         try {
-          let resolved = file ? assertPathInsideUserDirectory(file, 'file') : getLatestCacheFile(currentWorkId())
+          let resolved = file ? assertCurrentWorkspacePath(file, 'file') : getLatestCacheFile(currentWorkId())
           if (!resolved) {
             return {
               content: [{
@@ -590,7 +593,7 @@ export function buildMcpServer(opts?: McpServerContext) {
       },
       async ({ directory, keyword, limit }) => {
         try {
-          const result = listFiles(directory, keyword, limit)
+          const result = listFiles(directory, keyword, limit, currentWorkspaceDirectory())
           return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] }
         } catch (e) {
           return { content: [{ type: 'text' as const, text: JSON.stringify({ error: e instanceof Error ? e.message : String(e) }) }] }
@@ -606,7 +609,7 @@ export function buildMcpServer(opts?: McpServerContext) {
       },
       async ({ file_path }) => {
         try {
-          const resolved = assertPathInsideUserDirectory(file_path, 'file_path')
+          const resolved = assertCurrentWorkspacePath(file_path, 'file_path')
           const sink = currentUserMedia()
           if (!sink?.file) return toolText({ success: false, error: NO_FILE_DELIVERY, file_path: resolved })
           const file = describeUserFile(resolved)
@@ -626,7 +629,7 @@ export function buildMcpServer(opts?: McpServerContext) {
       },
       async ({ file_path }) => {
         try {
-          const resolved = assertPathInsideUserDirectory(file_path, 'file_path')
+          const resolved = assertCurrentWorkspacePath(file_path, 'file_path')
           const sink = currentUserMedia()
           if (!sink?.image) return toolText({ success: false, error: NO_IMAGE_DELIVERY, file_path: resolved })
           const image = readUserImage(resolved)
@@ -645,7 +648,7 @@ export function buildMcpServer(opts?: McpServerContext) {
         { file_path: z.string().describe('文件的绝对路径') },
         async ({ file_path }) => {
           try {
-            const resolved = assertPathInsideUserDirectory(file_path, 'file_path')
+            const resolved = assertCurrentWorkspacePath(file_path, 'file_path')
             let mtimeMs = 0
             try { mtimeMs = fs.statSync(resolved).mtimeMs } catch {}
             const exePath = _findDecryptExe()
@@ -672,7 +675,7 @@ export function buildMcpServer(opts?: McpServerContext) {
         },
         async ({ file_path, extensions }) => {
           try {
-            const resolved = assertPathInsideUserDirectory(file_path, 'file_path')
+            const resolved = assertCurrentWorkspacePath(file_path, 'file_path')
             const exePath = _findDecryptExe()
             if (!exePath) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: '未找到 sd_decrypt.exe' }) }] }
             const args = ['--json', resolved]

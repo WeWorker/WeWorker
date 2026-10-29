@@ -7,7 +7,7 @@ import {
   expandHomePath,
   getMaxChatAttachments,
 } from './config.js'
-import { assertPathInsideUserDirectory, isPathBlockedByBlacklist } from './user-directory-guard.js'
+import { assertPathInsideWorkspaceDirectory, isPathBlockedByBlacklist } from './user-directory-guard.js'
 import type { ContentBlock } from './works-store.js'
 
 export type UserFileEntry = {
@@ -48,33 +48,33 @@ const IMPORT_JOB_TTL_MS = 10 * 60 * 1000
 const importJobs = new Map<string, UserFileImportJob>()
 const importJobCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-export function listUserFiles(): { directory: string; files: UserFileEntry[] } {
-  const directory = ensureUserDirectory()
-  return { directory, files: listUserFileTree(directory) }
+export function listUserFiles(workspaceDirectory?: string): { directory: string; files: UserFileEntry[] } {
+  const directory = ensureWorkspaceRoot(workspaceDirectory)
+  return { directory, files: listUserFileTree(directory, 0, { count: 0 }, directory) }
 }
 
-export function createUserFolder(parentPath: string | undefined, name: string): { directory: string; folder: UserFileEntry } {
+export function createUserFolder(parentPath: string | undefined, name: string, workspaceDirectory?: string): { directory: string; folder: UserFileEntry } {
   const folderName = safeItemName(name || '')
   if (!folderName) throw new Error('folder name is required')
-  const { root, parent } = resolveUserDirectoryParent(parentPath)
+  const { root, parent } = resolveUserDirectoryParent(parentPath, workspaceDirectory)
   const dest = uniqueDestinationPath(parent, folderName)
   fs.mkdirSync(dest)
   return { directory: root, folder: buildUserFileEntry(dest, true) }
 }
 
-export function createUserFile(parentPath: string | undefined, name: string): { directory: string; file: UserFileEntry } {
+export function createUserFile(parentPath: string | undefined, name: string, workspaceDirectory?: string): { directory: string; file: UserFileEntry } {
   const fileName = safeItemName(name || '')
   if (!fileName) throw new Error('file name is required')
-  const { root, parent } = resolveUserDirectoryParent(parentPath)
+  const { root, parent } = resolveUserDirectoryParent(parentPath, workspaceDirectory)
   const dest = uniqueDestinationPath(parent, fileName)
   fs.writeFileSync(dest, '')
   return { directory: root, file: buildUserFileEntry(dest, false) }
 }
 
-export function renameUserItem(targetPath: string | undefined, name: string): { directory: string; item: UserFileEntry; folder?: UserFileEntry; file?: UserFileEntry } {
+export function renameUserItem(targetPath: string | undefined, name: string, workspaceDirectory?: string): { directory: string; item: UserFileEntry; folder?: UserFileEntry; file?: UserFileEntry } {
   const nextName = safeItemName(name || '')
   if (!targetPath || !nextName) throw new Error('target_path and name are required')
-  const { root, target } = resolveUserDirectoryChild(targetPath)
+  const { root, target } = resolveUserDirectoryChild(targetPath, workspaceDirectory)
   const dest = path.join(path.dirname(target), nextName)
   if (path.resolve(dest) === path.resolve(target)) {
     return entryResponse(root, buildUserFileEntry(target, true))
@@ -86,9 +86,9 @@ export function renameUserItem(targetPath: string | undefined, name: string): { 
   return entryResponse(root, buildUserFileEntry(dest, true))
 }
 
-export function deleteUserItem(targetPath: string | undefined): { directory: string; deleted_path: string } {
+export function deleteUserItem(targetPath: string | undefined, workspaceDirectory?: string): { directory: string; deleted_path: string } {
   if (!targetPath) throw new Error('target_path is required')
-  const { root, target } = resolveUserDirectoryChild(targetPath)
+  const { root, target } = resolveUserDirectoryChild(targetPath, workspaceDirectory)
   const stat = fs.statSync(target)
   fs.rmSync(target, { recursive: stat.isDirectory(), force: false })
   return { directory: root, deleted_path: target }
@@ -98,13 +98,14 @@ export function pasteUserItem(
   sourcePath: string | undefined,
   targetParentPath: string | undefined,
   mode: 'copy' | 'cut' | undefined,
+  workspaceDirectory?: string,
 ): { directory: string; item: UserFileEntry; folder?: UserFileEntry; file?: UserFileEntry } {
   if (!sourcePath || !targetParentPath || (mode !== 'copy' && mode !== 'cut')) {
     throw new Error('source_path, target_parent_path and mode are required')
   }
 
-  const { root, target: source } = resolveUserDirectoryChild(sourcePath)
-  const { target: parent } = resolveUserDirectoryTarget(targetParentPath)
+  const { root, target: source } = resolveUserDirectoryChild(sourcePath, workspaceDirectory)
+  const { target: parent } = resolveUserDirectoryTarget(targetParentPath, workspaceDirectory)
   const sourceStat = fs.statSync(source)
   const parentStat = fs.statSync(parent)
   if (!parentStat.isDirectory()) throw new Error('target parent path must be a directory')
@@ -123,12 +124,12 @@ export function pasteUserItem(
   return entryResponse(root, buildUserFileEntry(dest, true))
 }
 
-export function importUserFiles(paths: string[] | undefined, targetParentPath?: string): { directory: string; target_directory: string; files: UserFileEntry[] } {
+export function importUserFiles(paths: string[] | undefined, targetParentPath?: string, workspaceDirectory?: string): { directory: string; target_directory: string; files: UserFileEntry[] } {
   if (!Array.isArray(paths) || paths.length === 0) throw new Error('paths is required')
-  const root = ensureUserDirectory()
+  const root = ensureWorkspaceRoot(workspaceDirectory)
   let targetDir = root
   if (targetParentPath) {
-    const resolved = resolveUserDirectoryTarget(targetParentPath).target
+    const resolved = resolveUserDirectoryTarget(targetParentPath, root).target
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
       throw new Error('target parent must be a folder')
     }
@@ -141,13 +142,13 @@ export function importUserFiles(paths: string[] | undefined, targetParentPath?: 
   }
 }
 
-export function startUserFileImportJob(paths: string[] | undefined, targetParentPath?: string): UserFileImportJob {
+export function startUserFileImportJob(paths: string[] | undefined, targetParentPath?: string, workspaceDirectory?: string): UserFileImportJob {
   if (!Array.isArray(paths) || paths.length === 0) throw new Error('paths is required')
   cleanupExpiredImportJobs()
-  const root = ensureUserDirectory()
+  const root = ensureWorkspaceRoot(workspaceDirectory)
   let targetDir = root
   if (targetParentPath) {
-    const resolved = resolveUserDirectoryTarget(targetParentPath).target
+    const resolved = resolveUserDirectoryTarget(targetParentPath, root).target
     if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
       throw new Error('target parent must be a folder')
     }
@@ -181,12 +182,12 @@ export function getUserFileImportJob(id: string | undefined): UserFileImportJob 
   return job ? cloneImportJob(job) : null
 }
 
-export function importChatAttachments(attachments: Array<{ path?: string; name?: string }>): ContentBlock[] {
+export function importChatAttachments(attachments: Array<{ path?: string; name?: string }>, workspaceDirectory?: string): ContentBlock[] {
   const maxChatAttachments = getMaxChatAttachments()
   if (attachments.length > maxChatAttachments) {
     throw new Error(`too many attachments: max ${maxChatAttachments}`)
   }
-  const dir = ensureUserDirectory()
+  const dir = ensureWorkspaceRoot(workspaceDirectory)
   return attachments.map((attachment) => {
     const source = attachment.path || ''
     if (!source) throw new Error('attachment path is required')
@@ -402,28 +403,34 @@ function isPathInsideDirectory(filePath: string, directory: string): boolean {
   return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
-function resolveUserDirectoryParent(parentPath?: string): { root: string; parent: string } {
-  const root = ensureUserDirectory()
-  const parent = parentPath ? assertPathInsideUserDirectory(parentPath, 'parent path') : root
+function ensureWorkspaceRoot(workspaceDirectory?: string): string {
+  const root = path.resolve(workspaceDirectory || ensureUserDirectory())
+  fs.mkdirSync(root, { recursive: true })
+  return root
+}
+
+function resolveUserDirectoryParent(parentPath?: string, workspaceDirectory?: string): { root: string; parent: string } {
+  const root = ensureWorkspaceRoot(workspaceDirectory)
+  const parent = parentPath ? assertPathInsideWorkspaceDirectory(parentPath, root, 'parent path') : root
   if (!fs.statSync(parent).isDirectory()) {
     throw new Error('parent path must be a directory')
   }
   return { root, parent }
 }
 
-function resolveUserDirectoryChild(targetPath: string): { root: string; target: string } {
-  const root = ensureUserDirectory()
-  const target = assertPathInsideUserDirectory(targetPath, 'path')
+function resolveUserDirectoryChild(targetPath: string, workspaceDirectory?: string): { root: string; target: string } {
+  const root = ensureWorkspaceRoot(workspaceDirectory)
+  const target = assertPathInsideWorkspaceDirectory(targetPath, root, 'path')
   return { root, target }
 }
 
-function resolveUserDirectoryTarget(targetPath: string): { root: string; target: string } {
-  const root = ensureUserDirectory()
-  const target = assertPathInsideUserDirectory(targetPath, 'path')
+function resolveUserDirectoryTarget(targetPath: string, workspaceDirectory?: string): { root: string; target: string } {
+  const root = ensureWorkspaceRoot(workspaceDirectory)
+  const target = assertPathInsideWorkspaceDirectory(targetPath, root, 'path')
   return { root, target }
 }
 
-function listUserFileTree(dir: string, depth = 0, limit = { count: 0 }): UserFileEntry[] {
+function listUserFileTree(dir: string, depth = 0, limit = { count: 0 }, root = dir): UserFileEntry[] {
   if (depth > 8 || limit.count > 2000) return []
   return fs.readdirSync(dir, { withFileTypes: true })
     .map((entry) => {
@@ -439,11 +446,11 @@ function listUserFileTree(dir: string, depth = 0, limit = { count: 0 }): UserFil
         is_directory: isDirectory,
       }
       if (isDirectory && limit.count <= 2000) {
-        item.children = listUserFileTree(filePath, depth + 1, limit)
+        item.children = listUserFileTree(filePath, depth + 1, limit, root)
       }
       return item
     })
-    .filter((item) => !isPathBlockedByBlacklist(item.path))
+    .filter((item) => !isPathBlockedByBlacklist(item.path, root))
     .sort((a, b) => {
       if (a.is_directory !== b.is_directory) return a.is_directory ? -1 : 1
       return a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })

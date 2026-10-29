@@ -447,6 +447,7 @@ export class QQChannel implements Channel {
     let timing: store.ContentBlock | null
     try {
       ;({ text: fullText, images, toolCalls, timing } = await runChannelChat(wm.messages, settings, {
+        workId: work.id,
         channelPermissionMode,
         memoryScope: { user: `${channelType}:${userId}` },
         // Images are sent back only where this chat can receive them.

@@ -927,11 +927,11 @@ export default function UserFilesSidePanel({ width = 340 }) {
           <Tooltip text={'\u65b0\u5efa\u6587\u4ef6\u5939'}><button type="button" onClick={() => beginCreateFolder(null)} style={toolbarBtnStyle} aria-label={'\u65b0\u5efa\u6587\u4ef6\u5939'}><FolderPlusIcon /></button></Tooltip>
           <Tooltip text={'\u5237\u65b0'}><button type="button" onClick={load} style={toolbarBtnStyle} aria-label={'\u5237\u65b0'}><RefreshIcon /></button></Tooltip>
           <Tooltip text={'\u6298\u53e0\u5168\u90e8'}><button type="button" onClick={collapseAll} style={toolbarBtnStyle} aria-label={'\u6298\u53e0\u5168\u90e8'}><CollapseAllIcon /></button></Tooltip>
-          <Tooltip text={'\u5173\u95ed'}><button type="button" onClick={closePanel} style={{ ...toolbarBtnStyle, fontSize: 17, lineHeight: 1 }} aria-label={'\u5173\u95ed\u7528\u6237\u76ee\u5f55'}>&times;</button></Tooltip>
+          <Tooltip text={'\u5173\u95ed'}><button type="button" onClick={closePanel} style={{ ...toolbarBtnStyle, fontSize: 17, lineHeight: 1 }} aria-label={'\u5173\u95ed\u5de5\u4f5c\u533a\u6587\u4ef6'}>&times;</button></Tooltip>
         </div>
       </header>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0 8px', minHeight: 0 }} role="tree" aria-label={'\u7528\u6237\u76ee\u5f55'}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0 8px', minHeight: 0 }} role="tree" aria-label={'\u5de5\u4f5c\u533a\u6587\u4ef6'}>
         {error && <div style={{ border: '1px solid rgba(248,113,113,0.35)', color: 'var(--error)', background: 'rgba(248,113,113,0.08)', borderRadius: 6, padding: 8, fontSize: 12, margin: 8 }}>{error}</div>}
         {loading && !directory ? (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 12 }}>{'\u52a0\u8f7d\u4e2d...'}</div>
