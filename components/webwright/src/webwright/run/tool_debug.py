@@ -31,12 +31,12 @@ async def run_debug(spec: dict[str, Any]) -> dict[str, Any]:
         runtime_store = FileRuntimeStore(toolkit_dir / "runtime.json")
         before_runtime = runtime_store.read()
         adapter_root = Path(spec["adapter_root"])
-        files = {str(path.relative_to(adapter_root)): path.read_bytes()
+        files = {path.relative_to(adapter_root).as_posix(): path.read_bytes()
                  for path in adapter_root.rglob("*") if path.is_file()}
         if package_digest(files) != spec["distribution_hash"]:
             raise ValueError("Adapter snapshot changed before validation.")
         output = await _run_formal_cli(spec, adapter_root, toolkit_dir / "runtime.json")
-        files = {str(path.relative_to(adapter_root)): path.read_bytes()
+        files = {path.relative_to(adapter_root).as_posix(): path.read_bytes()
                  for path in adapter_root.rglob("*") if path.is_file()}
         if package_digest(files) != spec["distribution_hash"]:
             raise ValueError("Adapter snapshot changed during validation.")

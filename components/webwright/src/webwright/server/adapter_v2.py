@@ -232,10 +232,10 @@ def snapshot_package(store: ToolkitStore, toolkit_id: str) -> dict[str, Any]:
 
 
 def current_package(store: ToolkitStore, toolkit_id: str) -> tuple[dict[str, Any], dict[str, bytes], Path]:
-    metadata = json.loads((store.toolkit_dir(toolkit_id) / ".server" / "v2-current.json").read_text())
+    metadata = json.loads((store.toolkit_dir(toolkit_id) / ".server" / "v2-current.json").read_text(encoding="utf-8"))
     _check_package_identity(metadata["name"], metadata["digest"])
     root = store.toolkit_dir(toolkit_id) / "v2-snapshots" / metadata["digest"] / metadata["name"]
-    files = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    files = {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
     if package_digest(files) != metadata["digest"]:
         raise ValueError("Published Adapter snapshot changed.")
     return metadata, files, root

@@ -188,7 +188,7 @@ def test_process_manager_formal_debug_fixes_current_artifact_hash(
     assert spec["artifact_hash"] == build["digest"]
     assert spec["code_hash"] == "sha256:" + build["digest"]
     assert spec["distribution_hash"] == build["digest"]
-    assert package_digest({str(path.relative_to(spec["adapter_root"])): path.read_bytes()
+    assert package_digest({path.relative_to(spec["adapter_root"]).as_posix(): path.read_bytes()
                            for path in Path(spec["adapter_root"]).rglob("*") if path.is_file()}) == build["digest"]
 
 
@@ -338,7 +338,7 @@ def test_formal_debug_executes_isolated_uninstalled_v2_package(monkeypatch, tmp_
         "import json, sys\nargs=json.load(sys.stdin)\nprint(json.dumps({'ok': True, 'data': args, 'page': {'url': 'https://example.com/', 'title': 'Example'}}))\n",
         encoding="utf-8",
     )
-    digest = package_digest({str(path.relative_to(adapter_root)): path.read_bytes()
+    digest = package_digest({path.relative_to(adapter_root).as_posix(): path.read_bytes()
                              for path in adapter_root.rglob("*") if path.is_file()})
     (catalog / ".profile.json").write_text(json.dumps({"schema_version": 1, "profile": "public",
         "adapters": [{"name": name, "version": "1.0.0", "digest": digest}]}), encoding="utf-8")
