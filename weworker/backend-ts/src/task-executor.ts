@@ -12,6 +12,7 @@ import { parseAllAdapters } from './adapter-parser.js'
 import { getSiteEnabled } from './config.js'
 import { createLogger } from './logger.js'
 import { processMemoryEvent } from './memory/memory-lifecycle.js'
+import { automaticMemoryEnabled } from './memory/automatic-memory.js'
 import { buildMemoryEventContext, type MemoryAdapterIdentity } from './memory/memory-event-context.js'
 import { planTaskMemoryEvent } from './memory/memory-event-planner.js'
 import { getMemoryStore } from './memory/memory-store.js'
@@ -63,6 +64,7 @@ function queueTaskMemoryProcessing(input: {
   expectedMemoryType?: MemoryType
   candidate: MemoryUpdateCandidate
 }): void {
+  if (!automaticMemoryEnabled()) return
   let store: ReturnType<typeof getMemoryStore>
   try {
     store = getMemoryStore()
@@ -81,6 +83,7 @@ function queueTaskMemoryProcessing(input: {
       memoryLog.warn('task memory processing failed', { executionId: input.executionId, error: redactSensitive(result.error) })
       return
     }
+    if (result.status !== 'saved') return
     // 与对话路径一致：写入成功后按当前配置的预算执行容量管理。
     enforceConfiguredMemoryBudget(store, input.expectedMemoryType, getSettings().memory_budgets, (payload) => {
       memoryLog.info('task memory budget enforced', { executionId: input.executionId, ...payload })

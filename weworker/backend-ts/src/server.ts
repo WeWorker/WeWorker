@@ -124,6 +124,7 @@ import {
   sanitizeWorkStylePatch,
 } from './style-settings.js'
 import { processMemoryEvent } from './memory/memory-lifecycle.js'
+import { automaticMemoryEnabled } from './memory/automatic-memory.js'
 import { buildMemoryEventContext } from './memory/memory-event-context.js'
 import { planCompletedChatMemoryEvents, applyAdmissionToCandidate } from './memory/memory-event-planner.js'
 import { isMemoryProtocolFailure } from './memory/memory-protocol.js'
@@ -3372,8 +3373,8 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     segments.checkpoint()
   }
 
-  // Dedicated agent turns run with long-term memory off: nothing to plan or report.
-  if (dedicatedAgent) {
+  // No automatic memory processing or protocol status for opted-out runs.
+  if (dedicatedAgent || !automaticMemoryEnabled()) {
     store.markExternalWrite()
     broadcastSSE({ type: 'works_changed', workId })
     res.end()

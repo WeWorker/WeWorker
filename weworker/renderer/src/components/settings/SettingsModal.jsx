@@ -271,7 +271,7 @@ function BackgroundSettingsGroup() {
             label="开机自动启动 WeWorker（在后台启动，不弹出窗口）"
           />
           {!settings.launchAtLoginSupported && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>开发模式下不可用，安装后的客户端默认开启。</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>当前运行环境不可用；标准安装客户端首次启动默认开启。</div>
           )}
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {settings.platform === 'darwin'

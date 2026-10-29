@@ -68,6 +68,7 @@ import {
 import type { ConversationCompactionSnapshot } from './context/context-types.js'
 import type { MemoryScope } from './memory/memory-types.js'
 import type { MemoryUpdateCandidate } from './memory/memory-types.js'
+import { automaticMemoryEnabled } from './memory/automatic-memory.js'
 import {
   buildMemoryOutputProtocolPrompt,
   MEMORY_USER_TURN_REMINDER,
@@ -1222,7 +1223,7 @@ async function* streamChatWithBaseUrl(
     return filesystemToolGuard(toolName, input as Record<string, unknown>)
   }
 
-  const memoryEnabled = opts.memoryEnabled !== false && !opts.restrictBuiltInTools
+  const memoryEnabled = automaticMemoryEnabled() && opts.memoryEnabled !== false && !opts.restrictBuiltInTools
   const skillRoots = channelPermissionMode === 'qa_only' || opts.restrictBuiltInTools
     ? []
     : isolatedSkills
