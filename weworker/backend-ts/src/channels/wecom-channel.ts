@@ -843,6 +843,7 @@ export class WecomChannel implements Channel {
         }),
         streaming: true,
         workId: work.id,
+        cwd: store.getWorkspaceDirectoryForWork(work.id),
         styleId,
         channelPermissionMode,
         memoryScope: this._profile.memoryScope(userId),

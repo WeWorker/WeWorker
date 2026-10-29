@@ -8,9 +8,10 @@ const agentSource = fs.readFileSync(path.resolve(__dirname, '../agent.ts'), 'utf
 
 describe('agent SDK security config', () => {
   it('derives tool policy, filesystem guard, and sandbox settings from the channel mode', () => {
-    expect(agentSource).toContain('createUnifiedToolGuard(channelPermissionMode)')
+    expect(agentSource).toContain('createUnifiedToolGuard(channelPermissionMode, workspaceDirectory)')
     expect(agentSource).toContain('createWeWorkerToolPolicy(channelPermissionMode)')
-    expect(agentSource).toContain('const agentCwd = ensureAgentWorkingDirectory()')
+    expect(agentSource).toContain('const workspaceDirectory = opts.cwd || getUserDirectory()')
+    expect(agentSource).toContain('const agentCwd = ensureAgentWorkingDirectory(workspaceDirectory)')
     expect(agentSource).toContain('buildAgentFilesystemSettings(agentCwd, channelPermissionMode)')
     expect(agentSource).toContain('const policyDecision = await toolPolicy(toolName, input, context)')
     expect(agentSource).toContain('return filesystemToolGuard(toolName, input as Record<string, unknown>)')

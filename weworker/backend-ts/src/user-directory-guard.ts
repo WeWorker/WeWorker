@@ -47,10 +47,14 @@ export function isPathInsideAllowedDirectory(targetPath: string): boolean {
   return isPathInsideUserDirectory(targetPath) || isPathInsideRuntimeSkillsDirectory(targetPath)
 }
 
-export function isPathBlockedByBlacklist(targetPath: string): boolean {
-  const resolved = resolvePathAgainstUserDirectory(targetPath)
+export function isPathBlockedByBlacklist(targetPath: string, workspaceDirectory?: string): boolean {
+  const root = workspaceDirectory ? resolvePortablePath(workspaceDirectory) : resolveUserDirectoryRoot()
+  const resolved = workspaceDirectory
+    ? resolvePortablePath(expandHomePath(String(targetPath || '').trim()), root)
+    : resolvePathAgainstUserDirectory(targetPath)
+  if (!isPathInsideRoot(resolved, root)) return false
   if (isPathInsideRuntimeSkillsDirectory(resolved)) return false
-  return isPathBlacklisted(resolved, getUserDirectoryBlacklist(), resolveUserDirectoryRoot())
+  return isPathBlacklisted(resolved, getUserDirectoryBlacklist(), root)
 }
 
 export function assertPathNotBlacklisted(targetPath: string, label = 'path'): void {
@@ -73,6 +77,24 @@ export function assertPathInsideUserDirectory(targetPath: string, label = 'path'
   }
   if (isPathInsideRuntimeSkillsDirectory(target)) return target
   assertPathNotBlacklisted(target, label)
+  return target
+}
+
+export function assertPathInsideWorkspaceDirectory(targetPath: string, directory: string, label = 'path'): string {
+  const root = resolvePortablePath(directory)
+  const expanded = expandHomePath(String(targetPath || '').trim())
+  const target = isWindowsAbsolutePath(expanded)
+    ? path.win32.resolve(expanded)
+    : path.isAbsolute(expanded) ? path.resolve(expanded) : resolvePortablePath(expanded, root)
+  if (!isPathInsideRoot(target, root)) {
+    throw new Error(`${label} must stay inside workspace directory: ${root}`)
+  }
+  const entries = getUserDirectoryBlacklist()
+  if (entries.length && isPathBlacklisted(target, entries, root)) {
+    const matched = entries.find((entry) => isPathBlacklisted(target, [entry], root))
+    const detail = matched ? formatBlacklistEntry(matched) : 'blocked by user directory blacklist'
+    throw new Error(`${label} is blocked by user directory blacklist (${detail})`)
+  }
   return target
 }
 

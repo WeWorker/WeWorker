@@ -105,11 +105,11 @@ export const useWorksStore = create((set, get) => ({
     }
   },
 
-  createProject: async (name) => {
+  createProject: async (name, folderPath) => {
     const res = await backendFetch(`${API}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, folder_path: folderPath }),
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))

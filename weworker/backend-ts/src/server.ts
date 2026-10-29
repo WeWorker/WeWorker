@@ -2099,8 +2099,8 @@ app.get('/projects', (_req, res) => {
 
 app.post('/projects', (req, res) => {
   try {
-    const { name } = req.body as { name?: string }
-    res.status(201).json(store.createProject(name || ''))
+    const { name, folder_path } = req.body as { name?: string; folder_path?: string }
+    res.status(201).json(store.createProject(name || '', folder_path))
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     res.status(message.includes('already exists') ? 409 : 400).json({ detail: message })
@@ -2137,6 +2137,7 @@ app.delete('/projects/:id', (req, res) => {
 app.post('/works', (req, res) => {
   const { project_id, zcf_role } = req.body as { project_id?: string | null; zcf_role?: string | null }
   const work = store.createWork('', project_id ?? null)
+  if (!project_id) store.getWorkspaceDirectoryForWork(work.id)
   if (zcf_role !== undefined) {
     const prefs = sanitizeWorkStylePatch({ zcf_role }, getSettings())
     const updated = store.updateWorkStyle(work.id, prefs)
@@ -2199,72 +2200,87 @@ app.post('/settings/label-names', (req, res) => {
   res.json(names)
 })
 
-app.get('/user-files', (_req, res) => {
+function workspaceRootForWork(workId?: string, taskId?: string): string {
+  if (taskId) {
+    const task = store.getScheduledTask(taskId)
+    if (!task) throw new Error('scheduled task not found')
+    if (task.context_work_id) return store.getWorkspaceDirectoryForWork(task.context_work_id)
+    return store.ensureScheduledTasksDirectory()
+  }
+  if (!workId) return store.getWorkspaceDirectoryForWork()
+  const work = store.getWork(workId)
+  if (!work) throw new Error('work not found')
+  return store.getWorkspaceDirectoryForWork(workId)
+}
+
+app.get('/user-files', (req, res) => {
   try {
-    res.json(listUserFiles())
+    const workId = typeof req.query.work_id === 'string' ? req.query.work_id : undefined
+    const taskId = typeof req.query.task_id === 'string' ? req.query.task_id : undefined
+    res.json(listUserFiles(workspaceRootForWork(workId, taskId)))
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : 'failed to list user files' })
   }
 })
 
 app.post('/user-files/folder', (req, res) => {
-  const { parent_path, name } = req.body as { parent_path?: string; name?: string }
+  const { parent_path, name, work_id, task_id } = req.body as { parent_path?: string; name?: string; work_id?: string; task_id?: string }
   try {
-    res.json(createUserFolder(parent_path, name || ''))
+    res.json(createUserFolder(parent_path, name || '', workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create folder' })
   }
 })
 
 app.post('/user-files/file', (req, res) => {
-  const { parent_path, name } = req.body as { parent_path?: string; name?: string }
+  const { parent_path, name, work_id, task_id } = req.body as { parent_path?: string; name?: string; work_id?: string; task_id?: string }
   try {
-    res.json(createUserFile(parent_path, name || ''))
+    res.json(createUserFile(parent_path, name || '', workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create file' })
   }
 })
 
 app.post('/user-files/rename', (req, res) => {
-  const { target_path, name } = req.body as { target_path?: string; name?: string }
+  const { target_path, name, work_id, task_id } = req.body as { target_path?: string; name?: string; work_id?: string; task_id?: string }
   try {
-    res.json(renameUserItem(target_path, name || ''))
+    res.json(renameUserItem(target_path, name || '', workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to rename item' })
   }
 })
 
 app.post('/user-files/delete', (req, res) => {
-  const { target_path } = req.body as { target_path?: string }
+  const { target_path, work_id, task_id } = req.body as { target_path?: string; work_id?: string; task_id?: string }
   try {
-    res.json(deleteUserItem(target_path))
+    res.json(deleteUserItem(target_path, workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to delete item' })
   }
 })
 
 app.post('/user-files/paste', (req, res) => {
-  const { source_path, target_parent_path, mode } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut' }
+  const { source_path, target_parent_path, mode, work_id, task_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string; task_id?: string }
   try {
-    res.json(pasteUserItem(source_path, target_parent_path, mode))
+    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to paste item' })
   }
 })
 
 app.post('/user-files/import', (req, res) => {
-  const { paths, target_parent_path } = req.body as { paths?: string[]; target_parent_path?: string }
+  const { paths, target_parent_path, work_id, task_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; task_id?: string }
   try {
-    res.json(importUserFiles(paths, target_parent_path))
+    res.json(importUserFiles(paths, target_parent_path, workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to import files' })
   }
 })
 
 app.post('/user-files/import-jobs', (req, res) => {
-  const { paths, target_parent_path } = req.body as { paths?: string[]; target_parent_path?: string }
+  const { paths, target_parent_path, work_id, task_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; task_id?: string }
   try {
-    res.json(startUserFileImportJob(paths, target_parent_path))
+    res.json(startUserFileImportJob(paths, target_parent_path, workspaceRootForWork(work_id, task_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to start import job' })
   }
@@ -2701,6 +2717,7 @@ async function streamConversationCompaction(
   let failureReason = ''
   for await (const event of streamChat(messages, settings, undefined, {
     workId,
+    cwd: store.getWorkspaceDirectoryForWork(workId),
     forceCompaction: true,
     compactionOnly: true,
   })) {
@@ -2776,6 +2793,7 @@ async function prewarmChatSession(input: {
     const styleId = resolveStyleId(input.zcf, settings)
     for await (const event of streamChat(input.messages, settings, undefined, {
       ...(input.workId ? { workId: input.workId } : {}),
+      ...(input.workId ? { cwd: store.getWorkspaceDirectoryForWork(input.workId) } : {}),
       styleId,
       thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, input.thinkingEffort),
       reuseSession: true,
@@ -2860,7 +2878,7 @@ app.post('/works/:id/chat/steer', (req, res) => {
     return
   }
   let files: store.ContentBlock[]
-  try { files = Array.isArray(attachments) ? importChatAttachments(attachments) : [] }
+  try { files = Array.isArray(attachments) ? importChatAttachments(attachments, store.getWorkspaceDirectoryForWork(req.params.id)) : [] }
   catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : 'failed to import attachments' }); return }
   // Synchronous checkpoint + user append: no stream event can cross this boundary.
   const previousAssistant = listener.checkpoint()
@@ -2949,7 +2967,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     userContent = savedUserMessage.content
   } else {
     try {
-      importedAttachments = Array.isArray(attachments) ? importChatAttachments(attachments) : []
+      importedAttachments = Array.isArray(attachments) ? importChatAttachments(attachments, store.getWorkspaceDirectoryForWork(workId)) : []
       userContent = [
         ...importedAttachments,
         ...(message?.trim() ? [{ type: 'text' as const, text: message }] : []),
@@ -3203,6 +3221,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     for await (const ev of tier4Source ?? streamChat(modelMessages, settings, abortController, {
       enabledAdapterIds,
       workId,
+      cwd: store.getWorkspaceDirectoryForWork(workId),
       styleId,
       thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, thinkingEffort),
       memoryScope: initialMemoryScope,

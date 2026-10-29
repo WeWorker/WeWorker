@@ -84,6 +84,7 @@ export async function runChannelChat(
   messages: store.Message[],
   settings: Settings,
   opts?: {
+    workId?: string
     channelPermissionMode?: ChannelPermissionMode
     memoryScope?: MemoryScope
     /** Called when ask_user tool fires — channel should send options to user and wait for reply */
@@ -116,6 +117,7 @@ export async function runChannelChat(
 
   for await (const event of streamChat(messages, settings, opts?.abortController, {
     ...(opts?.profileOptions ?? {}),
+    ...(opts?.workId ? { workId: opts.workId, cwd: store.getWorkspaceDirectoryForWork(opts.workId) } : {}),
     streaming: false,
     channelPermissionMode: opts?.channelPermissionMode ?? 'full',
     memoryScope: opts?.memoryScope,

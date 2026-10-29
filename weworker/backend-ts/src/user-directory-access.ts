@@ -3,6 +3,7 @@ import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import { expandHomePath, getUserDirectoryBlacklist } from './config.js'
 import {
   assertPathInsideUserDirectory,
+  assertPathInsideWorkspaceDirectory,
   isPathInsideRuntimeSkillsDirectory,
   isPathBlockedByBlacklist,
   resolveUserDirectoryRoot,
@@ -58,11 +59,12 @@ function isInsideUserRoot(resolvedPath: string, root = resolveUserDirectoryRoot(
   return relative === '' || (!relative.startsWith('..') && !pathApi.isAbsolute(relative))
 }
 
-export function checkFilesystemPath(pathValue: string, label = 'path'): AccessDecision {
+export function checkFilesystemPath(pathValue: string, label = 'path', workspaceDirectory?: string): AccessDecision {
   const trimmed = String(pathValue || '').trim()
   if (!trimmed) return { allowed: true }
   try {
-    assertPathInsideUserDirectory(trimmed, label)
+    if (workspaceDirectory) assertPathInsideWorkspaceDirectory(trimmed, workspaceDirectory, label)
+    else assertPathInsideUserDirectory(trimmed, label)
     return { allowed: true }
   } catch (e) {
     return { allowed: false, reason: e instanceof Error ? e.message : String(e) }
@@ -83,7 +85,7 @@ function checkShellPathToken(token: string, root = resolveUserDirectoryRoot()): 
       reason: `Shell command blocked: "${value}" must stay inside user directory (${root})`,
     }
   }
-  if (isPathBlockedByBlacklist(resolved)) {
+  if (isPathBlockedByBlacklist(resolved, root)) {
     return {
       allowed: false,
       reason: `Shell command blocked: "${value}" matches a user directory blacklist rule and cannot be accessed`,
@@ -92,7 +94,7 @@ function checkShellPathToken(token: string, root = resolveUserDirectoryRoot()): 
   return { allowed: true }
 }
 
-export function checkShellCommand(command: string): AccessDecision {
+export function checkShellCommand(command: string, workspaceDirectory?: string): AccessDecision {
   const trimmed = String(command || '').trim()
   if (!trimmed) return { allowed: false, reason: 'Shell command is empty' }
   if (INTERACTIVE_TUI_COMMAND.test(trimmed)) {
@@ -102,7 +104,7 @@ export function checkShellCommand(command: string): AccessDecision {
     }
   }
 
-  const root = resolveUserDirectoryRoot()
+  const root = workspaceDirectory ? path.resolve(workspaceDirectory) : resolveUserDirectoryRoot()
   if (isShellCommandReferencingBlacklistedPath(trimmed, getUserDirectoryBlacklist(), root)) {
     return {
       allowed: false,
@@ -116,8 +118,8 @@ export function checkShellCommand(command: string): AccessDecision {
   return { allowed: true }
 }
 
-export function assertShellCommand(command: string): void {
-  const decision = checkShellCommand(command)
+export function assertShellCommand(command: string, workspaceDirectory?: string): void {
+  const decision = checkShellCommand(command, workspaceDirectory)
   if (!decision.allowed) throw new Error(decision.reason)
 }
 
@@ -134,9 +136,9 @@ function collectPathValues(input: Record<string, unknown>): string[] {
   return values
 }
 
-export function evaluateToolAccess(toolName: string, input: Record<string, unknown>): AccessDecision {
+export function evaluateToolAccess(toolName: string, input: Record<string, unknown>, workspaceDirectory?: string): AccessDecision {
   if (toolName === 'Bash' || toolName === 'PowerShell') {
-    return checkShellCommand(String(input.command ?? input.cmd ?? ''))
+    return checkShellCommand(String(input.command ?? input.cmd ?? ''), workspaceDirectory)
   }
 
   const shortName = normalizeToolName(toolName)
@@ -144,26 +146,26 @@ export function evaluateToolAccess(toolName: string, input: Record<string, unkno
 
   if (BUILTIN_PATH_TOOLS.has(toolName)) {
     for (const pathValue of collectPathValues(input)) {
-      const decision = checkFilesystemPath(pathValue, toolName)
+      const decision = checkFilesystemPath(pathValue, toolName, workspaceDirectory)
       if (!decision.allowed) return decision
     }
     return { allowed: true }
   }
 
   for (const pathValue of collectPathValues(input)) {
-    const decision = checkFilesystemPath(pathValue, shortName || toolName)
+    const decision = checkFilesystemPath(pathValue, shortName || toolName, workspaceDirectory)
     if (!decision.allowed) return decision
   }
   return { allowed: true }
 }
 
 /** Agent SDK：所有工具执行前的统一拦截点 */
-export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash') {
+export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash', workspaceDirectory?: string) {
   return async (toolName: string, input: Record<string, unknown>) => {
     if (mode === 'full' && (toolName === 'Bash' || toolName === 'PowerShell')) {
       return { behavior: 'allow' as const, updatedInput: input }
     }
-    const decision = evaluateToolAccess(toolName, input)
+    const decision = evaluateToolAccess(toolName, input, workspaceDirectory)
     if (!decision.allowed) return { behavior: 'deny' as const, message: decision.reason }
     return { behavior: 'allow' as const, updatedInput: input }
   }

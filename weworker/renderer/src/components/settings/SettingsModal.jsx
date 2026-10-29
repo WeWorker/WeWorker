@@ -1135,7 +1135,7 @@ function ConfigTab({ active = true }) {
 
       <div className="settings-group">
         <SettingRow
-          title="用户目录"
+          title="项目目录"
           description="文件面板和上传文件使用"
           message={userMessage}
           fallback="文件面板会从这个位置读取和导入文件"
@@ -1147,7 +1147,7 @@ function ConfigTab({ active = true }) {
               className="settings-pill-input"
               value={userValue}
               onChange={(e) => { setUserValue(e.target.value); setUserMessage(null) }}
-              placeholder="选择用户目录"
+              placeholder="选择项目目录"
             />
             <button data-app-button="action" type="button" onClick={chooseUserDirectory} className="settings-pill-btn">选择</button>
           </div>

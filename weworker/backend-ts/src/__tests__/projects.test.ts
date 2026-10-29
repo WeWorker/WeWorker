@@ -47,12 +47,13 @@ describe('project persistence', () => {
     expect(store.listWorks()[0]?.project_id).toBe(project.id)
   })
 
-  it('renames the project folder and rejects deletion while it has conversations', () => {
+  it('keeps a bound project folder when its display name changes', () => {
     const project = store.createProject('Before')
     store.createWork('', project.id)
 
     expect(() => store.renameProject(project.id, 'After')).not.toThrow()
-    expect(fs.existsSync(path.join(fixtureRoot, 'After'))).toBe(true)
+    expect(fs.existsSync(path.join(fixtureRoot, 'Before'))).toBe(true)
+    expect(fs.existsSync(path.join(fixtureRoot, 'After'))).toBe(false)
     expect(() => store.deleteProject(project.id)).toThrow('project must be empty before deletion')
   })
 

@@ -157,8 +157,8 @@ export default function GlobalFileDropLayer() {
 
   const dragTargetName = dragTargetPath
     ? basename(dragTargetPath)
-    : (basename(userFilesDirectory) || '用户目录')
-  const title = dropToChat ? '松开导入文件到用户目录与对话' : '松开导入文件'
+    : (basename(userFilesDirectory) || '项目目录')
+  const title = dropToChat ? '松开导入文件到工作区与对话' : '松开导入文件'
   const subtitle = dropToChat ? `到 ${dragTargetName} 与当前对话` : `到 ${dragTargetName}`
 
   return (

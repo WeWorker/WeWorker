@@ -99,6 +99,7 @@ export default function App() {
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted)
   const poll = useStatusStore((s) => s.poll)
   const toggleUserFilesPanel = useUserFilesStore((s) => s.togglePanel)
+  const setWorkspaceContext = useUserFilesStore((s) => s.setWorkspaceContext)
   const userFilesOpen = useUserFilesStore((s) => s.open)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
@@ -108,6 +109,10 @@ export default function App() {
   // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
+
+  useEffect(() => {
+    setWorkspaceContext(activeWorkId, activeWorkId ? null : activeTaskId)
+  }, [activeWorkId, activeTaskId, setWorkspaceContext])
 
   useEffect(() => {
     if (!websiteOpen) return
@@ -490,11 +495,11 @@ export default function App() {
             <div className="workspace-toolbar" aria-label="工作区工具栏">
               <div id="workspace-toolbar-context" className="workspace-toolbar__context" />
               <div className="workspace-toolbar__actions">
-                <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'}>
+                <Tooltip text={userFilesOpen ? '收起工作区文件' : '打开工作区文件'}>
                   <button
                     type="button"
                     onClick={handleToggleUserFilesPanel}
-                    aria-label={userFilesOpen ? '收起用户目录' : '打开用户目录'}
+                    aria-label={userFilesOpen ? '收起工作区文件' : '打开工作区文件'}
                     aria-pressed={userFilesOpen}
                     className={`workspace-toolbar__button${userFilesOpen ? ' is-active' : ''}`}
                   >

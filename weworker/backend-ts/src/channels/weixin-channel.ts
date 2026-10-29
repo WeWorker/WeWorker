@@ -778,6 +778,7 @@ export class WeixinChannel implements Channel {
     let failure: unknown = null
     try {
       ;({ text: fullText, images, toolCalls, timing } = await runChannelChat(wm.messages, settings, {
+        workId: work.id,
         channelPermissionMode: turn.mode,
         memoryScope: this._profile.memoryScope(fromUserId),
         abortController,
