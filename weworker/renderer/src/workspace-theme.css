@@ -1161,7 +1161,11 @@ button.app-rail__issue-item:focus-visible {
   gap: 4px !important;
 }
 
-@container chat-composer (max-width: 760px) {
+@container chat-composer (max-width: 840px) {
+  .chat-input-toolbar-actions > .context-usage-trigger {
+    display: none;
+  }
+
   .chat-permission-picker .app-dropdown-select__trigger {
     width: 32px;
     min-width: 32px;
