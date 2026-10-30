@@ -151,6 +151,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
         onChange={value => changeSelection(value, 'provider')}
         disabled={unavailable}
         ariaLabel="模型供应商选择"
+        prefix={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)" /><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)" /></svg>}
         placement="top"
         minMenuWidth={150}
         renderOptionSuffix={option => option?.keyConfigured === undefined ? null : (

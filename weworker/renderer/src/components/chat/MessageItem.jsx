@@ -1,3 +1,4 @@
+import WorkingIndicator from './WorkingIndicator.jsx'
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
@@ -188,9 +189,9 @@ export default function MessageItem({ message, streaming, compacting = false, is
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: 4, minWidth: 0 }}>
         {showBubble && (
-          <div style={isUser ? BUBBLE_USER : BUBBLE_ASSISTANT}>
+          <div className={isUser ? 'message-bubble message-bubble--user' : 'message-bubble message-bubble--assistant'} style={isUser ? BUBBLE_USER : BUBBLE_ASSISTANT}>
             {isEmpty && showStreaming && isLast ? (
-              <span style={{ color: 'var(--text-muted)' }}><StreamingCursor /></span>
+              <WorkingIndicator />
             ) : (
               renderMessageContent(message.content ?? [], {
                 isUser,
@@ -209,7 +210,7 @@ export default function MessageItem({ message, streaming, compacting = false, is
                 onPlanStepDetailsChange: !isUser ? onPlanStepDetailsChange : undefined,
               })
             )}
-            {!isEmpty && showStreaming && isLast && !isUser && <StreamingCursor />}
+            {!isEmpty && showStreaming && isLast && !isUser && <WorkingIndicator />}
           </div>
         )}
       </div>
@@ -497,7 +498,7 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
       return (
         <div
           className="message-text-selectable"
-          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 14, lineHeight: 1.6 }}
+          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
         >
           {block.text || ''}
         </div>
@@ -644,14 +645,5 @@ function TurnTimingFooter({ block }) {
     }}>
       {segs.map((s, i) => <span key={i}>{s}</span>)}
     </div>
-  )
-}
-
-function StreamingCursor() {
-  return (
-    <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 4, animation: 'working-fade 1.2s ease-in-out infinite' }}>
-      <style>{`@keyframes working-fade { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
-      working...
-    </span>
   )
 }
