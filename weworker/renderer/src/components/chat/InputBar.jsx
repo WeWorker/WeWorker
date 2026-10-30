@@ -826,17 +826,22 @@ export default function InputBar({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
         {uploadBtn}
-        <AppDropdownSelect
-          ariaLabel="权限模式"
-          value={permissionMode}
-          options={CHAT_PERMISSION_MODES}
-          onChange={handlePermissionModeChange}
-          renderOptionPrefix={option => option?.icon ? React.createElement(option.icon) : null}
-          disabled={!!disabled}
-          minMenuWidth={156}
-          placement="top"
-          className="chat-permission-picker"
-        />
+        <div
+          className="chat-permission-picker-tooltip"
+          title={`权限模式：${CHAT_PERMISSION_MODES.find(mode => mode.value === permissionMode)?.label || '工作区内修改'}`}
+        >
+          <AppDropdownSelect
+            ariaLabel="权限模式"
+            value={permissionMode}
+            options={CHAT_PERMISSION_MODES}
+            onChange={handlePermissionModeChange}
+            renderOptionPrefix={option => option?.icon ? React.createElement(option.icon) : null}
+            disabled={!!disabled}
+            minMenuWidth={156}
+            placement="top"
+            className="chat-permission-picker"
+          />
+        </div>
       </div>
       <div className="chat-input-toolbar-actions">
         <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />

@@ -1161,6 +1161,22 @@ button.app-rail__issue-item:focus-visible {
   gap: 4px !important;
 }
 
+@container chat-composer (max-width: 760px) {
+  .chat-permission-picker .app-dropdown-select__trigger {
+    width: 32px;
+    min-width: 32px;
+    max-width: 32px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .chat-permission-picker .app-dropdown-select__label,
+  .chat-permission-picker .app-dropdown-select__caret {
+    display: none;
+  }
+}
+
 @container chat-composer (max-width: 620px) {
   .chat-input-toolbar-actions > .context-usage-trigger,
   .chat-input-toolbar-actions > .chat-model-selector {
