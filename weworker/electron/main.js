@@ -241,7 +241,8 @@ async function stopBridgeAndBrowser() {
 
 // ── Background mode: keep dedicated agents online after the window closes ──
 const preferences = createPreferenceStore(path.join(app.getPath('userData'), 'app-settings.json'), { log })
-let launchAtLoginState = { supported: isLaunchAtLoginSupported({ isPackaged: app.isPackaged, platform: process.platform }), enabled: false }
+const disableLoginItemIntegration = process.env.WEWORKER_DISABLE_LOGIN_ITEM === '1'
+let launchAtLoginState = { supported: isLaunchAtLoginSupported({ isPackaged: app.isPackaged, platform: process.platform, disabled: disableLoginItemIntegration }), enabled: false }
 const getAgentSummary = () => fetchAgentSummary({ token: httpAuthToken })
 const background = createBackgroundController({
   platform: process.platform,
@@ -269,6 +270,7 @@ function applyLaunchAtLogin() {
     isPackaged: app.isPackaged,
     platform: process.platform,
     execPath: process.execPath,
+    disabled: disableLoginItemIntegration,
     log,
   })
   return launchAtLoginState
@@ -295,6 +297,7 @@ const trayManager = createTrayManager({
     onOpen: () => { background.showWindow() },
     onOpenAgents: showDedicatedAgentsFromTray,
     onToggleLaunchAtLogin: (enabled) => {
+      if (disableLoginItemIntegration) return
       preferences.update({ launchAtLogin: enabled })
       applyLaunchAtLogin()
       trayManager.render()
@@ -345,7 +348,7 @@ ipcMain.handle('app-settings:get', () => getAppSettings())
 ipcMain.handle('app-settings:set', async (_event, patch = {}) => {
   const next = {}
   if (typeof patch.closeToTray === 'boolean') next.closeToTray = patch.closeToTray
-  if (typeof patch.launchAtLogin === 'boolean') next.launchAtLogin = patch.launchAtLogin
+  if (!disableLoginItemIntegration && typeof patch.launchAtLogin === 'boolean') next.launchAtLogin = patch.launchAtLogin
   preferences.update(next)
   if ('launchAtLogin' in next) applyLaunchAtLogin()
   if (typeof patch.browserMode === 'string') {

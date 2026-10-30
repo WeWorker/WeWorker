@@ -115,6 +115,17 @@ test('hidden launch is detected from the login argument or macOS login item', ()
   assert.equal(isHiddenLaunch({ argv: [], platform: 'darwin', loginItemSettings: { wasOpenedAtLogin: false } }), false)
 })
 
+test('disabled login integration neither touches the OS nor persists a preference', () => {
+  for (const platform of ['win32', 'darwin']) {
+    for (const value of [null, true, false]) {
+      const preferences = memoryPreferences({ launchAtLogin: value })
+      const app = { setLoginItemSettings: () => { throw new Error('must not touch OS settings') } }
+      assert.deepEqual(syncLaunchAtLogin({ app, preferences, isPackaged: true, platform, disabled: true }), { supported: false, enabled: false })
+      assert.equal(preferences.get().launchAtLogin, value)
+    }
+  }
+})
+
 test('agent summary counts enabled agents and falls back to the records file', async () => {
   assert.deepEqual(summarizeAgents([
     { name: 'Example Operations Assistant', enabled: true, connection: { status: 'connected' } },

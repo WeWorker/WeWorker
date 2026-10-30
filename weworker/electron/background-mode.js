@@ -58,8 +58,8 @@ export function createPreferenceStore(filePath, { log = () => {}, fileSystem = f
 // ── Launch at login ─────────────────────────────────────────────────────────
 
 /** Only packaged Windows/macOS builds register a login item (dev would register electron.exe). */
-export function isLaunchAtLoginSupported({ isPackaged, platform }) {
-  return Boolean(isPackaged) && (platform === 'win32' || platform === 'darwin')
+export function isLaunchAtLoginSupported({ isPackaged, platform, disabled = false }) {
+  return !disabled && Boolean(isPackaged) && (platform === 'win32' || platform === 'darwin')
 }
 
 export function buildLoginItemSettings({ enabled, platform, execPath }) {
@@ -73,8 +73,8 @@ export function buildLoginItemSettings({ enabled, platform, execPath }) {
  * Apply the stored preference to the OS. The first packaged launch records
  * `true`, which makes launch-at-login the default right after installation.
  */
-export function syncLaunchAtLogin({ app, preferences, isPackaged, platform, execPath, log = () => {} }) {
-  const supported = isLaunchAtLoginSupported({ isPackaged, platform })
+export function syncLaunchAtLogin({ app, preferences, isPackaged, platform, execPath, disabled = false, log = () => {} }) {
+  const supported = isLaunchAtLoginSupported({ isPackaged, platform, disabled })
   if (!supported) return { supported: false, enabled: false }
   let { launchAtLogin } = preferences.get()
   if (launchAtLogin === null) {

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { buildAdapterEnvironment } from '../adapter-environment.js';
+import { buildWebwrightEnvironment } from '../webwright-manager.js';
 import { resolveAdapterPaths } from '../../../webcli/paths.js';
 
 function fixture(t, profile = 'internal') {
@@ -36,6 +37,12 @@ test('desktop children stay pinned to the desktop Bridge port and never inherit 
   const env = buildAdapterEnvironment({ ...options, env: { WEBCLI_BRIDGE_PORT: '3712', WEWORKER_WEBCLI_DISTRIBUTION: 'npm' } });
   assert.equal(env.WEBCLI_BRIDGE_PORT, '3711');
   assert.equal(env.WEWORKER_WEBCLI_DISTRIBUTION, undefined);
+});
+
+test('backend child environment retains the explicit automatic memory opt-out', (t) => {
+  const options = fixture(t);
+  const env = buildWebwrightEnvironment(buildAdapterEnvironment({ ...options, env: { WEWORKER_DISABLE_AUTOMATIC_MEMORY: '1' } }), path.join(options.root, 'browser-home'));
+  assert.equal(env.WEWORKER_DISABLE_AUTOMATIC_MEMORY, '1');
 });
 
 test('explicit user roots isolate metadata and conflicting overrides fail', (t) => {
