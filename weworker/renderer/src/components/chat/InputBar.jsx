@@ -26,6 +26,7 @@ import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { normalizeThinkingEffort, THINKING_EFFORT_STORAGE_KEY } from '../../utils/thinking-effort.js'
 import { shouldWarmupOnTextChange } from '../../utils/chat-warmup.js'
 import { confirmChatPermissionMode } from '../../utils/chat-permission-confirmation.js'
+import { getRandomWelcomePromptPlaceholder } from '../../utils/welcome-prompt-placeholder.js'
 
 const COLLAPSED_ATTACHMENT_COUNT = 10
 const ATTACHMENT_CHIP_HEIGHT = 62
@@ -115,6 +116,7 @@ export default function InputBar({
     try { return normalizeThinkingEffort(window.localStorage.getItem(THINKING_EFFORT_STORAGE_KEY)) } catch { return 'off' }
   })
   const [permissionMode, setPermissionMode] = useState(readChatPermissionMode)
+  const [welcomePromptPlaceholder, setWelcomePromptPlaceholder] = useState(() => getRandomWelcomePromptPlaceholder())
   const handlePermissionModeChange = useCallback(async (value) => {
     const next = CHAT_PERMISSION_MODES.some((mode) => mode.value === value) ? value : 'workspace'
     if (!await confirmChatPermissionMode(next)) return
@@ -148,6 +150,15 @@ export default function InputBar({
   const commandHistory = useTerminalStore((s) => s.commandHistory)
   const sites = useSitesStore((s) => Array.isArray(s.sites) ? s.sites : [])
   const routerAliases = useSitesStore((s) => Array.isArray(s.routerAliases) ? s.routerAliases : [])
+
+  useEffect(() => {
+    if (!isWelcome || String(text || '').trim() || inputDisabled) return undefined
+    const timer = window.setInterval(() => {
+      setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous))
+    }, 4200)
+    return () => window.clearInterval(timer)
+  }, [inputDisabled, isWelcome, text])
+
   const webcliSlashCommands = useMemo(() => buildWebcliSlashCommands(sites), [sites])
   const buildBangSlashItems = useCallback((query) => {
     const command = query || ''
@@ -697,7 +708,7 @@ export default function InputBar({
       onPaste={handlePaste}
       onCompositionStart={() => { composingRef.current = true }}
       onCompositionEnd={() => { composingRef.current = false }}
-      placeholder={streaming && allowQueue ? '输入后续消息...' : streaming ? '正在处理...' : inputDisabled ? '暂时无法输入...' : '输入消息...'}
+      placeholder={streaming && allowQueue ? '输入后续消息...' : streaming ? '正在处理...' : inputDisabled ? '暂时无法输入...' : isWelcome ? welcomePromptPlaceholder : '输入消息...'}
       disabled={inputDisabled}
       rows={isWelcome ? 4 : 1}
       style={{

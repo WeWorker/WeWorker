@@ -191,6 +191,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
     <MainWorkspaceShell>
       <WelcomeScreen onFillInput={handleFillInput} />
       <ChatBottomDock
+        variant="welcome"
         onSend={handleSendFromWelcome}
         onShellCommand={handleShellCommandFromWelcome}
         text={inputText}
