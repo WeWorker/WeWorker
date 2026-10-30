@@ -140,6 +140,21 @@ const LOGOS = {
   ),
 }
 
+const SETTINGS_GROUPS = [
+  { label: '常用设置', items: [['model', '模型'], ['config', '应用偏好'], ['memory', '记忆']] },
+  { label: '高级设置', items: [['channels', '通道'], ['permissions', '权限与安全'], ['logs', '运行日志']] },
+  { label: '应用信息', items: [['about', '关于']] },
+]
+const SETTINGS_DESCRIPTIONS = {
+  model: '选择模型并管理连接配置。',
+  config: '调整工作目录、回复风格与日常使用偏好。',
+  memory: '管理跨对话保留的长期记忆。',
+  channels: '配置外部消息通道与连接方式。',
+  permissions: '管理网站访问与操作权限。',
+  logs: '查看运行记录，帮助排查问题。',
+  about: '查看版本信息与更新选项。',
+}
+
 export default function SettingsPage({ onClose }) {
   const [tab, setTab] = useState('model')
   const [appVersion, setAppVersion] = useState('')
@@ -162,41 +177,27 @@ export default function SettingsPage({ onClose }) {
         <aside className="settings-sidebar">
           <div className="settings-sidebar__brand">
             <h2>设置</h2>
-            <p>配置模型、通道与应用偏好</p>
           </div>
           <nav className="settings-sidebar__nav" aria-label="设置分类">
-            {[
-              ['model', '模型'],
-              ['channels', '通道'],
-              ['config', '配置'],
-              ['memory', '记忆'],
-              ['permissions', '权限'],
-              ['logs', '日志'],
-              ['about', '关于'],
-            ].map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className={`settings-side-nav${tab === key ? ' is-active' : ''}`}
-                aria-current={tab === key ? 'page' : undefined}
-                onClick={() => setTab(key)}
-              >
-                {label}
-              </button>
+            {SETTINGS_GROUPS.map(group => (
+              <div className="settings-nav-group" key={group.label}>
+                <span className="settings-nav-group__label">{group.label}</span>
+                {group.items.map(([key, label]) => (
+                  <button key={key} type="button"
+                    className={`settings-side-nav${tab === key ? ' is-active' : ''}`}
+                    aria-current={tab === key ? 'page' : undefined}
+                    onClick={() => setTab(key)}>{label}</button>
+                ))}
+              </div>
             ))}
           </nav>
         </aside>
         <div className="settings-panel-frame">
           <div className="settings-panel-top">
-            <h3>{[
-              ['model', '模型'],
-              ['channels', '通道'],
-              ['config', '配置'],
-              ['memory', '记忆'],
-              ['permissions', '权限'],
-              ['logs', '日志'],
-              ['about', '关于'],
-            ].find(([key]) => key === tab)?.[1] || '设置'}</h3>
+            <div>
+              <h3>{SETTINGS_GROUPS.flatMap(group => group.items).find(([key]) => key === tab)?.[1] || '设置'}</h3>
+              <p className="settings-page-description">{SETTINGS_DESCRIPTIONS[tab]}</p>
+            </div>
           </div>
           <div className={`settings-body${tab === 'model' || tab === 'channels' ? ' settings-body--model' : ''}`}>
             {tab === 'channels' && <ChannelsTab />}

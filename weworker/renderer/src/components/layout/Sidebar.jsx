@@ -17,8 +17,6 @@ export default function Sidebar({ section, collapsed, width }) {
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const createTask = useScheduledTasksStore((s) => s.createTask)
   const loadTasks = useScheduledTasksStore((s) => s.loadTasks)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
   const [showProjectDialog, setShowProjectDialog] = useState(false)
   const [projectName, setProjectName] = useState('')
   const projectNameInputRef = useRef(null)
@@ -66,7 +64,7 @@ export default function Sidebar({ section, collapsed, width }) {
     if (!await leaveWebsiteExploration()) return
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
-    await createWork({ forceNew: true, projectId: null })
+    await createWork({ draftOnly: true, projectId: null })
   }
 
   const handleCreateProject = async () => {
@@ -83,7 +81,7 @@ export default function Sidebar({ section, collapsed, width }) {
     try {
       const project = await createProject(name)
       setShowProjectDialog(false)
-      await createWork({ forceNew: true, projectId: project.id })
+      await createWork({ draftOnly: true, projectId: project.id })
     } catch (error) {
       showAlert(error instanceof Error ? error.message : '创建项目失败，请稍后重试')
     }
@@ -115,7 +113,7 @@ export default function Sidebar({ section, collapsed, width }) {
       minWidth: collapsed ? 0 : width,
       borderRightWidth: collapsed ? 0 : undefined,
       visibility: collapsed ? 'hidden' : 'visible',
-      background: 'var(--bg-secondary)',
+      background: 'var(--sidebar-surface)',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
@@ -134,6 +132,7 @@ export default function Sidebar({ section, collapsed, width }) {
           <FormOutlined aria-hidden="true" />
           <span>新对话</span>
         </button>
+
         <div className="sidebar-conversation-header" style={{
           padding: '10px 12px 4px',
           display: 'flex',
@@ -142,14 +141,7 @@ export default function Sidebar({ section, collapsed, width }) {
           position: 'relative',
           WebkitAppRegion: 'no-drag',
         }}>
-          <button
-            type="button"
-            onClick={handleOpenWorksSection}
-            className="sidebar-section-heading sidebar-conversation-action"
-          >
-            <WorksNavIcon size={13} />
-            <span>对话</span>
-          </button>
+          <span className="sidebar-workspaces-label">工作区</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
             {/* Label filter — only visible when there are labeled works or a filter is active */}
             {(hasLabeled || labelFilter) && (
@@ -208,57 +200,20 @@ export default function Sidebar({ section, collapsed, width }) {
                 )}
               </div>
             )}
-            <Tooltip text="搜索对话">
-              <button
-                type="button"
-                className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
-                aria-label="搜索对话"
-                aria-expanded={showSearch}
-                onClick={() => { setShowSearch((v) => !v); if (showSearch) setSearchQuery('') }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-            </button>
-            </Tooltip>
-              <Tooltip text="新项目">
+              <Tooltip text="新建工作区">
                 <button
                   type="button"
                   className="sidebar-new-project sidebar-icon-button"
-                  aria-label="新项目"
+                  aria-label="新建工作区"
                   onClick={handleCreateProject}
                 >
-                  <TablerFolderPlusIcon />
+                  <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>＋</span>
                 </button>
               </Tooltip>
           </div>
         </div>
-        {showSearch && (
-          <div style={{ padding: '0 8px 4px', WebkitAppRegion: 'no-drag' }}>
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索标题或 ID..."
-              style={{
-                width: '100%',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                color: 'var(--text-primary)',
-                fontSize: 12,
-                padding: '5px 8px',
-                outline: 'none',
-                fontFamily: 'inherit',
-                boxSizing: 'border-box',
-              }}
-              onKeyDown={(e) => { if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') } }}
-            />
-          </div>
-        )}
         <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
-          <WorksList searchQuery={searchQuery} />
+          <WorksList />
         </div>
       </div>
       )}

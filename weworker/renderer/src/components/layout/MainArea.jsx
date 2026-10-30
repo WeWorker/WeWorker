@@ -10,7 +10,7 @@ import ToolPackagePage from '../welcome/ToolPackagePage.jsx'
 import { useSettingsStore } from '../../store/settings.js'
 import { resolveStyleId } from '../../store/styles.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
-import { useChatDraft } from '../../store/chat-drafts.js'
+import { useChatDraft, useChatDraftStore } from '../../store/chat-drafts.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import ExplorationPage from '../exploration/ExplorationPage.jsx'
@@ -34,7 +34,12 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const closeExplorationPage = useExplorationPageStore((s) => s.closePage)
   const closeToolPackagePage = useToolPackagePageStore((s) => s.closePage)
-  const { inputText, setInputText, attachments, setAttachments } = useChatDraft('welcome')
+  const draftProjectId = useWorksStore(s => s.draftProjectId)
+  const projects = useWorksStore(s => s.projects)
+  const draftKey = draftProjectId ? `project-draft:${draftProjectId}` : 'welcome'
+  const { inputText, setInputText, attachments, setAttachments } = useChatDraft(draftKey)
+  const creatingRef = React.useRef(false)
+  const [creating, setCreating] = React.useState(false)
   const maxChatAttachments = useSettingsStore((s) => s.maxChatAttachments)
   const zcfDefaultRole = useSettingsStore((s) => s.zcfDefaultRole)
   const zcfCustomRoles = useSettingsStore((s) => s.zcfCustomRoles)
@@ -67,27 +72,35 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
     requestChatWarmup(request.workId, request.payload)
   }, [activeWorkId, activeTaskId, activeSidebarSection, websiteOpen, dedicatedAgentsOpen, toolPackageOpen, explorationOpen, styleId])
 
-  const handleSendFromWelcome = async (text, files = [], thinkingEffort = 'off') => {
-    setInputText('')
-    setAttachments([])
+  const submitDraft = async (pending) => {
+    if (creatingRef.current) return
+    creatingRef.current = true
+    setCreating(true)
+    const savedDraft = { text: inputText, attachments }
     closeToolPackagePage()
-    useWorksStore.setState({ pendingMessage: text, pendingAttachments: files, pendingThinkingEffort: thinkingEffort })
-    await createWork({ styleId })
+    useWorksStore.setState(pending)
+    try {
+      const work = await createWork({ forceNew: true, projectId: draftProjectId, styleId })
+      if (!work) throw new Error('Draft creation cancelled')
+      useChatDraftStore.getState().discard(draftKey)
+    } catch {
+      useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingShellCommand: null })
+      useChatDraftStore.getState().setText(draftKey, savedDraft.text)
+      useChatDraftStore.getState().setAttachments(draftKey, savedDraft.attachments)
+    } finally {
+      creatingRef.current = false
+      setCreating(false)
+    }
   }
 
-  const handleShellCommandFromWelcome = async (command, originalText = '') => {
+  const handleSendFromWelcome = (text, files = [], thinkingEffort = 'off') => submitDraft({
+    pendingMessage: text, pendingAttachments: files, pendingThinkingEffort: thinkingEffort,
+  })
+
+  const handleShellCommandFromWelcome = (command, originalText = '') => {
     const trimmed = String(command || '').trim()
     if (!trimmed) return
-    setInputText('')
-    setAttachments([])
-    closeToolPackagePage()
-    useWorksStore.setState({
-      pendingShellCommand: {
-        command: trimmed,
-        originalText: originalText || `!${trimmed}`,
-      },
-    })
-    await createWork({ styleId })
+    return submitDraft({ pendingShellCommand: { command: trimmed, originalText: originalText || `!${trimmed}` } })
   }
 
   const handleFillInput = (text) => {
@@ -189,8 +202,12 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
 
   return (
     <MainWorkspaceShell>
-      <WelcomeScreen onFillInput={handleFillInput} />
+      {draftProjectId && <div className="draft-project-notice">新对话 · {projects.find(project => project.id === draftProjectId)?.name || '工作区'}<span>发送第一条消息后保存</span></div>}
+      <WelcomeScreen onFillInput={handleFillInput}>
       <ChatBottomDock
+        variant="welcome"
+        disabled={creating}
+        attachmentTarget={draftKey}
         onSend={handleSendFromWelcome}
         onShellCommand={handleShellCommandFromWelcome}
         text={inputText}
@@ -202,6 +219,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
         // style handleSendFromWelcome will persist into the new work.
         onWarmup={(thinkingEffort) => requestChatWarmup(null, { thinkingEffort, styleId })}
       />
+      </WelcomeScreen>
     </MainWorkspaceShell>
   )
 }
