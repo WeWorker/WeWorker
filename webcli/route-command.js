@@ -24,8 +24,9 @@ Examples:
   webcli route "Search for browser automation projects"
   webcli route github.com "List repository issues" --json
 
-Site and command confidence must reach 0.85; otherwise up to three candidates
-are returned for review. Single candidates need no service request.`;
+Site and command confidence passes at 0.85, or at 0.60 with a lead over the
+runner-up of at least 0.35 (site) / 0.25 (command). Otherwise up to three
+candidates are returned for review. Single candidates need no service request.`;
 
 export async function runRouteCommand(args, { verbose = false, outputFormat, catalogOptions } = {}) {
   const optionArgs = args.includes('--') ? args.slice(0, args.indexOf('--')) : args;
