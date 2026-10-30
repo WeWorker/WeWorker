@@ -1,3 +1,4 @@
+import { groupWorksByFolder } from '../../utils/work-folder-groups.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
@@ -28,41 +29,6 @@ const LABEL_OPTIONS = [
 ]
 
 export { LABEL_COLORS, LABEL_OPTIONS }
-
-function getWorkFolderName(work) {
-  const candidate = work?.folder_name
-    || work?.folderName
-    || work?.workspace_name
-    || work?.workspaceName
-    || work?.project_name
-    || work?.projectName
-    || work?.folder
-    || work?.workspace
-    || work?.project
-  return String(candidate || '默认工作区').trim() || '默认工作区'
-}
-
-function groupWorksByFolder(works, projects = []) {
-  const groups = new Map()
-  for (const work of works) {
-    const projectId = work?.project_id || null
-    const project = projectId ? projects.find((item) => item.id === projectId) : null
-    const legacyName = getWorkFolderName(work)
-    const key = project ? `project:${project.id}` : (legacyName === '默认工作区' ? 'default' : `legacy:${legacyName}`)
-    if (!groups.has(key)) groups.set(key, { key, id: project?.id || null, name: project?.name || legacyName, dedicatedAgent: Boolean(project?.dedicated_agent), systemManaged: project?.name === '定时任务', items: [] })
-    groups.get(key).items.push(work)
-  }
-  for (const project of projects) {
-    const key = `project:${project.id}`
-    if (!groups.has(key)) groups.set(key, { key, id: project.id, name: project.name, dedicatedAgent: Boolean(project.dedicated_agent), systemManaged: project.name === '定时任务', items: [] })
-  }
-  const defaultGroup = groups.get('default')
-  const projectGroups = [...groups.values()].filter((group) => group.id)
-  return [
-    ...(defaultGroup ? [defaultGroup] : []),
-    ...projectGroups,
-  ]
-}
 
 export default function WorksList({ searchQuery = '' }) {
   const works = useWorksStore((s) => Array.isArray(s.works) ? s.works : [])
@@ -172,7 +138,7 @@ export default function WorksList({ searchQuery = '' }) {
     if (!await leaveWebsiteExploration()) return
     closeExplorationPage()
     closeToolPackagePage()
-    await createWork({ forceNew: true, projectId })
+    await createWork({ draftOnly: true, projectId })
   }
 
   const handleDeleteProject = async (group) => {
@@ -440,11 +406,7 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
             background: LABEL_COLORS[work.label] || 'transparent',
           }} />
         )}
-        <span style={{
-          fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-        }} className="work-list-item__title">
+        <span className="work-list-item__title">
           {isRenaming ? (
             <input
               ref={renameInputRef}
@@ -467,7 +429,7 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
               style={{
                 width: '100%',
                 minWidth: 0,
-                fontSize: 12,
+                fontSize: 'inherit',
                 border: '1px solid var(--border)',
                 borderRadius: 4,
                 padding: '1px 4px',

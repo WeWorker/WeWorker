@@ -25,6 +25,7 @@ export const useWorksStore = create((set, get) => ({
   works: [],
   projects: [],
   activeWorkId: null,
+  draftProjectId: null,
   messages: {}, // workId -> Message[]
   contextSnapshots: {}, // workId -> latest local context composition
   contextTokenAnchors: {}, // workId -> provider total and calibrated non-conversation baseline
@@ -60,11 +61,17 @@ export const useWorksStore = create((set, get) => ({
   },
 
   createWork: (opts = {}) => {
-    const requestKey = JSON.stringify([opts.projectId ?? null, Boolean(opts.forceNew), opts.styleId ?? null])
+    const requestKey = JSON.stringify([opts.projectId ?? null, Boolean(opts.forceNew), Boolean(opts.draftOnly), opts.styleId ?? null])
     if (pendingCreateWorkRequests.has(requestKey)) return pendingCreateWorkRequests.get(requestKey)
 
     const request = (async () => {
       if (!await leaveWebsiteExploration()) return null
+      if (opts.draftOnly) {
+        const tasks = await getScheduledTasksStore()
+        tasks?.setState({ activeTaskId: null })
+        set({ activeWorkId: null, draftProjectId: opts.projectId ?? null })
+        return null
+      }
       const reuseEmptyWork = async (work) => {
         set({ activeWorkId: work.id })
         getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})

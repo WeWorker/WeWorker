@@ -38,3 +38,15 @@ test('discarding a deleted conversation does not affect other drafts', () => {
   assert.equal(useChatDraftStore.getState().drafts['work:a'], undefined)
   assert.equal(useChatDraftStore.getState().drafts.welcome.text, 'keep')
 })
+
+test('project drafts remain isolated and sending one preserves the other projects', () => {
+  const store = useChatDraftStore.getState()
+  store.setText('project-draft:example-a', 'Project A request')
+  store.setAttachments('project-draft:example-a', [{ name: 'note.txt', path: '/fixtures/note.txt' }])
+  store.setText('project-draft:example-b', 'Project B request')
+  store.setText('welcome', 'Default workspace request')
+  store.discard('project-draft:example-a')
+  assert.equal(useChatDraftStore.getState().drafts['project-draft:example-a'], undefined)
+  assert.equal(useChatDraftStore.getState().drafts['project-draft:example-b'].text, 'Project B request')
+  assert.equal(useChatDraftStore.getState().drafts.welcome.text, 'Default workspace request')
+})
