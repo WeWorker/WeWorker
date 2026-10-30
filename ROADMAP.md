@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-10-30：WebCLI route 放行规则对齐 WeCLI：第一名 ≥0.85 直接通过，或第一名 ≥0.60 且领先第二名分别 ≥0.35（站点）／≥0.25（命令）时通过；保留原始置信度、低置信度候选与只推荐不执行语义。同步帮助与说明，补充两层门槛、截图分数和真实 CLI 回归。最新开发基线路由／补全／路由元数据聚焦 59 项、JS 语法及差异检查通过。未验证安装包，模糊请求仍可能误选。
+
 - 2026-10-29（下线网站探索agent自带页面与死代码清理）：下线网站探索agent服务自带网页端（`/ui`、`/`、`/web/*`），物理删除 `components/webwright/src/webwright/server/web/` 下的静态资源文件，打包构建脚本与 `pyproject.toml` 不再打包该静态目录；更新 embedded 运行时校验以拒绝已下线的静态资源，并清理对应测试夹具；移除已废弃的 `POST /api/toolkits/<toolkit_id>/install-to-weworker` 路由、publisher 对应内部方法及 health capabilities 标记；清理历史未引用的服务端模型存储死代码（`model_store.py`、`model_providers.py` 及配套单测）、旧调试脚本 `run_command.sh` 与网页重构设计文档及原型资源；Backend 代理白名单移除废弃接口，聊天流与第 4 层固化引导文案统一指向客户端内「网站探索」工作台，不再输出已下线的外部浏览器 URL。验证：Python 聚焦测试（`test_server_app` 26 项、`test_development_publish` 40 项、`test_distribution_runtime` 7 项、`test_distribution_contract` 9 项）全量通过；Backend 聚焦 72 项单测及 `tsc` 类型检查通过；Renderer 生产构建及 `test:webwright-integration` 25 项测试通过；`git diff --check` 通过。未验证完整安装包打包。
 
 - 2026-10-29（Windows 下网站探索agent v2 快照摘要路径分隔符修复）：修复 Windows 下网站探索agent读取已发布 v2 Adapter 快照与正式验证快照时使用反斜杠相对路径计算 `package_digest`，导致与生成快照时的 POSIX 相对路径摘要不一致并报错 `Published Adapter snapshot changed.` 的问题，统一使用 `.as_posix()` 并在读取 `.server/v2-current.json` 时显式指定 UTF-8 编码。验证：Windows 环境下 Python 发布与调试聚焦单测 57 项通过，`git diff --check` 通过。未验证完整桌面安装包构建。

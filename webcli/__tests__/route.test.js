@@ -132,6 +132,39 @@ describe('routing decisions', () => {
     await expect(routeRequest('search', { adapters: buildRouteCatalog(), predict: async () =>
       ({ answers: { q_g1r0: { probabilities: { invented: 1 } } } }) })).rejects.toThrow('invalid candidates');
   });
+  it.each([
+    ['site', [0.66, 0.23, 0.11], true],
+    ['site', [0.6, 0.25, 0.15], true],
+    ['site', [0.65, 0.35, 0], false],
+    ['site', [0.59, 0.21, 0.2], false],
+    ['site', [0.85, 0.1, 0.05], true],
+    ['command', [0.65, 0.35, 0], true],
+    ['command', [0.625, 0.375, 0], true],
+    ['command', [0.6, 0.4, 0], false],
+    ['command', [0.59, 0.21, 0.2], false],
+    ['command', [0.85, 0.1, 0.05], true],
+  ])('applies the WeCLI %s gate to %j (passes: %s)', async (tier, scores, passes) => {
+    const adapters = ['example.com', 'example.org', 'example.net'].map(id => ({
+      id, description: '工单请求：请求单/问题单/变更单/安全工单的查询/审批/转派',
+      commands: ['list', 'detail', 'create'].map(name => ({ id: name, name: `${id}.${name}`, description: name })),
+    }));
+    const predict = vi.fn(async (_state, questions) => {
+      const target = Object.keys(questions)[0] === (tier === 'site' ? 'q_f0' : 'q_c0');
+      return target ? { answers: Object.fromEntries(Object.entries(questions).map(([id, question]) =>
+        [id, { probabilities: Object.fromEntries(Object.keys(question.criteria).map((key, i) => [key, scores[i]])) }])) }
+        : prediction(questions);
+    });
+    const result = await routeRequest('查询我最近要处理的安全工单', { adapters, predict });
+    expect(result.kind).toBe(passes ? 'routed' : 'low-confidence');
+    if (passes) {
+      expect(result[tier === 'site' ? 'site' : 'command'].confidence).toBe(scores[0]);
+      expect(result.callCommand).toBe('webcli call example.com.list');
+    } else {
+      expect(result.stoppedAt.tier).toBe(tier);
+      expect(result.callCommand).toBeUndefined();
+    }
+    expect(predict.mock.calls[0][1].q_g1r0.criteria['example.com']).toBe(adapters[0].description);
+  });
   it('rejects empty or explicitly unavailable catalogs', async () => {
     await expect(routeRequest('search', { adapters: [] })).rejects.toThrow('No available');
     install(); await expect(routeRequest('search', { adapters: buildRouteCatalog(), knownSite: 'missing' })).rejects.toThrow('unavailable');
@@ -204,6 +237,14 @@ describe('real CLI', () => {
     const result = await cli('route', 'search projects', '--json', '--verbose');
     expect(result.code).toBe(0); expect(JSON.parse(result.stdout).callCommand).toBe('webcli call example.com.search');
     expect(result.stderr).toContain('q_c0'); expect(requests).toHaveLength(3);
+  });
+  it('recommends through both margin gates without inflating confidence or executing', async () => {
+    install(); install('example.org');
+    await service(body => prediction(body.questions, Object.keys(body.questions)[0] === 'q_c0' ? 0.65 : 0.7));
+    const result = await cli('route', 'search projects', '--json');
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ kind: 'routed',
+      site: { confidence: 0.7 }, command: { confidence: 0.65 }, callCommand: 'webcli call example.com.search' });
   });
   it('renders actual required arguments and write safety from command help', async () => {
     install(); await service(); const result = await cli('route', 'example.com', 'search');

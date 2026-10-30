@@ -4,6 +4,10 @@ import { d3Predict } from './auto-route-d3-client.js';
 const GATE = 0.85;
 const ranked = probabilities => Object.entries(probabilities).sort((a, b) => b[1] - a[1]);
 const alternatives = probabilities => ranked(probabilities).slice(0, 3).map(([option, p]) => ({ option, p }));
+function passesGate(probabilities, lead) {
+  const [top, second = 0] = Object.values(probabilities).sort((a, b) => b - a);
+  return top >= GATE || (top >= 0.6 && top - second >= lead);
+}
 
 /** Three-stage classification only. This module never executes an Adapter. */
 export async function routeRequest(request, { adapters, knownSite, url, predict = d3Predict, onTrace = () => {} }) {
@@ -41,7 +45,7 @@ export async function routeRequest(request, { adapters, knownSite, url, predict 
     const final = await choose('q_f0', Object.fromEntries(shortlist.map(id =>
       [id, adapters.find(a => a.id === id).description || id])), '从候选站点中选择负责该需求的');
     const [id, confidence] = ranked(final)[0];
-    if (confidence < GATE) return { kind: 'low-confidence', stoppedAt: { tier: 'site', alternatives: alternatives(final) } };
+    if (!passesGate(final, 0.35)) return { kind: 'low-confidence', stoppedAt: { tier: 'site', alternatives: alternatives(final) } };
     adapter = adapters.find(a => a.id === id);
     siteConfidence = confidence;
   }
@@ -50,7 +54,7 @@ export async function routeRequest(request, { adapters, knownSite, url, predict 
   const probabilities = await choose('q_c0', Object.fromEntries(adapter.commands.map(c =>
     [c.name, c.description || c.id])), '选择最匹配需求的命令');
   const [name, confidence] = ranked(probabilities)[0];
-  if (confidence < GATE) return {
+  if (!passesGate(probabilities, 0.25)) return {
     kind: 'low-confidence', site,
     stoppedAt: { tier: 'command', alternatives: alternatives(probabilities).map(a => ({ ...a, option: `webcli call ${a.option}` })) },
   };
