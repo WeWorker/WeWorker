@@ -10,7 +10,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REFRESH_INTERVAL_MS = 30_000
 
 export function resolveTrayIconPath(platform = process.platform) {
-  const file = platform === 'win32' ? 'tray-icon.ico' : 'tray-icon.png'
+  const file = platform === 'darwin'
+    ? 'tray-icon-macTemplate.png'
+    : platform === 'win32' ? 'tray-icon.ico' : 'tray-icon.png'
   const candidate = path.join(__dirname, 'assets', file)
   return fs.existsSync(candidate) ? candidate : null
 }
@@ -66,8 +68,10 @@ export function createTrayManager({ Tray, Menu, nativeImage, platform = process.
     create() {
       if (tray) return tray
       const iconPath = resolveTrayIconPath(platform)
-      let image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty()
-      if (platform === 'darwin' && !image.isEmpty()) image = image.resize({ width: 18, height: 18 })
+      const image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty()
+      // The 18 pt template includes an @2x variant. Preserve both representations
+      // and let macOS tint the transparent glyph for light/dark menu bars.
+      if (platform === 'darwin' && !image.isEmpty()) image.setTemplateImage(true)
       tray = new Tray(image)
       if (platform === 'win32') {
         // Single click opens the window; right click shows the menu.

@@ -29,6 +29,8 @@ import { packagedMetricsEnvironment } from './metrics-environment.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
 const devRendererUrl = process.env.WEWORKER_RENDERER_DEV_URL || process.env.WEWORKER_DEV_SERVER_URL || 'http://localhost:5173'
+// Each platform's window artwork must also be included in the packaged app.
+const appIconPath = path.join(__dirname, process.platform === 'darwin' ? 'assets/app-icon-mac.png' : process.platform === 'win32' ? '../asset/icon.ico' : '../asset/logo.png')
 
 // ── Load metrics env (~/.webcli/metrics.env) ─────────────────────────────────
 // 从固定路径读取埋点上报配置（KEY=VALUE），注入 process.env。
@@ -398,7 +400,6 @@ async function createWindow({ show = true } = {}) {
     Menu.setApplicationMenu(null)
   }
 
-  const iconPath = path.join(__dirname, '../asset/logo.png')
   mainWindow = new BrowserWindow({
     show,
     width: 1280,
@@ -406,7 +407,7 @@ async function createWindow({ show = true } = {}) {
     minWidth: 480,
     minHeight: 400,
     title: isDev ? 'WeWorker (开发版)' : 'WeWorker',
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: fs.existsSync(appIconPath) ? appIconPath : undefined,
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' }
       : { frame: false }),
@@ -447,14 +448,9 @@ async function createWindow({ show = true } = {}) {
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   log('[main] app ready')
 
-  // Set app icon from logo.png (dev + production fallback)
-  const logoPath = path.join(__dirname, '../asset/logo.png')
-  if (fs.existsSync(logoPath)) {
-    const icon = nativeImage.createFromPath(logoPath)
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.setIcon(icon)
-    }
-    // mainWindow icon set below after creation
+  // Use the same rounded artwork as the macOS bundle icon, including in dev.
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(appIconPath)) {
+    app.dock.setIcon(nativeImage.createFromPath(appIconPath))
   }
 
   registerIpcHandlers(bridgeManager, pythonManager, webwrightManager, httpAuthToken, updateManager, {

@@ -210,7 +210,7 @@ it('uploads locally validated files with private verification metadata and guard
   expect((await capable.execute('upload',{session:'work',selector:'#file',paths:[file],_uploadFiles:[]})).error.code).toBe('INVALID_ARGUMENT');
 });
 
-it('forwards path metadata without substituting a process-specific readable length', async () => {
+it('rejects inconsistent path and handle metadata before dispatch without reading contents', async () => {
   const { options, requestExtension, service } = setup(); await service.execute('bind', { session: 'work', tabId: 7 });
   const contents = ['', 'Example file', 'Public Unicode 示例\n', 'x'.repeat(10000)];
   const files = contents.map((body, index) => {
@@ -225,8 +225,8 @@ it('forwards path metadata without substituting a process-specific readable leng
   try {
     const capable = new BrowserService({ ...options, capabilities: () => ({ connected: true, capabilities: ['browser_commands_v1', 'browser_upload_target_v1'] }) });
     read.mockClear();
-    expect((await capable.execute('upload', { session: 'work', selector: '#file', paths: files })).ok).toBe(true);
-    expect(requestExtension.mock.calls.at(-1)[0].args._uploadFiles).toEqual(files.map(file => ({ name: path.basename(file), size: 65536 })));
+    expect((await capable.execute('upload', { session: 'work', selector: '#file', paths: files })).error.code).toBe('UPLOAD_FILE_VIEW_MISMATCH');
+    expect(requestExtension.mock.calls.some(([message]) => message.command === 'upload')).toBe(false);
     expect(read).not.toHaveBeenCalled();
   } finally { read.mockRestore(); metadata.mockRestore(); }
 });

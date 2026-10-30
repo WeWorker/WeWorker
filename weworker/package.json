@@ -11,7 +11,7 @@
     "build:webwright": "node scripts/build-webwright.cjs",
     "test:webwright-integration": "node --test scripts/__tests__/webwright-scripts.test.cjs electron/__tests__/webwright-manager.test.mjs renderer/src/__tests__/webwright-status.test.js",
     "dev:renderer": "cd renderer && npm run dev",
-    "dev:electron": "wait-on --timeout 30000 tcp:localhost:5173 && cross-env NODE_ENV=development electron .",
+    "dev:electron": "wait-on --timeout 30000 tcp:localhost:5173 && cross-env NODE_ENV=development node scripts/start-dev-electron.cjs",
     "build:renderer": "cd renderer && npm run build",
     "build:backend-ts": "node scripts/bundle-backend-ts.cjs",
     "gen:routes": "node scripts/gen-routes.mjs",
@@ -49,7 +49,8 @@
       "electron/**",
       "renderer/dist/**",
       "deployment.json",
-      "deployment-config.cjs"
+      "deployment-config.cjs",
+      "asset/icon.ico"
     ],
     "extraResources": [
       {

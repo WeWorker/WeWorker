@@ -50,7 +50,7 @@ import { deploymentConfig } from '../../config/deployment.js'
 
 const API = 'http://127.0.0.1:8765'
 const OFFICIAL_URL = deploymentConfig.officialUrl
-const DOWNLOAD_URL = deploymentConfig.downloadUrl
+const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
 const GITHUB_UPDATE_URL = deploymentConfig.githubUrl
 
 const EXACT_PATH_PLACEHOLDER = '例如 folder-b/foo/.env 或 .env'
@@ -316,16 +316,14 @@ function BrowserSettingsGroup() {
     <div className="settings-group">
       <SettingRow title="网站操作浏览器" description={describeBrowserMode(settings.browserMode)} stacked>
         <div className="settings-update-settings">
-          <div className="settings-pill settings-pill--wide">
-            <AppDropdownSelect
-              value={settings.browserMode}
-              options={BROWSER_MODE_OPTIONS}
-              disabled={saving}
-              onChange={change}
-              matchAnchorWidth
-              ariaLabel="网站操作浏览器"
-            />
-          </div>
+          <AppDropdownSelect
+            value={settings.browserMode}
+            options={BROWSER_MODE_OPTIONS}
+            disabled={saving}
+            onChange={change}
+            matchAnchorWidth
+            ariaLabel="网站操作浏览器"
+          />
           {saving && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>正在切换…</div>}
           {error && <div style={{ fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
         </div>
@@ -452,7 +450,7 @@ function AboutTab({ appVersion, commitHash }) {
         </div>
         <div className="settings-about-links">
           <InfoLine label="官网" value={OFFICIAL_URL} href={OFFICIAL_URL} />
-          <InfoLine label="下载" value={DOWNLOAD_URL} href={DOWNLOAD_URL} />
+          <InfoLine label="下载" value={GITHUB_RELEASE_URL} href={GITHUB_RELEASE_URL} />
         </div>
       </div>
 
