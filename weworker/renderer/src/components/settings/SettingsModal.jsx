@@ -50,7 +50,7 @@ import { deploymentConfig } from '../../config/deployment.js'
 
 const API = 'http://127.0.0.1:8765'
 const OFFICIAL_URL = deploymentConfig.officialUrl
-const DOWNLOAD_URL = deploymentConfig.downloadUrl
+const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
 const GITHUB_UPDATE_URL = deploymentConfig.githubUrl
 
 const EXACT_PATH_PLACEHOLDER = '例如 folder-b/foo/.env 或 .env'
@@ -450,7 +450,7 @@ function AboutTab({ appVersion, commitHash }) {
         </div>
         <div className="settings-about-links">
           <InfoLine label="官网" value={OFFICIAL_URL} href={OFFICIAL_URL} />
-          <InfoLine label="下载" value={DOWNLOAD_URL} href={DOWNLOAD_URL} />
+          <InfoLine label="下载" value={GITHUB_RELEASE_URL} href={GITHUB_RELEASE_URL} />
         </div>
       </div>
 
