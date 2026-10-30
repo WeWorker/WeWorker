@@ -9,6 +9,7 @@ import PresetKeyDialog from './PresetKeyDialog.jsx'
 import { getThinkingEffortOptions, normalizeThinkingEffort } from '../../utils/thinking-effort.js'
 import { modelHealthKey, useModelHealthStore } from '../../store/model-health.js'
 import './model-selector.css'
+import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 
 export default function ModelSelector({ disabled, onPendingChange, thinkingEffort = 'off', onThinkingEffortChange }) {
   const activeProvider = useSettingsStore(state => state.activeProvider)
@@ -73,6 +74,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     onPendingChange?.(true)
     setError('')
     try {
+      await cancelActiveQrForModelSwitch()
       if (kind === 'provider') {
         autoCheckProvider.current = value
         await activateProvider(value)

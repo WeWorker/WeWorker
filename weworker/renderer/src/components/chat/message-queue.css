@@ -6,15 +6,16 @@
 .message-queue__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; color: var(--text-muted); }
 .message-queue__header > span { font-size: 11px; }
 .message-queue__list { list-style: none; padding: 0 6px 6px; margin: 0; max-height: min(220px, 30vh); overflow-y: auto; overscroll-behavior: contain; }
-.message-queue__item { display: flex; align-items: flex-start; gap: 6px; padding: 6px; border-radius: 7px; background: color-mix(in srgb, var(--text-muted) 6%, transparent); }
+.message-queue__item { display: flex; align-items: flex-start; gap: 6px; padding: 6px; border-radius: 7px; background: #fff; }
 .message-queue__item + .message-queue__item { margin-top: 4px; }
 .message-queue__index { padding-top: 5px; color: var(--text-muted); font-size: 10px; min-width: 12px; }
 .message-queue__body { flex: 1; min-width: 0; }
 .message-queue__preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 28px; }
 .message-queue__files { display: flex; flex-wrap: wrap; gap: 4px; color: var(--text-muted); font-size: 11px; }
 .message-queue__files span { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.message-queue__actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.message-queue__actions { flex-shrink: 0; }
 .message-queue__editor textarea { width: 100%; min-height: 56px; max-height: 120px; resize: vertical; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text-primary); background: var(--bg-primary); font: inherit; }
+.message-queue__editor textarea:focus { outline: none; box-shadow: none; border-color: var(--border); }
 .message-queue__edit-actions { display: flex; justify-content: flex-end; gap: 4px; }
 .message-queue__notice { padding: 0 12px 6px; color: var(--text-secondary); overflow-wrap: anywhere; }
-@container (max-width: 400px) { .message-queue__actions button span:not(.anticon) { display: none; } .message-queue__header > span { display: none; } }
+@container (max-width: 400px) { .message-queue__header > span { display: none; } }

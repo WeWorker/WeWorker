@@ -9,6 +9,7 @@ import WeWorkerPowerShellPanel from '../terminal/WeWorkerPowerShellPanel.jsx'
 const RIGHT_PANEL_MIN = 300
 const RIGHT_PANEL_MAX = 720
 const RIGHT_PANEL_DEFAULT = 420
+const WORKSPACE_CANVAS_MIN_WIDTH = 420
 const RIGHT_PANEL_TRANSITION_MS = 220
 const RIGHT_PANEL_CONTENT_SWAP_MS = 160
 const RIGHT_PANEL_CONTENT_ENTER_DELAY_MS = 70
@@ -38,9 +39,13 @@ export default function MainWorkspaceShell({ children }) {
   const panelMounted = Boolean(mountedPanel)
   const frameRef = useRef(null)
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
-  const compactPanel = workspaceWidth < rightPanelWidth + 5 + 640
+  const compactPanel = workspaceWidth < RIGHT_PANEL_MIN + 5 + WORKSPACE_CANVAS_MIN_WIDTH
   const fullWidthPanel = compactPanel || (terminalMaximized && mountedPanel === 'terminal')
   const canResizePanel = shellVisible && !fullWidthPanel
+  const visibleRightPanelWidth = Math.min(
+    rightPanelWidth,
+    Math.max(RIGHT_PANEL_MIN, workspaceWidth - 5 - WORKSPACE_CANVAS_MIN_WIDTH),
+  )
 
   useEffect(() => {
     const frame = frameRef.current
@@ -170,8 +175,8 @@ export default function MainWorkspaceShell({ children }) {
           className="workspace-side-panel"
           data-full-width={fullWidthPanel ? 'true' : 'false'}
           style={{
-            width: fullWidthPanel ? '100%' : (shellVisible ? rightPanelWidth + 5 : 0),
-            flexBasis: fullWidthPanel ? '100%' : (shellVisible ? rightPanelWidth + 5 : 0),
+            width: fullWidthPanel ? '100%' : (shellVisible ? visibleRightPanelWidth + 5 : 0),
+            flexBasis: fullWidthPanel ? '100%' : (shellVisible ? visibleRightPanelWidth + 5 : 0),
             flexShrink: 0,
             flexGrow: fullWidthPanel ? 1 : 0,
             overflow: 'hidden',
@@ -202,7 +207,7 @@ export default function MainWorkspaceShell({ children }) {
           />
           <div
             style={{
-              width: fullWidthPanel ? '100%' : rightPanelWidth,
+              width: fullWidthPanel ? '100%' : visibleRightPanelWidth,
               flex: fullWidthPanel ? '1 1 auto' : '0 0 auto',
               flexShrink: 0,
               minHeight: 0,
@@ -211,9 +216,9 @@ export default function MainWorkspaceShell({ children }) {
               transition: `transform ${RIGHT_PANEL_TRANSITION_MS}ms ease, opacity ${RIGHT_PANEL_TRANSITION_MS}ms ease`,
             }}
           >
-            {mountedPanel === 'files' && <UserFilesSidePanel width={fullWidthPanel ? '100%' : rightPanelWidth} />}
-            {mountedPanel === 'capabilities' && <CapabilitiesSidePanel width={fullWidthPanel ? '100%' : rightPanelWidth} />}
-            {mountedPanel === 'terminal' && <WeWorkerPowerShellPanel width={fullWidthPanel ? '100%' : rightPanelWidth} />}
+            {mountedPanel === 'files' && <UserFilesSidePanel width={fullWidthPanel ? '100%' : visibleRightPanelWidth} />}
+            {mountedPanel === 'capabilities' && <CapabilitiesSidePanel width={fullWidthPanel ? '100%' : visibleRightPanelWidth} />}
+            {mountedPanel === 'terminal' && <WeWorkerPowerShellPanel width={fullWidthPanel ? '100%' : visibleRightPanelWidth} />}
           </div>
         </div>
       )}

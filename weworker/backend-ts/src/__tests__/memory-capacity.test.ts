@@ -15,7 +15,13 @@ import {
   type BudgetedMemory,
 } from '../memory/memory-capacity.js'
 import { MemoryStore } from '../memory/memory-store.js'
-import { DEFAULT_MEMORY_BUDGETS, MAX_MEMORY_BUDGET, normalizeMemoryBudgets } from '../config.js'
+import {
+  DEFAULT_MEMORY_BUDGETS,
+  DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT,
+  MAX_MEMORY_BUDGET,
+  normalizeMemoryBudgets,
+  normalizeScheduledTaskHistoryLimit,
+} from '../config.js'
 
 const NOW = new Date('2026-01-31T00:00:00.000Z')
 
@@ -295,6 +301,17 @@ describe('normalizeMemoryBudgets', () => {
   })
 })
 
+describe('normalizeScheduledTaskHistoryLimit', () => {
+  it('defaults missing or out-of-range values to 50 and clamps valid integers', () => {
+    expect(DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT).toBe(50)
+    expect(normalizeScheduledTaskHistoryLimit(undefined)).toBe(50)
+    expect(normalizeScheduledTaskHistoryLimit(0)).toBe(50)
+    expect(normalizeScheduledTaskHistoryLimit(501)).toBe(50)
+    expect(normalizeScheduledTaskHistoryLimit('24')).toBe(24)
+    expect(normalizeScheduledTaskHistoryLimit(12.8)).toBe(12)
+  })
+})
+
 describe('memory_budgets settings persistence', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -312,14 +329,18 @@ describe('memory_budgets settings persistence', () => {
     const config = await import('../config.js')
     config.resetSettingsStateForTests()
     expect(config.getSettings().memory_budgets).toEqual(config.DEFAULT_MEMORY_BUDGETS)
+    expect(config.getSettings().scheduled_task_history_limit).toBe(50)
 
     expect(config.updateSettings({
       memory_budgets: { ...config.DEFAULT_MEMORY_BUDGETS, other: 640, user_usage: -5 },
+      scheduled_task_history_limit: 24,
     }).memory_budgets).toEqual({ ...config.DEFAULT_MEMORY_BUDGETS, other: 640 })
 
     config.resetSettingsStateForTests()
     expect(config.getSettings().memory_budgets).toEqual({ ...config.DEFAULT_MEMORY_BUDGETS, other: 640 })
+    expect(config.getSettings().scheduled_task_history_limit).toBe(24)
     expect(JSON.parse(fs.readFileSync(settingsFile, 'utf8')).memory_budgets.other).toBe(640)
+    expect(JSON.parse(fs.readFileSync(settingsFile, 'utf8')).scheduled_task_history_limit).toBe(24)
     fs.rmSync(root, { recursive: true, force: true })
   })
 })

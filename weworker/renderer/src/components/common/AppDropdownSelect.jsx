@@ -18,6 +18,7 @@ export default function AppDropdownSelect({
   className = '',
   menuClassName,
   showOptionIcons = false,
+  renderOptionPrefix,
   renderOptionSuffix,
   onRemoveOption,
   fallbackOption,
@@ -131,6 +132,7 @@ export default function AppDropdownSelect({
         }}
       >
         {prefix ? <span className="app-dropdown-select__prefix">{prefix}</span> : null}
+        {renderOptionPrefix && selected ? <span className="app-dropdown-select__prefix" aria-hidden="true">{renderOptionPrefix(selected)}</span> : null}
         <span className="app-dropdown-select__label">{selected?.label || '请选择'}</span>
         {renderOptionSuffix?.(selected)}
         <DownOutlined className="app-dropdown-select__caret" aria-hidden="true" />
@@ -198,6 +200,7 @@ export default function AppDropdownSelect({
           ) : null}
           {visibleOptions.map((option) => {
             const removable = option.removable === true && typeof onRemoveOption === 'function'
+            const optionPrefix = renderOptionPrefix?.(option)
             const optionButton = (
               <button
                 type="button"
@@ -213,7 +216,9 @@ export default function AppDropdownSelect({
               >
                 {option.description ? (
                   <span className="app-dropdown-menu-item__content">
-                    {showOptionIcons && option.kind ? (
+                    {optionPrefix ? (
+                      <span className="app-dropdown-menu-item__icon" aria-hidden="true">{optionPrefix}</span>
+                    ) : showOptionIcons && option.kind ? (
                       <span className="app-dropdown-menu-item__icon" aria-hidden="true">
                         <StyleKindIcon kind={option.kind} size={14} />
                       </span>
@@ -222,7 +227,10 @@ export default function AppDropdownSelect({
                     <span className="app-dropdown-menu-item__desc">{option.description}</span>
                   </span>
                 ) : (
-                  <span className="app-dropdown-menu-item__label">{option.label}</span>
+                  <>
+                    {optionPrefix ? <span className="app-dropdown-menu-item__icon" aria-hidden="true">{optionPrefix}</span> : null}
+                    <span className="app-dropdown-menu-item__label">{option.label}</span>
+                  </>
                 )}
                 {renderOptionSuffix?.(option)}
                 <DropdownMenuCheck selected={value === option.value} />

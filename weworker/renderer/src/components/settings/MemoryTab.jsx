@@ -1,13 +1,17 @@
 import React, { useEffect, useState } from 'react'
-import { DeleteOutlined, LoadingOutlined } from '@ant-design/icons'
+import { DeleteOutlined, LoadingOutlined, RollbackOutlined } from '@ant-design/icons'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { useMemoryStore } from '../../store/memory.js'
+import { useWorksStore } from '../../store/works.js'
 import { showConfirm } from '../../store/dialog.js'
 import {
   MEMORY_BUDGET_MAX,
   MEMORY_BUDGET_MIN,
   MEMORY_TYPES,
   MEMORY_FILTER_ALL,
+  SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT,
+  SCHEDULED_TASK_HISTORY_LIMIT_MAX,
+  SCHEDULED_TASK_HISTORY_LIMIT_MIN,
   buildMemoryBudgetDrafts,
   buildMemoryBudgetPayload,
   formatMemoryConfidence,
@@ -16,6 +20,7 @@ import {
   memoryTypeLabel,
   memoryTypeOptions,
   validateMemoryBudgetInput,
+  validateScheduledTaskHistoryLimit,
 } from '../../utils/memory-settings.js'
 
 // 记忆面板：每个类型的最大上下文预算 + 已存记忆列表。
@@ -27,16 +32,25 @@ export default function MemoryTab() {
   const savingBudgets = useMemoryStore((s) => s.savingBudgets)
   const loadingRecords = useMemoryStore((s) => s.loadingRecords)
   const deletingId = useMemoryStore((s) => s.deletingId)
+  const archivedWorks = useMemoryStore((s) => s.archivedWorks)
+  const loadingArchivedWorks = useMemoryStore((s) => s.loadingArchivedWorks)
+  const restoringWorkId = useMemoryStore((s) => s.restoringWorkId)
   const loadSettings = useMemoryStore((s) => s.loadSettings)
   const saveBudgets = useMemoryStore((s) => s.saveBudgets)
   const loadRecords = useMemoryStore((s) => s.loadRecords)
   const deleteRecord = useMemoryStore((s) => s.deleteRecord)
+  const loadArchivedWorks = useMemoryStore((s) => s.loadArchivedWorks)
+  const restoreArchivedWork = useMemoryStore((s) => s.restoreArchivedWork)
+  const loadWorks = useWorksStore((s) => s.loadWorks)
 
   const [drafts, setDrafts] = useState(() => buildMemoryBudgetDrafts(null))
   const [budgetMessage, setBudgetMessage] = useState(null)
   const [invalidTypes, setInvalidTypes] = useState([])
+  const [historyLimitDraft, setHistoryLimitDraft] = useState(String(SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT))
+  const [historyLimitInvalid, setHistoryLimitInvalid] = useState(false)
   const [type, setType] = useState(MEMORY_FILTER_ALL)
   const [listMessage, setListMessage] = useState(null)
+  const [archiveMessage, setArchiveMessage] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -48,7 +62,10 @@ export default function MemoryTab() {
 
   // 后端返回（含保存成功后）都用返回结构刷新整个面板的输入值。
   useEffect(() => {
-    if (settings) setDrafts(buildMemoryBudgetDrafts(settings))
+    if (settings) {
+      setDrafts(buildMemoryBudgetDrafts(settings))
+      setHistoryLimitDraft(String(settings.scheduled_task_history_limit ?? SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT))
+    }
   }, [settings])
 
   useEffect(() => {
@@ -60,6 +77,15 @@ export default function MemoryTab() {
     return () => { cancelled = true }
   }, [type, loadRecords])
 
+  useEffect(() => {
+    let cancelled = false
+    setArchiveMessage(null)
+    loadArchivedWorks().catch((error) => {
+      if (!cancelled) setArchiveMessage(error.message || '归档对话加载失败')
+    })
+    return () => { cancelled = true }
+  }, [loadArchivedWorks])
+
   const updateDraft = (key, value) => {
     setDrafts((current) => ({ ...current, [key]: value }))
     setBudgetMessage(null)
@@ -67,6 +93,13 @@ export default function MemoryTab() {
   }
 
   const handleSave = async () => {
+    const historyValidation = validateScheduledTaskHistoryLimit(historyLimitDraft)
+    if (!historyValidation.ok) {
+      setHistoryLimitInvalid(true)
+      setBudgetMessage({ ok: false, text: historyValidation.error })
+      return
+    }
+    setHistoryLimitInvalid(false)
     const { memory_budgets, errors } = buildMemoryBudgetPayload(drafts)
     if (errors.length > 0) {
       setInvalidTypes(errors.map((item) => item.type))
@@ -76,7 +109,7 @@ export default function MemoryTab() {
     setInvalidTypes([])
     setBudgetMessage(null)
     try {
-      await saveBudgets(memory_budgets)
+      await saveBudgets(memory_budgets, historyValidation.value)
       setBudgetMessage({ ok: true, text: '已保存' })
     } catch (error) {
       setBudgetMessage({ ok: false, text: error.message || '保存失败' })
@@ -85,6 +118,8 @@ export default function MemoryTab() {
 
   const handleRestoreDefaults = () => {
     setDrafts(buildMemoryBudgetDrafts(settings, { useDefaults: true }))
+    setHistoryLimitDraft(String(SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT))
+    setHistoryLimitInvalid(false)
     setInvalidTypes([])
     setBudgetMessage({ ok: true, text: '已填回默认值，点击「保存」后生效' })
   }
@@ -98,6 +133,17 @@ export default function MemoryTab() {
       await deleteRecord(record.id)
     } catch (error) {
       setListMessage({ ok: false, text: error.message || '删除失败' })
+    }
+  }
+
+  const handleRestore = async (work) => {
+    if (!work?.id || restoringWorkId) return
+    setArchiveMessage(null)
+    try {
+      await restoreArchivedWork(work.id)
+      await loadWorks()
+    } catch (error) {
+      setArchiveMessage(error.message || '恢复对话失败')
     }
   }
 
@@ -150,6 +196,28 @@ export default function MemoryTab() {
                   </div>
                 )
               })}
+            </div>
+            <div className="settings-memory-retention">
+              <label className="settings-memory-field__label" htmlFor="scheduled-task-history-limit">定时任务对话上限</label>
+              <div className={`settings-pill settings-pill--wide settings-memory-pill settings-memory-retention__input${historyLimitInvalid ? ' is-invalid' : ''}`}>
+                <input
+                  id="scheduled-task-history-limit"
+                  type="number"
+                  min={SCHEDULED_TASK_HISTORY_LIMIT_MIN}
+                  max={SCHEDULED_TASK_HISTORY_LIMIT_MAX}
+                  step="1"
+                  className="settings-pill-input"
+                  value={historyLimitDraft}
+                  aria-invalid={historyLimitInvalid || undefined}
+                  onChange={(event) => {
+                    setHistoryLimitDraft(event.target.value)
+                    setHistoryLimitInvalid(false)
+                    setBudgetMessage(null)
+                  }}
+                />
+                <span className="settings-pill-chevron">条</span>
+              </div>
+              <div className="settings-action-hint">默认 50 条；超出时自动删除最早创建的定时任务对话，专属 Agent 的上下文对话不受此上限影响</div>
             </div>
           </div>
           <div className="settings-row-footer">
@@ -245,6 +313,49 @@ export default function MemoryTab() {
             {records.length > 0 ? (
               <div className="settings-action-hint settings-memory-count">共 {records.length} 条</div>
             ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-row settings-row--stacked">
+          <div className="settings-row-main">
+            <div className="settings-row-text">
+              <div className="settings-row-title">已归档对话</div>
+              <div className="settings-row-desc">归档的对话会从侧栏隐藏，可在这里恢复</div>
+            </div>
+          </div>
+          <div className="settings-row-control">
+            {loadingArchivedWorks ? (
+              <div className="settings-action-hint"><LoadingOutlined spin aria-hidden="true" /> 正在加载…</div>
+            ) : archivedWorks.length === 0 ? (
+              <div className={`settings-action-hint${archiveMessage ? ' is-error' : ''}`}>{archiveMessage || '暂无归档对话'}</div>
+            ) : (
+              <div className="settings-memory-records">
+                {archivedWorks.map((work) => (
+                  <div key={work.id} className="settings-memory-record">
+                    <div className="settings-memory-record__head">
+                      <span className="settings-archive-work-title" title={work.title || '新任务'}>{work.title || '新任务'}</span>
+                      <span className="settings-memory-record__meta">
+                        {work.updated_at ? <span>{formatMemoryUpdatedAt(work.updated_at)}</span> : null}
+                      </span>
+                      <button
+                        type="button"
+                        className="settings-memory-record__restore"
+                        aria-label={`恢复对话 ${work.title || '新任务'}`}
+                        title="恢复到对话列表"
+                        disabled={Boolean(restoringWorkId)}
+                        onClick={() => handleRestore(work)}
+                      >
+                        {restoringWorkId === work.id ? <LoadingOutlined spin /> : <><RollbackOutlined /> 恢复</>}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {archiveMessage && archivedWorks.length > 0 ? <div className="settings-action-hint is-error">{archiveMessage}</div> : null}
+            {archivedWorks.length > 0 ? <div className="settings-action-hint settings-memory-count">共 {archivedWorks.length} 条</div> : null}
           </div>
         </div>
       </div>

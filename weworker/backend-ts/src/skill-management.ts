@@ -3,6 +3,8 @@ import path from 'node:path'
 import { Router } from 'express'
 import { listSkillDirectoryResources, saveSkillDirectoryResources } from './custom-skills.js'
 
+const SKILL_SOURCE_INDEX = '.weworker-skill-sources.json'
+
 export function sanitizeSkillDirectoryName(name: string): string {
   return (name || 'custom').replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/^\.+$/, '_').trim() || 'custom'
 }
@@ -33,6 +35,49 @@ function creationTime(root: string, stat: fs.BigIntStats): number {
   return times[key]
 }
 
+function skillIdentity(stat: fs.BigIntStats): string {
+  return `${stat.dev}:${stat.ino}`
+}
+
+function readWeWorkerCreatedSkillIds(root: string): Set<string> {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(root, SKILL_SOURCE_INDEX), 'utf8'))
+    return new Set(Array.isArray(parsed?.weworkerCreated) ? parsed.weworkerCreated.filter((id: unknown) => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function markWeWorkerCreatedSkillDirectory(root: string, directory: string): void {
+  const stat = fs.statSync(directory, { bigint: true })
+  const ids = readWeWorkerCreatedSkillIds(root)
+  ids.add(skillIdentity(stat))
+  const indexPath = path.join(root, SKILL_SOURCE_INDEX)
+  const temporaryPath = `${indexPath}.tmp`
+  fs.writeFileSync(temporaryPath, JSON.stringify({ weworkerCreated: [...ids] }))
+  fs.renameSync(temporaryPath, indexPath)
+}
+
+function readSkillIcon(directory: string): string | undefined {
+  for (const name of ['icon.png', 'icon.svg']) {
+    const file = path.join(directory, name)
+    try {
+      const stat = fs.lstatSync(file)
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 512 * 1024) continue
+      const bytes = fs.readFileSync(file)
+      if (name === 'icon.png') {
+        if (bytes.length < 24 || bytes.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') continue
+        return `data:image/png;base64,${bytes.toString('base64')}`
+      }
+      const svg = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      if (!/^\s*(?:<\?xml[^>]*>\s*)?<svg\s/i.test(svg)
+        || /<\s*(?:script|foreignObject|iframe|object|embed)\b|<!|\bon\w+\s*=|\bhref\s*=|\burl\s*\(|@import/i.test(svg)) continue
+      return `data:image/svg+xml;base64,${bytes.toString('base64')}`
+    } catch { /* An absent or invalid icon falls back to the standard Skill icon. */ }
+  }
+  return undefined
+}
+
 function resolveDirectory(root: string, name: unknown): string {
   if (typeof name !== 'string' || !name.trim() || name !== name.trim()
     || /[<>:"/\\|?*\x00-\x1F]/.test(name) || /[. ]$/.test(name)
@@ -59,9 +104,12 @@ export function readManagedSkill(root: string, name: string, builtAt?: number) {
   const file = fs.existsSync(disabled) ? disabled : fs.existsSync(active) ? active : null
   // Directory birth time and identity survive document edits and folder renames.
   // Do not use mtime/ctime: both can change when a Skill is edited or toggled.
+  const isWeWorkerDraft = file === null
   const stat = fs.statSync(dir, { bigint: true })
   return {
     name, content: file ? fs.readFileSync(file, 'utf8') : '',
+    iconUrl: readSkillIcon(dir),
+    source: isWeWorkerDraft || readWeWorkerCreatedSkillIds(root).has(skillIdentity(stat)) ? 'custom' : 'official',
     createdAt: builtAt && Number.isFinite(builtAt) && builtAt > 0 ? builtAt : creationTime(root, stat),
     creationOrderKey: `${stat.dev}:${stat.ino}`,
     enabled: file === active, draft: file === null,
@@ -77,7 +125,14 @@ export function createSkillFolder(root: string, name: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') skillError('Skill 文件夹名称已存在', 409)
     throw error
   }
+  markWeWorkerCreatedSkillDirectory(root, directory)
   return readManagedSkill(root, name as string)
+}
+
+export function markWeWorkerCreatedSkill(root: string, name: string): void {
+  const directory = resolveDirectory(root, name)
+  if (!fs.existsSync(directory)) skillError('Skill not found', 404)
+  markWeWorkerCreatedSkillDirectory(root, directory)
 }
 
 export function setSkillEnabled(root: string, name: string, enabled?: boolean) {
@@ -106,7 +161,9 @@ export function saveManagedSkill(root: string, input: { name: string; previousNa
   const existed = fs.existsSync(dir)
   const active = path.join(dir, 'SKILL.md')
   const disabled = path.join(dir, 'SKILL.md.disabled')
+  const wasDraft = existed && !fs.existsSync(active) && !fs.existsSync(disabled)
   fs.mkdirSync(dir, { recursive: true })
+  if (!existed || wasDraft) markWeWorkerCreatedSkillDirectory(root, dir)
   // A new empty folder stays empty until the user actually writes a document.
   // Saving a draft's first document leaves it off until explicitly enabled.
   if (input.content.trim() || fs.existsSync(active) || fs.existsSync(disabled)) {

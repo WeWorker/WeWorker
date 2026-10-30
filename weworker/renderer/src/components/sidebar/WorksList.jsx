@@ -5,7 +5,9 @@ import { useWorksStore } from '../../store/works.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
 import { TrashIcon } from '../icons/PanelIcons.jsx'
+import { InboxOutlined } from '@ant-design/icons'
 import MessageSquarePlusIcon from '../icons/MessageSquarePlusIcon.jsx'
+import { handleFolderHeadingClick } from '../../utils/work-folder-interaction.js'
 
 const LABEL_COLORS = {
   red: '#ef4444',
@@ -47,12 +49,12 @@ function groupWorksByFolder(works, projects = []) {
     const project = projectId ? projects.find((item) => item.id === projectId) : null
     const legacyName = getWorkFolderName(work)
     const key = project ? `project:${project.id}` : (legacyName === '默认工作区' ? 'default' : `legacy:${legacyName}`)
-    if (!groups.has(key)) groups.set(key, { key, id: project?.id || null, name: project?.name || legacyName, dedicatedAgent: Boolean(project?.dedicated_agent), items: [] })
+    if (!groups.has(key)) groups.set(key, { key, id: project?.id || null, name: project?.name || legacyName, dedicatedAgent: Boolean(project?.dedicated_agent), systemManaged: project?.name === '定时任务', items: [] })
     groups.get(key).items.push(work)
   }
   for (const project of projects) {
     const key = `project:${project.id}`
-    if (!groups.has(key)) groups.set(key, { key, id: project.id, name: project.name, dedicatedAgent: Boolean(project.dedicated_agent), items: [] })
+    if (!groups.has(key)) groups.set(key, { key, id: project.id, name: project.name, dedicatedAgent: Boolean(project.dedicated_agent), systemManaged: project.name === '定时任务', items: [] })
   }
   const defaultGroup = groups.get('default')
   const projectGroups = [...groups.values()].filter((group) => group.id)
@@ -66,8 +68,10 @@ export default function WorksList({ searchQuery = '' }) {
   const works = useWorksStore((s) => Array.isArray(s.works) ? s.works : [])
   const projects = useWorksStore((s) => Array.isArray(s.projects) ? s.projects : [])
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
+  const streamingWorkIds = useWorksStore((s) => s.streamingWorkIds)
   const selectWork = useWorksStore((s) => s.selectWork)
   const deleteWork = useWorksStore((s) => s.deleteWork)
+  const setWorkArchived = useWorksStore((s) => s.setWorkArchived)
   const createWork = useWorksStore((s) => s.createWork)
   const renameProject = useWorksStore((s) => s.renameProject)
   const deleteProject = useWorksStore((s) => s.deleteProject)
@@ -95,7 +99,8 @@ export default function WorksList({ searchQuery = '' }) {
     }
   }, [renamingProjectId])
 
-  const filtered = works.filter((w) => {
+  const activeWorks = works.filter((work) => !work.archived)
+  const filtered = activeWorks.filter((w) => {
     if (labelFilter && w.label !== labelFilter) return false
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase()
@@ -106,7 +111,7 @@ export default function WorksList({ searchQuery = '' }) {
     return true
   })
 
-  if (!works.length && !projects.length) {
+  if (!activeWorks.length && !projects.length) {
     return (
       <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
         暂无对话
@@ -114,7 +119,7 @@ export default function WorksList({ searchQuery = '' }) {
     )
   }
 
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && activeWorks.length > 0) {
     return (
       <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
         未找到匹配的任务
@@ -122,7 +127,8 @@ export default function WorksList({ searchQuery = '' }) {
     )
   }
 
-  const folderGroups = groupWorksByFolder(filtered, projects)
+  const folderGroups = groupWorksByFolder(works, projects)
+  const filteredIds = new Set(filtered.map((work) => work.id))
   const toggleFolder = (folderName) => {
     setCollapsedFolders((current) => {
       const next = { ...current, [folderName]: !current[folderName] }
@@ -170,7 +176,7 @@ export default function WorksList({ searchQuery = '' }) {
   }
 
   const handleDeleteProject = async (group) => {
-    if (!group.id || group.items.length > 0) return
+    if (!group.id || group.items.some((work) => !work.archived)) return
     if (!await showConfirm(`确定删除项目“${group.name}”及其空文件夹吗？`, '删除项目', { danger: true })) return
     try {
       await deleteProject(group.id)
@@ -184,6 +190,7 @@ export default function WorksList({ searchQuery = '' }) {
       {folderGroups.map((group) => {
         const folderKey = group.key
         const collapsed = Boolean(collapsedFolders[folderKey])
+        const visibleItems = group.items.filter((work) => !work.archived && filteredIds.has(work.id))
         // The default workspace has no project id. Keep it in display mode
         // instead of treating the initial null state as an active rename.
         const renaming = Boolean(group.id) && renamingProjectId === group.id
@@ -194,7 +201,10 @@ export default function WorksList({ searchQuery = '' }) {
             onMouseEnter={() => setHoveredFolderKey(folderKey)}
             onMouseLeave={() => setHoveredFolderKey(null)}
           >
-            <div className="work-folder-heading">
+            <div
+              className="work-folder-heading"
+              onClick={(event) => handleFolderHeadingClick(event, () => toggleFolder(folderKey))}
+            >
               <button
                 type="button"
                 className="work-folder-heading__toggle"
@@ -220,9 +230,9 @@ export default function WorksList({ searchQuery = '' }) {
                 ) : (
                   <span className="work-folder-heading__name" title={group.dedicatedAgent ? '由专属 Agent 自动维护，改名请直接修改 Agent 名称' : undefined}>{group.name}</span>
                 )}
-                <span className="work-folder-heading__count">{group.items.length}</span>
+                <span className="work-folder-heading__count">{visibleItems.length}</span>
               </button>
-              {!renaming && (hoveredFolderKey === folderKey || group.items.length === 0) && (
+              {!renaming && !group.systemManaged && (hoveredFolderKey === folderKey || group.items.length === 0) && (
                 <span className="work-folder-heading__actions">
                   {/* 专属 Agent 的对话只在 Agent 页里创建，侧栏不提供入口。 */}
                   {!group.dedicatedAgent && (
@@ -231,7 +241,7 @@ export default function WorksList({ searchQuery = '' }) {
                     </button>
                   )}
                   {group.id && (
-                    <button type="button" title={group.items.length ? '请先删除项目中的对话' : '删除项目'} aria-label={`删除项目${group.name}`} disabled={group.items.length > 0} onClick={() => handleDeleteProject(group)}>
+                    <button type="button" title={group.items.some((work) => !work.archived) ? '请先删除项目中的对话' : '删除项目'} aria-label={`删除项目${group.name}`} disabled={group.items.some((work) => !work.archived)} onClick={() => handleDeleteProject(group)}>
                       <ProjectTrashIcon />
                     </button>
                   )}
@@ -246,7 +256,7 @@ export default function WorksList({ searchQuery = '' }) {
             </div>
             {!collapsed && (
               <div className="work-folder-items">
-                {group.items.map((w) => (
+                {visibleItems.map((w) => (
                   <WorkItem
                     key={w.id}
                     work={w}
@@ -258,6 +268,8 @@ export default function WorksList({ searchQuery = '' }) {
                       selectWork(w.id)
                     }}
                     onDelete={() => deleteWork(w.id)}
+                    onArchive={() => setWorkArchived(w.id, true)}
+                    isStreaming={streamingWorkIds.has(w.id)}
                   />
                 ))}
               </div>
@@ -294,8 +306,9 @@ function ChevronIcon({ size = 13, collapsed }) {
   )
 }
 
-function WorkItem({ work, active, onSelect, onDelete }) {
+function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) {
   const [hovered, setHovered] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -306,6 +319,7 @@ function WorkItem({ work, active, onSelect, onDelete }) {
   const renameInputRef = useRef(null)
   const skipRenameCommitRef = useRef(false)
   const deletePendingRef = useRef(false)
+  const archivePendingRef = useRef(false)
 
   const handleDelete = async () => {
     if (deletePendingRef.current) return
@@ -317,6 +331,20 @@ function WorkItem({ work, active, onSelect, onDelete }) {
       // The store displays the deletion error and preserves the conversation.
     } finally {
       deletePendingRef.current = false
+    }
+  }
+
+  const handleArchive = async () => {
+    if (archivePendingRef.current) return
+    archivePendingRef.current = true
+    setIsArchiving(true)
+    try {
+      await onArchive()
+    } catch (error) {
+      showAlert(error instanceof Error ? error.message : '归档对话失败，请稍后重试')
+    } finally {
+      archivePendingRef.current = false
+      setIsArchiving(false)
     }
   }
 
@@ -416,7 +444,7 @@ function WorkItem({ work, active, onSelect, onDelete }) {
           fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
           color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-        }}>
+        }} className="work-list-item__title">
           {isRenaming ? (
             <input
               ref={renameInputRef}
@@ -455,6 +483,17 @@ function WorkItem({ work, active, onSelect, onDelete }) {
         </span>
         {!isRenaming && (
           <span className="sidebar-row-actions">
+            <button
+              type="button"
+              title={isStreaming ? '对话生成中，暂时无法归档' : isArchiving ? '正在归档' : '归档'}
+              aria-label={`归档 ${work.title || '新任务'}`}
+              className="sidebar-row-action work-item-action"
+              disabled={isStreaming || isArchiving}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); handleArchive() }}
+            >
+              <InboxOutlined />
+            </button>
             <button
               type="button"
               title="重命名"

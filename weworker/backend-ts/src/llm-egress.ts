@@ -1,7 +1,11 @@
-export type LlmProtocol = 'anthropic_messages' | 'openai_chat_completions'
+export type LlmProtocol = 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses'
 
 export function isLlmProtocol(value: unknown): value is LlmProtocol {
-  return value === 'anthropic_messages' || value === 'openai_chat_completions'
+  return value === 'anthropic_messages' || value === 'openai_chat_completions' || value === 'openai_responses'
+}
+
+export function isOpenAiProtocol(value: LlmProtocol | string | undefined): boolean {
+  return value === 'openai_chat_completions' || value === 'openai_responses'
 }
 
 export interface ProviderEntry {
@@ -52,9 +56,9 @@ export function resolveAnthropicEndpoint(settings: { base_url: string; base_url_
   return settings.base_url_is_full ? url : `${url}/v1/messages`
 }
 
-export function resolveOpenAiEndpoint(url: string, fullUrl = false): string {
+export function resolveOpenAiEndpoint(url: string, fullUrl = false, protocol: LlmProtocol = 'openai_chat_completions'): string {
   const value = normalizeLlmUrlInput(url, fullUrl)
-  return fullUrl ? value : `${value}/chat/completions`
+  return fullUrl ? value : `${value}/${protocol === 'openai_responses' ? 'responses' : 'chat/completions'}`
 }
 
 export function buildAllowedLlmBaseUrls(providers: ProviderEntry[], extraCsv = process.env.WEWORKER_ALLOWED_LLM_BASE_URLS || ''): Set<string> {

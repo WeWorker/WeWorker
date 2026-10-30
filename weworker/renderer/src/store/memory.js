@@ -12,10 +12,13 @@ export const useMemoryStore = create((set, get) => ({
   settings: null,
   settingsLoaded: false,
   records: [],
+  archivedWorks: [],
   loadingSettings: false,
   savingBudgets: false,
   loadingRecords: false,
   deletingId: null,
+  loadingArchivedWorks: false,
+  restoringWorkId: null,
 
   /** GET /memory/settings */
   loadSettings: async () => {
@@ -32,13 +35,16 @@ export const useMemoryStore = create((set, get) => ({
   },
 
   /** POST /memory/settings，成功后用返回结构刷新整个面板 */
-  saveBudgets: async (memoryBudgets) => {
+  saveBudgets: async (memoryBudgets, scheduledTaskHistoryLimit) => {
     set({ savingBudgets: true })
     try {
       const res = await backendFetch(`${API}/memory/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memory_budgets: memoryBudgets }),
+        body: JSON.stringify({
+          memory_budgets: memoryBudgets,
+          ...(scheduledTaskHistoryLimit !== undefined ? { scheduled_task_history_limit: scheduledTaskHistoryLimit } : {}),
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.detail || '保存失败')
@@ -65,6 +71,38 @@ export const useMemoryStore = create((set, get) => ({
       return records
     } finally {
       if (recordsRequestId === requestId) set({ loadingRecords: false })
+    }
+  },
+
+  loadArchivedWorks: async () => {
+    set({ loadingArchivedWorks: true })
+    try {
+      const res = await backendFetch(`${API}/works/archived`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || '归档对话加载失败')
+      const works = Array.isArray(data) ? data : []
+      set({ archivedWorks: works })
+      return works
+    } finally {
+      set({ loadingArchivedWorks: false })
+    }
+  },
+
+  restoreArchivedWork: async (id) => {
+    if (!id) throw new Error('缺少对话 ID')
+    set({ restoringWorkId: id })
+    try {
+      const res = await backendFetch(`${API}/works/${encodeURIComponent(id)}/archive`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: false }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.detail || '恢复对话失败')
+      set((state) => ({ archivedWorks: state.archivedWorks.filter((work) => work.id !== id) }))
+      return data
+    } finally {
+      set({ restoringWorkId: null })
     }
   },
 

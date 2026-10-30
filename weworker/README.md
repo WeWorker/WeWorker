@@ -53,9 +53,10 @@ weworker/
 
 | 依赖 | 最低版本 | 用途 |
 |------|---------|------|
-| Node.js | 22.x | 运行时与构建工具；其他主版本不受支持 |
+| Node.js | ≥ 18 | 运行时 & 构建工具 |
 | npm | 随 Node.js | 包管理 |
-| uv | 当前稳定版 | 自动准备 Python 3.14.6 隔离环境，并构建 embedded runtime 和 Windows 解密工具 |
+| uv | 当前稳定版 | 管理 Python 环境并构建 Windows 解密工具 |
+| CPython | 3.14.6 | 正式构建 Webwright embedded runtime |
 
 Webwright 源码由 WeWorker 主仓库直接管理在 `components/webwright/`，普通克隆即可取得完整源码：
 
@@ -75,15 +76,13 @@ git clone <weworker-repository>
 npm run install:all
 ```
 
-该命令使用 npm 官方的 `npm ci` 严格按照各目录的 `package-lock.json` 做可重复安装。`npm ci` 会先删除对应目录已有的 `node_modules`，且不会改写 lockfile，适合首次克隆和复现正式构建；日常开发新增或升级依赖时请使用 `npm install <package>`，并提交同步更新的 `package.json` 和 `package-lock.json`。运行前用 `node --version` 确认是 `v22.x.x`；不需要自行安装系统 Python、PyInstaller 或 pywin32。
-
 或手动逐个安装：
 
 ```bash
-npm ci                       # weworker 主进程（electron、esbuild、electron-builder 等）
-cd renderer && npm ci        # 渲染进程（React、Vite 等）
-cd ../backend-ts && npm ci   # TypeScript 后端（Express、Claude Agent SDK 等）
-cd ../../webcli && npm ci    # WebCLI Bridge（ws、@anthropic-ai/sdk）
+npm install              # weworker 主进程（electron、esbuild、electron-builder 等）
+cd renderer && npm install   # 渲染进程（React、Vite 等）
+cd ../backend-ts && npm install  # TypeScript 后端（Express、Claude Agent SDK 等）
+cd ../../webcli && npm install   # WebCLI Bridge（ws、@anthropic-ai/sdk）
 ```
 
 ### 启动开发模式
@@ -206,13 +205,7 @@ Webwright 中间产物位于 `weworker/build/webwright-dist/`，已被 Git 忽�
 
 ### CI/CD
 
-GitHub Actions 使用以下工作流：
-
-- `validate.yml`：配置检查、单元测试和各模块编译检查。
-- `build-desktop.yml`：PR 默认构建 Windows x64，也可手动选择 Windows x64、macOS x64、macOS arm64 或全部平台。
-- `release-desktop.yml`：手动输入版本 Tag，完成三平台构建后创建 Draft Release。
-
-桌面构建使用三套原生 Runner：
+`.github/workflows/release-latest.yml` 在推送 `v*` tag 或手动触发时执行三套原生构建：
 
 | 目标 | Runner | 产物 |
 |------|--------|------|
@@ -222,7 +215,7 @@ GitHub Actions 使用以下工作流：
 
 Webwright 源码随 WeWorker 一次 checkout，不需要额外 PAT 或仓库 secret。发布 `latest` prerelease 使用 GitHub 自动提供的 `GITHUB_TOKEN`。
 
-三个构建 job 全部通过后，release job 会合并两份 macOS 更新元数据并创建 Draft Release，不会直接公开发布。各构建 job 的原始产物保留在对应 workflow run 的 Artifacts 中。
+三个构建 job 全部通过后，release job 会合并两份 macOS 更新元数据，并更新 `latest` tag 和 prerelease。最终用户可下载产物位于仓库 GitHub Releases 的 `latest` prerelease；各构建 job 的原始产物也保留在对应 workflow run 的 Artifacts 中。
 
 ### 发版清单
 

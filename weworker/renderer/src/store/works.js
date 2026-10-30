@@ -9,6 +9,8 @@ import { discardMessageQueue } from './message-queue.js'
 import { useChatDraftStore } from './chat-drafts.js'
 
 const API = 'http://127.0.0.1:8765'
+const pendingArchiveRequests = new Map()
+const pendingCreateWorkRequests = new Map()
 
 // Lazy import to avoid circular dependency
 let _scheduledTasksStore = null
@@ -32,6 +34,7 @@ export const useWorksStore = create((set, get) => ({
   streamingWorkIds: new Set(), // workIds currently streaming — don't overwrite their messages
   abortControllers: {}, // workId -> AbortController — for stopping streaming from any view
   pendingThinkingEffort: 'off',
+  pendingPermissionMode: 'workspace',
   labelFilter: null, // null = show all, string = filter by label color
   labelNames: {}, // color -> custom name, e.g. { red: '紧急', blue: '参考' }
 
@@ -45,71 +48,91 @@ export const useWorksStore = create((set, get) => ({
     const works = await worksRes.json()
     const labelNames = namesRes?.ok ? await namesRes.json() : {}
     const projects = projectsRes?.ok ? await projectsRes.json() : []
-    set({ works: Array.isArray(works) ? works : [], projects: Array.isArray(projects) ? projects : [], labelNames })
+    const nextWorks = Array.isArray(works) ? works : []
+    set((state) => ({
+      works: nextWorks,
+      projects: Array.isArray(projects) ? projects : [],
+      labelNames,
+      ...(state.activeWorkId && !nextWorks.some((work) => work.id === state.activeWorkId && !work.archived)
+        ? { activeWorkId: nextWorks.find((work) => !work.archived)?.id ?? null }
+        : {}),
+    }))
   },
 
-  createWork: async (opts = {}) => {
-    if (!await leaveWebsiteExploration()) return null
-    const reuseEmptyWork = async (work) => {
-      set({ activeWorkId: work.id })
-      getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
-      // 风格沿用 work 上的 `zcf_role` 字段名（历史字段，改名需要数据迁移）。
-      if (opts.styleId !== undefined && work.zcf_role !== opts.styleId) {
-        return get().updateWorkStyle(work.id, { zcf_role: opts.styleId })
-      }
-      return work
-    }
+  createWork: (opts = {}) => {
+    const requestKey = JSON.stringify([opts.projectId ?? null, Boolean(opts.forceNew), opts.styleId ?? null])
+    if (pendingCreateWorkRequests.has(requestKey)) return pendingCreateWorkRequests.get(requestKey)
 
-    try {
-      // If the most recent work is empty (no messages), just switch to it
-      const { works, messages } = get()
-      if (!opts.forceNew && works.length > 0) {
-        const latest = works[0]
-        const latestMsgs = messages[latest.id]
-        // Empty if: no messages loaded yet and no title, or loaded and truly empty
-        const isEmpty = !latest.title && (latestMsgs === undefined || latestMsgs.length === 0)
-        if (isEmpty) {
-          // If we haven't loaded messages yet, verify with server
-          if (latestMsgs === undefined) {
-            try {
-              const res = await backendFetch(`${API}/works/${latest.id}`)
-              if (!res.ok) throw new Error('Failed to load work')
-              const data = await res.json()
-              set((s) => ({ messages: { ...s.messages, [latest.id]: data.messages } }))
-              if (data.messages.length === 0) {
-                return reuseEmptyWork(latest)
-              }
-            } catch { /* fall through to create */ }
-          } else {
-            return reuseEmptyWork(latest)
+    const request = (async () => {
+      if (!await leaveWebsiteExploration()) return null
+      const reuseEmptyWork = async (work) => {
+        set({ activeWorkId: work.id })
+        getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
+        // 风格沿用 work 上的 `zcf_role` 字段名（历史字段，改名需要数据迁移）。
+        if (opts.styleId !== undefined && work.zcf_role !== opts.styleId) {
+          return get().updateWorkStyle(work.id, { zcf_role: opts.styleId })
+        }
+        return work
+      }
+
+      try {
+        // If the most recent work is empty (no messages), just switch to it
+        const { works, messages } = get()
+        const activeWorks = works.filter((work) => !work.archived)
+        const latest = opts.forceNew
+          ? activeWorks.find((work) => (work.project_id ?? null) === (opts.projectId ?? null) && !work.title)
+          : activeWorks[0]
+        if (latest) {
+          const latestMsgs = messages[latest.id]
+          // Empty if: no messages loaded yet and no title, or loaded and truly empty
+          const isEmpty = !latest.title && (latestMsgs === undefined || latestMsgs.length === 0)
+          if (isEmpty) {
+            // If we haven't loaded messages yet, verify with server
+            if (latestMsgs === undefined) {
+              try {
+                const res = await backendFetch(`${API}/works/${latest.id}`)
+                if (!res.ok) throw new Error('Failed to load work')
+                const data = await res.json()
+                set((s) => ({ messages: { ...s.messages, [latest.id]: data.messages } }))
+                if (data.messages.length === 0) {
+                  return reuseEmptyWork(latest)
+                }
+              } catch { /* fall through to create */ }
+            } else {
+              return reuseEmptyWork(latest)
+            }
           }
         }
+        const body = {}
+        if (opts.projectId !== undefined) body.project_id = opts.projectId
+        if (opts.styleId !== undefined) body.zcf_role = opts.styleId
+        const res = await backendFetch(`${API}/works`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) throw new Error('Failed to create work')
+        const work = await res.json()
+        set((s) => ({ works: [work, ...s.works], activeWorkId: work.id }))
+        getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
+        return work
+      } catch (e) {
+        console.error('[works] createWork failed:', e)
+        showAlert('创建任务失败，请确认后端服务已启动')
+        throw e
       }
-      const body = {}
-      if (opts.projectId !== undefined) body.project_id = opts.projectId
-      if (opts.styleId !== undefined) body.zcf_role = opts.styleId
-      const res = await backendFetch(`${API}/works`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!res.ok) throw new Error('Failed to create work')
-      const work = await res.json()
-      set((s) => ({ works: [work, ...s.works], activeWorkId: work.id }))
-      getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
-      return work
-    } catch (e) {
-      console.error('[works] createWork failed:', e)
-      showAlert('创建任务失败，请确认后端服务已启动')
-      throw e
-    }
+    })()
+    pendingCreateWorkRequests.set(requestKey, request)
+    return request.finally(() => {
+      if (pendingCreateWorkRequests.get(requestKey) === request) pendingCreateWorkRequests.delete(requestKey)
+    })
   },
 
-  createProject: async (name) => {
+  createProject: async (name, folderPath) => {
     const res = await backendFetch(`${API}/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, folder_path: folderPath }),
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
@@ -205,6 +228,36 @@ export const useWorksStore = create((set, get) => ({
       console.error('[works] deleteWork failed:', e)
       showAlert('删除任务失败，请稍后重试')
       throw e
+    }
+  },
+
+  setWorkArchived: async (id, archived) => {
+    const requestKey = `${id}:${Boolean(archived)}`
+    if (pendingArchiveRequests.has(requestKey)) return pendingArchiveRequests.get(requestKey)
+
+    const request = (async () => {
+      const res = await backendFetch(`${API}/works/${id}/archive`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: Boolean(archived) }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.detail || '更新归档状态失败')
+      set((state) => ({
+        works: state.works.map((work) => (work.id === id ? { ...work, archived: Boolean(archived) } : work)),
+      }))
+      if (archived && get().activeWorkId === id) {
+        const nextWork = get().works.find((work) => work.id !== id && !work.archived)
+        if (nextWork) await get().selectWork(nextWork.id)
+        else set({ activeWorkId: null })
+      }
+      return data
+    })()
+    pendingArchiveRequests.set(requestKey, request)
+    try {
+      return await request
+    } finally {
+      if (pendingArchiveRequests.get(requestKey) === request) pendingArchiveRequests.delete(requestKey)
     }
   },
 

@@ -3,7 +3,7 @@ import { MEMORY_BLOCK_CLOSE, MEMORY_BLOCK_OPEN } from './memory/memory-extractor
 /** Filters display-only data; the caller retains the original text for memory extraction. */
 export class StreamingVisibleText {
   private pending = ''
-  private hidden: 'memory' | 'image' | undefined
+  private hidden: 'memory' | 'image' | 'thinking' | undefined
   private whitespace = ''
   private started = false
 
@@ -12,12 +12,15 @@ export class StreamingVisibleText {
     let visible = ''
     while (this.pending) {
       if (this.hidden) {
-        const end = this.hidden === 'memory' ? MEMORY_BLOCK_CLOSE : ')'
-        const index = this.pending.indexOf(end)
+        const end = this.hidden === 'memory'
+          ? MEMORY_BLOCK_CLOSE
+          : this.hidden === 'image' ? ')' : '</think>'
+        const haystack = this.hidden === 'thinking' ? this.pending.toLowerCase() : this.pending
+        const index = haystack.indexOf(end)
         if (index < 0) {
           let keep = 0
           for (let length = 1; length < end.length; length++) {
-            if (this.pending.endsWith(end.slice(0, length))) keep = length
+            if (haystack.endsWith(end.slice(0, length))) keep = length
           }
           this.pending = keep ? this.pending.slice(-keep) : ''
           break
@@ -32,6 +35,17 @@ export class StreamingVisibleText {
         continue
       }
       if (MEMORY_BLOCK_OPEN.startsWith(this.pending)) break
+      const lowerPending = this.pending.toLowerCase()
+      if (lowerPending.startsWith('<think>')) {
+        this.pending = this.pending.slice('<think>'.length)
+        this.hidden = 'thinking'
+        continue
+      }
+      if ('<think>'.startsWith(lowerPending)) break
+      if (lowerPending.startsWith('</think>')) {
+        this.pending = this.pending.slice('</think>'.length)
+        continue
+      }
       if (this.pending.startsWith('![')) {
         const labelEnd = this.pending.indexOf(']')
         if (labelEnd < 0) break
@@ -55,7 +69,11 @@ export class StreamingVisibleText {
 
   finish(): string {
     // An incomplete hidden tag/body must never flash in the UI.
-    const visible = this.hidden || (this.pending && MEMORY_BLOCK_OPEN.startsWith(this.pending)) ? '' : this.pending
+    const incompleteMarker = this.pending && (
+      MEMORY_BLOCK_OPEN.startsWith(this.pending)
+      || '<think>'.startsWith(this.pending.toLowerCase())
+    )
+    const visible = this.hidden || incompleteMarker ? '' : this.pending
     this.pending = ''
     const result = this.emit(visible)
     this.whitespace = ''
@@ -70,4 +88,11 @@ export class StreamingVisibleText {
     if (trimmed) this.started = true
     return trimmed
   }
+}
+
+/** Remove provider-emitted reasoning tags from a complete assistant block. */
+export function stripThinkingTags(text: string): string {
+  return String(text || '')
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, '')
+    .replace(/<\/think>/gi, '')
 }

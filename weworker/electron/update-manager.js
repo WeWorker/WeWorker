@@ -9,13 +9,7 @@ import { normalizeUpdateSettings } from './update-settings.js'
 const DEPLOYMENT = deploymentConfigModule.normalizeDeploymentConfig(deploymentRaw)
 
 const SUPPORTED_PLATFORMS = new Set(['win32', 'darwin'])
-const UPDATE_SOURCES = [
-  {
-    id: 'github',
-    label: 'GitHub latest',
-    url: DEPLOYMENT.githubUrl,
-  },
-]
+const UPDATE_SOURCES = DEPLOYMENT.updateSources
 function normalizeError(error) {
   if (!error) return ''
   return error.message || String(error)

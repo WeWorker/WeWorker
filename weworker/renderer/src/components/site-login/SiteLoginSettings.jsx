@@ -17,17 +17,29 @@ export default function SiteLoginSettings() {
   const refresh = useCallback(async (refreshChecks = false) => {
     if (!api?.siteAuthControl) return
     try {
-      setStatus(await api.siteAuthControl('status', { refresh: refreshChecks }))
+      const nextStatus = await api.siteAuthControl('status', { refresh: refreshChecks })
+      setStatus(nextStatus)
       setError('')
+      return nextStatus
     } catch (err) {
       setError(err?.message?.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') || '无法读取登录状态')
+      return null
     }
   }, [api])
 
   useEffect(() => {
-    void refresh(true)
+    // Load the catalog without checks first so the configured login entries are
+    // visible immediately. A slow or unavailable status probe must not make
+    // the existing login controls look as if they were removed.
+    let disposed = false
+    void refresh(false).then((initialStatus) => {
+      if (!disposed && initialStatus) void refresh(true)
+    })
     const unsubscribe = api?.onSiteAuthEvent?.(() => { void refresh(false) })
-    return () => unsubscribe?.()
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
   }, [api, refresh])
 
   if (!api?.siteAuthControl) return null

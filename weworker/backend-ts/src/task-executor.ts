@@ -94,15 +94,26 @@ function queueTaskMemoryProcessing(input: {
  * 执行一个定时任务：创建 work、记录执行、调用 AI Agent、更新状态。
  */
 export async function executeTask(task: ScheduledTask): Promise<ExecutionResult> {
+  const taskProject = store.getOrCreateScheduledTaskProject()
+  const taskWorkspace = store.ensureScheduledTaskWorkspace(task.id)
+  const agent = task.agent_id ? getAgent(task.agent_id) : null
   // Skip tasks with empty prompt — nothing to execute
   if (!task.prompt_template?.trim()) {
-    const work = store.createWork(`[定时] ${task.title} · 跳过`)
+    const work = store.createWork(`[定时] ${task.title} · 跳过`, taskProject.id, taskWorkspace)
     const execution = store.createTaskExecution(task.id, work.id)
     store.updateTaskExecution(execution.id, {
       status: 'failed',
       error_message: '任务提示词为空，跳过执行',
       completed_at: new Date().toISOString(),
     })
+    await safeNotify({
+      taskId: task.id,
+      taskTitle: task.title,
+      status: 'failed',
+      error: '任务提示词为空，跳过执行',
+      executionId: execution.id,
+      workId: work.id,
+    }, task.notify_channels)
     return { workId: work.id, executionId: execution.id, status: 'failed', error: '任务提示词为空' }
   }
 
@@ -112,16 +123,23 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
   const timeStr = `${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
   // 1. Dedicated-Agent tasks reuse their own durable task conversation. This
   // lets the model reason over previous checks and decide whether to notify.
-  const agent = task.agent_id ? getAgent(task.agent_id) : null
   if (task.agent_id && (!agent || !agent.enabled)) {
-    const work = store.createWork(`[定时] ${task.title} · 已停用`)
+    const work = store.createWork(`[定时] ${task.title} · 已停用`, taskProject.id, taskWorkspace)
     const execution = store.createTaskExecution(task.id, work.id)
     store.updateTaskExecution(execution.id, { status: 'failed', error_message: '专属 Agent 不存在或已停用', completed_at: new Date().toISOString() })
+    await safeNotify({
+      taskId: task.id,
+      taskTitle: task.title,
+      status: 'failed',
+      error: '专属 Agent 不存在或已停用',
+      executionId: execution.id,
+      workId: work.id,
+    }, task.notify_channels)
     return { workId: work.id, executionId: execution.id, status: 'failed', error: '专属 Agent 不存在或已停用' }
   }
   const work = agent && task.context_work_id
-    ? (store.getWork(task.context_work_id) ?? store.createWork(`【定时】${task.title}`, agent.project_id ?? null))
-    : store.createWork(`[定时] ${task.title} · ${timeStr}`)
+    ? (store.getWork(task.context_work_id) ?? store.createWork(`【定时】${task.title}`, agent.project_id ?? taskProject.id))
+    : store.createWork(`[定时] ${task.title} · ${timeStr}`, taskProject.id, taskWorkspace)
 
   // 2. Create execution record (pending)
   const execution = store.createTaskExecution(task.id, work.id)

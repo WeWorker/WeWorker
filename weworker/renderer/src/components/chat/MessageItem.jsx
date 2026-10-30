@@ -11,6 +11,7 @@ import { partitionContentBlocks } from '../../utils/group-tool-blocks.js'
 import { isPlanManagementTool } from '../../utils/todowrite-state.js'
 import { normalizeUserChoiceBlock } from '../../utils/user-choice.js'
 import { localFileUrl } from '../../utils/local-file-url.js'
+import { handleChatLinkClick } from '../../utils/chat-links.js'
 import FileGlyph, { getFileTypeLabel, getFileTypeMeta } from '../files/FileTypeIcon.jsx'
 
 const BUBBLE_USER = {
@@ -462,6 +463,16 @@ function MarkdownBody({ text, onShellCommand }) {
   return (
     <div className="markdown message-text-selectable" style={{ color: 'inherit' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+        a: ({ href, title, children }) => (
+          <a
+            href={href}
+            title={title}
+            target={href?.startsWith('#') ? undefined : '_blank'}
+            rel="noopener noreferrer"
+            onClick={handleChatLinkClick}
+            onAuxClick={handleChatLinkClick}
+          >{children}</a>
+        ),
         img: ({ src, alt }) => src?.startsWith('data:') ? null : <img src={src} alt={alt} style={{ maxWidth: '100%' }} />,
         table: ({ children, ...props }) => (
           <div className="markdown-table-scroll">

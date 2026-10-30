@@ -1897,12 +1897,6 @@
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.settings-update-action {
-  min-width: 84px;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .settings-close,
   .settings-tab,
@@ -2512,6 +2506,18 @@
   color: var(--text-primary);
 }
 
+.settings-memory-retention {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 300px);
+  margin-top: 16px;
+}
+
+.settings-memory-retention__input {
+  max-width: 300px;
+}
+
 .settings-memory-pill {
   max-width: none;
   padding-right: 12px;
@@ -2626,6 +2632,43 @@
 }
 
 .settings-memory-record__delete:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-archive-work-title {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.settings-memory-record__restore {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.settings-memory-record__restore:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.settings-memory-record__restore:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

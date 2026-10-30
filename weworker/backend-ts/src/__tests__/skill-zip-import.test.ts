@@ -37,10 +37,11 @@ describe('skill ZIP import', () => {
       })
       const startedAt = Date.now()
       const imported = await importSkillZip(zip, root)
-      expect(imported).toMatchObject([{ name: 'demo', createdAt: expect.any(Number) }])
+      expect(imported).toMatchObject([{ name: 'demo', source: 'custom', createdAt: expect.any(Number) }])
       expect(imported[0].createdAt).toBeGreaterThanOrEqual(startedAt)
       expect(imported[0].createdAt).toBeLessThanOrEqual(Date.now())
       expect(readManagedSkill(root, 'demo').createdAt).toBe(imported[0].createdAt)
+      expect(readManagedSkill(root, 'demo').source).toBe('custom')
       expect(fs.readFileSync(path.join(root, 'demo', 'SKILL.md'), 'utf8')).toContain('# Demo')
       expect(fs.readFileSync(path.join(root, 'demo', 'assets', 'example.txt'), 'utf8')).toBe('example')
     } finally {

@@ -46,16 +46,16 @@ function buildFixtureRepo({ webcliVersion = '1.0.4', ledgerOverrides = {} } = {}
   writeJson('weworker/deployment.json', {
     officialUrl: PUBLIC_SITE_URL,
     downloadUrl: PUBLIC_DOWNLOAD_URL,
-    githubUrl: PUBLIC_UPDATE_URL,
+    updateSources: [{ id: 'github', label: 'GitHub latest', url: PUBLIC_UPDATE_URL }],
   })
   writeJson('extension/manifest.json', { version: appVersion })
   writeJson('weworker/changelog.json', [{ version: appVersion }])
   const downloadConfig = path.join(root, 'officialWeb', 'src', 'lib', 'downloadConfig.js')
   fs.mkdirSync(path.dirname(downloadConfig), { recursive: true })
   fs.writeFileSync(downloadConfig, `export const APP_VERSION = '${appVersion}'\n`)
-  writeText('weworker/electron/update-manager.js', 'const source = { url: DEPLOYMENT.githubUrl }\n')
-  writeText('weworker/renderer/src/components/settings/SettingsModal.jsx', 'const updateUrl = deploymentConfig.githubUrl\n')
-  writeText('weworker/scripts/build-electron-current-arch.cjs', 'const publish = { url: deployment.githubUrl }\n')
+  writeText('weworker/electron/update-manager.js', 'const UPDATE_SOURCES = DEPLOYMENT.updateSources\n')
+  writeText('weworker/renderer/src/components/settings/SettingsModal.jsx', 'const updateSources = deploymentConfig.updateSources.map(Boolean)\n')
+  writeText('weworker/scripts/build-electron-current-arch.cjs', 'const publish = { url: deployment.updateSources[0].url }\n')
   writeText('officialWeb/src/lib/siteConfig.js', `export const OFFICIAL_SITE = '${PUBLIC_SITE_URL}'\nexport const GITHUB_REPO = '${PUBLIC_REPO_URL}'\n`)
   writeText('officialWeb/index.html', `<link rel="canonical" href="${PUBLIC_SITE_URL}/"><meta property="og:image" content="${PUBLIC_SITE_URL}/logo.png">\n`)
   const fixtureLogo = Buffer.from('fixture-logo')
@@ -101,7 +101,7 @@ test('retired public addresses and website updater sources are rejected', () => 
   try {
     fs.writeFileSync(
       path.join(root, 'weworker', 'electron', 'update-manager.js'),
-      'const sources = [{ url: DEPLOYMENT.githubUrl }, { url: DEPLOYMENT.downloadUrl }]\n',
+      'const UPDATE_SOURCES = DEPLOYMENT.updateSources\nconst fallback = { url: DEPLOYMENT.downloadUrl }\n',
     )
     fs.writeFileSync(
       path.join(root, 'docs', 'github-repo-settings.md'),

@@ -25,6 +25,10 @@ export const MEMORY_BUDGET_MIN = 0
 export const MEMORY_BUDGET_MAX = 20000
 /** 预算非法时的统一提示。 */
 export const MEMORY_BUDGET_ERROR = '请输入 0-20000 之间的整数'
+export const SCHEDULED_TASK_HISTORY_LIMIT_MIN = 1
+export const SCHEDULED_TASK_HISTORY_LIMIT_MAX = 500
+export const SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT = 50
+export const SCHEDULED_TASK_HISTORY_LIMIT_ERROR = '请输入 1-500 之间的整数'
 
 /** 记忆列表筛选「全部」选项的 value。 */
 export const MEMORY_FILTER_ALL = 'all'
@@ -77,6 +81,21 @@ export function validateMemoryBudgetInput(raw) {
   const value = parseMemoryBudgetInput(raw)
   if (value === null) return { ok: false, error: MEMORY_BUDGET_ERROR }
   return { ok: true, value }
+}
+
+export function parseScheduledTaskHistoryLimit(raw) {
+  const text = toText(raw).trim()
+  if (!/^\d+$/.test(text)) return null
+  const value = Number(text)
+  if (!Number.isSafeInteger(value) || value < SCHEDULED_TASK_HISTORY_LIMIT_MIN || value > SCHEDULED_TASK_HISTORY_LIMIT_MAX) return null
+  return value
+}
+
+export function validateScheduledTaskHistoryLimit(raw) {
+  const value = parseScheduledTaskHistoryLimit(raw)
+  return value === null
+    ? { ok: false, error: SCHEDULED_TASK_HISTORY_LIMIT_ERROR }
+    : { ok: true, value }
 }
 
 /** 把后端返回的预算值转成输入框字符串；无法解析时返回空串。 */

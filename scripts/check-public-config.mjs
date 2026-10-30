@@ -73,8 +73,10 @@ export function validatePublicConfig(repoRoot) {
   if (deployment.downloadUrl !== PUBLIC_DOWNLOAD_URL) {
     errors.push(`public downloadUrl must be ${PUBLIC_DOWNLOAD_URL}`)
   }
-  if (deployment.githubUrl !== PUBLIC_UPDATE_URL) {
-    errors.push(`public githubUrl must be ${PUBLIC_UPDATE_URL}`)
+  if (!Array.isArray(deployment.updateSources) || deployment.updateSources.length === 0) {
+    errors.push('public updateSources must be a non-empty array')
+  } else if (deployment.updateSources[0]?.url !== PUBLIC_UPDATE_URL) {
+    errors.push(`public updateSources[0].url must be ${PUBLIC_UPDATE_URL}`)
   }
 
   const desktopPackage = readJson(path.join(repoRoot, 'weworker', 'package.json'))
@@ -83,9 +85,9 @@ export function validatePublicConfig(repoRoot) {
   }
 
   const publicUrlSources = [
-    ['weworker/electron/update-manager.js', 'url: DEPLOYMENT.githubUrl'],
-    ['weworker/renderer/src/components/settings/SettingsModal.jsx', 'deploymentConfig.githubUrl'],
-    ['weworker/scripts/build-electron-current-arch.cjs', 'url: deployment.githubUrl'],
+    ['weworker/electron/update-manager.js', 'const UPDATE_SOURCES = DEPLOYMENT.updateSources'],
+    ['weworker/renderer/src/components/settings/SettingsModal.jsx', 'deploymentConfig.updateSources.map'],
+    ['weworker/scripts/build-electron-current-arch.cjs', 'url: deployment.updateSources[0].url'],
     ['officialWeb/src/lib/siteConfig.js', `OFFICIAL_SITE = '${PUBLIC_SITE_URL}'`],
     ['officialWeb/src/lib/siteConfig.js', `GITHUB_REPO = '${PUBLIC_REPO_URL}'`],
     ['officialWeb/index.html', `${PUBLIC_SITE_URL}/`],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { StreamingVisibleText } from '../streaming-visible-text.js'
+import { StreamingVisibleText, stripThinkingTags } from '../streaming-visible-text.js'
 import { parseAssistantMemoryOutput } from '../memory/memory-extractor.js'
 
 describe('streaming assistant text', () => {
@@ -47,5 +47,27 @@ describe('streaming assistant text', () => {
     const parts = ['截图前 ', '![screen', 'shot](data:im', 'age/png;base64,AAAA', 'BBBB)', ' 截图后']
     const visible = parts.map(part => filter.push(part)).join('') + filter.finish()
     expect(visible).toBe('截图前  截图后')
+  })
+
+  it('hides provider thinking tags across arbitrary stream splits', () => {
+    const text = '答案前<THINK>内部推理</tHiNk>答案后'
+    for (let split = 0; split <= text.length; split++) {
+      const filter = new StreamingVisibleText()
+      const visible = filter.push(text.slice(0, split)) + filter.push(text.slice(split)) + filter.finish()
+      expect(visible).toBe('答案前答案后')
+    }
+    const filter = new StreamingVisibleText()
+    expect([...text].map(part => filter.push(part)).join('') + filter.finish()).toBe('答案前答案后')
+  })
+
+  it('does not treat ordinary text with a similar tag name as thinking', () => {
+    const filter = new StreamingVisibleText()
+    expect(filter.push('literal <thing> text')).toBe('literal <thing> text')
+    expect(filter.finish()).toBe('')
+  })
+
+  it('removes complete and unfinished thinking blocks from non-stream text', () => {
+    expect(stripThinkingTags('答案前<think>内部推理</think>答案后')).toBe('答案前答案后')
+    expect(stripThinkingTags('答案前<think>内部推理')).toBe('答案前')
   })
 })

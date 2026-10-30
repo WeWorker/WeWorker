@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { selectCatalogSkills, skillSelectionKey, findSelectedSkill, formatSkillCreatedAt } from '../utils/skill-catalog.js'
 
 const skills = [
@@ -15,6 +16,13 @@ test('shows the sorting timestamp in local time and leaves missing or invalid da
   for (const value of [undefined, null, 0, -1, NaN, Infinity, 1e20]) {
     assert.equal(formatSkillCreatedAt({ createdAt: value }), '')
   }
+})
+
+test('renders a Skill root icon when available and keeps the document fallback', () => {
+  const source = fs.readFileSync(new URL('../components/welcome/ToolPackageEditor.jsx', import.meta.url), 'utf8')
+  assert.match(source, /tool\.iconUrl\s*\?\s*<img src=\{tool\.iconUrl\}/)
+  assert.match(source, /function buildOfficialSiteSkill\([\s\S]*?iconUrl: siteInfo\.iconUrl/)
+  assert.match(source, /:\s*<FileTextOutlined \/>/)
 })
 
 test('selection follows a public directory after rename, reload and sorting', () => {
@@ -44,6 +52,8 @@ test('defaults to newest creation time and uses a stable key when timestamps mat
 test('filters all or both public and site custom Skills while preserving independent search', () => {
   assert.deepEqual(selectCatalogSkills(skills, { filter: 'custom' }).map(skill => skill.id), ['new-custom', 'old-custom'])
   assert.deepEqual(selectCatalogSkills(skills, { filter: 'custom', query: 'alpha' }).map(skill => skill.id), ['new-custom'])
+  const adapterSkill = { id: 'adapter', name: 'Adapter Skill', source: 'public-skill' }
+  assert.deepEqual(selectCatalogSkills([...skills, adapterSkill], { filter: 'custom' }).map(skill => skill.id), ['new-custom', 'old-custom'])
 })
 
 test('sorts by display name without changing the creation-time default', () => {

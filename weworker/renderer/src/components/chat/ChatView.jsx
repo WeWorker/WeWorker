@@ -140,7 +140,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     }
   }
 
-  const sendTurn = async (text, files = [], thinkingEffort = 'off') => {
+  const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => {
     if ((!text.trim() && !files.length) || useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting') return { status: 'failed', accepted: false }
     if (files.length > maxChatAttachments) {
       setError(`已选 ${files.length}/${maxChatAttachments} 个文件，请删减后再发送`)
@@ -381,7 +381,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
 
           return msg
         })
-      }, controller.signal, files, maxChatAttachments, modelText, false, thinkingEffort)
+      }, controller.signal, files, maxChatAttachments, modelText, false, thinkingEffort, permissionMode)
     } catch (e) {
       failed = true
       if (e.name === 'AbortError') {
@@ -430,7 +430,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
 
   queue.setHandlers({
     isBlocked: () => useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting',
-    send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort),
+    send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort, item.permissionMode),
     steer: async item => {
       if (item.command) throw new Error('命令行消息只能排队执行，请等待当前回复完成')
       await steerChat(workId, item)
@@ -449,8 +449,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     },
   })
   useEffect(() => { queue.wake() }, [queue, streaming, contextCompactionStatus])
-  const handleSend = (text, files = [], thinkingEffort = 'off') => {
-    const id = queue.enqueue({ text, files, thinkingEffort })
+  const handleSend = (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => {
+    const id = queue.enqueue({ text, files, thinkingEffort, permissionMode })
     if (id) { setInputText(''); setAttachments([]) }
   }
 
@@ -583,8 +583,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       const pendingThinkingEffort = useWorksStore.getState().pendingThinkingEffort || 'off'
       const pendingShellCommand = useWorksStore.getState().pendingShellCommand
       if (pending || pendingAttachments.length) {
-        useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingThinkingEffort: 'off' })
-        handleSendRef.current(pending || '', pendingAttachments, pendingThinkingEffort)
+        const pendingPermissionMode = useWorksStore.getState().pendingPermissionMode || 'workspace'
+        useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingThinkingEffort: 'off', pendingPermissionMode: 'workspace' })
+        handleSendRef.current(pending || '', pendingAttachments, pendingThinkingEffort, pendingPermissionMode)
         return
       }
       if (pendingShellCommand?.command) {

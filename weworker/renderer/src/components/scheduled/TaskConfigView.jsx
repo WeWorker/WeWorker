@@ -6,133 +6,17 @@ import { useWorksStore } from '../../store/works.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { backendFetch } from '../../api/http.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
-
-// ---------------------------------------------------------------------------
-// Schedule helpers — convert between user-friendly fields and cron expression
-// ---------------------------------------------------------------------------
-
-const FREQUENCY_OPTIONS = [
-  { value: 'every_n_minutes', label: '每隔 N 分钟' },
-  { value: 'hourly', label: '每小时' },
-  { value: 'daily', label: '每天' },
-  { value: 'weekly', label: '每周' },
-]
-
-const WEEKDAY_OPTIONS = [
-  { value: '1', label: '周一' },
-  { value: '2', label: '周二' },
-  { value: '3', label: '周三' },
-  { value: '4', label: '周四' },
-  { value: '5', label: '周五' },
-  { value: '6', label: '周六' },
-  { value: '0', label: '周日' },
-]
-
-const MINUTE_INTERVAL_OPTIONS = [5, 10, 15, 20, 30]
-
-/** Build cron expression from user-friendly fields */
-function buildCron({ frequency, hour, minute, weekday, minuteInterval }) {
-  switch (frequency) {
-    case 'every_n_minutes':
-      return `*/${minuteInterval || 30} * * * *`
-    case 'hourly':
-      return `${minute || 0} * * * *`
-    case 'daily':
-      return `${minute ?? 0} ${hour ?? 9} * * *`
-    case 'weekly':
-      return `${minute ?? 0} ${hour ?? 9} * * ${weekday ?? 1}`
-    default:
-      return '0 * * * *'
-  }
-}
-
-/** Parse cron expression into user-friendly fields */
-function parseCron(expr) {
-  if (!expr) return { frequency: 'daily', hour: 9, minute: 0, weekday: '1', minuteInterval: 30 }
-  const parts = expr.trim().split(/\s+/)
-  if (parts.length !== 5) return { frequency: 'daily', hour: 9, minute: 0, weekday: '1', minuteInterval: 30 }
-
-  const [min, hr, , , dow] = parts
-
-  // */N * * * * → every N minutes
-  const everyN = min.match(/^\*\/(\d+)$/)
-  if (everyN && hr === '*' && dow === '*') {
-    return { frequency: 'every_n_minutes', hour: 9, minute: 0, weekday: '1', minuteInterval: parseInt(everyN[1], 10) }
-  }
-
-  // M * * * * → hourly at :M
-  if (/^\d+$/.test(min) && hr === '*' && dow === '*') {
-    return { frequency: 'hourly', hour: 9, minute: parseInt(min, 10), weekday: '1', minuteInterval: 30 }
-  }
-
-  // M H * * D → weekly
-  if (/^\d+$/.test(min) && /^\d+$/.test(hr) && /^\d$/.test(dow)) {
-    return { frequency: 'weekly', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekday: dow, minuteInterval: 30 }
-  }
-
-  // M H * * * → daily
-  if (/^\d+$/.test(min) && /^\d+$/.test(hr) && dow === '*') {
-    return { frequency: 'daily', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekday: '1', minuteInterval: 30 }
-  }
-
-  return { frequency: 'daily', hour: 9, minute: 0, weekday: '1', minuteInterval: 30 }
-}
-
-/** Compute the next N execution times from schedule fields */
-function getNextRuns({ frequency, hour, minute, weekday, minuteInterval }, count = 3) {
-  const now = new Date()
-  const runs = []
-
-  if (frequency === 'every_n_minutes') {
-    const interval = (minuteInterval || 30) * 60 * 1000
-    // Next aligned interval from the top of the hour
-    const msIntoHour = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds()
-    const nextAligned = new Date(now.getTime() - msIntoHour + Math.ceil(msIntoHour / interval) * interval)
-    for (let i = 0; i < count; i++) {
-      runs.push(new Date(nextAligned.getTime() + i * interval))
-    }
-  } else if (frequency === 'hourly') {
-    const m = minute || 0
-    const candidate = new Date(now)
-    candidate.setMinutes(m, 0, 0)
-    if (candidate <= now) candidate.setHours(candidate.getHours() + 1)
-    for (let i = 0; i < count; i++) {
-      runs.push(new Date(candidate))
-      candidate.setHours(candidate.getHours() + 1)
-    }
-  } else if (frequency === 'daily') {
-    const h = hour ?? 9, m = minute || 0
-    const candidate = new Date(now)
-    candidate.setHours(h, m, 0, 0)
-    if (candidate <= now) candidate.setDate(candidate.getDate() + 1)
-    for (let i = 0; i < count; i++) {
-      runs.push(new Date(candidate))
-      candidate.setDate(candidate.getDate() + 1)
-    }
-  } else if (frequency === 'weekly') {
-    const h = hour ?? 9, m = minute ?? 0, dow = parseInt(weekday ?? '1', 10)
-    const candidate = new Date(now)
-    candidate.setHours(h, m, 0, 0)
-    // Advance to next matching weekday
-    let diff = (dow - candidate.getDay() + 7) % 7
-    if (diff === 0 && candidate <= now) diff = 7
-    candidate.setDate(candidate.getDate() + diff)
-    for (let i = 0; i < count; i++) {
-      runs.push(new Date(candidate))
-      candidate.setDate(candidate.getDate() + 7)
-    }
-  }
-
-  return runs
-}
-
-/** Format next runs as a hint string */
-function nextRunsSummary(schedule) {
-  const runs = getNextRuns(schedule, 3)
-  if (runs.length === 0) return ''
-  const fmt = (d) => d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  return `接下来执行: ${runs.map(fmt).join('、')}`
-}
+import {
+  ALL_WEEKDAYS,
+  FREQUENCY_OPTIONS,
+  MINUTE_INTERVAL_OPTIONS,
+  WEEKDAY_FILTER_OPTIONS,
+  WEEKDAY_OPTIONS,
+  buildCron,
+  getNextRuns,
+  nextRunsSummary,
+  parseCron,
+} from '../../utils/scheduled-task-schedule.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -189,7 +73,7 @@ export default function TaskConfigView({ taskId }) {
 
   // Form state
   const [title, setTitle] = useState('')
-  const [schedule, setSchedule] = useState({ frequency: 'daily', hour: 9, minute: 0, weekday: '1', minuteInterval: 30 })
+  const [schedule, setSchedule] = useState({ frequency: 'daily', hour: 9, minute: 0, weekday: '1', weekdays: ALL_WEEKDAYS, minuteInterval: 30 })
   const [promptTemplate, setPromptTemplate] = useState('')
   const [notifyChannels, setNotifyChannels] = useState([])
   const [saving, setSaving] = useState(false)
@@ -209,13 +93,25 @@ export default function TaskConfigView({ taskId }) {
   const cronExpression = useMemo(() => buildCron(schedule), [schedule])
   const nextRunsHint = useMemo(() => nextRunsSummary(schedule), [schedule])
   const enabledChannels = useMemo(() => getEnabledChannels(channels), [channels])
-  const canSave = title.trim() && promptTemplate.trim()
+  const hasUpcomingRuns = useMemo(() => Boolean(cronExpression && getNextRuns(schedule, 1).length), [cronExpression, schedule])
+  const canSave = Boolean(title.trim() && promptTemplate.trim() && hasUpcomingRuns)
 
   if (!task) {
     return <div style={{ padding: 40, color: 'var(--text-muted)', textAlign: 'center' }}>任务不存在</div>
   }
 
   const updateSchedule = (patch) => setSchedule((s) => ({ ...s, ...patch }))
+
+  const toggleWeekdayFilter = (day) => {
+    setSchedule((current) => {
+      const weekdays = current.weekdays || ALL_WEEKDAYS
+      if (weekdays.includes(day)) {
+        if (weekdays.length === 1) return current
+        return { ...current, weekdays: weekdays.filter((value) => value !== day) }
+      }
+      return { ...current, weekdays: [...weekdays, day].sort((a, b) => a - b) }
+    })
+  }
 
   const handleChannelToggle = (channelId) => {
     setNotifyChannels((prev) =>
@@ -351,6 +247,39 @@ export default function TaskConfigView({ taskId }) {
                   分钟
                 </label>
               )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>过滤日期</span>
+              <div role="group" aria-label="过滤日期" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {WEEKDAY_FILTER_OPTIONS.map((option) => {
+                  const selected = (schedule.weekdays || ALL_WEEKDAYS).includes(option.value)
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      data-app-button="action"
+                      aria-label={`周${option.label}`}
+                      aria-pressed={selected}
+                      onClick={() => toggleWeekdayFilter(option.value)}
+                      style={{
+                        width: 30,
+                        height: 30,
+                        padding: 0,
+                        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: '50%',
+                        background: selected ? 'var(--accent)' : 'var(--bg-secondary)',
+                        color: selected ? '#fff' : 'var(--text-secondary)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Next runs preview */}

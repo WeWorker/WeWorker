@@ -10,13 +10,14 @@ import WecomQrConnect from './WecomQrConnect.jsx'
 import AppBotQrSetup from './AppBotQrSetup.jsx'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { ChannelProbeButton, ChannelProbeChecklist, useChannelProbe } from './ChannelProbe.jsx'
+import { registerModelSwitchCanceler } from '../../utils/model-switch-cancel.js'
 
 const API = 'http://127.0.0.1:8765'
 
 const OWNER_PERMISSION_OPTIONS = [
-  { value: 'qa_only', label: '问答权限', hint: '仅可进行知识问答，与访客权限相同' },
-  { value: 'no_bash', label: '禁用原生命令', hint: '可使用标准技能和文件工具，不能执行适配器或其他本地命令' },
-  { value: 'full', label: '完全权限', hint: '包含命令行与全部智能体能力' },
+  { value: 'qa_only', label: '问答权限', hint: '仅知识问答，与访客相同' },
+  { value: 'no_bash', label: '禁用原生命令', hint: '可使用标准 Skill 和文件工具，不能执行 Adapter 或其他 Bash／PowerShell 命令' },
+  { value: 'full', label: '完全权限', hint: '包含 Bash 与全部 Agent 能力' },
 ]
 
 export default function ChannelConfigurationEditor({ type, profileId, onBusyChange, profileSelector }) {
@@ -99,17 +100,31 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
   const probeState = channelProbe.get(currentChannel?.id)
   const qrRunRef = useRef(null)
   const pollRef = useRef(null)
+  const unregisterQrCancelRef = useRef(null)
   const canvasRef = useRef(null)
 
   useEffect(() => { onBusyChange(saving || nameSaving || wxQrBusy || wecomQrBusy || appBotQrActive); return () => onBusyChange(false) }, [saving, nameSaving, wxQrBusy, wecomQrBusy, appBotQrActive, onBusyChange])
   const stopPolling = useCallback(() => {
     qrRunRef.current = null
+    unregisterQrCancelRef.current?.()
+    unregisterQrCancelRef.current = null
     if (pollRef.current) {
       clearInterval(pollRef.current)
       pollRef.current = null
     }
   }, [])
-  useEffect(() => stopPolling, [stopPolling])
+  const cancelQrLogin = useCallback(async (run = qrRunRef.current) => {
+    if (!run) return
+    run.cancelled = true
+    stopPolling()
+    setQrStatus('')
+    setQrMsg('')
+    setQrData(null)
+    if (run.sessionId) {
+      await backendFetch(`${API}/settings/weixin/qr-cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: run.sessionId }) })
+    }
+  }, [stopPolling])
+  useEffect(() => () => { void cancelQrLogin() }, [cancelQrLogin])
 
   useEffect(() => {
     setForm((current) => ({
@@ -153,16 +168,22 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
 
   const startQrLogin = useCallback(async () => {
     stopPolling()
-    const run = { polling: false }
+    const run = { polling: false, cancelled: false, sessionId: null }
     qrRunRef.current = run
+    unregisterQrCancelRef.current = registerModelSwitchCanceler(() => cancelQrLogin(run))
     setQrStatus('loading')
     setQrMsg('')
     setQrData(null)
     try {
       const res = await backendFetch(`${API}/settings/weixin/qr-start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile_id: profileId }) })
       const data = await res.json()
+      run.sessionId = data.session_id
+      if (run.cancelled) {
+        if (run.sessionId) await backendFetch(`${API}/settings/weixin/qr-cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: run.sessionId }) })
+        return
+      }
       if (qrRunRef.current !== run) return
-      if (!res.ok) { setQrStatus('error'); setQrMsg(data.detail || '获取二维码失败'); return }
+      if (!res.ok) { stopPolling(); setQrStatus('error'); setQrMsg(data.detail || '获取二维码失败'); return }
       setQrData(data.qrcode_url)
       setQrStatus('waiting')
       setQrMsg('请使用微信扫描二维码')
@@ -199,10 +220,11 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
       }, 3000)
     } catch (e) {
       if (qrRunRef.current !== run) return
+      stopPolling()
       setQrStatus('error')
       setQrMsg(e.message || '网络错误')
     }
-  }, [stopPolling, profileId])
+  }, [stopPolling, profileId, cancelQrLogin])
 
   const handleSave = async () => {
     const nextErrors = {
@@ -418,7 +440,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
             {qrStatus === 'loading' ? '获取中...' : weixin.has_token ? '重新扫码登录' : '扫码登录'}
           </button>
 
-          {wxQrBusy && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { stopPolling(); setQrStatus(''); setQrMsg(''); setQrData(null) }}>取消扫码</button>}
+          {wxQrBusy && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { void cancelQrLogin() }}>取消扫码</button>}
           {qrData && (
             <div style={{ textAlign: 'center', padding: 12, background: '#fff', borderRadius: 8, marginBottom: 8 }}>
               <canvas ref={canvasRef} />

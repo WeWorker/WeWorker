@@ -44,7 +44,9 @@ import {
   normalizeOpenBrowserAllowedOrigin,
   normalizeOpenBrowserAllowedOrigins,
   DEFAULT_MEMORY_BUDGETS,
+  DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT,
   normalizeMemoryBudgets,
+  normalizeScheduledTaskHistoryLimit,
   type MemoryBudgets,
   type Settings,
 } from './config.js'
@@ -75,6 +77,8 @@ import { configuredModel } from './provider-config.js'
 import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
 import { isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { assertAllowedWeixinBaseUrl, buildAllowedWeixinBaseUrls } from './channel-egress.js'
+import { resolveDesktopChatPermission } from './chat-permission-mode.js'
+import { cancelWeixinQrSession } from './weixin-qr-cancel.js'
 import { resolveWeixinToken, syncWeixinChannel } from './channels/sync-weixin-channel.js'
 import { isProbeChannel, probeChannel } from './channels/channel-probe.js'
 import { normalizeOwnerPermissionLevel, validateOwnerUserId } from './channels/channel-permissions.js'
@@ -99,6 +103,7 @@ import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveSiteMemoryFromWorkflow } from './site-memory.js'
 import * as store from './works-store.js'
+import { listArchivedWorkIds } from './conversation-archive.js'
 import { tryBackendProfileQueryRoute } from './profile-query-route.js'
 import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
@@ -1233,6 +1238,12 @@ app.post('/settings/weixin/qr-poll', async (req, res) => {
   }
 })
 
+app.post('/settings/weixin/qr-cancel', (req, res) => {
+  _weixinQrState = cancelWeixinQrSession(_weixinQrState, req.body?.session_id)
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ ok: true })
+})
+
 // 鈹€鈹€ Skills 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 app.use(createSkillManagementRouter(SKILLS_DIR, (name) => officialSkillBuildTime(name,
@@ -2085,7 +2096,40 @@ app.post('/explore/scaffold', async (req, res) => {
 
 app.get('/works', (_req, res) => {
   // Dedicated agent conversations share the same work records and are visible in the main list.
-  res.json(store.listWorks())
+  try {
+    const archivedIds = new Set(listArchivedWorkIds())
+    res.json(store.listWorks().map((work) => ({ ...work, archived: archivedIds.has(work.id) })))
+  } catch (error) {
+    res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to load conversations' })
+  }
+})
+
+app.get('/works/archived', (_req, res) => {
+  try {
+    res.json(store.listArchivedWorks())
+  } catch (error) {
+    res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to load archived conversations' })
+  }
+})
+
+app.patch('/works/:id/archive', (req, res) => {
+  const archived = (req.body as { archived?: unknown })?.archived
+  if (typeof archived !== 'boolean') {
+    res.status(400).json({ detail: 'archived must be a boolean' })
+    return
+  }
+  try {
+    const previous = store.getWork(req.params.id)
+    const work = store.archiveWork(req.params.id, archived)
+    if (!work) { res.status(404).json({ detail: 'Not found' }); return }
+    if (archived && previous?.project_id && !listAgentProjectIds().has(previous.project_id)) {
+      store.cleanupProjectIfNoVisibleWorks(previous.project_id)
+    }
+    broadcastSSE({ type: 'works_changed', workId: work.id })
+    res.json({ ...work, archived })
+  } catch (error) {
+    res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to update conversation archive state' })
+  }
 })
 
 app.get('/projects', (_req, res) => {
@@ -2099,8 +2143,8 @@ app.get('/projects', (_req, res) => {
 
 app.post('/projects', (req, res) => {
   try {
-    const { name } = req.body as { name?: string }
-    res.status(201).json(store.createProject(name || ''))
+    const { name, folder_path } = req.body as { name?: string; folder_path?: string }
+    res.status(201).json(store.createProject(name || '', folder_path))
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     res.status(message.includes('already exists') ? 409 : 400).json({ detail: message })
@@ -2136,6 +2180,10 @@ app.delete('/projects/:id', (req, res) => {
 
 app.post('/works', (req, res) => {
   const { project_id, zcf_role } = req.body as { project_id?: string | null; zcf_role?: string | null }
+  if (project_id && store.getProject(project_id)?.name === '定时任务') {
+    res.status(400).json({ detail: '定时任务对话只能由定时任务自动创建' })
+    return
+  }
   const work = store.createWork('', project_id ?? null)
   if (zcf_role !== undefined) {
     const prefs = sanitizeWorkStylePatch({ zcf_role }, getSettings())
@@ -2173,8 +2221,13 @@ app.patch('/works/:id', (req, res) => {
 })
 
 app.delete('/works/:id', (req, res) => {
+  const previous = store.getWork(req.params.id)
   store.deleteWork(req.params.id)
+  if (previous?.project_id && !listAgentProjectIds().has(previous.project_id)) {
+    store.cleanupProjectIfNoVisibleWorks(previous.project_id)
+  }
   disposeChatSession(req.params.id, 'work_deleted')
+  broadcastSSE({ type: 'works_changed', workId: req.params.id })
   res.json({ ok: true })
 })
 
@@ -2199,72 +2252,79 @@ app.post('/settings/label-names', (req, res) => {
   res.json(names)
 })
 
-app.get('/user-files', (_req, res) => {
+function workspaceDirectoryForWork(workId?: string): string | undefined {
+  if (!workId) return undefined
+  const work = store.getWork(workId)
+  if (!work) throw new Error('work not found')
+  return work.workspace_directory
+}
+
+app.get('/user-files', (req, res) => {
   try {
-    res.json(listUserFiles())
+    res.json(listUserFiles(workspaceDirectoryForWork(String(req.query.work_id || '') || undefined)))
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : 'failed to list user files' })
   }
 })
 
 app.post('/user-files/folder', (req, res) => {
-  const { parent_path, name } = req.body as { parent_path?: string; name?: string }
+  const { parent_path, name, work_id } = req.body as { parent_path?: string; name?: string; work_id?: string }
   try {
-    res.json(createUserFolder(parent_path, name || ''))
+    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create folder' })
   }
 })
 
 app.post('/user-files/file', (req, res) => {
-  const { parent_path, name } = req.body as { parent_path?: string; name?: string }
+  const { parent_path, name, work_id } = req.body as { parent_path?: string; name?: string; work_id?: string }
   try {
-    res.json(createUserFile(parent_path, name || ''))
+    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create file' })
   }
 })
 
 app.post('/user-files/rename', (req, res) => {
-  const { target_path, name } = req.body as { target_path?: string; name?: string }
+  const { target_path, name, work_id } = req.body as { target_path?: string; name?: string; work_id?: string }
   try {
-    res.json(renameUserItem(target_path, name || ''))
+    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to rename item' })
   }
 })
 
 app.post('/user-files/delete', (req, res) => {
-  const { target_path } = req.body as { target_path?: string }
+  const { target_path, work_id } = req.body as { target_path?: string; work_id?: string }
   try {
-    res.json(deleteUserItem(target_path))
+    res.json(deleteUserItem(target_path, workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to delete item' })
   }
 })
 
 app.post('/user-files/paste', (req, res) => {
-  const { source_path, target_parent_path, mode } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut' }
+  const { source_path, target_parent_path, mode, work_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string }
   try {
-    res.json(pasteUserItem(source_path, target_parent_path, mode))
+    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to paste item' })
   }
 })
 
 app.post('/user-files/import', (req, res) => {
-  const { paths, target_parent_path } = req.body as { paths?: string[]; target_parent_path?: string }
+  const { paths, target_parent_path, work_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string }
   try {
-    res.json(importUserFiles(paths, target_parent_path))
+    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to import files' })
   }
 })
 
 app.post('/user-files/import-jobs', (req, res) => {
-  const { paths, target_parent_path } = req.body as { paths?: string[]; target_parent_path?: string }
+  const { paths, target_parent_path, work_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string }
   try {
-    res.json(startUserFileImportJob(paths, target_parent_path))
+    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForWork(work_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to start import job' })
   }
@@ -2860,7 +2920,7 @@ app.post('/works/:id/chat/steer', (req, res) => {
     return
   }
   let files: store.ContentBlock[]
-  try { files = Array.isArray(attachments) ? importChatAttachments(attachments) : [] }
+  try { files = Array.isArray(attachments) ? importChatAttachments(attachments, store.getWorkspaceDirectoryForWork(req.params.id) || undefined) : [] }
   catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : 'failed to import attachments' }); return }
   // Synchronous checkpoint + user append: no stream event can cross this boundary.
   const previousAssistant = listener.checkpoint()
@@ -2902,12 +2962,13 @@ app.post('/works/:id/chat', async (req, res) => {
 
 async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController) {
   const workId = req.params.id
-  const { message, modelMessage, attachments, retryCompaction, thinkingEffort } = req.body as {
+  const { message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode } = req.body as {
     message: string;
     modelMessage?: string;
     attachments?: Array<{ path?: string; name?: string }>;
     retryCompaction?: boolean;
     thinkingEffort?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    permissionMode?: 'ask' | 'workspace' | 'full';
   }
 
   if (!message?.trim() && (!Array.isArray(attachments) || attachments.length === 0)) {
@@ -2949,7 +3010,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     userContent = savedUserMessage.content
   } else {
     try {
-      importedAttachments = Array.isArray(attachments) ? importChatAttachments(attachments) : []
+      importedAttachments = Array.isArray(attachments) ? importChatAttachments(attachments, store.getWorkspaceDirectoryForWork(workId) || undefined) : []
       userContent = [
         ...importedAttachments,
         ...(message?.trim() ? [{ type: 'text' as const, text: message }] : []),
@@ -2988,6 +3049,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           : msg
       ))
   const settings = getSettings()
+  const desktopPermission = resolveDesktopChatPermission(permissionMode)
   const styleId = resolveStyleId(work, settings)
 
   // SSE headers
@@ -3205,6 +3267,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       workId,
       styleId,
       thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, thinkingEffort),
+      channelPermissionMode: desktopPermission.channelPermissionMode,
+      permissionMode: desktopPermission.sdkPermissionMode,
+      allowDangerouslySkipPermissions: desktopPermission.allowDangerouslySkipPermissions,
       memoryScope: initialMemoryScope,
       ...(siteToolkit ? { siteToolkitPrompt: siteToolkit.prompt } : {}),
       onAskUser: (event) => send(event),
@@ -3538,11 +3603,15 @@ function buildMemorySettingsResponse(): {
   budgets: MemoryBudgets
   defaults: MemoryBudgets
   usage: Record<MemoryBudgetKey, MemoryBudgetUsage>
+  scheduled_task_history_limit: number
+  scheduled_task_history_limit_default: number
 } {
   return {
     budgets: normalizeMemoryBudgets(getSettings().memory_budgets),
     defaults: { ...DEFAULT_MEMORY_BUDGETS },
     usage: summarizeMemoryBudgetUsage(getMemoryStore()),
+    scheduled_task_history_limit: normalizeScheduledTaskHistoryLimit(getSettings().scheduled_task_history_limit),
+    scheduled_task_history_limit_default: DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT,
   }
 }
 
@@ -3579,7 +3648,18 @@ app.post('/memory/settings', (req, res) => {
     return
   }
   try {
-    updateSettings({ memory_budgets: normalizeMemoryBudgets(raw) })
+    const historyLimit = body?.scheduled_task_history_limit === undefined
+      ? getSettings().scheduled_task_history_limit
+      : normalizeScheduledTaskHistoryLimit(body.scheduled_task_history_limit)
+    updateSettings({
+      memory_budgets: normalizeMemoryBudgets(raw),
+      scheduled_task_history_limit: historyLimit,
+    })
+    const scheduledProject = store.getProjectByName('定时任务')
+    const prunedWorkIds = scheduledProject
+      ? store.pruneScheduledTaskWorks(scheduledProject.id, historyLimit)
+      : []
+    if (prunedWorkIds.length > 0) broadcastSSE({ type: 'works_changed', workId: prunedWorkIds[0] })
     res.json(buildMemorySettingsResponse())
   } catch (error) {
     res.status(500).json({ detail: error instanceof Error ? error.message : String(error) })
@@ -3706,6 +3786,14 @@ async function startConfiguredChannels(): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   await initSettings()
+  const taskHistory = store.ensureScheduledTaskHistoryProject(getSettings().scheduled_task_history_limit)
+  if (taskHistory.project && (taskHistory.movedCount > 0 || taskHistory.prunedIds.length > 0)) {
+    log.info('scheduled task history initialized', {
+      moved_conversations: taskHistory.movedCount,
+      pruned_conversations: taskHistory.prunedIds.length,
+      history_limit: getSettings().scheduled_task_history_limit,
+    })
+  }
   await startConfiguredChannels()
   app.listen(PORT, '127.0.0.1', () => {
     log.info(`WeWorker backend running on http://127.0.0.1:${PORT}`)

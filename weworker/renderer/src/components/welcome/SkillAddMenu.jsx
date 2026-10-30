@@ -4,14 +4,14 @@ import { PlusOutlined, UploadOutlined, FolderOutlined } from '@ant-design/icons'
 import { DropdownMenuPortal, useDropdownDismiss } from '../common/DropdownMenuPortal.jsx'
 import { DROPDOWN_MENU_ITEM_CLASS } from '../common/dropdown-menu-styles.js'
 
-export default function SkillAddMenu({ busy, onUpload, onCreate }) {
+export default function SkillAddMenu({ busy, onUpload, onCreate, className = '' }) {
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const anchorRef = useRef(null)
   const menuRef = useRef(null)
   useDropdownDismiss(open, () => setOpen(false), anchorRef, menuRef)
   return <>
-    <button ref={anchorRef} type="button" aria-label="添加 Skill" title="添加 Skill" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(value => !value)}><PlusOutlined /></button>
+    <button ref={anchorRef} type="button" className={className} aria-label="添加 Skill" title="添加 Skill" aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(value => !value)}><PlusOutlined /><span>添加 Skill</span></button>
     <DropdownMenuPortal ref={menuRef} open={open} anchorRef={anchorRef} align="end" minWidth={180}>
       <div role="menu" aria-label="添加 Skill">
         <button type="button" role="menuitem" className={DROPDOWN_MENU_ITEM_CLASS} onClick={() => { setOpen(false); onUpload() }}><UploadOutlined aria-hidden="true" />上传 Skill ZIP</button>

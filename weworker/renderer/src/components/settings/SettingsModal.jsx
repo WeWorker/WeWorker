@@ -36,7 +36,6 @@ import {
 } from '../../utils/style-draft.js'
 import { CONTEXT_LIMIT_PRESETS, formatContextLimitInput, parseContextLimitInput } from '../../utils/context-window.js'
 import { DEFAULT_WELCOME_FEATURED_SITE_LIMIT } from '../welcome/welcome-utils.js'
-import { DEFAULT_UPDATE_SETTINGS, UPDATE_CHECK_INTERVAL_HOURS } from '../../../../electron/update-settings.js'
 import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import { backendFetch } from '../../api/http.js'
@@ -47,11 +46,11 @@ import { showNotification, useNotificationsStore } from '../../store/notificatio
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
+import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 
 const API = 'http://127.0.0.1:8765'
 const OFFICIAL_URL = deploymentConfig.officialUrl
 const DOWNLOAD_URL = deploymentConfig.downloadUrl
-const GITHUB_UPDATE_URL = deploymentConfig.githubUrl
 
 const EXACT_PATH_PLACEHOLDER = '例如 folder-b/foo/.env 或 .env'
 const REGEX_PATH_PLACEHOLDER = '例如 ^folder-b/.*\\.env$'
@@ -143,12 +142,9 @@ const LOGOS = {
 export default function SettingsPage({ onClose }) {
   const [tab, setTab] = useState('model')
   const [appVersion, setAppVersion] = useState('')
-  // 「配置」页签的未保存编辑（自定义风格草稿、用户目录、黑名单等）都存在面板本地 state，
-  // 而下面各页签是条件渲染：切走即卸载，切回来会用「已保存设置」重新初始化，草稿因此丢失。
-  // 所以「配置」首次进入后就保持挂载，切走只隐藏（ConfigTab 的 hidden）+ 关闭编辑弹窗，不再卸载。
-  // 首次进入前不挂载，保持「设置页打开时不触发配置页加载」的既有行为。
-  const [configMounted, setConfigMounted] = useState(false)
-  if (tab === 'config' && !configMounted) setConfigMounted(true)
+  // 个性化页的自定义风格草稿需要跨页签保留；首次进入后保持挂载，只隐藏而不卸载。
+  const [personalizationMounted, setPersonalizationMounted] = useState(false)
+  if (tab === 'config' && !personalizationMounted) setPersonalizationMounted(true)
 
   useEffect(() => {
     window.electronAPI?.getVersion?.().then(v => setAppVersion(v || ''))
@@ -168,9 +164,10 @@ export default function SettingsPage({ onClose }) {
             {[
               ['model', '模型'],
               ['channels', '通道'],
-              ['config', '配置'],
+              ['config', '个性化'],
               ['memory', '记忆'],
               ['permissions', '权限'],
+              ['browser', '浏览器'],
               ['logs', '日志'],
               ['about', '关于'],
             ].map(([key, label]) => (
@@ -191,9 +188,10 @@ export default function SettingsPage({ onClose }) {
             <h3>{[
               ['model', '模型'],
               ['channels', '通道'],
-              ['config', '配置'],
+              ['config', '个性化'],
               ['memory', '记忆'],
               ['permissions', '权限'],
+              ['browser', '浏览器'],
               ['logs', '日志'],
               ['about', '关于'],
             ].find(([key]) => key === tab)?.[1] || '设置'}</h3>
@@ -201,7 +199,8 @@ export default function SettingsPage({ onClose }) {
           <div className={`settings-body${tab === 'model' || tab === 'channels' ? ' settings-body--model' : ''}`}>
             {tab === 'channels' && <ChannelsTab />}
             {tab === 'permissions' && <PermissionsTab />}
-            {configMounted && <ConfigTab active={tab === 'config'} />}
+            {tab === 'browser' && <BrowserTab />}
+            {personalizationMounted && <ConfigTab active={tab === 'config'} showStyle showOther={false} />}
             {tab === 'memory' && <MemoryTab />}
             {tab === 'skills' && <SkillsTab />}
             {tab === 'logs' && <LogsTab />}
@@ -316,20 +315,27 @@ function BrowserSettingsGroup() {
     <div className="settings-group">
       <SettingRow title="网站操作浏览器" description={describeBrowserMode(settings.browserMode)} stacked>
         <div className="settings-update-settings">
-          <div className="settings-pill settings-pill--wide">
-            <AppDropdownSelect
-              value={settings.browserMode}
-              options={BROWSER_MODE_OPTIONS}
-              disabled={saving}
-              onChange={change}
-              matchAnchorWidth
-              ariaLabel="网站操作浏览器"
-            />
-          </div>
+          <AppDropdownSelect
+            value={settings.browserMode}
+            options={BROWSER_MODE_OPTIONS}
+            disabled={saving}
+            onChange={change}
+            matchAnchorWidth
+            ariaLabel="网站操作浏览器"
+          />
           {saving && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>正在切换…</div>}
           {error && <div style={{ fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
         </div>
       </SettingRow>
+    </div>
+  )
+}
+
+function BrowserTab() {
+  return (
+    <div className="settings-stack">
+      <BrowserSettingsGroup />
+      <SiteLoginSettings />
     </div>
   )
 }
@@ -340,7 +346,10 @@ function AboutTab({ appVersion, commitHash }) {
   const [downloading, setDownloading] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [savingUpdateSettings, setSavingUpdateSettings] = useState(false)
-  const [updateSettings, setUpdateSettings] = useState(DEFAULT_UPDATE_SETTINGS)
+  const [updateSettings, setUpdateSettings] = useState({
+    autoCheckEnabled: true,
+    checkIntervalHours: 1,
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -371,11 +380,12 @@ function AboutTab({ appVersion, commitHash }) {
   const updateMetadataFile = updateState?.platform === 'darwin' ? 'latest-mac.yml' : 'latest.yml'
   const updateSources = Array.isArray(updateState?.updateSources) && updateState.updateSources.length > 0
     ? updateState.updateSources
-    : [
-        { id: 'github', label: 'GitHub latest', metadataUrl: `${GITHUB_UPDATE_URL}${updateMetadataFile}` },
-      ]
+    : deploymentConfig.updateSources.map((source) => ({
+        ...source,
+        metadataUrl: `${source.url}${updateMetadataFile}`,
+      }))
   const activeUpdateSourceId = updateState?.activeUpdateSource?.id || ''
-  const checkIntervalValue = Number(updateSettings.checkIntervalHours || 12)
+  const checkIntervalValue = Number(updateSettings.checkIntervalHours || 1)
   const canCheck = status !== 'checking' && status !== 'downloading'
   const canDownload = status === 'available'
   const canInstall = status === 'downloaded'
@@ -416,9 +426,9 @@ function AboutTab({ appVersion, commitHash }) {
   const saveUpdateSettings = async () => {
     const nextSettings = {
       autoCheckEnabled: updateSettings.autoCheckEnabled !== false,
-      checkIntervalHours: UPDATE_CHECK_INTERVAL_HOURS.includes(Number(updateSettings.checkIntervalHours))
+      checkIntervalHours: [1, 3, 6, 9, 12, 15, 18, 21, 24].includes(Number(updateSettings.checkIntervalHours))
         ? Number(updateSettings.checkIntervalHours)
-        : DEFAULT_UPDATE_SETTINGS.checkIntervalHours,
+        : 1,
     }
     setSavingUpdateSettings(true)
     try {
@@ -458,10 +468,6 @@ function AboutTab({ appVersion, commitHash }) {
 
       <BackgroundSettingsGroup />
 
-      <BrowserSettingsGroup />
-
-      <SiteLoginSettings />
-
       <div className="settings-group">
         <SettingRow
           title="自动检测更新"
@@ -498,7 +504,7 @@ function AboutTab({ appVersion, commitHash }) {
                   ...current,
                   checkIntervalHours: Number(hours),
                 }))}
-                options={UPDATE_CHECK_INTERVAL_HOURS.map((hours) => ({
+                options={[1, 3, 6, 9, 12, 15, 18, 21, 24].map((hours) => ({
                   value: hours,
                   label: `${hours} 小时`,
                 }))}
@@ -521,7 +527,7 @@ function AboutTab({ appVersion, commitHash }) {
             <div className="settings-inline-actions">
               <button data-app-button="action"
                 type="button"
-                className="settings-btn settings-btn-secondary settings-update-action"
+                className="settings-btn settings-btn-secondary"
                 onClick={checkUpdate}
                 disabled={!canCheck || checking}
               >
@@ -530,7 +536,7 @@ function AboutTab({ appVersion, commitHash }) {
               {canDownload && (
                 <button data-app-button="action"
                   type="button"
-                  className="settings-btn settings-btn-primary settings-update-action"
+                  className="settings-btn settings-btn-primary"
                   onClick={downloadUpdate}
                   disabled={downloading}
                 >
@@ -540,7 +546,7 @@ function AboutTab({ appVersion, commitHash }) {
               {canInstall && (
                 <button data-app-button="action"
                   type="button"
-                  className="settings-btn settings-btn-primary settings-update-action"
+                  className="settings-btn settings-btn-primary"
                   onClick={installUpdate}
                   disabled={installing}
                 >
@@ -680,6 +686,7 @@ function PermissionsTab() {
 
   return (
     <div className="settings-stack">
+      <ConfigTab active showOther />
       <div className="settings-group">
         <SettingRow
           title="open_browser 默认白名单"
@@ -772,8 +779,8 @@ function OriginList({ origins = [], emptyText, onRemove, readOnly = false }) {
   )
 }
 
-// active=false 表示「配置」已不是当前页签：面板保持挂载（未保存编辑不丢），仅由 hidden 隐藏。
-function ConfigTab({ active = true }) {
+// 个性化页只显示风格；权限页复用同一组配置控件，避免保存逻辑分叉。
+function ConfigTab({ active = true, showStyle = false, showOther = true }) {
   const userDirectory = useSettingsStore((s) => s.userDirectory)
   const downloadSubdirectory = useSettingsStore((s) => s.downloadSubdirectory)
   const downloadDirectory = useSettingsStore((s) => s.downloadDirectory)
@@ -1131,9 +1138,9 @@ function ConfigTab({ active = true }) {
 
   return (
     <div className="settings-stack" hidden={!active}>
-      <StyleSettingsPanel active={active} />
+      {showStyle && <StyleSettingsPanel active={active} />}
 
-      <div className="settings-group">
+      {showOther && <div className="settings-group">
         <SettingRow
           title="用户目录"
           description="文件面板和上传文件使用"
@@ -1388,7 +1395,7 @@ function ConfigTab({ active = true }) {
             <button data-app-button="action" type="button" onClick={addPreviewExtension} className="settings-pill-btn">添加</button>
           </div>
         </SettingRow>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -1542,7 +1549,7 @@ function ModelTab() {
       base_url_is_full: stored.base_url_is_full === true,
       openai_base_url: stored.openai_base_url || '',
       openai_base_url_is_full: stored.openai_base_url_is_full === true,
-      weworker_protocol: stored.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages',
+      weworker_protocol: stored.weworker_protocol === 'openai_responses' ? 'openai_responses' : stored.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages',
       auth_type: stored.auth_type === 'api_key' ? 'api_key' : 'auth_token',
       models_url: stored.models_url || '',
       models_url_is_full: stored.models_url_is_full ?? Boolean(stored.models_url),
@@ -1710,6 +1717,7 @@ function ModelTab() {
     setActivating(pid)
     setTestResult(null)
     try {
+      await cancelActiveQrForModelSwitch()
       await activateProvider(pid)
     } catch (e) {
       setTestResult({ ok: false, message: e.message || '切换失败' })
@@ -1854,7 +1862,7 @@ function ModelTab() {
       const checks = targets.map((target) => ({
         target,
         label: target === 'weworker'
-          ? `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`
+          ? `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`
           : '网站探索agent 接口（OpenAI 接口）',
         status: 'running',
         message: '',
@@ -2107,7 +2115,7 @@ function ModelTab() {
             const target = openai ? 'webwright' : 'weworker'
             const key = catalogKey(p.id, target)
             const expanded = catalogAddressExpanded[key] ?? Boolean(f[field])
-            const openAiCatalog = openai || (!openai && f.weworker_protocol === 'openai_chat_completions')
+            const openAiCatalog = openai || (!openai && f.weworker_protocol !== 'anthropic_messages')
             const catalogProtocolName = openAiCatalog ? 'OpenAI' : 'Anthropic'
             return (
               <details className="settings-catalog-address" open={expanded}
@@ -2123,7 +2131,7 @@ function ModelTab() {
                     value={f[field]} onChange={(e) => { setCatalogAddressExpanded(current => ({ ...current, [key]: true })); setFormField(p.id, field, e.target.value) }}
                     onBlur={() => { void loadModels(p.id, false, target) }} placeholder={f[mode] ? 'https://example.com/v1/models' : `https://example.com/${openAiCatalog ? 'v1' : 'anthropic'}`} />
                 </Field>
-                {!openai && f.weworker_protocol !== 'openai_chat_completions' && <Field label="列表认证方式" hint="使用本接口 API Key">
+                {!openai && f.weworker_protocol === 'anthropic_messages' && <Field label="列表认证方式" hint="使用本接口 API Key">
                   <AppDropdownSelect value={f.models_auth_type} ariaLabel="模型列表认证方式"
                     options={[{ value: 'inherit', label: '跟随对话接口' }, { value: 'auth_token', label: 'Bearer Token' }, { value: 'api_key', label: 'API Key（x-api-key）' }]}
                     onChange={(value) => setFormField(p.id, 'models_auth_type', value)} matchAnchorWidth />
@@ -2234,27 +2242,39 @@ function ModelTab() {
                       <div className="model-settings-grid">
                       <Field label="协议">
                         <AppDropdownSelect
-                          value={f.weworker_protocol}
+                          value={f.weworker_protocol === 'anthropic_messages' ? 'anthropic_messages' : 'openai'}
                           options={[
                             { value: 'anthropic_messages', label: 'Anthropic Messages' },
-                            { value: 'openai_chat_completions', label: 'OpenAI Chat Completions' },
+                            { value: 'openai', label: 'OpenAI' },
                           ]}
-                          onChange={(value) => setFormField(p.id, 'weworker_protocol', value)}
+                          onChange={(value) => setFormField(p.id, 'weworker_protocol', value === 'openai' ? (f.weworker_protocol === 'openai_responses' ? 'openai_responses' : 'openai_chat_completions') : 'anthropic_messages')}
                           ariaLabel="WeWorker 对话协议"
                           matchAnchorWidth
                         />
                       </Field>
-                      <Field label="接口地址" hint={f.weworker_protocol === 'openai_chat_completions' ? getOpenAiUrlHint(f.base_url_is_full) : getAnthropicUrlHint(f.base_url_is_full)}>
+                      {f.weworker_protocol !== 'anthropic_messages' && <Field label="OpenAI 协议">
+                        <AppDropdownSelect
+                          value={f.weworker_protocol}
+                          options={[
+                            { value: 'openai_chat_completions', label: 'Chat Completions（广泛兼容，推荐）' },
+                            { value: 'openai_responses', label: 'Responses API（新版）' },
+                          ]}
+                          onChange={(value) => setFormField(p.id, 'weworker_protocol', value)}
+                          ariaLabel="OpenAI 协议"
+                          matchAnchorWidth
+                        />
+                      </Field>}
+                      <Field label="接口地址" hint={f.weworker_protocol !== 'anthropic_messages' ? getOpenAiUrlHint(f.base_url_is_full, f.weworker_protocol === 'openai_responses') : getAnthropicUrlHint(f.base_url_is_full)}>
                         <label className="settings-url-mode">
                           <AppSwitch checked={f.base_url_is_full} onChange={(e) => setFormField(p.id, 'base_url_is_full', e.target.checked)} />
                           使用完整 URL
                         </label>
-                        <input aria-label="WeWorker 对话接口地址" className="settings-input" value={f.base_url} onChange={(e) => setFormField(p.id, 'base_url', e.target.value)} onBlur={() => { if (f.base_url) void loadModels(p.id, false, 'weworker') }} placeholder={f.weworker_protocol === 'openai_chat_completions'
-                          ? (f.base_url_is_full ? 'https://gateway.example/v1/chat/completions' : 'https://gateway.example/v1')
+                        <input aria-label="WeWorker 对话接口地址" className="settings-input" value={f.base_url} onChange={(e) => setFormField(p.id, 'base_url', e.target.value)} onBlur={() => { if (f.base_url) void loadModels(p.id, false, 'weworker') }} placeholder={f.weworker_protocol !== 'anthropic_messages'
+                          ? (f.base_url_is_full ? `https://gateway.example/v1/${f.weworker_protocol === 'openai_responses' ? 'responses' : 'chat/completions'}` : 'https://gateway.example/v1')
                           : (f.base_url_is_full ? 'https://gateway.example/v1/messages' : 'https://gateway.example/anthropic')} />
                       </Field>
-                      {f.weworker_protocol === 'openai_chat_completions' ? (
-                        <Field label="认证方式" hint="OpenAI Chat Completions 使用 Bearer Token">
+                      {f.weworker_protocol !== 'anthropic_messages' ? (
+                        <Field label="认证方式" hint="OpenAI 接口使用 Bearer Token">
                           <input className="settings-input" value="Authorization: Bearer API Key" readOnly aria-label="OpenAI 认证方式" />
                         </Field>
                       ) : <Field label="API Key 类型" hint="如果不确定 Key 类型，选择 API Key 通常就可以">
@@ -2271,7 +2291,7 @@ function ModelTab() {
                           className="settings-provider-auth-select"
                         />
                       </Field>}
-                      <Field label="API Key" hint={`${stored.has_key ? '已设置（留空保持不变）' : '未设置'}${f.weworker_protocol === 'openai_chat_completions' ? ' · Bearer Token' : ''}`}>
+                      <Field label="API Key" hint={`${stored.has_key ? '已设置（留空保持不变）' : '未设置'}${f.weworker_protocol !== 'anthropic_messages' ? ' · Bearer Token' : ''}`}>
                         <input type="password" className="settings-input" value={f.api_key} onChange={(e) => setFormField(p.id, 'api_key', e.target.value)} onBlur={() => { if (f.api_key) void loadModels(p.id, false, 'weworker') }} placeholder={stored.has_key ? '••••••••••••' : 'sk-...'} />
                       </Field>
                       <Field label="模型" hint={catalogHint} hintError={catalogRefreshFailed || Boolean(catalogErrorDetail)} errorDetail={catalogErrorDetail}>

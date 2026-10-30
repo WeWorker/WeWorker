@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { resolveOpenAiEndpoint } from './llm-egress.js'
+import { resolveOpenAiEndpoint, type LlmProtocol } from './llm-egress.js'
 
 type JsonRecord = Record<string, any>
 
@@ -95,10 +95,145 @@ export function anthropicRequestToOpenAi(request: JsonRecord): JsonRecord {
     messages,
     ...(tools?.length ? { tools } : {}),
     ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
+    ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
+    ...(typeof request.top_p === 'number' ? { top_p: request.top_p } : {}),
+  }
+}
+
+function responseInputContent(blocks: JsonRecord[]): JsonRecord[] {
+  const content: JsonRecord[] = []
+  for (const block of blocks) {
+    if (block?.type === 'text') content.push({ type: 'input_text', text: String(block.text || '') })
+    else if (block?.type === 'image' && block.source?.type === 'base64') content.push({ type: 'input_image', image_url: `data:${block.source.media_type || 'image/png'};base64,${block.source.data || ''}` })
+    else if (block?.type === 'image' && block.source?.type === 'url') content.push({ type: 'input_image', image_url: block.source.url })
+  }
+  return content
+}
+
+export function anthropicRequestToOpenAiResponses(request: JsonRecord): JsonRecord {
+  const input: JsonRecord[] = []
+  const system = textFromContent(request.system)
+  if (system) input.push({ role: 'system', content: [{ type: 'input_text', text: system }] })
+  for (const message of Array.isArray(request.messages) ? request.messages : []) {
+    const blocks = Array.isArray(message.content) ? message.content : [{ type: 'text', text: message.content || '' }]
+    if (message.role === 'assistant') {
+      const text = blocks.filter((block: JsonRecord) => block?.type === 'text').map((block: JsonRecord) => String(block.text || '')).join('')
+      if (text) input.push({ role: 'assistant', content: [{ type: 'output_text', text }] })
+      for (const block of blocks.filter((item: JsonRecord) => item?.type === 'tool_use')) {
+        input.push({ type: 'function_call', call_id: String(block.id || `call_${randomBytes(6).toString('hex')}`), name: String(block.name || ''), arguments: JSON.stringify(block.input ?? {}) })
+      }
+      continue
+    }
+    const userBlocks: JsonRecord[] = []
+    for (const block of blocks) {
+      if (block?.type === 'tool_result') input.push({ type: 'function_call_output', call_id: String(block.tool_use_id || ''), output: textFromContent(block.content) })
+      else if (block?.type !== 'thinking' && block?.type !== 'redacted_thinking') userBlocks.push(block)
+    }
+    const content = responseInputContent(userBlocks)
+    if (content.length) input.push({ role: 'user', content })
+  }
+  const tools = Array.isArray(request.tools) ? request.tools.map((tool: JsonRecord) => ({
+    type: 'function', name: String(tool.name || ''),
+    ...(tool.description ? { description: String(tool.description) } : {}),
+    parameters: tool.input_schema || { type: 'object', properties: {} },
+  })) : undefined
+  const choice = request.tool_choice as JsonRecord | undefined
+  const toolChoice = choice?.type === 'tool' && typeof choice.name === 'string' ? { type: 'function', name: choice.name }
+    : choice?.type === 'any' ? 'required' : choice?.type === 'none' ? 'none' : choice?.type === 'auto' ? 'auto' : undefined
+  return {
+    model: request.model,
+    ...(request.max_tokens ? { max_output_tokens: request.max_tokens } : {}),
+    stream: request.stream !== false,
+    input,
+    ...(tools?.length ? { tools } : {}),
+    ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
     ...(request.stop_sequences?.length ? { stop: request.stop_sequences } : {}),
     ...(typeof request.temperature === 'number' ? { temperature: request.temperature } : {}),
     ...(typeof request.top_p === 'number' ? { top_p: request.top_p } : {}),
   }
+}
+
+export function openAiResponsesResponseToAnthropic(response: JsonRecord): JsonRecord {
+  const content: JsonRecord[] = []
+  for (const item of response.output || []) {
+    if (item.type === 'message') {
+      for (const block of item.content || []) {
+        if ((block.type === 'output_text' || block.type === 'refusal') && block.text) content.push({ type: 'text', text: block.text })
+      }
+    } else if (item.type === 'function_call') {
+      content.push({ type: 'tool_use', id: String(item.call_id || item.id || `tool_${content.length}`), name: String(item.name || ''), input: parsedToolInput(item.arguments) })
+    }
+  }
+  const usage = response.usage || {}
+  const hasTool = content.some(block => block.type === 'tool_use')
+  return {
+    id: `msg-${response.id || randomBytes(12).toString('hex')}`, type: 'message', role: 'assistant', model: response.model || '', content,
+    stop_reason: hasTool ? 'tool_use' : response.status === 'incomplete' ? 'max_tokens' : 'end_turn', stop_sequence: null,
+    usage: { input_tokens: Number(usage.input_tokens || 0), output_tokens: Number(usage.output_tokens || 0), cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+  }
+}
+
+export function createOpenAiResponsesAnthropicEventTranslator() {
+  let started = false
+  let nextIndex = 0
+  let textIndex: number | null = null
+  let id = ''
+  let model = ''
+  let outputTokens = 0
+  let finishReason = 'end_turn'
+  const tools = new Map<number, { index: number; id: string; name: string }>()
+  const startMessage = (): AnthropicStreamEvent => ({ event: 'message_start', data: { type: 'message_start', message: { id: `msg-${id || randomBytes(12).toString('hex')}`, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } } })
+  const ensureStarted = (event?: JsonRecord) => {
+    if (event?.response?.id) id = String(event.response.id)
+    if (event?.response?.model) model = String(event.response.model)
+    if (started) return []
+    started = true
+    return [startMessage()]
+  }
+  const startTool = (outputIndex: number, item: JsonRecord): AnthropicStreamEvent[] => {
+    const current = tools.get(outputIndex) || { index: nextIndex++, id: String(item.call_id || item.id || `tool_${outputIndex}`), name: String(item.name || '') }
+    current.id = String(item.call_id || current.id)
+    current.name = String(item.name || current.name)
+    tools.set(outputIndex, current)
+    return [{ event: 'content_block_start', data: { type: 'content_block_start', index: current.index, content_block: { type: 'tool_use', id: current.id, name: current.name, input: {} } } }]
+  }
+  function push(event: JsonRecord): AnthropicStreamEvent[] {
+    const events = ensureStarted(event)
+    if ((event.type === 'response.output_text.delta' || event.type === 'response.refusal.delta') && typeof event.delta === 'string') {
+      if (textIndex === null) {
+        textIndex = nextIndex++
+        events.push({ event: 'content_block_start', data: { type: 'content_block_start', index: textIndex, content_block: { type: 'text', text: '' } } })
+      }
+      events.push({ event: 'content_block_delta', data: { type: 'content_block_delta', index: textIndex, delta: { type: 'text_delta', text: event.delta } } })
+    } else if (event.type === 'response.output_item.added' && event.item?.type === 'function_call') {
+      events.push(...startTool(Number(event.output_index || 0), event.item))
+    } else if (event.type === 'response.function_call_arguments.delta') {
+      const outputIndex = Number(event.output_index || 0)
+      let tool = tools.get(outputIndex)
+      if (!tool) {
+        events.push(...startTool(outputIndex, { id: event.item_id, call_id: event.item_id, name: event.name }))
+        tool = tools.get(outputIndex)
+      }
+      if (tool && event.delta) events.push({ event: 'content_block_delta', data: { type: 'content_block_delta', index: tool.index, delta: { type: 'input_json_delta', partial_json: String(event.delta) } } })
+    } else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+      const response = event.response || {}
+      id = String(response.id || id)
+      model = String(response.model || model)
+      outputTokens = Number(response.usage?.output_tokens || 0)
+      const output = response.output || []
+      finishReason = output.some((item: JsonRecord) => item.type === 'function_call') ? 'tool_use' : event.type === 'response.incomplete' ? 'max_tokens' : 'end_turn'
+    }
+    return events
+  }
+  function finish(): AnthropicStreamEvent[] {
+    const events = ensureStarted()
+    if (textIndex !== null) events.push({ event: 'content_block_stop', data: { type: 'content_block_stop', index: textIndex } })
+    for (const tool of tools.values()) events.push({ event: 'content_block_stop', data: { type: 'content_block_stop', index: tool.index } })
+    events.push({ event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: finishReason, stop_sequence: null }, usage: { output_tokens: outputTokens } } })
+    events.push({ event: 'message_stop', data: { type: 'message_stop' } })
+    return events
+  }
+  return { push, finish }
 }
 
 function parsedToolInput(raw: unknown): JsonRecord {
@@ -277,8 +412,9 @@ function sendError(res: http.ServerResponse, status: number, message: string) {
   res.end(JSON.stringify({ type: 'error', error: { type: status === 401 ? 'authentication_error' : 'api_error', message } }))
 }
 
-export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetchImpl: typeof fetch = fetch) {
-  const endpoint = resolveOpenAiEndpoint(baseUrl, fullUrl)
+export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetchImpl: typeof fetch = fetch, protocol: LlmProtocol = 'openai_chat_completions') {
+  const responsesProtocol = protocol === 'openai_responses'
+  const endpoint = resolveOpenAiEndpoint(baseUrl, fullUrl, protocol)
   const prefix = `/${randomBytes(24).toString('hex')}`
   const pending = new Set<AbortController>()
   const server = http.createServer((req, res) => {
@@ -307,7 +443,7 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
         const upstream = await fetchImpl(endpoint, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify(anthropicRequestToOpenAi(body)),
+          body: JSON.stringify(responsesProtocol ? anthropicRequestToOpenAiResponses(body) : anthropicRequestToOpenAi(body)),
           signal: controller.signal,
           redirect: 'error',
         })
@@ -321,22 +457,35 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
           res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`)
         }
         const contentType = upstream.headers.get('content-type') || ''
-        const translator = createOpenAiAnthropicEventTranslator()
+        const translator = responsesProtocol ? createOpenAiResponsesAnthropicEventTranslator() : createOpenAiAnthropicEventTranslator()
         if (contentType.includes('text/event-stream') && upstream.body) {
           for await (const chunk of parseOpenAiSse(upstream.body as unknown as NodeJS.ReadableStream)) {
+            if (responsesProtocol && (chunk.type === 'response.failed' || chunk.type === 'error')) throw new Error('OpenAI Responses request failed')
             for (const event of translator.push(chunk)) writeEvent(event)
           }
         } else {
           const completion = await upstream.json() as JsonRecord
-          const choice = completion.choices?.[0] || {}
-          const message = choice.message || {}
-          const delta = {
-            ...(typeof message.content === 'string' ? { content: message.content } : {}),
-            ...(Array.isArray(message.tool_calls) ? { tool_calls: message.tool_calls.map((call: JsonRecord, index: number) => ({
-              ...call, index, function: { ...call.function, arguments: call.function?.arguments || '' },
-            })) } : {}),
+          if (responsesProtocol) {
+            const anthropic = openAiResponsesResponseToAnthropic(completion)
+            for (const event of translator.push({ type: 'response.completed', response: completion })) writeEvent(event)
+            for (const block of anthropic.content) {
+              const index = anthropic.content.indexOf(block)
+              writeEvent({ event: 'content_block_start', data: { type: 'content_block_start', index, content_block: block.type === 'text' ? { type: 'text', text: '' } : { ...block, input: {} } } })
+              if (block.type === 'text') writeEvent({ event: 'content_block_delta', data: { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } } })
+              else writeEvent({ event: 'content_block_delta', data: { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(block.input) } } })
+              writeEvent({ event: 'content_block_stop', data: { type: 'content_block_stop', index } })
+            }
+          } else {
+            const choice = completion.choices?.[0] || {}
+            const message = choice.message || {}
+            const delta = {
+              ...(typeof message.content === 'string' ? { content: message.content } : {}),
+              ...(Array.isArray(message.tool_calls) ? { tool_calls: message.tool_calls.map((call: JsonRecord, index: number) => ({
+                ...call, index, function: { ...call.function, arguments: call.function?.arguments || '' },
+              })) } : {}),
+            }
+            for (const event of translator.push({ id: completion.id, model: completion.model, choices: [{ delta, finish_reason: choice.finish_reason }], usage: completion.usage })) writeEvent(event)
           }
-          for (const event of translator.push({ id: completion.id, model: completion.model, choices: [{ delta, finish_reason: choice.finish_reason }], usage: completion.usage })) writeEvent(event)
         }
         for (const event of translator.finish()) writeEvent(event)
         res.end()

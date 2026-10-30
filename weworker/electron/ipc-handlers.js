@@ -432,7 +432,7 @@ export function registerIpcHandlers(bridgeManager, pythonManager, webwrightManag
   })
 
   ipcMain.handle('open-external', (_event, url) => {
-    shell.openExternal(url)
+    return shell.openExternal(url)
   })
 
   ipcMain.handle('open-webwright', (event) => {

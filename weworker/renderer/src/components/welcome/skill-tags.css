@@ -5,6 +5,8 @@
 .skill-tags input { width: 110px; max-width: 100%; border: 1px solid var(--accent); border-radius: 5px; padding: 4px 6px; font: inherit; color: var(--text-primary); background: var(--bg-primary); }
 .skill-catalog-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .skill-catalog-toolbar input { min-width: 0; flex: 1; width: 0; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-primary); color: var(--text-primary); padding: 8px 9px; font-size: 12px; }
+.skill-catalog-toolbar > input:focus,
+.skill-catalog-toolbar > input:focus-visible { outline: none; box-shadow: none; border-color: var(--border); }
 .skill-catalog-toolbar button { width: 32px; height: 32px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; }
 .skill-catalog-toolbar button:hover { background: var(--dropdown-hover); }
 .skill-catalog-toolbar { flex-wrap: wrap; }

@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import fs from 'node:fs'
 import { selectModelAfterCatalogRefresh, buildProbeResultRows, buildProviderProbeTargets, buildModelOptions, buildModelCatalogAccess, getModelCatalogIssue, getModelCatalogStatus, buildSettingsProviderLists, buildChatProviderOptions, getVisibleModelRefreshDetail, isModelRefreshFailed, shouldShowModelRefreshFailure } from '../utils/model-selection.js'
+import { getOpenAiUrlHint } from '../utils/provider-url.js'
+
+it('defaults OpenAI protocol to Chat Completions and offers Responses as an alternate', () => {
+  const settings = fs.readFileSync(new URL('../components/settings/SettingsModal.jsx', import.meta.url), 'utf8')
+  assert.match(settings, /Chat Completions（广泛兼容，推荐）/)
+  assert.match(settings, /Responses API（新版）/)
+  assert.match(settings, /f\.weworker_protocol === 'openai_responses' \? 'openai_responses' : 'openai_chat_completions'/)
+  assert.equal(getOpenAiUrlHint(false), '填写基础 URL，软件自动追加 /chat/completions')
+  assert.equal(getOpenAiUrlHint(false, true), '填写基础 URL，软件自动追加 /responses')
+})
 
 it('shows unconfigured presets in chat with key state, keeping configured additional entries', () => {
   const templates = [{ id: 'builtin', name: '内置模型' }, { id: 'anthropic', name: 'Anthropic' }, { id: 'glm', name: '智谱 coding plan' }, { id: 'deepseek', name: 'DeepSeek' }, { id: 'custom', name: '自定义' }]

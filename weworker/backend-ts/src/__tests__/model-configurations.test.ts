@@ -211,6 +211,9 @@ describe('multiple model configurations', () => {
     expect(state.model_configurations[created.id].weworker_protocol).toBe('openai_chat_completions')
     state = { ...state, ...activateModelConfiguration(state, created.id) }
     expect(state.active_weworker_protocol).toBe('openai_chat_completions')
+    state = { ...state, ...updateModelConfiguration(state, created.id, { weworker_protocol: 'openai_responses' }) }
+    expect(state.model_configurations[created.id].weworker_protocol).toBe('openai_responses')
+    expect(state.active_weworker_protocol).toBe('openai_responses')
     expect(() => updateModelConfiguration(state, created.id, { weworker_protocol: 'unsupported' })).toThrow()
   })
 
