@@ -100,8 +100,8 @@ test('deployment config separates the website, download page, and ordered update
   const deployment = require('../../deployment-config.cjs').normalizeDeploymentConfig(
     JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8')),
   )
-  assert.equal(deployment.officialUrl, 'https://111.230.33.112/')
-  assert.equal(deployment.downloadUrl, 'https://github.com/WeWorker/WeWorker/releases/latest')
+  assert.equal(deployment.officialUrl, 'https://www.weworker.cc/')
+  assert.equal(deployment.downloadUrl, 'https://www.weworker.cc/download')
   assert.deepEqual(deployment.updateSources, [{
     id: 'github',
     label: 'GitHub latest',
