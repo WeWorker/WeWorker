@@ -316,16 +316,14 @@ function BrowserSettingsGroup() {
     <div className="settings-group">
       <SettingRow title="网站操作浏览器" description={describeBrowserMode(settings.browserMode)} stacked>
         <div className="settings-update-settings">
-          <div className="settings-pill settings-pill--wide">
-            <AppDropdownSelect
-              value={settings.browserMode}
-              options={BROWSER_MODE_OPTIONS}
-              disabled={saving}
-              onChange={change}
-              matchAnchorWidth
-              ariaLabel="网站操作浏览器"
-            />
-          </div>
+          <AppDropdownSelect
+            value={settings.browserMode}
+            options={BROWSER_MODE_OPTIONS}
+            disabled={saving}
+            onChange={change}
+            matchAnchorWidth
+            ariaLabel="网站操作浏览器"
+          />
           {saving && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>正在切换…</div>}
           {error && <div style={{ fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
         </div>
