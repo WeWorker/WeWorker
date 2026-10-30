@@ -3,7 +3,10 @@
  * All routes sit behind the backend's existing local auth middleware.
  */
 import type express from 'express'
-import { getSettings } from '../config.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { ensureProjectDirectory, getSettings } from '../config.js'
 import { clearStoredConversationCompaction } from '../agent.js'
 import { disposeChatSession } from '../chat-session.js'
 import { parseAllAdapters, type ParsedAdapter } from '../adapter-parser.js'
@@ -148,7 +151,15 @@ function createAgentWorkspace(agentName: string): { project: works.ProjectSummar
     const projectName = agentProjectNameCandidate(base, index)
     let project: works.ProjectSummary | null = null
     try {
-      project = works.createProject(projectName)
+      const agentRoot = ensureProjectDirectory('agents')
+      const agentDirectory = path.join(agentRoot, randomUUID())
+      fs.mkdirSync(agentDirectory)
+      try {
+        project = works.createProject(projectName, agentDirectory)
+      } catch (error) {
+        fs.rmdirSync(agentDirectory)
+        throw error
+      }
     } catch (error) {
       if (workspaceConflict(error)) continue
       throw error

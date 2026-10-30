@@ -3,7 +3,10 @@ import type { Settings } from '../config.js'
 import { prepareModelRuntime } from '../anthropic-endpoint-relay.js'
 import {
   anthropicRequestToOpenAi,
+  anthropicRequestToOpenAiResponses,
+  createOpenAiResponsesAnthropicEventTranslator,
   openOpenAiChatRelay,
+  openAiResponsesResponseToAnthropic,
   openAiResponseToAnthropic,
   openAiStreamToAnthropicEvents,
 } from '../anthropic-openai-compat.js'
@@ -132,5 +135,70 @@ describe('Anthropic to OpenAI Chat Completions compatibility', () => {
     } finally {
       await runtime.close()
     }
+  })
+})
+
+describe('Anthropic to OpenAI Responses compatibility', () => {
+  it('maps messages, tool calls and limits to the Responses request shape', () => {
+    expect(anthropicRequestToOpenAiResponses({
+      model: 'fixture-model', max_tokens: 80, system: 'fixture system',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'call-1', name: 'run', input: { ok: true } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call-1', content: 'done' }] },
+      ],
+      tools: [{ name: 'run', input_schema: { type: 'object' } }],
+      tool_choice: { type: 'tool', name: 'run' }, stream: true,
+    })).toEqual({
+      model: 'fixture-model', max_output_tokens: 80, stream: true,
+      input: [
+        { role: 'system', content: [{ type: 'input_text', text: 'fixture system' }] },
+        { role: 'user', content: [{ type: 'input_text', text: 'hello' }] },
+        { type: 'function_call', call_id: 'call-1', name: 'run', arguments: '{"ok":true}' },
+        { type: 'function_call_output', call_id: 'call-1', output: 'done' },
+      ],
+      tools: [{ type: 'function', name: 'run', parameters: { type: 'object' } }],
+      tool_choice: { type: 'function', name: 'run' },
+    })
+  })
+
+  it('translates Responses output and streamed text/tool events into Anthropic messages', () => {
+    expect(openAiResponsesResponseToAnthropic({
+      id: 'resp-fixture', model: 'fixture-model', status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }, { type: 'function_call', call_id: 'call-1', name: 'run', arguments: '{"ok":true}' }],
+      usage: { input_tokens: 12, output_tokens: 3 },
+    })).toMatchObject({
+      id: 'msg-resp-fixture', stop_reason: 'tool_use', usage: { input_tokens: 12, output_tokens: 3 },
+      content: [{ type: 'text', text: 'ok' }, { type: 'tool_use', id: 'call-1', name: 'run', input: { ok: true } }],
+    })
+    const translator = createOpenAiResponsesAnthropicEventTranslator()
+    const events = [
+      ...translator.push({ type: 'response.created', response: { id: 'resp-fixture', model: 'fixture-model' } }),
+      ...translator.push({ type: 'response.output_text.delta', delta: 'hello' }),
+      ...translator.push({ type: 'response.output_item.added', output_index: 1, item: { type: 'function_call', call_id: 'call-1', name: 'run' } }),
+      ...translator.push({ type: 'response.function_call_arguments.delta', output_index: 1, delta: '{"ok":true}' }),
+      ...translator.push({ type: 'response.completed', response: { id: 'resp-fixture', model: 'fixture-model', output: [{ type: 'function_call' }], usage: { output_tokens: 3 } } }),
+      ...translator.finish(),
+    ]
+    expect(events[0].event).toBe('message_start')
+    expect(events.some(event => event.data.delta?.text === 'hello')).toBe(true)
+    expect(events.some(event => event.data.delta?.partial_json === '{"ok":true}')).toBe(true)
+    expect(events.at(-1)?.event).toBe('message_stop')
+  })
+
+  it('posts to /responses and translates non-streaming Responses results to Anthropic SSE', async () => {
+    let call: { url: string; body: Record<string, unknown> } | undefined
+    const relay = await openOpenAiChatRelay('https://gateway.example/v1', false, async (url, init) => {
+      call = { url: String(url), body: JSON.parse(String(init?.body)) }
+      return Response.json({ id: 'resp-fixture', model: 'fixture-model', status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 2, output_tokens: 1 } })
+    }, 'openai_responses')
+    try {
+      const response = await fetch(`${relay.baseUrl}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'fixture-key' }, body: JSON.stringify({ model: 'fixture-model', max_tokens: 20, messages: [{ role: 'user', content: 'hello' }], stream: true }) })
+      const body = await response.text()
+      expect(response.status).toBe(200)
+      expect(call).toMatchObject({ url: 'https://gateway.example/v1/responses', body: { model: 'fixture-model', max_output_tokens: 20, stream: true } })
+      expect(body).toContain('"text":"ok"')
+      expect(body).toContain('"stop_reason":"end_turn"')
+    } finally { await relay.close() }
   })
 })

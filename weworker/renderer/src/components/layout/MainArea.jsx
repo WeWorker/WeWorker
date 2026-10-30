@@ -67,11 +67,11 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
     requestChatWarmup(request.workId, request.payload)
   }, [activeWorkId, activeTaskId, activeSidebarSection, websiteOpen, dedicatedAgentsOpen, toolPackageOpen, explorationOpen, styleId])
 
-  const handleSendFromWelcome = async (text, files = [], thinkingEffort = 'off') => {
+  const handleSendFromWelcome = async (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => {
     setInputText('')
     setAttachments([])
     closeToolPackagePage()
-    useWorksStore.setState({ pendingMessage: text, pendingAttachments: files, pendingThinkingEffort: thinkingEffort })
+    useWorksStore.setState({ pendingMessage: text, pendingAttachments: files, pendingThinkingEffort: thinkingEffort, pendingPermissionMode: permissionMode })
     await createWork({ styleId })
   }
 

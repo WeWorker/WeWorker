@@ -13,6 +13,7 @@ describe('custom Anthropic full URL', () => {
   it('uses the exact OpenAI URL for probes and skips model list suffixes', async () => {
     expect(resolveOpenAiEndpoint(exact, true)).toBe(exact)
     expect(resolveOpenAiEndpoint('https://example.com/v1/')).toBe('https://example.com/v1/chat/completions')
+    expect(resolveOpenAiEndpoint('https://example.com/v1/', false, 'openai_responses')).toBe('https://example.com/v1/responses')
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ choices: [] }))
     const input = { provider: getProvider('custom')!, apiKey: 'test', model: 'test', openaiBaseUrl: exact, openaiFullUrl: true }
     expect((await probeProviderProtocol({ ...input, target: 'webwright' }, fetcher)).ok).toBe(true)

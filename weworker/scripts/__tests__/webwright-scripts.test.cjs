@@ -85,13 +85,30 @@ test('electron packaging launches the JavaScript CLI without a Windows command s
   assert.doesNotMatch(command.executable, /\.cmd$/i)
 })
 
-test('electron packaging derives its publish URL from the GitHub update endpoint', (t) => {
+test('electron packaging derives its publish URL from deployment.json', (t) => {
   const outputPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-deployment-')), 'builder.json')
   t.after(() => fs.rmSync(path.dirname(outputPath), { recursive: true, force: true }))
   const configPath = createElectronBuilderConfig({ outputPath })
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  const deployment = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8'))
-  assert.deepEqual(config.publish, [{ provider: 'generic', url: deployment.githubUrl }])
+  const deployment = require('../../deployment-config.cjs').normalizeDeploymentConfig(
+    JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8')),
+  )
+  assert.deepEqual(config.publish, [{ provider: 'generic', url: deployment.updateSources[0].url }])
+})
+
+test('deployment config separates the website, download page, and ordered update sources', () => {
+  const deployment = require('../../deployment-config.cjs').normalizeDeploymentConfig(
+    JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8')),
+  )
+  assert.equal(deployment.officialUrl, 'https://111.230.33.112/')
+  assert.equal(deployment.downloadUrl, 'https://github.com/WeWorker/WeWorker/releases/latest')
+  assert.deepEqual(deployment.updateSources, [{
+    id: 'github',
+    label: 'GitHub latest',
+    url: 'https://github.com/WeWorker/WeWorker/releases/latest/download/',
+  }])
+  assert.equal(`${deployment.updateSources[0].url}latest.yml`, 'https://github.com/WeWorker/WeWorker/releases/latest/download/latest.yml')
+  assert.equal(`${deployment.updateSources[0].url}latest-mac.yml`, 'https://github.com/WeWorker/WeWorker/releases/latest/download/latest-mac.yml')
 })
 
 test('macOS packages use a complete ad-hoc signature for internal distribution', () => {

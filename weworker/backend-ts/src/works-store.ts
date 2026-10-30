@@ -4,10 +4,12 @@ import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { LoadedSkillContext } from './skill-context.js'
-import { ensureUserDirectory } from './config.js'
+import { ensureProjectDirectory, ensureUserDirectory, getUserDirectory } from './config.js'
+import { listArchivedWorkIds, removeArchivedWork, setWorkArchived } from './conversation-archive.js'
 
 const DB_DIR = path.join(os.homedir(), '.weworker')
 const DB_FILE = path.join(DB_DIR, 'works.db')
+const SCHEDULED_TASK_PROJECT_NAME = '定时任务'
 
 export type LabelColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | null
 
@@ -16,6 +18,7 @@ export interface Work {
   title: string
   label: LabelColor
   project_id: string | null
+  workspace_directory: string
   /** 该任务使用的风格 id（列名沿用历史命名，改列名需要数据迁移）。 */
   zcf_role: string | null
   created_at: string
@@ -77,6 +80,7 @@ export interface ScheduledTask {
   notification_targets?: AgentNotificationTarget[]
   /** A durable Agent-only conversation used as task context across executions. */
   context_work_id?: string
+  workspace_directory?: string
   created_at: string
   updated_at: string
 }
@@ -107,6 +111,7 @@ function db(): DatabaseSync {
       title TEXT NOT NULL DEFAULT '',
       label TEXT DEFAULT NULL,
       project_id TEXT DEFAULT NULL,
+      workspace_directory TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
@@ -143,6 +148,7 @@ function db(): DatabaseSync {
       owner_user_id TEXT DEFAULT NULL,
       notification_targets TEXT NOT NULL DEFAULT '[]',
       context_work_id TEXT DEFAULT NULL,
+      workspace_directory TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -188,6 +194,30 @@ function db(): DatabaseSync {
     // Column already exists — ignore
   }
   for (const statement of [
+    "ALTER TABLE works ADD COLUMN workspace_directory TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE scheduled_tasks ADD COLUMN workspace_directory TEXT NOT NULL DEFAULT ''",
+  ]) {
+    try { _db.exec(statement) } catch { /* column already exists */ }
+  }
+  const currentRoot = path.resolve(getUserDirectory())
+  const legacyRoot = path.resolve(DB_DIR, 'user-files')
+  if (currentRoot !== legacyRoot) {
+    const projects = _db.prepare('SELECT id, folder_path FROM projects').all() as Array<{ id: string; folder_path: string }>
+    for (const project of projects) {
+      if (path.resolve(project.folder_path).startsWith(`${legacyRoot}${path.sep}`)) {
+        _db.prepare('UPDATE projects SET folder_path = ? WHERE id = ?')
+          .run(path.join(currentRoot, path.relative(legacyRoot, project.folder_path)), project.id)
+      }
+    }
+    const works = _db.prepare('SELECT id, workspace_directory FROM works').all() as Array<{ id: string; workspace_directory: string }>
+    for (const work of works) {
+      if (work.workspace_directory && path.resolve(work.workspace_directory).startsWith(`${legacyRoot}${path.sep}`)) {
+        _db.prepare('UPDATE works SET workspace_directory = ? WHERE id = ?')
+          .run(path.join(currentRoot, path.relative(legacyRoot, work.workspace_directory)), work.id)
+      }
+    }
+  }
+  for (const statement of [
     "ALTER TABLE scheduled_tasks ADD COLUMN agent_id TEXT DEFAULT NULL",
     "ALTER TABLE scheduled_tasks ADD COLUMN owner_user_id TEXT DEFAULT NULL",
     "ALTER TABLE scheduled_tasks ADD COLUMN notification_targets TEXT NOT NULL DEFAULT '[]'",
@@ -230,36 +260,151 @@ export function listProjects(): ProjectSummary[] {
   return projects.map(toProjectSummary)
 }
 
+export function getProjectByName(name: string): ProjectSummary | null {
+  const row = db().prepare('SELECT id, name, folder_path, created_at, updated_at FROM projects WHERE name = ?').get(name) as Project | undefined
+  return row ? toProjectSummary(row) : null
+}
+
+export function getOrCreateScheduledTaskProject(): ProjectSummary {
+  const folderPath = ensureProjectDirectory('scheduled-tasks')
+  const existing = db().prepare('SELECT id, name, folder_path, created_at, updated_at FROM projects WHERE name = ?').get(SCHEDULED_TASK_PROJECT_NAME) as Project | undefined
+  if (!existing) return createProjectRecord(SCHEDULED_TASK_PROJECT_NAME, folderPath)
+
+  const previousFolder = path.resolve(existing.folder_path)
+  const nextFolder = path.resolve(folderPath)
+  if (previousFolder !== nextFolder) {
+    const userRoot = path.resolve(ensureUserDirectory())
+    if (path.dirname(previousFolder) === userRoot && fs.existsSync(previousFolder)) {
+      let legacyFolder = path.join(nextFolder, 'legacy-project')
+      let suffix = 1
+      while (fs.existsSync(legacyFolder)) {
+        legacyFolder = path.join(nextFolder, `legacy-project-${suffix}`)
+        suffix += 1
+      }
+      fs.renameSync(previousFolder, legacyFolder)
+    }
+    db().prepare('UPDATE projects SET folder_path = ?, updated_at = ? WHERE id = ?').run(nextFolder, new Date().toISOString(), existing.id)
+  }
+
+  db().prepare('UPDATE scheduled_tasks SET workspace_directory = ? WHERE workspace_directory != ?').run(nextFolder, nextFolder)
+  return toProjectSummary(getProject(existing.id)!)
+}
+
+export function moveScheduledTaskWorksToProject(projectId: string): number {
+  const project = getProject(projectId)
+  if (!project) throw new Error('project not found')
+  const result = db().prepare(`
+    UPDATE works SET project_id = ?, workspace_directory = ?
+    WHERE id IN (
+      SELECT te.work_id
+      FROM task_executions te
+      JOIN scheduled_tasks st ON st.id = te.task_id
+      WHERE st.agent_id IS NULL
+    ) AND (project_id IS NULL OR project_id != ? OR workspace_directory != ?)
+  `).run(projectId, project.folder_path, projectId, project.folder_path)
+  return Number(result.changes)
+}
+
+export function ensureScheduledTaskHistoryProject(limit: number, options: { createIfMissing?: boolean } = {}): {
+  project: ProjectSummary | null
+  movedCount: number
+  prunedIds: string[]
+} {
+  const existingProject = getProjectByName('定时任务')
+  const executionCount = db().prepare(`
+    SELECT COUNT(DISTINCT te.work_id) AS count
+    FROM task_executions te
+    JOIN scheduled_tasks st ON st.id = te.task_id
+    WHERE st.agent_id IS NULL
+  `).get() as { count: number }
+  const taskCount = db().prepare('SELECT COUNT(*) AS count FROM scheduled_tasks').get() as { count: number }
+  if (!existingProject && !options.createIfMissing && executionCount.count === 0 && taskCount.count === 0) {
+    return { project: null, movedCount: 0, prunedIds: [] }
+  }
+
+  const project = getOrCreateScheduledTaskProject()
+  const movedCount = moveScheduledTaskWorksToProject(project.id)
+  const prunedIds = pruneScheduledTaskWorks(project.id, limit)
+  return { project, movedCount, prunedIds }
+}
+
+export function pruneScheduledTaskWorks(projectId: string, limit: number): string[] {
+  const keep = Math.min(500, Math.max(1, Math.floor(Number(limit) || 50)))
+  const rows = db().prepare(`
+    SELECT w.id
+    FROM works w
+    WHERE w.project_id = ?
+      AND EXISTS (
+        SELECT 1
+        FROM task_executions te
+        JOIN scheduled_tasks st ON st.id = te.task_id
+        WHERE te.work_id = w.id AND st.agent_id IS NULL
+      )
+    ORDER BY w.created_at ASC, w.rowid ASC
+  `).all(projectId) as Array<{ id: string }>
+  const removeIds = rows.slice(0, Math.max(0, rows.length - keep)).map((row) => row.id)
+  if (removeIds.length === 0) return []
+
+  const database = db()
+  database.exec('BEGIN IMMEDIATE')
+  try {
+    for (const id of removeIds) {
+      database.prepare('DELETE FROM task_executions WHERE work_id = ?').run(id)
+      database.prepare('DELETE FROM messages WHERE work_id = ?').run(id)
+      database.prepare('DELETE FROM works WHERE id = ?').run(id)
+    }
+    database.exec('COMMIT')
+  } catch (error) {
+    database.exec('ROLLBACK')
+    throw error
+  }
+  for (const id of removeIds) removeArchivedWork(id)
+  return removeIds
+}
+
 export function getProject(id: string): Project | null {
   return (db().prepare('SELECT id, name, folder_path, created_at, updated_at FROM projects WHERE id = ?').get(id) as unknown as Project) ?? null
 }
 
-export function createProject(rawName: string): ProjectSummary {
+function createProjectRecord(rawName: string, requestedFolderPath?: string): ProjectSummary {
   const name = normalizeProjectName(rawName)
-  const folderPath = projectFolderPath(name)
-  assertProjectFolderInsideUserDirectory(folderPath)
-  if (fs.existsSync(folderPath)) throw new Error('project folder already exists')
+  const folderPath = requestedFolderPath ? path.resolve(requestedFolderPath) : projectFolderPath(name)
+  if (requestedFolderPath) {
+    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) throw new Error('project folder must exist')
+  } else {
+    assertProjectFolderInsideUserDirectory(folderPath)
+    if (fs.existsSync(folderPath)) throw new Error('project folder already exists')
+    fs.mkdirSync(folderPath)
+  }
   const now = new Date().toISOString()
   const project: Project = { id: randomUUID(), name, folder_path: folderPath, created_at: now, updated_at: now }
-  fs.mkdirSync(folderPath)
   try {
     db().prepare('INSERT INTO projects (id, name, folder_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(
       project.id, project.name, project.folder_path, project.created_at, project.updated_at,
     )
   } catch (error) {
-    fs.rmdirSync(folderPath)
+    if (!requestedFolderPath) fs.rmdirSync(folderPath)
     throw error
   }
   return toProjectSummary(project)
 }
 
+export function createProject(rawName: string, requestedFolderPath?: string): ProjectSummary {
+  const name = normalizeProjectName(rawName)
+  if (name === SCHEDULED_TASK_PROJECT_NAME) throw new Error('定时任务项目由定时任务自动创建')
+  return createProjectRecord(name, requestedFolderPath)
+}
+
 export function renameProject(id: string, rawName: string): ProjectSummary | null {
   const project = getProject(id)
   if (!project) return null
+  if (project.name === SCHEDULED_TASK_PROJECT_NAME) throw new Error('定时任务项目不能重命名')
   const name = normalizeProjectName(rawName)
+  if (name === SCHEDULED_TASK_PROJECT_NAME) throw new Error('定时任务项目由定时任务自动创建')
   if (name === project.name) return toProjectSummary(project)
-  const nextFolderPath = projectFolderPath(name)
-  assertProjectFolderInsideUserDirectory(nextFolderPath)
+  const projectInsideRoot = path.resolve(project.folder_path).startsWith(`${path.resolve(ensureUserDirectory())}${path.sep}`)
+  const nextFolderPath = path.join(path.dirname(project.folder_path), name)
+  if (projectInsideRoot) assertProjectFolderInsideUserDirectory(nextFolderPath)
   if (fs.existsSync(nextFolderPath)) throw new Error('project folder already exists')
   fs.renameSync(project.folder_path, nextFolderPath)
   const updatedAt = new Date().toISOString()
@@ -275,10 +420,16 @@ export function renameProject(id: string, rawName: string): ProjectSummary | nul
 export function deleteProject(id: string): void {
   const project = getProject(id)
   if (!project) throw new Error('project not found')
-  const workCount = (db().prepare('SELECT COUNT(*) AS count FROM works WHERE project_id = ?').get(id) as { count: number }).count
-  if (workCount > 0) throw new Error('project must be empty before deletion')
-  assertProjectFolderInsideUserDirectory(project.folder_path)
-  if (fs.existsSync(project.folder_path)) {
+  if (project.name === SCHEDULED_TASK_PROJECT_NAME) throw new Error('定时任务项目不能删除')
+  const archivedIds = new Set(listArchivedWorkIds())
+  const works = db().prepare('SELECT id FROM works WHERE project_id = ?').all(id) as Array<{ id: string }>
+  if (works.some((work) => !archivedIds.has(work.id))) throw new Error('project must be empty before deletion')
+  if (works.length > 0) {
+    const defaultDirectory = ensureProjectDirectory('default')
+    db().prepare('UPDATE works SET project_id = NULL, workspace_directory = ? WHERE project_id = ?').run(defaultDirectory, id)
+  }
+  const projectInsideRoot = path.resolve(project.folder_path).startsWith(`${path.resolve(ensureUserDirectory())}${path.sep}`)
+  if (projectInsideRoot && fs.existsSync(project.folder_path)) {
     const entries = fs.readdirSync(project.folder_path)
     if (entries.length > 0) throw new Error('project folder must be empty before deletion')
     fs.rmdirSync(project.folder_path)
@@ -286,12 +437,13 @@ export function deleteProject(id: string): void {
   db().prepare('DELETE FROM projects WHERE id = ?').run(id)
 }
 
-export function createWork(title = '', projectId: string | null = null): Work {
+export function createWork(title = '', projectId: string | null = null, workspaceDirectory?: string): Work {
   if (projectId && !getProject(projectId)) throw new Error('project not found')
   const now = new Date().toISOString()
   const id = randomUUID()
-  db().prepare('INSERT INTO works (id, title, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(id, title, projectId, now, now)
-  return { id, title, label: null, project_id: projectId, zcf_role: null, created_at: now, updated_at: now }
+  const directory = workspaceDirectory || (projectId ? getProject(projectId)!.folder_path : ensureProjectDirectory('default'))
+  db().prepare('INSERT INTO works (id, title, project_id, workspace_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, title, projectId, directory, now, now)
+  return { id, title, label: null, project_id: projectId, workspace_directory: directory, zcf_role: null, created_at: now, updated_at: now }
 }
 
 export function updateWorkStyle(
@@ -317,6 +469,7 @@ function toWork(row: Record<string, unknown>): Work {
     title: (row.title as string) ?? '',
     label: (row.label as LabelColor) ?? null,
     project_id: (row.project_id as string | null) ?? null,
+    workspace_directory: String(row.workspace_directory || (row.project_id ? getProject(String(row.project_id))?.folder_path : ensureProjectDirectory('default'))),
     zcf_role: (row.zcf_role as string | null) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -328,9 +481,56 @@ export function listWorks(): Work[] {
   return rows.map(toWork)
 }
 
+export function listArchivedWorks(): Work[] {
+  const ids = listArchivedWorkIds()
+  if (ids.length === 0) return []
+  const placeholders = ids.map(() => '?').join(',')
+  const rows = db().prepare(`SELECT * FROM works WHERE id IN (${placeholders}) ORDER BY updated_at DESC`).all(...ids) as unknown as Array<Record<string, unknown>>
+  return rows.map(toWork)
+}
+
+export function archiveWork(workId: string, archived: boolean): Work | null {
+  const work = getWork(workId)
+  if (!work) return null
+  setWorkArchived(workId, archived)
+  const defaultDirectory = ensureProjectDirectory('default')
+  db().prepare('UPDATE works SET project_id = NULL, workspace_directory = ? WHERE id = ?').run(defaultDirectory, workId)
+  return getWork(workId)
+}
+
+/** Remove an empty user project from the sidebar while preserving any files in its folder. */
+export function cleanupProjectIfNoVisibleWorks(projectId: string): boolean {
+  const project = getProject(projectId)
+  if (!project || project.name === SCHEDULED_TASK_PROJECT_NAME) return false
+  const archivedIds = new Set(listArchivedWorkIds())
+  const works = db().prepare('SELECT id FROM works WHERE project_id = ?').all(projectId) as Array<{ id: string }>
+  if (works.some((work) => !archivedIds.has(work.id))) return false
+
+  if (works.length > 0) {
+    const defaultDirectory = ensureProjectDirectory('default')
+    db().prepare('UPDATE works SET project_id = NULL, workspace_directory = ? WHERE project_id = ?').run(defaultDirectory, projectId)
+  }
+
+  const root = path.resolve(ensureUserDirectory())
+  const folder = path.resolve(project.folder_path)
+  if (folder.startsWith(`${root}${path.sep}`) && fs.existsSync(folder)) {
+    try {
+      if (fs.readdirSync(folder).length === 0) fs.rmdirSync(folder)
+    } catch {
+      // Keep the folder and its contents if it cannot be removed safely.
+    }
+  }
+  db().prepare('DELETE FROM projects WHERE id = ?').run(projectId)
+  return true
+}
+
 export function getWork(id: string): Work | null {
   const row = db().prepare('SELECT * FROM works WHERE id = ?').get(id) as unknown as Record<string, unknown> | undefined
   return row ? toWork(row) : null
+}
+
+export function getWorkspaceDirectoryForWork(id: string): string | null {
+  return getWork(id)?.workspace_directory ?? null
 }
 
 export function getWorkWithMessages(id: string): WorkWithMessages | null {
@@ -381,6 +581,7 @@ export function updateLabel(workId: string, label: LabelColor): void {
 }
 
 export function deleteWork(workId: string): void {
+  removeArchivedWork(workId)
   db().prepare('DELETE FROM messages WHERE work_id = ?').run(workId)
   db().prepare('DELETE FROM works WHERE id = ?').run(workId)
 }
@@ -460,6 +661,7 @@ function rowToScheduledTask(row: Record<string, unknown>): ScheduledTask {
       try { return JSON.parse(String(row.notification_targets ?? '[]')) as AgentNotificationTarget[] } catch { return [] }
     })(),
     context_work_id: typeof row.context_work_id === 'string' && row.context_work_id ? row.context_work_id : undefined,
+    workspace_directory: String(row.workspace_directory || ''),
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   }
@@ -470,9 +672,11 @@ export function createScheduledTask(
 ): ScheduledTask {
   const now = new Date().toISOString()
   const id = randomUUID()
+  const project = getOrCreateScheduledTaskProject()
+  const workspaceDirectory = getProject(project.id)!.folder_path
   db()
     .prepare(
-      'INSERT INTO scheduled_tasks (id, title, cron_expression, prompt_template, enabled, notify_channels, agent_id, owner_user_id, notification_targets, context_work_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO scheduled_tasks (id, title, cron_expression, prompt_template, enabled, notify_channels, agent_id, owner_user_id, notification_targets, context_work_id, workspace_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
     .run(
       id,
@@ -485,6 +689,7 @@ export function createScheduledTask(
       task.owner_user_id ?? null,
       JSON.stringify(task.notification_targets ?? []),
       task.context_work_id ?? null,
+      workspaceDirectory,
       now,
       now
     )
@@ -499,9 +704,21 @@ export function createScheduledTask(
     owner_user_id: task.owner_user_id,
     notification_targets: task.notification_targets ?? [],
     context_work_id: task.context_work_id,
+    workspace_directory: workspaceDirectory,
     created_at: now,
     updated_at: now,
   }
+}
+
+export function ensureScheduledTaskWorkspace(taskId: string): string {
+  const task = getScheduledTask(taskId)
+  if (!task) throw new Error('task not found')
+  const project = getOrCreateScheduledTaskProject()
+  const directory = getProject(project.id)!.folder_path
+  if (path.resolve(task.workspace_directory || '') !== path.resolve(directory)) {
+    db().prepare('UPDATE scheduled_tasks SET workspace_directory = ? WHERE id = ?').run(directory, taskId)
+  }
+  return directory
 }
 
 export function listScheduledTasks(): ScheduledTaskWithLastExecution[] {
@@ -729,6 +946,7 @@ export function _initTestDb(): void {
       title TEXT NOT NULL DEFAULT '',
       label TEXT DEFAULT NULL,
       project_id TEXT DEFAULT NULL,
+      workspace_directory TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
@@ -765,6 +983,7 @@ export function _initTestDb(): void {
       owner_user_id TEXT DEFAULT NULL,
       notification_targets TEXT NOT NULL DEFAULT '[]',
       context_work_id TEXT DEFAULT NULL,
+      workspace_directory TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );

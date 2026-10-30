@@ -1,6 +1,7 @@
 import routeAliases from '../../config/route-aliases.json'
 import React, { useRef, useEffect, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { ExclamationCircleOutlined, FolderOpenOutlined, UnlockOutlined } from '@ant-design/icons'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { useSitesStore } from '../../store/sites.js'
@@ -21,13 +22,28 @@ import FileGlyph, { getFileTypeLabel, getFileTypeMeta } from '../files/FileTypeI
 import { getChatCompletionPlacement } from '../../utils/chat-completion-placement.js'
 import ContextPanel from './ContextPanel.jsx'
 import ModelSelector from './ModelSelector.jsx'
+import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { normalizeThinkingEffort, THINKING_EFFORT_STORAGE_KEY } from '../../utils/thinking-effort.js'
 import { shouldWarmupOnTextChange } from '../../utils/chat-warmup.js'
+import { confirmChatPermissionMode } from '../../utils/chat-permission-confirmation.js'
 
 const COLLAPSED_ATTACHMENT_COUNT = 10
 const ATTACHMENT_CHIP_HEIGHT = 62
 const DEFAULT_MAX_ATTACHMENTS = 60
 const DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD = 20000
+const CHAT_PERMISSION_MODE_STORAGE_KEY = 'weworker.chat.permission-mode'
+const CHAT_PERMISSION_MODES = [
+  { value: 'ask', label: '修改询问', icon: ExclamationCircleOutlined },
+  { value: 'workspace', label: '工作区内修改', icon: FolderOpenOutlined },
+  { value: 'full', label: '完全权限', icon: UnlockOutlined },
+]
+
+function readChatPermissionMode() {
+  try {
+    const value = window.localStorage.getItem(CHAT_PERMISSION_MODE_STORAGE_KEY)
+    return CHAT_PERMISSION_MODES.some((mode) => mode.value === value) ? value : 'workspace'
+  } catch { return 'workspace' }
+}
 
 // 命令路由友好别名。**生效口径以后端 `/router/aliases` 为准**（它读的是
 // `router-config/aliases.json` + 用户覆盖层，经 Adapter 作用域过滤）；随包的
@@ -75,8 +91,8 @@ export default function InputBar({
   contextSnapshot = null,
   historyMessages = [],
   onWarmup,
-  queuePanel,
   allowQueue = false,
+  queuePanel,
 }) {
   const textareaRef = useRef(null)
   const composerRef = useRef(null)
@@ -98,6 +114,13 @@ export default function InputBar({
   const [thinkingEffort, setThinkingEffort] = useState(() => {
     try { return normalizeThinkingEffort(window.localStorage.getItem(THINKING_EFFORT_STORAGE_KEY)) } catch { return 'off' }
   })
+  const [permissionMode, setPermissionMode] = useState(readChatPermissionMode)
+  const handlePermissionModeChange = useCallback(async (value) => {
+    const next = CHAT_PERMISSION_MODES.some((mode) => mode.value === value) ? value : 'workspace'
+    if (!await confirmChatPermissionMode(next)) return
+    setPermissionMode(next)
+    try { window.localStorage.setItem(CHAT_PERMISSION_MODE_STORAGE_KEY, next) } catch {}
+  }, [])
   const handleThinkingEffortChange = useCallback((value) => {
     const next = normalizeThinkingEffort(value)
     setThinkingEffort(next)
@@ -567,7 +590,7 @@ export default function InputBar({
         onTextChange('')
         onAttachmentsChange?.([])
         setAttachmentNotice('')
-        onSend(trimmed, attachments, thinkingEffort)
+        onSend(trimmed, attachments, thinkingEffort, permissionMode)
         textareaRef.current?.focus()
         return
       }
@@ -580,7 +603,7 @@ export default function InputBar({
       textareaRef.current?.focus()
       return
     }
-    onSend(trimmed, attachments, thinkingEffort)
+    onSend(trimmed, attachments, thinkingEffort, permissionMode)
     onTextChange('')
     onAttachmentsChange?.([])
     setAttachmentNotice('')
@@ -674,7 +697,7 @@ export default function InputBar({
       onPaste={handlePaste}
       onCompositionStart={() => { composingRef.current = true }}
       onCompositionEnd={() => { composingRef.current = false }}
-      placeholder={streaming && allowQueue ? '输入后续消息，Enter 加入队列…' : streaming ? '正在处理...' : inputDisabled ? '暂时无法输入...' : '输入消息...'}
+      placeholder={streaming && allowQueue ? '输入后续消息...' : streaming ? '正在处理...' : inputDisabled ? '暂时无法输入...' : '输入消息...'}
       disabled={inputDisabled}
       rows={isWelcome ? 4 : 1}
       style={{
@@ -731,7 +754,7 @@ export default function InputBar({
     </button>
   )
 
-  const actionBtn = streaming ? (
+  const stopButton = (
     <button
       className="chat-input-action chat-input-action-stop"
       onClick={onStop}
@@ -755,10 +778,13 @@ export default function InputBar({
     >
       Stop
     </button>
-  ) : (
+  )
+  const sendButton = (
     <button
       className="chat-input-action chat-input-action-send"
       onClick={submit}
+      title={streaming ? '发送消息，当前回复结束后发送' : '发送消息'}
+      aria-label="发送消息"
       disabled={inputDisabled || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit}
       style={{
         ...buttonBase,
@@ -781,6 +807,10 @@ export default function InputBar({
       Send
     </button>
   )
+  const hasDraft = Boolean((text || '').trim() || hasAttachments)
+  const actionBtn = streaming
+    ? allowQueue && hasDraft ? sendButton : stopButton
+    : sendButton
 
   const toolbarEl = (
     <div className="chat-input-toolbar" style={{
@@ -796,6 +826,17 @@ export default function InputBar({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
         {uploadBtn}
+        <AppDropdownSelect
+          ariaLabel="权限模式"
+          value={permissionMode}
+          options={CHAT_PERMISSION_MODES}
+          onChange={handlePermissionModeChange}
+          renderOptionPrefix={option => option?.icon ? React.createElement(option.icon) : null}
+          disabled={!!disabled}
+          minMenuWidth={156}
+          placement="top"
+          className="chat-permission-picker"
+        />
       </div>
       <div className="chat-input-toolbar-actions">
         <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />
@@ -805,9 +846,6 @@ export default function InputBar({
           thinkingEffort={thinkingEffort}
           onThinkingEffortChange={handleThinkingEffortChange}
         />
-        {streaming && allowQueue && <button type="button" className="chat-queue-submit" title="加入队列（Enter）" aria-label="加入队列" onClick={submit}
-          disabled={inputDisabled || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit}
-          style={{ border: '1px solid var(--border)', borderRadius: 7, padding: '5px 8px', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}>排队</button>}
         {actionBtn}
       </div>
     </div>

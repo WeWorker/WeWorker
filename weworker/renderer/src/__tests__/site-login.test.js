@@ -57,6 +57,10 @@ describe('website login display', () => {
     assert.match(app, /<SiteLoginNotice \/>/)
     const settings = fs.readFileSync(new URL('../components/settings/SettingsModal.jsx', import.meta.url), 'utf8')
     assert.match(settings, /<SiteLoginSettings \/>/)
+    assert.match(settings, /\['browser', '浏览器'\]/)
+    assert.match(settings, /function BrowserTab\(\)[\s\S]*<BrowserSettingsGroup \/>[\s\S]*<SiteLoginSettings \/>/)
+    const about = settings.slice(settings.indexOf('function AboutTab('), settings.indexOf('function AboutTab(') + 12_000)
+    assert.doesNotMatch(about, /<BrowserSettingsGroup \/>|<SiteLoginSettings \/>/)
     for (const file of ['../utils/site-login.js', '../components/site-login/SiteLoginNotice.jsx', '../components/site-login/SiteLoginSettings.jsx', '../components/site-login/AutoLoginDialog.jsx']) {
       assert.doesNotMatch(fs.readFileSync(new URL(file, import.meta.url), 'utf8'), /webwright/i, file)
     }
