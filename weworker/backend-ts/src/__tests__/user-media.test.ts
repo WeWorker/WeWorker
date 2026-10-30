@@ -12,11 +12,15 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   },
   createSdkMcpServer: (config: unknown) => config,
 }))
-vi.mock('../config.js', () => ({ getUserDirectory: () => mocks.userDir }))
+vi.mock('../config.js', () => ({
+  getUserDirectory: () => mocks.userDir,
+  ensureUserDirectory: () => mocks.userDir,
+}))
 vi.mock('../user-directory-guard.js', () => ({
-  assertPathInsideUserDirectory: (value: string) => {
+  assertPathInsideWorkspaceDirectory: (value: string, directory: string) => {
     const resolved = path.resolve(value)
-    if (!resolved.startsWith(mocks.userDir)) throw new Error('路径不在用户目录内')
+    const relative = path.relative(directory, resolved)
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('路径不在用户目录内')
     return resolved
   },
 }))
@@ -25,8 +29,11 @@ const { buildMcpServer } = await import('../tools.js')
 const { createChannelUserMedia, createDesktopUserMedia } = await import('../user-media.js')
 
 let root = ''
+let workspace = ''
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-user-media-'))
+  workspace = path.join(root, 'default')
+  fs.mkdirSync(workspace, { recursive: true })
   mocks.userDir = root
   mocks.registeredTools.clear()
 })
@@ -36,7 +43,7 @@ const call = async (name: string, input: Record<string, unknown>) => JSON.parse(
 
 describe('send_image_to_user / send_file_to_user', () => {
   it('delivers only to the current conversation; without a sink nothing is sent anywhere', async () => {
-    const image = path.join(root, 'qr.png')
+    const image = path.join(workspace, 'qr.png')
     fs.writeFileSync(image, Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
     buildMcpServer({ channelPermissionMode: 'full' })
     const refused = await call('send_image_to_user', { file_path: image })
@@ -46,8 +53,8 @@ describe('send_image_to_user / send_file_to_user', () => {
   })
 
   it('desktop conversations show the image inline and the file as an attachment', async () => {
-    const image = path.join(root, 'qr.png')
-    const doc = path.join(root, 'report.pdf')
+    const image = path.join(workspace, 'qr.png')
+    const doc = path.join(workspace, 'report.pdf')
     fs.writeFileSync(image, Buffer.from('fixture-image'))
     fs.writeFileSync(doc, 'fixture-pdf')
     const blocks: unknown[] = []
@@ -69,7 +76,7 @@ describe('send_image_to_user / send_file_to_user', () => {
   })
 
   it('bot conversations queue the image for the chat the message came from', async () => {
-    const image = path.join(root, 'shot.jpg')
+    const image = path.join(workspace, 'shot.jpg')
     fs.writeFileSync(image, Buffer.from('fixture-jpg'))
     const images: string[] = []
     const blocks: unknown[] = []
@@ -81,8 +88,8 @@ describe('send_image_to_user / send_file_to_user', () => {
   })
 
   it('rejects non-images, empty files and paths outside the user directory', async () => {
-    const text = path.join(root, 'notes.txt')
-    const empty = path.join(root, 'empty.png')
+    const text = path.join(workspace, 'notes.txt')
+    const empty = path.join(workspace, 'empty.png')
     fs.writeFileSync(text, 'x')
     fs.writeFileSync(empty, '')
     const images: string[] = []

@@ -17,6 +17,7 @@ import {
   resolveDirectoryInsideUserDirectory,
 } from '../user-directory-guard.js'
 import { listFiles, readFileText } from '../file-tools.js'
+import { checkFilesystemPath, checkShellCommand } from '../user-directory-access.js'
 
 describe('user-directory guard', () => {
   const root = path.join(os.tmpdir(), 'weworker-user-dir-test')
@@ -75,5 +76,20 @@ describe('user-directory guard', () => {
     expect(() => readFileText(outside)).toThrow(/must stay inside user directory/)
 
     fs.rmSync(outside, { force: true })
+  })
+
+  it('confines work tools to the active project folder, including external bindings', () => {
+    vi.mocked(getUserDirectory).mockReturnValue(root)
+    const workspace = path.join(os.tmpdir(), 'weworker-bound-project')
+    fs.mkdirSync(workspace, { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'note.txt'), 'hello')
+    const outside = path.join(os.tmpdir(), 'weworker-outside-project.txt')
+
+    expect(checkFilesystemPath(path.join(workspace, 'note.txt'), 'Read', workspace).allowed).toBe(true)
+    expect(checkFilesystemPath(outside, 'Read', workspace).allowed).toBe(false)
+    expect(checkShellCommand('cat note.txt', workspace).allowed).toBe(true)
+    expect(checkShellCommand(`cat "${outside}"`, workspace).allowed).toBe(false)
+
+    fs.rmSync(workspace, { recursive: true, force: true })
   })
 })

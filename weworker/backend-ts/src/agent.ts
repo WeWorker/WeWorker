@@ -306,6 +306,7 @@ export function buildSystemPrompt(opts?: {
   memoryProtocol?: string
   /** Browser whose extension serves Adapter calls; 'dedicated' is WeWorker 浏览器. */
   browserInstance?: ExtensionInstance
+  workspaceDirectory?: string
 }): string {
   const channelPermissionMode = opts?.channelPermissionMode ?? 'full'
   const platform = opts?.platform ?? process.platform
@@ -317,7 +318,7 @@ export function buildSystemPrompt(opts?: {
   }
 
   const allAdapters = parseAllAdapters()
-  const userDirectory = getUserDirectory()
+  const userDirectory = opts?.workspaceDirectory || getUserDirectory()
   const blacklistEntries = getUserDirectoryBlacklist()
   const blacklistScope = channelPermissionMode === 'full'
     ? '以下路径黑名单规则由系统对原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具强制校验；不适用于 `full` 模式的 Claude Code 内置 Bash：'
@@ -1051,6 +1052,7 @@ async function* streamChatWithBaseUrl(
     streaming?: boolean;
     enabledAdapterIds?: Set<string>;
     workId?: string;
+    cwd?: string;
     styleId?: string | null;
     channelPermissionMode?: ChannelPermissionMode;
     onAskUser?: (event: { type: string; id: string; question: string; options: Array<{ label: string; description?: string }> }) => void;
@@ -1201,9 +1203,10 @@ async function* streamChatWithBaseUrl(
     ),
     ...(opts.extraDisallowedTools ?? []),
   ]
-  const agentCwd = ensureAgentWorkingDirectory()
+  const workspaceDirectory = opts.cwd || getUserDirectory()
+  const agentCwd = ensureAgentWorkingDirectory(workspaceDirectory)
   const filesystemSettings = buildAgentFilesystemSettings(agentCwd, channelPermissionMode)
-  const filesystemToolGuard = createUnifiedToolGuard(channelPermissionMode)
+  const filesystemToolGuard = createUnifiedToolGuard(channelPermissionMode, workspaceDirectory)
   const toolPolicy = createWeWorkerToolPolicy(channelPermissionMode)
   const canUseTool: typeof toolPolicy = async (toolName, input, context) => {
     // Read the guard at call time: a reused session rebinds it for each turn.
@@ -1295,6 +1298,7 @@ async function* streamChatWithBaseUrl(
     customStyles: settings.zcf_custom_roles,
     memoryProtocol,
     browserInstance: bridgeStatus.getExtensionInstance(),
+    workspaceDirectory,
   })
   const systemPrompt = opts.appendSystemPrompt?.trim()
     ? `${baseSystemPrompt}\n\n${opts.appendSystemPrompt.trim()}`

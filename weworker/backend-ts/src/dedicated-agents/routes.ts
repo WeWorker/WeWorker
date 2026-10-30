@@ -148,7 +148,7 @@ function createAgentWorkspace(agentName: string): { project: works.ProjectSummar
     const projectName = agentProjectNameCandidate(base, index)
     let project: works.ProjectSummary | null = null
     try {
-      project = works.createProject(projectName)
+      project = works.createProject(projectName, undefined, 'agents')
     } catch (error) {
       if (workspaceConflict(error)) continue
       throw error

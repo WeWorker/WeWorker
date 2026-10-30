@@ -122,6 +122,9 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
   const work = agent && task.context_work_id
     ? (store.getWork(task.context_work_id) ?? store.createWork(`【定时】${task.title}`, agent.project_id ?? null))
     : store.createWork(`[定时] ${task.title} · ${timeStr}`)
+  const workspaceDirectory = agent
+    ? store.getWorkspaceDirectoryForWork(work.id)
+    : store.ensureScheduledTasksDirectory()
 
   // 2. Create execution record (pending)
   const execution = store.createTaskExecution(task.id, work.id)
@@ -180,6 +183,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       streaming: false,
       enabledAdapterIds,
       workId: workWithMessages.id,
+      cwd: workspaceDirectory,
       styleId,
       memoryScope: taskMemoryContext.scope,
       ...(agent ? {

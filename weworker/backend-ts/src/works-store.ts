@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { LoadedSkillContext } from './skill-context.js'
-import { ensureUserDirectory } from './config.js'
+import { ensureUserDirectory, expandHomePath } from './config.js'
 
 const DB_DIR = path.join(os.homedir(), '.weworker')
 const DB_FILE = path.join(DB_DIR, 'works.db')
@@ -213,8 +213,16 @@ function normalizeProjectName(value: string): string {
   return name.slice(0, 120)
 }
 
-function projectFolderPath(name: string): string {
-  return path.join(ensureUserDirectory(), name)
+function projectFolderPath(name: string, category?: 'agents'): string {
+  return category === 'agents'
+    ? path.join(ensureWorkspaceSubdirectory('agents'), name)
+    : path.join(ensureUserDirectory(), name)
+}
+
+function ensureWorkspaceSubdirectory(name: 'default' | 'scheduled-tasks' | 'agents'): string {
+  const directory = path.join(ensureUserDirectory(), name)
+  fs.mkdirSync(directory, { recursive: true })
+  return directory
 }
 
 function assertProjectFolderInsideUserDirectory(folderPath: string): void {
@@ -234,20 +242,41 @@ export function getProject(id: string): Project | null {
   return (db().prepare('SELECT id, name, folder_path, created_at, updated_at FROM projects WHERE id = ?').get(id) as unknown as Project) ?? null
 }
 
-export function createProject(rawName: string): ProjectSummary {
+export function getWorkspaceDirectoryForWork(workId?: string): string {
+  const work = workId ? getWork(workId) : null
+  if (work?.project_id) {
+    const project = getProject(work.project_id)
+    if (project) return project.folder_path
+  }
+  return ensureWorkspaceSubdirectory('default')
+}
+
+export function ensureScheduledTasksDirectory(): string {
+  return ensureWorkspaceSubdirectory('scheduled-tasks')
+}
+
+export function createProject(rawName: string, selectedFolder?: string, category?: 'agents'): ProjectSummary {
   const name = normalizeProjectName(rawName)
-  const folderPath = projectFolderPath(name)
-  assertProjectFolderInsideUserDirectory(folderPath)
-  if (fs.existsSync(folderPath)) throw new Error('project folder already exists')
+  const folderPath = selectedFolder
+    ? path.resolve(expandHomePath(selectedFolder))
+    : projectFolderPath(name, category)
+  if (selectedFolder) {
+    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+      throw new Error('selected project folder does not exist')
+    }
+  } else {
+    assertProjectFolderInsideUserDirectory(folderPath)
+    if (fs.existsSync(folderPath)) throw new Error('project folder already exists')
+  }
   const now = new Date().toISOString()
   const project: Project = { id: randomUUID(), name, folder_path: folderPath, created_at: now, updated_at: now }
-  fs.mkdirSync(folderPath)
+  if (!selectedFolder) fs.mkdirSync(folderPath)
   try {
     db().prepare('INSERT INTO projects (id, name, folder_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(
       project.id, project.name, project.folder_path, project.created_at, project.updated_at,
     )
   } catch (error) {
-    fs.rmdirSync(folderPath)
+    if (!selectedFolder) fs.rmdirSync(folderPath)
     throw error
   }
   return toProjectSummary(project)
@@ -258,15 +287,19 @@ export function renameProject(id: string, rawName: string): ProjectSummary | nul
   if (!project) return null
   const name = normalizeProjectName(rawName)
   if (name === project.name) return toProjectSummary(project)
-  const nextFolderPath = projectFolderPath(name)
-  assertProjectFolderInsideUserDirectory(nextFolderPath)
-  if (fs.existsSync(nextFolderPath)) throw new Error('project folder already exists')
-  fs.renameSync(project.folder_path, nextFolderPath)
+  const agentsRoot = path.resolve(ensureUserDirectory(), 'agents')
+  const projectPath = path.resolve(project.folder_path)
+  const isAgentFolder = projectPath.startsWith(`${agentsRoot}${path.sep}`)
+  const nextFolderPath = isAgentFolder ? path.join(path.dirname(project.folder_path), name) : project.folder_path
+  if (isAgentFolder && fs.existsSync(nextFolderPath)) throw new Error('project folder already exists')
+  if (isAgentFolder) fs.renameSync(project.folder_path, nextFolderPath)
   const updatedAt = new Date().toISOString()
   try {
     db().prepare('UPDATE projects SET name = ?, folder_path = ?, updated_at = ? WHERE id = ?').run(name, nextFolderPath, updatedAt, id)
   } catch (error) {
-    try { fs.renameSync(nextFolderPath, project.folder_path) } catch { /* preserve original error */ }
+    if (isAgentFolder) {
+      try { fs.renameSync(nextFolderPath, project.folder_path) } catch { /* preserve original error */ }
+    }
     throw error
   }
   return { id: project.id, name, created_at: project.created_at, updated_at: updatedAt }
@@ -277,8 +310,10 @@ export function deleteProject(id: string): void {
   if (!project) throw new Error('project not found')
   const workCount = (db().prepare('SELECT COUNT(*) AS count FROM works WHERE project_id = ?').get(id) as { count: number }).count
   if (workCount > 0) throw new Error('project must be empty before deletion')
-  assertProjectFolderInsideUserDirectory(project.folder_path)
-  if (fs.existsSync(project.folder_path)) {
+  const projectsRoot = path.resolve(ensureUserDirectory())
+  const projectPath = path.resolve(project.folder_path)
+  const isManagedFolder = projectPath.startsWith(`${projectsRoot}${path.sep}`)
+  if (isManagedFolder && fs.existsSync(project.folder_path)) {
     const entries = fs.readdirSync(project.folder_path)
     if (entries.length > 0) throw new Error('project folder must be empty before deletion')
     fs.rmdirSync(project.folder_path)
@@ -468,6 +503,7 @@ function rowToScheduledTask(row: Record<string, unknown>): ScheduledTask {
 export function createScheduledTask(
   task: Omit<ScheduledTask, 'id' | 'created_at' | 'updated_at'>
 ): ScheduledTask {
+  ensureScheduledTasksDirectory()
   const now = new Date().toISOString()
   const id = randomUUID()
   db()
