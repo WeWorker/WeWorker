@@ -26,7 +26,7 @@ Bridge 必须已经运行。此命令不自动启动 Bridge/浏览器、不接�
 
 `since/until` 是 UTC ISO 时间，闭区间，必须在任务创建至本次导出开始之间；默认使用这个完整区间。时间窗用于任务事件、network、console、普通调用 trace。状态、静态包检查、知识和可选截图各自记录采集时间，不伪装成窗口结束时的页面快照。一次固定任务快照配合逐项采集，不承诺所有证据原子同时发生。
 
-可选 `traceIds` 接受最多 10 个明确的 12–32 位十六进制普通调用 ID。只读选定扩展 SW 和任务原 tab 的 trace buffer，不遍历其他标签页。ID 与任务关联由调用方明确选择，不据此认证调用属于某次作者用例。旧日志只有时分秒的记录无法可靠套用跨日窗口，计入 `recordsWithoutUsableTime`；新 SW/content trace 保留 UTC 日期。Bridge 文本日志和 host HTTP CLI 的 stderr 没有可按任务/profile 确认归属的持久 trace 接口，本命令不扫描全局日志或猜路径；HTTP 指定此项会明确部分失败。
+可选 `traceIds` 接受最多 10 个明确的 12–32 位十六进制普通调用 ID。host HTTP 任务也接受其普通调用实际返回的标准小写 UUID，原样输入；这只允许诊断报告明确说明该来源不可用，不代表关联、查询或保存了 HTTP trace。浏览器任务不接受 UUID。只读选定扩展 SW 和任务原 tab 的 trace buffer，不遍历其他标签页。ID 与任务关联由调用方明确选择，不据此认证调用属于某次作者用例。旧日志只有时分秒的记录无法可靠套用跨日窗口，计入 `recordsWithoutUsableTime`；新 SW/content trace 保留 UTC 日期。Bridge 文本日志和 host HTTP CLI 的 stderr 没有可按任务/profile 确认归属的持久 trace 接口，本命令不扫描全局日志或猜路径；HTTP 指定此项会明确部分失败。
 
 可选 `screenshot:true` 明确请求任务原 tab **当前 viewport** 的 PNG，含可见子 frame；不做全页滚动、标注、尺寸改写或其他 tab 采集。图片像素无法保证脱敏，故默认不采集，显式开启时报告 `pixelsRedacted:false`。当前 origin 和保留 tab identity 在扩展内核对，失败不找替代页面。HTTP 请求截图为明确缺失。
 
