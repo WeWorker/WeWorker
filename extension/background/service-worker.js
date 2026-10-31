@@ -8,7 +8,7 @@ import { buildV2Bootstrap, v2CommandDefs, v2InjectionFiles } from "./v2-loader.j
 import { injectAdapterSources } from './adapter-script-loader.js';
 import { createPackagedAdapterMatcher, injectPackagedAdapter } from './packaged-adapter-loader.js';
 import { createHostAdapterClient } from './host-adapter-client.js';
-import { createHostAdapterRuntime, assertAdapterNavigationUrl, createNavigationGuard, navigateAdapterTab, waitForAdapterPageRecovery } from './host-adapter-runtime.js';
+import { createHostAdapterRuntime, assertAdapterNavigationUrl, classifyNavigationTarget, createNavigationGuard, navigateAdapterTab, waitForAdapterPageRecovery } from './host-adapter-runtime.js';
 import {
   adapterHelperPatterns,
   adapterPrimaryHost,
@@ -2824,9 +2824,17 @@ async function handleNativeMessage(msg) {
               message: '网站正在登录，登录完成后将继续调用。',
             });
           }
-          // HTTP is the neutral managed-page entry: HTTPS-only sites redirect themselves,
+          // Prefer the author-declared entry: homepage_url can carry a port or path that
+          // the host-only route cannot express (e.g. https://host:8443/app/). It is used
+          // only while it stays inside the declared page scope; HTTP on the route host
+          // remains the neutral fallback entry: HTTPS-only sites redirect themselves,
           // while internal sites that do not serve HTTPS remain reachable.
-          const startUrl = assertAdapterNavigationUrl(selected.manifest, 'http://' + route + '/');
+          const declaredHome = typeof selected.manifest.homepage_url === 'string'
+            ? selected.manifest.homepage_url.trim() : '';
+          const startUrl = assertAdapterNavigationUrl(selected.manifest,
+            declaredHome && classifyNavigationTarget(selected.manifest, declaredHome) === 'allowed'
+              ? declaredHome
+              : 'http://' + route + '/');
           tab = await createBrowserTab({ url: startUrl, active: false });
           // Learn where the site sends this host (regional or brand domains) before the first call.
           const landed = await waitForManagedPageReady(tab.id, selected.manifest, true, 25000);
