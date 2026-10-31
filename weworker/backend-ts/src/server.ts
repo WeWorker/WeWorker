@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
+import { buildWorkLogExport } from './work-log-export.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
 import { createAdapterStateRefreshHandler } from './adapter-state-refresh.js'
@@ -3649,6 +3650,41 @@ app.get('/logs', (req, res) => {
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : String(e) })
   }
+})
+
+function readLogLines(): { lines: string[]; note: string } {
+  try {
+    if (!fs.existsSync(LOG_FILE)) return { lines: [], note: `说明: 日志文件不存在（${LOG_FILE}）。` }
+    const content = fs.readFileSync(LOG_FILE, 'utf8')
+    return { lines: content.split('\n').filter((l) => l.trim()), note: '说明: 主日志文件在应用每次启动时重建；以下链路日志仅含标记了本对话的行。' }
+  } catch (e) {
+    return { lines: [], note: `说明: 日志文件读取失败: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
+// One-click support bundle for a conversation: header + message timeline
+// (summaries only) + every log line tagged with this work's id.
+app.get('/works/:id/logs.txt', (req, res) => {
+  const work = store.getWorkWithMessages(req.params.id)
+  if (!work) { res.status(404).json({ detail: 'Not found' }); return }
+  const { lines, note } = readLogLines()
+  const text = buildWorkLogExport({
+    work: { id: work.id, title: work.title, created_at: work.created_at, updated_at: work.updated_at },
+    messages: work.messages,
+    logLines: lines,
+    logNote: note,
+    meta: {
+      exportedAt: new Date().toISOString(),
+      runtimeMode: BACKEND_INSTANCE_ID ? 'managed' : 'standalone',
+      backendInstanceId: BACKEND_INSTANCE_ID,
+      platform: process.platform,
+      nodeVersion: process.version,
+      logFilePath: LOG_FILE,
+    },
+  })
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="weworker-work-${work.id.slice(0, 8)}-logs.txt"`)
+  res.send(text)
 })
 
 // 鈹€鈹€ Start 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€

@@ -2760,8 +2760,9 @@ async function handleNativeMessage(msg) {
     const { toolName, args } = msg;
     const traceID = msg.traceID || null;
     const tracePrefix = traceID ? `[${traceID}] ` : '';
-    console.log(`${tracePrefix}[WebMCP] <- native: call_tool ${toolName}`);
-    traceLog(traceID, `[ServiceWorker] 收到 call_tool: ${toolName}`);
+    const workTag = msg.workId ? ` [work:${String(msg.workId).slice(0, 8)}]` : '';
+    console.log(`${tracePrefix}[WebMCP] <- native: call_tool ${toolName}${workTag}`);
+    traceLog(traceID, `[ServiceWorker]${workTag} 收到 call_tool: ${toolName}`);
     let selectedManifest = null;
     try {
       const selected = await getHostAdapterClient().tool(toolName);
