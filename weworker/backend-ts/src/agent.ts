@@ -51,6 +51,7 @@ import { buildRuntimeAllowedLlmBaseUrls, findProviderByWeWorkerBaseUrl } from '.
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
 import { createWeWorkerToolPolicy } from './agent-tool-policy.js'
 import { spawnManagedClaudeCodeProcess } from './claude-process.js'
+import { ensureClaudeTempEnv } from './claude-temp.js'
 import { waitForAdapterRuntimeReload } from './adapter-runtime-reload.js'
 import {
   buildContextAssembly,
@@ -1187,8 +1188,11 @@ async function* streamChatWithBaseUrl(
   // Resolve webcli directory for PATH so Bash can find the `webcli` command
   const webcliDir = resolveWebcliDir()
   const pathPrefix = [webcliDir, path.dirname(process.execPath)].join(path.delimiter)
+  // 内置 PowerShell 工具在 <tmp>/claude 下展开脚本；该目录偶发不可写会让**整轮所有命令**
+  // 一起失败（webcli call 一次都没跑）。这里每轮做一次预检，不可写就换到自有目录。
+  const claudeTemp = ensureClaudeTempEnv(queryEnv, { log: (message) => log.warn(message) })
   const envWithWebcli = {
-    ...queryEnv,
+    ...claudeTemp.env,
     CLAUDE_CODE_EXTRA_BODY: buildThinkingExtraBody(thinkingEffort, queryEnv.CLAUDE_CODE_EXTRA_BODY),
     PATH: `${pathPrefix}${path.delimiter}${queryEnv.PATH || process.env.PATH || ''}`,
     WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),

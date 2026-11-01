@@ -33,6 +33,7 @@ import { generateTitle, generateTitleWithLLM } from '../title-utils.js'
 import * as store from '../works-store.js'
 import { createLogger } from '../logger.js'
 import { createTurnTimingLedger } from '../turn-timing.js'
+import { historyBeforeLastUser, tryRoutedTurn } from '../routed-turn.js'
 
 const log = createLogger('wecom')
 
@@ -52,6 +53,14 @@ function splitMessage(text: string): string[] {
 
 function stripAtMention(content: string): string {
   return content.replace(/@\S+\s?/g, '').trim()
+}
+
+/**
+ * 确定性路由已作答时用它顶掉 `streamChat`：空流让整段模型回合一次都不执行，
+ * 而回合收尾（持久化 / 停流 / 图片）仍走同一条路径，不必复制第二份发送逻辑。
+ */
+async function* noModelEvents(): AsyncGenerator<never> {
+  // 无事件。
 }
 
 export { parseChannelCommand, type ChannelCommand } from './channel-profile.js'
@@ -831,9 +840,33 @@ export class WecomChannel implements Channel {
     const styleId = resolveStyleId(work, settings)
     let chatFailure: unknown = null
 
+    // 确定性路由（共享入口见 routed-turn.ts）：纯查询直接由只读工具作答，省掉整轮模型。
+    // `qa_only` 回合在共享入口内被跳过（那些回合不注册任何工具）；专属 Agent 回合也跳过
+    // ——它有自己的站点/技能边界，路由可能换成别的站点作答。
+    const routed = this._profile.dedicatedAgentId
+      ? null
+      : await tryRoutedTurn({
+          message: text,
+          workId: work.id,
+          chatStartTime: Date.now(),
+          persist: false,
+          channelPermissionMode,
+          // 追问闸门（闸门①b）需要「本轮之前」的历史。
+          history: historyBeforeLastUser(wm.messages),
+          log: (m: string) => log.info(m),
+        })
+    if (routed?.handled) {
+      fullText = routed.text
+      displayText = routed.text
+      assistantContent.push({ type: 'text', text: routed.text })
+      // 路由的 timing 自带 routeTool；不再叠加模型计时。
+      if (routed.timing) assistantContent.push({ type: 'timing', ...routed.timing })
+      log.info(`routed turn — tool=${routed.timing?.routeTool ?? '?'} total=${((routed.timing?.totalMs ?? 0) / 1000).toFixed(2)}s`)
+    }
+
     try {
       const profileOptions = this._profile.chatOptions(userId)
-      for await (const event of streamChat(wm.messages, settings, turn.abortController, {
+      for await (const event of routed?.handled ? noModelEvents() : streamChat(wm.messages, settings, turn.abortController, {
         ...profileOptions,
         // send_image_to_user / send_file_to_user answer this chat, not the last bot user.
         userMedia: createChannelUserMedia(images, assistantContent, async (file) => {
@@ -988,7 +1021,10 @@ export class WecomChannel implements Channel {
 
     // Persist assistant response (tool calls interleaved with text for desktop view)
     if (assistantContent.length > 0) {
-      assistantContent.push({ type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, steps: stepIndex })
+      // 路由回合的 timing 已带 routeTool，用它自己的口径；再叠一条模型计时会把来源抹掉。
+      if (!routed?.handled) {
+        assistantContent.push({ type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, steps: stepIndex })
+      }
       store.appendMessage(work.id, 'assistant', assistantContent)
       store.markExternalWrite()
     }

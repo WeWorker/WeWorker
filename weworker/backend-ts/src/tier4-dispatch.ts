@@ -1,8 +1,14 @@
 /**
- * 第4层分流与即时执行转发（`docs/intelligent_routing_design.md` §2 第 15 行）。
+ * 第4层分流与即时执行转发（`docs/intelligent_routing_architecture.md` §7）。
  *
- * 分流判定（`decideTier4`，纯函数）：siteGate miss **且** 消息含未注册站点的 URL/域名信号
- * **且** env 急停未关。任一不成立 → 第3层（今天的行为；漏判免费）。
+ * 分流判定（`decideExplorationDispatch`，纯函数）：**显式触发契约**命中 **且** 未被站点覆盖
+ * **且** 该执行器急停未关。任一不成立 → 落回第3层/LLM（漏判免费）。
+ *
+ * 与旧判定的差别（旧判定见文末 `decideTier4`，仅作回滚保留）：
+ *   - 旧判定只看「消息里有没有一个未注册域名」，顺手贴链接的普通对话也会被整轮顶掉；
+ *   - 新判定只认 `网站 <URL> 直接查询：<问题>`（或 `!explore <URL> <问题>`），并且先查
+ *     **站点覆盖集**（adapter + 探索固化的 toolkit），已有确定性工具的站点一律不再探索——
+ *     重探的固化会替换目标目录，等于覆盖用户已有工具。
  *
  * 执行（`runWebwrightTaskTurn`）：网站探索agent任务事件 → 既有 chat `SSEEvent` 序列；
  * 超时/中止取消任务；`waiting_for_user` 引导去网站探索agent UI 接管（不是错误）。
@@ -12,6 +18,10 @@
 import type { SSEEvent } from './agent.js'
 import type { SiteGateResult } from './site-gate.js'
 import type { ParsedAdapter } from './adapter-parser.js'
+import { hostOf, isFileExtensionHost, scanUrlTokens } from './exploration-url.js'
+import { isHostCovered, type SiteCoverage } from './exploration-coverage.js'
+import { parseExplorationTrigger } from './exploration-trigger.js'
+import { orderedExplorationProviders, type ExplorationProvider } from './exploration-providers.js'
 import {
   cancelWebwrightTask,
   createWebwrightTask,
@@ -39,50 +49,25 @@ function taskLink(taskId: string): string {
 
 // ─── 站点信号提取（纯）────────────────────────────────────────────────────
 
-/** TLD 为常见文件扩展名的不算站点信号（防「下载 v1.2.zip」误判）。 */
-const FILE_EXTENSION_TLDS = new Set([
-  'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'exe', 'msi', 'dmg', 'pkg', 'apk',
-  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'pdf', 'doc', 'docx',
-  'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt', 'md', 'log', 'js', 'ts', 'py',
-  'json', 'xml', 'html', 'htm', 'css', 'yaml', 'yml',
-])
-
-const URL_RE = /https?:\/\/[^\s<>"'`]+/i
-const BARE_DOMAIN_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b(?::\d{2,5})?(?:\/[^\s<>"'`]*)?/i
-
-function stripTrailingPunctuation(raw: string): string {
-  return raw.replace(/[.,;:!?()[\]{}<>"'`、。，；！？）】…—-]+$/g, '')
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.toLowerCase()
-  } catch {
-    return ''
-  }
-}
-
 /**
  * 提取消息指向的第一个「未注册站点」URL（归一化为含 scheme 的 start_url）；无信号/均为已知站点 → null。
  * 已知站点 = 任何已注册 adapter 的 `match` 条目（含禁用——用户禁用的站点不得绕道第4层复活）。
  *
- * **只认首个信号**（`URL_RE` / `BARE_DOMAIN_RE` 非全局）：消息里先出现已注册站点时，视为「用户
- * 当下说的是这个站点」，不再去找后面的未注册域名。这是刻意的保守取舍——考虑后续域名只会**扩大**
- * 第4层转发面，而漏判的代价只是落回第3层（设计允许的方向）。
+ * **只认原文里最先出现的站点信号**：消息里先出现已注册站点时，视为「用户当下说的是这个站点」，
+ * 不再去找后面的未注册域名（扩大转发面只会增加误触发）。URL 边界统一由 `scanUrlTokens` 处理：
+ * `http://example.com/查询公告` 的 URL 是 `http://example.com/`，不会连着半句话一起成为起点。
+ * 文件扩展名顶层域（`v1.2.zip`）不算站点信号。
+ *
+ * 本函数现在只服务回滚路径（`WEWORKER_EXPLORATION_TRIGGER=legacy`）；正式判定走
+ * `decideExplorationDispatch` 的显式触发契约。
  */
 export function extractUnknownSiteUrl(message: string, knownHosts: Set<string>): string | null {
-  const text = String(message || '')
-  const candidates = [
-    ...(text.match(URL_RE) ?? []).map(stripTrailingPunctuation),
-    ...(text.match(BARE_DOMAIN_RE) ?? []).map(stripTrailingPunctuation),
-  ].filter(Boolean)
-  for (const candidate of candidates) {
-    const withScheme = /^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`
-    const host = hostOf(withScheme)
+  for (const token of scanUrlTokens(String(message ?? ''))) {
+    const host = hostOf(token.url)
     if (!host) continue
-    if (FILE_EXTENSION_TLDS.has(host.slice(host.lastIndexOf('.') + 1))) continue
+    if (isFileExtensionHost(host)) continue
     if (knownHosts.has(host)) continue
-    return withScheme
+    return token.url
   }
   return null
 }
@@ -108,19 +93,149 @@ export interface Tier4Decision {
   reason: string
 }
 
+/**
+ * 不转发的原因。区分到这一层是为了让「这条为什么没走第 4 层」有唯一答案：
+ * `not-explicit`（不是探索指令）、`ambiguous-url-boundary`（URL 边界有残片）、
+ * `covered-by-*`（站点已有确定性能力）、`sitegate-*`（站点门已命中）。
+ */
+export type ExplorationDispatchReason =
+  | 'env-off'
+  | 'not-explicit'
+  | 'missing-url'
+  | 'ambiguous-url-boundary'
+  | 'missing-query-marker'
+  | 'empty-query'
+  | 'covered-by-adapter'
+  | 'covered-by-toolkit'
+  | 'explicit-trigger'
+  | 'force-trigger'
+  | 'legacy-unknown-site'
+
+export interface ExplorationDispatchDecision {
+  dispatch: boolean
+  /** 命中的执行器 id（不转发时为 null）。 */
+  providerId: string | null
+  startUrl: string | null
+  /** 交给执行器的问题正文（不转发时为 null）。 */
+  query: string | null
+  /** true = `!explore` 显式强制，跳过了站点覆盖校验。 */
+  force: boolean
+  reason: ExplorationDispatchReason | string
+}
+
+export type ExplorationTriggerMode = 'strict' | 'legacy'
+
+/**
+ * 触发契约版本。`legacy` = 改动前的启发式判定（消息含未注册站点 URL 即转交），只作回滚用；
+ * 缺省 `strict`。用环境变量而不是配置项：它是事故时的止血阀，不能依赖读盘成功。
+ */
+export function explorationTriggerMode(env: NodeJS.ProcessEnv = process.env): ExplorationTriggerMode {
+  return String(env.WEWORKER_EXPLORATION_TRIGGER ?? '').trim().toLowerCase() === 'legacy' ? 'legacy' : 'strict'
+}
+
+export interface ExplorationDispatchInput {
+  message: string
+  siteGate: SiteGateResult
+  /** 站点覆盖集（已安装 adapter + 探索固化的 toolkit） */
+  coverage: SiteCoverage
+  /** 注册表；缺省用随包默认表 */
+  providers?: readonly ExplorationProvider[]
+  /** 触发契约版本；缺省读 env */
+  mode?: ExplorationTriggerMode
+  /** 回滚路径判断「已注册站点」用 */
+  knownHosts?: ReadonlySet<string>
+  env?: NodeJS.ProcessEnv
+}
+
+function skip(reason: ExplorationDispatchReason | string): ExplorationDispatchDecision {
+  return { dispatch: false, providerId: null, startUrl: null, query: null, force: false, reason }
+}
+
+/**
+ * 第 4 层分流判定（纯函数，不派发、不读盘）。
+ *
+ * 严格模式的两道条件**同时**成立才转交：
+ *   ① 显式触发契约命中——`网站 <URL> 直接查询：<问题>`，或 `!explore <URL> <问题>`；
+ *   ② 站点未被覆盖——adapter / 探索固化的 toolkit 都没有接管它（`!explore` 显式豁免这一条，
+ *      因为那是用户亲手要求重探，且是唯一能更新既有固化包的入口）。
+ *
+ * 顺序也重要：先判触发再判覆盖。反过来的话，`网站 https://已覆盖站点 直接查询：…` 会以
+ * 「已覆盖」为由静默落回 LLM，用户看不出自己写的指令被谁的规则吃掉了。
+ */
+export function decideExplorationDispatch(
+  input: ExplorationDispatchInput,
+): ExplorationDispatchDecision {
+  const env = input.env ?? process.env
+  const mode = input.mode ?? explorationTriggerMode(env)
+  if (mode === 'legacy') return decideLegacyDispatch(input, env)
+
+  const providers = orderedExplorationProviders(input.providers)
+  if (!providers.length) return skip('not-explicit')
+
+  let reason: ExplorationDispatchReason | string = 'not-explicit'
+  for (const provider of providers) {
+    if (env[provider.killSwitchEnv] === '0') {
+      reason = 'env-off'
+      continue
+    }
+    const trigger = parseExplorationTrigger(input.message, provider.trigger)
+    if (!trigger.ok) {
+      reason = trigger.reason
+      continue
+    }
+    if (!trigger.request.force) {
+      if (input.siteGate.reason !== 'miss') return skip(`sitegate-${input.siteGate.reason}`)
+      const covered = isHostCovered(trigger.request.startUrl, input.coverage)
+      if (covered.covered) return skip(`covered-by-${covered.by}`)
+    }
+    return {
+      dispatch: true,
+      providerId: provider.id,
+      startUrl: trigger.request.startUrl,
+      query: trigger.request.query,
+      force: trigger.request.force,
+      reason: trigger.request.force ? 'force-trigger' : 'explicit-trigger',
+    }
+  }
+  return skip(reason)
+}
+
+/** 回滚路径：改动前的启发式判定，逐字保留其语义（含「整条消息作为指令」）。 */
+function decideLegacyDispatch(
+  input: ExplorationDispatchInput,
+  env: NodeJS.ProcessEnv,
+): ExplorationDispatchDecision {
+  if (env.WEWORKER_TIER4 === '0') return skip('env-off')
+  // 显式 CLI 请求属于 chat Agent，它自己持有 exploration.*；这里不能截走整轮。
+  // 漏判只保住 chat，绝不会授予工具权限。
+  if (/\bwebcli\b|\bexploration\.[a-z-]+\b|\bbrowser\.open\b/i.test(input.message)) return skip('explicit-webcli')
+  if (input.siteGate.reason !== 'miss') return skip(`sitegate-${input.siteGate.reason}`)
+  const startUrl = extractUnknownSiteUrl(input.message, new Set(input.knownHosts ?? []))
+  if (!startUrl) return skip('no-unknown-site-signal')
+  return {
+    dispatch: true,
+    providerId: 'webwright',
+    startUrl,
+    query: input.message,
+    force: false,
+    reason: 'legacy-unknown-site',
+  }
+}
+
+/**
+ * @deprecated 回滚入口，等价于 `WEWORKER_EXPLORATION_TRIGGER=legacy`。
+ * 新代码一律用 `decideExplorationDispatch`；保留本函数只为让旧回归用例与旧调用方不炸。
+ */
 export function decideTier4(
   message: string,
   siteGate: SiteGateResult,
   allAdapters: Map<string, ParsedAdapter>,
 ): Tier4Decision {
-  if (process.env.WEWORKER_TIER4 === '0') return { dispatch: false, startUrl: null, reason: 'env-off' }
-  // Explicit CLI requests belong to the chat Agent, which owns exploration.*.
-  // A false negative here only preserves chat; it never grants tool permission.
-  if (/\bwebcli\b|\bexploration\.[a-z-]+\b|\bbrowser\.open\b/i.test(message)) return { dispatch: false, startUrl: null, reason: 'explicit-webcli' }
-  if (siteGate.reason !== 'miss') return { dispatch: false, startUrl: null, reason: `sitegate-${siteGate.reason}` }
-  const startUrl = extractUnknownSiteUrl(message, buildKnownHosts(allAdapters))
-  if (!startUrl) return { dispatch: false, startUrl: null, reason: 'no-unknown-site-signal' }
-  return { dispatch: true, startUrl, reason: 'unknown-site' }
+  const decision = decideLegacyDispatch(
+    { message, siteGate, coverage: { hosts: new Map() }, knownHosts: buildKnownHosts(allAdapters) },
+    process.env,
+  )
+  return { dispatch: decision.dispatch, startUrl: decision.startUrl, reason: decision.reason }
 }
 
 // ─── 即时执行回合（async generator）──────────────────────────────────────
