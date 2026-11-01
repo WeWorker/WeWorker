@@ -64,7 +64,7 @@ Claude Code 原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具
 用户也可以在聊天输入框中输入 `!<命令>`，通过当前平台默认 Shell（{{default_shell}}）直接执行，执行结果会进入当前对话上下文，不会再交给 AI 判断。
 当你需要用户自己执行某条本地命令或 webcli 命令时，请把命令写成以 `!` 开头的代码块，例如：
 ```bash
-!webcli call open_browser --url=http://jd.com
+!webcli call open_browser --url=http://jd.com --adapter=jd.com
 ```
 前端会自动为这种 `!` 命令显示“复制”和“执行”按钮：用户点击“复制”会复制命令，点击“执行”会直接执行命令，不会再次发送给 AI。
 不要只给普通命令；需要用户执行时必须包含 `!` 前缀。

@@ -806,6 +806,39 @@ it('requires control capability before observation and validation with no fallba
 });
 
 
+it('gates frame observation and validation and never treats a child route as the task tab', async () => {
+  const capabilities = ['passive_exploration_v1', 'page_sources_v1', 'page_query_v1', 'page_workflow_v1', 'page_navigation_origin_v1', 'strict_output_contract_v1'];
+  const f = setup({ capabilities: () => ({ connected: true, capabilities }) });
+  const started = await f.service.execute('start', { tabId: 7, goal: 'Public frame read', requestId: 'example-frame-read', allowedOrigins: ['https://example.org'] });
+  const taskId = started.data.taskId; await f.service.jobs.get(taskId);
+  const source = { mode: 'workflow', steps: [
+    { pathname: '/list', query: { mode: 'read', result: { strategy: 'DOM_STATE', path: ['publicRows'] } } },
+    { frames: [{ selector: '#owner', origin: 'https://example.org', pathname: '/child' }], pathname: '/child', query: { mode: 'read', result: { strategy: 'DOM_STATE', path: ['publicRows'] } } },
+  ] };
+  const args = { taskId, source, reason: 'Read explicitly declared public frame' };
+  expect((await f.service.execute('query', args)).error.code).toBe('CAPABILITY_UNAVAILABLE');
+  expect(f.requestExtension.mock.calls.some(([m]) => m.type === 'exploration_page_query')).toBe(false);
+  capabilities.push('page_workflow_frames_v1');
+  const original = f.requestExtension.getMockImplementation(); let moved = false;
+  f.requestExtension.mockImplementation(message => {
+    if (message.type === 'exploration_page_query') return { ok: true, shape: { type: 'object' } };
+    if (moved && message.type === 'exploration_list_tabs') return { tabs: [{ id: 7, url: 'https://example.org/child' }] };
+    return original(message);
+  });
+  expect((await f.service.execute('query', args)).ok).toBe(true); await f.service.jobs.get(taskId);
+  const evidence = (await f.service.execute('evidence', { taskId })).data;
+  const generated = await f.service.execute('generate', { taskId, plan: { tools: [{ name: 'read_frames', risk: 'read', strategy: 'UI_SELECTOR', sourcePageId: evidence.pageSources[0].id, readReason: 'Read public child' }] } });
+  expect(generated.ok).toBe(true); const tool = generated.data.toolNames[0];
+  const before = (await f.service.execute('verification-read', { taskId, tool })).data;
+  expect((await f.service.execute('verification-write', { taskId, tool, expectedHash: before.hash, cases: [{ id: 'frame-case', args: {}, expect: { requiredPaths: ['data'] } }] })).ok).toBe(true);
+  capabilities.pop(); expect((await f.service.execute('validate', { taskId })).error.code).toBe('CAPABILITY_UNAVAILABLE');
+  expect(f.runtimeValidator).not.toHaveBeenCalled();
+  capabilities.push('page_workflow_frames_v1');
+  expect((await f.service.execute('validate', { taskId })).ok).toBe(true); await f.service.jobs.get(taskId);
+  expect((await f.service.execute('get', { taskId })).data.status).toBe('review_ready');
+  moved = true; await expect(f.service.checkTab(f.service.runs.get(taskId))).rejects.toMatchObject({ code: 'TAB_CHANGED' });
+});
+
 it('requires declared task origins for page navigation and limits cross-origin task checks to explicit read routes', async () => {
   const capabilities = ['passive_exploration_v1', 'page_sources_v1', 'page_query_v1', 'page_navigation_v1'];
   const f = setup({ capabilities: () => ({ connected: true, capabilities }) });
@@ -831,4 +864,22 @@ it('requires declared task origins for page navigation and limits cross-origin t
   await expect(f.service.checkTab(run)).rejects.toMatchObject({ code: 'TAB_CHANGED' });
   await expect(f.service.checkTab(run, [{ origin: 'https://example.org', pathname: '/different' }])).rejects.toMatchObject({ code: 'TAB_CHANGED' });
   expect((await f.service.checkTab(run, [{ origin: 'https://example.org', pathname: '/items/:id' }])).id).toBe(7);
+});
+
+it('returns explicit reuse and rejects a changed plan without modifying the draft',async()=>{
+ const f=setup();const taskId=await start(f.service);
+ const plan={tools:[{name:'list_items',purpose:'Read items',risk:'read',sourceApiKind:'list',sourceApiIndexes:[0]}]};
+ expect((await f.service.execute('generate',{taskId,plan})).ok).toBe(true);
+ const before=(await f.service.execute('draft-read',{taskId})).data;
+ expect((await f.service.execute('generate',{taskId,plan})).data.generation).toMatchObject({reused:true,applied:false});
+ const changed=structuredClone(plan);changed.tools[0].name='renamed_items';
+ expect((await f.service.execute('generate',{taskId,plan:changed})).error.code).toBe('PLAN_CONFLICT');
+ expect((await f.service.execute('draft-read',{taskId})).data.draftHash).toBe(before.draftHash);
+ expect(before.helperContract.PAGE_FETCH.fetchGet).toContain('parsedResponseBody');
+ f.service.runs.get(taskId).verificationWarnings={'example.com.list-items':[{code:'VERIFICATION_CHANGED'}]};
+ expect((await f.service.execute('replan',{taskId,expectedDraftHash:before.draftHash,reason:'Use a meaningful final name'})).ok).toBe(true);
+ expect(f.service.runs.get(taskId).verificationWarnings).toEqual({});
+ expect(f.service.runs.get(taskId).generationRequestDigest).toBeNull();
+ expect((await f.service.execute('revisions',{taskId})).data.revisions[0].verificationWarnings['example.com.list-items'][0].code).toBe('VERIFICATION_CHANGED');
+ expect((await f.service.execute('generate',{taskId,plan:changed})).data.toolNames).toContain('example.com.renamed-items');
 });

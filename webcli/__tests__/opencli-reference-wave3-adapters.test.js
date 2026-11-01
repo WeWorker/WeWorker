@@ -64,7 +64,6 @@ describe('Wikipedia business contracts',()=>{
     const [r]=await s.run('summary',{title:'Example / name'});
     expect(r).toMatchObject({extract_length:301,extract_truncated:true,content_scope:'lead_summary',description:null,article_type:'disambiguation'});
     expect(r.extract).toHaveLength(300);expect(s.calls[0].url).toContain('Example_%2F_name');
-    await s.run('random');expect(s.calls[1].url).toContain('/page/random/summary');
   });
   it('preserves full API text by default and marks explicit paragraph truncation',async()=>{
     const s=setup('wikipedia.org',{query:{pages:[{title:'Resolved fixture',pageid:42,extract:'one\n\ntwo\n\nthree'}]}});
@@ -73,15 +72,22 @@ describe('Wikipedia business contracts',()=>{
     expect(new URL(s.calls[0].url).searchParams.get('redirects')).toBe('1');
     await expect(s.run('page',{title:'fixture',paragraphs:true})).rejects.toMatchObject({code:'INVALID_ARGS'});
   });
-  it('follows only bounded same-language random-summary redirects',async()=>{
-    const s=setup('wikipedia.org',{title:'Fixture',extract:'Summary'},(_args,count)=>count===1?{ok:false,status:302,headers:{location:'/api/rest_v1/page/summary/Fixture'}}:{});
-    expect((await s.run('random'))[0].title).toBe('Fixture');expect(s.calls).toHaveLength(2);
-    for(const location of ['https://example.org/api/rest_v1/page/summary/Fixture','https://zh.wikipedia.org/api/rest_v1/page/summary/Fixture','/w/api.php','/api/rest_v1/page/summary/Fixture?redirect=1']){
-      const bad=setup('wikipedia.org',{}, {ok:false,status:302,headers:{location}});
-      await expect(bad.run('random')).rejects.toMatchObject({code:'HTTP_ERROR'});expect(bad.calls).toHaveLength(1);
+  it('fetches one random article lead without a redirect or business page', async()=>{
+    const s=setup('wikipedia.org',{query:{pages:[{title:'Fixture',extract:'x'.repeat(301),description:'Example',pageprops:{disambiguation:''}}]}});
+    const [row]=await s.run('random',{lang:'zh'});
+    expect(row).toMatchObject({title:'Fixture',article_type:'disambiguation',extract_truncated:true,extract_length:301,content_scope:'lead_summary'});
+    const u=new URL(s.calls[0].url);
+    expect(u.origin).toBe('https://zh.wikipedia.org');expect(u.pathname).toBe('/w/api.php');
+    expect(Object.fromEntries(u.searchParams)).toMatchObject({generator:'random',grnnamespace:'0',grnlimit:'1',grnfilterredir:'nonredirects',exintro:'1',explaintext:'1'});
+    expect(s.calls[0]).toMatchObject({action:'backend_fetch',browserFallback:false,options:{redirect:'manual'}});
+    expect(s.calls).toHaveLength(1);
+  });
+  it('rejects random API redirects and malformed random results',async()=>{
+    const redirected=setup('wikipedia.org',{}, {ok:false,status:302,headers:{location:'/api/rest_v1/page/summary/Fixture'}});
+    await expect(redirected.run('random')).rejects.toMatchObject({code:'HTTP_ERROR'});expect(redirected.calls).toHaveLength(1);
+    for(const [pages,code] of [[[], 'NOT_FOUND'],[[null], 'PARSE_ERROR'],[[{missing:''}], 'NOT_FOUND'],[[{title:'Fixture',extract:''}], 'EMPTY_RESULT'],[[{title:'Fixture'}], 'PARSE_ERROR'],[[{title:'A'},{title:'B'}], 'PARSE_ERROR']]) {
+      await expect(setup('wikipedia.org',{query:{pages}}).run('random')).rejects.toMatchObject({code});
     }
-    const cycle=setup('wikipedia.org',{}, {ok:false,status:302,headers:{location:'/api/rest_v1/page/summary/Fixture'}});
-    await expect(cycle.run('random')).rejects.toMatchObject({code:'HTTP_ERROR'});expect(cycle.calls).toHaveLength(3);
   });
   it('distinguishes missing articles, missing extracts and explicit empty extracts',async()=>{
     for(const [page,code]of [[{missing:true},'NOT_FOUND'],[{title:'Fixture'},'PARSE_ERROR'],[{title:'Fixture',extract:''},'EMPTY_RESULT']]){

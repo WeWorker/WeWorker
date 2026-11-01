@@ -1,5 +1,7 @@
 # OpenCLI 管理与分发能力审计
 
+2026-10-28 更新：本轮验证/诊断增量见 [U01 专项](opencli_u01_verification.md)。`adapter verify` 统一当前静态包检查与显式选定知识源的历史证据摘要，支持 legacy/Toolkit 无执行诊断；`adapter source` 从本地固定 Git commit 发现 v2 子包，显式 path/digest 安装复用原 store。源码/打包和 npm 实际结果见交接。下表为 10-18 审计起点，不能把其“缺入口”解释为当前仍无实现；远程 Git/TS 插件生命周期、Toolkit 真运行仍保留。
+
 2026-10-18，对照官方 1.8.8 发布包实际 `cli.js`、`validate.js`、`verify.js`、`convention-audit.js`、`skills.js` 与本项目源码。接口存在不代表实际验收；下列差距保持开放，不以本表代替逐项实现/实机验证。上游文件仅作审计，未复制业务实现。
 
 | 子项 | 本项目可复用能力 | 实际差距和当前工作 |

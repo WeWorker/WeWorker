@@ -17,8 +17,9 @@ import { ProbeError, probeExistingWecomSocket } from './channel-probe.js'
 import { randomUUID } from 'node:crypto'
 import crypto from 'node:crypto'
 
-import type { Channel, ChannelStatus } from './channel-manager.js'
+import type { Channel, ChannelImage, ChannelStatus } from './channel-manager.js'
 import { runChannelChat } from './channel-manager.js'
+import { siteAuthChannelNotifier } from './site-auth-notifier.js'
 import { streamChat } from '../agent.js'
 import { createChannelUserMedia, userFileBlock } from '../user-media.js'
 import { resolveStyleId } from '../style-settings.js'
@@ -185,6 +186,27 @@ export class WecomChannel implements Channel {
     log.info(`notification sent to explicit target (${target.chatType})`)
   }
 
+  async sendImageToTarget(target: { id: string; chatType: 1 | 2 }, image: ChannelImage): Promise<void> {
+    const chatId = String(target?.id ?? '').trim()
+    if (!chatId) throw new Error('图片通知目标无效')
+    if (target.chatType !== 1 && target.chatType !== 2) throw new Error('图片通知目标类型无效')
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) throw new Error('企业微信 WebSocket 未连接')
+    if (!Buffer.isBuffer(image.data) || image.data.length === 0) throw new Error('图片内容为空')
+    const mediaId = await this._uploadImage(image.data.toString('base64'), image.filename)
+    if (!mediaId) throw new Error('图片上传失败')
+    this._send({
+      cmd: 'aibot_send_msg',
+      headers: { req_id: randomUUID() },
+      body: {
+        chatid: chatId,
+        chat_type: target.chatType,
+        msgtype: 'image',
+        image: { media_id: mediaId },
+      },
+    })
+    log.info(`image notification sent to explicit target (${target.chatType}), media_id=${mediaId}`)
+  }
+
   private _send(data: object): void {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify(data))
@@ -197,8 +219,9 @@ export class WecomChannel implements Channel {
    *
    * Flow: aibot_upload_media_init → aibot_upload_media_chunk(s) → aibot_upload_media_finish
    */
-  private async _uploadImage(base64Data: string): Promise<string | null> {
+  private async _uploadImage(base64Data: string, filename = `screenshot_${Date.now()}.jpg`): Promise<string | null> {
     const imgBuf = Buffer.from(base64Data, 'base64')
+    const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) || `screenshot_${Date.now()}.jpg`
     const md5 = crypto.createHash('md5').update(imgBuf).digest('hex')
     const totalSize = imgBuf.length
     const CHUNK_SIZE = 128 * 1024 // 128KB raw → ~170KB base64 (conservative for WS frame limits)
@@ -213,7 +236,7 @@ export class WecomChannel implements Channel {
       headers: { req_id: initReqId },
       body: {
         type: 'image',
-        filename: `screenshot_${Date.now()}.jpg`,
+        filename: safeFilename,
         total_size: totalSize,
         total_chunks: totalChunks,
         md5,
@@ -733,6 +756,8 @@ export class WecomChannel implements Channel {
     const assistantContent: store.ContentBlock[] = []
     const toolCallMap = new Map<string, { name: string; args: unknown; thinkMs?: number }>()
     let fullText = ''
+    let displayText = ''
+    let separateNextModelText = false
     let currentTextChunk = ''
     const images: string[] = []
     let lastStreamTime = Date.now()
@@ -746,14 +771,28 @@ export class WecomChannel implements Channel {
 
     // Helper: flush accumulated text to WeCom stream
     const flushText = () => {
-      if (!fullText) return
+      if (!displayText) return
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: streamId, finish: false, content: fullText } },
+        body: { msgtype: 'stream', stream: { id: streamId, finish: false, content: displayText } },
       })
       lastStreamTime = Date.now()
     }
+
+    const authTarget = {
+      id: chatType === 'single' ? userId : (chatId ?? userId),
+      chatType: chatType === 'single' ? 1 as const : 2 as const,
+    }
+    const authTurn = siteAuthChannelNotifier.registerTurn({
+      channelKey,
+      sendText: async (message) => {
+        displayText += `${displayText ? '\n\n' : ''}${message}`
+        separateNextModelText = true
+        flushText()
+      },
+      sendImage: (image) => this.sendImageToTarget(authTarget, image),
+    })
 
     // Set up ask_user handler for channel mode
     const askUserHandler = async (question: string, options: Array<{ label: string; description?: string }>) => {
@@ -813,6 +852,11 @@ export class WecomChannel implements Channel {
           assistantContent.push(event.skillContext)
         } else if (event.type === 'text_delta' && event.content) {
           fullText += event.content
+          if (separateNextModelText) {
+            displayText += '\n\n'
+            separateNextModelText = false
+          }
+          displayText += event.content
           currentTextChunk += event.content
           // Flush to WeCom periodically to avoid flooding
           if (Date.now() - lastStreamTime >= STREAM_INTERVAL_MS) {
@@ -829,6 +873,7 @@ export class WecomChannel implements Channel {
             assistantContent.push({ type: 'text', text: currentTextChunk })
             currentTextChunk = ''
           }
+          authTurn.observeToolCall(event.id, event.name, event.args)
           const cleanName = resolveToolDisplayName(event.name ?? '')
           // Dedup + capture think time (streaming emits tool_call_start twice per call)
           const isNew = !seenToolIds.has(event.id)
@@ -848,12 +893,13 @@ export class WecomChannel implements Channel {
           this._send({
             cmd: 'aibot_respond_msg',
             headers: { req_id: reqId },
-            body: { msgtype: 'stream', stream: { id: streamId, finish: false, content: fullText + `\n🔧 ${cleanName}...` } },
+            body: { msgtype: 'stream', stream: { id: streamId, finish: false, content: displayText + `\n🔧 ${cleanName}...` } },
           })
           lastStreamTime = Date.now()
         } else if (event.type === 'tool_call_result' && event.id) {
           const started = toolCallMap.get(event.id)
           const toolDuration = turnTiming.toolSettled(event.id) ?? 0
+          authTurn.finishToolCall(event.id)
           assistantContent.push({
             type: 'tool_use',
             id: event.id,
@@ -867,6 +913,7 @@ export class WecomChannel implements Channel {
         } else if (event.type === 'tool_call_image' && event.data) {
           // 只回图片的工具没有 result 事件：同样结算，避免其耗时漏进 llm。
           const imageToolDuration = event.id ? turnTiming.toolObserved(event.id) : undefined
+          if (event.id) authTurn.finishToolCall(event.id)
           images.push(event.data)
           if (assistantContent.length > 0) {
             const last = assistantContent[assistantContent.length - 1]
@@ -876,7 +923,11 @@ export class WecomChannel implements Channel {
             }
           }
         } else if (event.type === 'error' && event.content) {
-          fullText = event.content
+          const modelAddition = `${fullText ? '\n\n' : ''}${event.content}`
+          const displayAddition = `${displayText ? '\n\n' : ''}${event.content}`
+          fullText += modelAddition
+          displayText += displayAddition
+          currentTextChunk += modelAddition
           break
         } else if (event.type === 'done') {
           break
@@ -888,6 +939,8 @@ export class WecomChannel implements Channel {
         log.error('chat error:', e)
         chatFailure = e
       }
+    } finally {
+      authTurn.close()
     }
     if (turn.abortController.signal.aborted) {
       if (assistantContent.length > 0 || currentTextChunk.trim()) {
@@ -899,7 +952,7 @@ export class WecomChannel implements Channel {
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: streamId, finish: true, content: `${fullText ? `${fullText}\n\n` : ''}（已停止）` } },
+        body: { msgtype: 'stream', stream: { id: streamId, finish: true, content: `${displayText ? `${displayText}\n\n` : ''}（已停止）` } },
       })
       return
     }
@@ -908,7 +961,7 @@ export class WecomChannel implements Channel {
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: streamId, finish: true, content: `处理失败：${e instanceof Error ? e.message : String(e)}` } },
+        body: { msgtype: 'stream', stream: { id: streamId, finish: true, content: `${displayText ? `${displayText}\n\n` : ''}处理失败：${e instanceof Error ? e.message : String(e)}` } },
       })
       return
     }
@@ -940,10 +993,11 @@ export class WecomChannel implements Channel {
       store.markExternalWrite()
     }
 
-    // Send final response via stream finish
-    if (fullText) {
+    // Send final response via stream finish. Login notices are display-only and
+    // deliberately excluded from the persisted model response above.
+    if (displayText) {
       // For long messages, split and send as stream updates
-      const chunks = splitMessage(fullText)
+      const chunks = splitMessage(displayText)
       for (let i = 0; i < chunks.length; i++) {
         const isLast = i === chunks.length - 1 && images.length === 0
         this._send({
@@ -963,7 +1017,7 @@ export class WecomChannel implements Channel {
     // Send images via upload + aibot_send_msg (stream mode only supports text)
     if (images.length > 0) {
       // Finish the stream first if still open
-      if (!fullText) {
+      if (!displayText) {
         this._send({
           cmd: 'aibot_respond_msg',
           headers: { req_id: reqId },

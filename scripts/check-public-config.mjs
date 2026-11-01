@@ -2,6 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const PUBLIC_SITE_URL = 'https://www.weworker.cc'
+const PUBLIC_DOWNLOAD_URL = `${PUBLIC_SITE_URL}/download/`
+const PUBLIC_REPO_URL = 'https://github.com/WeWorker/WeWorker'
+const PUBLIC_RELEASES_URL = `${PUBLIC_REPO_URL}/releases`
+const PUBLIC_UPDATE_URL = `${PUBLIC_RELEASES_URL}/latest/download/`
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'))
 }
@@ -58,6 +64,63 @@ export function validatePublicConfig(repoRoot) {
   const downloadConfig = fs.readFileSync(path.join(repoRoot, 'officialWeb', 'src', 'lib', 'downloadConfig.js'), 'utf8')
   if (!downloadConfig.includes(`APP_VERSION = '${publicVersion}'`)) {
     errors.push(`officialWeb APP_VERSION must be ${publicVersion}`)
+  }
+
+  const deployment = readJson(path.join(repoRoot, 'weworker', 'deployment.json'))
+  if (deployment.officialUrl !== PUBLIC_SITE_URL) {
+    errors.push(`public officialUrl must be ${PUBLIC_SITE_URL}`)
+  }
+  if (deployment.downloadUrl !== PUBLIC_DOWNLOAD_URL) {
+    errors.push(`public downloadUrl must be ${PUBLIC_DOWNLOAD_URL}`)
+  }
+  if (deployment.githubUrl !== PUBLIC_UPDATE_URL) {
+    errors.push(`public githubUrl must be ${PUBLIC_UPDATE_URL}`)
+  }
+
+  const desktopPackage = readJson(path.join(repoRoot, 'weworker', 'package.json'))
+  if (desktopPackage.build?.publish?.[0]?.url !== PUBLIC_UPDATE_URL) {
+    errors.push(`desktop publish URL must be ${PUBLIC_UPDATE_URL}`)
+  }
+
+  const publicUrlSources = [
+    ['weworker/electron/update-manager.js', 'url: DEPLOYMENT.githubUrl'],
+    ['weworker/renderer/src/components/settings/SettingsModal.jsx', 'deploymentConfig.githubUrl'],
+    ['weworker/scripts/build-electron-current-arch.cjs', 'url: deployment.githubUrl'],
+    ['officialWeb/src/lib/siteConfig.js', `OFFICIAL_SITE = '${PUBLIC_SITE_URL}'`],
+    ['officialWeb/src/lib/siteConfig.js', `GITHUB_REPO = '${PUBLIC_REPO_URL}'`],
+    ['officialWeb/index.html', `${PUBLIC_SITE_URL}/`],
+    ['officialWeb/index.html', `${PUBLIC_SITE_URL}/logo.png`],
+    ['docs/assets/social-preview.html', '../../officialWeb/public/logo.png'],
+    ['docs/assets/social-preview.svg', 'data:image/png;base64,'],
+  ]
+  for (const [relativePath, expected] of publicUrlSources) {
+    const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+    if (!content.includes(expected)) errors.push(`${relativePath} must reference ${expected}`)
+  }
+
+  const socialPreviewSvg = fs.readFileSync(path.join(repoRoot, 'docs', 'assets', 'social-preview.svg'), 'utf8')
+  const embeddedLogo = socialPreviewSvg.match(/href="data:image\/png;base64,([^"]+)"/)?.[1]
+  const publicLogo = fs.readFileSync(path.join(repoRoot, 'officialWeb', 'public', 'logo.png'))
+  if (!embeddedLogo) {
+    errors.push('docs/assets/social-preview.svg must embed the public logo')
+  } else if (!Buffer.from(embeddedLogo, 'base64').equals(publicLogo)) {
+    errors.push('docs/assets/social-preview.svg embedded logo must match officialWeb/public/logo.png')
+  }
+
+  const updaterSource = fs.readFileSync(path.join(repoRoot, 'weworker', 'electron', 'update-manager.js'), 'utf8')
+  if (updaterSource.includes('url: DEPLOYMENT.downloadUrl')) {
+    errors.push('desktop updater must not use the website download page as a metadata source')
+  }
+
+  const retiredReferences = [
+    ['weworker/deployment.json', '/releases/download/latest/'],
+    ['docs/github-repo-settings.md', 'github.com/aiceflower/WeWorker'],
+    ['docs/assets/social-preview.html', 'github.com/aiceflower/WeWorker'],
+    ['docs/assets/social-preview.svg', 'github.com/aiceflower/WeWorker'],
+  ]
+  for (const [relativePath, retired] of retiredReferences) {
+    const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
+    if (content.includes(retired)) errors.push(`${relativePath} still references retired address ${retired}`)
   }
 
   // webcli ships to npm on its own release cadence, so its version is decoupled

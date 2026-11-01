@@ -1,3 +1,4 @@
+import { inspectLocalUpload } from './upload-files.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { browserCommands, browserHelp, isBrowserObserver } from './browser-commands.js';
@@ -52,6 +53,7 @@ export class BrowserService {
   }
   async send(command, args, tabId, identity) {
     if (!this.capabilities().capabilities.includes('browser_commands_v1')) throw fail('EXTENSION_UPGRADE_REQUIRED', 'Reload the extension built from this branch to enable browser commands.');
+    if(command==='upload'&&(args.directory||args.chooser)&&!this.capabilities().capabilities.includes('browser_upload_extended_v1'))throw fail('EXTENSION_UPGRADE_REQUIRED','Reload the selected extension for directory and chooser uploads.');
     if(command==='upload'&&!this.capabilities().capabilities.includes('browser_upload_target_v1'))throw fail('EXTENSION_UPGRADE_REQUIRED','Reload the extension to upload to retained frame/shadow targets with verification.');
     if((args.compound!==undefined||args.property==='compound'||args.as!==undefined||['depth','childrenMax','textMax','maxNodes','by'].some(key=>args[key]!==undefined))&&!this.capabilities().capabilities.includes('browser_compound_v1'))throw fail('EXTENSION_UPGRADE_REQUIRED','Reload the extension to inspect compound controls, structured HTML or select by an explicit match mode.');
     if((args.shadow!==undefined||String(args.ref||'').startsWith('shadow:'))&&!this.capabilities().capabilities.includes('browser_shadow_query_v1'))throw fail('EXTENSION_UPGRADE_REQUIRED','Reload the extension to query open shadow roots or operate their references.');
@@ -106,16 +108,11 @@ export class BrowserService {
     if (!(await this.tabs()).some(tab => tab.id === binding.tabId)) throw fail('TAB_NOT_FOUND', 'The session tab was closed. Unbind and choose another tab.');
     if (command === 'back' && !binding.owned) throw fail('BOUND_TAB_NAVIGATION', 'Back is available only for session-owned tabs.');
     if (command === 'upload') {
-      if (!Array.isArray(args.paths) || !args.paths.length || args.paths.length > 20) throw fail('INVALID_ARGUMENT', 'paths must contain 1–20 absolute file paths.');
-      const files=[];
-      for (const file of args.paths) {
-        if (typeof file !== 'string' || !path.isAbsolute(file)) throw fail('INVALID_ARGUMENT', 'Each upload path must be absolute.');
-        let stat; try { stat = fs.statSync(file); } catch { throw fail('FILE_UNAVAILABLE', 'An upload file is unavailable.'); }
-        if (!stat.isFile()) throw fail('INVALID_ARGUMENT', 'Upload paths must point to regular files.');
-        files.push({name:path.basename(file),size:stat.size});
-      }
+      for (const key of ['directory','chooser']) if (args[key] !== undefined && ![true,false,'true','false'].includes(args[key])) throw fail('INVALID_ARGUMENT', key+' must be boolean.');
+      const directory = args.directory === true || args.directory === 'true', chooser = args.chooser === true || args.chooser === 'true';
+      const files = inspectLocalUpload(args.paths, directory);
       const {session:ignored,...params}=args;
-      return{session,tabId:binding.tabId,...await this.send(command,{...params,_uploadFiles:files},binding.tabId,binding.identity)};
+      return{session,tabId:binding.tabId,...await this.send(command,{...params,directory,chooser,_uploadFiles:files},binding.tabId,binding.identity)};
     }
     if(command==='screenshot'&&args.path!==undefined){
       if(typeof args.path!=='string'||!path.isAbsolute(args.path))throw fail('INVALID_ARGUMENT','Screenshot path must be absolute.');

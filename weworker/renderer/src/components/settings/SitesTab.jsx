@@ -65,7 +65,7 @@ export default function SitesTab({ onClose }) {
       >
         <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>场景总览</span>
         {' '}在对话区点击标题栏四宫格按钮，右侧查看各网站场景。{' '}
-        <button
+        <button data-app-button="action"
           type="button"
           onClick={openCapabilitiesInChat}
           style={{

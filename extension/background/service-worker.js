@@ -8,12 +8,13 @@ import { buildV2Bootstrap, v2CommandDefs, v2InjectionFiles } from "./v2-loader.j
 import { injectAdapterSources } from './adapter-script-loader.js';
 import { createPackagedAdapterMatcher, injectPackagedAdapter } from './packaged-adapter-loader.js';
 import { createHostAdapterClient } from './host-adapter-client.js';
-import { createHostAdapterRuntime, assertAdapterNavigationUrl, createNavigationGuard, navigateAdapterTab } from './host-adapter-runtime.js';
+import { createHostAdapterRuntime, assertAdapterNavigationUrl, createNavigationGuard, navigateAdapterTab, waitForAdapterPageRecovery } from './host-adapter-runtime.js';
 import {
   adapterHelperPatterns,
   adapterPrimaryHost,
   createRouteRedirects,
   hostMatchesPattern,
+  isAdapterPageHost,
   pickRecentScopeTab,
   pickRouteTab,
 } from './host-scope.js';
@@ -95,11 +96,14 @@ const EXTENSION_CAPABILITIES = [
   'browser_downloads_v1',
   'browser_frame_pointer_v1',
   'browser_events_v1',
+  'browser_diagnostics_v1',
   'browser_accessibility_v1',
   'browser_screenshot_v1',
   'browser_shadow_query_v1',
   'browser_compound_v1',
   'browser_upload_target_v1',
+  'browser_upload_extended_v1',
+  'ui_write_choices_v1',
   'strict_output_contract_v1',
   'page_sources_v1',
   'intercept_read_v1',
@@ -108,10 +112,13 @@ const EXTENSION_CAPABILITIES = [
   'page_navigation_query_v1',
   'page_navigation_hash_v1',
   'page_workflow_v1',
+  'page_workflow_frames_v1',
   'page_workflow_control_v1',
   'page_navigation_origin_v1',
   'page_write_v1',
   'ui_write_v1',
+  'ui_write_controls_v2',
+  'write_results_v2',
   'ui_write_result_v1',
 ];
 
@@ -304,7 +311,7 @@ const cdpExecutionContexts = new Map();
 const CDP_NETWORK_ENTRY_LIMIT = 200;
 const CDP_RESPONSE_PREVIEW_LIMIT = 4000;
 const CDP_REQUEST_PREVIEW_LIMIT = 2000;
-const ADAPTER_RESPONSE_CAPTURE_LIMIT = 8 * 1024 * 1024;
+const ADAPTER_RESPONSE_CAPTURE_LIMIT = 32 * 1024 * 1024;
 const ADAPTER_CAPTURE_ENTRY_LIMIT = 20;
 const ACTION_CAPTURE_VERSION = 'opencli-action-capture-v1';
 
@@ -2391,6 +2398,7 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
 
       let responsePreview = '';
       let responseBody = '';
+      let responseBodyError;
       try {
         const body = await chrome.debugger.sendCommand({ tabId }, 'Network.getResponseBody', { requestId: params.requestId });
         if (body?.base64Encoded) {
@@ -2400,7 +2408,9 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
           responseBody = body?.body || '';
         }
         responsePreview = truncateText(responseBody, CDP_RESPONSE_PREVIEW_LIMIT);
-      } catch { }
+      } catch (error) {
+        responseBodyError = /evict/i.test(String(error?.message)) ? 'BODY_EVICTED' : 'BODY_UNAVAILABLE';
+      }
 
       pushCdpNetworkEntry(tabId, {
         kind: 'cdp',
@@ -2436,6 +2446,7 @@ chrome.debugger.onEvent.addListener(async (source, method, params) => {
             : responseBody,
           responseBodyFullSize: encodedBody.byteLength,
           responseBodyTruncated: truncated,
+          ...(responseBodyError ? { responseBodyError } : {}),
         });
         if (adapterSession.entries.length > ADAPTER_CAPTURE_ENTRY_LIMIT) {
           adapterSession.entries.splice(0, adapterSession.entries.length - ADAPTER_CAPTURE_ENTRY_LIMIT);
@@ -2996,6 +3007,13 @@ async function handleNativeMessageInternal(msg) {
       if (commandLease) await sharedBrowserRequest('release', { leaseId: commandLease.leaseId }).catch(() => {});
     }
 
+  } else if (msg.type === 'auth_observe_open') {
+    try {
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: await observeOpenedSiteTab(msg) });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
   } else if (msg.type === 'auth_open_login') {
     try {
       sendToNative({ type: 'call_tool_result', id: msg.id, result: await openSiteLoginTab(msg) });
@@ -3006,6 +3024,13 @@ async function handleNativeMessageInternal(msg) {
   } else if (msg.type === 'auth_check') {
     try {
       sendToNative({ type: 'call_tool_result', id: msg.id, result: await checkSiteLogin(msg) });
+    } catch (err) {
+      sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'auth_prepare_qr') {
+    try {
+      sendToNative({ type: 'call_tool_result', id: msg.id, result: await prepareSiteQrLogin(msg) });
     } catch (err) {
       sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
     }
@@ -3516,7 +3541,7 @@ async function handleNativeMessageInternal(msg) {
       sendToNative({ type: "call_tool_error", id: msg.id, error: err.message });
     }
   } else if (msg.type === 'browser_execute') {
-    const operation = () => executeBrowserCommand(msg, { chrome, ensureCdpAttached, cdpEvaluate, getCdpNetworkSnapshot, onBrowserDetach: clearBrowserDebuggerState });
+    const operation = () => executeBrowserCommand(msg, { chrome, ensureCdpAttached, cdpEvaluate, getCdpNetworkSnapshot, getTraceLogs, onBrowserDetach: clearBrowserDebuggerState });
     // Read-only download observers must not block the click they are observing.
     const observer = ['dialog', 'downloads', 'events'].includes(msg.command) || (msg.command === 'wait' && msg.args?.kind === 'download');
     let release;
@@ -3679,7 +3704,7 @@ async function prepareScreenshotTab(tabId, traceID) {
 function traceLog(traceID, message) {
   if (!traceID) return;
   if (!traceLogs.has(traceID)) traceLogs.set(traceID, []);
-  const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+  const ts = new Date().toISOString(); // Retain the date for diagnostic windows across midnight.
   traceLogs.get(traceID).push(`[${ts}] [${traceID}] ${message}`);
   // 限制每个 traceID 最多 100 条，防止内存泄漏
   if (traceLogs.get(traceID).length > 100) {
@@ -5266,6 +5291,15 @@ async function callToolInTab(tabId, toolName, args, traceID = null, allowTranspo
 
       lastError = err;
       const errMsg = err.message || String(err);
+
+      // Managed Adapter calls recover at the host boundary, where the pinned
+      // read/write policy, package snapshot, page URL and total deadline can
+      // all be enforced together. Generic channel errors are not BFCache.
+      if (!allowTransportRetry && /back\/forward cache|bfcache/i.test(errMsg)) {
+        const error = new Error('Adapter page entered back/forward cache; its message channel closed.');
+        error.code = 'ADAPTER_BFCACHE_DISCONNECTED';
+        throw error;
+      }
 
       // 检测 bfcache 或页面跳转导致的断连
       if (
@@ -7316,6 +7350,7 @@ function getHostAdapterRuntime() {
     },
     inject: injectV2AdapterWithCode,
     ready: (tabId, manifest, timeoutMs, traceID) => waitForManagedPageReady(tabId, manifest, true, timeoutMs, traceID),
+    recover: (tabId, manifest, url, timeoutMs) => waitForAdapterPageRecovery(chrome, tabId, manifest, url, timeoutMs),
     query: (tabId, payload, manifest, command) => {
       assertAdapterNavigationUrl(manifest, assertPageQueryRoute(payload, command));
       return executePageQuery({ chrome, ensureCdpAttached, tabId, payload: { ...payload, metadataOnly: false } });
@@ -7371,10 +7406,72 @@ async function findSiteLoginTab(manifest) {
   return tabs.find((tab) => tab?.id && isLoginPageUrl(manifest, loginTabUrl(manifest, tab), { root: true })) || null;
 }
 
+function isAdapterBusinessUrl(manifest, value) {
+  try {
+    const url = new URL(String(value));
+    return ['http:', 'https:'].includes(url.protocol) && isAdapterPageHost(manifest, url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Observe only the tab created by adapter-aware open_browser; never infer ownership from another tab. */
+async function observeOpenedSiteTab(msg) {
+  const manifest = await managedSiteManifest(msg.site);
+  const tabId = Number(msg.tabId);
+  if (!Number.isInteger(tabId) || tabId < 0) throw new Error('Invalid opened tab.');
+  const deadline = Date.now() + 5_000;
+  let lastSignature = '';
+  let stableCount = 0;
+  let last = null;
+  while (Date.now() < deadline) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab?.id) return { tabId, state: 'closed' };
+    last = tab;
+    const candidates = [tab.pendingUrl, tab.url].filter((value) => typeof value === 'string' && value);
+    const loginUrl = candidates.find((value) => isLoginPageUrl(manifest, value, { root: true }));
+    if (loginUrl) {
+      siteLoginTabs.set(manifest.name, tabId);
+      return { tabId, state: 'login', url: authDisplayUrl(loginUrl) };
+    }
+    const signature = `${tab.status || ''}\n${tab.pendingUrl || ''}\n${tab.url || ''}`;
+    stableCount = signature === lastSignature ? stableCount + 1 : 0;
+    lastSignature = signature;
+    if (tab.status === 'complete' && stableCount >= 5) {
+      return {
+        tabId,
+        state: isAdapterBusinessUrl(manifest, tab.url) ? 'business' : 'unknown',
+        url: authDisplayUrl(tab.url),
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return {
+    tabId,
+    state: last && isAdapterBusinessUrl(manifest, last.url) ? 'business' : 'unknown',
+    url: authDisplayUrl(last?.pendingUrl || last?.url || ''),
+    timedOut: true,
+  };
+}
+
 /** Open (or reuse) the login page. Only declared hosts or recognised login pages are opened. */
 async function openSiteLoginTab(msg) {
   const manifest = await managedSiteManifest(msg.site);
-  let tab = await findSiteLoginTab(manifest);
+  let tab = null;
+  const preferredTabId = Number(msg.tabId);
+  if (Number.isInteger(preferredTabId) && preferredTabId >= 0) {
+    const preferred = await chrome.tabs.get(preferredTabId).catch(() => null);
+    if (!preferred?.id || !isLoginPageUrl(manifest, loginTabUrl(manifest, preferred), { root: true })) {
+      throw new Error('The opened tab is no longer this Adapter login page.');
+    }
+    tab = preferred;
+  }
+  if (!tab) {
+    const knownTabId = siteLoginTabs.get(manifest.name);
+    const known = Number.isInteger(knownTabId) ? await chrome.tabs.get(knownTabId).catch(() => null) : null;
+    if (known?.id && isLoginPageUrl(manifest, loginTabUrl(manifest, known), { root: true })) tab = known;
+  }
+  if (!tab) tab = await findSiteLoginTab(manifest);
   if (!tab) {
     // Only declared hosts are opened from a request; an undeclared SSO page is used only
     // when the site itself redirected a tab there (found above).
@@ -7398,15 +7495,18 @@ async function checkSiteLogin(msg) {
   const auth = siteAuth(manifest);
   let loginTab = { open: false, url: '', onLoginPage: false };
   const known = siteLoginTabs.get(manifest.name);
-  if (Number.isInteger(known)) {
-    const tab = await chrome.tabs.get(known).catch(() => null);
-    if (tab?.id) {
-      const url = loginTabUrl(manifest, tab);
-      // A page that is still loading (for example right after submitting the form) counts as the login page.
-      loginTab = { open: true, url, onLoginPage: tab.status !== 'complete' || isLoginPageUrl(manifest, url, { root: true }) };
-    } else {
-      siteLoginTabs.delete(manifest.name);
-    }
+  let tab = Number.isInteger(known) ? await chrome.tabs.get(known).catch(() => null) : null;
+  // A Manifest V3 worker can be suspended while the user scans a QR code. Recover
+  // the in-memory site→tab mapping before deciding that the login was cancelled.
+  if (!tab?.id) {
+    tab = await findSiteLoginTab(manifest);
+    if (tab?.id) siteLoginTabs.set(manifest.name, tab.id);
+  }
+  if (tab?.id) {
+    const url = loginTabUrl(manifest, tab);
+    loginTab = { open: true, url, onLoginPage: tab.status !== 'complete' || isLoginPageUrl(manifest, url, { root: true }) };
+  } else {
+    siteLoginTabs.delete(manifest.name);
   }
   let cookies = null;
   let fingerprint = null;
@@ -7418,6 +7518,72 @@ async function checkSiteLogin(msg) {
     fingerprint = cookieFingerprint(spec, jar);
   }
   return { loginTab, cookies, ...(fingerprint ? { fingerprint } : {}) };
+}
+
+/**
+ * Prepare a declared login page for QR display without filling or submitting
+ * credentials. This deliberately only clicks an explicit login-method switch
+ * such as “扫码登录”; all other login actions remain user-controlled.
+ */
+async function prepareSiteQrLogin(msg) {
+  const manifest = await managedSiteManifest(msg.site);
+  if (manifest.auth?.qr?.mode === 'off') return { available: false, skipped: true };
+  const known = siteLoginTabs.get(manifest.name);
+  const tab = Number.isInteger(known)
+    ? await chrome.tabs.get(known).catch(() => null)
+    : await findSiteLoginTab(manifest);
+  if (!tab?.id || !isLoginPageUrl(manifest, loginTabUrl(manifest, tab), { root: true })) {
+    return { available: false, reason: 'LOGIN_TAB_UNAVAILABLE' };
+  }
+  const [{ result } = {}] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'ISOLATED',
+    func: async () => {
+      const visible = (element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || 1) > 0 && rect.width > 0 && rect.height > 0;
+      };
+      const textOf = (element) => `${element.getAttribute('aria-label') || ''} ${element.getAttribute('title') || ''} ${element.textContent || ''}`.replace(/\s+/g, ' ').trim();
+      const hintOf = (element) => `${textOf(element)} ${element.id || ''} ${element.className?.baseVal || element.className || ''}`.replace(/\s+/g, ' ').trim();
+      const findQrElement = () => [...document.querySelectorAll('img, canvas, svg')].find((element) => {
+        if (!visible(element)) return false;
+        const rect = element.getBoundingClientRect();
+        return /(?:qr|qrcode|二维码|扫码|scan)/i.test(hintOf(element)) && rect.width >= 80 && rect.height >= 80;
+      });
+      const qrState = () => {
+        const element = findQrElement();
+        if (!element) return { available: false };
+        let imageDataUrl = '';
+        try {
+          if (element instanceof HTMLImageElement && /^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(element.currentSrc || element.src || '')) {
+            imageDataUrl = element.currentSrc || element.src;
+          } else if (element instanceof HTMLCanvasElement) {
+            imageDataUrl = element.toDataURL('image/png');
+          }
+        } catch { /* A tainted canvas still has a visible page-screenshot fallback. */ }
+        return { available: true, ...(imageDataUrl.length <= 2_800_000 ? { imageDataUrl } : {}) };
+      };
+      const currentQr = qrState();
+      if (currentQr.available) return { ...currentQr, clicked: false };
+      const commonSwitches = document.querySelectorAll('#switcher_qlogin, .qrcode_switch, [data-action*="qr" i], [data-testid*="qr" i]');
+      const semanticSwitches = document.querySelectorAll('button, [role="button"], [role="tab"], a, input[type="button"]');
+      const candidates = [...new Set([...commonSwitches, ...semanticSwitches])]
+        .filter(visible)
+        .map((element) => ({ element, hint: hintOf(element) }))
+        .filter(({ hint }) => /(?:扫码登录|二维码登录|扫描二维码|扫码|qrcode|qr\s*code|scan\s*(?:qr|code))/i.test(hint))
+        .filter(({ hint }) => !/(?:确认|提交|授权|注册|密码登录|短信登录|找回密码|sign\s*in|submit|authorize)/i.test(hint));
+      if (candidates.length !== 1) return { available: false, clicked: false, reason: candidates.length ? 'AMBIGUOUS_QR_ENTRY' : 'QR_ENTRY_NOT_FOUND' };
+      candidates[0].element.click();
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const nextQr = qrState();
+        if (nextQr.available) return { ...nextQr, clicked: true };
+      }
+      return { available: false, clicked: true };
+    },
+  });
+  return result && typeof result === 'object' ? result : { available: false, reason: 'QR_PREPARE_FAILED' };
 }
 
 // ─── 用户 adapter 目录访问（经 bridge 代理）─────────────────────────────────

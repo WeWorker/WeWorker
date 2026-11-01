@@ -1,6 +1,6 @@
 # 智能路由配置 · 人工逐条测试清单
 
-配套自动断言在 `weworker/backend-ts/src/api-query-router/__tests__/shipped-router-config.test.ts`（16 项测试 / 90 条样例，已全绿）。
+配套自动断言位于内部回归套件（不在开源仓库；16 项测试 / 90 条样例，均已通过）。
 本清单是同一批样例的「人肉版」：用于在客户端里一条一条发、肉眼看结果。
 
 配置本体在 `weworker/router-config/`，设计说明见 [`intelligent_routing_design.md`](./intelligent_routing_design.md)。
@@ -254,10 +254,10 @@ npm run route:replay:live   # 真派发：每条走一次 webcli（数秒），�
 
 **改配置要重启客户端吗？**
 
-不用。所有层按文件 mtime + size 判定热重载，保存后下一次发消息即生效。改完想复核，可以直接跑自动断言：
+不用。所有层按文件 mtime + size 判定热重载，保存后下一次发消息即生效。改完想复核，可以直接跑自动断言（回归套件在内部环境）：
 
 ```bash
-cd weworker/backend-ts && npx vitest --run src/api-query-router/__tests__/shipped-router-config.test.ts
+cd weworker/backend-ts && npx vitest --run src/api-query-router
 ```
 
 **用户级覆盖放哪？**

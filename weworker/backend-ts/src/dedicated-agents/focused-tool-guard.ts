@@ -75,7 +75,6 @@ export function splitShellWords(command: string): ShellWordsResult {
 
 const WEBCLI_EXECUTABLES = new Set(['webcli', 'webcli.cmd', 'webcli.ps1'])
 const READ_ONLY_WEBCLI_COMMANDS = new Set(['help', '--help', '-h', 'list', '--version'])
-const ALWAYS_ALLOWED_TOOLS = new Set(['open_browser'])
 
 export type WebcliCheck = { ok: true } | { ok: false; reason: string }
 
@@ -99,7 +98,14 @@ export function checkFocusedWebcliCommand(command: unknown, allowedSiteIds: stri
   if (sub === 'call') {
     const tool = String(target ?? '').toLowerCase()
     if (!tool) return { ok: false, reason: 'webcli call 缺少工具名' }
-    if (ALWAYS_ALLOWED_TOOLS.has(tool)) return { ok: true }
+    if (tool === 'open_browser') {
+      const adapterFlags = split.words.slice(3).filter((word) => word.toLowerCase().startsWith('--adapter='))
+      if (adapterFlags.length !== 1) return { ok: false, reason: 'open_browser 必须且只能指定一个 --adapter=<本 Agent 网站>' }
+      const adapter = adapterFlags[0].slice(adapterFlags[0].indexOf('=') + 1).toLowerCase()
+      return sites.includes(adapter)
+        ? { ok: true }
+        : { ok: false, reason: `open_browser 的 Adapter ${adapter || '(空)'} 不属于本 Agent 负责的网站` }
+    }
     const owner = [...new Set([...sites, ...knownSiteIds.map((id) => id.toLowerCase())])]
       .filter((site) => tool.startsWith(`${site}.`))
       .sort((a, b) => b.length - a.length)[0]

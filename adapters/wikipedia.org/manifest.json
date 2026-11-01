@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "wikipedia.org",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "维基百科：搜索、摘要、随机条目、昨日精选 feed 的 mostread 榜单与纯文本正文",
   "match": [
     "wikipedia.org",

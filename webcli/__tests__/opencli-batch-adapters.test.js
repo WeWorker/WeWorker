@@ -1,3 +1,4 @@
+import { createHostAdapterRuntime, assertAdapterNavigationUrl } from '../../extension/background/host-adapter-runtime.js';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -257,5 +258,68 @@ describe('Zhihu export contracts',()=>{
   it('image failure is partial export, never complete download success',async()=>{
     const s=setup('zhihu.com',{privileged:(_,p)=>({path:p.path,size:123})});s.context.__zhihuMarkdown={convertToMarkdown:()=> 'full fixture body',replaceImageUrls:s=>s};
     const [result]=await s.context.__zhihuDownload.exportArticle({title:'Fixture',sourceUrl:'https://www.zhihu.com/question/123/answer/456',contentHtml:'fixture',imageUrls:['https://example.com/foreign-image.png']},{output:'./fixture-export',images:true});expect(result.status).toBe('partial');expect(result.images[0].status).toBe('failed');expect(s.calls).toHaveLength(1);expect(s.calls[0].action).toBe('backend_file_write');
+  });
+});
+
+describe('Douban and Bilibili regressions', () => {
+  it.each(['movie', 'book', 'music'])('Douban %s search invokes its classifier as a function', async type => {
+    const title = { textContent: 'Example title', getAttribute: key => key === 'href' ? `https://${type}.douban.com/subject/123/` : '' };
+    const row = { querySelector: selector => selector.startsWith('.title-text') ? title : null };
+    const s = setup('douban.com', {
+      url: `https://search.douban.com/${type}/subject_search?search_text=example${type === 'book' ? '&cat=1001' : ''}`,
+      one: { '.item-root .title-text, .item-root .title a': title },
+      all: { '.item-root, .result-list .result-item': [row, row] },
+    });
+    s.context.__DATA__ = { items: [{ id: '123', labels: ['剧集'] }] };
+    const result = await s.run('search', { keyword: 'example', type, limit: '1' });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: '123', title: 'Example title', type: type === 'movie' ? 'tvshow' : type });
+  });
+
+  it.each([
+    ['search-videos', { query: 'new query' }, 'https://search.bilibili.com/all?keyword=old', 'https://search.bilibili.com/all?keyword=new%20query', true],
+    ['open-video-detail', { video_url: 'BV1example' }, 'https://www.bilibili.com/', 'https://www.bilibili.com/video/BV1example', true],
+    ['like-video', { video_url: 'BV1example' }, 'https://www.bilibili.com/', 'https://www.bilibili.com/video/BV1example', false],
+    ['favorite-video', { video_url: 'BV1example' }, 'https://www.bilibili.com/', 'https://www.bilibili.com/video/BV1example', false],
+  ])('Bilibili %s uses host navigation with safe replay policy', async (command, args, url, target, resume) => {
+    const s = setup('bilibili.com', { url });
+    const result = await s.run(command, args);
+    expect(result.__webcli_navigation).toMatchObject({ version: 1, url: target, resume });
+    expect(assertAdapterNavigationUrl(s.pkg.manifest, target, resume)).toBe(target);
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it('Bilibili detail completes host navigation and returns the resumed result', async () => {
+    let page = setup('bilibili.com', { url: 'https://www.bilibili.com/' });
+    const manifest = page.pkg.manifest;
+    const navigated = [];
+    const runtime = createHostAdapterRuntime({
+      bundle: async () => [], prepare: async () => {}, clear: async () => {}, inject: async () => {},
+      navigate: async (_tab, url) => {
+        navigated.push(url);
+        page = setup('bilibili.com', { url, one: { 'h1.video-title': { textContent: 'Example video' } } });
+        return url;
+      },
+    });
+    const result = await runtime.execute(1, manifest, 'https://www.bilibili.com/',
+      () => page.run('open-video-detail', { video_url: 'BV1example' }), { id: 'open-video-detail' });
+    expect(navigated).toEqual(['https://www.bilibili.com/video/BV1example']);
+    expect(result).toMatchObject({ title: 'Example video' });
+    expect(result.__webcli_navigation).toBeUndefined();
+  });
+
+  it('keeps navigation inside declared business hosts', () => {
+    const bilibili = setup('bilibili.com').pkg.manifest;
+    for (const host of ['bilibili.com', 'www.bilibili.com', 'search.bilibili.com']) {
+      expect(assertAdapterNavigationUrl(bilibili, `https://${host}/`)).toBe(`https://${host}/`);
+    }
+    const douban = setup('douban.com').pkg.manifest;
+    for (const host of douban.match) expect(assertAdapterNavigationUrl(douban, `https://${host}/`)).toBe(`https://${host}/`);
+    for (const manifest of [bilibili, douban]) {
+      expect(() => assertAdapterNavigationUrl(manifest, 'https://example.org/')).toThrow(/not allowed/);
+    }
+    expect(() => assertAdapterNavigationUrl(douban, 'https://sec.douban.com/')).toThrow(/not allowed/);
+    expect(() => assertAdapterNavigationUrl(douban, 'https://accounts.douban.com/')).toThrow(/not allowed/);
+    expect(assertAdapterNavigationUrl(douban, 'https://accounts.douban.com/', false)).toBe('https://accounts.douban.com/');
   });
 });

@@ -69,6 +69,8 @@ describe('context assembly', () => {
     expect(parseContextLimit('200K')).toBe(200_000)
     expect(parseContextLimit('1M')).toBe(1_000_000)
     expect(parseContextLimit('1.5M')).toBe(1_500_000)
+    expect(parseContextLimit('1000000')).toBeNull()
+    expect(parseContextLimit('1G')).toBeNull()
     expect(parseContextLimit('invalid')).toBeNull()
   })
 

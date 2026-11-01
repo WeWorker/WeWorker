@@ -3,7 +3,7 @@ const busyTabs = new Set();
 const failure = (code, message) => Object.assign(new Error(message), { code });
 
 /** Fixed isolated-world action. Inspect all targets before changing the form. */
-export function prepareInterceptAction({ source, expectedOrigin, expectedPath, values }) {
+export function prepareInterceptAction({ source, expectedOrigin, expectedPath, values, retainTarget }) {
   const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
   try {
     if (location.origin !== expectedOrigin || location.pathname !== expectedPath) fail('INTERCEPT_ROUTE_CHANGED', 'Open the observed page route before this query.');
@@ -50,6 +50,11 @@ export function prepareInterceptAction({ source, expectedOrigin, expectedPath, v
       const hit = document.elementFromPoint(x, y);
       if (!hit || (hit !== clickTarget && !clickTarget.contains(hit))) fail('INTERCEPT_TARGET_OBSCURED', 'Another element covers the query control.');
       point = { x, y };
+    }
+    if (retainTarget) {
+      if (!/^__weworkerFrameAction_[a-f0-9]{32}$/.test(retainTarget)) fail('INTERCEPT_TARGET_CHANGED', 'Invalid retained query target.');
+      const target = clickTarget || node;
+      globalThis[retainTarget] = { node: target, selector: trigger.submitSelector || trigger.selector, label: label(target) };
     }
     return { ok: true, point: point || null, pressEnter: trigger.pressEnter === true };
   } catch (error) { return { ok: false, error: { code: error.code || 'INTERCEPT_TARGET_CHANGED', message: error.code ? error.message : 'Invalid query selector.' } }; }

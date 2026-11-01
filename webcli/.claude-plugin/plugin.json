@@ -1,5 +1,5 @@
 {
   "name": "WeWorker-WebCLI-浏览器自动化工具",
-  "version": "1.0.4",
+  "version": "1.1.6",
   "description": "浏览器自动化工具：通过 Chrome 扩展适配器，让 AI Agent 操控网站，完成搜索、点击、填表、读取内容、截图等操作。\n\n原理：Chrome 扩展运行在浏览器沙箱中无法被外部直接调用，WebCLI 通过本地 WebSocket Bridge（端口 3711）打通隔阂——扩展的 Service Worker 连接 Bridge，Agent 经 `webcli call` 把工具调用转发给扩展，由页面适配器操作 DOM 并原路返回结果。\n\n使用：桌面端已内置 WebCLI；单独使用命令行工具时执行 `npm install -g weworker-webcli`。用户只需一次性在 Chrome 加载扩展。之后用自然语言驱动即可，例如「搜下京东上的手机」「看下我 163 邮箱的未读邮件」「看看知乎热榜」「截个图」。\n\n支持场景：电商购物（京东、1688、闲鱼）、社媒与内容（B 站、知乎、微博、抖音、小红书、贴吧、豆瓣、36Kr）、新闻与参考（Hacker News、Wikipedia、arXiv）、邮箱（163、QQ、Gmail）、出行与票务（12306、携程）、招聘（51job、BOSS 直聘）、开发者（GitHub、Gitee、V2EX、掘金、有道云笔记）、点评与金融（大众点评、什么值得买、雪球）等。"
 }

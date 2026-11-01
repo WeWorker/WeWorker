@@ -1,4 +1,5 @@
 import { usesWorkflowOrigins } from './page-workflow-origins.js';
+import { requiresWorkflowFrameCapability } from './page-workflow-frames.js';
 import { usesWorkflowControl } from './page-workflow-control.js';
 /**
  * WebSocket Bridge
@@ -55,9 +56,11 @@ import { buildPreviousFailureContext } from './generation-harness/failure-attrib
 import { modelOutputErrorDetails } from './generation-harness/model-output-policy.js';
 import { TabOperationLocks } from './tab-operation-locks.js';
 import { assertReadRequest } from './exploration-host.js';
+import { resolveBridgeInstance } from './bridge-instance.js';
 
 const execFileAsync = promisify(execFile);
-const WS_PORT = 3711;
+const DEFAULT_INSTANCE = resolveBridgeInstance();
+const WS_PORT = DEFAULT_INSTANCE.port;
 const SAFE_ADAPTER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const SAFE_ADAPTER_WRITE_FILE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
 const ADAPTER_ROOT_WRITABLE_FILES = new Set([
@@ -512,9 +515,18 @@ function parseCurlResponseHeaders(rawHeaders) {
 }
 
 export class WebSocketBridge extends EventEmitter {
-  constructor({ workspaceDir, port = WS_PORT } = {}) {
+  constructor({
+    workspaceDir,
+    port = WS_PORT,
+    host = DEFAULT_INSTANCE.bindHost,
+    instanceKind = DEFAULT_INSTANCE.kind,
+    serviceTokenHash = null,
+  } = {}) {
     super();
     this._port = port;
+    this._host = host;
+    this._instanceKind = instanceKind;
+    this._serviceTokenHash = serviceTokenHash;
 
     /** @type {Map<string, { resolve: Function, reject: Function }>} */
     this._pendingRequests = new Map();
@@ -579,9 +591,10 @@ export class WebSocketBridge extends EventEmitter {
     this._adapterStateWatcher = null;
   }
   async init(opts = {}) {
+    this._version = opts.webcliVersion ?? "unknown";
     try {
       this._metricsCfg = await buildUploadConfig({
-        webcliVersion: opts.webcliVersion ?? "unknown",
+        webcliVersion: this._version,
       });
       if (this._metricsCfg.endpoint) {
         process.stderr.write(`[Bridge] Metrics upload enabled → ${this._metricsCfg.endpoint}\n`);
@@ -596,7 +609,16 @@ export class WebSocketBridge extends EventEmitter {
 
   _startServer() {
     try {
-      this._wss = new WebSocketServer({ port: this._port ?? WS_PORT });
+      this._wss = new WebSocketServer({
+        port: this._port ?? WS_PORT,
+        ...(this._host ? { host: this._host } : {}),
+      });
+      // Report the actually bound port (ephemeral ports start at 0); the
+      // underlying listen is asynchronous, so backfill on 'listening'.
+      this._wss.on('listening', () => {
+        const bound = this._wss.address();
+        if (bound && typeof bound === 'object' && bound.port) this._port = bound.port;
+      });
 
       this._wss.on("connection", (ws, req) => {
         const origin = req?.headers?.origin;
@@ -658,6 +680,21 @@ export class WebSocketBridge extends EventEmitter {
 
             const dispatch = () => {
               // 根据消息类型判断来源并处理
+              if (msg.type === 'service_info') {
+                // Instance identity probe: must be reachable before any client
+                // attaches, so handle it directly instead of routing through
+                // the extension-facing request whitelist below.
+                this._reply(ws, {
+                  type: 'service_info_result', id: msg.id, ok: true,
+                  instance: {
+                    kind: this._instanceKind,
+                    port: this._port,
+                    webcliVersion: this._version || null,
+                    tokenHash: this._serviceTokenHash,
+                  },
+                });
+                return;
+              }
               if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result') {
                 // 来自Chrome扩展的消息
                 this._handleExtensionMessage(msg, ws);
@@ -775,17 +812,17 @@ export class WebSocketBridge extends EventEmitter {
 
       this._wss.on("error", (err) => {
         if (err.code === 'EADDRINUSE') {
-          process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${WS_PORT} is already in use\n`);
+          process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${this._port} is already in use\n`);
           process.stderr.write(`[${ts()}] [Bridge] Another instance may be running. Please stop it first.\n`);
           process.exit(1);
         }
         process.stderr.write(`[${ts()}] [Bridge] WS server error: ${err.message}\n${err.stack}\n`);
       });
 
-      process.stderr.write(`[${ts()}] [Bridge] WebSocket server listening on ws://localhost:${WS_PORT}\n`);
+      process.stderr.write(`[${ts()}] [Bridge] WebSocket server listening on ws://${this._host || 'localhost'}:${this._port}\n`);
     } catch (err) {
       if (err.code === 'EADDRINUSE') {
-        process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${WS_PORT} is already in use\n`);
+        process.stderr.write(`[${ts()}] [Bridge] FATAL: Port ${this._port} is already in use\n`);
         process.stderr.write(`[${ts()}] [Bridge] Another instance may be running. Please stop it first.\n`);
         process.exit(1);
       }
@@ -906,7 +943,7 @@ export class WebSocketBridge extends EventEmitter {
         return;
       }
       const readCommands = namespace === 'browser' ? ['help', 'sessions', 'doctor']
-        : ['help', 'capabilities', 'list', 'get', 'events', 'evidence', 'trace', 'analyze', 'revisions', 'revision-read', 'draft-read', 'verification-read', 'write-verification-read', 'knowledge-read', 'repair-info'];
+        : ['help', 'capabilities', 'list', 'get', 'events', 'evidence', 'trace', 'export', 'analyze', 'revisions', 'revision-read', 'draft-read', 'verification-read', 'write-verification-read', 'knowledge-read', 'repair-info'];
       result = await this._runInProfile(msg, ws, async () => {
         const route = this._route.getStore();
         if (route.readOnly && !readCommands.includes(msg.command)) throw profileError('LEGACY_READ_ONLY', 'Pre-profile history is read-only. Start a new task or bind a session in an explicitly selected profile.');
@@ -1014,6 +1051,19 @@ export class WebSocketBridge extends EventEmitter {
   async _handleClientRequest(msg, ws) {
     const traceID = msg.traceID || null;
     const tracePrefix = traceID ? `[${traceID}] ` : '';
+
+    if (msg.type === 'service_info') {
+      this._reply(ws, {
+        type: 'service_info_result', id: msg.id, ok: true,
+        instance: {
+          kind: this._instanceKind,
+          port: this._port,
+          webcliVersion: this._version || null,
+          tokenHash: this._serviceTokenHash,
+        },
+      });
+      return;
+    }
 
     if (msg.type === 'call_tool') {
       const { toolName, args, id } = msg;
@@ -1679,6 +1729,7 @@ export class WebSocketBridge extends EventEmitter {
    * 模型不需要预先检测登录。
    */
   async _callToolWithLogin(toolName, args, traceID, adapterSnapshot, options = {}) {
+    if (toolName === 'open_browser') return this._openBrowserWithLogin(args);
     const pinnedRoute = this._route?.getStore() || null;
     const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot);
     // Login may span an extension reconnect. Re-resolve the socket by the same
@@ -1800,6 +1851,11 @@ export class WebSocketBridge extends EventEmitter {
         if (!manifest?.auth) throw new Error(`Adapter "${site}" does not declare a login.`);
         return manifest;
       };
+      const requireAutologin = () => {
+        const manifest = requireSite();
+        if (manifest.auth.autologin?.mode === 'off') throw new Error('该网站不支持自动登录，请使用二维码、动态密码或其他方式手动登录。');
+        return manifest;
+      };
       let result;
       if (action === 'status') {
         let sites = [];
@@ -1812,10 +1868,13 @@ export class WebSocketBridge extends EventEmitter {
         requireSite();
         const waitMs = Number.isFinite(Number(msg.waitMs)) ? Number(msg.waitMs) : DEFAULT_LOGIN_WAIT_MS;
         result = await login.login(site, { waitMs });
+      } else if (action === 'show_login') {
+        requireSite();
+        result = await login.show(site);
       } else if (action === 'cancel') {
         result = { cancelled: login.cancel(site) };
       } else if (action === 'set_autologin') {
-        requireSite();
+        if (msg.enabled === true) requireAutologin(); else requireSite();
         const vault = login.vault;
         if (msg.enabled === true && !vault.hasCredential(site)) throw new Error('请先保存该网站的账号密码。');
         result = vault.updateSite(site, {
@@ -1823,7 +1882,7 @@ export class WebSocketBridge extends EventEmitter {
           ...(msg.dismissed === true ? { dismissed: true } : {}),
         });
       } else if (action === 'save_credential') {
-        requireSite();
+        requireAutologin();
         result = await login.vault.save(site, { username: msg.username, password: msg.password });
       } else if (action === 'forget_credential') {
         requireSite();
@@ -1947,9 +2006,12 @@ export class WebSocketBridge extends EventEmitter {
     if ((usesNavigationHash(selected?.command.pageRoute?.navigation) || usesNavigationHash(selected?.command.pageRoute?.workflow)) && !this._extensionCapabilities?.includes('page_navigation_hash_v1')) throw new Error('Reload the selected browser extension before calling hash navigation.');
     if ((usesNavigationQuery(selected?.command.pageRoute?.navigation) || usesNavigationQuery(selected?.command.pageRoute?.workflow)) && !this._extensionCapabilities?.includes('page_navigation_query_v1')) throw new Error('Reload the browser extension before calling public URL query navigation.');
     if ((usesWorkflowOrigins(selected?.command.pageRoute?.navigation) || usesWorkflowOrigins(selected?.command.pageRoute?.workflow)) && !this._extensionCapabilities?.includes('page_navigation_origin_v1')) throw new Error('Reload the selected browser extension before calling explicit cross-origin page reading.');
+    if (requiresWorkflowFrameCapability(selected?.command.pageRoute?.workflow) && !this._extensionCapabilities?.includes('page_workflow_frames_v1')) throw new Error('Reload the selected browser extension before calling frame workflows or passive read steps.');
     if (usesWorkflowControl(selected?.command.pageRoute?.workflow) && !this._extensionCapabilities?.includes('page_workflow_control_v1')) throw new Error('Reload the selected browser extension before calling conditional or repeated page workflows.');
     if (selected?.command.pageRoute?.workflow && !this._extensionCapabilities?.includes('page_workflow_v1')) throw new Error('Reload the browser extension before calling ordered page workflows.');
     if (selected?.command.uiWrite && !this._extensionCapabilities?.includes('ui_write_v1')) throw new Error('Reload the browser extension before calling UI writes.');
+    if (selected?.command.uiWrite?.inputs?.some(v => ['date','choice'].includes(v.kind)) && !this._extensionCapabilities?.includes('ui_write_choices_v1')) throw new Error('Reload the selected browser extension for declared date and popup choices.');
+    if (selected?.command.uiWrite?.version === 2 && !this._extensionCapabilities?.includes('ui_write_controls_v2')) throw new Error('Reload the selected browser extension before calling event-driven UI writes.');
     if (selected?.command.uiWrite?.result && !this._extensionCapabilities?.includes('ui_write_result_v1')) throw new Error('Reload the browser extension before reading UI receipt IDs.');
     if (selected?.command.pageWrite && !this._extensionCapabilities?.includes('page_write_v1')) throw new Error('Reload the browser extension before calling page writes.');
     if (selected?.command.pageStrategy === 'INTERCEPT' && !this._extensionCapabilities?.includes('intercept_read_v1')) throw new Error('Reload the browser extension before calling intercepted page queries.');
@@ -2160,9 +2222,68 @@ export class WebSocketBridge extends EventEmitter {
     }
   }
 
-/**
-   * 打开浏览器并访问指定URL
-   * 优先使用Chrome扩展API（如果已连接），否则使用系统命令
+  async _openBrowserWithLogin(args = {}) {
+    const input = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
+    const rawAdapter = input.adapter;
+    if (rawAdapter === undefined) return this.openBrowser(input.url);
+    if (typeof rawAdapter !== 'string' || !rawAdapter.trim() || rawAdapter.length > 128) {
+      throw profileError('INVALID_ARGUMENT', 'open_browser adapter must be one Adapter id.');
+    }
+    const adapter = rawAdapter.trim();
+    const manifest = this._siteManifest(adapter);
+    if (!manifest) throw profileError('ADAPTER_NOT_AVAILABLE', `Adapter "${adapter}" is not available.`);
+
+    // Binding a URL to an Adapter is an authorization decision, not a hint.
+    // Extra globally configured origins must never allow cross-Adapter binding.
+    const adapterOrigins = buildAllowedOpenBrowserOrigins([manifest], '');
+    const url = assertAllowedOpenBrowserUrl(input.url, adapterOrigins);
+    const opened = await this.openBrowser(url);
+    if (!manifest.auth) {
+      return { ...opened, auth: { site: adapter, status: 'not_configured', flowActive: false } };
+    }
+
+    let observation = null;
+    if (Number.isInteger(opened.tabId)) {
+      try {
+        observation = await this._request({ type: 'auth_observe_open', site: adapter, tabId: opened.tabId }, 7_000);
+      } catch (error) {
+        return {
+          ...opened,
+          auth: { site: adapter, status: 'unverified', flowActive: false, reason: error.code || 'OBSERVATION_FAILED' },
+        };
+      }
+    }
+    if (observation?.state === 'closed') {
+      return { ...opened, auth: { site: adapter, status: 'tab_closed', flowActive: false } };
+    }
+    if (observation?.state === 'unknown') {
+      return {
+        ...opened,
+        auth: { site: adapter, status: 'unverified', flowActive: false, ...(observation.timedOut ? { timedOut: true } : {}) },
+      };
+    }
+
+    // A redirect observed on the newly opened tab is authoritative for this
+    // navigation. Bind that exact tab and skip a global check that could select
+    // an older business tab in the same Profile.
+    const observedLogin = observation?.state === 'login';
+    const auth = await this._siteLogin().login(adapter, {
+      waitMs: 0,
+      ...(observedLogin ? {
+        skipCheck: true,
+        targetTabId: opened.tabId,
+        ...(observation.url ? { pageUrl: observation.url } : {}),
+      } : {}),
+    });
+    return {
+      ...opened,
+      auth: { ...auth, flowActive: auth.status === 'waiting_user' },
+    };
+  }
+
+  /**
+   * Open a URL. Adapter-aware authentication is layered by
+   * `_openBrowserWithLogin`; this method intentionally remains a pure opener.
    */
   async openBrowser(url) {
     let managed = [];

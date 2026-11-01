@@ -334,8 +334,8 @@ export default function Sidebar({ section, collapsed, width }) {
             }}
           />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-            <button type="button" onClick={() => setShowProjectDialog(false)} style={projectDialogButtonStyle}>取消</button>
-            <button type="submit" disabled={!projectName.trim()} style={{ ...projectDialogButtonStyle, background: 'var(--accent)', color: '#fff', opacity: projectName.trim() ? 1 : 0.5 }}>创建</button>
+            <button data-app-button="action" type="button" onClick={() => setShowProjectDialog(false)} style={projectDialogButtonStyle}>取消</button>
+            <button data-app-button="action" type="submit" disabled={!projectName.trim()} style={{ ...projectDialogButtonStyle, background: 'var(--accent)', color: '#fff', opacity: projectName.trim() ? 1 : 0.5 }}>创建</button>
           </div>
         </form>
       </div>

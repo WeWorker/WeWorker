@@ -69,8 +69,8 @@ export default function PresetKeyDialog({ providerName, onSave, onClose }) {
             onChange={event => { setApiKey(event.target.value); setError('') }} />
           {error && <div className="preset-key-dialog__error" role="alert">{error}</div>}
           <footer>
-            <button type="button" className="weworker-dialog__button" disabled={saving} onClick={onClose}>取消</button>
-            <button type="submit" className="weworker-dialog__button is-primary" disabled={saving || !apiKey.trim()}>
+            <button data-app-button="action" type="button" className="weworker-dialog__button" disabled={saving} onClick={onClose}>取消</button>
+            <button data-app-button="action" type="submit" className="weworker-dialog__button is-primary" disabled={saving || !apiKey.trim()}>
               {saving ? '保存并切换中…' : '保存并使用'}
             </button>
           </footer>

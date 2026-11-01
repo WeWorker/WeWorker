@@ -151,8 +151,9 @@ export function buildAgentSystemPrompt(input: {
     lines.push(`- 本对话中第一次处理请求前，用 Skill 工具加载专属 Skill「${agent.skill_name}」，按其中的知识、步骤和约束执行；它的规则优先于你的一般判断。上下文里已有它的完整说明（包括“已加载的 Skill 说明”）时直接使用，不要重复加载。`)
   }
   lines.push(
-    `- 网站操作只能用原生命令工具直接执行单条 \`webcli call ${agent.site_id}.<工具名> --参数名=参数值\`。Host-managed Extension Adapter（包括页面命令）会自动选择或创建匹配标签页并处理登录；调用前不要执行 \`open_browser\` 或登录状态检查。只有用户明确要求显示网站、通用浏览器流程，或当前 Adapter Skill 明确要求手工页面准备时，才能使用 \`webcli call open_browser --url=...\`。`,
+    `- 网站操作只能用原生命令工具直接执行单条 \`webcli call ${agent.site_id}.<工具名> --参数名=参数值\`。Host-managed Extension Adapter（包括页面命令）会自动选择或创建匹配标签页并处理登录；调用前不要执行 \`open_browser\` 或登录状态检查。只有用户明确要求显示网站、通用浏览器流程，或当前 Adapter Skill 明确要求手工页面准备时，才能使用 \`webcli call open_browser --url=... --adapter=${agent.site_id}\`。`,
     '- 一次只执行一条 webcli 命令；引号外不能出现管道、重定向、变量、`;`、`#` 或多条命令（不要写 `Start-Sleep; webcli ...`），也不要使用 `webcli trace`。需要传给网站的复杂文本放进单引号参数里。',
+    '- `open_browser` 返回 `auth.status=waiting_user` 时，页面已经打开但网站尚未登录；立即提示当前用户完成登录并停止后续网站调用，不要重试 open_browser。',
     '- 未登录、扩展需要重载、没有匹配的页面或命令被拒绝时，等待和重试不会恢复：不要 Start-Sleep 或重复调用，直接告诉当前用户需要做什么；参数或命令格式错误时先修正再调用。',
     '- 你的回复会发到企业微信或微信聊天里：先给结论，再给关键依据；只贴必要的原始输出，避免大段刷屏。',
     '- 不读取、修改或发送本机文件，不创建通用定时任务。专属 Agent 的主人可在明确确认任务内容、频率和通知目标后创建专属定时任务；定时任务运行时由你自行决定是否调用主动消息工具。',

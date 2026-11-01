@@ -235,3 +235,16 @@ it.each(['PUBLIC_API', 'AUTH_API'])('generates %s, verifies every authored case 
   const current = resolveAdapterCall(tool, { paths });
   expect((await runHttpTool(current, { id: '007' })).result).toEqual({ id: '007', repaired: true });
 });
+
+it('normalizes declared HTTP numbers for flags and JSON while preserving IDs and invalid input',async()=>{
+ const f=await fixture(`module.exports = async args => {if(!Number.isSafeInteger(args.page)||args.page<1)throw Object.assign(Error('invalid page'),{code:'INVALID_ARGS'});return args;}`);
+ f.manifest.commands[0].schema.properties={id:{type:'string'},page:{type:'integer'},size:{type:['integer','null']},mixed:{type:['integer','string']},ratio:{type:'number'}};
+ writeFileSync(join(f.dir,'manifest.json'),JSON.stringify(f.manifest));
+ const args={id:'007',page:2,size:3,mixed:'004',ratio:0.5};
+ const cli=process.env.WEBCLI_HTTP_CLI_ENTRY||'index.js';
+ const run=async input=>{const {trace_id,...result}=JSON.parse((await promisify(execFile)(process.execPath,[cli,'call','example-http.read',...input,'--output-format=json'],{cwd:join(import.meta.dirname,'..'),env:f.env})).stdout);return result;};
+ expect(await run(['--id=007','--page=2','--size=3','--mixed=004','--ratio=0.5'])).toEqual(args);
+ expect(await run(['--args',JSON.stringify(args)])).toEqual(args);
+ for(const value of ['0','-1','1.5','bad','9007199254740993'])await expect(run(['--page='+value])).rejects.toThrow();
+ expect(f.requests).toHaveLength(0);
+});

@@ -125,6 +125,7 @@ import {
   sanitizeWorkStylePatch,
 } from './style-settings.js'
 import { processMemoryEvent } from './memory/memory-lifecycle.js'
+import { automaticMemoryEnabled } from './memory/automatic-memory.js'
 import { buildMemoryEventContext } from './memory/memory-event-context.js'
 import { planCompletedChatMemoryEvents, applyAdmissionToCandidate } from './memory/memory-event-planner.js'
 import { isMemoryProtocolFailure } from './memory/memory-protocol.js'
@@ -199,6 +200,12 @@ process.on('unhandledRejection', (reason) => {
 if (process.env.WEWORKER_PACKAGED && process.env.WEWORKER_RESOURCES_PATH) {
   ;(process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = process.env.WEWORKER_RESOURCES_PATH
 }
+
+// 桌面端登录等待锚定 75 秒：独立 CLI 的默认值（脚本/AI 立即返回）不适用于桌面
+// agent 的工具调用。环境变量由本进程注入、agent 的 shell 子进程自动继承，
+// 使桌面行为与 Bridge 未传 loginWaitMs 时的默认（75 秒自动继续）逐毫秒等价，
+// 且不随独立 CLI 默认值变化。
+process.env.WEBCLI_LOGIN_WAIT_SECONDS = process.env.WEBCLI_LOGIN_WAIT_SECONDS || '75'
 
 const SKILLS_DIR = ensureRuntimeSkillsDir()
 
@@ -683,7 +690,7 @@ app.post('/settings/provider', (req, res) => {
   }
   const parsedContextLimit = context_limit === undefined ? undefined : parseContextLimit(context_limit)
   if (context_limit !== undefined && parsedContextLimit === null) {
-    res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的整数，可使用 K/M 单位' })
+    res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位' })
     return
   }
   const updates: Partial<ReturnType<typeof getSettings>> = { ...nameUpdates }
@@ -2970,7 +2977,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   const isFirstMessage = !work.title
   const titleSource = message?.trim() || importedAttachments.map((block) => block.type === 'file_attachment' ? block.name : '').filter(Boolean).join(', ')
   if (isFirstMessage && retryCompaction !== true) {
-    store.updateTitle(workId, generateTitle(titleSource))
+    const title = generateTitle(titleSource)
+    store.updateTitle(workId, title)
+    broadcastSSE({ type: 'title_update', title, workId })
   }
 
   const workWithMessages = store.getWorkWithMessages(workId)!
@@ -3062,6 +3071,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       if (llmTitle) {
         store.updateTitle(workId, llmTitle)
         send({ type: 'title_update', title: llmTitle, workId })
+        broadcastSSE({ type: 'title_update', title: llmTitle, workId })
         broadcastSSE({ type: 'works_changed', workId })
       }
     })
@@ -3372,8 +3382,8 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     segments.checkpoint()
   }
 
-  // Dedicated agent turns run with long-term memory off: nothing to plan or report.
-  if (dedicatedAgent) {
+  // No automatic memory processing or protocol status for opted-out runs.
+  if (dedicatedAgent || !automaticMemoryEnabled()) {
     store.markExternalWrite()
     broadcastSSE({ type: 'works_changed', workId })
     res.end()

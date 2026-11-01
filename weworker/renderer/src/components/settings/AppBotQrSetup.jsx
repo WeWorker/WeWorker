@@ -18,7 +18,7 @@ export default function AppBotQrSetup({ channel, profileId, disabled, onBusyChan
   return <>
     {pending && <div role="status" className="channel-settings-feedback">
       {saving ? '正在保存机器人配置…' : error || '扫码已完成，配置尚未保存。请重试保存，无需重新扫码。'}
-      {!saving && <button type="button" className="settings-btn settings-btn-secondary" onClick={() => { void save().catch(() => {}) }}>重试保存</button>}
+      {!saving && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { void save().catch(() => {}) }}>重试保存</button>}
     </div>}
     <WecomQrConnect channel={channel} onImport={save} onBusyChange={changeBusy} disabled={disabled || !!pending} />
   </>

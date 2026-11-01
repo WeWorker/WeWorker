@@ -101,7 +101,7 @@ function BasicInfoCard({ agent, onSaved }) {
         <Input.TextArea id="detail-examples" value={form.examplesText} onChange={(event) => setForm((f) => ({ ...f, examplesText: event.target.value }))} autoSize={{ minRows: 2, maxRows: 6 }} />
       </div>
       <Space>
-        <Button type="primary" onClick={save} disabled={!dirty || saving || !form.name.trim()}>{saving ? '保存中…' : '保存'}</Button>
+        <Button data-app-button="action" type="primary" onClick={save} disabled={!dirty || saving || !form.name.trim()}>{saving ? '保存中…' : '保存'}</Button>
         {message && <span style={{ ...hintStyle, color: message.ok ? 'var(--success, #22c55e)' : 'var(--error, #ef4444)' }}>{message.text}</span>}
       </Space>
     </div>
@@ -161,7 +161,7 @@ function BotCard({ agent, onChanged }) {
           <div style={{ ...hintStyle, marginBottom: 8 }}>在{im}里给这个机器人发送：</div>
           <Space wrap>
             <span style={codeBadgeStyle}>{pairingCommand(agent.pairing_code)}</span>
-            <Button onClick={() => navigator.clipboard?.writeText(pairingCommand(agent.pairing_code)).catch(() => {})}>复制</Button>
+            <Button data-app-button="action" onClick={() => navigator.clipboard?.writeText(pairingCommand(agent.pairing_code)).catch(() => {})}>复制</Button>
           </Space>
         </div>
       )}
@@ -175,10 +175,10 @@ function BotCard({ agent, onChanged }) {
       {error && <Alert type="error" showIcon style={{ marginTop: 12 }} message={error} />}
 
       <Space style={{ marginTop: 14 }} wrap>
-        <Button onClick={() => { setError(''); setRebindChannel(channel); setRebindKey((value) => value + 1); setRebindOpen(true) }}>更换机器人</Button>
+        <Button data-app-button="action" onClick={() => { setError(''); setRebindChannel(channel); setRebindKey((value) => value + 1); setRebindOpen(true) }}>更换机器人</Button>
         {agent.paired && (
           <Popconfirm title="重新配对？" description="当前主人将失效，需要重新发送新的绑定码。" okText="重新配对" cancelText="取消" onConfirm={rePair}>
-            <Button>重新配对</Button>
+            <Button data-app-button="action">重新配对</Button>
           </Popconfirm>
         )}
       </Space>
@@ -422,7 +422,7 @@ export default function AgentDetail({ agentId }) {
             cancelText="取消"
             onConfirm={remove}
           >
-            <Button danger>删除</Button>
+            <Button data-app-button="action" danger>删除</Button>
           </Popconfirm>
         </Space>
       </div>

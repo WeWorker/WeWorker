@@ -5,55 +5,6 @@ import SitesCapabilitiesView from './SitesCapabilitiesView.jsx'
 import Tooltip from '../Tooltip.jsx'
 import { GridViewIcon, ListViewIcon, SearchIcon } from '../icons/PanelIcons.jsx'
 
-const headerBtnStyle = {
-  width: 28,
-  height: 28,
-  borderRadius: 6,
-  border: 'none',
-  background: 'var(--bg-tertiary)',
-  color: 'var(--text-muted)',
-  cursor: 'pointer',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 0,
-  flexShrink: 0,
-}
-
-const VIEW_MODE_BUTTON_SIZE = 28
-const VIEW_MODE_BUTTON_GAP = 4
-
-const viewModeSwitcherStyle = {
-  position: 'relative',
-  display: 'flex',
-  alignItems: 'center',
-  gap: VIEW_MODE_BUTTON_GAP,
-  flexShrink: 0,
-}
-
-const viewModeIndicatorStyle = (viewMode) => ({
-  position: 'absolute',
-  top: 0,
-  left: viewMode === 'grid' ? VIEW_MODE_BUTTON_SIZE + VIEW_MODE_BUTTON_GAP : 0,
-  width: VIEW_MODE_BUTTON_SIZE,
-  height: VIEW_MODE_BUTTON_SIZE,
-  borderRadius: 6,
-  background: 'color-mix(in srgb, var(--accent) 14%, var(--bg-tertiary))',
-  boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent)',
-  pointerEvents: 'none',
-  transition: 'left 190ms ease',
-})
-
-const viewModeButtonStyle = (active) => ({
-  ...headerBtnStyle,
-  position: 'relative',
-  zIndex: 1,
-  background: 'transparent',
-  color: active ? 'var(--accent)' : headerBtnStyle.color,
-  boxShadow: 'none',
-  transition: 'color 190ms ease',
-})
-
 export default function CapabilitiesSidePanel({ width = 340 }) {
   const closePanel = useCapabilitiesPanelStore((s) => s.closePanel)
   const viewMode = useCapabilitiesPanelStore((s) => s.viewMode)
@@ -62,6 +13,7 @@ export default function CapabilitiesSidePanel({ width = 340 }) {
   const sites = useSitesStore((s) => s.sites)
   const [query, setQuery] = useState('')
   const searchRef = useRef(null)
+  const scrollContainerRef = useRef(null)
 
 
   useEffect(() => {
@@ -106,16 +58,16 @@ export default function CapabilitiesSidePanel({ width = 340 }) {
                 {sites.length} 个网站
               </span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-              <div style={viewModeSwitcherStyle}>
-                <span style={viewModeIndicatorStyle(viewMode)} />
+            <div className="workspace-toolbar__actions" style={{ gap: 4, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <Tooltip text="网站列表">
                 <button
                   type="button"
                   onClick={() => setViewMode('list')}
                   aria-label="网站列表视图"
                   title="网站列表"
-                  style={viewModeButtonStyle(viewMode === 'list')}
+                  className={`workspace-toolbar__button${viewMode === 'list' ? ' is-active' : ''}`}
+                  aria-pressed={viewMode === 'list'}
                 >
                   <ListViewIcon />
                 </button>
@@ -126,7 +78,8 @@ export default function CapabilitiesSidePanel({ width = 340 }) {
                   onClick={() => setViewMode('grid')}
                   aria-label="所有网站视图"
                   title="所有网站"
-                  style={viewModeButtonStyle(viewMode === 'grid')}
+                  className={`workspace-toolbar__button${viewMode === 'grid' ? ' is-active' : ''}`}
+                  aria-pressed={viewMode === 'grid'}
                 >
                   <GridViewIcon />
                 </button>
@@ -137,9 +90,11 @@ export default function CapabilitiesSidePanel({ width = 340 }) {
                   type="button"
                   onClick={closePanel}
                   aria-label="收起场景总览"
-                  style={{ ...headerBtnStyle, fontSize: 16, lineHeight: 1 }}
+                  className="workspace-toolbar__button"
                 >
-                  ✕
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" aria-hidden="true" focusable="false">
+                    <path d="M6 6l12 12M18 6 6 18" />
+                  </svg>
                 </button>
               </Tooltip>
             </div>
@@ -192,11 +147,13 @@ export default function CapabilitiesSidePanel({ width = 340 }) {
         </div>
       </header>
       <div
+        ref={scrollContainerRef}
         style={{
           flex: 1,
           overflowY: 'auto',
           overflowX: 'hidden',
           scrollbarGutter: 'stable',
+          overflowAnchor: 'none',
           padding: '8px 8px 10px',
           boxSizing: 'border-box',
           minHeight: 0,
@@ -207,6 +164,7 @@ export default function CapabilitiesSidePanel({ width = 340 }) {
           onSearchQueryChange={setQuery}
           hideToolbarSearch
           viewMode={viewMode}
+          scrollContainerRef={scrollContainerRef}
         />
       </div>
     </aside>

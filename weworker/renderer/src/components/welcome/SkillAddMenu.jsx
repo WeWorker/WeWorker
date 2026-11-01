@@ -58,7 +58,7 @@ function NewSkillDialog({ onCreate, onClose }) {
       <p>创建一个新 Skill，编辑器会提供默认模板，可填写内容或添加资源文件。</p>
       <label>文件夹名称<input autoFocus aria-label="Skill 文件夹名称" value={name} disabled={saving} maxLength={100} onChange={event => setName(event.target.value)} placeholder="例如 my-skill" /></label>
       {error && <p role="alert">{error}</p>}
-      <div className="skill-create-actions"><button type="button" onClick={onClose} disabled={saving}>取消</button><button type="submit" disabled={saving || !name.trim()}>{saving ? '创建中…' : '创建'}</button></div>
+      <div className="skill-create-actions"><button data-app-button="action" type="button" onClick={onClose} disabled={saving}>取消</button><button data-app-button="action" type="submit" disabled={saving || !name.trim()}>{saving ? '创建中…' : '创建'}</button></div>
     </form>
   </div>, document.body)
 }

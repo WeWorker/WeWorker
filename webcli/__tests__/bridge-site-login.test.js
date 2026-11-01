@@ -64,10 +64,23 @@ describe('Bridge login wiring', () => {
     expect(handleFailure).toHaveBeenCalledWith(failure, expect.objectContaining({ site: 'fixture.example.com', loginWaitMs: 20_000, command: expect.objectContaining({ id: 'list' }) }))
     expect(bridge._callToolInner).toHaveBeenCalledTimes(2)
 
-    // Built-in tools and non-Adapter failures never enter the login flow.
-    bridge._callToolInner = vi.fn().mockRejectedValue(new Error('boom'))
-    await expect(bridge.callTool('open_browser', {})).rejects.toThrow('boom')
+    // Generic open_browser remains a pure opener and never enters login recovery.
+    bridge.openBrowser = vi.fn(async (url) => ({ success: true, url, tabId: 7 }))
+    await expect(bridge.callTool('open_browser', { url: 'https://www.example.com/' })).resolves.toMatchObject({ success: true })
     expect(handleFailure).toHaveBeenCalledTimes(1)
+
+    // Explicit Adapter binding starts its login flow without replaying the opener.
+    bridge._siteLoginCoordinator.login = vi.fn(async () => ({ site: fixture.manifest.name, status: 'waiting_user' }))
+    bridge._request = vi.fn(async (message) => ({ tabId: message.tabId, state: 'login', url: 'https://passport.example.com/login' }))
+    await expect(bridge.callTool('open_browser', { url: 'https://www.example.com/', adapter: fixture.manifest.name }))
+      .resolves.toMatchObject({ success: true, auth: { site: fixture.manifest.name, status: 'waiting_user', flowActive: true } })
+    expect(bridge._request).toHaveBeenCalledWith({ type: 'auth_observe_open', site: fixture.manifest.name, tabId: 7 }, 7_000)
+    expect(bridge._siteLoginCoordinator.login).toHaveBeenCalledWith(fixture.manifest.name, {
+      waitMs: 0, skipCheck: true, targetTabId: 7, pageUrl: 'https://passport.example.com/login',
+    })
+    await expect(bridge.callTool('open_browser', { url: 'https://other.example.net/', adapter: fixture.manifest.name }))
+      .rejects.toThrow(/not allowed/)
+    expect(bridge.openBrowser).toHaveBeenCalledTimes(2)
   })
 
   it('forwards code and auth fields of CLI-initiated calls', async () => {

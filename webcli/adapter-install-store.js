@@ -2,13 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { resolveAdapterPaths } from './paths.js';
-import { adapterError, assertManagedDirectory, assertManagedFile, readPackageDirectory, validatePackageFiles, writePackageDirectory } from './adapter-package-files.js';
+import { adapterError, assertManagedDirectory, assertManagedFile, assertPackagePath, readPackageDirectory, validatePackageFiles, writePackageDirectory } from './adapter-package-files.js';
 import { adapterPermissions, assertAdapterIdentity, buildAdapterCatalog, packageSnapshotRoot } from './adapter-catalog.js';
 import { readAdapterState, renameManagedFile, withAdapterStoreLock, writeAdapterState, writeManagedJson } from './adapter-state.js';
 
 export function normalizeAdapterOrigin(origin = { kind: 'local' }) {
-  if (!origin || !['local', 'hub', 'generated', 'development'].includes(origin.kind)) {
+  if (!origin || !['local', 'hub', 'generated', 'development', 'git'].includes(origin.kind)) {
     throw adapterError('INVALID_ADAPTER_ORIGIN', 'Invalid Adapter installation origin.');
+  }
+  if (origin.kind === 'git') {
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(origin.commit || '') || typeof origin.subpath !== 'string') throw adapterError('INVALID_ADAPTER_ORIGIN', 'Invalid Git origin.');
+    if (origin.subpath !== '.') assertPackagePath(origin.subpath);
+    return { kind: 'git', commit: origin.commit, subpath: origin.subpath };
   }
   if (origin.kind !== 'hub') return { kind: origin.kind };
   let url;

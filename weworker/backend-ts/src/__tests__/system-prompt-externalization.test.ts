@@ -122,7 +122,7 @@ describe('System Prompt - complete output contract before externalization', () =
       如果上下文已提供当前版本的完整说明，而其中没有某项能力或字段，应按未提供处理；不要为寻找同一缺失信息重复读取同一版本的说明。
       所有网站工具通过Claude Code 内置 PowerShell 执行 \`webcli call <完整工具名> --参数名=参数值\`调用。
       以命令的 runtime/execution 与当前 Adapter Skill 为准：\`type=api, runtime=background\` 或标为 background API 的命令直接调用，无需先打开业务页或检测页面登录；不要求同时具有 \`mode=direct\` 标记。旧 Skill 仅有 \`mode=direct\` 时仍兼容。缺登录或缓存时按具体错误完成显式准备，不能把后台命令改成页面调用。
-      Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业务工具；宿主会自动选择、复用或创建匹配标签页，并处理 \`AUTH_REQUIRED\` 登录流程。调用前不要使用 Claude Code 内置 PowerShell 执行 \`webcli call open_browser --url=<url>\`，也不要做登录预检。只有用户明确要求打开页面、通用浏览器／探索流程，或当前 Adapter Skill 明确要求手工页面准备时，才使用 \`open_browser\`。Toolkit 命令按其 Skill 的运行时说明执行。
+      Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业务工具；宿主会自动选择、复用或创建匹配标签页，并处理 \`AUTH_REQUIRED\` 登录流程。调用前不要使用 Claude Code 内置 PowerShell 执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\`，也不要做登录预检。未知站点和 API 探索必须使用 \`webcli call browser.open --session=<name> --url=<url>\`，不得使用依赖已安装 Adapter 允许列表的 open_browser。只有用户明确要求打开已授权站点，或当前 Adapter Skill 明确要求手工页面准备时，才使用 \`open_browser\`。Toolkit 命令按其 Skill 的运行时说明执行。
 
       ## 使用 webcli call 的规则
 
@@ -157,9 +157,9 @@ describe('System Prompt - complete output contract before externalization', () =
 
       ## 使用 open_browser 的规则
 
-      不要在 Host-managed Extension Adapter（包括页面/DOM 命令）之前调用 open_browser 或登录检查；宿主会自动处理匹配标签页与登录。open_browser 只用于用户明确要求显示网站、通用浏览器／探索流程，或当前 Adapter Skill 明确要求手工准备页面。后台 API 不要预先打开网站；HTTP 与 Toolkit 按各自运行时执行。
+      不要在 Host-managed Extension Adapter（包括页面/DOM 命令）之前调用 open_browser 或登录检查；宿主会自动处理匹配标签页与登录。未知站点或 API 探索使用 webcli call browser.open --session=<name> --url=<url>。open_browser 只用于用户明确要求显示已授权网站，或当前 Adapter Skill 明确要求手工准备页面。打开已知 Adapter 的网站时传 \`--adapter=<adapter-id>\` 以接入该站登录 flow；探索未知网页时省略该参数。后台 API 不要预先打开网站；HTTP 与 Toolkit 按各自运行时执行。
 
-      用 Claude Code 内置 PowerShell 执行 \`webcli call open_browser --url=...\` 仅在确实需要手工页面准备时使用；使用后必须等待至少 5 秒再执行依赖该页面的后续页面/DOM 操作。
+      用 Claude Code 内置 PowerShell 执行 \`webcli call open_browser --url=... [--adapter=<adapter-id>]\` 仅在确实需要手工页面准备时使用；使用后必须等待至少 5 秒再执行依赖该页面的后续页面/DOM 操作。
       原因：网站 adapter 需要时间注入并注册工具，过早调用会导致工具不存在而报错。
 
       URL 必须使用 Skill 文档中的 Homepage URL，不要自行猜测协议。
@@ -201,7 +201,7 @@ describe('System Prompt - complete output contract before externalization', () =
       用户也可以在聊天输入框中输入 \`!<命令>\`，通过当前平台默认 Shell（powershell）直接执行，执行结果会进入当前对话上下文，不会再交给 AI 判断。
       当你需要用户自己执行某条本地命令或 webcli 命令时，请把命令写成以 \`!\` 开头的代码块，例如：
       \`\`\`bash
-      !webcli call open_browser --url=http://jd.com
+      !webcli call open_browser --url=http://jd.com --adapter=jd.com
       \`\`\`
       前端会自动为这种 \`!\` 命令显示“复制”和“执行”按钮：用户点击“复制”会复制命令，点击“执行”会直接执行命令，不会再次发送给 AI。
       不要只给普通命令；需要用户执行时必须包含 \`!\` 前缀。
@@ -259,6 +259,7 @@ describe('System Prompt - complete output contract before externalization', () =
 
       网站工具会自动处理登录：遇到未登录时，WeWorker 会在浏览器中打开该网站的登录页，等待用户完成（扫码、短信验证码或账号密码均可），然后自动重试原命令。
       - 不要预先打开网站检测登录，也不要为了检测登录调用 check_login_status、check-login-status、whoami 或 login 命令；直接调用要用的工具。
+      - \`open_browser\` 返回成功但 \`auth.status\` 为 \`waiting_user\` 时，页面已打开但网站尚未登录：立即告诉用户完成登录并停止本轮后续网站调用，不要重试 \`open_browser\`；桌面端会继续显示登录进度。
       - 工具返回 \`code: AUTH_REQUIRED\` 且 \`auth.status\` 为 \`waiting_user\` 时：告诉用户需要在浏览器中登录该网站（登录页已打开），用户完成后再执行一次原命令。\`auth.screenshot\` 是登录页截图路径，可直接展示给用户扫码。
       - \`AUTH_CANCELLED\` 表示用户取消了登录；\`AUTH_RETRY_REQUIRED\` 表示写操作因登录中断、登录已完成，需向用户确认后再执行。
 
@@ -364,7 +365,7 @@ describe('System Prompt - complete output contract before externalization', () =
       用户也可以在聊天输入框中输入 \`!<命令>\`，通过当前平台默认 Shell（bash）直接执行，执行结果会进入当前对话上下文，不会再交给 AI 判断。
       当你需要用户自己执行某条本地命令或 webcli 命令时，请把命令写成以 \`!\` 开头的代码块，例如：
       \`\`\`bash
-      !webcli call open_browser --url=http://jd.com
+      !webcli call open_browser --url=http://jd.com --adapter=jd.com
       \`\`\`
       前端会自动为这种 \`!\` 命令显示“复制”和“执行”按钮：用户点击“复制”会复制命令，点击“执行”会直接执行命令，不会再次发送给 AI。
       不要只给普通命令；需要用户执行时必须包含 \`!\` 前缀。

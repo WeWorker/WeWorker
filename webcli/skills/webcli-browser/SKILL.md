@@ -71,13 +71,16 @@ webcli call browser.upload --args '{"session":"work","ref":"<AX 或 DOM ref>","p
 webcli call browser.upload --args '{"session":"work","frameId":12,"documentId":"<当前文档>","selector":"input[type=file]","paths":["/tmp/example.txt"]}'
 ```
 
-- 需要 browser_upload_target_v1，旧插件对所有 upload 调用明确拒绝；路径由 Bridge 本地检查，允许 1–20 个已有普通文件的绝对路径。不能由网页内容授权选择本地文件。目录路径不接受，webkitdirectory 控件返回 DIRECTORY_INPUT_UNSUPPORTED。
-- 目标必须唯一且是原生 input[type=file]，支持隐藏输入与继承 disabled/aria-disabled；普通 file 的 DOM role 为 button。shadow=true 查开放根，关闭根使用 AX ref；子 frame DOM refs 继续带 frame/document，AX refs 自带身份。自定义上传按钮可用于发现流程，但不能把任意 button 当成文件输入。
+- 需要 browser_upload_target_v1，旧插件对所有 upload 调用明确拒绝；路径由 Bridge 本地检查，允许 1–20 个已有普通文件的绝对路径。不能由网页内容授权选择本地文件。新能力 browser_upload_extended_v1 支持 directory=true：paths 为一个具名目录，最多 200 文件、500 条目、16 层，拒绝空目录、链接/junction；只允许填 webkitdirectory input。校验完整相对路径/数量/大小，枚举顺序不限。调用期间不要修改目录。
+- 目标必须唯一且是原生 input[type=file]，支持隐藏输入与继承 disabled/aria-disabled；普通 file 的 DOM role 为 button。shadow=true 查开放根，关闭根使用 AX ref；子 frame DOM refs 继续带 frame/document，AX refs 自带身份。自定义按钮可用 chooser=true：先监听原 session/frame 的原生 chooser，再点击明确目标，仅使用事件的 backendNodeId，允许动态创建且连接在原文档的 input。不扫描其他节点。与 directory=true 可组合；不支持 File System Access picker 或操作系统窗口。
 - 选中后保留实际 DOM 节点和所属调试会话，在原文档检查名称/角色、multiple、disabled 和输入类型，再设置文件。不会重新查询同名替代节点，也不按 frame URL 猜测；重复目标、旧引用、单文件输入传多文件均在派发前失败。
 - 成功返回 verified=true、count、multiple/accept 与 frame/document。verified 只证明同一 input 留存了本地预检对应的文件名、顺序和大小；不读取文件内容/计算 hash，不代表服务器已接收或业务提交成功。需要上传完成时另检查站点反馈。accept 是提示信息，不在 CLI 强制 MIME 推断。
+- 派发前会比较路径和打开文件句柄的可用身份及大小；不一致时返回 `UPLOAD_FILE_VIEW_MISMATCH`，不打开 chooser、不选择文件。部分文件系统不提供可比较的身份；Chrome 随后按路径打开文件，预检之后文件仍可能被替换或修改。该检查不读取或复制文件内容，也不能证明不同进程看到的同长度内容相同；需要时独立核对服务端实际收件。
 - 文件路径只发送给 Chrome 的文件选择接口，不进入网页脚本参数、DOM 属性或页面注入标记；验证元数据（名称/大小）仅在扩展隔离环境使用。页面按浏览器正常 File API 获得已选择文件。
-- 30 秒准备/派发/验证期限；超时后不会继续新的派发，已发送的 Chrome 操作无法保证取消。UPLOAD_TARGET_CHANGED、UPLOAD_VERIFICATION_FAILED、UPLOAD_INTERRUPTED 或 FRAME_DOCUMENT_CHANGED 时先读当前状态。error.details.dispatched=true 表示文件选择可能已引发事件/上传，不能自动重放；false 表示本次没有派发文件选择。上下文准备前失效可能没有该字段。
+- 30 秒准备/派发/验证期限；超时后不会继续新的派发，已发送的 Chrome 操作无法保证取消。UPLOAD_TARGET_CHANGED、UPLOAD_VERIFICATION_FAILED、UPLOAD_INTERRUPTED 或 FRAME_DOCUMENT_CHANGED 时先读当前状态。error.details.dispatched=true 表示文件选择可能已引发事件/上传，不能自动重放；chooser 模式的 dispatched 也包含可能有副作用的触发点击；false 表示本次没有派发动作。上下文准备前失效可能没有该字段。
 - 页面同步清空文件、替换 input 或导航会导致验证失败；异步后续变化仍需业务层观察。流程只清理本次隔离标记与远程对象，不修改页面属性或接管其他控件。
+
+目录/chooser 的选择仍是 browser 原语，不生成或安装复合上传工具。上传后另用页面反馈/网络/只读查询核对业务效果；不得把 verified 当成服务端收件证明。
 
 ## 开放 Shadow DOM 定位
 

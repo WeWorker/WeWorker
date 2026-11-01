@@ -1200,10 +1200,16 @@ test("auth_open_login reuses a redirected login tab, opens only declared login p
   assert.equal(reused.result.tabId, 30);
 
   const redirecting = loadServiceWorker({ tabs: [{ id: 31, url: 'https://www.example.com/', pendingUrl: 'https://passport.example.com/login?next=%2F', status: 'loading', active: false }], managedCatalog: loginCatalog });
-  const reusedPending = await redirecting.sendNative({ type: 'auth_open_login', id: 'o3', site: loginManifest.name });
+  const observed = await redirecting.sendNative({ type: 'auth_observe_open', id: 'observe-1', site: loginManifest.name, tabId: 31 });
+  assert.deepEqual(plain(observed.result), { tabId: 31, state: 'login', url: 'https://passport.example.com/login' });
+  const reusedPending = await redirecting.sendNative({ type: 'auth_open_login', id: 'o3', site: loginManifest.name, tabId: 31 });
   assert.equal(reusedPending.result.tabId, 31);
   assert.equal(reusedPending.result.url, 'https://passport.example.com/login?next=%2F');
   assert.equal(redirecting.tabs.length, 1);
+
+  const wrongTarget = await redirected.sendNative({ type: 'auth_open_login', id: 'o4', site: loginManifest.name, tabId: 999 });
+  assert.equal(wrongTarget.type, 'call_tool_error');
+  assert.match(wrongTarget.error, /opened tab/i);
 
   const unknown = await redirected.sendNative({ type: 'auth_check', id: 'c3', site: '../etc' });
   assert.equal(unknown.type, 'call_tool_error');

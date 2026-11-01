@@ -26,7 +26,7 @@ export function adapterStatus(name, options = {}) {
     items, diagnostics, executed: false, limits: ['Frozen legacy adapters are not included.', 'Catalog validity does not prove runtime effects.'] };
 }
 
-function inspectPackage(pkg) {
+export function inspectPackage(pkg) {
   const errors = [], warnings = [];
   let javascriptFiles = 0;
   for (const [file, bytes] of pkg.files) {

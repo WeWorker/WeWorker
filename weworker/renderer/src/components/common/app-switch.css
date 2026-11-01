@@ -46,6 +46,53 @@
 .app-switch__input:disabled { cursor: not-allowed; }
 .app-switch__input:disabled + .app-switch__track { opacity: 0.45; }
 
+.app-switch--sidebar {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.app-switch--sidebar:has(.app-switch__input:checked) {
+  color: var(--text-secondary);
+}
+
+.app-switch--sidebar:has(.app-switch__input:checked:hover:not(:disabled)),
+.app-switch--sidebar:has(.app-switch__input:checked:focus-visible:not(:disabled)) {
+  color: var(--text-primary);
+}
+
+.app-switch--sidebar .app-switch__track,
+.app-switch--sidebar .app-switch__input:checked + .app-switch__track {
+  position: relative;
+  box-sizing: border-box;
+  width: 13px;
+  height: 8px;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.app-switch--sidebar .app-switch__track::after {
+  top: 50%;
+  left: 1px;
+  width: 4px;
+  height: 4px;
+  background: currentColor;
+  transform: translateY(-50%);
+}
+
+.app-switch--sidebar .app-switch__input:checked + .app-switch__track::after {
+  transform: translate(5px, -50%);
+}
+
+.app-switch--sidebar .app-switch__input:focus-visible + .app-switch__track {
+  outline-color: currentColor;
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-switch__track, .app-switch__track::after { transition: none; }
 }

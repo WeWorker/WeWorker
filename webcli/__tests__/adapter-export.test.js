@@ -47,7 +47,7 @@ it('rejects existing, linked, misnamed, managed or missing-parent destinations w
   for (const directory of [join(f.root, 'work/wrong'), join(f.paths.userDir, 'example'), join(f.root, 'missing/example'), join(f.paths.builtinDir, 'example')]) {
     expect(() => ejectAdapter('example', directory, { paths: f.paths })).toThrow();
   }
-  symlinkSync(f.paths.builtinDir, join(f.root, 'linked'));
+  symlinkSync(f.paths.builtinDir, join(f.root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
   expect(() => ejectAdapter('example', join(f.root, 'linked/example'), { paths: f.paths })).toThrow();
   mkdirSync(f.destination); writeFileSync(join(f.destination, 'keep.txt'), 'Public existing file');
   expect(() => ejectAdapter('example', f.destination, { paths: f.paths })).toThrow(/already exists/);

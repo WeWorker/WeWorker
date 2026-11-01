@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "fs";
 import { join, resolve, sep } from "path";
+import { assertManagedFile } from './adapter-package-files.js';
 
 const TOOLKIT_FILES = [
   "manifest.json",
@@ -15,19 +16,26 @@ export function resolveToolkitAdaptersDir({ cwd = process.cwd(), env = process.e
   return resolve(env.WEWORKER_ADAPTERS_DIR || join(cwd, ".claude", "skills"));
 }
 
-function fail(adapterId, message) {
-  throw new Error(`Toolkit Adapter "${adapterId}": ${message}`);
+function fail(adapterId, message, code = 'INVALID_TOOLKIT_PACKAGE') {
+  throw Object.assign(new Error(`Toolkit Adapter "${adapterId}": ${message}`), { code });
 }
 
 function assertRegularFile(adapterId, adapterRoot, relativePath) {
-  const filePath = resolve(adapterRoot, relativePath);
+  let filePath;
+  try { filePath = assertManagedFile(adapterRoot, relativePath); }
+  catch (error) {
+    if (['UNSAFE_ADAPTER_FILE', 'UNSAFE_ADAPTER_DIRECTORY'].includes(error.code)) {
+      fail(adapterId, `required file "${relativePath}" must be a regular file with no linked parent directory.`, 'UNSAFE_TOOLKIT_FILE');
+    }
+    throw error;
+  }
   if (!filePath.startsWith(`${resolve(adapterRoot)}${sep}`)) {
     fail(adapterId, `invalid file path "${relativePath}".`);
   }
-  if (!existsSync(filePath)) fail(adapterId, `missing required file "${relativePath}".`);
+  if (!existsSync(filePath)) fail(adapterId, `missing required file "${relativePath}".`, 'TOOLKIT_FILE_MISSING');
   const stat = lstatSync(filePath);
   if (stat.isSymbolicLink() || !stat.isFile()) {
-    fail(adapterId, `required file "${relativePath}" must be a regular file.`);
+    fail(adapterId, `required file "${relativePath}" must be a regular file.`, 'UNSAFE_TOOLKIT_FILE');
   }
   return filePath;
 }
@@ -54,7 +62,7 @@ function validateToolkitManifest(manifest, adapterRoot, directoryName) {
   }
   for (const name of TOOLKIT_FILES) assertRegularFile(adapterId, adapterRoot, name);
   if (manifest.artifact_hash !== toolkitArtifactHash(adapterRoot)) {
-    fail(adapterId, "artifact_hash does not match executable files.");
+    fail(adapterId, "artifact_hash does not match executable files.", 'TOOLKIT_DIGEST_MISMATCH');
   }
   if (!Array.isArray(manifest.tools) || manifest.tools.length === 0) {
     fail(adapterId, "tools must be a non-empty array.");
@@ -85,6 +93,13 @@ function validateToolkitManifest(manifest, adapterRoot, directoryName) {
     manifest: { ...manifest, tools },
     tools,
   };
+}
+
+/** Same registration/hash checks as the runner, without executing Python. */
+export function inspectToolkitDirectory(adapterRoot, directoryName) {
+  const file = assertManagedFile(adapterRoot, 'manifest.json');
+  if (!lstatSync(file).isFile() || lstatSync(file).size > 2 * 1024 * 1024) fail(directoryName, 'invalid manifest file.');
+  return validateToolkitManifest(JSON.parse(readFileSync(file, 'utf8')), adapterRoot, directoryName);
 }
 
 export function loadToolkitAdapters(options = {}) {

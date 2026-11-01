@@ -1,7 +1,7 @@
 .model-settings-layout.channel-profiles-layout { grid-template-columns: 150px minmax(0, 1fr); }
 .channel-profiles-layout .channel-types .model-settings-sidebar__header { padding: 14px 10px; gap: 4px; }
 .channel-types .model-settings-add { width: 30px; height: 30px; min-width: 30px; }
-.channel-profiles-workspace { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-primary); }
+.channel-profiles-workspace { position: relative; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg-primary); }
 .channel-profiles-content { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .channel-profile-menu button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .channel-profile-row { display: flex; align-items: center; gap: 2px; min-height: 38px; padding: 3px 4px 3px 8px; border-radius: 7px; margin-bottom: 4px; }
@@ -20,7 +20,6 @@
 .channel-profile-rename { width: 0; min-width: 0; flex: 1; height: 28px; padding: 3px 4px; border: 1px solid var(--accent); border-radius: 4px; color: var(--text-primary); background: var(--bg-primary); font-size: 12px; outline: none; }
 .channel-profile-hint, .channel-profile-empty { color: var(--text-muted); font-size: 11px; padding: 10px 12px; margin: 0; }
 .channel-profile-hint { border-top: 1px solid var(--border); }
-.channel-profiles-error { color: var(--error); padding: 8px 14px; font-size: 12px; }
 .channel-profiles-layout .channel-settings-toolbar { padding: 8px 14px; gap: 8px; }
 .channel-profiles-layout .channel-settings-body { padding: 14px; }
 @media (max-width: 1100px) {

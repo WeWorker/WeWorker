@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Settings } from '../config.js'
 import type { Message } from '../works-store.js'
+import * as contextAssembly from '../context-assembly.js'
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), directory: '' }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: mocks.query }))
@@ -17,6 +18,7 @@ vi.mock('../config.js', () => ({
 vi.mock('../tools.js', () => ({ buildMcpServer: () => ({}), getMcpToolDefinitionSummary: () => '' }))
 vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, error() {}, warn() {}, debug() {} }) }))
 vi.mock('../adapter-parser.js', () => ({ parseAllAdapters: () => new Map() }))
+vi.mock('../webcli-path.js', () => ({ resolveWebcliDir: () => path.join(mocks.directory, 'webcli') }))
 vi.mock('../user-directory-access.js', () => ({
   buildAgentFilesystemSettings: () => ({}),
   createUnifiedToolGuard: () => async () => ({ behavior: 'deny' }),
@@ -44,6 +46,19 @@ async function collect(messages: Message[], overrides = {}, turnSettings = setti
 
 beforeEach(() => {
   mocks.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-compaction-test-'))
+  for (const name of ['webcli', 'webcli-browser', 'webcli-api-exploration']) {
+    const skillDir = path.join(mocks.directory, 'webcli/skills', name)
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `---\nname: ${name}\ndescription: Public fixture\n---\nRead https://example.com/items`)
+  }
+  const builtinDir = path.join(mocks.directory, 'builtin')
+  fs.mkdirSync(builtinDir, { recursive: true })
+  fs.writeFileSync(path.join(builtinDir, '.profile.json'), JSON.stringify({ schema_version: 1, profile: 'public', adapters: [], legacy: [] }))
+  vi.stubEnv('WEWORKER_BUILD_PROFILE', 'public')
+  vi.stubEnv('WEWORKER_BUILTIN_ADAPTERS_DIR', builtinDir)
+  vi.stubEnv('WEWORKER_USER_ADAPTERS_DIR', path.join(mocks.directory, 'adapters'))
+  vi.stubEnv('WEBCLI_ADAPTERS_DIR', path.join(mocks.directory, 'adapters'))
+  vi.stubEnv('WEWORKER_ADAPTER_DATA_DIR', path.join(mocks.directory, 'adapter-data'))
   vi.stubEnv('WEWORKER_CLAUDE_CODE_PATH', process.execPath)
   mocks.query.mockReset()
   mocks.query.mockImplementation((request) => ({
@@ -65,10 +80,23 @@ beforeEach(() => {
 afterEach(() => {
   clearStoredConversationCompaction(options.workId)
   vi.unstubAllEnvs()
+  vi.restoreAllMocks()
   fs.rmSync(mocks.directory, { recursive: true, force: true })
 })
 
 describe('agent conversation compaction', () => {
+  it.each([{ disabled: '1', enabled: false }, { disabled: '0', enabled: true }])(
+    'applies the process memory switch to a real agent turn: disabled=$disabled', async ({ disabled, enabled }) => {
+      vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', disabled)
+      const recall = vi.spyOn(contextAssembly, 'recallLongTermMemory').mockReturnValue({ recalled: '' })
+      await collect([message('only', '请回答测试问题')], { memoryEnabled: true })
+      expect(mocks.query).toHaveBeenCalledOnce()
+      const request = mocks.query.mock.calls[0][0]
+      expect(request.options.systemPrompt.includes('<weworker_memory>')).toBe(enabled)
+      expect(Boolean(request.options.hooks)).toBe(enabled)
+      expect(recall.mock.calls.length).toBe(enabled ? 1 : 0)
+    },
+  )
   it('streams visible text before block stop while preserving the hidden memory decision', async () => {
     mocks.query.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {

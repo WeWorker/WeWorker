@@ -553,8 +553,8 @@ function extractFlagArgs(argv, startIndex = 0) {
 
 describe('extractFlagArgs: --key=value flag parsing', () => {
   it('should extract --key=value flags into args object', () => {
-    const { args, rest } = extractFlagArgs(['open_browser', '--url=http://jd.com'], 0)
-    expect(args).toEqual({ url: 'http://jd.com' })
+    const { args, rest } = extractFlagArgs(['open_browser', '--url=http://jd.com', '--adapter=jd.com'], 0)
+    expect(args).toEqual({ url: 'http://jd.com', adapter: 'jd.com' })
     expect(rest).toEqual(['open_browser'])
   })
 

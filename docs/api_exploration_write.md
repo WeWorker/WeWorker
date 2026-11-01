@@ -1,5 +1,7 @@
 # HTTP／Extension 写命令与副作用验证
 
+2026-10-28 新增 W01–W04 契约：受控 input/change、自动保存、显式控件/hidden/Shadow/frame、click/Enter/整页导航、多组写用例、任务内有限写序列和部分恢复，以及多 ID/公开 Header/Location/响应 URL/UI 网络结果和精确负数/任意精度整数。完整字段、编排入口及边界见 [写工作流](opencli_write_workflows.md)。下文 2026-10-18 的单请求/v1 说明保留为基线，其“尚未覆盖”不表示新契约仍缺失；不支持的任意控件、真实账户和跨环境验证仍保持独立边界。
+
 2026-10-18 边界补充：只读页面 navigate 的 `queryParameters` / `hashNavigation` / 显式 `resultOrigin` 与 workflow 的明确 `origin` 与有界 `when/repeat/collect` 属于 Extension 页面读取契约（见开发设计），不改变 HTTP 鉴权/请求权限、PAGE_FETCH/UI 写 URL 或 effect.resultReadback 限制，不赋予业务写授权。
 
 ## 共享文件修复与写授权

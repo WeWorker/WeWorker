@@ -92,6 +92,7 @@ export const useSettingsStore = create((set, get) => ({
   loaded: false,
   loadError: '',
   explorationModelRevision: 0,
+  customModelsSaving: {},
   channels: { qq: { enabled: false, app_id: '', has_app_secret: false, owner_user_id: '' }, weixin: { enabled: false, has_token: false, base_url: '', owner_user_id: '' }, wecom: { enabled: false, bot_id: '', has_secret: false, owner_user_id: '' }, feishu: { enabled: false, app_id: '', has_app_secret: false, owner_user_id: '' } },
 
   load: async () => {
@@ -144,6 +145,22 @@ export const useSettingsStore = create((set, get) => ({
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '保存失败')
     set(settingsPatch(data, get()))
+  },
+
+  // Keep the operation alive across settings-page unmounts. Only model fields
+  // are saved here; unfinished credentials and other form edits stay drafts.
+  saveCustomModels: async (provider, model, customModels) => {
+    if (get().customModelsSaving[provider]) throw new Error('自定义模型正在保存，请稍候')
+    set(state => ({ customModelsSaving: { ...state.customModelsSaving, [provider]: true } }))
+    try {
+      await get().saveProvider(provider, { model, custom_models: customModels })
+    } finally {
+      set(state => {
+        const customModelsSaving = { ...state.customModelsSaving }
+        delete customModelsSaving[provider]
+        return { customModelsSaving }
+      })
+    }
   },
 
   configurePresetProvider: async (provider, apiKey) => {

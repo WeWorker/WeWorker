@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WeWorker Browser Adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "WeWorker browser extension for exposing website tools to AI agents",
   "permissions": [
     "tabs",

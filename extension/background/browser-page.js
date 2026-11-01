@@ -101,7 +101,11 @@ export async function runBrowserPageCommand(command, args = {}) {
       if (args.metricsOnly) return {ok:true,data:{url:location.href,title:document.title,metrics:{source:'dom',interactiveNodes:nodes.length,
         namedInteractiveNodes:nodes.filter(node=>label(node)).length,textChars:Math.min(document.body?.innerText.length||0,12000),
         roles:Object.fromEntries([...new Set(nodes.map(role))].map(value=>[value,nodes.filter(node=>role(node)===value).length])),truncated:nodes.length>limit||(document.body?.innerText.length||0)>12000}}};
-      const snapshotId = crypto.randomUUID(); const refs = new Map();
+      // randomUUID is unavailable on HTTP documents. getRandomValues is also
+      // available in insecure contexts; keep identifiers unique across reloads.
+      const snapshotId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+      const refs = new Map();
       const elements = nodes.slice(0, limit).map((node, index) => { const ref = `${shadow||node.getRootNode() instanceof ShadowRoot?'shadow:':''}${snapshotId}:${index + 1}`; refs.set(ref, { node, label: label(node), role: role(node) }); return describe(node, ref); });
       globalThis.__weworkerBrowserSnapshot = { refs, url: location.href, snapshotId, source: 'dom' };
       return { ok: true, data: { url: location.href, title: document.title, snapshotId, matches: nodes.length, elements,
@@ -170,14 +174,14 @@ export async function runBrowserPageCommand(command, args = {}) {
     if(command==='upload-target'){
       if(Date.now()>=args.uploadDeadline)fail('UPLOAD_INTERRUPTED','Upload preparation exceeded its deadline.');
       if(node.tagName!=='INPUT'||node.type!=='file')fail('INVALID_ARGUMENT','Target must be a native file input.');
-      if(node.webkitdirectory)fail('DIRECTORY_INPUT_UNSUPPORTED','Directory inputs require a directory selection; regular file upload cannot populate them.');
-      if(args.fileCount>1&&!node.multiple)fail('INVALID_ARGUMENT','The file input accepts only one file.');
-      const captured={node,url:location.href,name:label(node),role:role(node),multiple:node.multiple};
+      if(!!node.webkitdirectory!==!!args.directory)fail('DIRECTORY_INPUT_UNSUPPORTED','Directory input and directory selection must match.');
+      if(args.fileCount>1&&!node.multiple&&!args.directory)fail('INVALID_ARGUMENT','The file input accepts only one file.');
+      const captured={node,url:location.href,name:label(node),role:role(node),multiple:node.multiple,directory:!!node.webkitdirectory};
       captured.validate=(phase)=>{
         if(!node.isConnected||node.ownerDocument!==document||location.href!==captured.url)fail('UPLOAD_TARGET_CHANGED','The selected file input or document changed.');
         if(phase==='before'){
           if(Date.now()>=args.uploadDeadline)fail('UPLOAD_INTERRUPTED','The upload target preparation expired.');
-          if(node.tagName!=='INPUT'||node.type!=='file'||node.multiple!==captured.multiple||node.webkitdirectory||label(node)!==captured.name||role(node)!==captured.role)fail('UPLOAD_TARGET_CHANGED','The file input contract changed before upload.');
+          if(node.tagName!=='INPUT'||node.type!=='file'||node.multiple!==captured.multiple||!!node.webkitdirectory!==captured.directory||label(node)!==captured.name||role(node)!==captured.role)fail('UPLOAD_TARGET_CHANGED','The file input contract changed before upload.');
           if(disabled(node))fail('ELEMENT_DISABLED','The file input became disabled.');
         }
       };

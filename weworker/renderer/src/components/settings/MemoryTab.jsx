@@ -91,7 +91,7 @@ export default function MemoryTab() {
 
   const handleDelete = async (record) => {
     if (!record?.id || deletingId) return
-    const confirmed = await showConfirm(`确定删除这条「${memoryTypeLabel(record.type)}」记忆吗？删除后无法恢复。`, '删除记忆')
+    const confirmed = await showConfirm(`确定删除这条「${memoryTypeLabel(record.type)}」记忆吗？删除后无法恢复。`, '删除记忆', { danger: true })
     if (!confirmed) return
     setListMessage(null)
     try {
@@ -157,7 +157,7 @@ export default function MemoryTab() {
               {budgetMessage?.text || (loadingSettings ? '正在加载记忆设置…' : `范围 ${MEMORY_BUDGET_MIN}-${MEMORY_BUDGET_MAX}，留空或非整数不会被提交`)}
             </span>
             <div className="settings-btn-group">
-              <button
+              <button data-app-button="action"
                 type="button"
                 className="settings-btn settings-btn-secondary"
                 onClick={handleRestoreDefaults}
@@ -165,7 +165,7 @@ export default function MemoryTab() {
               >
                 恢复默认
               </button>
-              <button
+              <button data-app-button="action"
                 type="button"
                 className="settings-btn settings-btn-primary"
                 onClick={handleSave}

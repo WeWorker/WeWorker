@@ -9,9 +9,9 @@ export const WEBCLI_TEMPLATE_COMMANDS = [
   {
     id: 'webcli-open-browser',
     title: 'webcli open_browser',
-    command: 'webcli call open_browser --url=<url>',
-    description: '打开网站或 Skill 首页',
-    searchText: "webcli call open_browser url 打开 网站 skill 首页".toLowerCase(),
+    command: 'webcli call open_browser --url=<url> --adapter=<adapter-id>',
+    description: '打开已知 Adapter 网站并接入登录流程',
+    searchText: "webcli call open_browser url adapter 打开 网站 skill 首页 登录".toLowerCase(),
   },
   {
     id: 'webcli-call-flags',

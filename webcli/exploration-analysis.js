@@ -1,4 +1,5 @@
 import { usesWorkflowOrigins } from './page-workflow-origins.js';
+import { requiresWorkflowFrameCapability } from './page-workflow-frames.js';
 import { usesWorkflowControl } from './page-workflow-control.js';
 import { explorationError as fail, textArg } from './exploration-commands.js';
 import { usesNavigationQuery, usesNavigationHash } from './page-navigation-parameters.js';
@@ -56,7 +57,7 @@ export function analyzeExploration(run, capabilities = []) {
   if (run.mode === 'http') for (const candidate of candidates) if (candidate.eligible) candidate.strategy = run.http.strategy;
   const pages = (run.pageSources || []).map(item => {
     const strategy = item.source.strategy;
-    const requiredCapability = usesWorkflowOrigins(item.source) ? 'page_navigation_origin_v1' : usesWorkflowControl(item.source) ? 'page_workflow_control_v1' : usesNavigationHash(item.source) ? 'page_navigation_hash_v1' : usesNavigationQuery(item.source) ? 'page_navigation_query_v1' : item.source.mode === 'workflow' ? 'page_workflow_v1' : item.source.mode === 'navigate' ? 'page_navigation_v1' : item.source.mode === 'query' ? 'page_query_v1' : strategy === 'INTERCEPT' ? 'intercept_read_v1' : 'page_sources_v1';
+    const requiredCapability = requiresWorkflowFrameCapability(item.source) ? 'page_workflow_frames_v1' : usesWorkflowOrigins(item.source) ? 'page_navigation_origin_v1' : usesWorkflowControl(item.source) ? 'page_workflow_control_v1' : usesNavigationHash(item.source) ? 'page_navigation_hash_v1' : usesNavigationQuery(item.source) ? 'page_navigation_query_v1' : item.source.mode === 'workflow' ? 'page_workflow_v1' : item.source.mode === 'navigate' ? 'page_navigation_v1' : item.source.mode === 'query' ? 'page_query_v1' : strategy === 'INTERCEPT' ? 'intercept_read_v1' : 'page_sources_v1';
     return { id: item.id, strategy, mode: item.source.mode || 'read', contract: strategy === 'INTERCEPT' ? 'internal-unstable' : 'visible-ui',
       route: { origin: item.expectedOrigin, pathname: item.expectedPath }, observedAt: item.observedAt, requiredCapability,
       available: capabilities.includes(requiredCapability), reason: item.reason };

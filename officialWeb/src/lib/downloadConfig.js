@@ -4,7 +4,7 @@ import { GITHUB_RELEASES } from './siteConfig.js'
  * 对外版：安装包从 GitHub Releases 获取。
  * 文档内 download-cards 组件仍展示平台说明，点击跳转 Releases。
  */
-export const APP_VERSION = '1.0.0'
+export const APP_VERSION = '1.1.0'
 
 export const DOWNLOAD_REPORT_URL = ''
 

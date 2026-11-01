@@ -7,7 +7,6 @@
 - 状态：统一 WebCLI 入口代码基线已实现；macOS x64、Windows x64 与最终安装包仍待验收
 - 适用范围：WeWorker 内置 Claude Code SDK 的 `qa_only`、`no_bash`、`full` 三种权限模式
 - 关联设计：[`webcli_toolkit_adapter_design.md`](webcli_toolkit_adapter_design.md)、[`webwright_integration_design.md`](webwright_integration_design.md)
-- 进度源：[`../ROADMAP.md`](../ROADMAP.md)
 
 ## 一、结论
 

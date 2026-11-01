@@ -24,7 +24,6 @@
 - 日期：2026-09-22
 - 状态：单地址接入与按需探索配置已完成本地自动化和模拟界面验证；真实模型服务与跨平台安装包验收待完成
 - 关联设计：[`webwright_integration_design.md`](webwright_integration_design.md)
-- 进度源：[`../ROADMAP.md`](../ROADMAP.md)
 
 ## 结论
 

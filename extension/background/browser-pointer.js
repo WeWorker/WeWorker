@@ -53,12 +53,13 @@ function center(quad, viewport) {
     const area = Math.abs(points.reduce((sum, a, i) => { const b = points[(i + 1) % points.length]; return sum + a.x * b.y - a.y * b.x; }, 0)) / 2;
     return area > 1 ? { x: points.reduce((sum, p) => sum + p.x, 0) / points.length, y: points.reduce((sum, p) => sum + p.y, 0) / points.length } : null;
 }
-export async function executeFramePointer(chrome, tabId, command, args, ensureCdpAttached) {
+export async function executeFramePointer(chrome, tabId, command, args, ensureCdpAttached, control = {}) {
     return withBrowserFrameContext(chrome, tabId, args, ensureCdpAttached, async ({ isolated, selected, state }) => {
         const send = (source, method, params) => chrome.debugger.sendCommand(source, method, params);
         const root = { tabId }, tokens = [], objects = [], deadline = Date.now() + 30000;
         const selectedArgs = { ...args, frameId: selected.frameId, documentId: selected.documentId };
         const checkContext = () => {
+            control.assertRunning?.();
             if (Date.now() > deadline)
                 throw fail('POINTER_OPERATION_INTERRUPTED', 'Pointer preparation exceeded its deadline. Inspect the page before retrying; earlier hover or click effects may have happened.');
             if (![...state.contexts.values()].some(item => item.uniqueId === isolated.uniqueId && sourceKey(item.source) === sourceKey(isolated.source)))
@@ -160,7 +161,8 @@ export async function executeFramePointer(chrome, tabId, command, args, ensureCd
         };
         try {
             await send(root, 'Page.bringToFront');
-            const fromNode = await node(selectedArgs);
+            if (control.objectId && control.contextId !== isolated.uniqueId) throw fail('FRAME_DOCUMENT_CHANGED', 'The retained query target belongs to another document.');
+            const fromNode = control.objectId || await node(selectedArgs);
             // Scroll the retained backend node through same-process and remote ancestors.
             await send(isolated.source, 'DOM.scrollIntoViewIfNeeded', { objectId: fromNode });
             const toNode = command === 'drag' ? await node({ ...selectedArgs, selector: args.toSelector, scrollIntoView: false }) : null;
@@ -170,6 +172,7 @@ export async function executeFramePointer(chrome, tabId, command, args, ensureCd
                 if (params.type !== 'mouseReleased') checkContext();
                 return send(root, 'Input.dispatchMouseEvent', params);
             };
+            await control.beforeDispatch?.();
             await mouse({ type: 'mouseMoved', ...from });
             if (command === 'hover')
                 return { action: command, completed: true, trusted: true, frameId: selected.frameId, documentId: selected.documentId };
@@ -185,6 +188,7 @@ export async function executeFramePointer(chrome, tabId, command, args, ensureCd
             };
             for (let count = 1; count <= (command === 'dblclick' ? 2 : 1); count++) {
                 await stable();
+                await control.beforeDispatch?.();
                 if (typeof args.ref === 'string' && args.ref.startsWith('ax:'))
                     await validateBrowserAxReference(chrome, tabId, selectedArgs, ensureCdpAttached, command);
                 if (typeof args.ref === 'string' && args.ref.startsWith('shadow:')) {
@@ -194,6 +198,8 @@ export async function executeFramePointer(chrome, tabId, command, args, ensureCd
                 checkContext();
                 let releaseAt = from;
                 try {
+                    await control.beforePress?.();
+                    checkContext();
                     await mouse({ type: 'mousePressed', ...from, button: 'left', buttons: 1, clickCount: count });
                     if (to)
                         for (let i = 1; i <= 10; i++) {

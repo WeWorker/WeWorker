@@ -12,6 +12,26 @@ import { readPackageDirectory } from '../adapter-package-files.js';
 const roots = [];
 afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 const origin = 'https://example.com', url = origin + '/items/example';
+
+it('requires every authored write case before install and never replays a consumed earlier case',async()=>{
+  const f=await setup();
+  const next=structuredClone(f.fixture);next.id='second';next.representativeArgs.title='Again';next.expectedSubmission.body.title='Again';next.effect.before.equals.title='After';next.effect.after.equals.title='Again';
+  expect((await f.save({cases:[f.fixture,next]})).ok).toBe(true);
+  await f.call('validate');expect(f.requests).toEqual([]);
+  expect((await f.call('write-review',{tool:f.tool})).error.code).toBe('WRITE_CASE_REQUIRED');
+  const first=(await f.call('write-review',{tool:f.tool,caseId:f.fixture.id})).data;
+  await f.call('write-verify',{tool:f.tool,caseId:f.fixture.id,reviewId:first.reviewId,confirmed:true});
+  expect(f.run.status).toBe('write_review_ready');expect((await f.call('review')).error.code).toBe('VALIDATION_REQUIRED');
+  const second=(await f.call('write-review',{tool:f.tool,caseId:'second'})).data;
+  await f.call('write-verify',{tool:f.tool,caseId:'second',reviewId:second.reviewId,confirmed:true});expect(f.run.status).toBe('review_ready');
+  const count=f.requests.length;await f.call('write-verify',{tool:f.tool,caseId:f.fixture.id,reviewId:first.reviewId,confirmed:true});expect(f.requests).toHaveLength(count);
+  expect(f.run.writeExecutions.map(value=>value.caseId)).toEqual([f.fixture.id,'second']);
+});
+
+it('rejects duplicate, nested or oversized write suites without replacing authored evidence',async()=>{
+  const f=await setup();
+  for(const cases of [[f.fixture],[f.fixture,f.fixture],[{cases:[f.fixture]},f.fixture],Array.from({length:11},(_,i)=>({...f.fixture,id:'case'+i}))])expect((await f.save({cases})).error.code).toBe('INVALID_WRITE_CASE');
+});
 export async function setup(behavior = 'normal', resultId = 'example', receiptId) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'extension-write-test-')); roots.push(root);
   const paths = resolveAdapterPaths({ home: root, env: { WEWORKER_USER_ADAPTERS_DIR: path.join(root, 'user'), WEWORKER_ADAPTER_DATA_DIR: path.join(root, 'data'), WEWORKER_BUILTIN_ADAPTERS_DIR: path.join(root, 'builtin'), WEWORKER_BUILD_PROFILE: 'public' } });
@@ -192,4 +212,18 @@ it('changing the UI resource GET invalidates the old exact review without a subm
   const pkg = readPackageDirectory(f.run.draft.adapterDir), manifest = structuredClone(pkg.manifest);
   manifest.commands[0].uiWrite.result.attribute = 'data-new-id';
   expect(adapterPermissions(manifest)).not.toEqual(adapterPermissions(pkg.manifest));
+});
+
+it('validates exact date/popup declarations and binds popup changes into permission review',async()=>{
+  const f=await setup();const pkg=readPackageDirectory(f.run.draft.adapterDir),command=structuredClone(pkg.manifest.commands[0]);
+  command.uiWrite.version=2;command.uiWrite.inputMode='native-input-change';
+  command.uiWrite.inputs[0].kind='date';expect(()=>validateUiWrite(command)).not.toThrow();
+  Object.assign(command.uiWrite.inputs[0],{kind:'choice',popup:'#choices',option:'[role=option]'});
+  expect(()=>validateUiWrite(command)).not.toThrow();
+  const baseline=adapterPermissions({...pkg.manifest,commands:[command]});
+  command.uiWrite.inputs[0].popup='#other';expect(adapterPermissions({...pkg.manifest,commands:[command]})).not.toEqual(baseline);
+  for(const patch of [{popup:''},{option:''},{script:'example'},{kind:'file'}]){
+    const invalid=structuredClone(command);Object.assign(invalid.uiWrite.inputs[0],patch);expect(()=>validateUiWrite(invalid)).toThrow();
+  }
+  command.uiWrite.inputMode='native-setter-no-events';expect(()=>validateUiWrite(command)).toThrow();
 });

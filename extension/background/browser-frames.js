@@ -1,5 +1,6 @@
 // Frame selection uses Chrome document identity, never URL matching. CDP context
 // IDs belong to a target session; child IDs must not enter the main-page cache.
+import { createFrameOperation, settleFrameCleanup } from './frame-operation.js';
 const tabs = new Map();
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const key = source => source.sessionId || '';
@@ -10,12 +11,13 @@ const stateFor = tabId => {
 };
 
 export function clearBrowserFrames(tabId) { tabs.delete(tabId); }
-export async function beginBrowserFrames(chrome, tabId) {
+export async function beginBrowserFrames(chrome, tabId, guard = createFrameOperation()) {
   const state = stateFor(tabId);
   if (!state.enabled) {
-    await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable');
-    try { await chrome.debugger.sendCommand({ tabId }, 'Target.setAutoAttach', autoAttach); }
-    catch { throw fail('FRAME_CONTEXT_UNAVAILABLE', 'Frame observation requires Chrome child debugging sessions. Update Chrome and reconnect.'); }
+    await guard.run(() => chrome.debugger.sendCommand({ tabId }, 'Runtime.enable'));
+    try { await guard.run(() => chrome.debugger.sendCommand({ tabId }, 'Target.setAutoAttach', autoAttach)); }
+    catch { guard.check(); throw fail('FRAME_CONTEXT_UNAVAILABLE', 'Frame observation requires Chrome child debugging sessions. Update Chrome and reconnect.'); }
+    guard.check();
     state.enabled = true;
   }
   return state;
@@ -57,43 +59,43 @@ export function browserFrameSelection(tabId, args) {
   return { frameId, target: { tabId, ...(args.documentId === undefined ? { frameIds: [frameId] } : { documentIds: [args.documentId] }) } };
 }
 
-export async function executeFrameScript(chrome, tabId, args, func, input, world = 'ISOLATED') {
+export async function executeFrameScript(chrome, tabId, args, func, input, world = 'ISOLATED', guard = createFrameOperation(), injectImmediately = false) {
   const { frameId, target } = browserFrameSelection(tabId, args);
   let results;
   if (args.documentId !== undefined) {
     let documents;
-    try { documents = await chrome.scripting.executeScript({ target, world, func: () => null }); }
-    catch { throw fail('FRAME_UNAVAILABLE', 'The selected document is no longer available. Read browser.frames again.'); }
+    try { documents = await guard.run(() => chrome.scripting.executeScript({ target, injectImmediately: true, world, func: () => null })); }
+    catch { guard.check(); throw fail('FRAME_UNAVAILABLE', 'The selected document is no longer available. Read browser.frames again.'); }
     if (!documents.some(item => item.frameId === frameId && item.documentId === args.documentId)) throw fail('FRAME_DOCUMENT_CHANGED', 'The frame/document pair does not match. Read browser.frames again.');
   }
-  try { results = await chrome.scripting.executeScript({ target, world, func, args: input }); }
-  catch { throw fail('FRAME_UNAVAILABLE', 'The selected frame/document is unavailable or navigation interrupted the operation. Read browser.frames again; do not replay a mutation automatically.'); }
+  try { results = await guard.run(() => chrome.scripting.executeScript({ target, ...(injectImmediately ? { injectImmediately: true } : {}), world, func, args: input })); }
+  catch { guard.check(); throw fail('FRAME_UNAVAILABLE', 'The selected frame/document is unavailable or navigation interrupted the operation. Read browser.frames again; do not replay a mutation automatically.'); }
   const result = results.find(item => item.frameId === frameId);
   if (!result || (args.documentId !== undefined && result.documentId !== args.documentId)) throw fail('FRAME_DOCUMENT_CHANGED', 'The frame/document pair no longer matches. Read browser.frames again.');
   return result;
 }
 
-export async function withBrowserFrameContext(chrome, tabId, args, ensureCdpAttached, operation) {
+export async function withBrowserFrameContext(chrome, tabId, args, ensureCdpAttached, operation, guard = createFrameOperation()) {
   browserFrameSelection(tabId, args);
-  await ensureCdpAttached(tabId);
-  const state = await beginBrowserFrames(chrome, tabId);
+  await guard.run(() => ensureCdpAttached(tabId));
+  const state = await beginBrowserFrames(chrome, tabId, guard);
   const marker = `__weworkerFrame_${crypto.randomUUID().replaceAll('-', '')}`;
   let selected;
   try {
     selected = await executeFrameScript(chrome, tabId, args, function (name) {
       this[name] = true;
       return true;
-    }, [marker]);
+    }, [marker], 'ISOLATED', guard, true);
     let context, isolated;
     const deadline = Date.now() + 2500;
     while (!context && Date.now() < deadline) {
       for (const candidate of [...state.contexts.values()]) {
         if (candidate.auxData.isDefault) continue;
         try {
-          const check = await chrome.debugger.sendCommand(candidate.source, 'Runtime.evaluate', {
+          const check = await guard.run(() => chrome.debugger.sendCommand(candidate.source, 'Runtime.evaluate', {
             expression: `this[${JSON.stringify(marker)}] === true`,
             uniqueContextId: candidate.uniqueId, returnByValue: true, timeout: 1000,
-          });
+          }), deadline);
           if (check.result?.value === true) {
             // The marker lives in the extension's isolated world, inaccessible
             // to page scripts. Chrome supplies its frame ID; use that identity
@@ -103,18 +105,17 @@ export async function withBrowserFrameContext(chrome, tabId, args, ensureCdpAtta
             context = main.length === 1 ? main[0] : null; isolated = candidate;
             break;
           }
-        } catch { /* A disappearing context is not another frame. */ }
+        } catch { guard.check(deadline); /* A disappearing context is not another frame. */ }
       }
-      if (!context) await new Promise(resolve => setTimeout(resolve, 50));
+      if (!context) await guard.run(() => new Promise(resolve => setTimeout(resolve, 50)));
     }
     if (!context) throw fail('FRAME_CONTEXT_UNAVAILABLE', 'No live execution context matched the selected document. Read browser.frames again.');
-    try { await chrome.scripting.executeScript({ target: { tabId, documentIds: [selected.documentId] }, world: 'ISOLATED', func: function (name) { delete this[name]; }, args: [marker] }); }
-    catch { throw fail('FRAME_UNAVAILABLE', 'The selected document navigated before execution. Read browser.frames again.'); }
+    try { await guard.run(() => chrome.scripting.executeScript({ target: { tabId, documentIds: [selected.documentId] }, injectImmediately: true, world: 'ISOLATED', func: function (name) { delete this[name]; }, args: [marker] })); }
+    catch { guard.check(); throw fail('FRAME_UNAVAILABLE', 'The selected document navigated before execution. Read browser.frames again.'); }
+    guard.check();
     return await operation({ context, isolated, selected, state });
   } finally {
-    if (selected) try {
-      await chrome.scripting.executeScript({ target: { tabId, documentIds: [selected.documentId] }, world: 'ISOLATED', func: function (name) { delete this[name]; }, args: [marker] });
-    } catch { /* Navigated or removed documents need no cleanup in their successor. */ }
+    if (selected) await settleFrameCleanup(() => chrome.scripting.executeScript({ target: { tabId, documentIds: [selected.documentId] }, injectImmediately: true, world: 'ISOLATED', func: function (name) { delete this[name]; }, args: [marker] }));
   }
 }
 

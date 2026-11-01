@@ -313,7 +313,7 @@ Tier 0（层 9 / 第 11 层短路）命中但消息里不含该 adapter 的任�
 `examples` 的三重作用，缺一不可：
 
 1. 给人和 LLM 看——加一条配置时不用去别处翻「这条怎么用」；
-2. 给测试读——`shipped-router-config.test.ts` **直接拿它当正例实跑**一遍匹配器，正则/关键词写错当场红，而不是上线后静默不命中；
+2. 给测试读——内部回归套件（不在开源仓库）**直接拿它当正例实跑**一遍匹配器，正则/关键词写错当场红，而不是上线后静默不命中；
 3. 防污染——**示例就是这条配置的适用边界**，写不出来往往说明这条配置本来就不该加。
 
 **注释里的示例机器读不到，等于写了但没验证**——所以两者不能互相替代。这也消除了「配置在 A 文件、示例在 B 测试文件」的两张皮：正例集从测试文件迁到配置条目，一处维护。
@@ -330,7 +330,7 @@ Tier 0（层 9 / 第 11 层短路）命中但消息里不含该 adapter 的任�
 | 2 | **坏配置只回退该层** | 语法/校验错误扩散到全层 | `router-config/loader.ts`（每文件独立校验，失败保留上一份可用配置） |
 | 3 | **分节归属校验** | 条目放进别的 adapter 的分节 | `router-config/adapter-grouped.ts` |
 | 4 | **词冲突与最短长度** | 一条的匹配词是另一条的子串（工具不同）→ 短的先命中，长的**永远拿不到**；裸词大面积误伤 | `router-config/validate.ts`（`MIN_CONTAINMENT_TERM_LENGTH = 3`） |
-| 5 | **正例全覆盖 + 负例零误判** | 配了不生效（引擎未加载导致的假绿）；命中本不该命中的句子 | `api-query-router/__tests__/route-eval.test.ts`（`positiveChecked === routeCount` 断言），正例集由 `shipped-router-config.test.ts` 从配置派生 |
+| 5 | **正例全覆盖 + 负例零误判** | 配了不生效（引擎未加载导致的假绿）；命中本不该命中的句子 | 内部回归套件（不在开源仓库）：`positiveChecked === routeCount` 断言，正例集从配置派生 |
 | 6 | **作用域过滤** | 配置引用了当前环境不存在的 adapter | `validate.ts` 的 `isToolInAdapterScope`，被丢条目进 `sources.dropped` |
 
 第 5 道闸里 `positiveChecked === routeCount` 这个断言**不能因为迁移而失效**——它是防止「引擎没被加载、所有层都不命中、测试全绿」的关键保险。
@@ -346,7 +346,7 @@ Tier 0（层 9 / 第 11 层短路）命中但消息里不含该 adapter 的任�
 | 加一条「点名词 → 工具」 | `routes.json` 或 `aliases.json` | 无 |
 | 加一条守卫式短路 | `shortcuts.json` | 无 |
 | 提升某工具召回 | `patterns.json` 该条加 `examples` 或调 `weight` | 无 |
-| 给某工具定制表格 | `renderers.json` 加 schema（并在 `shipped-router-config.test.ts` 登记） | 无 |
+| 给某工具定制表格 | `renderers.json` 加 schema（并在内部回归套件的 schema 登记表注册） | 无 |
 | 加一条多跳 | `plans.json` 加 resolver/terminal；从 manifest 进入的还要在 `plan-terminals.json` 登记 | 无 |
 | 加一条话术卡片直连 | adapter `manifest.scenarios[].route`，跑 `npm run gen:routes` | 无 |
 | 加一条逐字模板 | adapter `manifest.route_templates[]` | 无 |

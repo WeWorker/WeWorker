@@ -100,7 +100,7 @@ export default function SkillsTab() {
   }
 
   const deleteSkill = async (name) => {
-    if (!await showConfirm(`删除技能 "${name}"？`, '删除技能')) return
+    if (!await showConfirm(`删除技能 "${name}"？`, '删除技能', { danger: true })) return
     try {
       await backendFetch(`/skills/${encodeURIComponent(name)}`, { method: 'DELETE' })
       await load()
@@ -208,7 +208,7 @@ export default function SkillsTab() {
         </div>
       </div>
 
-      <button onClick={openNew} style={{ ...btnStyle, background: 'var(--accent)', alignSelf: 'flex-start' }}>
+      <button data-app-button="action" onClick={openNew} style={{ ...btnStyle, background: 'var(--accent)', alignSelf: 'flex-start' }}>
         + 新建技能
       </button>
     </div>
@@ -232,8 +232,8 @@ function ErrorMsg({ msg }) {
 function SaveRow({ onCancel, onSave, saving }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-      <button onClick={onCancel} style={{ ...btnStyle, background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
-      <button onClick={onSave} disabled={saving} style={{ ...btnStyle, background: 'var(--accent)' }}>
+      <button data-app-button="action" onClick={onCancel} style={{ ...btnStyle, background: 'transparent', color: 'var(--text-muted)' }}>取消</button>
+      <button data-app-button="action" onClick={onSave} disabled={saving} style={{ ...btnStyle, background: 'var(--accent)' }}>
         {saving ? '保存中...' : '保存'}
       </button>
     </div>

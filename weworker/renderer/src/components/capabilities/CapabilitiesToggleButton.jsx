@@ -23,7 +23,8 @@ export default function CapabilitiesToggleButton({ variant = 'default' }) {
         onClick={handleToggle}
         aria-label={open ? '收起场景总览' : '打开场景总览'}
         aria-pressed={open}
-        style={{
+        className={isTitlebar ? `workspace-toolbar__button${open ? ' is-active' : ''}` : undefined}
+        style={isTitlebar ? undefined : {
           width: isTitlebar ? 28 : 28,
           height: isTitlebar ? 28 : 28,
           borderRadius: isTitlebar ? 4 : 8,

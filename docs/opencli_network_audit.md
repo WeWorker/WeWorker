@@ -1,5 +1,9 @@
 # OpenCLI 网络观察、流式正文与回放审计
 
+2026-10-29：已完成固定 1.8.8 direct CDP 的隔离 Worker/SW、SSE/长响应/失败核查，以及原 journal/artifact 导出函数 harness；本项目真实 CLI/Bridge/prepared 扩展和双 bundle 补对应证据。统一产物 `exploration.export` 已实现，契约和剩余限制见 [U06 专项](opencli_u06_diagnostics.md)。下表是源码审计起点，不能把旧“尚未开始”解释为当前状态；上游真实扩展/daemon 传输仍未验，未据函数 harness 宣称其全链路完成。
+
+2026-10-28 排期：U01 只汇总静态和已有历史验证记录，没有完成本页统一产物导出。下一阶段 U06 的明确实施范围见 [U01 专项末节](opencli_u01_verification.md#下一阶段-u06)：优先有界、脱敏、来源明确的新目录导出；Worker/未结束流式正文/replay 先做固定 1.8.8 隔离行为核查，不展开 U04/U05。
+
 2026-10-18。对照 npm 官方 1.8.8 的 `dist/src/browser/cdp.js`、`browser/daemon-client.js`、`observation/{session,artifact}.js`，以及公开仓库 v1.8.8 固定提交 `8271afc67e8504bda94c147f446ee29775d08274` 的扩展源码。该 tag 来自 GitHub refs API，完整 tree 返回 truncated=false；`extension/src/cdp.ts` Git blob 为 `c2ce05149ce3cbabe35fa76df83fbe05cb1cc150`，`journal.ts` 为 `b394b59aa236066003c041f926cea9248019e8d6`，下载内容已按 Git blob 算法核对。仅源码审计，没有运行外部账户或接管浏览器。
 
 | 子项 | 上游实际实现 | 本项目现状与剩余证据 |

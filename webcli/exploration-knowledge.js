@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertManagedDirectory, assertManagedFile } from './adapter-package-files.js';
 import { explorationError as fail, textArg } from './exploration-commands.js';
+import { writeFixtureCases } from './write-cases.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const record = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -35,9 +36,10 @@ function reviseFields(current, changes, { commands, taskId, packageDigest, verif
     if (!command || command.packageDigest !== packageDigest) throw fail('VALIDATION_REQUIRED', 'Revision evidence must belong to this task and package.');
     let proof;
     if (command.writeVerification) {
-      const write = command.writeVerification, fixture = write.fixture;
-      if (evidence.caseIds !== undefined || !write.verifiedAt || !(assertsPath(fixture?.effect?.after, assertedPath) || assertsPath(fixture?.effect?.resultReadback?.expect, assertedPath))) throw fail('VALIDATION_REQUIRED', 'Write revision needs a verified independent effect assertion, not an offline mock or receipt.');
-      proof = { kind: write.kind, path: assertedPath, fixtureId: fixture.id, digest: hash(JSON.stringify(fixture)), verifiedAt: write.verifiedAt };
+      const write = command.writeVerification, fixtures = writeFixtureCases(write.fixture);
+      const selected = fixtures.length === 1 && evidence.caseIds === undefined ? fixtures : Array.isArray(evidence.caseIds) && evidence.caseIds.length && new Set(evidence.caseIds).size === evidence.caseIds.length ? evidence.caseIds.map(id => fixtures.find(value => value.id === id)) : [];
+      if (!selected.length || !write.verifiedAt || selected.some(fixture => !fixture || !(assertsPath(fixture.effect?.after, assertedPath) || assertsPath(fixture.effect?.resultReadback?.expect, assertedPath)))) throw fail('VALIDATION_REQUIRED', 'Write revision needs explicit verified independent effect cases, not an offline mock or receipt.');
+      proof = { kind: write.kind, path: assertedPath, ...(selected.length===1?{fixtureId:selected[0].id}:{caseIds:selected.map(value=>value.id)}), digest: hash(JSON.stringify(selected.length===1?selected[0]:selected)), verifiedAt: write.verifiedAt };
     } else {
       if (!Array.isArray(evidence.caseIds) || !evidence.caseIds.length || evidence.caseIds.length > 10
         || new Set(evidence.caseIds).size !== evidence.caseIds.length) throw fail('INVALID_KNOWLEDGE_REVISION', 'Read revision needs explicit unique caseIds.');

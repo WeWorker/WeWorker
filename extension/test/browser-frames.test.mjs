@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clearBrowserFrames, recordBrowserFrameEvent, executeFrameScript, evaluateBrowserFrame } from '../background/browser-frames.js';
+import { clearBrowserFrames, recordBrowserFrameEvent, executeFrameScript, evaluateBrowserFrame, withBrowserFrameContext } from '../background/browser-frames.js';
+import { createFrameOperation } from '../background/frame-operation.js';
 
 function fixture() {
   clearBrowserFrames(7);
@@ -100,4 +101,81 @@ test('an unresolved page promise cannot retain the browser command forever and i
   t.mock.timers.tick(30001);
   await rejected;
   assert.equal(attempts, 1); assert.equal(f.markers.size, 0);
+});
+
+test('a stalled context lookup times out, cleans only the pinned document and never runs the operation after a late reply', async t => {
+  const f = fixture(); await f.context('example-child-session', 'example-child-context');
+  let started, reply;
+  const entered = new Promise(resolve => { started = resolve; });
+  const original = f.chrome.debugger.sendCommand;
+  f.chrome.debugger.sendCommand = (source, method, params) => {
+    if (params?.expression?.startsWith('this[')) {
+      started(); return new Promise(resolve => { reply = resolve; });
+    }
+    return original(source, method, params);
+  };
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  let actions = 0;
+  const pending = withBrowserFrameContext(f.chrome, 7, { frameId: 12, documentId: 'example-child' }, async () => {}, async () => { actions++; });
+  const rejected = assert.rejects(pending, { code: 'FRAME_OPERATION_TIMEOUT' });
+  await entered; t.mock.timers.tick(2501); await rejected;
+  reply({ result: { value: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(actions, 0); assert.equal(f.markers.size, 0);
+  assert.deepEqual(f.scripts.at(-1).target, { tabId: 7, documentIds: ['example-child'] });
+});
+
+test('a late document preflight cannot dispatch the requested script after timeout', async t => {
+  const f = fixture();
+  let started, reply;
+  const entered = new Promise(resolve => { started = resolve; });
+  let calls = 0;
+  f.chrome.scripting.executeScript = () => { calls++; started(); return new Promise(resolve => { reply = resolve; }); };
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const pending = executeFrameScript(f.chrome, 7, { frameId: 12, documentId: 'example-child' }, () => 'must not execute', []);
+  const rejected = assert.rejects(pending, { code: 'FRAME_OPERATION_TIMEOUT' });
+  await entered; t.mock.timers.tick(30001); await rejected;
+  reply([{ frameId: 12, documentId: 'example-child' }]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+});
+
+test('identity preflight runs immediately without changing the scheduling of the requested action', async () => {
+  const f = fixture();
+  await executeFrameScript(f.chrome, 7, { frameId: 12, documentId: 'example-child' }, () => 'example action', []);
+  assert.equal(f.scripts[0].injectImmediately, true);
+  assert.equal(f.scripts[1].injectImmediately, undefined);
+});
+
+test('cancellation interrupts a pending Chrome call and latches even if the cancellation flag is later reset', async t => {
+  const f = fixture(); let cancelled = false, started, reply;
+  const entered = new Promise(resolve => { started = resolve; });
+  const cancellation = Object.assign(new Error('Cancelled'), { code: 'PAGE_WORKFLOW_CANCELLED' });
+  const guard = createFrameOperation({ assertRunning: () => { if (cancelled) throw cancellation; } });
+  let calls = 0;
+  f.chrome.scripting.executeScript = () => { calls++; started(); return new Promise(resolve => { reply = resolve; }); };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pending = executeFrameScript(f.chrome, 7, { frameId: 12, documentId: 'example-child' }, () => 'must not execute', [], 'ISOLATED', guard);
+  const rejected = assert.rejects(pending, error => error === cancellation);
+  await entered; cancelled = true; t.mock.timers.tick(51); await rejected;
+  cancelled = false; reply([{ frameId: 12, documentId: 'example-child' }]);
+  await assert.rejects(guard.run(() => { calls++; }), error => error === cancellation);
+  assert.equal(calls, 1);
+});
+
+test('unresponsive marker cleanup has a separate bounded budget and cannot hide the operation error', async t => {
+  const f = fixture(); await f.context('example-child-session', 'example-child-context');
+  const original = f.chrome.scripting.executeScript;
+  let started, cleanups = 0;
+  const entered = new Promise(resolve => { started = resolve; });
+  f.chrome.scripting.executeScript = request => {
+    if (String(request.func).includes('delete this') && ++cleanups === 2) { started(); return new Promise(() => {}); }
+    return original(request);
+  };
+  const expected = new Error('Example operation failure');
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const pending = withBrowserFrameContext(f.chrome, 7, { frameId: 12, documentId: 'example-child' }, async () => {}, async () => { throw expected; });
+  const rejected = assert.rejects(pending, error => error === expected);
+  await entered; t.mock.timers.tick(1001); await rejected;
+  assert.equal(cleanups, 2);
 });

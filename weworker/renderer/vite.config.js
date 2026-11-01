@@ -8,6 +8,8 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const { loadBuildDefines, publicProviders } = require('../scripts/model-provider-config.cjs')
 const { normalizeDeploymentConfig } = require('../deployment-config.cjs')
+const deploymentPath = fileURLToPath(new URL('../deployment.json', import.meta.url))
+const deploymentConfigPath = fileURLToPath(new URL('../deployment-config.cjs', import.meta.url))
 
 // Read git commit hash for dev mode
 let devCommitHash = 'dev'
@@ -18,7 +20,6 @@ try {
 
 export default defineConfig(({ command }) => {
   const buildDefines = loadBuildDefines({ development: command === 'serve' })
-  const deploymentPath = fileURLToPath(new URL('../deployment.json', import.meta.url))
   const deploymentConfig = normalizeDeploymentConfig(JSON.parse(fs.readFileSync(deploymentPath, 'utf8')))
   return {
     plugins: [{
@@ -29,7 +30,7 @@ export default defineConfig(({ command }) => {
         // Treat them as config dependencies so edits rebuild injected flags too.
         const profilePath = fileURLToPath(new URL('../build-profile.json', import.meta.url))
         const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
-        const dependencies = [profilePath, deploymentPath, fileURLToPath(new URL('../deployment-config.cjs', import.meta.url))]
+        const dependencies = [profilePath, deploymentPath, deploymentConfigPath]
         if (profile.modelProviders) dependencies.push(path.resolve(path.dirname(profilePath), profile.modelProviders))
         config.configFileDependencies.push(...dependencies.map(file => file.replaceAll('\\', '/')))
       },
@@ -47,7 +48,7 @@ export default defineConfig(({ command }) => {
       '__BUILD_PROVIDERS__': JSON.stringify(publicProviders(buildDefines.providers)),
       '__BUILD_DEFAULT_PROVIDER__': JSON.stringify(buildDefines.defaultProvider),
       '__BUILD_COMMIT_HASH__': JSON.stringify(buildDefines.commitHash || devCommitHash),
-      '__DEPLOYMENT_CONFIG__': JSON.stringify(deploymentConfig),
+      '__BUILD_DEPLOYMENT_CONFIG__': JSON.stringify(deploymentConfig),
     },
   }
 })

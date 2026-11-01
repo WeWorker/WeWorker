@@ -93,8 +93,8 @@ export default function AgentTaskPanel({ agent }) {
               </div>
               <Space>
                 <AppSwitch checked={task.enabled} disabled={busyId === task.id} onChange={(event) => patch(task.id, { enabled: event.target.checked })} aria-label={`启用 ${task.title}`} />
-                <Popconfirm title="删除这个定时任务？" description="执行记录和持续上下文会一并删除。" okText="删除" cancelText="取消" onConfirm={() => remove(task.id)}>
-                  <Button danger disabled={busyId === task.id}>删除</Button>
+                <Popconfirm title="删除这个定时任务？" description="执行记录和持续上下文会一并删除。" okText="删除" okButtonProps={{ danger: true }} cancelText="取消" onConfirm={() => remove(task.id)}>
+                  <Button data-app-button="action" danger disabled={busyId === task.id}>删除</Button>
                 </Popconfirm>
               </Space>
             </div>

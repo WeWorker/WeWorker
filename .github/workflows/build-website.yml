@@ -1,0 +1,70 @@
+name: Build Website
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    name: Build website artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out website source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: officialWeb/package-lock.json
+
+      - name: Install dependencies
+        working-directory: officialWeb
+        run: npm ci
+
+      - name: Build website
+        working-directory: officialWeb
+        env:
+          RELEASE_BUILD: '1'
+        run: npm run build
+
+      - name: Verify and collect website artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f officialWeb/dist/index.html
+          while IFS= read -r asset; do
+            test -f "officialWeb/dist/${asset#/}"
+          done < <(grep -oE '(src|href)="/[^"]+\.(js|css)"' officialWeb/dist/index.html | cut -d '"' -f 2)
+
+          output="${RUNNER_TEMP}/website-artifact"
+          mkdir -p "$output/dist"
+          cp -a officialWeb/dist/. "$output/dist/"
+          (
+            cd "$output/dist"
+            find . -type f -printf '%P\0' |
+              sort -z |
+              xargs -0 sha256sum > ../SHA256SUMS.txt
+          )
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg ref "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            '{schemaVersion: 1, repository: $repository, ref: $ref, commit: $commit}' \
+            > "$output/provenance.json"
+
+      - name: Upload website artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: website-${{ github.run_id }}
+          path: ${{ runner.temp }}/website-artifact/
+          if-no-files-found: error
+          retention-days: 7

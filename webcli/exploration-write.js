@@ -13,8 +13,9 @@ import { runHttpTool } from './http-runner.js';
 import { strictVerifier } from './http-preview.js';
 import { resolveUiWrite, validateUiEffect, uiWriteSuccess, uiWriteMockSuccess } from './exploration-ui-write.js';
 import { resolvePageWrite } from './exploration-extension-write.js';
-import { normalizeWriteResult, resolveWriteResult, savedWriteResult } from './exploration-write-result.js';
+import { normalizeWriteResult, resolveWriteResult, savedWriteResult, writeResultSpecs, requiresWriteResultV2 } from './exploration-write-result.js';
 import { normalizeWritePoll, readWriteEffect } from './exploration-write-poll.js';
+import { writeFixtureCases } from './write-cases.js';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -54,12 +55,13 @@ function writeCommand(run, tool) {
 }
 
 function normalizeFixture(run, command, input) {
+  if (input && Object.hasOwn(input,'cases')) return { cases:writeFixtureCases(input).map(value=>normalizeFixture(run,command,value)) };
   keys(input, command.uiWrite ? ['id', 'representativeArgs', 'expectedSubmission', 'effect'] : ['id', 'representativeArgs', 'expectedRequest', 'successResponse', 'successExpectation', 'failureResponse', 'failureExpectation', 'effect']);
   if (JSON.stringify(input).length > 40000 || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(input.id || '')) invalid('Provide a portable fixture id and at most 40000 characters.');
   dataOnly(input);
   if (!object(input.representativeArgs) || Object.hasOwn(input.representativeArgs, '__confirmed')) invalid('Author arguments without __confirmed; the verifier controls confirmation.');
   const expected = command.uiWrite ? input.expectedSubmission : input.expectedRequest;
-  const origins = (command.pageWrite || command.uiWrite) ? [command.pageRoute.origin] : command.http.origins;
+  const origins = (command.pageWrite || command.uiWrite) ? [command.uiWrite?.frames?.at(-1).origin || command.pageRoute.origin] : command.http.origins;
   keys(expected, command.uiWrite ? ['url', 'method', 'body'] : ['url', 'method', 'body', 'headers']);
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(expected.method)) invalid('Expected request must be a write method.');
   const url = new URL(expected.url);
@@ -75,7 +77,9 @@ function normalizeFixture(run, command, input) {
     if (!compareHttpWriteRequest(normalizeHttpWriteRequest({ url: request.url, method: request.method, json: request.body }), expected)) invalid('Page write fixture must match the manifest bindings and arguments exactly.');
   }
   for (const name of command.uiWrite ? [] : ['successResponse', 'failureResponse']) {
-    keys(input[name], ['status', 'body']);
+    keys(input[name], ['status', 'body', 'headers', 'url']);
+    if (input[name].headers !== undefined && (!object(input[name].headers) || Object.entries(input[name].headers).some(([key,value]) => !/^(?:x-[a-z0-9-]{1,60}|location)$/.test(key) || /token|cookie|auth|password|secret|session|credential|api.?key|csrf/i.test(key) || typeof value!=='string' || value.length>2048 || /[\r\n\0]/.test(value)))) invalid('Mock metadata may declare only public response ID headers.');
+    if (input[name].url !== undefined) { const responseUrl=new URL(input[name].url);if(responseUrl.origin!==url.origin||responseUrl.username||responseUrl.password||responseUrl.search||responseUrl.hash)invalid('Mock response URLs must remain within the exact write origin.'); }
     const status = input[name].status;
     if (!Number.isInteger(status) || (name === 'successResponse' ? status < 200 || status > 299 : status < 400 || status > 599)) invalid('Mock responses require success 2xx and failure 4xx/5xx statuses.');
   }
@@ -90,7 +94,7 @@ function normalizeFixture(run, command, input) {
   if (!Object.entries(before.equals || {}).some(([key, value]) => !key.includes('*') && Object.hasOwn(after.equals || {}, key) && !Object.is(value, after.equals[key]))) invalid('Before/after need a changed scalar equals assertion at the same exact path.');
   if (command.uiWrite) validateUiEffect(command, input);
   const resultReadback = input.effect.resultReadback === undefined ? undefined
-    : normalizeWriteResult(input.effect.resultReadback, command.uiWrite ? uiWriteMockSuccess(command) : input.successResponse.body, url.origin);
+    : normalizeWriteResult(input.effect.resultReadback, command.uiWrite ? uiWriteMockSuccess(command) : input.successResponse.body, url.origin, input.successResponse);
   const poll = input.effect.poll === undefined ? undefined : normalizeWritePoll(input.effect.poll, { after, resultReadback });
   return clone({ ...input, effect: { readback: input.effect.readback, before, after, ...(command.uiWrite ? { argumentPaths: input.effect.argumentPaths, identityPath: input.effect.identityPath } : {}), ...(resultReadback ? { resultReadback } : {}), ...(poll ? { poll } : {}) } });
 }
@@ -134,46 +138,59 @@ export function writeCase(service, run, args, editing) {
   return { tool, hash: hash(fixtures.commands[command.id]) };
 }
 
-export function writeReview(service, run, tool) {
+export function writeReview(service, run, tool, caseId, allowBindings = false) {
   service.assertPlannedDraft(run);
   const command = writeCommand(run, textArg(tool, 'tool', 200));
   const digest = writeProofDigest(run);
   if (!run.validation?.passed || run.preWriteDigest !== digest) throw fail('VALIDATION_REQUIRED', 'Validate the current draft and mocks before reviewing a write.');
-  const fixture = normalizeFixture(run, command, writeFixtures(run).commands[command.id]);
+  const cases = writeFixtureCases(normalizeFixture(run, command, writeFixtures(run).commands[command.id]));
+  const fixture = caseId === undefined && cases.length === 1 ? cases[0] : cases.find(value => value.id === caseId);
+  if (!fixture) throw fail('WRITE_CASE_REQUIRED','Select an exact caseId from this tool’s authored write cases.');
+  if (!allowBindings && JSON.stringify(fixture).includes('{{result:')) throw fail('WRITE_SEQUENCE_REQUIRED','Review this result-bound case as part of an explicit write sequence.');
   const reviewId = hash({ digest, tool: command.name, fixture, ...(run.repairScope ? { taskId: run.taskId, repair: run.repairScope } : {}) });
   const previous = run.writeExecutions?.find(item => item.reviewId === reviewId);
-  const { resultBinding: privateBinding, ...previousSummary } = previous || {};
-  return { reviewId, digest, tool: command.name, fixture, ...(command.uiWrite ? { page: { tabId: run.tabId, route: command.pageRoute, ui: command.uiWrite } } : command.pageWrite ? { page: { tabId: run.tabId, route: command.pageRoute, request: command.pageWrite,
+  const { resultBinding: privateBinding, effect: privateEffect, http: privateHttp, ...previousSummary } = previous || {};
+  return { reviewId, digest, tool: command.name, caseId:fixture.id, fixture, ...(command.uiWrite ? { page: { tabId: run.tabId, route: command.pageRoute, ui: command.uiWrite } } : command.pageWrite ? { page: { tabId: run.tabId, route: command.pageRoute, request: command.pageWrite,
     idempotency: { header: command.pageWrite.idempotency.header, key: hash({ taskId: run.taskId, reviewId }) } } } : { http: command.http }),
     consumed: Boolean(previous), execution: previous ? previousSummary : null, requiresConfirmation: true,
     ...(run.repairScope ? { repair: { ...run.repairScope, authorizationInherited: false } } : {}),
-    ...(fixture.effect.resultReadback ? { responseIdPolicy: `Retain only the declared public string or non-negative safe integer ID from the ${command.uiWrite ? 'fresh correlated page receipt' : 'actual transport response'} in this task ledger for independent recovery GETs. Never use a mock ID, handler output, response URL or replay to recover it.` } : {}),
+    ...(fixture.effect.resultReadback ? { responseIdPolicy: 'Retain only explicitly declared public IDs with their reviewed types and sources from the actual transport response or a fresh correlated page receipt. Sources may include declared JSON paths, public headers or exact same-origin URL templates. Never use mock IDs, handler output, undeclared response fields or replay to recover them. Task-local sequence bindings may also retain these IDs in downstream private effect contracts; summaries and installed packages omit actual bindings.' } : {}),
     ...(fixture.effect.poll ? { pollingPolicy: 'Only repeat reviewed GETs for explicitly declared pending states within the attempt/time budget. Errors, identity changes and other mismatches stop. Recovery never promotes an uncertain write or permits installation.' } : {}),
-    policy: command.uiWrite ? 'One native requestSubmit after silent input assignment. Page acknowledgement is not business proof; independent GET binds every input and a changed correlation. No assumption of server idempotency or single network request. Never automatically retry an uncertain submission.' : command.pageWrite ? 'One logical page write after the before check; browser transport may resend with the same reviewed idempotency key. The declared server must deduplicate it. No application retries or rollback.'
+    policy: command.uiWrite ? (command.uiWrite.version === 2 ? 'Reviewed input/change events and click can each cause writes. Autosave sends no submit. Page-owned hidden values stay in the page. ' : 'One native requestSubmit after silent input assignment. ') + 'Page acknowledgement is not business proof; independent GET binds every input and a changed correlation. No assumption of server idempotency or single network request. Never automatically retry an uncertain submission.' : command.pageWrite ? 'One logical page write after the before check; browser transport may resend with the same reviewed idempotency key. The declared server must deduplicate it. No application retries or rollback.'
       : 'One real write after a successful before check; no redirects, retries or rollback. Readback is an independent GET.' };
 }
 
 export function finishWriteValidation(service, run) {
   const digest = writeProofDigest(run);
   const writes = plannedWrites(run);
-  if (run.preWriteDigest === digest && writes.every(tool => run.writeExecutions?.some(item => item.tool === tool && item.digest === digest && item.status === 'verified'))) {
+  if (run.preWriteDigest === digest && writes.every(tool => writeCasesVerified(run,tool,digest))) {
     run.runtimeDigest = readPackageDirectory(run.draft.adapterDir).digest;
     run.verifiedAt = new Date().toISOString();
     service.update(run, 'review_ready', 'Read commands, write mocks and real write effects passed. Review before installation.');
   } else service.update(run, 'write_review_ready', 'Review each pending real write explicitly. Ordinary validate never dispatches writes.');
 }
 
+export function writeCasesVerified(run, tool, digest) {
+  const fixture = writeFixtures(run).commands[tool.slice(run.siteKey.length+1)];
+  const cases = writeFixtureCases(fixture);
+  return cases.every(value => value && run.writeExecutions?.some(item => item.tool === tool && item.digest === digest && item.status === 'verified'
+    && (item.caseId === value.id || item.caseId === undefined && cases.length === 1)));
+}
+
 const cookieResolver = service => async payload => (await service.request({ type: 'http_credentials', payload }, 10000)).cookies;
 async function pageRequest(service, execution, request, signal, { document, operationId, deadline } = {}) {
   if (signal.aborted) throw fail('PAGE_WRITE_CANCELLED', 'Page request cancelled before dispatch.');
   if (!service.capabilities().capabilities.includes('page_write_v1') || execution.page.ui && !service.capabilities().capabilities.includes('ui_write_v1')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the selected extension before page write verification.');
+  if (execution.page.ui?.inputs?.some(v => ['date','choice'].includes(v.kind)) && !service.capabilities().capabilities.includes('ui_write_choices_v1')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the selected extension for declared date and popup choices.');
+  if (execution.page.ui?.version === 2 && !service.capabilities().capabilities.includes('ui_write_controls_v2')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the selected extension before event-driven UI verification.');
+  if (requiresWriteResultV2(execution.effect.resultReadback) && !service.capabilities().capabilities.includes('write_results_v2')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the selected extension before advanced write result verification.');
   if (execution.page.ui?.result && !service.capabilities().capabilities.includes('ui_write_result_v1')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the selected extension before reading UI receipt IDs.');
   const id = operationId || randomUUID();
   const abort = () => { void service.request({ type: 'exploration_cancel_workflow', tabId: execution.page.tabId, operationId: id }, 5000).catch(() => {}); };
   signal.addEventListener('abort', abort, { once: true });
   try {
     const result = await service.request({ type: 'exploration_page_write', tabId: execution.page.tabId,
-      payload: { route: execution.page.route, request, ...(request.method !== 'GET' ? execution.page.ui ? { ui: execution.page.ui } : { idempotency: execution.page.idempotency } : {}), operationId: id, deadline: deadline || Date.now() + 15000, confirmed: request.method !== 'GET', ...(document ? { expectedDocument: document } : {}) } }, 18000);
+      payload: { route: execution.page.route, request, ...(execution.effect.resultReadback ? (request.method==='GET' ? {decimalPaths:writeResultSpecs(execution.effect.resultReadback).filter(value=>value.idType==='decimal').map(value=>value.identityPath)} : {resultReadback:execution.effect.resultReadback}) : {}), ...(execution.page.ui?.frames ? { frames: execution.page.ui.frames } : {}), ...(request.method !== 'GET' ? execution.page.ui ? { ui: execution.page.ui } : { idempotency: execution.page.idempotency } : {}), operationId: id, deadline: deadline || Date.now() + 15000, confirmed: request.method !== 'GET', ...(document ? { expectedDocument: document } : {}) } }, 18000);
     if (signal.aborted) throw fail('PAGE_WRITE_CANCELLED', 'Page request cancelled; inspect the effect.');
     if (!result?.ok) throw fail(result?.error?.code || 'PAGE_WRITE_FAILED', 'Page request failed; inspect the effect.');
     return result;
@@ -186,6 +203,7 @@ async function readEffectRequest(service, execution, signal, request, options) {
     return { value: reply.value, document: reply.document };
   }
   const client = createHttpClient({ safety: 'read', http: execution.http }, { signal, redirects: false,
+    decimalPaths:execution.effect.resultReadback ? writeResultSpecs(execution.effect.resultReadback).filter(value=>value.idType==='decimal').map(value=>value.identityPath) : [],
     resolveCookies: cookieResolver(service), validateRequest: input => assertReadRequest(input, execution.http.origins[0], execution.http.origins) });
   try {
     return { value: await client.request(request) };
@@ -198,33 +216,34 @@ async function readEffect(service, execution, signal, phase, options = {}) {
     verify: await strictVerifier(), read: (request, document) => readEffectRequest(service, execution, signal, request, { ...options, document }) });
 }
 
-export function verifyWrite(service, run, args) {
+export function verifyWrite(service, run, args, options = {}) {
   const previous = run.writeExecutions?.find(item => item.reviewId === args.reviewId);
   // Even cancellation/restart or a lost CLI response cannot re-dispatch this review.
   if (previous) {
     if (previous.tool !== args.tool) throw fail('STALE_REVIEW', 'Review belongs to a different tool.');
     return service.summary(run);
   }
-  const review = writeReview(service, run, args.tool);
+  const review = options.review || writeReview(service, run, args.tool, args.caseId);
   if (args.reviewId !== review.reviewId) throw fail('STALE_REVIEW', 'Review the current exact write case before dispatch.');
   if (args.confirmed !== true && args.confirmed !== 'true') throw fail('CONFIRMATION_REQUIRED', 'Explicit consent to this exact write and readback is required.');
   if ((run.writeExecutions?.length || 0) >= 100) throw fail('WRITE_LIMIT', 'This task has consumed 100 write reviews.');
-  const execution = { reviewId: review.reviewId, digest: review.digest, tool: review.tool, status: 'preparing', dispatched: false,
+  const execution = { reviewId: review.reviewId, digest: review.digest, tool: review.tool, caseId:review.caseId, status: 'preparing', dispatched: false,
     at: new Date().toISOString(), ...(review.page ? { page: clone(review.page) } : { http: clone(review.http) }), effect: clone(review.fixture.effect) };
   run.writeExecutions = [...(run.writeExecutions || []), execution];
   run.runtimeDigest = null; run.review = null;
-  return service.launch(run, 'verifying_write', async signal => {
+  const launch = options.signal ? (_run,_status,fn)=>fn(options.signal) : service.launch.bind(service);
+  return launch(run, 'verifying_write', async signal => {
     const controller = new AbortController(), abort = () => controller.abort();
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) controller.abort();
     const timer = setTimeout(abort, 30000);
     const deadline = Date.now() + 30000, operationId = randomUUID();
     let violation = false, calls = 0, bindingError;
-    const captureResult = value => {
+    const captureResult = (value, metadata) => {
       if (!execution.effect.resultReadback) return;
       try {
-        const binding = resolveWriteResult(execution.effect.resultReadback, value, new URL((review.fixture.expectedSubmission || review.fixture.expectedRequest).url).origin);
-        execution.resultBinding = { id: binding.id };
+        const binding = resolveWriteResult(execution.effect.resultReadback, value, new URL((review.fixture.expectedSubmission || review.fixture.expectedRequest).url).origin, metadata);
+        execution.resultBinding = binding.bindings ? { ids:binding.ids } : { id: binding.id };
         service.save(run); // Keep only the public ID, before handler completion or effect GETs.
       } catch (error) { bindingError = error; throw error; }
     };
@@ -246,11 +265,20 @@ export function verifyWrite(service, run, args) {
         execution.status = 'dispatching'; execution.dispatched = true;
         service.save(run); // Durable consumption precedes sending anything to the Extension.
         calls = 1;
-        result = (await pageRequest(service, execution, request, controller.signal, { deadline, operationId, document: before.document })).value;
-        captureResult(result);
+        const reply = await pageRequest(service, execution, request, controller.signal, { deadline, operationId, document: before.document });
+        result = reply.value;
+        if (execution.page.ui?.navigation) {
+          const destination = new URL(execution.page.ui.navigation.url);
+          if (reply.document?.url !== destination.href) throw fail('UI_WRITE_NAVIGATION_CHANGED', 'Submission did not reach its declared destination.');
+          before.document = reply.document;
+          if (execution.page.ui.frames) execution.page.ui.frames.at(-1).pathname = destination.pathname;
+          else execution.page.route = {origin:destination.origin,pathname:destination.pathname};
+          service.save(run);
+        }
+        captureResult(result,reply.resultMetadata);
       } else ({ result } = await runHttpTool({ adapter: { root: run.draft.adapterDir, digest: pkg.digest }, command }, { ...review.fixture.representativeArgs, __confirmed: true }, {
-        signal: controller.signal, resolveCookies: cookieResolver(service),
-        observe: entry => { if (entry.status >= 200 && entry.status < 300) captureResult(entry.responseBody); },
+        signal: controller.signal, resolveCookies: cookieResolver(service), writeResult:execution.effect.resultReadback,
+        observe: entry => { if (entry.status >= 200 && entry.status < 300) captureResult(entry.responseBody,entry.resultMetadata); },
         onRequestFailure: () => { violation = true; },
         validateRequest: input => {
           const observed = normalizeHttpWriteRequest(input);
@@ -287,7 +315,7 @@ export function verifyWrite(service, run, args) {
       // Preserve cancellation, while retaining the durable possible-effect state.
       service.save(run);
     }
-    if (!signal.aborted) finishWriteValidation(service, run);
+    if (!signal.aborted && !options.deferFinish) finishWriteValidation(service, run);
   });
 }
 

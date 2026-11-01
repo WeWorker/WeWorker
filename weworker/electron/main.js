@@ -30,6 +30,8 @@ import { packagedMetricsEnvironment } from './metrics-environment.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
 const devRendererUrl = process.env.WEWORKER_RENDERER_DEV_URL || process.env.WEWORKER_DEV_SERVER_URL || 'http://localhost:5173'
+// Each platform's window artwork must also be included in the packaged app.
+const appIconPath = path.join(__dirname, process.platform === 'darwin' ? 'assets/app-icon-mac.png' : process.platform === 'win32' ? '../asset/icon.ico' : '../asset/logo.png')
 
 // ── Load metrics env (~/.webcli/metrics.env) ─────────────────────────────────
 // 从固定路径读取埋点上报配置（KEY=VALUE），注入 process.env。
@@ -57,6 +59,15 @@ loadMetricsEnv()
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'weworker-file',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+  {
+    scheme: 'weworker-login-image',
     privileges: {
       standard: true,
       secure: true,
@@ -94,6 +105,25 @@ function registerLocalFileProtocol() {
           'Cache-Control': 'no-store',
         },
       })
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+  })
+  protocol.handle('weworker-login-image', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const requested = url.searchParams.get('path')
+      if (!requested) return new Response('missing path', { status: 400 })
+      const root = path.resolve(os.homedir(), '.webcli', 'login')
+      const resolved = path.resolve(requested)
+      const relative = path.relative(root, resolved)
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return new Response('not found', { status: 404 })
+      const ext = path.extname(resolved).toLowerCase()
+      if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) return new Response('not found', { status: 404 })
+      const stat = await fs.promises.stat(resolved)
+      if (!stat.isFile() || stat.size > 5 * 1024 * 1024) return new Response('not found', { status: 404 })
+      const body = await fs.promises.readFile(resolved)
+      return new Response(body, { headers: { 'Content-Type': LOCAL_FILE_MIME[ext], 'Cache-Control': 'no-store' } })
     } catch {
       return new Response('not found', { status: 404 })
     }
@@ -212,7 +242,8 @@ async function stopBridgeAndBrowser() {
 
 // ── Background mode: keep dedicated agents online after the window closes ──
 const preferences = createPreferenceStore(path.join(app.getPath('userData'), 'app-settings.json'), { log })
-let launchAtLoginState = { supported: isLaunchAtLoginSupported({ isPackaged: app.isPackaged, platform: process.platform }), enabled: false }
+const disableLoginItemIntegration = process.env.WEWORKER_DISABLE_LOGIN_ITEM === '1'
+let launchAtLoginState = { supported: isLaunchAtLoginSupported({ isPackaged: app.isPackaged, platform: process.platform, disabled: disableLoginItemIntegration }), enabled: false }
 const getAgentSummary = () => fetchAgentSummary({ token: httpAuthToken })
 const background = createBackgroundController({
   platform: process.platform,
@@ -240,6 +271,7 @@ function applyLaunchAtLogin() {
     isPackaged: app.isPackaged,
     platform: process.platform,
     execPath: process.execPath,
+    disabled: disableLoginItemIntegration,
     log,
   })
   return launchAtLoginState
@@ -266,6 +298,7 @@ const trayManager = createTrayManager({
     onOpen: () => { background.showWindow() },
     onOpenAgents: showDedicatedAgentsFromTray,
     onToggleLaunchAtLogin: (enabled) => {
+      if (disableLoginItemIntegration) return
       preferences.update({ launchAtLogin: enabled })
       applyLaunchAtLogin()
       trayManager.render()
@@ -316,7 +349,7 @@ ipcMain.handle('app-settings:get', () => getAppSettings())
 ipcMain.handle('app-settings:set', async (_event, patch = {}) => {
   const next = {}
   if (typeof patch.closeToTray === 'boolean') next.closeToTray = patch.closeToTray
-  if (typeof patch.launchAtLogin === 'boolean') next.launchAtLogin = patch.launchAtLogin
+  if (!disableLoginItemIntegration && typeof patch.launchAtLogin === 'boolean') next.launchAtLogin = patch.launchAtLogin
   preferences.update(next)
   if ('launchAtLogin' in next) applyLaunchAtLogin()
   if (typeof patch.browserMode === 'string') {
@@ -352,7 +385,10 @@ browserClient.onAuthEvent((event) => {
   try {
     lastAuthNotification?.close()
     lastAuthNotification = new Notification({ title: notice.title, body: notice.body })
-    lastAuthNotification.on('click', () => { void browserAction('show') })
+    lastAuthNotification.on('click', () => {
+      const extra = event.contextId ? { browserProfile: event.contextId } : {}
+      void browserClient.authRequest('show_login', { site: event.site, ...extra }).catch((error) => log(`[login] show failed: ${error.message}`))
+    })
     lastAuthNotification.show()
   } catch (error) {
     log(`[login] notification failed: ${error.message}`)
@@ -365,7 +401,6 @@ async function createWindow({ show = true } = {}) {
     Menu.setApplicationMenu(null)
   }
 
-  const iconPath = path.join(__dirname, '../asset/logo.png')
   mainWindow = new BrowserWindow({
     show,
     width: 1280,
@@ -373,7 +408,7 @@ async function createWindow({ show = true } = {}) {
     minWidth: 480,
     minHeight: 400,
     title: isDev ? 'WeWorker (开发版)' : 'WeWorker',
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: fs.existsSync(appIconPath) ? appIconPath : undefined,
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' }
       : { frame: false }),
@@ -414,14 +449,9 @@ async function createWindow({ show = true } = {}) {
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   log('[main] app ready')
 
-  // Set app icon from logo.png (dev + production fallback)
-  const logoPath = path.join(__dirname, '../asset/logo.png')
-  if (fs.existsSync(logoPath)) {
-    const icon = nativeImage.createFromPath(logoPath)
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.setIcon(icon)
-    }
-    // mainWindow icon set below after creation
+  // Use the same rounded artwork as the macOS bundle icon, including in dev.
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(appIconPath)) {
+    app.dock.setIcon(nativeImage.createFromPath(appIconPath))
   }
 
   registerIpcHandlers(bridgeManager, pythonManager, webwrightManager, httpAuthToken, updateManager, {

@@ -33,6 +33,10 @@ describe('website login display', () => {
     assert.equal(describeLoginState({}).text, '未检查')
     assert.match(describeAutologin({ autologin: { supported: true, enabled: true, username: 'fi****', lastResult: 'failed' } }), /已开启（fi\*\*\*\*），上次未成功/)
     assert.equal(describeAutologin({ autologin: { supported: false } }), '当前系统不支持保存密码')
+    assert.match(describeAutologin({ autologin: { supported: true, allowed: false, mode: 'off' } }), /不支持自动登录/)
+    const dynamic = describeLoginEvent({ status: 'waiting_user', name: '动态口令站点', autologinMode: 'off' })
+    assert.match(dynamic.text, /动态密码/)
+    assert.deepEqual(describeLoginEvent({ status: 'logged_in', name: '动态口令站点', autologinMode: 'off', offerAutologin: true }).actions, ['continue'])
   })
 
   it('requires an explicit acknowledgement before saving a password', () => {

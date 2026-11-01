@@ -112,7 +112,7 @@ test('Electron startup guards against duplicate app and backend instances', () =
   assert.match(managerSource, /resolveBackendAvailability\(/)
   assert.match(managerSource, /external_running/)
   assert.match(managerSource, /WEWORKER_BACKEND_INSTANCE_ID/)
-  assert.match(managerSource, /WEWORKER_RENDERER_ORIGIN: process\.env\.WEWORKER_DEV_SERVER_URL/)
+  // Renderer origin selection is covered behaviorally by node-manager-startup.test.mjs.
   assert.match(managerSource, /WEWORKER_CLAUDE_CODE_PATH: claudeCodePath/)
   assert.match(managerSource, /waitForHttpInstance/)
   assert.match(managerSource, /\[bridge\] exited unexpectedly; restarting/)

@@ -18,6 +18,7 @@ test('only fixed login actions with a valid site reach the Bridge', () => {
 test('system notifications cover the moments the user must act', () => {
   assert.match(siteAuthNotification({ status: 'waiting_user', name: '示例站' }).title, /需要登录 示例站/)
   assert.match(siteAuthNotification({ status: 'autologin_failed', name: '示例站', message: '密码错误' }).body, /密码错误/)
+  assert.match(siteAuthNotification({ status: 'waiting_user', name: '动态口令站点', autologinMode: 'off' }).body, /动态密码/)
   assert.equal(siteAuthNotification({ status: 'logged_in', name: '示例站' }), null)
 })
 

@@ -15,7 +15,7 @@ import { installAdapter, selectAdapter, removeInstalledAdapter } from '../../../
 
 // Config is the input; shared runtime tests must also work with variant defaults.
 vi.mock('../../../default-site.json', () => ({
-  default: ['second.example.com', 'missing.example.com', 'first.example.com'],
+  default: [{ id: 'second.example.com', enabled: false }, 'missing.example.com', { id: 'first.example.com', enabled: true }],
 }))
 
 let root: string

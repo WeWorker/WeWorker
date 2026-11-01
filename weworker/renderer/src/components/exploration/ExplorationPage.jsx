@@ -524,7 +524,7 @@ export default function ExplorationPage({ onClose }) {
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>新建 API 探索</div>
                 <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>请选择明确的页面；探索开始后该页面会刷新一次。</div>
               </div>
-              <Button size="small" onClick={loadRuntime} loading={loading} disabled={loading}>刷新页面列表</Button>
+              <Button data-app-button="action" size="small" onClick={loadRuntime} loading={loading} disabled={loading}>刷新页面列表</Button>
             </div>
 
             <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
@@ -558,7 +558,7 @@ export default function ExplorationPage({ onClose }) {
             {error && <Alert type="error" showIcon style={{ marginTop: 12 }} message={error} />}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <Button
+              <Button data-app-button="action"
                 type="primary"
                 loading={busyAction === 'start'}
                 disabled={loading || anyBusy || !selectedTabId || !goal.trim() || !capabilities?.passiveExploration}
@@ -588,7 +588,7 @@ export default function ExplorationPage({ onClose }) {
                 <div title={lastRun.goal} style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lastRun.goal}</div>
               )}
             </div>
-            <Button style={{ flexShrink: 0 }} onClick={handleOpenLastRun}>查看上次探索结果</Button>
+            <Button data-app-button="action" style={{ flexShrink: 0 }} onClick={handleOpenLastRun}>查看上次探索结果</Button>
           </div>
         )}
 
@@ -608,7 +608,7 @@ export default function ExplorationPage({ onClose }) {
                   )}
                 </div>
                 <Space size={8} style={{ flexShrink: 0 }}>
-                  {running && <Button size="small" danger loading={busyAction === 'cancelRun'} onClick={handleCancel}>取消探索</Button>}
+                  {running && <Button data-app-button="action" size="small" danger loading={busyAction === 'cancelRun'} onClick={handleCancel}>取消探索</Button>}
                   {runCollapsible && (
                     <Tooltip title="收起结果，回到新建 API 探索">
                       <Button size="small" onClick={handleCollapseRun}>收起结果</Button>
@@ -736,7 +736,7 @@ export default function ExplorationPage({ onClose }) {
                   </details>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
                     {!actionCaptureRunning && (
-                      <Button
+                      <Button data-app-button="action"
                         loading={busyAction === 'startCapture'}
                         disabled={!capabilities?.actionCapture || anyBusy || generationStarted || !actionName.trim()}
                         onClick={handleStartActionCapture}
@@ -745,12 +745,12 @@ export default function ExplorationPage({ onClose }) {
                       </Button>
                     )}
                     {actionCaptureRecording && (
-                      <Button type="primary" loading={busyAction === 'stopCapture' || actionCapture?.type === 'action_capture_stopping'} onClick={handleStopActionCapture}>
+                      <Button data-app-button="action" type="primary" loading={busyAction === 'stopCapture' || actionCapture?.type === 'action_capture_stopping'} onClick={handleStopActionCapture}>
                         结束捕获
                       </Button>
                     )}
                     {actionCapture?.type === 'action_capture_stopping' && (
-                      <Button type="primary" loading disabled>正在结束…</Button>
+                      <Button data-app-button="action" type="primary" loading disabled>正在结束…</Button>
                     )}
                   </div>
                   {!capabilities?.actionCapture && <div style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 11 }}>当前插件版本不支持客户端操作捕获，请更新并重新加载插件。</div>}
@@ -766,8 +766,8 @@ export default function ExplorationPage({ onClose }) {
                       />
 
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {actionAnalysisError && <Button loading={busyAction === 'retryAnalysis'} disabled={anyBusy || generationStarted} onClick={handleRetryActionAnalysis}>重试 AI 分析（无需重新操作）</Button>}
-                        <Button loading={busyAction === 'nextCapture'} disabled={anyBusy || generationStarted} onClick={handlePrepareNextActionCapture}>继续录制下一个操作</Button>
+                        {actionAnalysisError && <Button data-app-button="action" loading={busyAction === 'retryAnalysis'} disabled={anyBusy || generationStarted} onClick={handleRetryActionAnalysis}>重试 AI 分析（无需重新操作）</Button>}
+                        <Button data-app-button="action" loading={busyAction === 'nextCapture'} disabled={anyBusy || generationStarted} onClick={handlePrepareNextActionCapture}>继续录制下一个操作</Button>
                       </div>
 
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>本次录制发现的请求</div>
@@ -784,7 +784,7 @@ export default function ExplorationPage({ onClose }) {
                             {candidate.aiPurpose && <div style={{ color: 'var(--text-secondary)', fontSize: 11, lineHeight: 1.5 }}>{candidate.aiPurpose}</div>}
                             {candidate.aiWhy && <div style={{ color: 'var(--text-muted)', fontSize: 10.5, lineHeight: 1.5 }}>识别原因：{candidate.aiWhy}</div>}
                             {!primary && (
-                              <Button
+                              <Button data-app-button="action"
                                 size="small"
                                 type="primary"
                                 loading={busyAction === `selectCandidate:${index}`}
@@ -805,7 +805,7 @@ export default function ExplorationPage({ onClose }) {
                 </div>
                 {actionCapture?.type === 'action_capture_restored' && (
                   <Alert type="info" showIcon style={{ marginTop: 8 }} message="历史任务的录制明细不随任务保留；已沉淀到站点记忆的操作证据如下（脱敏）。"
-                    action={<Button loading={busyAction === 'retryAnalysis'} disabled={anyBusy || generationStarted} onClick={handleRetryActionAnalysis}>重试扩展保留的 AI 分析</Button>} />
+                    action={<Button data-app-button="action" loading={busyAction === 'retryAnalysis'} disabled={anyBusy || generationStarted} onClick={handleRetryActionAnalysis}>重试扩展保留的 AI 分析</Button>} />
                 )}
 
                 {Array.isArray(run.siteMemory?.actionCaptureHistory) && run.siteMemory.actionCaptureHistory.length > 0 && (
@@ -828,9 +828,9 @@ export default function ExplorationPage({ onClose }) {
                     直接生成并验证；复杂参数或多接口任务可选智能生成。通过验证后确认安装。
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                    {!run.siteMemory && <Button loading={busyAction === 'saveMemory'} disabled={anyBusy || actionCaptureRunning} onClick={handleSaveMemory}>保存探索结果</Button>}
-                    <Button type="primary" loading={busyAction === 'quickGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleQuickGenerate}>生成并验证</Button>
-                    <Button loading={busyAction === 'smartGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleSmartGenerate}>智能生成</Button>
+                    {!run.siteMemory && <Button data-app-button="action" loading={busyAction === 'saveMemory'} disabled={anyBusy || actionCaptureRunning} onClick={handleSaveMemory}>保存探索结果</Button>}
+                    <Button data-app-button="action" type="primary" loading={busyAction === 'quickGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleQuickGenerate}>生成并验证</Button>
+                    <Button data-app-button="action" loading={busyAction === 'smartGenerate'} disabled={generationRunning || anyBusy || actionCaptureRunning} onClick={handleSmartGenerate}>智能生成</Button>
 
                   </div>
                 </div>
@@ -899,7 +899,7 @@ export default function ExplorationPage({ onClose }) {
                   placeholder="输入你的回答…"
                   style={{ marginTop: 8, resize: 'vertical' }}
                 />
-                <Button type="primary" style={{ marginTop: 8 }} loading={busyAction ===
+                <Button data-app-button="action" type="primary" style={{ marginTop: 8 }} loading={busyAction ===
 'resumeGeneration'
 } disabled={anyBusy || !resumeAnswer.trim()} onClick={handleResumeGeneration}>提交回答并继续</Button>
               </div>
@@ -926,7 +926,7 @@ export default function ExplorationPage({ onClose }) {
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
               {(generationRunning || generation.status === 'awaiting_approval') && (
-                <Button loading={busyAction === 'cancelGeneration'} disabled={anyBusy} onClick={handleCancelGeneration}>取消生成</Button>
+                <Button data-app-button="action" loading={busyAction === 'cancelGeneration'} disabled={anyBusy} onClick={handleCancelGeneration}>取消生成</Button>
               )}
               {generation.status === 'awaiting_approval' && (
                 <Popconfirm
@@ -936,11 +936,11 @@ export default function ExplorationPage({ onClose }) {
                   cancelText="再想想"
                   onConfirm={handlePublishGeneration}
                 >
-                  <Button type="primary" loading={busyAction === 'publishGeneration'} disabled={anyBusy}>安装并启用</Button>
+                  <Button data-app-button="action" type="primary" loading={busyAction === 'publishGeneration'} disabled={anyBusy}>安装并启用</Button>
                 </Popconfirm>
               )}
               {generationFailure(generation.status) && (
-                <Button loading={busyAction === 'smartGenerate'} disabled={anyBusy} onClick={handleSmartGenerate}>重新智能生成</Button>
+                <Button data-app-button="action" loading={busyAction === 'smartGenerate'} disabled={anyBusy} onClick={handleSmartGenerate}>重新智能生成</Button>
               )}
             </div>
           </div>

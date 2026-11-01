@@ -8,7 +8,6 @@
 - 组件设计：[`../components/webwright/docs/weworker_embedded_integration_design.md`](../components/webwright/docs/weworker_embedded_integration_design.md)
 - Skill Runtime 设计：[`skill_runtime_design.md`](skill_runtime_design.md)
 - 共享模型配置设计：[`shared_model_configuration_design.md`](shared_model_configuration_design.md)
-- 进度源：[`../ROADMAP.md`](../ROADMAP.md)
 
 ## 目标与边界
 

@@ -28,7 +28,7 @@ weworker/dist-app/
 
 ## 2. 大模型执行原则
 
-1. 先读取项目当前的 `weworker/package.json`、`weworker/build-profile.json` 和 `.github/workflows/release-latest.yml`，不要完全依赖本文档中可能过期的版本号。
+1. 先读取项目当前的 `weworker/package.json`、`weworker/build-profile.json`、`.github/workflows/common-build.yml` 和 `.github/workflows/build-desktop.yml`，不要完全依赖本文档中可能过期的版本号。
 2. 执行命令前确认当前目录。除依赖安装 `webcli` 外，大多数构建命令应在 `weworker` 目录执行。
 3. 不要删除用户的源码、依赖目录或构建缓存。除非明确证明缓存损坏，否则不要清理 `node_modules`、`build` 或 electron-builder 缓存。
 4. 下载时间较长不等于失败。只有进程退出并返回非零退出码，或长时间没有网络/磁盘活动时，才进行故障处理。
@@ -44,9 +44,6 @@ weworker/dist-app/
 - Windows 10/11 x64
 - Node.js 22
 - npm
-- Python 3.12
-- PyInstaller
-- pywin32
 - 可访问 npm、GitHub；访问 GitHub 较慢时使用下文的镜像配置
 
 在 PowerShell 中检查：
@@ -54,42 +51,12 @@ weworker/dist-app/
 ```powershell
 node --version
 npm --version
-python --version
-py --version
-python -m pip --version
+uv --version
 ```
 
-Node.js 应优先使用 22.x。Python 命令至少有一种能正常输出 3.12.x。
+`node --version` 必须输出 22.x。项目通过 `uv` 自动准备锁定的 CPython 3.14.6、PyInstaller 和 pywin32 隔离环境，不使用系统 `pip`，也不要求 `python` 命令存在。
 
-特别注意：Windows 可能存在一个无效的 Microsoft Store `python.exe` 应用执行别名。其典型表现是执行 `python --version` 后没有任何输出并立即返回。此时检查：
-
-```powershell
-where.exe python
-Get-Command python
-py --version
-```
-
-如果 `python` 指向 `Microsoft\WindowsApps\python.exe`，应在 Windows 的“管理应用执行别名”中关闭 `python.exe` 和 `python3.exe`，安装正式 Python，并重新打开 PowerShell。
-
-可以使用 winget 安装 Python：
-
-```powershell
-winget install --id Python.Python.3.12 -e
-```
-
-安装 Python 构建依赖：
-
-```powershell
-python -m pip install --upgrade pip pyinstaller pywin32
-```
-
-如果机器只能使用 `py` 启动 Python：
-
-```powershell
-py -3.12 -m pip install --upgrade pip pyinstaller pywin32
-```
-
-但项目的 `build:decrypt` 当前调用的是 `python -m PyInstaller`，因此完整构建前最好确保 `python` 命令本身可用。
+Windows 首次运行 `electron-builder` 还需要创建符号链接。建议提前开启 Windows“开发者模式”；否则应从管理员 PowerShell 构建。
 
 ### 3.2 安装 Node.js 依赖
 
@@ -107,20 +74,22 @@ npm run install:all
 - `weworker/backend-ts`
 - `webcli`
 
+这里的 `npm ci` 是 npm 官方的干净安装命令：它会先删除对应目录已有的 `node_modules`，严格按照 `package-lock.json` 安装且不会改写 lockfile，适合首次克隆和复现正式构建。日常开发新增或升级依赖时应使用 `npm install <package>`，并提交同步更新的 `package.json` 和 `package-lock.json`。
+
 如果一键安装失败，可按照 CI 的顺序分别执行：
 
 ```powershell
 cd "<仓库绝对路径>\webcli"
-npm install
+npm ci
 
 cd "<仓库绝对路径>\weworker"
-npm install
+npm ci
 
 cd renderer
-npm install
+npm ci
 
 cd ..\backend-ts
-npm install
+npm ci
 ```
 
 然后返回 `weworker`：
@@ -191,7 +160,8 @@ Test-Path .\renderer\dist\index.html
 Test-Path .\build\backend-ts-dist\server.cjs
 Test-Path .\build\bridge-dist\bridge.cjs
 Test-Path .\build\webcli-dist\webcli.cjs
-Test-Path .\build\webcli-dist\webcli-py.cmd
+Test-Path .\build\webcli-dist\webcli.cmd
+Test-Path .\build\webwright-dist\dist\Webwright\webwright-runtime.json
 Test-Path .\build\decrypt-dist\sd_decrypt.exe
 ```
 
@@ -214,39 +184,23 @@ npx electron-builder --win
 
 ## 5. 常见故障处理
 
-### 5.1 PyInstaller 没有输出或构建提前结束
+### 5.1 PyInstaller 产物被安全软件阻止
 
-如果日志停在：
-
-```text
-python -m PyInstaller ...
-```
-
-并立即返回命令提示符，优先怀疑 `python` 是无效的 Windows 应用执行别名。执行：
-
-```powershell
-python --version
-py --version
-python -m PyInstaller --version
-```
-
-如果只有 `py` 可用，可以先手动生成工具：
-
-```powershell
-py -m PyInstaller --onefile --name sd_decrypt --distpath build/decrypt-dist --workpath build/decrypt-work --specpath build scripts/sd_decrypt.py --noconfirm
-```
-
-成功标志：
+如果 `build:webwright` 或 `build:decrypt` 已显示 `Build complete!`，随后出现以下错误：
 
 ```text
-Build complete! The results are available in: ...\build\decrypt-dist
+spawnSync ... EPERM
+拒绝访问
 ```
 
-并验证：
+先确认文件存在且普通已知程序在同一目录可以执行。这通常表示终端安全软件阻止了刚生成、尚未签名的 PyInstaller 可执行文件，不是 npm 或文件 ACL 问题。
 
 ```powershell
+Test-Path .\build\webwright-dist\dist\Webwright\Webwright.exe
 Test-Path .\build\decrypt-dist\sd_decrypt.exe
 ```
+
+不要关闭安全防护。请让管理员放行构建目录/生成文件，或改用允许执行本地构建产物的可信机器。放行后必须重新执行完整的 `npm run build:win`，不能把跳过运行时校验的安装包视为正式成功。
 
 ### 5.2 Electron 仍然从 GitHub 下载
 
@@ -265,6 +219,10 @@ npx electron-builder --win
 ```
 
 如果日志底部已经出现 `npmmirror.com`，说明新的构建进程已正确使用镜像；之前的 GitHub 错误可能属于上一次失败的构建输出。
+
+### 5.3 electron-builder 无法创建符号链接
+
+如果解压 `winCodeSign` 时报“Cannot create symbolic link”或“客户端没有所需的特权”，开启 Windows“开发者模式”后重新打开 PowerShell，或使用管理员 PowerShell 重新构建。不要手工提交或复用其他机器生成的 electron-builder 缓存。
 
 ## 6. Windows 成功判定
 
@@ -285,15 +243,7 @@ win-unpacked/
 
 版本号以 `weworker/package.json` 为准。安装包应当是有实际体积的大文件，不能只根据目录存在判断成功。
 
-本项目 0.2.5 版本的一次成功构建示例：
-
-```text
-WeWorker-0.2.5-win-x64.exe          392082730 bytes
-WeWorker-0.2.5-win-x64.exe.blockmap   377239 bytes
-latest.yml                                349 bytes
-```
-
-文件大小仅供参考，代码和依赖变化后会不同。
+文件大小随代码和依赖变化，不作为固定成功标准。
 
 建议进一步执行人工冒烟测试：
 
@@ -348,7 +298,7 @@ WeWorker-<version>-mac-arm64.dmg
 
 要求：
 1. 先判断当前操作系统，只构建该系统原生支持的客户端。
-2. 检查 Node.js、npm、Python/PyInstaller 等必要环境；缺失时说明并协助安装。
+2. 检查 Node.js 22、npm 和 uv；Python/PyInstaller 由 uv 自动准备，不使用系统 pip。
 3. 读取当前 package.json、build-profile.json 和 GitHub Actions，确认实际版本和构建命令。
 4. 访问 GitHub 较慢时配置 Electron 和 electron-builder 的 npmmirror 镜像。
 5. 执行完整构建；如果只在 Electron 下载/打包阶段失败，验证中间产物后断点续构。

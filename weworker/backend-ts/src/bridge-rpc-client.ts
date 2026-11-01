@@ -22,6 +22,25 @@ export interface BridgeCapabilities {
   capabilities: string[]
 }
 
+export interface BridgeSiteAuthEvent {
+  type: 'auth_event'
+  site: string
+  name?: string
+  status: string
+  autologinMode?: 'auto' | 'off'
+  at?: string
+  contextId?: string
+  screenshot?: string
+  screenshotVersion?: number
+  qr?: {
+    available?: boolean
+    image?: string
+    imageVersion?: number
+    method?: string
+  }
+  [key: string]: unknown
+}
+
 export interface GenerationRunSnapshot {
   artifacts?: Record<string, unknown>
   id: string
@@ -92,6 +111,7 @@ export class BridgeRpcClient {
   private _stopped = false
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _pending = new Map<string, PendingRequest>()
+  private readonly _authListeners = new Set<(event: BridgeSiteAuthEvent) => void>()
 
   constructor(
     private readonly _url = DEFAULT_BRIDGE_URL,
@@ -122,6 +142,12 @@ export class BridgeRpcClient {
       extensionVersion: this._extensionVersion,
       capabilities: [...this._capabilities],
     }
+  }
+
+  /** Subscribe to asynchronous website-login progress broadcast by the Bridge. */
+  onAuthEvent(listener: (event: BridgeSiteAuthEvent) => void): () => void {
+    this._authListeners.add(listener)
+    return () => this._authListeners.delete(listener)
   }
 
   async listExplorableTabs(): Promise<ExplorableTab[]> {
@@ -462,6 +488,14 @@ export class BridgeRpcClient {
       // Identified per-profile disconnects do not invalidate unrelated requests;
       // the Bridge returns PROFILE_DISCONNECTED for work pinned to that profile.
       if (allDisconnected) this._rejectPending(new Error('EXTENSION_DISCONNECTED'))
+      return
+    }
+    if (type === 'auth_event') {
+      if (typeof message.site !== 'string' || !message.site || typeof message.status !== 'string' || !message.status) return
+      const event = message as unknown as BridgeSiteAuthEvent
+      for (const listener of this._authListeners) {
+        try { listener(event) } catch (error) { log.error('auth event listener failed:', error) }
+      }
       return
     }
 

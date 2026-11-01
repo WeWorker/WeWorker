@@ -63,13 +63,13 @@ describe('login flow for a failed command', () => {
     expect(extension).not.toHaveBeenCalled()
   })
 
-  it('opens the login page, shows the browser, waits for the user and retries the read', async () => {
+  it('opens the login page in the background, waits for the user and retries the read', async () => {
     const { coordinator, browser, statuses, calls } = setup({ script: [{ cookies: false }, { cookies: false }, { cookies: false }, { cookies: true, onLoginPage: false, url: 'https://www.example.com/' }] })
     const retry = vi.fn(async () => ({ rows: 3 }))
     await expect(coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry, loginWaitMs: 5_000 })).resolves.toEqual({ rows: 3 })
     expect(retry).toHaveBeenCalledTimes(1)
-    expect(browser.showPage).toHaveBeenCalledWith('https://passport.example.com/login')
-    expect(browser.hideWindows).toHaveBeenCalledTimes(1)
+    expect(browser.showPage).not.toHaveBeenCalled()
+    expect(browser.hideWindows).not.toHaveBeenCalled()
     expect(statuses()).toEqual(['login_required', 'waiting_user', 'logged_in'])
     expect(calls[0]).toEqual(['auth_open_login', { site: manifest.name }])
     expect((await coordinator.status({ sites: [manifest, bare] })).sites).toEqual([
@@ -96,11 +96,12 @@ describe('login flow for a failed command', () => {
       .resolves.toBe('posted')
   })
 
-  it('returns waiting_user with a screenshot when the caller stops waiting, and finishes later', async () => {
+  it('returns waiting_user without presenting a full-page image when no QR code was found', async () => {
     const { coordinator, events, screenshotDir } = setup({ script: [{ cookies: false }] })
     const error = await coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry: vi.fn(), loginWaitMs: 30 }).catch((e) => e)
-    expect(error).toMatchObject({ code: 'AUTH_REQUIRED', auth: { status: 'waiting_user', site: manifest.name, screenshot: path.join(screenshotDir, `${manifest.name}.jpg`) } })
-    expect(fs.readFileSync(error.auth.screenshot, 'utf8')).toBe('fixture-jpeg')
+    expect(error).toMatchObject({ code: 'AUTH_REQUIRED', auth: { status: 'waiting_user', site: manifest.name } })
+    expect(error.auth).not.toHaveProperty('screenshot')
+    expect(fs.readFileSync(path.join(screenshotDir, `${manifest.name}.jpg`), 'utf8')).toBe('fixture-jpeg')
     expect(coordinator.hasWaitingFlow()).toBe(true)
     // A second call joins the same flow instead of opening another login page.
     const second = coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry: async () => 'second' , loginWaitMs: 5_000 })
@@ -187,7 +188,7 @@ describe('auto-login', () => {
     await first.coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry: async () => 'ok' })
     expect(first.statuses()).toEqual(['login_required', 'autologin_started', 'autologin_failed', 'waiting_user', 'logged_in'])
     expect(first.events[2].message).toMatch(/扫码或短信验证码/)
-    expect(first.browser.showPage).toHaveBeenCalled()
+    expect(first.browser.showPage).not.toHaveBeenCalled()
 
     const again = setup({ vault, autofill, script: [{ cookies: false }, { cookies: true, onLoginPage: false }] })
     await again.coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry: async () => 'ok' })
@@ -218,10 +219,18 @@ describe('explicit login', () => {
     expect(calls.map(([type]) => type)).toEqual(['auth_check'])
   })
 
-  it('runs the flow and reports progress without blocking when waitMs is 0', async () => {
-    const { coordinator } = setup({ script: [{ cookies: false }] })
-    const result = await coordinator.login(manifest.name, { waitMs: 0 })
+  it('binds an observed login tab and shows that exact page only on request', async () => {
+    const { coordinator, browser, calls } = setup({ script: [{ cookies: false }] })
+    const result = await coordinator.login(manifest.name, {
+      waitMs: 0, skipCheck: true, targetTabId: 42, pageUrl: 'https://passport.example.com/login',
+    })
     expect(result).toMatchObject({ site: manifest.name, status: 'waiting_user' })
+    expect(calls[0]).toEqual(['auth_open_login', {
+      site: manifest.name, url: 'https://passport.example.com/login', tabId: 42,
+    }])
+    expect(browser.showPage).not.toHaveBeenCalled()
+    await expect(coordinator.show(manifest.name)).resolves.toMatchObject({ shown: true, site: manifest.name })
+    expect(browser.showPage).toHaveBeenCalledWith('https://passport.example.com/login')
     coordinator.cancel(manifest.name)
   })
 })

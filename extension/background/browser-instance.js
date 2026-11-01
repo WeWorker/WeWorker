@@ -51,8 +51,11 @@ export function browserInstanceHelloFields() {
 async function backgroundWindowId(api) {
   const windows = await api.windows.getAll({ windowTypes: ['normal'] });
   if (windows.length > 0) return windows[0].id;
-  // New windows inherit the off-screen position; focused:false keeps OS focus where it is.
-  const created = await api.windows.create({ url: 'about:blank', focused: false });
+  // Chrome may keep the dedicated process and extension alive after the user closes
+  // its last normal window. Recreate the window with the same local landing page
+  // used at startup instead of leaving a permanent about:blank first tab.
+  const landingUrl = api.runtime.getURL('dedicated-browser/index.html');
+  const created = await api.windows.create({ url: landingUrl, focused: false });
   return created.id;
 }
 

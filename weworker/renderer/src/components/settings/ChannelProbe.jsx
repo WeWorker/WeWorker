@@ -50,7 +50,7 @@ export function useChannelProbe(forms, savedChannels) {
 
 export function ChannelProbeButton({ state, disabled, onClick }) {
   const failed = state?.checks?.some(check => check.status === 'failure')
-  return <button type="button" className={`settings-btn settings-btn-secondary channel-probe-button${state?.ok ? ' is-success' : failed ? ' is-error' : ''}`}
+  return <button data-app-button="action" type="button" className={`settings-btn settings-btn-secondary channel-probe-button${state?.ok ? ' is-success' : failed ? ' is-error' : ''}`}
     disabled={disabled || state?.running} onClick={onClick}>
     {state?.running ? <LoadingOutlined spin /> : state?.ok ? <LinkOutlined /> : failed ? <DisconnectOutlined /> : <ApiOutlined />}
     {state?.running ? '检测中…' : '测试连通性'}

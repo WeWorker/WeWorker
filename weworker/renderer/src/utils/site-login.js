@@ -20,23 +20,32 @@ const named = (event) => event?.name || event?.site || '网站'
  */
 export function describeLoginEvent(event) {
   const name = named(event)
+  const autologinAllowed = event?.autologinMode !== 'off'
   switch (event?.status) {
     case 'autologin_started':
       return { tone: 'pending', title: `正在自动登录 ${name}`, text: '正在 WeWorker 浏览器中填写已保存的账号密码…', actions: [], autoDismissMs: 0 }
-    case 'waiting_user':
+    case 'waiting_user': {
+      const qrReady = event?.qr?.available === true
       return {
         tone: 'warn', title: `需要登录 ${name}`,
-        text: '已在 WeWorker 浏览器中打开登录页。可以扫码、输入短信验证码或账号密码，完成后任务会自动继续。',
+        text: qrReady
+          ? '登录二维码已准备好，请用手机扫码。二维码会自动刷新；也可以显示浏览器切换其他登录方式。'
+          : autologinAllowed
+            ? '已在 WeWorker 浏览器中打开登录页。可以扫码、输入短信验证码或账号密码，完成后任务会自动继续。'
+            : '该网站不支持自动登录。请在 WeWorker 浏览器中使用动态密码或网站提供的其他方式完成登录。',
         actions: ['show', 'cancel'], autoDismissMs: 0,
       }
+    }
     case 'autologin_failed':
       return {
         tone: 'warn', title: `自动登录 ${name} 未成功`,
-        text: `${event.message || '原因未知'}。请在浏览器中手动完成登录；如果密码已更改，可以更新保存的密码。`,
-        actions: ['show', 'update_password', 'disable_autologin'], autoDismissMs: 0,
+        text: autologinAllowed
+          ? `${event.message || '原因未知'}。请在浏览器中手动完成登录；如果密码已更改，可以更新保存的密码。`
+          : '该网站不支持自动登录，请在浏览器中手动完成登录。',
+        actions: autologinAllowed ? ['show', 'update_password', 'disable_autologin'] : ['show'], autoDismissMs: 0,
       }
     case 'logged_in':
-      return event.offerAutologin
+      return event.offerAutologin && autologinAllowed
         ? {
             tone: 'ok', title: `已登录 ${name}`,
             text: '这已经是你第二次手动登录这个网站。要让 WeWorker 下次替你自动登录吗？',
@@ -79,6 +88,7 @@ export function describeLoginState(entry) {
 
 export function describeAutologin(entry) {
   const auto = entry?.autologin || {}
+  if (auto.allowed === false || auto.mode === 'off') return '该网站不支持自动登录，请使用动态密码或其他方式手动登录'
   if (!auto.supported) return '当前系统不支持保存密码'
   if (auto.enabled) return `自动登录：已开启（${auto.username || '已保存账号'}）${auto.lastResult === 'failed' ? '，上次未成功' : ''}`
   if (auto.configured) return '自动登录：已暂停'

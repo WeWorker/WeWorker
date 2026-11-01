@@ -64,7 +64,7 @@ export interface ParsedAdapter {
   match: string[]
   /**
    * siteGate S2 信号词表（manifest 可选 `gate_aliases`）。拉丁词按 ASCII 字母数字判边界
-   * （`XXITSMYY` 不命中 `itsm`），CJK 词直接子串。缺省 = 只靠域名信号，没有任何站点名推断。
+   * （`XXTICKETSYY` 不命中 `tickets`），CJK 词直接子串。缺省 = 只靠域名信号，没有任何站点名推断。
    */
   gateAliases: string[]
   homepageUrl: string
@@ -488,7 +488,8 @@ export function parseAllAdapters(): Map<string, ParsedAdapter> {
     })
   }
   const ordered = new Map<string, ParsedAdapter>()
-  for (const id of defaultSiteOrder) {
+  for (const entry of defaultSiteOrder as Array<string | { id: string; enabled?: boolean }>) {
+    const id = typeof entry === 'string' ? entry : entry.id
     const adapter = result.get(id)
     if (adapter) ordered.set(id, adapter)
   }

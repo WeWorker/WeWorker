@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { zipSync } from 'fflate';
 import { installAdapter, selectAdapter, removeInstalledAdapter } from '../adapter-install-store.js';
 import { writePackageDirectory, readPackageDirectory } from '../adapter-package-files.js';
 import { managedAdapterView, managedAdapterViews, managedAdapterSkill } from '../adapter-views.js';
@@ -49,6 +50,20 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 
 describe('effective Adapter CLI views and generated Skills', () => {
+  it('installs v2 archives through --file and preserves permission checks', () => {
+    const archive = join(root, 'package.adapt');
+    const archiveFiles = version => Object.fromEntries([...files(version, version === '1.0.0' ? 'list' : 'changed')].map(([name, value]) => [name, Buffer.from(value)]));
+    writeFileSync(archive, zipSync(archiveFiles('1.0.0')));
+    expect(JSON.parse(success(['adapter', 'install', '--file', archive, '--json']))).toMatchObject({ name: 'demo', version: '1.0.0', active: true });
+    writeFileSync(archive, zipSync(archiveFiles('1.1.0')));
+    expect(run(['adapter', 'install', '--file', archive, '--json']).status).toBe(1);
+    expect(managedAdapterView('demo').version).toBe('1.0.0');
+    success(['adapter', 'install', '--file', archive, '--allow-permission-change', '--json']);
+    expect(managedAdapterView('demo').version).toBe('1.1.0');
+    writeFileSync(archive, 'invalid archive');
+    expect(run(['adapter', 'install', '--file', archive]).status).toBe(1);
+    expect(managedAdapterView('demo').version).toBe('1.1.0');
+  });
   it('keeps site help compact and command help parameter-specific without executing', () => {
     install('1.0.0');
     for (const args of [['demo', '-h'], ['demo', 'help'], ['adapter', 'demo', '--help']]) {

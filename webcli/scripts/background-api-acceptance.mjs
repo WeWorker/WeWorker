@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
 // Owned loopback service and public placeholder login only. No user browser.
-export async function verifyBackgroundApi({ browser, cli, record, passed, stopBridge, startBridge }) {
+export async function verifyBackgroundApi({ browser, cli, record, passed, stopBridge, startBridge, root }) {
   let drift = false, revoked = false, origin, apiOrigin;
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -106,6 +108,19 @@ export async function verifyBackgroundApi({ browser, cli, record, passed, stopBr
     await cli('exploration.knowledge-save', { taskId: initial.taskId, expectedHash: knowledge.hash });
 
     const incremental = await start('incremental');
+    if (process.argv.includes('--u06-trace-only')) {
+      const ordinary=await cli(authored.tool,{period:'5h'});assert.match(ordinary.trace_id,/^[a-f0-9]{12,32}$/);
+      const before=requests.length,directory=path.join(root,'u06-real-call-export');
+      const result=await cli('exploration.export',{taskId:incremental.taskId,directory,traceIds:[ordinary.trace_id]});
+      assert.equal(result.data.complete,false);assert.equal(requests.length,before);
+      const receipt=JSON.parse(await fs.readFile(path.join(directory,'receipt.json')));
+      assert.ok(receipt.sections['call-trace'].count>0);assert.equal(receipt.sections['call-trace'].failedTraces,0);
+      assert.equal(receipt.sections.knowledge.status,'available');assert.equal(receipt.sections.adapter.status,'available');
+      const text=(await Promise.all((await fs.readdir(directory)).map(name=>fs.readFile(path.join(directory,name),'utf8')))).join('');
+      assert.doesNotMatch(text,/example-session-placeholder|authorization|Bearer /i);
+      passed('U06 real installed background call trace, selected task/profile and matching knowledge exported with zero replay; bounded trace completeness remains explicit');
+      return;
+    }
     const mixedPlan = plan(incremental.index, 'quota_post');
     mixedPlan.tools.push({ ...plan(incremental.index, 'quota_page', 'PAGE_FETCH').tools[0] });
     await cli('exploration.generate', { taskId: incremental.taskId, plan: mixedPlan });
