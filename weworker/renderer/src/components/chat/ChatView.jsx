@@ -14,8 +14,6 @@ import { backendFetch } from '../../api/http.js'
 import { displayToolName } from '../../utils/tool-name.js'
 import { formatDuration } from '../../utils/format-duration.js'
 import { useSettingsStore } from '../../store/settings.js'
-import { useStylesStore, resolveStyleId } from '../../store/styles.js'
-import StylePicker from './StylePicker.jsx'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useChatDraft } from '../../store/chat-drafts.js'
 import { buildResumePrompt, isPlanChangeIntent, isResumeIntent } from '../../utils/chat-generation-stop.js'
@@ -56,17 +54,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const [messageSelectMode, setMessageSelectMode] = useState(false)
   const [toolbarContextTarget, setToolbarContextTarget] = useState(null)
   const maxChatAttachments = useSettingsStore((s) => s.maxChatAttachments)
-  const zcfDefaultRole = useSettingsStore((s) => s.zcfDefaultRole)
-  const zcfCustomRoles = useSettingsStore((s) => s.zcfCustomRoles)
   const work = useWorksStore((s) => s.works.find((item) => item.id === workId))
-  const updateWorkStyle = useWorksStore((s) => s.updateWorkStyle)
-  const styleLabel = useStylesStore((s) => s.styleLabel)
-  const styleOptions = useStylesStore((s) => s.styles)
-  const styleId = useMemo(
-    () => resolveStyleId(work?.zcf_role, zcfCustomRoles, zcfDefaultRole),
-    [work?.zcf_role, zcfCustomRoles, zcfDefaultRole],
-  )
-  const [styleNotice, setStyleNotice] = useState('')
   const [slowWarning, setSlowWarning] = useState(false)
   const slowTimerRef = useRef(null)
   const gotFirstEventRef = useRef(false)
@@ -103,38 +91,6 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     setInputText(nextText)
     setAttachments([])
   }, [fillSeq, fillText, streaming])
-
-  const handleStyleChange = async (nextStyleId) => {
-    try {
-      await updateWorkStyle(workId, { zcf_role: nextStyleId })
-      setStyleNotice(`已切换风格为「${styleLabel(nextStyleId)}」，将从下一条消息开始生效`)
-      window.setTimeout(() => setStyleNotice(''), 4000)
-    } catch (e) {
-      console.error('[chat] update style failed:', e)
-      setError('风格切换失败，请稍后重试')
-    }
-  }
-
-  // Download this conversation's diagnostic log (header + message timeline + the
-  // [work:xxxxxxxx] tagged backend/bridge chain logs) as a txt for developers.
-  const handleExportLogs = async () => {
-    try {
-      const res = await backendFetch(`/works/${workId}/logs.txt`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `weworker-work-${workId?.slice(0, 8) || 'unknown'}-logs.txt`
-      link.click()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setStyleNotice('对话日志已下载，可发给开发者定位问题')
-      window.setTimeout(() => setStyleNotice(''), 4000)
-    } catch (e) {
-      console.error('[chat] export logs failed:', e)
-      setError('日志导出失败，请稍后重试')
-    }
-  }
 
   const handleStop = () => {
     void queue.stop().catch(e => setError(e.message))
@@ -657,18 +613,16 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   // Embedded chats (专属 Agent) do not own the main workspace toolbar.
   const toolbarContext = !embedded && !isHealthCheck && messages.length > 0 && toolbarContextTarget
     ? createPortal(
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, height: '100%', padding: '0 10px', boxSizing: 'border-box', fontSize: 11, color: 'var(--text-muted)' }}>
-          <span style={{ flexShrink: 0, opacity: 0.7 }}>ID: {shortId}</span>
-          {work?.title && <span style={{ opacity: 0.6, flexShrink: 0 }}>·</span>}
-          {work?.title && <span title={work.title} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{work.title}</span>}
-          {taskTotalMs > 0 && <span style={{ opacity: 0.6, flexShrink: 0 }}>·</span>}
-          {taskTotalMs > 0 && <span style={{ flexShrink: 0 }}>累计 {formatDuration(taskTotalMs)}</span>}
-          <StylePicker
-            value={styleId}
-            options={styleOptions}
-            onChange={handleStyleChange}
-            disabled={isStreamingHere}
-          />
+        <div className="chat-heading">
+          <span className="chat-heading__title" title={work?.title}>{work?.title || '新对话'}</span>
+          <details className="chat-heading__details">
+            <summary aria-label="对话详情" title="对话详情">···</summary>
+            <div className="chat-heading__metadata">
+              <strong>对话详情</strong>
+              <span>ID：{shortId}</span>
+              <span>累计用时：{formatDuration(taskTotalMs)}</span>
+            </div>
+          </details>
           <LabelDot workId={workId} label={work?.label} />
           <span style={{ opacity: 0.6, flexShrink: 0 }}>·</span>
           <button
@@ -727,12 +681,6 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
           {error}
         </div>
       )}
-      {styleNotice && (
-        <div style={{ padding: '8px 20px', color: 'var(--accent)', fontSize: 12, background: 'color-mix(in srgb, var(--accent) 10%, transparent)' }}>
-          {styleNotice}
-        </div>
-      )}
-
       {memoryStatus && memoryStatus.status !== 'not_applicable' && (
         <div style={{ padding: '6px 20px', color: memoryStatus.status === 'failed' ? 'var(--error)' : 'var(--text-secondary)', fontSize: 12, background: 'var(--bg-secondary)' }}>
           {memoryStatus.status === 'processing' && '正在整理长期记忆'}

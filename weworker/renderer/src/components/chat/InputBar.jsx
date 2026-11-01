@@ -290,7 +290,7 @@ export default function InputBar({
     const ta = textareaRef.current
     if (ta) {
       ta.style.height = 'auto'
-      const contentH = Math.max(ta.scrollHeight, isWelcome ? 100 : minLineHeight)
+      const contentH = Math.max(ta.scrollHeight, minLineHeight)
       ta.style.height = `${Math.min(contentH, maxTaHeight)}px`
     }
   }, [text, maxTaHeight, isWelcome])
@@ -678,7 +678,7 @@ export default function InputBar({
     flexDirection: 'column',
     alignItems: 'stretch',
     gap: 0,
-    minHeight: hasAttachments ? 132 : (isWelcome ? 112 : 104),
+    minHeight: hasAttachments ? 132 : 104,
     background: 'var(--bg-secondary)',
     border: '1px solid color-mix(in srgb, var(--border) 68%, var(--text-muted))',
     borderRadius: 16,
@@ -710,12 +710,12 @@ export default function InputBar({
       onCompositionEnd={() => { composingRef.current = false }}
       placeholder={streaming && allowQueue ? '输入后续消息...' : streaming ? '正在处理...' : inputDisabled ? '暂时无法输入...' : isWelcome ? welcomePromptPlaceholder : '输入消息...'}
       disabled={inputDisabled}
-      rows={isWelcome ? 4 : 1}
+      rows={1}
       style={{
         width: '100%',
         flex: '1 1 auto',
         minWidth: 0,
-        minHeight: isWelcome ? 58 : 48,
+        minHeight: 48,
         padding: '14px 16px 12px',
         background: 'none',
         border: 'none',
@@ -732,7 +732,7 @@ export default function InputBar({
       onInput={(e) => {
         const ta = e.target
         ta.style.height = 'auto'
-        const contentH = Math.max(ta.scrollHeight, isWelcome ? 100 : minLineHeight)
+        const contentH = Math.max(ta.scrollHeight, minLineHeight)
         ta.style.height = `${Math.min(contentH, maxTaHeight)}px`
         syncSlashMenuFromText(ta.value, ta.selectionStart ?? ta.value.length)
       }}
@@ -853,9 +853,9 @@ export default function InputBar({
             className="chat-permission-picker"
           />
         </div>
+        <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />
       </div>
       <div className="chat-input-toolbar-actions">
-        <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />
         <ModelSelector
           disabled={!!disabled || !!streaming}
           onPendingChange={setModelSelectionPending}

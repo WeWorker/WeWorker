@@ -1,3 +1,4 @@
+import bilibiliIcon from '../../assets/site-icons/bilibili.ico'
 import React, { useState } from 'react'
 import { resolveSiteIcon } from '../../utils/site-icon-resolve.js'
 import { getSiteIconColor, getSiteIconInitials, shouldGenerateSiteIcon } from '../../utils/site-icon-generated.js'
@@ -109,7 +110,7 @@ const COLOR_META = {
  */
 export default function SiteIcon({ site, size = 20, className, style }) {
   const resolved = resolveSiteIcon(site)
-  const source = site?.iconUrl
+  const source = site?.id === 'bilibili.com' ? bilibiliIcon : site?.iconUrl
   const [failedSource, setFailedSource] = useState(null)
 
   if (shouldGenerateSiteIcon(site, source && failedSource !== source, resolved)) {
