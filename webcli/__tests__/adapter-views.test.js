@@ -127,6 +127,23 @@ describe('effective Adapter CLI views and generated Skills', () => {
     expect(success(['demo', 'run', 'help'])).toContain('Runtime: Toolkit');
   });
 
+  it('keeps the host-only auth.qr.command out of AI-facing tools and Skills', () => {
+    const pkg = files();
+    const manifest = JSON.parse(pkg.get('manifest.json'));
+    manifest.auth = { login_url: 'https://example.com/login', qr: { command: 'fetch-qrcode' } };
+    manifest.commands.push({ id: 'fetch-qrcode', runtime: 'extension', module: 'extension/commands/fetch-qrcode.js', description: 'Host QR extraction', safety: 'read', schema: { type: 'object', properties: {} } });
+    pkg.set('manifest.json', JSON.stringify(manifest));
+    pkg.set('extension/commands/fetch-qrcode.js', 'fixture source');
+    installAdapter({ files: pkg, origin: { kind: 'local' } });
+    const view = managedAdapterView('demo');
+    // Still a real, callable command of the package; just never documented to the model.
+    expect(view.tools.map((entry) => entry.id)).toEqual(['list']);
+    expect(managedAdapterSkill(view)).not.toContain('fetch-qrcode');
+    expect(managedAdapterSkill(view)).toContain('## demo.list');
+    sync();
+    expect(skill()).not.toContain('fetch-qrcode');
+  });
+
   it('keeps nested and boolean JSON Schema definitions intact in derived guidance', () => {
     const pkg = files();
     const manifest = JSON.parse(pkg.get('manifest.json'));

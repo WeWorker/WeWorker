@@ -20,7 +20,7 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
       stamps.delete(tabId);
       documents.set(tabId, (documents.get(tabId) || 0) + 1);
     },
-    execute(tabId, manifest, url, operation = null, command = null, traceID = null) {
+    execute(tabId, manifest, url, operation = null, command = null, traceID = null, options = {}) {
       const deadline = now() + timeoutMs;
       return exclusive(tabId, async () => {
         const policy = command && manifest.commands?.find(entry => entry.id === command.id);
@@ -28,7 +28,7 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
         for (let step = 0; ;) {
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
           for (let attempt = 0; ; attempt++) {
-            if (ready) currentUrl = await ready(tabId, manifest, Math.min(25000, deadline - now()), traceID);
+            if (ready) currentUrl = await ready(tabId, manifest, Math.min(25000, deadline - now()), traceID, options);
             if (now() >= deadline) throw new Error('Adapter page execution timed out.');
             const stamp = JSON.stringify([manifest.name, manifest._hostSnapshot, currentUrl]);
             const sources = await bundle(manifest);

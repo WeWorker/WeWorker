@@ -398,9 +398,16 @@ function validateAuth(adapterName, manifest, commands, hasExtension) {
   if (auth.qr !== undefined) {
     const qr = auth.qr;
     if (!qr || typeof qr !== "object" || Array.isArray(qr)
-      || Object.keys(qr).some((key) => !["mode"].includes(key))
+      || Object.keys(qr).some((key) => !["mode", "command"].includes(key))
       || (qr.mode !== undefined && !["auto", "off"].includes(qr.mode))) {
-      fail(adapterName, "auth.qr may only declare mode: auto|off (default: auto).");
+      fail(adapterName, "auth.qr may only declare mode: auto|off and command (default: auto).");
+    }
+    if (qr.command !== undefined) {
+      const command = commands.find((entry) => entry.id === qr.command);
+      if (!command || command.runtime !== "extension" || command.safety !== "read") {
+        fail(adapterName, "auth.qr.command must name a read Extension command of this package.");
+      }
+      if (qr.mode === "off") fail(adapterName, "auth.qr.command is never run while mode is off; remove the command or use mode auto.");
     }
   }
 }

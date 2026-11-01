@@ -170,7 +170,7 @@ login_required
 
 二维码能力遵循与 `auth.login_url`、`auth.check.command` 相同的设计原则：**宿主提供默认能力，Adapter 只在需要时补充精确实现**。二维码只用于把登录入口展示给用户，不参与登录成功判断；登录是否完成仍由 `auth.check` 或业务命令重试确认。
 
-目标流程：
+目标流程（`qr.command` 已接入运行时）：
 
 ```text
 进入已验证的登录页
@@ -218,9 +218,9 @@ login_required
 
 因此 PACE、ITSM、DPMS 等共享该类登录页的 Adapter 不需要分别配置二维码选择器。
 
-### `auth.qr.command`：计划中的精确扩展点
+### `auth.qr.command`：精确扩展点（已实现）
 
-对于通用发现无法可靠处理的网站，目标 schema 允许 Adapter 像 `check.command` 一样提供宿主专用命令：
+对于通用发现无法可靠处理的网站，schema 允许 Adapter 像 `check.command` 一样提供宿主专用命令：
 
 ```json
 {
@@ -232,17 +232,18 @@ login_required
 }
 ```
 
-目标语义：
+实现语义（manifest 校验与运行时均已接入）：
 
-- 命令由登录 flow 调用，不暴露给 AI 作为普通业务工具；
-- 命令固定运行在当前 flow 绑定的登录 Tab，而不是普通业务 Tab；
-- 登录 Tab 必须仍匹配该 Adapter 的 `login_url/login_hosts`；
-- 命令负责必要的精确切换、等待和二维码定位，可返回图片 data URI 或可验证的页面矩形；
-- Bridge 校验图片格式、大小和页面范围后落入短期登录目录；
-- 命令返回 `found: false`、超时或失败时，继续执行宿主通用发现；
+- 命令必须引用本包内 `runtime: extension`、`safety: read` 的已声明命令；`mode: "off"` 时禁止同时声明 command（校验失败）；
+- 被 `qr.command` 引用的命令是 host-only：不进入生成的 Adapter Skill 工具清单，模型看不到，也不会被当作业务工具调用；
+- 执行发生在扩展侧 `auth_prepare_qr` 处理器内：复用宿主页面运行时把命令包注入**当前 flow 绑定的登录 Tab** 并执行（`service-worker.js` 的 `runManagedQrLoginCommand`）；业务命令在登录页执行的禁令（`assertNotOnLoginPage`）对这条宿主路径显式豁免，其他路径不变；
+- 登录 Tab 必须仍匹配该 Adapter 的 `login_url/login_hosts`，否则跳过命令；
+- 命令负责必要的精确切换、等待和二维码定位，返回 `{ found: true, image_data_url, expires_at? }` 或 `{ found: true, rect }`（跨域登录 iframe 场景，如闲鱼内嵌的 login.taobao.com 面板——顶层命令拿不到 iframe 内图片，返回 iframe 的页面矩形，Bridge 用 CDP `clip` 裁剪登录 Tab 截图为 `<site>.qr.jpg` 特写）；
+- Bridge 沿用 `decodeQrImage` 校验图片格式（PNG/JPEG/WEBP 魔数）与大小（≤2MB）后落入短期登录目录 `~/.webcli/login/<profileKey>/<site>.qr.<ext>`；`qr.method` 记录 `command` 或 `heuristic`；
+- 命令返回 `found: false`、超时或抛错时，自动继续宿主通用发现，登录 flow 不因此失败；
 - `mode: "off"` 时不执行 command，也不执行通用发现。
 
-建议返回协议：
+返回协议：
 
 ```json
 {
@@ -252,16 +253,7 @@ login_required
 }
 ```
 
-或在无法直接读取图片时：
-
-```json
-{
-  "found": true,
-  "rect": { "x": 640, "y": 180, "width": 300, "height": 300 }
-}
-```
-
-`auth.qr.command` 目前是目标设计，尚未接入 manifest 校验和运行时；在运行时实现完成前，校验器不会接受该字段，避免出现“配置合法但实际不执行”的假能力。
+内置实现：`adapters/jd.com` 的 `get-login-qrcode`（图片协议：passport 登录页容器选择器、qr.m.jd.com 服务器 URL 在页面内 credentialed fetch 转 data URL、过期遮罩自动刷新）；`adapters/goofish.com` 的 `get-login-qrcode`（rect 协议，已真机验证：二维码在 havana 内嵌的跨域 login.taobao.com iframe 里，命令测量 iframe 页面矩形并按实测比例（二维码列约占面板宽 58%）收窄到二维码列，宽高比异常时回退整面板，宿主裁剪截图；`auth_prepare_qr` 预算 30s 以覆盖冷启动 SPA 挂载登录面板的延迟，命令失败原因经 `commandReason` 透传到登录日志）。
 
 ## 6. 登录完成后的重试策略
 
