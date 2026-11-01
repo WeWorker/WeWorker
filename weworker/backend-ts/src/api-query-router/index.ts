@@ -52,6 +52,14 @@ import {
 import { renderGeneric } from './generic-renderer.js'
 import { runPlan, PlanFallback, type AskUserFn, type PlanInput } from './anchor-plan.js'
 import { describeScenarioRoutes } from './scenario-routes.js'
+import {
+  classifyDispatchPayload,
+  createGuardedDispatch,
+  isUnrenderableAnswer,
+  resolveDispatchTimeoutMs,
+  RouteDispatchError,
+  type RouteDispatchFn,
+} from './route-dispatch.js'
 import { briefPayload, type MatchSource, type RenderCtx, type RoutedAnswer, type ScenarioPayload } from './types.js'
 
 const log = createLogger('api-query-router')
@@ -294,6 +302,8 @@ export type RouteExecutionDeps = {
   askUser?: AskUserFn
   now?: () => number
   engine?: RouteEngine
+  /** 单次派发预算（毫秒）；缺省读 `WEWORKER_API_QUERY_ROUTE_TIMEOUT_MS`，0 = 不设 */
+  dispatchTimeoutMs?: number
   /** 测试注入：直接给出计划，跳过规划 */
   plan?: CascadePlan
   /** 测试注入：回读落盘大结果；缺省用 webcli-result-cache（含缓存根校验与 TTL） */
@@ -314,8 +324,11 @@ export async function executeRoutePlan(
 
   for (const step of plan.steps) {
     if (isLayerSkipped(step.layer, plan, pruned)) continue
-    const handled = await runStep(step, ctx, deps, engine)
-    if (handled) return true
+    const outcome = await runStep(step, ctx, deps, engine)
+    if (outcome === 'handled') return true
+    // Once a tool was actually dispatched, a failed request or unusable rendering must go
+    // straight to the model, not retry a different (possibly broader) routing layer.
+    if (outcome === 'fallback') return false
     const { stop } = advanceAfterFailure(step, pruned)
     if (stop) {
       ctx.log?.(`cascade stopped after ${step.layer}: ${step.onFailure.action === 'stop' ? step.onFailure.reason : ''}`)
@@ -325,12 +338,14 @@ export async function executeRoutePlan(
   return false
 }
 
+type RouteStepOutcome = 'handled' | 'skip' | 'fallback'
+
 async function runStep(
   step: CascadeStep,
   ctx: RouteExecutionContext,
   deps: RouteExecutionDeps,
   engine: RouteEngine,
-): Promise<boolean> {
+): Promise<RouteStepOutcome> {
   const now = deps.now?.() ?? Date.now()
   if (step.decision.kind === 'tool') {
     const { tool, args, source, render } = step.decision
@@ -348,12 +363,12 @@ async function dispatchAndRender(args: {
   source: MatchSource
   render: RenderCtx
   label: string
-}): Promise<boolean> {
+}): Promise<RouteStepOutcome> {
   const { ctx, deps, engine, tool, source } = args
   // 准入复核：规划期已过一遍，执行期再确认一次（规划到执行之间配置可能已变）。
   if (!engine.routableTools.has(tool)) {
     ctx.log?.(`route execution skipped non-routable tool: ${tool}`)
-    return false
+    return 'skip'
   }
 
   const dispatch = deps.dispatch ?? runWebcliCall
@@ -364,33 +379,72 @@ async function dispatchAndRender(args: {
   if (prep.prepared) {
     ctx.log?.(`route page-prep: ${tool} -> ${prep.url} (${prep.ms}ms, toolsReady=${prep.toolsReady})`)
   }
+  // 主调用走「预算 + 结果判定」这一层：接口报错 / 超时 / 空结果 / CLI 崩溃都算**没答出来**，
+  // 一律落回 LLM，绝不把 `⚠️ 查询失败` 渲染成这一轮的答案（见 route-dispatch.ts 模块头）。
   let raw = ''
   try {
-    raw = await dispatch(tool, JSON.stringify(args.args ?? {}), ctx.workId)
+    raw = await guardDispatch(deps)(tool, JSON.stringify(args.args ?? {}), ctx.workId)
   } catch (error) {
-    ctx.log?.(`route dispatch failed: ${tool}: ${error instanceof Error ? error.message : String(error)}`)
-    return false
+    if (error instanceof RouteDispatchError) return 'fallback'
+    throw error
   }
   const execMs = (deps.now?.() ?? Date.now()) - started
 
   if (looksLikeAuthFailure(raw)) {
     ctx.log?.(`route auth fallback: ${tool}`)
-    return false
+    return 'fallback'
   }
   if (looksLikeMissingArg(raw)) {
     ctx.log?.(`route missing-arg fallback: ${tool}`)
-    return false
+    return 'fallback'
   }
 
+  // A spill pointer alone cannot answer the user. Rehydrate before rendering so missing,
+  // expired or unusable cached results return to the model instead of showing a file hint.
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw)
+  } catch {
+    // Plain-text tool results are supported by the generic renderer.
+  }
+  let renderRaw = raw
+  if (payload && typeof payload === 'object' && !Array.isArray(payload) && (payload as Record<string, unknown>).type === 'large_output') {
+    try {
+      const hydrated = (deps.rehydrate ?? rehydratePointer)(raw)
+      if (!hydrated || classifyDispatchPayload(hydrated)) return 'fallback'
+      renderRaw = hydrated
+    } catch {
+      return 'fallback'
+    }
+  }
   const schemaId = args.render.schemaId
-  const text = renderGeneric(raw, args.render.title, schemaId ? { schemaId } : undefined, {
-    lookupSchema: (id) => engine.bundle.renderers?.schemas?.[id],
-    now: new Date(),
-    rehydrate: deps.rehydrate ?? rehydratePointer,
-  })
+  let text: string
+  try {
+    text = renderGeneric(renderRaw, args.render.title, schemaId ? { schemaId } : undefined, {
+      lookupSchema: (id) => engine.bundle.renderers?.schemas?.[id],
+      now: new Date(),
+    })
+  } catch {
+    return 'fallback'
+  }
+  // 渲染不出可展示内容（渲染器吞掉异常或投影为空）→ 同为「没答出来」，落回 LLM。
+  if (isUnrenderableAnswer(text)) {
+    ctx.log?.(`route render produced no answer: ${tool} → fall back to LLM`)
+    return 'fallback'
+  }
   emitRoutedAnswer(ctx, deps, { tool, args: args.args, text, source, execMs, renderMs: 0 })
   ctx.log?.(`route hit [${source}]: ${tool} ${args.label} (exec ${execMs}ms, payload ${briefPayload(raw, 120).length}B)`)
-  return true
+  return 'handled'
+}
+
+/**
+ * 每次执行用同一份「预算 + 结果判定」派发器；缺省派发把预算一并交给 `runWebcliCall`，
+ * 让超时能杀掉子进程，而不是留下一个还在跑的 CLI 去写缓存/占桥。
+ */
+function guardDispatch(deps: RouteExecutionDeps): RouteDispatchFn {
+  const timeoutMs = deps.dispatchTimeoutMs ?? resolveDispatchTimeoutMs()
+  const dispatch: RouteDispatchFn = deps.dispatch ?? ((tool, argsJson, workId) => runWebcliCall(tool, argsJson, workId, { timeoutMs }))
+  return createGuardedDispatch({ dispatch, workId: '', timeoutMs, now: deps.now })
 }
 
 async function runPlanDecision(
@@ -400,18 +454,17 @@ async function runPlanDecision(
   deps: RouteExecutionDeps,
   engine: RouteEngine,
   now: number,
-): Promise<boolean> {
-  const dispatch = deps.dispatch ?? runWebcliCall
+): Promise<RouteStepOutcome> {
   const terminalTool = resolvePlanTerminal(engine, hit)
   if (!terminalTool) {
     ctx.log?.(`plan terminal not resolvable: ${hit.adapter}:${hit.terminalKey}`)
-    return false
+    return 'skip'
   }
 
   const compiled = planOf(engine, hit)
   if (!compiled) {
     ctx.log?.(`plan not compiled: ${hit.scenarioId} → fall back to LLM`)
-    return false
+    return 'skip'
   }
 
   try {
@@ -419,7 +472,8 @@ async function runPlanDecision(
       hit.terminalKey,
       hit.input as PlanInput,
       {
-        dispatch,
+        // 多跳的每一跳都走同一层判定：中途接口报错 / 超时 → PlanFallback('error') → 整条落回。
+        dispatch: guardDispatch(deps),
         workId: ctx.workId,
         resolvers: compiled.resolvers,
         terminals: compiled.terminals,
@@ -430,6 +484,10 @@ async function runPlanDecision(
       },
       { schemaId: render.schemaId },
     )
+    if (isUnrenderableAnswer(out.md)) {
+      ctx.log?.(`plan render produced no answer: ${out.terminalTool} → fall back to LLM`)
+      return 'fallback'
+    }
     emitRoutedAnswer(ctx, deps, {
       tool: out.terminalTool,
       args: hit.input,
@@ -440,11 +498,13 @@ async function runPlanDecision(
       steps: out.steps,
     })
     ctx.log?.(`plan hit: ${out.terminalTool} (${out.steps} steps, ${out.dispatchMs}ms, ${now})`)
-    return true
+    return 'handled'
   } catch (error) {
     if (error instanceof PlanFallback) {
-      ctx.log?.(`plan fallback (${error.reason}) at ${hit.adapter}:${hit.scenarioId} → fall back to LLM`)
-      return false
+      // 'error' 也承载派发失败（接口报错 / 超时 / 空结果），把原因带进日志，排查时不用猜。
+      const detail = error.reason === 'error' && error.message ? `: ${error.message}` : ''
+      ctx.log?.(`plan fallback (${error.reason}) at ${hit.adapter}:${hit.scenarioId}${detail} → fall back to LLM`)
+      return 'fallback'
     }
     throw error
   }

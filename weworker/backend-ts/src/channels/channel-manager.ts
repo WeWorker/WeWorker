@@ -7,6 +7,7 @@ import type { MemoryScope } from '../memory/memory-types.js'
 import type { ChannelProfileChatOptions } from './channel-profile.js'
 import { createChannelUserMedia, type UserMediaSink } from '../user-media.js'
 import { createTurnTimingLedger } from '../turn-timing.js'
+import { historyBeforeLastUser, lastUserMessageText, tryRoutedTurn } from '../routed-turn.js'
 
 const log = createLogger('channel-manager')
 
@@ -96,6 +97,12 @@ export async function runChannelChat(
     sendFile?: UserMediaSink['file']
     /** False for channels that do not send the returned images, so the tool reports it cannot deliver. */
     sendsImages?: boolean
+    /**
+     * True when this turn is served by a dedicated Agent's channel profile.
+     * Those turns never use deterministic routing: an Agent is bound to one
+     * site/skill, and routing could answer with a different site.
+     */
+    dedicatedAgent?: boolean
   },
 ): Promise<{ text: string; images: string[]; toolCalls: store.ContentBlock[]; timing: store.ContentBlock | null }> {
   let text = ''
@@ -113,6 +120,32 @@ export async function runChannelChat(
   const turnTiming = createTurnTimingLedger({ startedAt: chatStartTime })
   let stepIndex = 0
   const seenToolIds = new Set<string>()
+
+  // Deterministic routing (shared entry, see routed-turn.ts): channels answer a
+  // plain query with a read-only tool instead of paying for a model turn.
+  // `qa_only` turns are skipped inside the shared entry — those turns register no
+  // tools at all, so routing them would hand a guest a channel the model lacks.
+  const currentUserText = lastUserMessageText(messages)
+  const turnWorkId = messages[messages.length - 1]?.work_id ?? ''
+  const routed = opts?.dedicatedAgent || !currentUserText || !turnWorkId
+    ? null
+    : await tryRoutedTurn({
+        message: currentUserText,
+        workId: turnWorkId,
+        chatStartTime,
+        persist: false,
+        channelPermissionMode: opts?.channelPermissionMode,
+        // Messages *before* the current turn: the follow-up gate needs them.
+        history: historyBeforeLastUser(messages),
+        log: (m: string) => log.info(m),
+      })
+  if (routed?.handled) {
+    const routedTiming: store.ContentBlock | null = routed.timing ? { type: 'timing', ...routed.timing } : null
+    log.info(
+      `runChannelChat routed — tool=${routed.timing?.routeTool ?? '?'} total=${((routed.timing?.totalMs ?? 0) / 1000).toFixed(2)}s`,
+    )
+    return { text: routed.text, images, toolCalls, timing: routedTiming }
+  }
 
   for await (const event of streamChat(messages, settings, opts?.abortController, {
     ...(opts?.profileOptions ?? {}),

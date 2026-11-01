@@ -1021,6 +1021,7 @@ export class WebSocketBridge extends EventEmitter {
       dispatchedAt: null,
       clientStartedAt: Number.isFinite(clientStartedAt) && clientStartedAt > 0 ? clientStartedAt : null,
       toolName: String(toolName || ''),
+      workTag: msg && msg.workId ? ` [work:${String(msg.workId).slice(0, 8)}]` : '',
     };
     this._callTimings.set(key, entry);
     if (this._callTimings.size > 32) {
@@ -1045,7 +1046,7 @@ export class WebSocketBridge extends EventEmitter {
       parts.push('收单→派发=未派发');
     }
     parts.push(`bridge总计=${repliedAt - entry.receivedAt}ms`);
-    process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge] 调用分段: ${toolName} — ${parts.join(' ')}\n`);
+    process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${entry.workTag || ''} 调用分段: ${toolName} — ${parts.join(' ')}\n`);
   }
 
   async _handleClientRequest(msg, ws) {
@@ -1068,14 +1069,17 @@ export class WebSocketBridge extends EventEmitter {
     if (msg.type === 'call_tool') {
       const { toolName, args, id } = msg;
       const callTiming = this._beginCallTiming(msg, traceID, id, toolName);
-      process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge] 收到调用: ${toolName}\n`);
+      // Conversation (work) tag from the desktop chat: lets the per-conversation
+      // log export pick these lines out of the shared host log file.
+      const workTag = msg.workId ? ` [work:${String(msg.workId).slice(0, 8)}]` : '';
+      process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 收到调用: ${toolName}\n`);
 
       try {
-        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs });
+        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId });
         this._reply(ws, { type: 'call_tool_result', id, result, traceID });
-        process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge] 调用成功: ${toolName}\n`);
+        process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用成功: ${toolName} (${callTiming ? Date.now() - callTiming.entry.receivedAt : '?'}ms)\n`);
       } catch (err) {
-        process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge] 调用失败: ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
+        process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用失败: ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
         this._reply(ws, {
           type: 'call_tool_error', id, error: err.message, traceID,
           ...(typeof err.code === 'string' && err.code ? { code: err.code } : {}),
@@ -1730,8 +1734,9 @@ export class WebSocketBridge extends EventEmitter {
    */
   async _callToolWithLogin(toolName, args, traceID, adapterSnapshot, options = {}) {
     if (toolName === 'open_browser') return this._openBrowserWithLogin(args);
+    const workId = options.workId || null;
     const pinnedRoute = this._route?.getStore() || null;
-    const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot);
+    const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot, workId);
     // Login may span an extension reconnect. Re-resolve the socket by the same
     // contextId for the safe post-login retry; never select another profile.
     const run = () => {
@@ -1748,9 +1753,16 @@ export class WebSocketBridge extends EventEmitter {
       const loginWaitMs = Number.isFinite(Number(options.loginWaitMs))
         ? Math.max(0, Math.min(MAX_LOGIN_WAIT_MS, Number(options.loginWaitMs)))
         : DEFAULT_LOGIN_WAIT_MS;
-      return this._siteLogin().handleFailure(err, {
+      if (workId) {
+        process.stderr.write(`[${ts()}] [Bridge] [work:${String(workId).slice(0, 8)}] 调用失败，进入登录判定: ${selected.adapter.name} ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
+      }
+      const retried = await this._siteLogin().handleFailure(err, {
         site: selected.adapter.name, command: selected.command, retry: run, loginWaitMs,
       });
+      if (workId) {
+        process.stderr.write(`[${ts()}] [Bridge] [work:${String(workId).slice(0, 8)}] 登录后重试完成: ${toolName}\n`);
+      }
+      return retried;
     }
   }
 
@@ -1934,7 +1946,7 @@ export class WebSocketBridge extends EventEmitter {
     }
   }
 
-  async _callToolInner(toolName, args, traceID = null, adapterSnapshot = null) {
+  async _callToolInner(toolName, args, traceID = null, adapterSnapshot = null, workId = null) {
     if (isLegacyWecliHandlerName(toolName)) {
       throw new Error(`"${toolName}" is an internal handler name. Use the public WebCLI command name without "wecli_".`);
     }
@@ -2016,7 +2028,7 @@ export class WebSocketBridge extends EventEmitter {
     if (selected?.command.pageWrite && !this._extensionCapabilities?.includes('page_write_v1')) throw new Error('Reload the browser extension before calling page writes.');
     if (selected?.command.pageStrategy === 'INTERCEPT' && !this._extensionCapabilities?.includes('intercept_read_v1')) throw new Error('Reload the browser extension before calling intercepted page queries.');
     const timeout = resolveToolCallTimeout(toolName);
-    return this._request({ type: "call_tool", toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}) }, timeout, traceID);
+    return this._request({ type: "call_tool", toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) }, timeout, traceID);
   }
 
   async getPageState(tabId = null) {

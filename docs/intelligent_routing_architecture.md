@@ -27,7 +27,8 @@
 ## 1. 全链路总图
 
 ```
-POST /works/:id/chat
+入口（全部经 routed-turn.ts 共享入口）
+  桌面对话 POST /works/:id/chat · 定时任务 · 微信/QQ/飞书 · 企微
         │
         ▼
 ┌───────────────────────────────────────────────────────────────┐
@@ -65,7 +66,20 @@ POST /works/:id/chat
                     └ 执行失败 → 按该层声明的 onFailure 走向（见 §5）
 ```
 
-代码锚点：闸门在 `api-query-router/gates.ts`，级联顺序在 `api-query-router/cascade.ts` 的 `planCascade`，准入在 `router-config/routable.ts`，装配与派发在 `api-query-router/index.ts`，`/chat` 接线在 `server.ts`。
+代码锚点：闸门在 `api-query-router/gates.ts`，级联顺序在 `api-query-router/cascade.ts` 的 `planCascade`，准入在 `router-config/routable.ts`，装配与派发在 `api-query-router/index.ts`，**接线在 `routed-turn.ts`（共享入口）**。
+
+**四个入口共用一份接线**：桌面对话（`server.ts` 的 `handleChatRequest`）、定时任务（`task-executor.ts`）、渠道（`channels/channel-manager.ts` 的 `runChannelChat`，覆盖微信/QQ/飞书）、企微流式回合（`channels/wecom-channel.ts`）都只调用 `routed-turn.ts` 的 `tryRoutedTurn`，不允许各自直连 `tryIntelligentQueryRoute`。
+
+为什么必须共享：级联原先只在 `/chat` handler 内联调用一次，于是**定时任务与所有 IM 渠道根本不经过路由**——配置再正确也读不到，且没有任何报错。接线收敛后，新增入口只需调用同一个函数，`routing-entrypoints.test.ts` 会拦住「又写一份接线」。
+
+两条入口侧硬规则（都在共享入口里强制，入口无需重复实现）：
+
+| 规则 | 原因 |
+| --- | --- |
+| **`qa_only` 渠道回合不进入路由** | 该模式连 MCP 工具都不注册（`tools.ts`）。放行等于给访客开一条模型自身没有的工具通道 |
+| **专属 Agent 回合不进入路由** | 专属 Agent 绑定单一站点/技能，路由可能换别的站点作答。桌面、定时任务、企微、微信四条路径都显式跳过 |
+
+落库归属由入口声明：桌面传 `persist: true`（路由层自己 `store.appendMessage`，与下沉前逐字一致）；定时任务与渠道自己落库，但必须用返回的 `timing`（内含 `routeTool`），否则 UI 与闸门①b 都认不出 fast-path 回合。
 
 **级联是「规划 + 执行」两段**：`planCascade` 是纯函数，只输出一张「按序尝试的步骤表」，不派发任何工具。这样评测集可以直接断言规划结果，不需要起 HTTP、不需要真工具——这是「误判致命」能被自动化守住的前提。
 
@@ -353,6 +367,7 @@ Tier 0（层 9 / 第 11 层短路）命中但消息里不含该 adapter 的任�
 | 临时下线某条（可逆） | 该条 `enabled: false` | 无 |
 | 让工具彻底退出路由面 | 去掉 `directCapable` | 无 |
 | 急停整条级联 | `WEWORKER_API_QUERY_ROUTE=0` | 无 |
+| **让一个新入口接入路由** | 调用 `routed-turn.ts` 的 `tryRoutedTurn`（见 §1 的入口规则） | 无 |
 
 ### 10.2 常见的写坏方式（都会被当场拦下）
 
@@ -397,6 +412,15 @@ npx tsc --noEmit
 4. **只读准入**——工具是否 `safety: 'read'` 且 `directCapable`？
 5. **作用域过滤**——adapter 在当前环境里存在且已启用？（看 `sources.dropped`）
 6. **本层是否被整层拒了**——看 `sources[].rejected`：既可来自校验不过，也可来自**文件读不懂**（解析失败）。后者以前只打一行 WARN、`rejected` 为空，层静默变空且无从查起；现在两种都记 `rejected`，并且**解析失败同样保留上一份可用配置**，不会让路由表整体变空。
+
+**只在某个入口上不命中**（对话正常、定时任务或某个渠道从不命中）——问题不在配置，按入口查：
+
+| 现象 | 查什么 |
+| --- | --- |
+| 定时任务从不命中 | 任务是否绑了**专属 Agent**（`agent_id`）？绑定即按设计跳过路由。否则看该任务 work 的 assistant timing 有没有 `routeTool` |
+| 渠道从不命中 | 该用户是不是**非主人**（权限 `qa_only`）？`qa_only` 回合不注册任何工具，因此不路由。日志里有 `routed turn skipped: qa_only` |
+| 企微/微信总是回模型答案 | 该通道是否跑在**专属 Agent profile** 上（`profile.dedicatedAgentId`）？是则按设计跳过 |
+| 所有入口都不命中、对话也不命中 | 先按上面第 0 条排除「跑的不是当前代码」 |
 
 > **第 0 条（先排除）**：如果**所有层同时不命中**，先怀疑「运行中的进程用的不是当前代码」。dev 模式后端是 `tsx src/server.ts` 常驻进程，**热重载只覆盖配置内容，不覆盖引擎代码**——引擎改了必须重启客户端。判据：日志里出现 `router-config parse failed`，或 `GET /sites` 的 `routeEntryCount` 全为 0。
 
