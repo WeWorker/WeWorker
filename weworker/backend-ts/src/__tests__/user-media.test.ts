@@ -15,6 +15,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 vi.mock('../config.js', () => ({
   getUserDirectory: () => mocks.userDir,
   ensureUserDirectory: () => mocks.userDir,
+  ensureProjectsDirectory: () => mocks.userDir,
 }))
 vi.mock('../user-directory-guard.js', () => ({
   assertPathInsideWorkspaceDirectory: (value: string, directory: string) => {

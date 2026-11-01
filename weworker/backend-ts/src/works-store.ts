@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { LoadedSkillContext } from './skill-context.js'
-import { ensureUserDirectory, expandHomePath } from './config.js'
+import { ensureProjectsDirectory, expandHomePath, getConfigDirectory } from './config.js'
 
 const DB_DIR = path.join(os.homedir(), '.weworker')
 const DB_FILE = path.join(DB_DIR, 'works.db')
@@ -195,27 +195,41 @@ function db(): DatabaseSync {
   ]) {
     try { _db.exec(statement) } catch { /* column already exists */ }
   }
-  const projectsRoot = path.resolve(ensureUserDirectory())
-  migrateLegacyWorkspacePaths(_db, path.join(path.dirname(projectsRoot), 'user-files'), projectsRoot)
+  const projectsRoot = path.resolve(ensureProjectsDirectory())
+  migrateLegacyWorkspacePaths(
+    _db,
+    path.dirname(projectsRoot),
+    path.join(getConfigDirectory(), 'projects'),
+    projectsRoot,
+  )
   return _db
 }
 
-function remapLegacyPath(value: string, legacyRoot: string, projectsRoot: string): string {
-  const resolved = path.resolve(expandHomePath(value))
-  const relative = path.relative(legacyRoot, resolved)
-  const inside = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
-  return inside ? path.join(projectsRoot, relative) : value
+type PathMapping = { from: string; to: string }
+
+function pathInside(target: string, root: string): boolean {
+  const relative = path.relative(root, target)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
-function rewriteLegacyPaths(value: unknown, legacyRoot: string, projectsRoot: string): { value: unknown; changed: boolean } {
+function remapLegacyPath(value: string, mappings: PathMapping[]): string {
+  const resolved = path.resolve(expandHomePath(value))
+  for (const mapping of mappings) {
+    if (!pathInside(resolved, mapping.from)) continue
+    return path.join(mapping.to, path.relative(mapping.from, resolved))
+  }
+  return value
+}
+
+function rewriteLegacyPaths(value: unknown, mappings: PathMapping[]): { value: unknown; changed: boolean } {
   if (typeof value === 'string') {
-    const next = remapLegacyPath(value, legacyRoot, projectsRoot)
+    const next = remapLegacyPath(value, mappings)
     return { value: next, changed: next !== value }
   }
   if (Array.isArray(value)) {
     let changed = false
     const next = value.map((item) => {
-      const rewritten = rewriteLegacyPaths(item, legacyRoot, projectsRoot)
+      const rewritten = rewriteLegacyPaths(item, mappings)
       changed ||= rewritten.changed
       return rewritten.value
     })
@@ -225,30 +239,64 @@ function rewriteLegacyPaths(value: unknown, legacyRoot: string, projectsRoot: st
   let changed = false
   const next: Record<string, unknown> = {}
   for (const [key, item] of Object.entries(value)) {
-    const rewritten = rewriteLegacyPaths(item, legacyRoot, projectsRoot)
+    const rewritten = rewriteLegacyPaths(item, mappings)
     changed ||= rewritten.changed
     next[key] = rewritten.value
   }
   return { value: next, changed }
 }
 
-/** Repair paths persisted by releases that still used `.weworker/user-files`. */
-export function migrateLegacyWorkspacePaths(database: DatabaseSync, legacyDirectory: string, projectsDirectory: string): void {
-  const legacyRoot = path.resolve(legacyDirectory)
+/** Repair paths persisted by releases that used either legacy workspace root. */
+export function migrateLegacyWorkspacePaths(
+  database: DatabaseSync,
+  userDirectory: string,
+  legacyProjectsDirectory: string,
+  projectsDirectory: string,
+): void {
+  const userRoot = path.resolve(userDirectory)
+  const legacyProjectsRoot = path.resolve(legacyProjectsDirectory)
   const projectsRoot = path.resolve(projectsDirectory)
-  if (legacyRoot === projectsRoot) return
+  if (legacyProjectsRoot === projectsRoot && userRoot === projectsRoot) return
 
   const projects = database.prepare('SELECT id, folder_path FROM projects').all() as Array<{ id: string; folder_path: string }>
-  const projectUpdates = projects
-    .map((project) => ({ id: project.id, folder_path: remapLegacyPath(project.folder_path, legacyRoot, projectsRoot) }))
-    .filter((project, index) => project.folder_path !== projects[index].folder_path)
+  const mappings: PathMapping[] = []
+  const projectUpdates = projects.map((project) => {
+    const current = path.resolve(expandHomePath(project.folder_path))
+    const legacyRoot = pathInside(current, legacyProjectsRoot) && current !== legacyProjectsRoot
+      ? legacyProjectsRoot
+      : pathInside(current, userRoot) && current !== userRoot
+        ? userRoot
+        : null
+    const next = pathInside(current, projectsRoot)
+      ? project.folder_path
+      : legacyRoot
+        ? path.join(projectsRoot, path.relative(legacyRoot, current))
+        : project.folder_path
+    if (next !== project.folder_path) mappings.push({ from: current, to: path.resolve(next) })
+    return { id: project.id, folder_path: next }
+  }).filter((project, index) => project.folder_path !== projects[index].folder_path)
+
+  // Keep the old user-files root intact, but move only known project/workspace
+  // directories into the new nested project root. The generic user area may
+  // contain files unrelated to projects and must never be moved wholesale.
+  for (const mapping of mappings) moveLegacyDirectory(mapping.from, mapping.to)
+  for (const name of ['default', 'scheduled-tasks', 'agents']) {
+    const destinations = path.join(projectsRoot, name)
+    for (const sourceRoot of [userRoot, legacyProjectsRoot]) {
+      const source = path.join(sourceRoot, name)
+      if (path.resolve(source) === path.resolve(destinations)) continue
+      mappings.push({ from: source, to: destinations })
+      moveLegacyDirectory(source, destinations)
+    }
+  }
+  mappings.sort((left, right) => right.from.length - left.from.length)
 
   const messages = database.prepare('SELECT id, content FROM messages').all() as Array<{ id: string; content: string }>
   const messageUpdates: Array<{ id: string; content: string }> = []
   for (const message of messages) {
     let parsed: unknown
     try { parsed = JSON.parse(message.content) } catch { continue }
-    const rewritten = rewriteLegacyPaths(parsed, legacyRoot, projectsRoot)
+    const rewritten = rewriteLegacyPaths(parsed, mappings)
     if (rewritten.changed) messageUpdates.push({ id: message.id, content: JSON.stringify(rewritten.value) })
   }
 
@@ -264,6 +312,31 @@ export function migrateLegacyWorkspacePaths(database: DatabaseSync, legacyDirect
     database.exec('ROLLBACK')
     throw error
   }
+}
+
+function moveLegacyDirectory(source: string, destination: string): void {
+  if (!fs.existsSync(source) || path.resolve(source) === path.resolve(destination)) return
+  fs.mkdirSync(path.dirname(destination), { recursive: true })
+  if (!fs.existsSync(destination)) {
+    fs.renameSync(source, destination)
+    return
+  }
+  if (!fs.statSync(source).isDirectory() || !fs.statSync(destination).isDirectory()) return
+  for (const name of fs.readdirSync(source)) {
+    const from = path.join(source, name)
+    let to = path.join(destination, name)
+    if (fs.existsSync(to)) {
+      const extension = path.extname(name)
+      const stem = name.slice(0, name.length - extension.length)
+      let suffix = 1
+      do {
+        to = path.join(destination, `${stem} (legacy ${suffix})${extension}`)
+        suffix += 1
+      } while (fs.existsSync(to))
+    }
+    fs.renameSync(from, to)
+  }
+  fs.rmSync(source, { recursive: true, force: true })
 }
 
 function toProjectSummary(project: Project): ProjectSummary {
@@ -284,17 +357,17 @@ function normalizeProjectName(value: string): string {
 function projectFolderPath(name: string, category?: 'agents'): string {
   return category === 'agents'
     ? path.join(ensureWorkspaceSubdirectory('agents'), name)
-    : path.join(ensureUserDirectory(), name)
+    : path.join(ensureProjectsDirectory(), name)
 }
 
 function ensureWorkspaceSubdirectory(name: 'default' | 'scheduled-tasks' | 'agents'): string {
-  const directory = path.join(ensureUserDirectory(), name)
+  const directory = path.join(ensureProjectsDirectory(), name)
   fs.mkdirSync(directory, { recursive: true })
   return directory
 }
 
 function assertProjectFolderInsideUserDirectory(folderPath: string): void {
-  const root = path.resolve(ensureUserDirectory())
+  const root = path.resolve(ensureProjectsDirectory())
   const target = path.resolve(folderPath)
   if (target === root || !target.startsWith(`${root}${path.sep}`)) {
     throw new Error('project folder must be inside the user directory')
@@ -355,7 +428,7 @@ export function renameProject(id: string, rawName: string): ProjectSummary | nul
   if (!project) return null
   const name = normalizeProjectName(rawName)
   if (name === project.name) return toProjectSummary(project)
-  const agentsRoot = path.resolve(ensureUserDirectory(), 'agents')
+  const agentsRoot = path.resolve(ensureProjectsDirectory(), 'agents')
   const projectPath = path.resolve(project.folder_path)
   const isAgentFolder = projectPath.startsWith(`${agentsRoot}${path.sep}`)
   const nextFolderPath = isAgentFolder ? path.join(path.dirname(project.folder_path), name) : project.folder_path
@@ -378,7 +451,7 @@ export function deleteProject(id: string): void {
   if (!project) throw new Error('project not found')
   const workCount = (db().prepare('SELECT COUNT(*) AS count FROM works WHERE project_id = ?').get(id) as { count: number }).count
   if (workCount > 0) throw new Error('project must be empty before deletion')
-  const projectsRoot = path.resolve(ensureUserDirectory())
+  const projectsRoot = path.resolve(ensureProjectsDirectory())
   const projectPath = path.resolve(project.folder_path)
   const isManagedFolder = projectPath.startsWith(`${projectsRoot}${path.sep}`)
   if (isManagedFolder && fs.existsSync(project.folder_path)) {

@@ -3,13 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const projectsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-projects-root-'))
+const userRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-user-root-'))
 
 vi.mock('../config.js', () => ({
-  ensureUserDirectory: () => projectsRoot,
+  ensureUserDirectory: () => userRoot,
+  ensureProjectsDirectory: () => path.join(userRoot, 'projects'),
   expandHomePath: (input: string) => input,
-  getUserDirectory: () => projectsRoot,
-  getConfigDirectory: () => projectsRoot,
+  getUserDirectory: () => userRoot,
+  getConfigDirectory: () => userRoot,
   getMaxChatAttachments: () => 60,
   getUserDirectoryBlacklist: () => [],
 }))
@@ -20,8 +21,8 @@ const { createUserFile, listUserFiles } = await import('../user-files.js')
 describe('workspace directories', () => {
   afterEach(() => {
     store._initTestDb()
-    for (const entry of fs.readdirSync(projectsRoot)) {
-      fs.rmSync(path.join(projectsRoot, entry), { recursive: true, force: true })
+    for (const entry of fs.readdirSync(userRoot)) {
+      fs.rmSync(path.join(userRoot, entry), { recursive: true, force: true })
     }
   })
 
@@ -38,7 +39,7 @@ describe('workspace directories', () => {
 
   it('creates the shared scheduled-task folder only when a task is created', () => {
     store._initTestDb()
-    expect(fs.existsSync(path.join(projectsRoot, 'scheduled-tasks'))).toBe(false)
+    expect(fs.existsSync(path.join(userRoot, 'projects', 'scheduled-tasks'))).toBe(false)
 
     store.createScheduledTask({
       title: 'Daily report',
@@ -48,7 +49,7 @@ describe('workspace directories', () => {
       notify_channels: [],
     })
 
-    expect(fs.existsSync(path.join(projectsRoot, 'scheduled-tasks'))).toBe(true)
+    expect(fs.existsSync(path.join(userRoot, 'projects', 'scheduled-tasks'))).toBe(true)
   })
 
   it('confines file operations to the active workspace root', () => {

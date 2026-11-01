@@ -7,6 +7,7 @@ const fixture = vi.hoisted(() => ({ root: '' }))
 vi.mock('../config.js', () => ({
   getConfigDirectory: () => fixture.root,
   ensureUserDirectory: () => fixture.root,
+  ensureProjectsDirectory: () => path.join(fixture.root, 'projects'),
   getSettings: () => ({ channels: { wecom: {}, weixin: {} } }),
 }))
 vi.mock('../agent.js', () => ({ clearStoredConversationCompaction: vi.fn() }))

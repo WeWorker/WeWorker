@@ -76,7 +76,8 @@ const log = createLogger('config')
 
 const CONFIG_DIR = path.join(os.homedir(), '.weworker')
 
-const DEFAULT_USER_DIRECTORY = path.join(CONFIG_DIR, 'projects')
+// Keep the original user area stable. Project workspaces live below it.
+const DEFAULT_USER_DIRECTORY = path.join(CONFIG_DIR, 'user-files')
 
 const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json')
 
@@ -764,24 +765,11 @@ export function getSettings(): Settings {
 
 function migrateLegacyProjectsDirectory(settings: Settings): void {
   const configured = path.resolve(expandHomePath(settings.user_directory || DEFAULT_USER_DIRECTORY))
-  const legacyDefault = path.join(CONFIG_DIR, 'user-files')
-  // Only the old default root is migratable. A user-owned directory such as
-  // D:\\data\\user-files must not be renamed implicitly.
-  const configuredIsLegacy = samePath(configured, legacyDefault)
-  const shouldMigrateDefault = samePath(configured, DEFAULT_USER_DIRECTORY) && fs.existsSync(legacyDefault)
-  if (!configuredIsLegacy && !shouldMigrateDefault) return
-
-  const source = configuredIsLegacy ? configured : legacyDefault
-  const projects = path.join(path.dirname(source), 'projects')
-  if (fs.existsSync(source)) {
-    if (!fs.existsSync(projects)) {
-      fs.renameSync(source, projects)
-    } else {
-      mergeLegacyProjectsDirectory(source, projects)
-      fs.rmSync(source, { recursive: true })
-    }
-  }
-  settings.user_directory = projects
+  const legacyProjectsRoot = path.join(CONFIG_DIR, 'projects')
+  // PR #196 temporarily made `.weworker/projects` the user root. Restore the
+  // stable user-files root without deleting or renaming that legacy directory.
+  if (!samePath(configured, legacyProjectsRoot)) return
+  settings.user_directory = DEFAULT_USER_DIRECTORY
   persistSettingsToDisk(settings)
 }
 
@@ -790,34 +778,6 @@ function samePath(left: string, right: string): boolean {
   const b = path.resolve(right)
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
-
-function mergeLegacyProjectsDirectory(source: string, destination: string): void {
-  for (const name of fs.readdirSync(source)) {
-    const from = path.join(source, name)
-    let to = path.join(destination, name)
-    const sourceStat = fs.lstatSync(from)
-    if (!fs.existsSync(to)) {
-      fs.renameSync(from, to)
-      continue
-    }
-    const targetStat = fs.lstatSync(to)
-    if (sourceStat.isDirectory() && targetStat.isDirectory()) {
-      mergeLegacyProjectsDirectory(from, to)
-      fs.rmdirSync(from)
-      continue
-    }
-    const extension = path.extname(name)
-    const stem = name.slice(0, name.length - extension.length)
-    let suffix = 1
-    do {
-      to = path.join(destination, `${stem} (legacy ${suffix})${extension}`)
-      suffix += 1
-    } while (fs.existsSync(to))
-    fs.renameSync(from, to)
-  }
-}
-
-
 
 export function updateSettings(updates: Partial<Settings>): Settings {
 
@@ -1226,8 +1186,18 @@ export function ensureUserDirectory(): string {
 
 }
 
+export function getProjectsDirectory(): string {
+  return path.resolve(getUserDirectory(), 'projects')
+}
+
+export function ensureProjectsDirectory(): string {
+  const dir = getProjectsDirectory()
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 export function ensureProjectDirectory(...segments: string[]): string {
-  const root = ensureUserDirectory()
+  const root = ensureProjectsDirectory()
   const directory = path.resolve(root, ...segments)
   if (directory !== root && !directory.startsWith(root + path.sep)) {
     throw new Error('project directory must stay inside projects root')

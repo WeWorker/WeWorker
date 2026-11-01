@@ -7,6 +7,11 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-projects-'))
 
 vi.mock('../config.js', () => ({
   ensureUserDirectory: () => fixtureRoot,
+  ensureProjectsDirectory: () => {
+    const directory = path.join(fixtureRoot, 'projects')
+    fs.mkdirSync(directory, { recursive: true })
+    return directory
+  },
   expandHomePath: (value: string) => value,
 }))
 
@@ -41,7 +46,7 @@ describe('project persistence', () => {
 
   it('creates a project folder and associates new conversations with it', () => {
     const project = store.createProject('Demo Project')
-    expect(fs.existsSync(path.join(fixtureRoot, 'Demo Project'))).toBe(true)
+    expect(fs.existsSync(path.join(fixtureRoot, 'projects', 'Demo Project'))).toBe(true)
 
     const work = store.createWork('', project.id)
     expect(work.project_id).toBe(project.id)
@@ -53,22 +58,23 @@ describe('project persistence', () => {
     store.createWork('', project.id)
 
     expect(() => store.renameProject(project.id, 'After')).not.toThrow()
-    expect(fs.existsSync(path.join(fixtureRoot, 'Before'))).toBe(true)
-    expect(fs.existsSync(path.join(fixtureRoot, 'After'))).toBe(false)
+    expect(fs.existsSync(path.join(fixtureRoot, 'projects', 'Before'))).toBe(true)
+    expect(fs.existsSync(path.join(fixtureRoot, 'projects', 'After'))).toBe(false)
     expect(() => store.deleteProject(project.id)).toThrow('project must be empty before deletion')
   })
 
   it('deletes only an empty project folder', () => {
     const project = store.createProject('Empty')
     store.deleteProject(project.id)
-    expect(fs.existsSync(path.join(fixtureRoot, 'Empty'))).toBe(false)
+    expect(fs.existsSync(path.join(fixtureRoot, 'projects', 'Empty'))).toBe(false)
     expect(store.listProjects()).toHaveLength(0)
   })
 
   it('repairs legacy project and message paths and is idempotent', () => {
-    const legacyRoot = path.join(fixtureRoot, 'user-files')
+    const legacyRoot = fixtureRoot
+    const legacyProjectsRoot = path.join(fixtureRoot, 'legacy-projects')
     const projectsRoot = path.join(fixtureRoot, 'projects')
-    const legacyProject = path.join(legacyRoot, 'Legacy')
+    const legacyProject = path.join(fixtureRoot, 'Legacy')
     fs.mkdirSync(legacyProject, { recursive: true })
     const attachment = path.join(legacyProject, 'report.txt')
     fs.writeFileSync(attachment, 'fixture')
@@ -82,8 +88,8 @@ describe('project persistence', () => {
     }])
 
     const database = store._getTestDb()
-    store.migrateLegacyWorkspacePaths(database, legacyRoot, projectsRoot)
-    store.migrateLegacyWorkspacePaths(database, legacyRoot, projectsRoot)
+    store.migrateLegacyWorkspacePaths(database, legacyRoot, legacyProjectsRoot, projectsRoot)
+    store.migrateLegacyWorkspacePaths(database, legacyRoot, legacyProjectsRoot, projectsRoot)
 
     expect(store.getProject(project.id)?.folder_path).toBe(path.join(projectsRoot, 'Legacy'))
     expect(store.getWorkWithMessages(work.id)?.messages[0].content).toEqual([{
@@ -91,5 +97,25 @@ describe('project persistence', () => {
       name: 'report.txt',
       path: path.join(projectsRoot, 'Legacy', 'report.txt'),
     }])
+    expect(fs.existsSync(fixtureRoot)).toBe(true)
+  })
+
+  it('repairs the temporary projects root without removing the user-files root', () => {
+    const userRoot = path.join(fixtureRoot, 'user-files')
+    const legacyProjectsRoot = path.join(fixtureRoot, 'projects')
+    const projectsRoot = path.join(userRoot, 'projects')
+    const legacyProject = path.join(legacyProjectsRoot, 'Legacy')
+    fs.mkdirSync(legacyProject, { recursive: true })
+    fs.mkdirSync(userRoot, { recursive: true })
+    fs.writeFileSync(path.join(legacyProject, 'notes.txt'), 'fixture')
+    fs.writeFileSync(path.join(userRoot, 'keep.txt'), 'user data')
+
+    const project = store.createProject('Legacy temporary root', legacyProject)
+    store.migrateLegacyWorkspacePaths(store._getTestDb(), userRoot, legacyProjectsRoot, projectsRoot)
+
+    expect(store.getProject(project.id)?.folder_path).toBe(path.join(projectsRoot, 'Legacy'))
+    expect(fs.existsSync(path.join(projectsRoot, 'Legacy', 'notes.txt'))).toBe(true)
+    expect(fs.existsSync(userRoot)).toBe(true)
+    expect(fs.readFileSync(path.join(userRoot, 'keep.txt'), 'utf8')).toBe('user data')
   })
 })
