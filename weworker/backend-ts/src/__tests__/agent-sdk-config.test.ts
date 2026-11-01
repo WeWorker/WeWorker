@@ -14,7 +14,7 @@ describe('agent SDK security config', () => {
     expect(agentSource).toContain('buildAgentFilesystemSettings(agentCwd, channelPermissionMode)')
     expect(agentSource).toContain('const policyDecision = await toolPolicy(toolName, input, context)')
     expect(agentSource).toContain('decision = await filesystemToolGuard(toolName, input as Record<string, unknown>)')
-    expect(agentSource).toContain('if (opts.permissionMode === \'default\' && (toolName === \'Edit\' || toolName === \'Write\'))')
+    expect(agentSource).toContain('decision.behavior !== \'deny\' && opts.permissionMode === \'default\' && (toolName === \'Edit\' || toolName === \'Write\')')
     expect(agentSource).toContain("options: [{ label: '允许本次' }, { label: '拒绝' }]")
     expect(agentSource).toContain('return decision')
     expect(agentSource).toContain('canUseTool,')

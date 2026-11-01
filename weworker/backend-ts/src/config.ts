@@ -76,7 +76,8 @@ const log = createLogger('config')
 
 const CONFIG_DIR = path.join(os.homedir(), '.weworker')
 
-const DEFAULT_USER_DIRECTORY = path.join(CONFIG_DIR, 'projects')
+// Keep the user area stable; managed project workspaces live below user-files/projects.
+const DEFAULT_USER_DIRECTORY = path.join(CONFIG_DIR, 'user-files')
 
 const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json')
 
@@ -546,9 +547,6 @@ function readRawSettingsFile(): Record<string, unknown> | null {
     return settings
 
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      migrateLegacyProjectsDirectory({})
-    }
     return null
 
   }
@@ -556,48 +554,19 @@ function readRawSettingsFile(): Record<string, unknown> | null {
 }
 
 function migrateLegacyProjectsDirectory(settings: Record<string, unknown>): void {
-  const legacyDirectory = path.join(CONFIG_DIR, 'user-files')
   const configured = typeof settings.user_directory === 'string'
     ? path.resolve(expandHomePath(settings.user_directory))
     : path.resolve(DEFAULT_USER_DIRECTORY)
-  if (configured !== path.resolve(legacyDirectory) && (settings.user_directory || !fs.existsSync(legacyDirectory))) return
-
-  const projectsDirectory = path.resolve(DEFAULT_USER_DIRECTORY)
-  if (fs.existsSync(legacyDirectory)) {
-    fs.mkdirSync(projectsDirectory, { recursive: true })
-    for (const name of fs.readdirSync(legacyDirectory)) {
-      const from = path.join(legacyDirectory, name)
-      mergeLegacyEntry(from, path.join(projectsDirectory, name))
-    }
-    fs.rmdirSync(legacyDirectory)
-  }
-  settings.user_directory = projectsDirectory
-  fs.mkdirSync(CONFIG_DIR, { recursive: true })
+  const previousProjectsRoot = path.join(CONFIG_DIR, 'projects')
+  if (!samePath(configured, previousProjectsRoot)) return
+  settings.user_directory = DEFAULT_USER_DIRECTORY
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
 }
 
-function mergeLegacyEntry(source: string, destination: string): void {
-  if (!fs.existsSync(destination)) {
-    fs.renameSync(source, destination)
-    return
-  }
-  const sourceStat = fs.lstatSync(source)
-  const destinationStat = fs.lstatSync(destination)
-  if (sourceStat.isDirectory() && destinationStat.isDirectory()) {
-    for (const name of fs.readdirSync(source)) {
-      mergeLegacyEntry(path.join(source, name), path.join(destination, name))
-    }
-    fs.rmdirSync(source)
-    return
-  }
-  const extension = sourceStat.isFile() ? path.extname(source) : ''
-  const stem = path.basename(source, extension)
-  let index = 1
-  let alternative: string
-  do {
-    alternative = path.join(path.dirname(destination), `${stem} (legacy ${index++})${extension}`)
-  } while (fs.existsSync(alternative))
-  fs.renameSync(source, alternative)
+function samePath(left: string, right: string): boolean {
+  const a = path.resolve(left)
+  const b = path.resolve(right)
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
 
@@ -1243,11 +1212,21 @@ export function ensureUserDirectory(): string {
 }
 
 export function ensureProjectDirectory(...segments: string[]): string {
-  const root = path.resolve(ensureUserDirectory())
+  const root = path.resolve(ensureProjectsDirectory())
   const directory = path.resolve(root, ...segments)
   if (directory !== root && !directory.startsWith(`${root}${path.sep}`)) {
     throw new Error('project directory must stay inside projects root')
   }
   fs.mkdirSync(directory, { recursive: true })
   return directory
+}
+
+export function getProjectsDirectory(): string {
+  return path.resolve(ensureUserDirectory(), 'projects')
+}
+
+export function ensureProjectsDirectory(): string {
+  const dir = getProjectsDirectory()
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
 }
