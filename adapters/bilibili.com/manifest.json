@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "bilibili.com",
   "version": "1.0.4",
+  "enabled": true,
   "description": "Bilibili / B 站：登录检查、搜索视频、打开视频详情、读取评论、点赞/收藏视频",
   "discovery_terms": [
     "B站",

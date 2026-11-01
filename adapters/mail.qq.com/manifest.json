@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "mail.qq.com",
   "version": "1.0.2",
+  "enabled": true,
   "description": "QQ邮箱：搜索邮件、读取未读、打开邮件、下载附件、按关键词/月份批量下载发票",
   "match": [
     "mail.qq.com"

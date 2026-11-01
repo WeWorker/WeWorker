@@ -1448,6 +1448,7 @@ app.get('/sites', (_req, res) => {
     customSkillCount: customSkills.length,
     scenarioCount: scenarios.length,
     enabled,
+    clientEnabled: a.clientEnabled,
     visible: enabled && visible,
     hidden: a.hidden,
     managed: a.managed,

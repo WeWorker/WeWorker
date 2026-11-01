@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "smzdm.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "什么值得买：搜索好价内容",
   "match": [
     "smzdm.com",

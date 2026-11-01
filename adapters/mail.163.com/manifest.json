@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "mail.163.com",
   "version": "1.0.10",
+  "enabled": true,
   "description": "网易163邮箱：读取邮件列表、搜索邮件、查看邮件详情、下载附件、写邮件",
   "match": [
     "mail.163.com"

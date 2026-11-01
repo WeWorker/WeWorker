@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "news.ycombinator.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "Hacker News：榜单（top/best/new/ask/show/jobs）、Algolia 搜索、评论树读取与用户资料，全部走公开 API",
   "match": [
     "news.ycombinator.com"
