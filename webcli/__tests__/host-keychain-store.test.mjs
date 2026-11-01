@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { createHostSecretStore } from '../host-secret-store.js';
 import { withHostAccountLock } from '../host-account-lock.js';
@@ -46,7 +46,7 @@ test('cross-process account lock releases after its owner exits unexpectedly',as
   const moduleUrl=new URL('../host-account-lock.js',import.meta.url).href;
   const script=`import {withHostAccountLock} from ${JSON.stringify(moduleUrl)};await withHostAccountLock(${JSON.stringify(id)},()=>new Promise(()=>{console.log('locked');setInterval(()=>{},1000)}));`;
   const child=spawn(process.execPath,['--input-type=module','-e',script],{stdio:['ignore','pipe','pipe']});
-  t.after(()=>child.kill());
+  t.onTestFinished(()=>child.kill());
   await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error('Lock child exited early')));});
   await assert.rejects(withHostAccountLock(id,()=>assert.fail(),{timeoutMs:100}),{code:'SECRET_STORE_BUSY'});
   const exited=new Promise(resolve=>child.once('exit',resolve));child.kill();await exited;
