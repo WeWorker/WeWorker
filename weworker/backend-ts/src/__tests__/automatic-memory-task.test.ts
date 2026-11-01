@@ -13,6 +13,8 @@ vi.mock('../style-settings.js', () => ({ resolveStyleId: () => undefined }))
 vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, warn() {}, error() {} }) }))
 vi.mock('../notifier.js', () => ({ notify: async () => {} }))
 vi.mock('../works-store.js', () => ({
+  getOrCreateScheduledTaskProject: () => ({ id: 'fixture-project', name: '定时任务', created_at: '', updated_at: '' }),
+  ensureScheduledTaskWorkspace: () => 'C:\\fixture\\projects\\scheduled-tasks',
   listTaskExecutions: () => [], createWork: () => ({ id: 'fixture-work' }),
   createTaskExecution: () => ({ id: 'fixture-execution' }),
   updateTaskExecution: () => {}, appendMessage: () => {},

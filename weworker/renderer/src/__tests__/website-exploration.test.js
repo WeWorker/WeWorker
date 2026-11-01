@@ -1,8 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { consumeSSE } from '../api/website-exploration-events.js'
 import { resourcePath } from '../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as store, leaveWebsiteExploration, changeWebsiteContext } from '../store/website-exploration.js'
+
+const pageSource = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../components/website-exploration/WebsiteExplorationPage.jsx'), 'utf8')
 
 test('SSE handles named events, CRLF, UTF-8 split bytes and multiline JSON', async () => {
   const bytes = new TextEncoder().encode(': heartbeat\r\nevent: step_finished\r\ndata: {"step":1,\r\ndata: "title":"页面"}\r\n\r\nevent: exploration_succeeded\ndata: {}\n\n')
@@ -17,6 +22,12 @@ test('resource URLs stay behind the backend', () => {
   assert.throws(() => resourcePath('https://example.com/a'))
   assert.throws(() => resourcePath('/api/explorations/a/files/../secret'))
   assert.throws(() => resourcePath('/api/website-exploration/../settings'))
+})
+
+test('website exploration page reports errors through the top message and hides the inline unavailable notice', () => {
+  assert.match(pageSource, /message\.useMessage\(\)/)
+  assert.match(pageSource, /messageApi\.error\(pageError\)/)
+  assert.doesNotMatch(pageSource, /正在等待客户端托管的网站探索服务/)
 })
 
 test('leaving a dirty workspace waits for explicit decision and preserves drafts on cancel', async () => {

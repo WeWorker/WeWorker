@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { message } from 'antd'
 import * as api from '../../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as useStore, changeWebsiteContext } from '../../store/website-exploration.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
@@ -10,6 +11,7 @@ import { ActionMenu, Icon, ErrorMessage, Modal, RequiredMark, Status, useAction,
 import './website-exploration.css'
 
 export default function WebsiteExplorationPage({ onOpenSettings }) {
+  const [messageApi, messageContextHolder] = message.useMessage()
   const toolkitId = useStore(s => s.toolkitId)
   const toolId = useStore(s => s.toolId)
   const workspace = useStore(s => s.workspace)
@@ -47,6 +49,10 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
     return { health, browser, activity }
   }, [])
   const action = useAction(async () => { await catalog.refresh(); await status.refresh() })
+  const pageError = status.error || catalog.error || action.error
+  useEffect(() => {
+    if (pageError) messageApi.error(pageError)
+  }, [messageApi, pageError])
   const kit = catalog.data?.find(item => item.toolkit_id === toolkitId)
   const tool = kit?.tools.find(item => item.tool_id === toolId)
   const unavailable = Boolean(status.error || !status.data)
@@ -65,6 +71,7 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
   const query = search.trim().toLowerCase()
   const matches = item => (item.name + ' ' + item.toolkit_id).toLowerCase().includes(query)
   return <div className="website-exploration wx-page">
+    {messageContextHolder}
     <header className="wx-topbar"><div className="wx-actions"><button className="wx-icon-button" title="Adapter 列表" aria-label="Adapter 列表" aria-expanded={treeVisible} onClick={() => setTreeVisible(!treeVisible)}><Icon name="panel" /></button><h1>网站探索agent</h1></div>
       <div className="wx-actions">
         {globalBusy && <button data-app-button="action" className="wx-quiet" onClick={() => { const activity = status.data.activity; void changeWebsiteContext({ toolkitId: activity.toolkit_id || toolkitId, toolId: activity.tool_id || toolId, workspace: activity.kind === 'development' ? 'develop' : activity.kind === 'debug' ? 'verify' : 'explore' }) }}>查看当前活动</button>}
@@ -74,14 +81,11 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
         {!unavailable && !status.data?.browser.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(tool?.start_url || ''))} disabled={action.busy}>连接浏览器</button>}
       </div>
     </header>
-    <ErrorMessage>{status.error || catalog.error || action.error}</ErrorMessage>
-    {!modelConnection && <p role="status">正在检查模型连接…</p>}
     {modelConnection && !modelConnection.ok && <div className="wx-actions" role="status">
       <p>{connectionMessage(modelConnection)}</p>
       <button data-app-button="action" onClick={() => setModelRetry(value => value + 1)}>重试</button>
       <button data-app-button="action" onClick={onOpenSettings}>模型设置</button>
     </div>}
-    {unavailable && <div className="wx-actions"><p>正在等待客户端托管的网站探索服务。连接恢复后会自动同步。</p><button data-app-button="action" onClick={() => action.run(async () => {})}>重新检查</button></div>}
     <div className="wx-layout">
       {treeVisible && <aside className="wx-tree" aria-label="Adapter 目录">
         <header><h2>Adapters</h2><button className="wx-icon-button" aria-label="新建 Adapter" title="新建 Adapter" disabled={unavailable || globalBusy} onClick={() => setModal({ kind: 'kit', create: true })}><Icon name="plus" /></button></header>

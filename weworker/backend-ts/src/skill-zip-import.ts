@@ -2,13 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import yauzl from 'yauzl'
-import { readManagedSkill } from './skill-management.js'
+import { markWeWorkerCreatedSkill, readManagedSkill } from './skill-management.js'
 
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 const MAX_ENTRY_COUNT = 512
 const MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
 
-export type ImportedSkill = { name: string; createdAt: number; creationOrderKey: string }
+export type ImportedSkill = { name: string; createdAt: number; creationOrderKey: string; source: 'custom' }
 
 function safeEntryPath(fileName: string): string {
   const normalized = String(fileName || '').replace(/\\/g, '/')
@@ -159,8 +159,9 @@ export async function importSkillZip(buffer: Buffer, skillsDir: string, archiveN
       for (const entry of entries) fs.renameSync(path.join(directory, entry), path.join(destination, entry))
     })
     return names.map((name) => {
+      markWeWorkerCreatedSkill(skillsDir, name)
       const { createdAt, creationOrderKey } = readManagedSkill(skillsDir, name)
-      return { name, createdAt, creationOrderKey }
+      return { name, createdAt, creationOrderKey, source: 'custom' }
     })
   } catch (error) {
     for (const item of moved.reverse()) fs.rmSync(item.destination, { recursive: true, force: true })

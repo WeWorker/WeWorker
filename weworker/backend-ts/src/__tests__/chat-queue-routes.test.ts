@@ -23,7 +23,7 @@ function fixture() {
   const context = vm.createContext({
     app: { post: (route: string, handler: any) => routes.set(route, handler) },
     createChatTurnRegistry, getSteerableChatSession: lookup, notify, checkpoint,
-    store: { getWork: () => ({ id: 'fixture-work' }), appendMessage: append },
+    store: { getWork: () => ({ id: 'fixture-work' }), getWorkspaceDirectoryForWork: () => undefined, appendMessage: append },
     importChatAttachments: importAttachments, messagePromptText: (message: any) => JSON.stringify(message.content),
     createHash, channelQrId: () => '11111111-1111-4111-8111-111111111111', handleChatRequest: run,
   })
