@@ -44,6 +44,8 @@ export function resolveDispatchTimeoutMs(env: NodeJS.ProcessEnv = process.env): 
 
 /** webcli 自己的超时信封（`{ error: "工具调用超时" }`）与常见超时措辞。 */
 const TIMEOUT_MESSAGE_RE = /超时|时间到|timed?\s*out|ETIMEDOUT/i
+/** 只匹配作为工具结果返回的登录失败文案，不扫描成功结果里的任意字段。 */
+const AUTH_MESSAGE_RE = /未登录|请(?:先|重新)?登录|登录态(?:无效|已失效|过期)|authentication credentials were not provided|unauthorized|login required|not logged in/i
 
 /** CLI 崩溃的典型文本（正常结果一律是 JSON，见 `webcli-runner.buildCliCallArgs`）。 */
 const PROCESS_ERROR_RES = [
@@ -72,21 +74,40 @@ export function classifyDispatchPayload(raw: string): { kind: RouteDispatchFailu
   const parsed = tryParseJson(text)
   if (parsed !== undefined && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
     const record = parsed as Record<string, unknown>
-    // 与 renderGeneric 的成功/失败分叉逐条对齐：`error` 为真值 = 渲染层会输出「⚠️ 查询失败」。
+    // WebCLI 可用 { result, trace_id } 包装非对象结果；包装内的错误不能被当作答案。
+    if (Object.keys(record).every((key) => key === 'result' || key === 'trace_id') && 'result' in record) {
+      return classifyDispatchPayload(typeof record.result === 'string' ? record.result : JSON.stringify(record.result))
+    }
+    // CLI 错误信封，以及部分 API 在 HTTP 200 下返回的业务错误码，都不是查询结果。
+    // 特别是鉴权失败可能只有 code/msg/data，没有 error 或 ok:false。
     const failureValue = record.error
     const failedFlag = record.ok === false || record.success === false
-    if (failureValue || failedFlag) {
+    const apiCode = record.code
+    const apiFailure = (typeof apiCode === 'number' || typeof apiCode === 'string')
+      && /^(?:4001|401|403|UNAUTHORIZED|AUTH_ERROR|NOT_LOGGED_IN)$/i.test(String(apiCode))
+    const status = record.status
+    const authStatus = status === 401 || status === 403 || status === '401' || status === '403'
+    const authMessage = record.msg ?? record.message
+    const missingLogin = (record.level === 'error' || record.data == null)
+      && typeof authMessage === 'string' && AUTH_MESSAGE_RE.test(authMessage)
+    if (failureValue || failedFlag || apiFailure || authStatus || missingLogin) {
       const message =
         typeof failureValue === 'string'
           ? failureValue
           : failureValue
             ? JSON.stringify(failureValue)
-            : String(record.message ?? record.code ?? 'failed')
+            : String(record.msg ?? record.message ?? apiCode ?? 'failed')
       const kind: RouteDispatchFailure = TIMEOUT_MESSAGE_RE.test(message) ? 'timeout' : 'error_payload'
       return { kind, detail: message.slice(0, 200) }
     }
   }
 
+  if (typeof parsed === 'string' && AUTH_MESSAGE_RE.test(parsed)) {
+    return { kind: 'error_payload', detail: parsed.slice(0, 200) }
+  }
+  if (parsed === undefined && AUTH_MESSAGE_RE.test(text) && text.trim().length < 500) {
+    return { kind: 'error_payload', detail: text.trim().slice(0, 200) }
+  }
   if (PROCESS_ERROR_RES.some((re) => re.test(text))) {
     return { kind: 'process_error', detail: text.trim().slice(0, 200) }
   }
