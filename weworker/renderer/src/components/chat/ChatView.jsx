@@ -240,6 +240,15 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
           useWorksStore.getState().setMemoryStatus(workId, event)
           return
         }
+        if (event.type === 'tool_timing_final') {
+          updateLastMessage(workId, (msg) => {
+            if (!msg || msg.role !== 'assistant') return msg
+            return { ...msg, content: (msg.content ?? []).map((block) => block.type === 'tool_use' && block.id === event.id
+              ? { ...block, execMs: event.execMs, status: block.status === 'running' ? 'done' : block.status }
+              : block) }
+          })
+          return
+        }
         // turn_end: append a timing summary block to the assistant message being streamed
         if (event.type === 'turn_end') {
           updateLastMessage(workId, (msg) => {
@@ -247,7 +256,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
             if ((msg.content ?? []).some((b) => b.type === 'timing')) return msg
             return {
               ...msg,
-              content: [...(msg.content ?? []), { type: 'timing', totalMs: event.totalMs, llmMs: event.llmMs, execMs: event.execMs, steps: event.steps }],
+              content: [...(msg.content ?? []), { type: 'timing', totalMs: event.totalMs, llmMs: event.llmMs, execMs: event.execMs, remainingModelMs: event.remainingModelMs, steps: event.steps }],
             }
           })
           return
@@ -323,7 +332,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
                 ...msg,
                 content: content.map((b) =>
                   b.type === 'tool_use' && b.id === event.id
-                    ? { ...b, result: event.result ?? '(no result)', status: 'done', execMs: event.execMs }
+                    ? { ...b, result: event.result ?? '(no result)', status: 'done', execMs: event.execMs ?? b.execMs }
                     : b
                 ),
               }
@@ -343,12 +352,12 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
                 ...msg,
                 content: content.map((b) =>
                   b.type === 'tool_use' && b.id === event.id
-                    ? { ...b, image: event.data, status: 'done' }
+                    ? { ...b, image: event.data, status: 'done', execMs: event.execMs ?? b.execMs }
                     : b
                 ),
               }
             }
-            return { ...msg, content: [...content, { type: 'tool_use', id: event.id, name: 'capture_screenshot', image: event.data, status: 'done' }] }
+            return { ...msg, content: [...content, { type: 'tool_use', id: event.id, name: 'capture_screenshot', image: event.data, status: 'done', execMs: event.execMs }] }
           }
 
           if (event.type === 'error') {

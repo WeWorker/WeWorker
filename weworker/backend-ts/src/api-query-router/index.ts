@@ -530,6 +530,8 @@ function emitRoutedAnswer(
   answer: RoutedAnswer & { steps?: number },
 ): void {
   const totalMs = (deps.now?.() ?? Date.now()) - ctx.chatStartTime
+  const execMs = Math.min(totalMs, Math.max(0, answer.execMs))
+  const llmMs = totalMs - execMs
   const steps = answer.steps ?? 1
   const routeArgs = JSON.stringify(answer.args ?? {})
   ctx.send({ type: 'turn_start', turnId: ctx.turnId, workId: ctx.workId })
@@ -539,8 +541,8 @@ function emitRoutedAnswer(
     turnId: ctx.turnId,
     workId: ctx.workId,
     totalMs,
-    llmMs: 0,
-    execMs: answer.execMs,
+    llmMs,
+    execMs,
     steps,
     routeTool: answer.tool,
     routeSource: answer.source,
@@ -549,8 +551,8 @@ function emitRoutedAnswer(
 
   const timing = {
     totalMs,
-    llmMs: 0,
-    execMs: answer.execMs,
+    llmMs,
+    execMs,
     steps,
     routeTool: answer.tool,
     routeSource: answer.source,

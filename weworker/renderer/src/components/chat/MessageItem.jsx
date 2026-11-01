@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
 import ImageLightbox from './ImageLightbox.jsx'
-import { formatDuration } from '../../utils/format-duration.js'
+import { formatTimingDuration } from '../../utils/format-timing-duration.js'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { partitionContentBlocks } from '../../utils/group-tool-blocks.js'
 import { isPlanManagementTool } from '../../utils/todowrite-state.js'
@@ -526,7 +526,7 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
   }
   if (block.type === 'tool_use') {
     if (suppressPlanTools && isPlanManagementTool(block.name)) return null
-    if (block.image) return <div style={{ margin: '4px 0' }}><ZoomableImage src={`data:image/jpeg;base64,${block.image}`} /></div>
+    if (block.image) return <div style={{ margin: '4px 0' }}><ZoomableImage src={`data:image/jpeg;base64,${block.image}`} /><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>非执行 {formatTimingDuration(block.thinkMs)} · 执行份额 {formatTimingDuration(block.execMs)}</div></div>
     return <ToolCallBlock block={block} streaming={streaming} />
   }
   if (block.type === 'image') return <ZoomableImage src={`data:image/jpeg;base64,${block.data}`} />
@@ -644,9 +644,10 @@ function ZoomableImage({ src }) {
 
 function TurnTimingFooter({ block }) {
   const segs = [
-    `⏱ 本轮 ${formatDuration(block.totalMs)}`,
-    `模型 ${formatDuration(block.llmMs)}`,
-    `执行 ${formatDuration(block.execMs)}`,
+    `⏱ 本轮 ${formatTimingDuration(block.totalMs)}`,
+    `非执行 ${formatTimingDuration(block.llmMs)}`,
+    `执行 ${formatTimingDuration(block.execMs)}`,
+    ...(block.remainingModelMs != null ? [`其中未归入工具前等待 ${formatTimingDuration(block.remainingModelMs)}`] : []),
     `${block.steps ?? 0} 步`,
   ]
   return (

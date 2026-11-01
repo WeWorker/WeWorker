@@ -49,7 +49,7 @@ export type ContentBlock =
   | { type: 'file_attachment'; name: string; path: string; size?: number; modified_at?: string; mime?: string }
   | { type: 'image_url'; image_url: { url: string } }
   | { type: 'tool_use'; id: string; name: string; args: unknown; result?: string; status?: string; image?: string; thinkMs?: number; execMs?: number }
-  | { type: 'timing'; totalMs: number; llmMs: number; execMs: number; steps: number; routeTool?: string; routeSource?: string; routeArgs?: string }
+  | { type: 'timing'; totalMs: number; llmMs: number; execMs: number; remainingModelMs?: number; steps: number; routeTool?: string; routeSource?: string; routeArgs?: string }
   | { type: 'error'; text: string }
 
 export interface WorkWithMessages extends Work {
