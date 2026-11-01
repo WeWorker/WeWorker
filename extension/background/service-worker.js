@@ -2873,12 +2873,12 @@ async function handleNativeMessageInternal(msg) {
             declaredHome && classifyNavigationTarget(selected.manifest, declaredHome) === 'allowed'
               ? declaredHome
               : 'http://' + route + '/');
-          if (commandLease) {
+          if (!commandLease) {
+            tab = await createBrowserTab({ url: startUrl, active: false });
+          } else {
             tab = await createBrowserTab({ url: 'about:blank', active: false });
             releaseSharedPage = await claimSharedPage(tab.id, false, commandLease);
             await chrome.tabs.update(tab.id, { url: startUrl });
-          } else {
-            tab = await createBrowserTab({ url: startUrl, active: false });
           }
           // Learn where the site sends this host (regional or brand domains) before the first call.
           const landed = await waitForManagedPageReady(tab.id, selected.manifest, true, 25000);
