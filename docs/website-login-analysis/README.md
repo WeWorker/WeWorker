@@ -253,7 +253,7 @@ login_required
 }
 ```
 
-内置实现：`adapters/jd.com` 的 `get-login-qrcode`（图片协议：passport 登录页容器选择器、qr.m.jd.com 服务器 URL 在页面内 credentialed fetch 转 data URL、过期遮罩自动刷新）；`adapters/goofish.com` 的 `get-login-qrcode`（rect 协议，已真机验证：二维码在 havana 内嵌的跨域 login.taobao.com iframe 里，命令测量 iframe 页面矩形并按实测比例（二维码列约占面板宽 58%）收窄到二维码列，宽高比异常时回退整面板，宿主裁剪截图；`auth_prepare_qr` 预算 30s 以覆盖冷启动 SPA 挂载登录面板的延迟，命令失败原因经 `commandReason` 透传到登录日志）。
+内置实现：`adapters/jd.com` 的 `get-login-qrcode`（图片协议：passport 登录页容器选择器、qr.m.jd.com 服务器 URL 在页面内 credentialed fetch 转 data URL、过期遮罩自动刷新）；`adapters/mail.163.com` 的 `get-login-qrcode`（图片协议，按 mail.163.com 登录页与 mailscanlogin-1.3.2.js 校准：二维码为 `#appCodeMain` 内同源 canvas，直接 `toDataURL` 无需 fetch；手机号确认挂起（`.s-noScan-active`）时用页面自带 `#scanReScanBtn`（重新扫码）切回二维码视图，绝不碰「确认登录」；扫码视图经 `.new-loginFuncApp.qrcode-163-icon` 唯一入口进入，过期遮罩 `#appCodeRefresh` 用页面自带刷新链接重取）；`adapters/goofish.com` 的 `get-login-qrcode`（rect 协议，已真机验证：二维码在 havana 内嵌的跨域 login.taobao.com iframe 里，命令测量 iframe 页面矩形并按实测比例（二维码列约占面板宽 58%）收窄到二维码列，宽高比异常时回退整面板，宿主裁剪截图；`auth_prepare_qr` 预算 30s 以覆盖冷启动 SPA 挂载登录面板的延迟，命令失败原因经 `commandReason` 透传到登录日志）。
 
 ## 6. 登录完成后的重试策略
 

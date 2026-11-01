@@ -133,6 +133,44 @@ describe('extension host QR command execution', () => {
     expect(moduleSource).not.toMatch(/\.value\s*=/)
   })
 
+  it('mail.163.com declares a validated qr.command matching the real login page', () => {
+    const adapterDir = resolve(process.cwd(), '../adapters/mail.163.com')
+    const manifest = JSON.parse(readFileSync(resolve(adapterDir, 'manifest.json'), 'utf8'))
+    const qrCommandId = manifest.auth?.qr?.command
+    expect(typeof qrCommandId).toBe('string')
+    const command = manifest.commands.find((entry) => entry.id === qrCommandId)
+    expect(command).toMatchObject({ runtime: 'extension', safety: 'read' })
+
+    const modulePath = resolve(adapterDir, command.module)
+    expect(existsSync(modulePath)).toBe(true)
+    const moduleSource = readFileSync(modulePath, 'utf8')
+    // Registered under its declared id, restricted to the login host, and it
+    // answers with the {found, image_data_url} host protocol.
+    expect(moduleSource).toContain('__webcliRegisterCommand("get-login-qrcode"')
+    expect(moduleSource).toMatch(/LOGIN_HOST_RE\.test\(location\.hostname\)/)
+    expect(moduleSource).toContain('found: false')
+    expect(moduleSource).toContain('image_data_url')
+    // Verified against https://mail.163.com/ + mailscanlogin-1.3.2.js: the QR
+    // is a same-origin canvas inside #appCodeMain/.w-mc-appCode-wrap (so
+    // canvas.toDataURL needs no credentialed fetch), the expired mask is
+    // #appCodeRefresh with the page's own refresh link, the QR view switch is
+    // the .new-loginFuncApp.qrcode-163-icon entry on the .new-loginFunc bar,
+    // and a pending phone app-confirm (.s-noScan-active) hides the QR — the
+    // page's own #scanReScanBtn switches that view back to the QR.
+    expect(moduleSource).toContain('#appCodeMain canvas')
+    expect(moduleSource).toContain('#appCodeRefresh')
+    expect(moduleSource).toContain('.new-loginFuncApp.qrcode-163-icon')
+    expect(moduleSource).toContain('s-noScan-active')
+    expect(moduleSource).toContain('#scanReScanBtn')
+    // It only ever clicks the unique QR switch, the page's own refresh link and
+    // its noScan 重新扫码 view switch; no form fills or submits, and neither
+    // the app-confirm button nor the noScan 确认登录 button is ever targeted.
+    expect(moduleSource).toMatch(/pinned\.length === 1 && visible\(pinned\[0\]\)/)
+    expect(moduleSource).not.toMatch(/\.value\s*=/)
+    expect(moduleSource).not.toContain('scanConfirmBtn')
+    expect(moduleSource).not.toContain('appLoginForm')
+  })
+
   it('jd.com declares a validated qr.command matching the real passport page', () => {
     const manifest = JSON.parse(readFileSync(resolve(JD_ADAPTER_DIR, 'manifest.json'), 'utf8'))
     const qrCommandId = manifest.auth?.qr?.command
