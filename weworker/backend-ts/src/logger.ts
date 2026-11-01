@@ -10,6 +10,8 @@
  *   log.error('connection failed', e)  // 2026-04-03 15:50:48.564 [chat] [ERROR] connection failed: ...
  */
 
+import { getTurnExecutionContext } from './memory/turn-execution-context.js'
+
 type Level = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'
 
 function formatTimestamp(): string {
@@ -20,7 +22,16 @@ function formatTimestamp(): string {
 }
 
 function formatMessage(source: string, level: Level, msg: string, extra?: unknown): string {
-  let line = `${formatTimestamp()} [${source}] [${level}] ${msg}`
+  const turn = getTurnExecutionContext()
+  const workTag = turn ? `[work:${turn.workId.slice(0, 8)}]` : ''
+  const turnTag = turn ? `[turn:${turn.turnId}]` : ''
+  const contextTags = turn
+    ? [
+        !msg.includes(workTag) && !msg.includes(turn.workId) ? workTag : '',
+        !msg.includes(turnTag) ? turnTag : '',
+      ].filter(Boolean).join('')
+    : ''
+  let line = `${formatTimestamp()} [${source}] [${level}] ${contextTags ? `${contextTags} ` : ''}${msg}`
   if (extra !== undefined) {
     if (extra instanceof Error) {
       line += `: ${extra.message}`

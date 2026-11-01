@@ -132,6 +132,7 @@ import {
 } from './style-settings.js'
 import { processMemoryEvent } from './memory/memory-lifecycle.js'
 import { automaticMemoryEnabled } from './memory/automatic-memory.js'
+import { runWithTurnExecutionContext } from './memory/turn-execution-context.js'
 import { buildMemoryEventContext } from './memory/memory-event-context.js'
 import { planCompletedChatMemoryEvents, applyAdmissionToCandidate } from './memory/memory-event-planner.js'
 import { isMemoryProtocolFailure } from './memory/memory-protocol.js'
@@ -2947,23 +2948,40 @@ app.post('/works/:id/chat/stop', async (req, res) => {
 })
 
 app.post('/works/:id/chat', async (req, res) => {
-  const turn = chatTurns.start(req.params.id)
-  if (!turn) {
-    res.status(409).json({ detail: '当前对话仍在处理上一条消息，请稍后重试' })
-    return
-  }
-  const onDisconnect = () => { if (!res.writableEnded) turn.controller.abort() }
-  res.on('close', onDisconnect)
-  try {
-    await handleChatRequest(req, res, turn.controller)
-  } finally {
-    chatSteeringListeners.delete(req.params.id)
-    res.off('close', onDisconnect)
-    turn.finish()
-  }
+  const workId = req.params.id
+  const turnId = channelQrId()
+  const startedAt = Date.now()
+  await runWithTurnExecutionContext({ workId, turnId }, async () => {
+    const body = req.body ?? {}
+    const message = typeof body.message === 'string' ? body.message : ''
+    const modelMessage = typeof body.modelMessage === 'string' ? body.modelMessage : ''
+    const attachments = Array.isArray(body.attachments) ? body.attachments.length : 0
+    chatLog.info(`request_received messageChars=${message.length} modelMessageChars=${modelMessage.length} attachments=${attachments} retryCompaction=${body.retryCompaction === true}`)
+
+    const turn = chatTurns.start(workId)
+    if (!turn) {
+      chatLog.warn('request_rejected reason=turn_in_progress')
+      res.status(409).json({ detail: '当前对话仍在处理上一条消息，请稍后重试' })
+      return
+    }
+    const onDisconnect = () => { if (!res.writableEnded) turn.controller.abort() }
+    res.on('close', onDisconnect)
+    try {
+      chatLog.info('request_handler_started')
+      await handleChatRequest(req, res, turn.controller, turnId)
+    } catch (error) {
+      chatLog.error('request_handler_failed', error)
+      throw error
+    } finally {
+      chatLog.info(`request_completed status=${res.statusCode} durationMs=${Date.now() - startedAt}`)
+      chatSteeringListeners.delete(workId)
+      res.off('close', onDisconnect)
+      turn.finish()
+    }
+  })
 })
 
-async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController) {
+async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController, requestTurnId?: string) {
   const workId = req.params.id
   const { message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode } = req.body as {
     message: string;
@@ -3133,7 +3151,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   }
 
   const chatStartTime = Date.now()
-  const turnId = Math.random().toString(36).slice(2, 8)
+  const turnId = requestTurnId ?? Math.random().toString(36).slice(2, 8)
   let stepIndex = 0
   let lastToolName = ''
   // Per-turn timing accumulators. `llmMs` (all LLM generation segments) and
