@@ -1,4 +1,4 @@
-import { ADAPTER_REPO, GITHUB_ISSUES, GITHUB_REPO, LICENSE } from '../lib/siteConfig.js'
+import { ADAPTER_REPO, GITHUB_FAQ, GITHUB_ISSUES, GITHUB_REPO, LICENSE } from '../lib/siteConfig.js'
 
 export default function Footer() {
   const year = new Date().getFullYear()
@@ -24,6 +24,7 @@ export default function Footer() {
             <FooterLink href="/docs/quick-start">使用说明</FooterLink>
           </ul>
           <ul className="space-y-2.5">
+            <FooterLink href={GITHUB_FAQ}>安装 FAQ</FooterLink>
             <FooterLink href={GITHUB_ISSUES}>问题反馈</FooterLink>
             <FooterLink href={`${GITHUB_REPO}/discussions`}>社区讨论</FooterLink>
           </ul>
