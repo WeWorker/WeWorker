@@ -1,5 +1,5 @@
 import type { ProviderEntry } from './llm-egress.js'
-import { resolveAnthropicEndpoint, resolveOpenAiEndpoint, type LlmProtocol } from './llm-egress.js'
+import { resolveAnthropicEndpoint, resolveOpenAiEndpoint, isOpenAiProtocol, type LlmProtocol } from './llm-egress.js'
 import { resolveModelCatalogEndpoint, type ModelCatalogAuthType } from './model-catalog-config.js'
 import { buildAnthropicAuthHeaders } from './anthropic-auth.js'
 import type { AnthropicAuthType } from './anthropic-auth.js'
@@ -52,7 +52,7 @@ export interface ModelCatalogResult {
 export interface ProtocolProbeResult {
   ok: boolean
   target: ProbeTarget
-  protocol: 'anthropic_messages' | 'openai_chat_completions'
+  protocol: LlmProtocol
   model: string
   error?: ProbeErrorCode
   detail?: string
@@ -119,7 +119,7 @@ async function fetchOpenAiModels(baseUrl: string, apiKey: string, fetchImpl: Fet
 async function fetchExplicitModels(url: string, apiKey: string, authType: AnthropicAuthType, fetchImpl: FetchLike, fullUrl = true, protocol: LlmProtocol = 'anthropic_messages'): Promise<string[]> {
   const response = await fetchImpl(resolveModelCatalogEndpoint(url, fullUrl), {
     headers: {
-      ...(protocol === 'openai_chat_completions'
+      ...(isOpenAiProtocol(protocol)
         ? { authorization: `Bearer ${apiKey}` }
         : { ...buildAnthropicAuthHeaders(apiKey, 'custom', authType), ...(authType === 'api_key' ? { 'anthropic-version': '2023-06-01' } : {}) }),
     },
@@ -138,7 +138,7 @@ export async function listProviderModels(
   const targetedCustom = input.provider.id === 'custom' && Boolean(input.target)
   const fallbackModels = targetedCustom ? [] : [...input.provider.models]
   if (targetedCustom) {
-    const openai = input.target === 'webwright' || (input.target === 'weworker' && input.weworkerProtocol === 'openai_chat_completions')
+    const openai = input.target === 'webwright' || (input.target === 'weworker' && isOpenAiProtocol(input.weworkerProtocol))
     const explicitUrl = input.target === 'webwright' ? input.openaiModelsUrl : input.modelsUrl
     const address = explicitUrl || (input.target === 'webwright'
       ? input.openaiBaseUrl
@@ -156,9 +156,10 @@ export async function listProviderModels(
 
   const requests: Array<{ label: string; promise: Promise<string[]> }> = []
   if (input.provider.id === 'custom') {
-    const weworkerOpenAi = (input.weworkerProtocol || input.provider.weworker.protocol) === 'openai_chat_completions'
+    const weworkerProtocol = input.weworkerProtocol || input.provider.weworker.protocol
+    const weworkerOpenAi = isOpenAiProtocol(weworkerProtocol)
     if ((!input.target || input.target === 'weworker') && input.apiKey) {
-      if (input.modelsUrl) requests.push({ label: weworkerOpenAi ? 'OpenAI 模型列表' : 'Claude Code 模型列表', promise: fetchExplicitModels(input.modelsUrl, input.apiKey, input.modelsAuthType === 'inherit' || !input.modelsAuthType ? input.anthropicAuthType || 'auth_token' : input.modelsAuthType, fetchImpl, input.modelsUrlIsFull, weworkerOpenAi ? 'openai_chat_completions' : 'anthropic_messages') })
+      if (input.modelsUrl) requests.push({ label: weworkerOpenAi ? 'OpenAI 模型列表' : 'Claude Code 模型列表', promise: fetchExplicitModels(input.modelsUrl, input.apiKey, input.modelsAuthType === 'inherit' || !input.modelsAuthType ? input.anthropicAuthType || 'auth_token' : input.modelsAuthType, fetchImpl, input.modelsUrlIsFull, weworkerOpenAi ? weworkerProtocol : 'anthropic_messages') })
       else if (weworkerOpenAi && (input.weworkerBaseUrl || input.anthropicBaseUrl) && !(input.weworkerFullUrl ?? input.anthropicFullUrl)) requests.push({ label: 'OpenAI 模型列表', promise: fetchOpenAiModels(input.weworkerBaseUrl || input.anthropicBaseUrl!, input.apiKey, fetchImpl) })
       else if (input.anthropicBaseUrl && !input.anthropicFullUrl && findProviderByWeWorkerBaseUrl(input.anthropicBaseUrl)) {
         const knownProvider = findProviderByWeWorkerBaseUrl(input.anthropicBaseUrl)!
@@ -258,7 +259,7 @@ export async function probeProviderProtocol(
   const weworkerFullUrl = input.weworkerFullUrl ?? input.anthropicFullUrl
   const endpoint = isAnthropic
     ? resolveAnthropicEndpoint({ base_url: baseUrl, base_url_is_full: input.provider.id === 'custom' && (input.target === 'weworker' ? weworkerFullUrl : input.anthropicFullUrl) === true })
-    : resolveOpenAiEndpoint(baseUrl, input.provider.id === 'custom' && (input.target === 'weworker' ? weworkerFullUrl : input.openaiFullUrl) === true)
+    : resolveOpenAiEndpoint(baseUrl, input.provider.id === 'custom' && (input.target === 'weworker' ? weworkerFullUrl : input.openaiFullUrl) === true, protocol)
   const headers: Record<string, string> = isAnthropic
     ? { ...buildAnthropicAuthHeaders(apiKey, effectiveAnthropicProviderId(input, baseUrl), input.anthropicAuthType), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }
     : { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }
@@ -275,7 +276,12 @@ export async function probeProviderProtocol(
         } : {}),
         ...(input.target === 'webwright' ? { output_config: { format: { type: 'json_schema', schema } } } : {}),
       }
-    : {
+    : protocol === 'openai_responses' ? {
+        model,
+        max_output_tokens: input.verifyResponse ? 256 : 20,
+        input: 'Return JSON: {"ok":true}.',
+        text: { format: { type: 'json_object' } },
+      } : {
         model,
         max_tokens: input.verifyResponse ? 256 : 20,
         messages: [{ role: 'user', content: 'Return JSON: {"ok":true}.' }],
@@ -301,7 +307,9 @@ export async function probeProviderProtocol(
           } else {
             const content = isAnthropic
               ? data.content?.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('')
-              : data.choices?.[0]?.message?.content
+              : protocol === 'openai_responses'
+                ? data.output?.flatMap((item: any) => item.content || []).filter((block: any) => block.type === 'output_text').map((block: any) => block.text).join('')
+                : data.choices?.[0]?.message?.content
             if (JSON.parse(content).ok !== true) throw new Error()
           }
         } catch {
@@ -340,7 +348,7 @@ export async function probeProviderProtocol(
 }
 
 export async function probeMainConnection(input: ProviderConnectionInput & { autoAuth?: boolean }, fetchImpl: FetchLike = fetch): Promise<ProtocolProbeResult> {
-  if ((input.weworkerProtocol || input.provider.weworker.protocol) === 'openai_chat_completions') {
+  if (isOpenAiProtocol(input.weworkerProtocol || input.provider.weworker.protocol)) {
     return probeProviderProtocol({ ...input, target: 'weworker', verifyResponse: true }, fetchImpl)
   }
   const authType = input.provider.id === 'custom' && findProviderByWeWorkerBaseUrl(input.anthropicBaseUrl)

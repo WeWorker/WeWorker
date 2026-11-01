@@ -4,7 +4,10 @@ import { ChatSession, PromptQueue } from '../chat-session.js'
 import type * as Store from '../works-store.js'
 import type { SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 
-vi.mock('../config.js', () => ({ ensureUserDirectory: () => 'C:/weworker-fixtures' }))
+vi.mock('../config.js', () => ({
+  ensureUserDirectory: () => 'C:/weworker-fixtures',
+  ensureProjectDirectory: (...segments: string[]) => `C:/weworker-fixtures/${segments.join('/')}`,
+}))
 const store = await import('../works-store.js')
 const { createAssistantSegments } = await import('../chat-assistant-segments.js')
 const entry = (message: Store.Message) => ({ id: message.id, role: message.role, digest: createHash('sha256').update(JSON.stringify(message.content)).digest('hex') })

@@ -1,8 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { consumeSSE } from '../api/website-exploration-events.js'
 import { resourcePath, deleteTool, deleteInstalledCommand, matchBrowser } from '../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as store, leaveWebsiteExploration, changeWebsiteContext } from '../store/website-exploration.js'
+
+const pageSource = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../components/website-exploration/WebsiteExplorationPage.jsx'), 'utf8')
 
 test('SSE handles named events, CRLF, UTF-8 split bytes and multiline JSON', async () => {
   const bytes = new TextEncoder().encode(': heartbeat\r\nevent: step_finished\r\ndata: {"step":1,\r\ndata: "title":"页面"}\r\n\r\nevent: exploration_succeeded\ndata: {}\n\n')
@@ -55,6 +60,12 @@ test('Tool deletion sends the reviewed Adapter digest to one backend operation',
       { url: 'http://127.0.0.1:8765/api/website-exploration/adapters/demo.example.com/commands/read-page', method: 'DELETE', body: { expectedDigest: 'digest-2' } },
     ])
   } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
+})
+
+test('website exploration page reports errors through the top message and hides the inline unavailable notice', () => {
+  assert.match(pageSource, /message\.useMessage\(\)/)
+  assert.match(pageSource, /messageApi\.error\(pageError\)/)
+  assert.doesNotMatch(pageSource, /正在等待客户端托管的网站探索服务/)
 })
 
 test('leaving a dirty workspace waits for explicit decision and preserves drafts on cancel', async () => {

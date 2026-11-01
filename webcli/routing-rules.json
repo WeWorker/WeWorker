@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "min_confidence": 0.8,
+  "generated_from": "weworker/router-config/patterns.json",
+  "entries": [
+    {
+      "tool": "wikipedia.org.search",
+      "priority": 20,
+      "patterns": [
+        {
+          "type": "regex",
+          "expression": "(?:维基百科)[\\s\\S]{0,12}?(?:搜索|搜一下|搜|查找|查一下|检索)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,60})$",
+          "flags": "i",
+          "weight": 1
+        },
+        {
+          "type": "regex",
+          "expression": "(?:wikipedia|wiki)[\\s\\S]{0,12}?(?:(?:搜索|搜一下|搜|查找|查一下|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,60})$",
+          "flags": "i",
+          "weight": 1
+        }
+      ],
+      "negative_patterns": [
+        "正文|全文|页面内容|段落|搜索引擎|搜索功能|搜索框|搜索记录|搜索历史"
+      ],
+      "arg_extractors": [
+        {
+          "regex": "(?:(?:搜索|搜一下|搜|查找|查一下|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,60})$",
+          "flags": "i",
+          "arg": "query",
+          "type": "string"
+        }
+      ],
+      "default_args": {}
+    },
+    {
+      "tool": "wikipedia.org.summary",
+      "priority": 10,
+      "patterns": [
+        {
+          "type": "regex",
+          "expression": "(?:维基百科)[\\s\\S]{0,6}?(?:词条|条目|简介|摘要|导语|概述)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,50})$",
+          "flags": "i",
+          "weight": 1
+        },
+        {
+          "type": "regex",
+          "expression": "(?:wikipedia|wiki)[\\s\\S]{0,6}?(?:词条|条目|简介|摘要|导语|概述|summary)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,50})$",
+          "flags": "i",
+          "weight": 1
+        }
+      ],
+      "negative_patterns": [
+        "有哪些|哪些|多少|列出|列表|是什么|为什么|怎么|如何|区别|对比|数量|统计"
+      ],
+      "arg_extractors": [
+        {
+          "regex": "(?:词条|条目|简介|摘要|导语|概述|summary)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,50})$",
+          "flags": "i",
+          "arg": "title",
+          "type": "string"
+        }
+      ],
+      "default_args": {}
+    },
+    {
+      "tool": "weread.qq.com.search",
+      "priority": 10,
+      "patterns": [
+        {
+          "type": "regex",
+          "expression": "(?:微信读书)[\\s\\S]{0,10}?(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,40})$",
+          "flags": "i",
+          "weight": 1
+        },
+        {
+          "type": "regex",
+          "expression": "(?:weread)[\\s\\S]{0,10}?(?:(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,40})$",
+          "flags": "i",
+          "weight": 1
+        }
+      ],
+      "negative_patterns": [
+        "[《》「」]"
+      ],
+      "arg_extractors": [
+        {
+          "regex": "(?:(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,40})$",
+          "flags": "i",
+          "arg": "query",
+          "type": "string"
+        }
+      ],
+      "default_args": {}
+    },
+    {
+      "tool": "news.ycombinator.com.search",
+      "priority": 10,
+      "patterns": [
+        {
+          "type": "regex",
+          "expression": "(?:hacker\\s*news|hackernews|\\bhn\\b)[\\s\\S]{0,10}?(?:(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,60})$",
+          "flags": "i",
+          "weight": 1
+        }
+      ],
+      "negative_patterns": [],
+      "arg_extractors": [
+        {
+          "regex": "(?:(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,60})$",
+          "flags": "i",
+          "arg": "query",
+          "type": "string"
+        }
+      ],
+      "default_args": {}
+    },
+    {
+      "tool": "news.ycombinator.com.user",
+      "priority": 10,
+      "patterns": [
+        {
+          "type": "regex",
+          "expression": "(?:hacker\\s*news|hackernews|\\bhn\\b)[\\s\\S]{0,8}?(?:用户|会员|user)\\s*[:：]?\\s*@?([A-Za-z0-9_-]{1,30})(?:的)?(?:资料|信息|简介|主页)?$",
+          "flags": "i",
+          "weight": 1
+        }
+      ],
+      "negative_patterns": [],
+      "arg_extractors": [
+        {
+          "regex": "(?:用户|会员|user)\\s*[:：]?\\s*@?([A-Za-z0-9_-]{1,30})",
+          "flags": "i",
+          "arg": "username",
+          "type": "string"
+        }
+      ],
+      "default_args": {}
+    },
+    {
+      "tool": "news.ycombinator.com.read",
+      "priority": 10,
+      "patterns": [
+        {
+          "type": "regex",
+          "expression": "(?:hacker\\s*news|hackernews|\\bhn\\b)[\\s\\S]{0,8}?(?:帖子|主题|话题|item|story)\\s*[:#/]?\\s*(\\d{1,9})(?:的)?(?:评论|回复)?$",
+          "flags": "i",
+          "weight": 1
+        }
+      ],
+      "negative_patterns": [],
+      "arg_extractors": [
+        {
+          "regex": "(?:帖子|主题|话题|item|story)\\s*[:#/]?\\s*(\\d{1,9})",
+          "flags": "i",
+          "arg": "id",
+          "type": "integer",
+          "min": 1
+        }
+      ],
+      "default_args": {}
+    }
+  ]
+}

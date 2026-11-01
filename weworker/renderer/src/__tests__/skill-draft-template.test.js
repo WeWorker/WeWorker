@@ -21,6 +21,7 @@ test('new and reopened empty Skill folders offer the editable template without r
     assert.equal(tool.name, 'example-skill')
     assert.equal(tool.directoryName, 'example-skill')
     assert.equal(tool.enabled, false)
+    assert.equal(tool.source, 'public-custom')
   }
   assert.equal(entry.content, '')
 })
@@ -29,5 +30,6 @@ test('saved Skill content, including deliberately emptied documents, is not repl
   for (const content of ['# My instructions\nKeep this text.', '', '   ']) {
     const tool = buildTool({ name: 'example-skill', content, draft: false, enabled: false })
     assert.equal(tool.markdown, content)
+    assert.equal(tool.source, 'public-skill')
   }
 })

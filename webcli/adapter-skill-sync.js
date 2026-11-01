@@ -60,6 +60,24 @@ function writeOwned(target, body, record, { overwrite = false } = {}) {
   return true;
 }
 
+function syncAdapterIcon(target, adapter) {
+  const match = /^data:(image\/(?:svg\+xml|png));base64,([A-Za-z0-9+/=]+)$/.exec(adapter.iconUrl || '')
+  if (!match) return false
+  const extension = match[1] === 'image/png' ? 'png' : 'svg'
+  const bytes = Buffer.from(match[2], 'base64')
+  if (!bytes.length || bytes.length > 512 * 1024) return false
+  const root = join(target, 'webcli-' + assertAdapterIdentity(adapter.id))
+  assertManagedDirectory(root)
+  mkdirSync(root, { recursive: true })
+  const destination = assertManagedFile(root, 'icon.' + extension)
+  if (existsSync(destination) && readFileSync(destination).equals(bytes)) return true
+  const temporary = assertManagedFile(root, 'icon.' + extension + '.' + randomUUID() + '.tmp')
+  const fd = openSync(temporary, 'wx', 0o600)
+  try { writeFileSync(fd, bytes); fsyncSync(fd) } finally { closeSync(fd) }
+  renameManagedFile(temporary, destination)
+  return true
+}
+
 /**
  * Synchronize exact catalog-managed Adapter Skill directories. Installation can
  * force replacement to migrate legacy pre-marker Skills; per-turn refreshes
@@ -76,6 +94,7 @@ export function syncManagedAdapterSkills({ target, snapshot, profile, adapterId 
   const preserved = [];
   for (const adapter of snapshot.adapters) {
     if (adapterId && adapter.id !== adapterId) continue;
+    syncAdapterIcon(target, adapter)
     if (writeOwned(target, managedAdapterSkill(adapter), {
       name: adapter.id, profile, packageDigest: adapter.digest, version: adapter.version, status: 'active',
     }, { overwrite })) installed++;

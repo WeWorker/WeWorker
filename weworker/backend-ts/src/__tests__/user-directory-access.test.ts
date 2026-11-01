@@ -55,6 +55,14 @@ describe('user directory access control', () => {
     expect(evaluateToolAccess('mcp__weworker__send_file_to_user', { file_path: inside }).allowed).toBe(true)
   })
 
+  it('keeps the workspace boundary and blacklist active for edits without confirmation', () => {
+    vi.mocked(getUserDirectory).mockReturnValue(root)
+    vi.mocked(getUserDirectoryBlacklist).mockReturnValue([{ type: 'exact_path', pattern: 'blocked.txt' }])
+    expect(evaluateToolAccess('Edit', { file_path: path.join(root, 'blocked.txt') }).allowed).toBe(false)
+    expect(evaluateToolAccess('Edit', { file_path: path.join(root, 'nested', 'note.txt') }).allowed).toBe(true)
+    expect(evaluateToolAccess('Write', { file_path: path.join(os.tmpdir(), 'outside.txt') }).allowed).toBe(false)
+  })
+
   it('allows shell paths that copy or link drafts into the runtime skills directory', () => {
     vi.mocked(getUserDirectory).mockReturnValue(root)
     const draft = path.join(root, 'skills-test', 'basic-echo-test')

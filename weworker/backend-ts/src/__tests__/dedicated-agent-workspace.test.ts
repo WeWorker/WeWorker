@@ -7,6 +7,18 @@ const fixture = vi.hoisted(() => ({ root: '' }))
 vi.mock('../config.js', () => ({
   getConfigDirectory: () => fixture.root,
   ensureUserDirectory: () => fixture.root,
+  getUserDirectory: () => fixture.root,
+  ensureProjectsDirectory: () => {
+    const directory = path.join(fixture.root, 'projects')
+    fs.mkdirSync(directory, { recursive: true })
+    return directory
+  },
+  ensureProjectDirectory: (...segments: string[]) => {
+    const directory = path.join(fixture.root, 'projects', ...segments)
+    fs.mkdirSync(directory, { recursive: true })
+    return directory
+  },
+  expandHomePath: (value: string) => value,
   getSettings: () => ({ channels: { wecom: {}, weixin: {} } }),
 }))
 vi.mock('../agent.js', () => ({ clearStoredConversationCompaction: vi.fn() }))

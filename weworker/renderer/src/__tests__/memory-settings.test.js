@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   MEMORY_BUDGET_ERROR,
   MEMORY_BUDGET_MAX,
+  SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT,
+  SCHEDULED_TASK_HISTORY_LIMIT_ERROR,
   MEMORY_FILTER_ALL,
   MEMORY_TYPES,
   MEMORY_TYPE_LABELS,
@@ -16,7 +18,9 @@ import {
   memoryTypeLabel,
   memoryTypeOptions,
   parseMemoryBudgetInput,
+  parseScheduledTaskHistoryLimit,
   validateMemoryBudgetInput,
+  validateScheduledTaskHistoryLimit,
 } from '../utils/memory-settings.js'
 
 const SETTINGS_FIXTURE = {
@@ -67,6 +71,17 @@ test('预算输入校验覆盖合法、0、负数、小数、超上限、非数�
   for (const invalid of ['-1', '12.5', String(MEMORY_BUDGET_MAX + 1), 'abc', '', '   ', null, undefined, '1e3', '+5', 'NaN', {}]) {
     assert.deepEqual(validateMemoryBudgetInput(invalid), { ok: false, error: MEMORY_BUDGET_ERROR })
     assert.equal(parseMemoryBudgetInput(invalid), null)
+  }
+})
+
+test('定时任务对话上限默认为 50，并只接受 1-500 的整数', () => {
+  assert.equal(SCHEDULED_TASK_HISTORY_LIMIT_DEFAULT, 50)
+  assert.deepEqual(validateScheduledTaskHistoryLimit('50'), { ok: true, value: 50 })
+  assert.deepEqual(validateScheduledTaskHistoryLimit(' 1 '), { ok: true, value: 1 })
+  assert.equal(parseScheduledTaskHistoryLimit('500'), 500)
+  for (const value of ['0', '501', '-1', '1.5', '', 'abc']) {
+    assert.equal(parseScheduledTaskHistoryLimit(value), null)
+    assert.deepEqual(validateScheduledTaskHistoryLimit(value), { ok: false, error: SCHEDULED_TASK_HISTORY_LIMIT_ERROR })
   }
 })
 

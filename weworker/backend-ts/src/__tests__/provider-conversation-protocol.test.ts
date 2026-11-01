@@ -36,6 +36,19 @@ describe('custom WeWorker protocol selection', () => {
     expect(requestedBody).toMatchObject({ model: 'fixture-model', response_format: { type: 'json_object' } })
   })
 
+  it('probes OpenAI Responses with its endpoint and request/response format', async () => {
+    let requestedBody: Record<string, unknown> | undefined
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://gateway.example/v1/responses')
+      requestedBody = JSON.parse(String(init?.body))
+      return Response.json({ output: [{ type: 'message', content: [{ type: 'output_text', text: '{"ok":true}' }] }] })
+    })
+    await expect(probeProviderProtocol({ provider, target: 'weworker', weworkerProtocol: 'openai_responses',
+      apiKey: 'fixture-key', model: 'fixture-model', weworkerBaseUrl: 'https://gateway.example/v1', verifyResponse: true }, fetchMock))
+      .resolves.toMatchObject({ ok: true, protocol: 'openai_responses' })
+    expect(requestedBody).toMatchObject({ model: 'fixture-model', max_output_tokens: 256, text: { format: { type: 'json_object' } } })
+  })
+
   it('uses the selected OpenAI protocol for the main connection check', async () => {
     const endpoint = 'https://gateway.example/custom/chat/completions?route=fixture'
     const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {

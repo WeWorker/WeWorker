@@ -118,7 +118,7 @@ export function buildProbeResultRows(results) {
     const protocol = result?.protocol
     const occurrence = seen.get(protocol) || 0
     seen.set(protocol, occurrence + 1)
-    const protocolName = protocol === 'anthropic_messages' ? 'Anthropic' : protocol === 'openai_chat_completions' ? 'OpenAI' : '模型'
+    const protocolName = protocol === 'anthropic_messages' ? 'Anthropic' : protocol === 'openai_responses' ? 'OpenAI Responses' : protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : '模型'
     return { ...result, label: occurrence > 0 ? `${protocolName} 结构化输出接口` : `${protocolName} 接口` }
   })
 }
