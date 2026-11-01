@@ -7,13 +7,17 @@
  * - 未命中时行为与接线前完全一致（照常跑模型、照常落一条带耗时的 timing）；
  * - 专属 Agent 任务不接入路由（它有自己的站点/技能边界）。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 const mocks = vi.hoisted(() => ({
   tryRoutedTurn: vi.fn(),
   streamChat: vi.fn(),
   getAgent: vi.fn(),
 }))
+const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-task-routing-'))
 
 // 路由引擎不在这里测（routed-turn.test.ts 覆盖），只桩掉 API 免得加载全部配置。
 vi.mock('../api-query-router/index.js', () => ({ tryIntelligentQueryRoute: vi.fn() }))
@@ -29,6 +33,9 @@ vi.mock('../style-settings.js', () => ({ resolveStyleId: () => null }))
 vi.mock('../config.js', () => ({
   getSettings: () => ({ memory_budgets: {}, api_query_llm_route: false }),
   getSiteEnabled: () => true,
+  ensureProjectsDirectory: () => path.join(fixtureRoot, 'projects'),
+  getConfigDirectory: () => fixtureRoot,
+  expandHomePath: (value: string) => value,
 }))
 vi.mock('../dedicated-agents/agent-store.js', () => ({ getAgent: mocks.getAgent }))
 vi.mock('../dedicated-agents/agent-runtime.js', () => ({ buildAgentChatOptions: () => ({}) }))
@@ -50,6 +57,8 @@ import {
   type ScheduledTask,
 } from '../works-store.js'
 import { executeTask } from '../task-executor.js'
+
+afterAll(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }))
 
 function makeTask(overrides: Partial<Parameters<typeof createScheduledTask>[0]> = {}): ScheduledTask {
   const created = createScheduledTask({
