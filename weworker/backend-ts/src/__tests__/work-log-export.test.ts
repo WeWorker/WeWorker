@@ -13,7 +13,7 @@ describe('summarizeMessage', () => {
     const lines = summarizeMessage(message([
       { type: 'text', text: 'x'.repeat(500) },
       { type: 'tool_use', id: 't1', name: 'weoa.example.com.list', status: 'success', execMs: 120,
-        args: { mode: 'available' }, result: { ok: true } },
+        args: { mode: 'available' }, result: '{"ok":true}' },
       { type: 'timing', totalMs: 900, llmMs: 700, execMs: 200, steps: 2 },
     ]))
     expect(lines[0]).toMatch(/^text: x{100}…$/)
@@ -21,6 +21,7 @@ describe('summarizeMessage', () => {
     expect(lines[1]).toContain('status=success')
     expect(lines[1]).toContain('execMs=120')
     expect(lines[1]).toContain('args={"mode":"available"}')
+    expect(lines[1]).toContain('result={"ok":true}')
     expect(lines[2]).toContain('timing: totalMs=900 llmMs=700 execMs=200 steps=2')
   })
 

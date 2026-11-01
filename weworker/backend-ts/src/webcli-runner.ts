@@ -57,10 +57,28 @@ export function buildCliCallArgs(toolName: string, argsJson?: string): string[] 
   return cliArgs
 }
 
+/** `webcli call` 的调用选项。目前只有超时：不传 = 不设预算（与历史行为逐字一致）。 */
+export type WebcliCallOptions = {
+  /** 子进程时限（毫秒）；超时即 SIGTERM 并抛 `WebcliTimeoutError` */
+  timeoutMs?: number
+}
+
+/** 超时专用错误：调用方（智能路由）据此判成「超时 → 落回 LLM」而不是当成工具结果。 */
+export class WebcliTimeoutError extends Error {
+  constructor(
+    public readonly toolName: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(`webcli call timed out after ${timeoutMs}ms: ${toolName}`)
+    this.name = 'WebcliTimeoutError'
+  }
+}
+
 export async function runWebcliCall(
   toolName: string,
   argsJson?: string,
   workId?: string | null,
+  options: WebcliCallOptions = {},
 ): Promise<string> {
   const isPackaged = !!process.env.WEWORKER_PACKAGED
   const nodeBin = isPackaged
@@ -68,6 +86,7 @@ export async function runWebcliCall(
     : 'node'
   const webcliEntry = resolveWebcliEntry()
   const cliArgs = buildCliCallArgs(toolName, argsJson)
+  const timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? Math.floor(options.timeoutMs) : undefined
 
   const env = {
     ...process.env,
@@ -79,9 +98,12 @@ export async function runWebcliCall(
     const { stdout, stderr } = await execFileAsync(nodeBin, [webcliEntry, ...cliArgs], {
       env,
       maxBuffer: 10 * 1024 * 1024,
+      ...(timeoutMs ? { timeout: timeoutMs, killSignal: 'SIGTERM' as const } : {}),
     })
     output = (stdout || stderr || '').trim()
   } catch (e: any) {
+    // 超时被 SIGTERM 杀掉：半截 stdout 不可信，直接抛超时，别把残缺输出当结果缓存/渲染。
+    if (timeoutMs && (e?.killed === true || e?.signal === 'SIGTERM')) throw new WebcliTimeoutError(toolName, timeoutMs)
     output = (e.stdout || e.stderr || '').trim()
     if (!output) throw e
   }

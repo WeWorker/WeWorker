@@ -144,6 +144,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
   }
   return {
     channelKey: agentChannelKey(agentId),
+    dedicatedAgentId: agentId,
     serializeTurns: true,
     projectId: () => resolveAgentProjectId(agentId),
     titleLabel: () => current().name,

@@ -782,6 +782,9 @@ export class WeixinChannel implements Channel {
         memoryScope: this._profile.memoryScope(fromUserId),
         abortController,
         profileOptions: this._profile.chatOptions(fromUserId),
+        // A dedicated Agent is bound to one site; deterministic routing could
+        // answer with another one.
+        dedicatedAgent: !!this._profile.dedicatedAgentId,
         askUserHandler: async (question, options) => {
           const lines = [`${question}`]
           options.forEach((opt, i) => {

@@ -105,12 +105,13 @@ import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, ha
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
 import { matchSiteAdapter, resolveSiteToolkitPrompt } from './site-gate.js'
 import { listToolkitSkills, resolveToolkitSkillPrompt, toolkitGateCandidates } from './toolkit-skills.js'
-import { decideTier4, openTier4Turn } from './tier4-dispatch.js'
+import { buildKnownHosts, decideExplorationDispatch, openTier4Turn } from './tier4-dispatch.js'
+import { collectSiteCoverage } from './exploration-coverage.js'
 import { checkWebwrightHealth, fetchWebwrightTask } from './webwright-client.js'
 import { graduationHint, recordTier4HostUsage, shouldSuggestGraduation } from './tier4-graduation.js'
 import { computeRoutableSitesFromConfig, getScopedRouterConfig } from './router-config/index.js'
 import { listAliasTexts } from './api-query-router/aliases.js'
-import { tryIntelligentQueryRoute } from './api-query-router/index.js'
+import { tryRoutedTurn } from './routed-turn.js'
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
 import { ensureRuntimeSkillsDir } from './runtime-skills-dir.js'
 import { importSkillZip, importSkillZipFile } from './skill-zip-import.js'
@@ -3095,25 +3096,28 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   }
 
   // Deterministic routing layers (weworker/router-config, see
-  // docs/intelligent_routing_design.md). Every layer answers "not mine" when
-  // unsure and `tryIntelligentQueryRoute` returns false, so a message that no
+  // docs/intelligent_routing_architecture.md). Every layer answers "not mine" when
+  // unsure and the shared entry returns `handled: false`, so a message that no
   // layer claims continues into the normal LLM pipeline below — exactly the
   // pre-routing behaviour. `WEWORKER_API_QUERY_ROUTE=0` turns the whole layer
   // off. Skipped on retry-with-compaction, which must re-run the turn through
   // the model rather than replay the same routed answer.
+  // `persist: true` keeps the router's own `store.appendMessage`, so desktop
+  // persistence is byte-identical to the pre-shared-entry behaviour.
   if (retryCompaction !== true && message?.trim()) {
-    const routed = await tryIntelligentQueryRoute({
+    const routed = await tryRoutedTurn({
       message,
       workId,
       turnId,
       chatStartTime,
-      send,
+      onEvent: send,
+      persist: true,
       log: (m: string) => chatLog.info(`${tag} ${m}`),
       // Messages *before* the current turn: the follow-up gate needs them to
       // tell "那第二个呢" apart from a fresh query.
       history: workWithMessages.messages.filter((msg) => msg.id !== savedUserMessage?.id),
     })
-    if (routed) {
+    if (routed.handled) {
       finished = true
       res.off('close', onClose)
       broadcastSSE({ type: 'works_changed', workId })
@@ -3178,29 +3182,45 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           (siteToolkit ? ` tools=${siteToolkit.toolCount}/${siteToolkit.total}` : ''),
       )
     }
-    // 第4层即时执行（第15行）：siteGate miss + 消息含未注册站点 URL 信号 + 网站探索agent健康 +
-    // 建任务成功 → 该轮转交网站探索agent，事件源换成第4层流；任一条件不过 → 第3层 streamChat
-    // （今天的行为，漏判免费）。急停 WEWORKER_TIER4=0 时 decideTier4 直接返回不转发。
+    // 第4层即时执行（第15行）：显式探索指令（`网站 <URL> 直接查询：<问题>` 或 `!explore ...`）
+    // + 站点未被 adapter/toolkit 覆盖 + 网站探索agent健康 + 建任务成功 → 该轮转交网站探索agent，
+    // 事件源换成第4层流；任一条件不过 → 第3层 streamChat（今天的行为，漏判免费）。
+    // 急停 WEWORKER_TIER4=0 时判定直接返回不转发；WEWORKER_EXPLORATION_TRIGGER=legacy 回滚到
+    // 旧的「消息含未注册站点 URL」启发式（语义与改动前一致）。
     let tier4Task: { taskId: string; startUrl: string; startedAt: number } | null = null
     let tier4Source: AsyncGenerator<SSEEvent> | null = null
-    const tier4 = decideTier4(message, siteGate, allAdapters)
-    if (tier4.dispatch) {
+    const exploration = decideExplorationDispatch({
+      message,
+      siteGate,
+      // 覆盖集同时看已安装 adapter 与探索固化出的 toolkit：两者任一接管该站点都不再重探，
+      // 否则探索成功后的固化会替换用户已有的工具目录。
+      coverage: collectSiteCoverage({ adapters: allAdapters.values(), toolkitSkills }),
+      knownHosts: buildKnownHosts(allAdapters),
+    })
+    if (exploration.dispatch && exploration.startUrl) {
       const health = await checkWebwrightHealth()
       if (!health.ok) {
         chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)
       } else {
-        const opened = await openTier4Turn({ message, startUrl: tier4.startUrl!, abortSignal: abortController.signal })
+        // 执行器拿到的是解析出的问题正文；legacy 模式下落回整条消息（与改动前一致）。
+        const opened = await openTier4Turn({
+          message: exploration.query ?? message,
+          startUrl: exploration.startUrl,
+          abortSignal: abortController.signal,
+        })
         if (opened.ok) {
-          tier4Task = { taskId: opened.taskId, startUrl: tier4.startUrl!, startedAt: Date.now() }
+          tier4Task = { taskId: opened.taskId, startUrl: exploration.startUrl, startedAt: Date.now() }
           tier4Source = opened.run
-          chatLog.info(`${tag} tier4: task=${opened.taskId} url=${tier4.startUrl}`)
+          chatLog.info(
+            `${tag} tier4: task=${opened.taskId} provider=${exploration.providerId} url=${exploration.startUrl} reason=${exploration.reason}`,
+          )
         } else {
           chatLog.info(`${tag} tier4: unavailable reason=create-${opened.code}${opened.message ? ` (${opened.message})` : ''}`)
         }
       }
     } else if (siteGate.reason === 'miss') {
       // miss 时 siteGate 无日志行，这里补观测：为什么没走第4层。
-      chatLog.info(`${tag} tier4: skip reason=${tier4.reason}`)
+      chatLog.info(`${tag} tier4: skip reason=${exploration.reason}`)
     }
     for await (const ev of tier4Source ?? streamChat(modelMessages, settings, abortController, {
       enabledAdapterIds,
