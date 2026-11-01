@@ -7309,7 +7309,7 @@ function assertNotOnLoginPage(manifest, url) {
   }
 }
 
-async function waitForManagedPageReady(tabId, manifest, resume, timeoutMs, traceID = null) {
+async function waitForManagedPageReady(tabId, manifest, resume, timeoutMs, traceID = null, options = {}) {
   const deadline = Date.now() + timeoutMs;
   // Fail fast: while the page is still loading, the URL may already prove that
   // the final host is not declared (e.g. jd.com → www.jd.com), in which case
@@ -7322,12 +7322,14 @@ async function waitForManagedPageReady(tabId, manifest, resume, timeoutMs, trace
     const tab = await chrome.tabs.get(tabId);
     if (!tab) throw new Error('Adapter tab was closed.');
     if (tab.status === 'complete' && stableUrl === tab.url) {
-      if (resume) assertNotOnLoginPage(manifest, tab.url);
+      // `options.loginPage` is the host login flow only: an Adapter-declared QR
+      // command runs on its own login page, which business commands must refuse.
+      if (resume && options.loginPage !== true) assertNotOnLoginPage(manifest, tab.url);
       return assertAdapterNavigationUrl(manifest, tab.url, resume);
     }
     stableUrl = tab.status === 'complete' ? tab.url : null;
     if (guard.observe(tab.url, Date.now()) === 'reject') {
-      if (resume) assertNotOnLoginPage(manifest, tab.url);
+      if (resume && options.loginPage !== true) assertNotOnLoginPage(manifest, tab.url);
       traceLog(traceID, `[ServiceWorker] 页面目标 host 不在白名单，提前结束等待: ${tab.url}`);
       return assertAdapterNavigationUrl(manifest, tab.url, resume);
     }
@@ -7346,7 +7348,7 @@ function getHostAdapterRuntime() {
       tabInjectedAdapters.delete(tabId);
     },
     inject: injectV2AdapterWithCode,
-    ready: (tabId, manifest, timeoutMs, traceID) => waitForManagedPageReady(tabId, manifest, true, timeoutMs, traceID),
+    ready: (tabId, manifest, timeoutMs, traceID, options) => waitForManagedPageReady(tabId, manifest, true, timeoutMs, traceID, options),
     recover: (tabId, manifest, url, timeoutMs) => waitForAdapterPageRecovery(chrome, tabId, manifest, url, timeoutMs),
     query: (tabId, payload, manifest, command) => {
       assertAdapterNavigationUrl(manifest, assertPageQueryRoute(payload, command));
@@ -7518,6 +7520,44 @@ async function checkSiteLogin(msg) {
 }
 
 /**
+ * Adapter-declared QR extraction (`auth.qr.command`): run the read command in the
+ * login tab this flow opened. Login pages are off limits to business commands by
+ * design; this host path opts in explicitly, and any failure or `found: false`
+ * falls back to the generic QR discovery instead of failing the login flow.
+ */
+async function runManagedQrCommand(manifest, tab, command, notes = null) {
+  try {
+    const url = loginTabUrl(manifest, tab);
+    const result = await getHostAdapterRuntime().execute(tab.id, manifest, url,
+      (remainingMs, continuation) => callToolInTab(tab.id, manifest.name + '.' + command.id, {}, null, false, remainingMs, continuation),
+      command, null, { loginPage: true });
+    if (!result || typeof result !== 'object' || result.found !== true) {
+      // Surface why the declared command gave up; the generic discovery below
+      // still runs and its own reason would otherwise hide this one.
+      if (notes) notes.commandReason = typeof result?.reason === 'string' && result.reason ? result.reason : 'COMMAND_FOUND_FALSE';
+      return null;
+    }
+    const image = typeof result.image_data_url === 'string' ? result.image_data_url : '';
+    // Cross-origin login iframes (e.g. Alibaba's havana login inside goofish.com)
+    // hide the QR image from the top frame; the command then answers with the
+    // element rect and the Bridge crops its screenshot to that panel instead.
+    const rect = result.rect;
+    const rectValid = rect && typeof rect === 'object'
+      && ['x', 'y', 'width', 'height'].every((key) => Number.isFinite(rect[key]) && rect[key] >= 0)
+      && rect.width >= 20 && rect.height >= 20 && rect.width <= 8000 && rect.height <= 8000;
+    return {
+      available: true, method: 'command',
+      ...(image && image.length <= 2_800_000 ? { imageDataUrl: image } : {}),
+      ...(rectValid ? { rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } } : {}),
+      ...(typeof result.expires_at === 'string' && result.expires_at ? { expiresAt: result.expires_at } : {}),
+    };
+  } catch (error) {
+    console.log(`[WebMCP] ${manifest.name} QR command failed, falling back to generic discovery: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Prepare a declared login page for QR display without filling or submitting
  * credentials. This deliberately only clicks an explicit login-method switch
  * such as “扫码登录”; all other login actions remain user-controlled.
@@ -7531,6 +7571,15 @@ async function prepareSiteQrLogin(msg) {
     : await findSiteLoginTab(manifest);
   if (!tab?.id || !isLoginPageUrl(manifest, loginTabUrl(manifest, tab), { root: true })) {
     return { available: false, reason: 'LOGIN_TAB_UNAVAILABLE' };
+  }
+  // Adapter-declared precise extraction first; the generic discovery below stays
+  // the fallback for Adapter packages without a qr.command.
+  const qrCommand = manifest.commands?.find((entry) => entry.id === manifest.auth?.qr?.command
+    && entry.runtime === 'extension' && entry.safety === 'read');
+  const commandNotes = qrCommand ? {} : null;
+  if (qrCommand) {
+    const declared = await runManagedQrCommand(manifest, tab, qrCommand, commandNotes);
+    if (declared) return declared;
   }
   const [{ result } = {}] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
@@ -7580,7 +7629,10 @@ async function prepareSiteQrLogin(msg) {
       return { available: false, clicked: true };
     },
   });
-  return result && typeof result === 'object' ? result : { available: false, reason: 'QR_PREPARE_FAILED' };
+  const heuristic = result && typeof result === 'object' ? result : { available: false, reason: 'QR_PREPARE_FAILED' };
+  // Keep the declared command's failure reason visible next to the heuristic's.
+  if (commandNotes?.commandReason && heuristic.available !== true) heuristic.commandReason = commandNotes.commandReason;
+  return heuristic;
 }
 
 // ─── 用户 adapter 目录访问（经 bridge 代理）─────────────────────────────────

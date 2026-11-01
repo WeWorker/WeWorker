@@ -652,12 +652,22 @@ export class DedicatedBrowserManager {
     };
   }
 
-  /** JPEG of a page, for example a login QR code for a user who is not at this screen. */
-  async screenshot(url) {
+  /** JPEG of a page, for example a login QR code for a user who is not at this screen.
+   * `options.clip` ({x, y, width, height} in CSS page coordinates) crops the capture,
+   * e.g. to the login panel rect an Adapter's QR command reported. */
+  async screenshot(url, options = {}) {
     const page = await this.attachPage(url).catch(() => null);
     if (!page) return null;
     try {
-      const { data } = await page.send('Page.captureScreenshot', { format: 'jpeg', quality: 70 });
+      const params = { format: 'jpeg', quality: 70 };
+      const clip = options.clip;
+      if (clip && ['x', 'y', 'width', 'height'].every((key) => Number.isFinite(clip[key]))
+        && clip.width > 0 && clip.height > 0) {
+        // The command reports page coordinates, so capture beyond the viewport too.
+        params.clip = { x: clip.x, y: clip.y, width: clip.width, height: clip.height, scale: 1 };
+        params.captureBeyondViewport = true;
+      }
+      const { data } = await page.send('Page.captureScreenshot', params);
       return typeof data === 'string' && data ? data : null;
     } catch {
       return null;
@@ -947,8 +957,8 @@ export class BrowserHost {
     if (this._manager?.isRunning) await this._manager.hide();
   }
 
-  async screenshot(url) {
-    return this.pageControl ? this._manager.screenshot(url) : null;
+  async screenshot(url, options = {}) {
+    return this.pageControl ? this._manager.screenshot(url, options) : null;
   }
 
   async attachPage(url) {

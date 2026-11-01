@@ -41,14 +41,29 @@ test('a site-root login URL only counts inside the login flow', () => {
   assert.equal(isLoginPageUrl(rootLogin, 'https://mail.example.com/cgi-bin/frame', { root: true }), false);
 });
 
-test('undeclared SSO redirects are recognised only outside the package hosts', () => {
-  assert.equal(isLoginPageUrl(undeclared, 'https://passport.corp.example.org/cas/login'), true);
-  assert.equal(isLoginPageUrl(undeclared, 'https://idp.example.org/oauth/authorize?client=1'), true);
-  assert.equal(isLoginPageUrl(undeclared, 'https://login.example.org/'), true);
+const siteFamily = {
+  name: 'shop.example.com', match: ['www.example.com'], domains: ['example.com', 'example.hk'],
+  auth: { login_url: 'https://passport.example.com/new/login', login_hosts: ['passport.example.com', 'aq.example.com'] },
+};
+
+test('generic login pages are recognised only inside the Adapter site family', () => {
+  // Inside a declared `domains` umbrella.
+  assert.equal(isLoginPageUrl(siteFamily, 'https://sso.example.com/cas/login'), true);
+  // In the registrable-domain family of a declared login host (no `domains` declared).
+  const sso = { name: 'erp.example.com', match: ['erp.example.com'], auth: { login_hosts: ['passport.weoa.example.com'] } };
+  assert.equal(isLoginPageUrl(sso, 'https://sso.weoa.example.com/login'), true);
+  // Another site's login tab open in the same browser must not be adopted by this Adapter's flow.
+  assert.equal(isLoginPageUrl(siteFamily, 'https://account.other.example.org/pclogin'), false);
+  assert.equal(isLoginPageUrl(undeclared, 'https://login.example.org/'), false);
+  assert.equal(isLoginPageUrl(undeclared, 'https://idp.example.org/oauth/authorize?client=1'), false);
+  // Cross-domain SSO hosts are recognised once declared in `login_hosts`.
+  const partner = { ...undeclared, auth: { login_hosts: ['login.partner.example.org'] } };
+  assert.equal(isLoginPageUrl(partner, 'https://login.partner.example.org/qrconnect'), true);
   // The package's own pages, even with "login" in the path, are business pages without a declaration.
   assert.equal(isLoginPageUrl(undeclared, 'https://erp.example.com/login-history'), false);
   assert.equal(isLoginPageUrl(undeclared, 'https://erp.example.com/login'), false);
   assert.equal(isLoginPageUrl(undeclared, 'https://cdn.example.com/login'), false);
+  assert.equal(isLoginPageUrl(siteFamily, 'https://order.example.hk/list'), false);
   assert.equal(isLoginPageUrl(undeclared, 'https://other.example.org/products'), false);
   assert.equal(isLoginPageUrl(undeclared, 'chrome://newtab/'), false);
 });

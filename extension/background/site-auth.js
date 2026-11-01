@@ -13,7 +13,7 @@
  *                "command": "whoami" }                 // read command; optional
  *   }
  */
-import { adapterHelperPatterns, adapterPrimaryHost, hostMatchesPattern, isAdapterPageHost } from './host-scope.js';
+import { adapterHelperPatterns, adapterPrimaryHost, hostInDomain, hostMatchesPattern, isAdapterPageHost, sameDomainFamily } from './host-scope.js';
 
 export const AUTH_REQUIRED = 'AUTH_REQUIRED';
 
@@ -55,13 +55,32 @@ export function declaredHosts(manifest) {
   return [...adapterHelperPatterns(manifest), ...loginHosts(manifest)];
 }
 
+/** Every host named by `auth`: `login_hosts` plus the `login_url` host, as plain hostnames. */
+function declaredLoginHosts(manifest) {
+  const auth = siteAuth(manifest);
+  const hosts = new Set((Array.isArray(auth?.login_hosts) ? auth.login_hosts : []).map((host) => String(host).toLowerCase()));
+  const login = parseHttpUrl(auth?.login_url);
+  if (login) hosts.add(login.hostname.toLowerCase());
+  return [...hosts];
+}
+
+/** Whether a login-looking host on no declared page belongs to this Adapter's site family:
+ *  inside a declared `domains` umbrella, or in the registrable-domain family of a declared
+ *  login host. Unrelated sites that merely look like login pages are rejected. */
+function isFamilyLoginHost(manifest, host) {
+  const domains = Array.isArray(manifest?.domains) ? manifest.domains : [];
+  if (domains.some((domain) => hostInDomain(host, domain))) return true;
+  return declaredLoginHosts(manifest).some((loginHost) => sameDomainFamily(host, loginHost));
+}
+
 /**
  * Is `value` a login page of this Adapter?
  * - any page on a declared login host (SSO pages included);
  * - the declared login path on a business host (for example /signin);
  * - with `root: true`, also a login URL that is the site root, which only
  *   tells the login flow that the user is still on the login page;
- * - an undeclared host that looks like a login page (passport.*, /login …).
+ * - an undeclared host that looks like a login page (passport.*, /login …) and
+ *   belongs to this Adapter's site family (see isFamilyLoginHost).
  */
 export function isLoginPageUrl(manifest, value, { root = false } = {}) {
   const url = parseHttpUrl(value);
@@ -78,10 +97,14 @@ export function isLoginPageUrl(manifest, value, { root = false } = {}) {
       return true;
     }
   }
-  // Generic login pages (passport.*, /login …) are still recognised on hosts that are only
-  // covered by `domains`: a site domain usually contains its own SSO host.
+  // Generic login pages (passport.*, /login …) are recognised only on hosts of this Adapter's
+  // own site family: inside a `domains` umbrella (a site domain usually contains its own SSO
+  // host), or in the registrable-domain family of a declared login host (login_hosts / login_url).
+  // An unrelated site's login tab that happens to be open in the same browser must not be
+  // adopted by this Adapter's login flow; cross-domain SSO hosts have to be declared.
   if (explicitHostPatterns(manifest).some((pattern) => hostMatches(host, pattern))) return false;
-  return GENERIC_LOGIN_HOST_RE.test(host) || GENERIC_LOGIN_PATH_RE.test(url.pathname);
+  if (!(GENERIC_LOGIN_HOST_RE.test(host) || GENERIC_LOGIN_PATH_RE.test(url.pathname))) return false;
+  return isFamilyLoginHost(manifest, host);
 }
 
 /** Login page to open when the command was not redirected to one. */

@@ -1914,7 +1914,7 @@ export class WebSocketBridge extends EventEmitter {
           mode: () => isDedicated() ? 'dedicated' : 'system',
           showPage: (url) => isDedicated() ? host.showPage(url) : Promise.resolve(false),
           hideWindows: () => isDedicated() ? host.hideWindows() : Promise.resolve(),
-          screenshot: (url) => isDedicated() ? host.screenshot(url) : Promise.resolve(null),
+          screenshot: (url, options) => isDedicated() ? host.screenshot(url, options) : Promise.resolve(null),
           attachPage: (url) => isDedicated() ? host.attachPage(url) : Promise.resolve(null),
         },
         vault: new CredentialVault({ browserHome: host.browserHome }),
