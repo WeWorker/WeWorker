@@ -1054,6 +1054,9 @@ async function cmdCall(toolName, argsStr, options = {}) {
       adapterSnapshot: v2Match?.snapshot,
       clientStartedAt: CLI_STARTED_AT,
       loginWaitMs,
+      // Conversation (work) id from the WeWorker desktop chat, used to tag the
+      // Bridge/extension log lines for the per-conversation log export.
+      workId: process.env.WEWORKER_WORK_ID || "",
     }));
 
     ws.on("message", async (data) => {

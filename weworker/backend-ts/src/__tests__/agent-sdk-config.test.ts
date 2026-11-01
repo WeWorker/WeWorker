@@ -13,7 +13,7 @@ describe('agent SDK security config', () => {
     expect(agentSource).toContain('const agentCwd = ensureAgentWorkingDirectory()')
     expect(agentSource).toContain('buildAgentFilesystemSettings(agentCwd, channelPermissionMode)')
     expect(agentSource).toContain('const policyDecision = await toolPolicy(toolName, input, context)')
-    expect(agentSource).toContain('return filesystemToolGuard(toolName, input as Record<string, unknown>)')
+    expect(agentSource).toContain('decision = await filesystemToolGuard(toolName, input as Record<string, unknown>)')
     expect(agentSource).toContain('canUseTool,')
     expect(agentSource).toContain("permissionMode: 'default'")
     expect(agentSource).not.toContain("permissionMode: 'bypassPermissions'")

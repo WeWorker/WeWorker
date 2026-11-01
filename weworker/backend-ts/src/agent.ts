@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { Settings } from './config.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
+import { redactSensitive } from './http-security.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import type { Message } from './works-store.js'
@@ -1178,11 +1179,13 @@ async function* streamChatWithBaseUrl(
   const textBlockBuf: { id: string; text: string; filter: StreamingVisibleText }[] = []
   const thinkingEffort = resolveThinkingEffort(settings.active_provider, settings.model, opts.thinkingEffort)
   const queryStartTime = Date.now()
-  log.info(` calling Claude API 鈥?model=${settings.model}`)
+  // Work-scoped log tag: lets the conversation log export (GET /works/:id/logs.txt)
+  // pick this turn's lines out of the shared log file.
+  const workLogTag = opts.workId ? `[work:${opts.workId.slice(0, 8)}]` : '[work:none]'
+  log.info(`${workLogTag} turn_start model=${settings.model} messages=${messages.length} mode=${channelPermissionMode}`)
 
   // Resolve webcli directory for PATH so Bash can find the `webcli` command
   const webcliDir = resolveWebcliDir()
-  log.info(` webcliDir=${webcliDir}, exists=${fs.existsSync(webcliDir)}`)
   const pathPrefix = [webcliDir, path.dirname(process.execPath)].join(path.delimiter)
   const envWithWebcli = {
     ...queryEnv,
@@ -1190,6 +1193,8 @@ async function* streamChatWithBaseUrl(
     PATH: `${pathPrefix}${path.delimiter}${queryEnv.PATH || process.env.PATH || ''}`,
     WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
     WEWORKER_ADAPTERS_DIR: path.join(getUserDirectory(), '.claude', 'skills'),
+    // Conversation id for the webcli call chain: CLI → Bridge → extension logs
+    ...(opts.workId ? { WEWORKER_WORK_ID: opts.workId } : {}),
     // Ensure Electron binary can act as Node.js runtime for packaged webcli
     ...(process.env.WEWORKER_PACKAGED ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
   }
@@ -1209,18 +1214,33 @@ async function* streamChatWithBaseUrl(
   const canUseTool: typeof toolPolicy = async (toolName, input, context) => {
     // Read the guard at call time: a reused session rebinds it for each turn.
     const extraToolGuard = turnBindings.extraToolGuard
+    let decision: Awaited<ReturnType<typeof toolPolicy>> | null = null
     if (extraToolGuard) {
       const extraDecision = extraToolGuard(toolName, input as Record<string, unknown>)
       if (extraDecision.behavior === 'deny') {
-        return { behavior: 'deny', message: extraDecision.message, interrupt: false }
+        decision = { behavior: 'deny', message: extraDecision.message, interrupt: false }
       }
     }
-    const policyDecision = await toolPolicy(toolName, input, context)
-    if (!policyDecision) {
-      return { behavior: 'deny', message: `Tool permission was not resolved: ${toolName}`, interrupt: false }
+    if (!decision) {
+      const policyDecision = await toolPolicy(toolName, input, context)
+      if (!policyDecision) {
+        decision = { behavior: 'deny', message: `Tool permission was not resolved: ${toolName}`, interrupt: false }
+      } else if (policyDecision.behavior === 'deny') {
+        decision = policyDecision
+      } else {
+        decision = await filesystemToolGuard(toolName, input as Record<string, unknown>)
+      }
     }
-    if (policyDecision.behavior === 'deny') return policyDecision
-    return filesystemToolGuard(toolName, input as Record<string, unknown>)
+    // One line per tool call keeps the exportable call chain complete; native
+    // shell commands additionally record the first line so webcli calls are
+    // visible in the conversation log export.
+    const command = toolName === 'Bash' || toolName === 'PowerShell'
+      ? String((input as { command?: unknown } | undefined)?.command ?? '').split('\n')[0] ?? ''
+      : ''
+    log.info(`${workLogTag} tool_call ${toolName} → ${decision.behavior}`
+      + (decision.behavior === 'deny' && decision.message ? `: ${String(decision.message).slice(0, 300)}` : '')
+      + (command ? ` cmd="${redactSensitive(command).slice(0, 160)}"` : ''))
+    return decision
   }
 
   const memoryEnabled = automaticMemoryEnabled() && opts.memoryEnabled !== false && !opts.restrictBuiltInTools
