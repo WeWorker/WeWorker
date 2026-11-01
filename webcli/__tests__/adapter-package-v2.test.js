@@ -179,6 +179,22 @@ describe("validateV2Manifest", () => {
     expect(() => validateV2Manifest(manifest)).toThrow(/pageRoute/);
   });
 
+  it('validates conditional background write declarations and their selector field', () => {
+    const manifest = v2Manifest('blog');
+    const command = manifest.commands[0];
+    command.safety = 'write';
+    command.schema.properties.productId = { type: 'string' };
+    command.execution = { type: 'api', runtime: 'background', pageWhenAbsent: 'productId' };
+    expect(validateV2Manifest(manifest).commands[0].execution.pageWhenAbsent).toBe('productId');
+    for (const field of ['', '__proto__', 'missing', 'a.b']) {
+      command.execution.pageWhenAbsent = field;
+      expect(() => validateV2Manifest(manifest)).toThrow(/execution/);
+    }
+    command.execution.pageWhenAbsent = 'productId';
+    command.safety = 'read';
+    expect(() => validateV2Manifest(manifest)).toThrow(/execution/);
+  });
+
   it("rejects wrong schema_version", () => {
     expect(() => validateV2Manifest(v2Manifest("blog", { schema_version: 1 }), "blog")).toThrow(/schema_version/);
   });

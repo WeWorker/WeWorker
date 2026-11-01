@@ -55,6 +55,7 @@ function copyTreeSync(src, dest) {
 }
 
 async function main() {
+  require('./prepare-host-cli-assets.cjs').prepareHostCliAssets(path.join(WEWORKER_ROOT, 'host-cli-assets'));
   const { selectBuiltinAdapters, validateBuiltinOutput, writeBuiltinAdapters, writeExtensionPageScripts } = await import(BUILTIN_BUILD_MODULE);
 
   // ── Task 2.1: 读取、合并并校验 profile ──

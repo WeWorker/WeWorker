@@ -196,7 +196,11 @@ export function validateV2Manifest(manifest, directoryName = "?") {
     if (command.uiWrite?.frames?.some(frame => !adapterPagePatterns(manifest).some(pattern => hostMatchesPattern(new URL(frame.origin).hostname, pattern)))) fail(adapterName, 'UI write frame hosts must be declared in the page scope.');
     if (command.execution !== undefined && (command.runtime !== 'extension' || !command.execution
       || command.execution.type !== 'api' || command.execution.runtime !== 'background'
-      || Object.keys(command.execution).some((key) => !['type', 'runtime'].includes(key)))) {
+      || Object.keys(command.execution).some((key) => !['type', 'runtime', 'pageWhenAbsent'].includes(key))
+      || (command.execution.pageWhenAbsent !== undefined && (command.safety !== 'write'
+        || typeof command.execution.pageWhenAbsent !== 'string' || !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(command.execution.pageWhenAbsent)
+        || !Object.hasOwn(command.schema?.properties || {}, command.execution.pageWhenAbsent)
+        || command.pageWrite || command.uiWrite)))) {
       fail(adapterName, 'Command execution must be an Extension API background declaration.');
     }
     for (const field of ['routeDomain', 'tabDomain', 'excludeTabDomain']) {

@@ -1,0 +1,15 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+
+test('reviewed host CLI assets are included as separate desktop resources', () => {
+  const root = path.resolve(__dirname, '../..')
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+  const resources = pkg.build.extraResources.filter(entry => entry.to === 'host-cli-assets')
+  assert.deepEqual(resources, [{ from: 'host-cli-assets/', to: 'host-cli-assets', filter: ['**/*', '!**/official/**', '!**/.npmrc'] }])
+  assert.equal(fs.statSync(path.join(root, resources[0].from)).isDirectory(), true)
+  const provider = fs.readFileSync(path.join(root, '../webcli/host-cli-provider.js'), 'utf8')
+  assert.match(provider, /HOST_CLI_UNAVAILABLE/)
+  assert.match(fs.readFileSync(path.join(root, '../webcli/bridge.js'), 'utf8'), /from '.\/host-cli-provider\.js'/)
+})

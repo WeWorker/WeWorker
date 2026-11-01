@@ -28,7 +28,8 @@ import { fileURLToPath } from "url";
 import { WebSocket } from "ws";
 import { createConnection } from "net";
 import { createHash, randomUUID } from "crypto";
-import { resolveToolCallTimeout } from "./tool-timeouts.js";
+import { resolveToolCallTimeout, interruptedCallResult } from "./tool-timeouts.js";
+
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readBrowserMode } from "./dedicated-browser.js";
 import { bridgeUrl, resolveBridgeInstance } from "./bridge-instance.js";
@@ -1038,8 +1039,10 @@ async function cmdCall(toolName, argsStr, options = {}) {
     args.adapter = site;
   }
 
+  let requestSent = false;
+  let responseReceived = false;
   const onTimeout = () => {
-    console.log(formatCallOutput({ error: "工具调用超时", trace_id: null }, outputFormat));
+    console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent, true), outputFormat));
     ws.terminate();
     process.exit(1);
   };
@@ -1048,6 +1051,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
   ws.on("open", () => {
     const id = "cli-" + Date.now();
     const traceID = randomUUID().replace(/-/g, "").slice(0, 12);
+    requestSent = true;
     ws.send(JSON.stringify({
       type: "call_tool", toolName, args, id, traceID,
       browserProfile: options.profile,
@@ -1070,7 +1074,8 @@ async function cmdCall(toolName, argsStr, options = {}) {
         }
         return;
       }
-      if (msg.id !== id) return;
+      if (msg.id !== id || !['call_tool_result', 'call_tool_error'].includes(msg.type)) return;
+      responseReceived = true;
       clearTimeout(timeout);
       if (msg.contextId) options.profile = msg.contextId;
       if (msg.type === "call_tool_result") {
@@ -1086,6 +1091,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
         const output = {
           error: msg.error,
           ...(msg.code ? { code: msg.code } : {}),
+          ...(msg.code === 'HOST_CLI_REQUIRED_FIELDS' && Array.isArray(msg.details?.missingFields) && msg.details.missingFields.length > 0 && msg.details.missingFields.length <= 50 && msg.details.missingFields.every(value => typeof value === 'string' && value.length > 0 && value.length <= 270 && !/[\u0000-\u001f\u007f-\u009f]/.test(value) && !/api[_-]?key|cookie|authorization|password|secret|token/i.test(value)) ? { details: { missingFields: msg.details.missingFields } } : {}),
           ...(msg.auth ? { auth: msg.auth } : {}),
           trace_id: traceID,
           hint: `用 webcli trace ${traceID} 查看完整链路日志${dedicatedBrowserHint()}`,
@@ -1099,8 +1105,15 @@ async function cmdCall(toolName, argsStr, options = {}) {
   });
 
   ws.on("error", () => {
+    if (responseReceived) return;
     clearTimeout(timeout);
-    console.log(formatCallOutput({ error: "无法连接到 WebSocket bridge，请先运行 webcli service start -d", trace_id: null }, outputFormat));
+    console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent), outputFormat));
+    process.exit(1);
+  });
+  ws.on("close", () => {
+    if (!requestSent || responseReceived) return;
+    clearTimeout(timeout);
+    console.log(formatCallOutput(interruptedCallResult(v2Match?.command, true), outputFormat));
     process.exit(1);
   });
 }

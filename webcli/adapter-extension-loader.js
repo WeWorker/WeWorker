@@ -21,7 +21,7 @@ export function v2CommandDef(manifest, command) {
     parameters: command.schema || { type: "object", properties: {} },
     safety: command.safety || 'read',
     requires_confirmation: command.requires_confirmation ?? command.safety === 'write',
-    ...(command.execution?.runtime === 'background' ? { execution: command.execution, directCapable: true, executionMode: 'direct' } : {}),
+    ...(command.execution?.runtime === 'background' ? { execution: command.execution, ...(command.execution.pageWhenAbsent === undefined ? { directCapable: true, executionMode: 'direct' } : {}) } : {}),
     adapterId: manifest.name,
     routeDomain,
     ...(command.excludeTabDomain ? { excludeTabDomain: command.excludeTabDomain } : {}),
