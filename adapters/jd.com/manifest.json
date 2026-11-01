@@ -16,6 +16,9 @@
       "passport.jd.com",
       "aq.jd.com"
     ],
+    "check": {
+      "command": "check-login-status"
+    },
     "qr": {
       "command": "get-login-qrcode"
     }
