@@ -304,7 +304,7 @@ run().then(() => ({ ok: true, checks })).catch((error) => ({ ok: false, message:
   }));
   await writeFile(join(extension, 'worker.js'), worker);
   await copyFile(fileURLToPath(new URL('../background/adapter-script-loader.js', import.meta.url)), join(extension, 'adapter-script-loader.js'));
-  for (const name of ['generation-preview-bundle.js', 'host-adapter-client.js', 'host-adapter-runtime.js', 'managed-background-runtime.js', 'v2-loader.js']) {
+  for (const name of ['generation-preview-bundle.js', 'host-adapter-client.js', 'host-adapter-runtime.js', 'managed-background-runtime.js', 'v2-loader.js', 'host-scope.js', 'conditional-execution.js']) {
     await copyFile(fileURLToPath(new URL('../background/' + name, import.meta.url)), join(extension, name));
   }
   await mkdir(join(extension, 'content'));

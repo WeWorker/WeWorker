@@ -9,6 +9,7 @@ export function isApiBackgroundExecution(execution) {
 
 export function isCatalogApiBackgroundCommand(command = {}) {
   if (command?.status && command.status !== 'registered') return false
+  if (command?.execution?.pageWhenAbsent !== undefined) return false
   const executionMode = typeof command?.executionMode === 'string'
     ? command.executionMode.trim().toLowerCase()
     : ''

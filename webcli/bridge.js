@@ -31,6 +31,11 @@ import { resolveAdaptersDir, resolveAdapterPaths, resolveExtensionDir, resolveUs
 import { BrowserHost } from "./dedicated-browser.js";
 import { SiteLoginCoordinator, DEFAULT_LOGIN_WAIT_MS, MAX_LOGIN_WAIT_MS } from "./site-login.js";
 import { CredentialVault } from "./credential-vault.js";
+import { executeHostCli } from './host-cli-provider.js';
+import { invokeHostCli } from './host-cli-runtime.js';
+import { usesBackgroundExecution } from './conditional-execution.js';
+import { authorizeHostCliWrite } from './host-cli-write-authorization.js';
+import { adapterHelperPatterns, adapterPrimaryHost, hostMatchesPattern } from './host-scope.js';
 import { watchAdapterState } from './adapter-state-watch.js';
 import { describeAdapterCatalog, readAdapterBundle, resolveAdapterCall } from './adapter-host.js';
 import { reportMetric, buildUploadConfig } from "./metrics.js";
@@ -59,8 +64,15 @@ import { assertReadRequest } from './exploration-host.js';
 import { resolveBridgeInstance } from './bridge-instance.js';
 
 const execFileAsync = promisify(execFile);
+function safeRequiredFields(details) {
+  const fields = details?.missingFields;
+  if (!Array.isArray(fields) || !fields.length || fields.length > 50 ||
+      fields.some(value => typeof value !== 'string' || !value.length || value.length > 270 || /[\u0000-\u001f\u007f-\u009f]/.test(value) || /api[_-]?key|cookie|authorization|password|secret|token/i.test(value))) return undefined;
+  return { missingFields: [...fields] };
+}
 const DEFAULT_INSTANCE = resolveBridgeInstance();
 const WS_PORT = DEFAULT_INSTANCE.port;
+
 const SAFE_ADAPTER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const SAFE_ADAPTER_WRITE_FILE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
 const ADAPTER_ROOT_WRITABLE_FILES = new Set([
@@ -102,7 +114,7 @@ function ts() {
 
 const TRACE_PREVIEW_LIMIT = 3000;
 const TRACE_RESPONSE_PREVIEW_LIMIT = 5000;
-const SENSITIVE_HEADER_OR_FIELD = /cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential/i;
+const SENSITIVE_HEADER_OR_FIELD = /api[_-]?key|cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential/i;
 
 function truncateTraceText(value, limit = TRACE_PREVIEW_LIMIT) {
   const text = value == null ? '' : String(value);
@@ -185,14 +197,16 @@ export async function handleBackendRuntimeFetch(payload = {}, traceID = null) {
     method,
     headers,
     body: requestBody,
-    redirect: requestOptions.redirect,
+    redirect: payload.singleAttempt === true ? 'manual' : requestOptions.redirect,
     timeoutMs: requestOptions.timeoutMs,
     responseEncoding: requestOptions.responseEncoding,
     maxResponseBytes: requestOptions.maxResponseBytes,
+    singleAttempt: payload.singleAttempt === true,
   });
   if (!replay.ok || !replay.response) {
     const error = replay.error || 'backend fetch failed';
-    writeTrace(traceID, `[BridgeRuntime] backend_fetch error ${error}`);
+    writeTrace(traceID, `[BridgeRuntime] backend_fetch error ${payload.redactBodyInTrace === true ? '[redacted]' : error}`);
+    if (payload.redactBodyInTrace === true) throw new Error('Backend fetch failed; sensitive details redacted.');
     throw new Error(`Backend fetch failed: ${url} (${error})`);
   }
   const response = replay.response;
@@ -340,7 +354,7 @@ function normalizeReplayRequest(request = {}) {
     method,
     headers: normalizeReplayHeaders(request.headers),
     body,
-    redirect: request.redirect === 'manual' ? 'manual' : 'follow',
+    redirect: request.singleAttempt === true || request.redirect === 'manual' ? 'manual' : 'follow',
     timeoutMs: Math.max(1000, Math.min(Number(request.timeoutMs || API_REPLAY_TIMEOUT_MS), 120000)),
   };
 }
@@ -348,7 +362,7 @@ function normalizeReplayRequest(request = {}) {
 export async function performApiReplayRequest(request = {}, options = {}) {
   const normalized = normalizeReplayRequest(request);
   const fetchResult = await performApiReplayRequestViaFetch(normalized, options.fetchImpl || fetch);
-  if (fetchResult.ok || fetchResult.retryable === false) return fetchResult;
+  if (fetchResult.ok || fetchResult.retryable === false || request.singleAttempt === true) return fetchResult;
 
   const curlResult = await performApiReplayRequestViaCurl(normalized, fetchResult.error);
   if (curlResult.ok) return curlResult;
@@ -711,6 +725,8 @@ export class WebSocketBridge extends EventEmitter {
                 this._handleWriteAdapterFile(msg, ws);
               } else if (msg.type === 'wecli_backend_fetch' || msg.type === 'wecli_backend_file_read' || msg.type === 'wecli_backend_xlsx_read' || msg.type === 'wecli_backend_file_write') {
                 this._handleWecliBackendRuntimeRequest(msg, ws);
+              } else if (msg.type === 'wecli_host_cli') {
+                this._handleHostCliRequest(msg, ws);
               } else if (msg.type === 'adapter_catalog' || msg.type === 'adapter_bundle') {
                 this._handleAdapterSnapshot(msg, ws);
               } else if (msg.type === 'list_user_adapters') {
@@ -778,8 +794,12 @@ export class WebSocketBridge extends EventEmitter {
             for (const [id, pending] of this._pendingRequests) {
               if (pending.ws !== ws) continue;
               clearTimeout(pending.timer);
+              pending.detachClient?.();
+              pending.controller?.abort();
               this._pendingRequests.delete(id);
-              pending.reject(profileError('PROFILE_DISCONNECTED', 'The selected browser connection ended. Inspect state before explicitly retrying; actions are never replayed.'));
+              pending.reject(pending.hostWriteDispatched
+                ? profileError('HOST_CLI_OUTCOME_UNKNOWN', 'The write result is unknown; inspect the target before retrying.')
+                : profileError('PROFILE_DISCONNECTED', 'The selected browser connection ended. Inspect state before explicitly retrying; actions are never replayed.'));
             }
             for (const [id, context] of this._captureModelContexts) {
               if (context.connection === disconnected) this._deleteCaptureModelContext(id);
@@ -861,11 +881,18 @@ export class WebSocketBridge extends EventEmitter {
     const accepted = new Set(['call_tool_result', 'call_tool_error', 'list_tools_result', 'get_active_tab_result', 'get_trace_logs_result', 'validate_generation_preview_result']);
     if (!accepted.has(msg.type)) return;
     clearTimeout(pending.timer);
+    pending.detachClient?.();
+    pending.controller?.abort();
     this._pendingRequests.delete(msg.id);
     if (msg.type === 'call_tool_error' || msg.ok === false) {
-      const error = new Error(msg.error || 'Extension request failed');
+      const error = new Error(pending.hostWriteDispatched ? 'The write result is unknown; inspect the target before retrying.' : msg.error || 'Extension request failed');
       error.fromExtension = true;
-      if (typeof msg.code === 'string' && msg.code) error.code = msg.code;
+      if (pending.hostWriteDispatched) error.code = 'HOST_CLI_OUTCOME_UNKNOWN';
+      else if (typeof msg.code === 'string' && msg.code) error.code = msg.code;
+      if (!pending.hostWriteDispatched && error.code === 'HOST_CLI_REQUIRED_FIELDS') {
+        const details = safeRequiredFields(msg.details);
+        if (details) error.details = details;
+      }
       if (msg.auth && typeof msg.auth === 'object') error.auth = msg.auth;
       pending.reject(error);
     } else if (pending.raw) pending.resolve(msg);
@@ -1079,6 +1106,7 @@ export class WebSocketBridge extends EventEmitter {
         this._reply(ws, {
           type: 'call_tool_error', id, error: err.message, traceID,
           ...(typeof err.code === 'string' && err.code ? { code: err.code } : {}),
+          ...(err.code === 'HOST_CLI_REQUIRED_FIELDS' && safeRequiredFields(err.details) ? { details: safeRequiredFields(err.details) } : {}),
           ...(err.auth && typeof err.auth === 'object' ? { auth: err.auth } : {}),
         });
       } finally {
@@ -1658,7 +1686,7 @@ export class WebSocketBridge extends EventEmitter {
       const timing = this._callTimings.get(msg.traceID);
       if (timing) timing.dispatchedAt = Date.now();
     }
-    const logMessage = ['http_credentials', 'browser_execute', 'exploration_observe_page', 'exploration_intercept_read', 'exploration_page_query', 'exploration_page_write'].includes(msg.type) ? { type: msg.type, command: msg.command, id: msg.id, tabId: msg.tabId }
+    const logMessage = ['http_credentials', 'host_cli_cookies', 'browser_execute', 'exploration_observe_page', 'exploration_intercept_read', 'exploration_page_query', 'exploration_page_write'].includes(msg.type) ? { type: msg.type, command: msg.command, id: msg.id, tabId: msg.tabId }
       : msg.type === 'validate_generation_preview' ? { type: msg.type, id: msg.id, tabId: msg.tabId,
         expectedToolCount: msg.expectedToolNames?.length || 0, testCaseCount: msg.testCases?.length || 0 } : msg;
     process.stderr.write(`[${ts()}] [Bridge] -> extension: ${JSON.stringify(logMessage).substring(0, 200)}\n`);
@@ -1675,6 +1703,51 @@ export class WebSocketBridge extends EventEmitter {
     return this._requestNow(msg, timeout, traceID, raw);
   }
 
+  async _handleHostCliRequest(msg, ws) {
+    try {
+      const result = await invokeHostCli({
+        parentId: msg.parentId, ws, payload: msg.payload,
+        pendingRequests: this._pendingRequests, resolveAdapterCall, execute: executeHostCli, authorizeWrite: authorizeHostCliWrite,
+        credentials: async (request, selected) => {
+          let url;
+          try { url = new URL(request?.url); } catch { throw new Error('Invalid credential scope.'); }
+          const named = Object.hasOwn(request, 'names');
+          if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash
+            || !adapterHelperPatterns(selected.adapter.manifest).some(pattern => hostMatchesPattern(url.hostname, pattern))
+            || (named && (!Array.isArray(request.names) || !request.names.length || request.names.length > 32))
+            || (!named && url.hostname !== adapterPrimaryHost(selected.adapter.manifest))
+            || Object.keys(request).some(key => !['url', 'names'].includes(key))) throw new Error('Invalid credential scope.');
+          if ((this._profiles ? this._currentConnection()?.ws : this._extensionWs) !== ws) throw new Error('The browser connection changed.');
+          const response = named
+            ? await this._request({ type: 'http_credentials', payload: { url: url.href, names: request.names } }, 10000)
+            : await this._request({ type: 'host_cli_cookies', parentId: msg.parentId, payload: { url: url.href } }, 10000);
+          return response.cookies;
+        },
+      });
+      ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: true, result }));
+    } catch (error) {
+      const permittedCodes = new Set(['HOST_CLI_UNAVAILABLE', 'HOST_CLI_CONTEXT_INVALID', 'HOST_CLI_ALREADY_CALLED',
+        'HOST_CLI_INVALID_ARGUMENT', 'HOST_CLI_AUTH_UNCERTAIN', 'HOST_CLI_UNSUPPORTED_PLATFORM', 'HOST_CLI_SECRET_STORE_UNAVAILABLE', 'HOST_CLI_AUTH_BUSY',
+        'HOST_CLI_IDENTITY_UNVERIFIED', 'HOST_CLI_CANCELLED', 'HOST_CLI_CONFIRMATION_REQUIRED', 'HOST_CLI_OUTCOME_UNKNOWN', 'HOST_CLI_REQUIRED_FIELDS', 'AUTH_REQUIRED']);
+      const code = permittedCodes.has(error?.code) ? error.code : 'HOST_CLI_FAILED';
+      // Provider exceptions can contain credentials or child output. Only send
+      // fixed messages; do not relay the exception or child output.
+      const messages = {
+        HOST_CLI_SECRET_STORE_UNAVAILABLE: 'Secure storage could not be accessed. Unlock the system keychain or allow access, then retry.',
+        HOST_CLI_AUTH_BUSY: 'Credential setup is already running for this account. Retry shortly.',
+        HOST_CLI_AUTH_UNCERTAIN: 'Credential creation or storage could not be confirmed. Check the service before retrying; automatic retry is disabled.',
+        HOST_CLI_UNSUPPORTED_PLATFORM: 'Secure credential storage is unavailable on this platform.',
+        HOST_CLI_IDENTITY_UNVERIFIED: 'The current account or saved credential identity could not be verified.',
+        HOST_CLI_OUTCOME_UNKNOWN: 'The write outcome is unknown. Check the target before retrying.',
+        HOST_CLI_CONFIRMATION_REQUIRED: 'Confirmation is required before this operation.',
+        HOST_CLI_REQUIRED_FIELDS: 'Required fields are missing.',
+        AUTH_REQUIRED: 'Sign in to the service before retrying.',
+      };
+      const details = code === 'HOST_CLI_REQUIRED_FIELDS' ? safeRequiredFields(error.details) : undefined;
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: false, code, error: Object.hasOwn(messages, code) ? messages[code] : 'Host CLI request failed.', ...(details ? { details } : {}) }));
+    }
+  }
+
   _requestNow(msg, timeout = 120000, traceID = null, raw = false) {
     const id = this._nextId();
     let connection;
@@ -1685,17 +1758,48 @@ export class WebSocketBridge extends EventEmitter {
         if (![1, 2].includes(version) || (version === 1 && (msg.payload?.storeId !== undefined || msg.payload?.partitionKey !== undefined))) throw profileError('HTTP_CREDENTIALS_UNAVAILABLE', 'Unsupported HTTP credential scope version.');
         if (!(connection.capabilities || this._extensionCapabilities).includes(version === 2 ? 'http_credentials_v2' : 'http_credentials_v1')) throw profileError('HTTP_CREDENTIALS_UNAVAILABLE', 'Reload the selected browser extension for scoped HTTP credentials.');
       }
+      if (msg.type === 'host_cli_cookies' && !(connection.capabilities || this._extensionCapabilities || []).includes('host_cli_cookies_v1')) {
+        throw profileError('HOST_CLI_COOKIES_UNAVAILABLE', 'Reload the selected extension for host CLI credentials.');
+      }
       if (msg.type === 'exploration_page_write' && !(connection.capabilities || this._extensionCapabilities).includes('page_write_v1')) throw profileError('CAPABILITY_UNAVAILABLE', 'Reload the selected extension before page writes.');
     } catch (error) { return Promise.reject(error); }
+    let originalArgs;
+    try { if (msg.type === 'call_tool' && msg.adapterSnapshot) originalArgs = structuredClone(msg.args || {}); }
+    catch { return Promise.reject(profileError('INVALID_ARGUMENT', 'Invalid Adapter arguments.')); }
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const controller = new AbortController();
+      // Long-running background workflows deliberately outlive their initiating
+      // RPC. Cancellation here applies only to the formal Adapter invocation.
+      const client = msg.type === 'call_tool' && msg.adapterSnapshot ? this._route?.getStore()?.client : null;
+      let pending;
+      const onClientClose = () => {
+        if (this._pendingRequests.get(id) !== pending) return;
+        clearTimeout(timer);
+        pending.detachClient?.();
+        controller.abort();
         this._pendingRequests.delete(id);
-        reject(profileError('EXTENSION_TIMEOUT', 'Browser request timed out. Inspect state before retrying an action.'));
+        reject(pending.hostWriteDispatched
+          ? profileError('HOST_CLI_OUTCOME_UNKNOWN', 'The write result is unknown; inspect the target before retrying.')
+          : profileError('CLIENT_DISCONNECTED', 'The calling client disconnected.'));
+      };
+      const timer = setTimeout(() => {
+        controller.abort();
+        this._pendingRequests.delete(id);
+        pending.detachClient?.();
+        reject(pending.hostWriteDispatched
+          ? profileError('HOST_CLI_OUTCOME_UNKNOWN', 'The write result is unknown; inspect the target before retrying.')
+          : profileError('EXTENSION_TIMEOUT', 'Browser request timed out. Inspect state before retrying an action.'));
       }, timeout);
-      this._pendingRequests.set(id, { resolve, reject, traceID, raw, timer, ws: connection.ws });
+      pending = { resolve, reject, traceID, raw, timer, ws: connection.ws, controller,
+        detachClient: () => client?.off?.('close', onClientClose),
+        ...(msg.type === 'call_tool' && msg.adapterSnapshot ? { hostCall: { toolName: msg.toolName, snapshot: msg.adapterSnapshot,
+          originalArgs } } : {}) };
+      this._pendingRequests.set(id, pending);
+      client?.once?.('close', onClientClose);
+      if (typeof client?.readyState === 'number' && client.readyState !== 1) { onClientClose(); return; }
       try {
         if (!this._send({ ...msg, id, ...(traceID ? { traceID } : {}) }, connection)) throw profileError('PROFILE_DISCONNECTED', 'The selected extension is disconnected.');
-      } catch (error) { clearTimeout(timer); this._pendingRequests.delete(id); reject(error); }
+      } catch (error) { clearTimeout(timer); pending.detachClient?.(); controller.abort(); this._pendingRequests.delete(id); reject(error); }
     });
   }
 
@@ -1743,6 +1847,9 @@ export class WebSocketBridge extends EventEmitter {
     try {
       return await run();
     } catch (err) {
+      // Host CLI failures are already classified by the trusted host. Never
+      // reinterpret them as login failures or replay an uncertain action.
+      if (typeof err?.code === 'string' && err.code.startsWith('HOST_CLI_')) throw err;
       let selected = null;
       try { selected = resolveAdapterCall(toolName); } catch { selected = null; }
       if (!selected || selected.command.runtime !== 'extension') throw err;
@@ -2003,7 +2110,10 @@ export class WebSocketBridge extends EventEmitter {
     if (selected && !this._extensionCapabilities?.includes('adapter_catalog_v1')) {
       throw new Error('Reload the browser extension before calling managed Adapter packages.');
     }
-    if (selected?.command.execution?.runtime === 'background' && !this._extensionCapabilities?.includes('adapter_background_v1')) {
+    if (selected?.command.execution?.pageWhenAbsent !== undefined && !this._extensionCapabilities?.includes('conditional_execution_v1')) {
+      throw new Error('Reload the browser extension before calling conditional Adapter commands.');
+    }
+    if (usesBackgroundExecution(selected?.command, args || {}) && !this._extensionCapabilities?.includes('adapter_background_v1')) {
       throw new Error('Reload the browser extension before calling background Adapter commands.');
     }
     if (selected?.command.pageRoute && !this._extensionCapabilities?.includes('page_sources_v1')) {

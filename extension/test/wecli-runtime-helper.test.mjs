@@ -78,9 +78,33 @@ function loadInjector(runtimeResponse = { ok: true, result: { value: 'ok' } }) {
     window,
   })
 
-  vm.runInContext(readFileSync(join(ROOT, 'extension/content/injector.js'), 'utf8'), context)
-  return { runtime: window.__webmcpWecliRuntime, runtimeMessages, fetchCalls }
+  const source = readFileSync(join(ROOT, 'extension/content/injector.js'), 'utf8').replace(
+    '} // end of __webmcpInjectorLoaded guard',
+    'window.__testTrace = { runHandlerWithTrace, get: (id) => traceLogs.get(id) || [] }; }',
+  )
+  vm.runInContext(source, context)
+  return { runtime: window.__webmcpWecliRuntime, runtimeMessages, fetchCalls, trace: window.__testTrace }
 }
+
+test('injector protects API keys and sensitive response bodies in trace logs', async () => {
+  const placeholder = 'example-secret-placeholder'
+  const { runtime, trace } = loadInjector({ ok: true, result: {
+    ok: true, status: 200, body: JSON.stringify({ data: { apiKey: placeholder, visible: 'public' } }),
+  } })
+  const invoke = (options) => trace.runHandlerWithTrace(() => runtime.requestPrivileged('backend_fetch', {
+    url: 'https://example.com/api', ...options,
+    options: { headers: { 'Example-Cli-Api-Key': placeholder }, body: 'example-private-body' },
+  }), {}, 'trace-example')
+  await invoke({})
+  let logs = trace.get('trace-example').join('\n')
+  assert.equal(logs.includes(placeholder), false)
+  assert.equal(logs.includes('public'), true)
+  await invoke({ redactBodyInTrace: true })
+  logs = trace.get('trace-example').slice(-2).join('\n')
+  assert.equal(logs.includes('example-private-body'), false)
+  assert.equal(logs.includes('public'), false)
+  assert.match(logs, /\[redacted\]/)
+})
 
 test('injector exposes browser-safe WeCLI runtime utilities', async () => {
   const { runtime, runtimeMessages, fetchCalls } = loadInjector()
@@ -411,6 +435,46 @@ test('service worker provides host-scoped privileged runtime helpers', async () 
   const rejected = await request('download', { url: 'https://evil.example/file' })
   assert.equal(rejected.ok, false)
   assert.match(rejected.error.message, /host/i)
+})
+
+test('single-attempt background requests never retry authentication failures in a browser', async () => {
+  const { context } = loadServiceWorker()
+  let bridgeCalls = 0
+  let browserCalls = 0
+  context.requestBridge = async (request) => {
+    if (request?.type === 'wecli_backend_fetch') bridgeCalls++
+    return { ok: true, result: { status: 401, ok: false, body: 'login required' } }
+  }
+  context.runDirectBrowserFetch = async () => { browserCalls++; throw new Error('unexpected browser retry') }
+  const result = await context.runDirectBackendFetch({
+    url: 'https://example.com/api', singleAttempt: true,
+  }, 'trace-example')
+  assert.equal(result.status, 401)
+  assert.equal(bridgeCalls, 1)
+  assert.equal(browserCalls, 0)
+})
+
+test('service worker trace protects API key headers and response contents', async () => {
+  const { context } = loadServiceWorker()
+  const placeholder = 'example-secret-placeholder'
+  context.requestBridge = async () => ({ ok: true, result: {
+    status: 200, ok: true, body: JSON.stringify({ data: { apiKey: placeholder, visible: 'public' } }),
+  } })
+  const payload = {
+    url: 'https://example.com/api',
+    options: { method: 'POST', headers: { 'Example-Cli-Api-Key': placeholder }, body: 'example-private-body' },
+  }
+  const request = context.summarizeDirectPrivilegedPayload('backend_fetch', payload)
+  assert.equal(JSON.stringify(request).includes(placeholder), false)
+  const response = await context.runRuntimeBridgeRequest('wecli_backend_fetch', payload, 'trace-one')
+  assert.equal(JSON.parse(response.body).data.apiKey, placeholder)
+  assert.equal(context.getTraceLogs('trace-one').join('\n').includes(placeholder), false)
+  await context.runRuntimeBridgeRequest('wecli_backend_fetch', { ...payload, redactBodyInTrace: true }, 'trace-two')
+  assert.equal(context.getTraceLogs('trace-two').join('\n').includes('public'), false)
+  const summarized = context.summarizeDirectPrivilegedResult('backend_fetch', response, { redactBodyInTrace: true })
+  assert.equal(summarized.body, '[redacted]')
+  const summarizedRequest = context.summarizeDirectPrivilegedPayload('backend_fetch', { ...payload, redactBodyInTrace: true })
+  assert.equal(summarizedRequest.body, '[redacted]')
 })
 
 test('service worker allows ProjectDemo runtime helpers to read SDL sibling-domain cookies', async () => {

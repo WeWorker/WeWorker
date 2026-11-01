@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-11-01（受限宿主 CLI）：内置 Adapter 可通过固定 provider 调用受审宿主命令；身份与参数绑定原始调用，凭据仅留在宿主，写入派发后超时/断连不重放。新增 Windows DPAPI/macOS Keychain 存储、账号锁、条件后台执行与离线资源核验。Windows 内部集成客户端由用户验证通过；macOS 原生、完整安装包和远端构建尚待验收。
+
 - 2026-10-28（关于页下载入口）：设置「关于」页的下载链接改为 GitHub 最新发布页面 `https://github.com/WeWorker/WeWorker/releases/latest`，自动更新配置保持独立。验证：Renderer 生产构建与差异检查通过。
 
 - 2026-10-28（浏览器设置下拉样式）：移除“网站操作浏览器”通用下拉外层的宽胶囊边框，直接使用 `AppDropdownSelect` 标准外观；选项与即刻保存行为不变。验证：Renderer 生产构建与差异检查通过。
