@@ -50,6 +50,12 @@ export type ChannelProfileChatOptions = Pick<
 export interface ChannelProfile {
   /** Namespace for channel sessions and notify targets. */
   channelKey: string
+  /**
+   * Set when this profile serves a dedicated Agent. Those turns never use
+   * deterministic routing (see routed-turn.ts): an Agent is bound to one
+   * site/skill, and routing could answer with a different site.
+   */
+  dedicatedAgentId?: string
   /** Prefix shown in conversation titles, e.g. 企微 / 微信. */
   titleLabel(chatType: 'single' | 'group'): string
   /** Greeting for channels that report "user entered the chat" (企业微信). */

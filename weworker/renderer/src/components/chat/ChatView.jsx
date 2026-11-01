@@ -115,6 +115,27 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     }
   }
 
+  // Download this conversation's diagnostic log (header + message timeline + the
+  // [work:xxxxxxxx] tagged backend/bridge chain logs) as a txt for developers.
+  const handleExportLogs = async () => {
+    try {
+      const res = await backendFetch(`/works/${workId}/logs.txt`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `weworker-work-${workId?.slice(0, 8) || 'unknown'}-logs.txt`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setStyleNotice('对话日志已下载，可发给开发者定位问题')
+      window.setTimeout(() => setStyleNotice(''), 4000)
+    } catch (e) {
+      console.error('[chat] export logs failed:', e)
+      setError('日志导出失败，请稍后重试')
+    }
+  }
+
   const handleStop = () => {
     void queue.stop().catch(e => setError(e.message))
   }
@@ -648,6 +669,15 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
             disabled={isStreamingHere}
           />
           <LabelDot workId={workId} label={work?.label} />
+          <span style={{ opacity: 0.6, flexShrink: 0 }}>·</span>
+          <button
+            type="button"
+            onClick={() => { void handleExportLogs() }}
+            title="下载本次对话的诊断日志（对话时间线 + 调用链路日志），可发给开发者定位问题"
+            style={{ flexShrink: 0, border: 'none', background: 'transparent', color: 'inherit', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }}
+          >
+            导出日志
+          </button>
         </div>,
         toolbarContextTarget,
       )

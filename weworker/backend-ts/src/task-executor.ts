@@ -20,9 +20,11 @@ import { enforceConfiguredMemoryBudget } from './memory/memory-capacity.js'
 import type { MemoryEventTrigger, MemoryScope, MemoryType, MemoryUpdateCandidate } from './memory/memory-types.js'
 import { redactSensitive } from './http-security.js'
 import { createTurnTimingLedger } from './turn-timing.js'
+import { routedAssistantBlocks, tryRoutedTurn } from './routed-turn.js'
 import { getAgent } from './dedicated-agents/agent-store.js'
 import { buildAgentChatOptions } from './dedicated-agents/agent-runtime.js'
 
+const log = createLogger('task-executor')
 const memoryLog = createLogger('memory')
 
 export interface ExecutionResult {
@@ -139,7 +141,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
   let memoryCandidate: MemoryUpdateCandidate | undefined
 
   // 3. Append the prompt template as user message
-  store.appendMessage(work.id, 'user', [{ type: 'text', text: agent
+  const userMessage = store.appendMessage(work.id, 'user', [{ type: 'text', text: agent
     ? `【定时任务执行】\n${task.prompt_template}\n\n请自行判断本轮是否值得通知。只有确有必要时才调用 send_agent_message；不调用就不会发送任何消息。`
     : task.prompt_template }])
 
@@ -179,103 +181,127 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
 
     const styleId = resolveStyleId(workWithMessages, settings)
 
-    for await (const event of streamChat(workWithMessages.messages, settings, undefined, {
-      streaming: false,
-      enabledAdapterIds,
-      workId: workWithMessages.id,
-      styleId,
-      memoryScope: taskMemoryContext.scope,
-      ...(agent ? {
-        ...buildAgentChatOptions({ agent, siteName: agent.site_id, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
-        memoryEnabled: false,
-      } : {}),
-      memoryExpectedType: 'task_execution',
-      memoryTriggerHint: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
-      previousTaskFailed: previousExecution?.status === 'failed',
-      // The task's own work shows its images and files on the desktop.
-      userMedia: {
-        image: (image) => {
-          if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
-          assistantContent.push(userImageBlock(image))
-        },
-        file: (file) => {
-          if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
-          assistantContent.push(userFileBlock(file))
-        },
-      },
-    })) {
-      if (event.type === 'skill_context' && event.skillContext) {
-        assistantContent.push(event.skillContext)
-      } else if (event.type === 'text_delta' && event.content) {
-        currentText += event.content
-      } else if (event.type === 'memory_candidate' && event.candidate) {
-        memoryCandidate = event.candidate
-      } else if (event.type === 'tool_call_start' && event.id) {
-        if (currentText) {
-          assistantContent.push({ type: 'text', text: currentText })
-          currentText = ''
-        }
-        const isNew = !seenToolIds.has(event.id)
-        let thinkMs: number | undefined
-        if (isNew) {
-          seenToolIds.add(event.id)
-          stepIndex++
-          thinkMs = turnTiming.toolStarted(event.id)
-        }
-        assistantContent.push({
-          type: 'tool_use',
-          id: event.id,
-          name: event.name ?? '',
-          args: event.args,
-          status: 'running',
-          ...(thinkMs !== undefined ? { thinkMs } : {}),
+    // 定时任务接入确定性路由（共享入口见 routed-turn.ts）。专属 Agent 任务显式跳过：
+    // 它有自己的站点/技能边界，路由可能换成别的站点作答。命中则整轮跳过模型。
+    const routed = agent
+      ? null
+      : await tryRoutedTurn({
+          // 用任务原文，而不是落库时可能被包装过的文本，保证与用户配置逐字一致。
+          message: task.prompt_template,
+          workId: workWithMessages.id,
+          chatStartTime,
+          // 定时任务自己落库（要带本轮 work 与执行记录），不交给路由层写。
+          persist: false,
+          // 追问闸门（闸门①b）需要「本轮之前」的历史。
+          history: workWithMessages.messages.filter((message) => message.id !== userMessage.id),
+          log: (m: string) => log.info(`task ${task.id} ${m}`),
         })
-      } else if (event.type === 'tool_call_result' && event.id) {
-        const toolDuration = turnTiming.toolSettled(event.id) ?? 0
-        const idx = assistantContent.findIndex(
-          b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
-        )
-        if (idx >= 0) {
-          assistantContent[idx] = {
-            ...(assistantContent[idx] as object),
-            result: event.result,
-            status: event.isError ? 'failed' : 'done',
-            execMs: toolDuration,
-          } as ContentBlock
+
+    if (routed?.handled) {
+      // 路由已渲染正文与 timing（含 routeTool），这里只补落库：与普通回合同一形态，
+      // UI 的耗时与来源展示、以及闸门①b 的 fast-path 识别都能读到。
+      // 同时写进本地 assistantContent——下面的摘要与记忆规划都从它派生。
+      assistantContent.push(...routedAssistantBlocks(routed))
+      if (assistantContent.length > 0) store.appendMessage(work.id, 'assistant', assistantContent)
+    } else {
+      for await (const event of streamChat(workWithMessages.messages, settings, undefined, {
+        streaming: false,
+        enabledAdapterIds,
+        workId: workWithMessages.id,
+        styleId,
+        memoryScope: taskMemoryContext.scope,
+        ...(agent ? {
+          ...buildAgentChatOptions({ agent, siteName: agent.site_id, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
+          memoryEnabled: false,
+        } : {}),
+        memoryExpectedType: 'task_execution',
+        memoryTriggerHint: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
+        previousTaskFailed: previousExecution?.status === 'failed',
+        // The task's own work shows its images and files on the desktop.
+        userMedia: {
+          image: (image) => {
+            if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
+            assistantContent.push(userImageBlock(image))
+          },
+          file: (file) => {
+            if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
+            assistantContent.push(userFileBlock(file))
+          },
+        },
+      })) {
+        if (event.type === 'skill_context' && event.skillContext) {
+          assistantContent.push(event.skillContext)
+        } else if (event.type === 'text_delta' && event.content) {
+          currentText += event.content
+        } else if (event.type === 'memory_candidate' && event.candidate) {
+          memoryCandidate = event.candidate
+        } else if (event.type === 'tool_call_start' && event.id) {
+          if (currentText) {
+            assistantContent.push({ type: 'text', text: currentText })
+            currentText = ''
+          }
+          const isNew = !seenToolIds.has(event.id)
+          let thinkMs: number | undefined
+          if (isNew) {
+            seenToolIds.add(event.id)
+            stepIndex++
+            thinkMs = turnTiming.toolStarted(event.id)
+          }
+          assistantContent.push({
+            type: 'tool_use',
+            id: event.id,
+            name: event.name ?? '',
+            args: event.args,
+            status: 'running',
+            ...(thinkMs !== undefined ? { thinkMs } : {}),
+          })
+        } else if (event.type === 'tool_call_result' && event.id) {
+          const toolDuration = turnTiming.toolSettled(event.id) ?? 0
+          const idx = assistantContent.findIndex(
+            b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
+          )
+          if (idx >= 0) {
+            assistantContent[idx] = {
+              ...(assistantContent[idx] as object),
+              result: event.result,
+              status: event.isError ? 'failed' : 'done',
+              execMs: toolDuration,
+            } as ContentBlock
+          }
+        } else if (event.type === 'tool_call_image' && event.id) {
+          // 只回图片的工具没有 tool_call_result：同样结算，避免其耗时漏进 llm。
+          const imageToolDuration = turnTiming.toolObserved(event.id)
+          const idx = assistantContent.findIndex(
+            b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
+          )
+          if (idx >= 0) {
+            const currentStatus = (assistantContent[idx] as Extract<ContentBlock, { type: 'tool_use' }>).status
+            assistantContent[idx] = {
+              ...(assistantContent[idx] as object),
+              image: event.data,
+              status: currentStatus === 'failed' ? 'failed' : 'done',
+              ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}),
+            } as ContentBlock
+          }
+        } else if (event.type === 'error') {
+          throw new Error(event.content ?? 'AI Agent error')
         }
-      } else if (event.type === 'tool_call_image' && event.id) {
-        // 只回图片的工具没有 tool_call_result：同样结算，避免其耗时漏进 llm。
-        const imageToolDuration = turnTiming.toolObserved(event.id)
-        const idx = assistantContent.findIndex(
-          b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
-        )
-        if (idx >= 0) {
-          const currentStatus = (assistantContent[idx] as Extract<ContentBlock, { type: 'tool_use' }>).status
-          assistantContent[idx] = {
-            ...(assistantContent[idx] as object),
-            image: event.data,
-            status: currentStatus === 'failed' ? 'failed' : 'done',
-            ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}),
-          } as ContentBlock
-        }
-      } else if (event.type === 'error') {
-        throw new Error(event.content ?? 'AI Agent error')
       }
-    }
 
-    // Finalize remaining text
-    if (currentText) {
-      assistantContent.push({ type: 'text', text: currentText })
-    }
+      // Finalize remaining text
+      if (currentText) {
+        assistantContent.push({ type: 'text', text: currentText })
+      }
 
-    // Account for trailing LLM text generation (and settle any tool that never
-    // reported a result, so its time stays in execMs).
-    const timing = turnTiming.finish()
+      // Account for trailing LLM text generation (and settle any tool that never
+      // reported a result, so its time stays in execMs).
+      const timing = turnTiming.finish()
 
-    // 8. Persist assistant message
-    if (assistantContent.length > 0) {
-      assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, steps: stepIndex })
-      store.appendMessage(work.id, 'assistant', assistantContent)
+      // 8. Persist assistant message
+      if (assistantContent.length > 0) {
+        assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, steps: stepIndex })
+        store.appendMessage(work.id, 'assistant', assistantContent)
+      }
     }
 
     // 9. Extract summary from accumulated text

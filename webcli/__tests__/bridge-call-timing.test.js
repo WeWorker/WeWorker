@@ -120,4 +120,30 @@ describe('bridge call_tool segment logging', () => {
     expect(lines.some((line) => line.includes('调用分段'))).toBe(false)
     expect(bridge._callTimings.size).toBe(0)
   })
+
+  // ★ 对话日志导出：桌面端会话带来的 workId 要随收单/成功/失败日志与 callTool
+  // options 一起透传，日志行以 [work:前8位] 标记；无 workId 时不加标记。
+  it('tags received/succeeded lines with the work id and forwards it to callTool', async () => {
+    const lines = captureStderr()
+    const seenOptions = []
+    const bridge = makeBridge({ callTool: async (_name, _args, _traceID, _snapshot, options) => {
+      seenOptions.push(options)
+      return { ok: true }
+    } })
+
+    await bridge._handleClientRequest({
+      type: 'call_tool', toolName: 'example.com.ping', args: {}, id: 'cli-5',
+      workId: '2215049d-1234-5678-9abc-def012345678',
+    })
+
+    expect(seenOptions[0]).toMatchObject({ workId: '2215049d-1234-5678-9abc-def012345678' })
+    expect(lines.find((line) => line.includes('收到调用'))).toContain('[work:2215049d]')
+    expect(lines.find((line) => line.includes('调用成功'))).toContain('[work:2215049d]')
+
+    const plainLines = []
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => { plainLines.push(String(chunk)); return true })
+    await bridge._handleClientRequest({ type: 'call_tool', toolName: 'example.com.ping', args: {}, id: 'cli-6' })
+    expect(seenOptions[1].workId).toBeUndefined()
+    expect(plainLines.find((line) => line.includes('收到调用'))).not.toContain('[work:')
+  })
 })
