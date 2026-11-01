@@ -9,7 +9,7 @@ const AGENT = 'http://127.0.0.1:8766'
 const id = /^[A-Za-z0-9_-]+$/
 const namePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-type AgentPackage = { name: string; digest: string; files: Record<string, string>; base?: { name: string; profile: string; digest: string; files: Record<string, string> } | null }
+type AgentPackage = { operation_id: string; install_baseline_digest?: string | null; profile?: string; changed_tools?: string[]; name: string; digest: string; files: Record<string, string>; base?: { name: string; profile: string; digest: string; files: Record<string, string> } | null }
 
 function decodePackage(files: Record<string, string>) {
   if (!files || typeof files !== 'object' || Array.isArray(files)) throw new Error('Adapter package is missing.')
@@ -41,7 +41,7 @@ export function createWebsiteExplorationAdapterRouter({
 }: {
   instanceId?: string
   fetchAgent?: typeof fetch
-  onInstalled?: (event: { name: string; revision: number; profile: string }) => void
+  onInstalled?: (event: { name: string; revision: number; profile: string }) => void | Promise<void>
 } = {}) {
   const router = Router()
   const agent = async (path: string, body?: object) => {
@@ -63,13 +63,14 @@ export function createWebsiteExplorationAdapterRouter({
   }
 
   const deleting = new Set<string>()
+  const applying = new Set<string>()
   const deleteCommand = async ({ name, commandId, toolkitId, toolId, expectedDigest }: {
     name: string; commandId: string; toolkitId?: string; toolId?: string; expectedDigest: string | null
   }) => {
     if (!namePattern.test(name) || !id.test(commandId) || (toolkitId && !id.test(toolkitId)) || (toolId && !id.test(toolId))) {
       throw new Error('Invalid Tool identity.')
     }
-    if (deleting.has(name)) throw new Error('Adapter deletion is already running.')
+    if (deleting.has(name) || applying.has(name)) throw new Error('Adapter deletion is already running.')
     deleting.add(name)
     try {
       const catalog = buildAdapterCatalog()
@@ -125,11 +126,26 @@ export function createWebsiteExplorationAdapterRouter({
       }
       let cleanupPending = false
       if (transactionId) {
-        try { await agent(`/api/toolkits/${toolkitId}/tools/${toolId}/delete-finish`, { transaction_id: transactionId, restore: false }) }
+        const afterCatalog = pkg ? buildAdapterCatalog() : null
+        try {
+          await agent(`/api/toolkits/${toolkitId}/tools/${toolId}/delete-finish`, {
+            transaction_id: transactionId,
+            restore: false,
+            ...(pkg ? (uninstall
+              ? { host_uninstalled: true, host_revision: afterCatalog!.revision }
+              : {
+                  host_revision: afterCatalog!.revision,
+                  host_package: {
+                    digest: updated!.digest,
+                    files: Object.fromEntries([...updated!.files].map(([path, content]) => [path, content.toString('base64')])),
+                  },
+                }) : {}),
+          })
+        }
         catch { cleanupPending = true }
       }
       if (pkg) {
-        try { onInstalled({ name, revision: buildAdapterCatalog().revision, profile: catalog.profile }) }
+        try { await onInstalled({ name, revision: buildAdapterCatalog().revision, profile: catalog.profile }) }
         catch { return { ok: true, uninstalled: uninstall, refreshed: false, cleanupPending } }
       }
       return { ok: true, uninstalled: uninstall, refreshed: true, cleanupPending }
@@ -198,6 +214,9 @@ export function createWebsiteExplorationAdapterRouter({
     if (!id.test(toolkitId)) throw new Error('Invalid workspace ID.')
     const payload = await agent(`/api/toolkits/${toolkitId}/v2-package`) as AgentPackage
     const pkg = decodePackage(payload.files)
+    if (typeof payload.operation_id !== 'string' || !/^[a-f0-9]{64}-[0-9]+$/.test(payload.operation_id) || !payload.operation_id.startsWith(pkg.digest + '-')) {
+      throw new Error('网站探索服务未返回有效的安装操作，请更新并重启服务。')
+    }
     if (pkg.name !== payload.name || pkg.digest !== payload.digest) throw new Error('Published Adapter snapshot changed.')
     if (payload.base) {
       if (payload.base.profile !== buildAdapterCatalog().profile) throw new Error('Adapter workspace belongs to another build profile.')
@@ -205,34 +224,57 @@ export function createWebsiteExplorationAdapterRouter({
       if (base.name !== payload.base.name || base.digest !== payload.base.digest) throw new Error('Adapter baseline changed.')
       retainedFilesUnchanged(base, pkg)
     }
-    return { pkg, base: payload.base }
+    if (payload.profile && payload.profile !== buildAdapterCatalog().profile) throw new Error('Adapter workspace belongs to another build profile.')
+    return { pkg, base: payload.base, baselineDigest: payload.install_baseline_digest, changedTools: payload.changed_tools || [], operationId: payload.operation_id }
   }
   const describe = async (toolkitId: string) => {
-    const { pkg, base } = await packageFor(toolkitId)
-    const review = describeGeneratedInstall({ adapterDir: '' }, { pkg })
-    return { pkg, review, baseDigest: base?.digest || null }
+    let candidate = await packageFor(toolkitId)
+    let review = describeGeneratedInstall({ adapterDir: '' }, { pkg: candidate.pkg })
+    // Reconcile a prior host commit before reviewing a newer draft. This also
+    // advances its version when the earlier installation response was lost.
+    if (review.baselineDigest && review.baselineDigest !== candidate.baselineDigest && review.baselineDigest !== candidate.pkg.digest) {
+      const recovered = await agent(`/api/toolkits/${toolkitId}/installation-reconcile`, {
+        digest: review.baselineDigest, revision: review.stateRevision, profile: review.profile,
+      })
+      if (recovered.reconciled === true) {
+        candidate = await packageFor(toolkitId)
+        review = describeGeneratedInstall({ adapterDir: '' }, { pkg: candidate.pkg })
+      }
+    }
+    return { pkg: candidate.pkg, review, baseDigest: candidate.baselineDigest ?? candidate.base?.digest ?? null,
+      changedTools: candidate.changedTools, operationId: candidate.operationId }
   }
 
   router.get('/toolkits/:id/install-review', handle(async req => {
-    const { review, baseDigest } = await describe(req.params.id)
-    return { ...review, draftBaseDigest: baseDigest, applied: review.baselineDigest === review.digest,
+    const { review, baseDigest, changedTools } = await describe(req.params.id)
+    return { ...review, changedTools, draftBaseDigest: baseDigest, applied: review.baselineDigest === review.digest,
       overwritesNewerBase: !!baseDigest && review.baselineDigest !== baseDigest && review.baselineDigest !== review.digest }
   }))
 
   router.post('/toolkits/:id/install-apply', handle(async req => {
-    const { pkg, review } = await describe(req.params.id)
-    const approval = { reviewId: req.body?.reviewId, acceptChanges: req.body?.acceptChanges === true }
-    if (review.reviewId !== approval.reviewId) throw new Error('安装评审已变化，请重新检查。')
-    if (review.baselineDigest === pkg.digest) return { name: pkg.name, version: pkg.version, digest: pkg.digest, revision: review.stateRevision, refreshed: true }
-    const accepted = resolveGeneratedInstallApproval(review, approval)
-    const installed = installAdapter({
-      files: pkg.files, origin: { kind: 'generated' }, activate: true,
-      expectedSourceDigest: review.baselineDigest, ...accepted,
-    })
-    let refreshed = true
-    try { onInstalled({ name: installed.name, revision: installed.revision, profile: review.profile }) }
-    catch { refreshed = false }
-    return { name: installed.name, version: installed.version, digest: installed.digest, revision: installed.revision, refreshed }
+    const { pkg, review, operationId, baseDigest } = await describe(req.params.id)
+    if (applying.has(pkg.name) || deleting.has(pkg.name)) throw new Error('Adapter 正在应用，请稍后重试。')
+    applying.add(pkg.name)
+    try {
+      const approval = { reviewId: req.body?.reviewId, acceptChanges: req.body?.acceptChanges === true }
+      if (review.reviewId !== approval.reviewId) throw new Error('安装评审已变化，请重新检查。')
+      if (baseDigest && review.baselineDigest !== baseDigest && review.baselineDigest !== pkg.digest && !approval.acceptChanges) {
+        throw new Error('将覆盖草稿创建后安装的更新，请确认后应用。')
+      }
+      const installed = review.baselineDigest === pkg.digest
+        ? { name: pkg.name, version: pkg.version, digest: pkg.digest, revision: review.stateRevision }
+        : installAdapter({ files: pkg.files, origin: { kind: 'generated' }, activate: true,
+          expectedSourceDigest: review.baselineDigest, ...resolveGeneratedInstallApproval(review, approval) })
+      let refreshed = true
+      let acknowledged = true
+      try { await onInstalled({ name: installed.name, revision: installed.revision, profile: review.profile }) }
+      catch { refreshed = false }
+      try { await agent(`/api/toolkits/${req.params.id}/installation-ack`, {
+        digest: installed.digest, revision: installed.revision, profile: review.profile, operation_id: operationId,
+      }) } catch { acknowledged = false }
+      return { name: installed.name, version: installed.version, digest: installed.digest,
+        revision: installed.revision, refreshed, acknowledged }
+    } finally { applying.delete(pkg.name) }
   }))
   return router
 }

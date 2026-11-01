@@ -16,7 +16,6 @@ const rules: [string, RegExp][] = [
   ['GET PUT DELETE', new RegExp(`^${tool}/development$`)],
   ['POST', new RegExp(`^${tool}/development/(start|messages|cancel|reset-from-formal|restart-from-exploration)$`)],
   ['GET', new RegExp(`^${tool}/development/events$`)],
-  ['POST', new RegExp(`^${tool}/publish$`)],
   ['GET POST', new RegExp(`^${tool}/(explorations|debug-runs)$`)],
   ['GET', new RegExp(`^/api/toolkits/${id}/(export-status|export)$`)],
   ['GET', new RegExp(`^/api/(explorations|debug-runs|development-runs|replays)/${id}$`)],

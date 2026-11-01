@@ -15,6 +15,10 @@ import pytest
 from webwright.run.tool_debug import run_debug
 from webwright.server.debug_store import DebugRunStore
 from webwright.server.publisher import ToolkitPublisher
+from webwright.server.adapter_v2 import current_package
+from webwright.server.package_workspace import prepare_apply, acknowledge_apply
+from webwright.server.records import atomic_write_json
+from webwright.runtime_launcher import RuntimeLauncher
 from webwright.server.status import DebugRunStatus
 from webwright.server.toolkit_store import ToolkitStore
 from webwright.utils.local_cdp import DEFAULT_CDP_URL, page_targets
@@ -48,7 +52,7 @@ def test_publish_formal_debug_export_and_external_cli_real_cdp(tmp_path: Path) -
         "",
     )
     assert prepared_target, "the isolated example.com Agent browser tab must be prepared"
-    created_targets = {prepared_target}
+    created_targets = set()
     try:
         store = ToolkitStore(tmp_path / "toolkits")
         store.create_toolkit(
@@ -123,9 +127,16 @@ def test_publish_formal_debug_export_and_external_cli_real_cdp(tmp_path: Path) -
         )
 
         publisher = ToolkitPublisher(store, debug_store)
-        published = publisher.publish("distribution_e2e", "inspect_page")
-        formal = published["formal"]
-        build = published["build"]
+        operation = prepare_apply(store, "distribution_e2e")
+        profile = os.environ.get("WEWORKER_BUILD_PROFILE", "public")
+        acknowledge_apply(store, "distribution_e2e", digest=operation["candidate_digest"], revision=1,
+            profile=profile, operation_id=operation["operation_id"])
+        formal = store.read_formal_slot("distribution_e2e", "inspect_page")
+        build, _, adapter_root = current_package(store, "distribution_e2e")
+        atomic_write_json(adapter_root.parent / ".profile.json", {
+            "schema_version": 1, "profile": profile,
+            "adapters": [{"name": build["name"], "version": build["version"], "digest": build["digest"]}],
+        })
         formal_result_path = tmp_path / "formal-result.json"
         formal_result = asyncio.run(
             run_debug(
@@ -134,8 +145,10 @@ def test_publish_formal_debug_export_and_external_cli_real_cdp(tmp_path: Path) -
                     "toolkit_id": "distribution_e2e",
                     "tool_id": "inspect_page",
                     "channel": "formal",
+                    "v2": True, "adapter_root": str(adapter_root),
+                    "distribution_hash": build["digest"], "profile": profile,
                     "code_hash": formal["code_hash"],
-                    "artifact_hash": build["artifact_hash"],
+                    "artifact_hash": build["digest"],
                     "cdp_url": DEFAULT_CDP_URL,
                     "parameters": {"label": "formal"},
                     "result_path": str(formal_result_path),
@@ -149,7 +162,7 @@ def test_publish_formal_debug_export_and_external_cli_real_cdp(tmp_path: Path) -
             tool_id="inspect_page",
             channel="formal",
             code_hash=formal["code_hash"],
-            artifact_hash=build["artifact_hash"],
+            artifact_hash=build["digest"],
             parameters={"label": "formal"},
         )
         debug_store.update(
@@ -162,24 +175,26 @@ def test_publish_formal_debug_export_and_external_cli_real_cdp(tmp_path: Path) -
         archive.extractall(external_root)
         external_toolkit = external_root / "distribution-e2e"
         external_state = tmp_path / "external-state"
+        atomic_write_json(external_root / ".profile.json", {
+            "schema_version": 1, "profile": profile,
+            "adapters": [{"name": build["name"], "version": build["version"], "digest": build["digest"]}],
+        })
+        launcher = RuntimeLauncher()
         completed = subprocess.run(
-            [
-                sys.executable,
-                str(external_toolkit / "scripts" / "toolkit.py"),
-                "inspect-page",
-                "--label",
-                "external",
-            ],
+            [os.environ["WEWORKER_WEBCLI_NODE"], os.environ["WEWORKER_WEBCLI_ENTRY"],
+             "call", "distribution-e2e.inspect-page", "--args", '{"label":"external"}', "--output-format=json"],
             cwd=external_toolkit,
-            env={
-                **os.environ,
-                "WEBWRIGHT_CDP_URL": DEFAULT_CDP_URL,
-                "WEBWRIGHT_STATE_DIR": str(external_state),
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=30,
+            env=launcher.external_process_environment({
+                "ELECTRON_RUN_AS_NODE": "1", "WEBWRIGHT_CDP_URL": DEFAULT_CDP_URL,
+                "WEBWRIGHT_STATE_DIR": str(external_state), "WEWORKER_BUILD_PROFILE": profile,
+                "WEWORKER_BUILTIN_ADAPTERS_DIR": str(external_root),
+                "WEWORKER_USER_ADAPTERS_DIR": str(tmp_path / "empty-adapters"),
+                "WEBCLI_ADAPTERS_DIR": str(tmp_path / "empty-adapters"),
+                "WEWORKER_ADAPTER_DATA_DIR": str(tmp_path / "host-data"),
+                "WEWORKER_TOOLKIT_RUNTIME": launcher.executable,
+                "WEWORKER_TOOLKIT_RUNTIME_MODE": "embedded" if launcher.frozen else "python",
+            }),
+            capture_output=True, text=True, check=False, timeout=30,
         )
         assert completed.returncode == 0, completed.stderr
         external_output = json.loads(completed.stdout.splitlines()[-1])

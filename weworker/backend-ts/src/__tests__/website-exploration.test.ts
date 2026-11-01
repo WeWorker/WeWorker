@@ -29,6 +29,9 @@ describe('website exploration route boundary', () => {
     ['GET', '/api/explorations/a/files/%2e%2e/secret', false],
     ['GET', '/api/explorations/a/files/%252e%252e/secret', false],
     ['GET', '/api/internal/model-config', false],
+    ['POST', '/api/toolkits/demo/installation-ack', false],
+    ['POST', '/api/toolkits/demo/installation-reconcile', false],
+    ['POST', '/api/toolkits/demo/tools/read_page/publish', false],
     ['GET', 'http://attacker/api/toolkits', false],
   ])('%s %s => %s', (method, path, allowed) => expect(allowedExplorationRequest(method, path)).toBe(allowed))
 

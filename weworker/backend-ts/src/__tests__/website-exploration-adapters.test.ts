@@ -38,18 +38,18 @@ function fixture() {
     ['wewright/commands/read-page.py', Buffer.from('print("fixture")\n')],
   ])
   const pkg = validatePackageFiles(files)
-  const payload = { name: pkg.name, digest: pkg.digest,
+  const payload = { name: pkg.name, digest: pkg.digest, operation_id: pkg.digest + '-1',
     files: Object.fromEntries([...files].map(([name, content]) => [name, content.toString('base64')])) }
   return { root, payload, files }
 }
 
-async function harness(payload: object, override?: typeof fetch) {
+async function harness(payload: object, override?: typeof fetch, onInstalled: () => void | Promise<void> = () => {}) {
   const fetchAgent = override || vi.fn(async (url: string) => url.endsWith('/api/health')
     ? Response.json({ ok: true, instance_id: 'owned' })
-    : Response.json(payload)) as unknown as typeof fetch
+    : Response.json({ ...payload, ...('digest' in payload ? { operation_id: String(payload.digest) + '-1' } : {}) })) as unknown as typeof fetch
   const app = express()
   app.use(express.json())
-  app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({ instanceId: 'owned', fetchAgent }))
+  app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({ instanceId: 'owned', fetchAgent, onInstalled }))
   const server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)) })
   servers.push(server)
   const address = server.address() as { port: number }
@@ -216,18 +216,22 @@ describe('website exploration Tool deletion', () => {
       if (url.endsWith('/api/toolkits/demo/tools/read_page')) return Response.json({ tool_id: 'read_page' })
       if (url.endsWith('/delete-prepare')) { visible = false; return Response.json({ transaction_id: 'a'.repeat(32) }) }
       if (url.endsWith('/delete-finish')) {
-        const restore = JSON.parse(String(options?.body)).restore
+        const body = JSON.parse(String(options?.body))
+        const restore = body.restore
+        if (!restore) expect(body).toMatchObject({ host_uninstalled: true, host_revision: expect.any(Number) })
         visible = restore
         committed = !restore
         return Response.json({ ok: true })
       }
       throw new Error('Unexpected agent call: ' + url)
     }) as unknown as typeof fetch
-    const { request } = await harness({}, fetchAgent)
+    const refresh = vi.fn().mockRejectedValueOnce(new Error('async refresh failed'))
+    const { request } = await harness({}, fetchAgent, refresh)
     const before = await (await request('/adapter-catalog')).json()
     const deleted = await request('/toolkits/demo/tools/read_page', { method: 'DELETE',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedDigest: before.adapters[0].digest }) })
     expect(deleted.status).toBe(200)
+    expect(await deleted.json()).toMatchObject({ ok: true, uninstalled: true, refreshed: false })
     expect(visible).toBe(false)
     expect(committed).toBe(true)
     expect((await (await request('/adapter-catalog')).json()).adapters).toEqual([])
@@ -260,4 +264,97 @@ describe('website exploration Tool deletion', () => {
     expect(calls.some(url => url.endsWith('/delete-finish'))).toBe(true)
     expect((await (await request('/adapter-catalog')).json()).adapters[0].commands[0].id).toBe('read-page')
   })
+})
+
+
+describe('direct Adapter apply recovery', () => {
+  it('retries refresh and acknowledgement without reinstalling the same digest', async () => {
+    const { payload } = fixture()
+    let failAck = true
+    const acknowledgements: object[] = []
+    const upstream = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+      if (url.endsWith('/installation-ack')) {
+        acknowledgements.push(JSON.parse(String(options?.body)))
+        return failAck ? Response.json({ error: { message: 'simulated unavailable state' } }, { status: 503 }) : Response.json({ ok: true })
+      }
+      return Response.json({ ...payload, operation_id: payload.digest + '-1', changed_tools: ['read_page'] })
+    }) as unknown as typeof fetch
+    const refresh = vi.fn().mockRejectedValueOnce(new Error('simulated refresh failure')).mockResolvedValue(undefined)
+    const { request } = await harness(payload, upstream, refresh)
+    const review = await (await request('/toolkits/demo/install-review')).json()
+    expect(review.changedTools).toEqual(['read_page'])
+    const post = (reviewId: string) => request('/toolkits/demo/install-apply', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewId, acceptChanges: true }) })
+    const first = await (await post(review.reviewId)).json()
+    expect(first.refreshed).toBe(false)
+    expect(first.acknowledged).toBe(false)
+    failAck = false
+    const retryReview = await (await request('/toolkits/demo/install-review')).json()
+    expect(retryReview.applied).toBe(true)
+    const retried = await (await post(retryReview.reviewId)).json()
+    expect(retried).toMatchObject({ digest: first.digest, revision: first.revision, refreshed: true, acknowledged: true })
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(acknowledgements).toHaveLength(2)
+    expect(acknowledgements[1]).toMatchObject({ digest: payload.digest, operation_id: payload.digest + '-1', profile: 'public' })
+  })
+
+  it('rejects a changed candidate before installing or acknowledging it', async () => {
+    const { payload, files } = fixture()
+    let current = payload
+    let acknowledgements = 0
+    const upstream = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+      if (url.endsWith('/installation-ack')) { acknowledgements++; return Response.json({ ok: true }) }
+      return Response.json(current)
+    }) as unknown as typeof fetch
+    const { request } = await harness(payload, upstream)
+    const review = await (await request('/toolkits/demo/install-review')).json()
+    files.set('wewright/commands/read-page.py', Buffer.from('print("new fixture")'))
+    const newer = validatePackageFiles(files)
+    current = { name: newer.name, digest: newer.digest, operation_id: newer.digest + '-2',
+      files: Object.fromEntries([...files].map(([name, content]) => [name, content.toString('base64')])) }
+    const response = await request('/toolkits/demo/install-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewId: review.reviewId, acceptChanges: true }) })
+    expect(response.status).toBe(409)
+    expect(acknowledgements).toBe(0)
+    expect((await (await request('/adapter-catalog')).json()).adapters).toHaveLength(0)
+  })
+})
+
+
+it('reconciles a lost acknowledgement before reviewing a newer candidate', async () => {
+  const { payload, files } = fixture()
+  const installed = installAdapter({ files, origin: { kind: 'generated' }, activate: true })
+  const changed = new Map(files)
+  changed.set('wewright/commands/read-page.py', Buffer.from('print("next draft")'))
+  const before = validatePackageFiles(changed)
+  const nextManifest = { ...before.manifest, version: '1.0.1' }
+  const advanced = new Map(changed)
+  advanced.set('manifest.json', Buffer.from(JSON.stringify(nextManifest) + '\n'))
+  const after = validatePackageFiles(advanced)
+  let reconciled = false
+  const upstream = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+    if (url.endsWith('/installation-reconcile')) {
+      expect(JSON.parse(String(options?.body))).toMatchObject({ digest: payload.digest, revision: installed.revision, profile: 'public' })
+      reconciled = true
+      return Response.json({ reconciled: true })
+    }
+    if (url.endsWith('/installation-ack')) return Response.json({ ok: true })
+    const pkg = reconciled ? after : before
+    return Response.json({ name: pkg.name, digest: pkg.digest, operation_id: pkg.digest + '-2',
+      install_baseline_digest: reconciled ? installed.digest : null, changed_tools: ['read_page'],
+      files: Object.fromEntries([...pkg.files].map(([name, value]) => [name, value.toString('base64')])) })
+  }) as unknown as typeof fetch
+  const { request } = await harness({}, upstream)
+  const review = await (await request('/toolkits/demo/install-review')).json()
+  expect(reconciled).toBe(true)
+  expect(review.version).toBe('1.0.1')
+  expect(review.digest).toBe(after.digest)
+  expect(review.overwritesNewerBase).toBe(false)
+  const applied = await request('/toolkits/demo/install-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reviewId: review.reviewId }) })
+  expect(applied.status).toBe(200)
+  expect(await applied.json()).toMatchObject({ version: '1.0.1', digest: after.digest, acknowledged: true })
 })

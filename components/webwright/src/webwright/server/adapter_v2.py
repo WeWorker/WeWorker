@@ -45,41 +45,40 @@ def package_digest(files: dict[str, bytes]) -> str:
     return digest.hexdigest()
 
 
-def _base_path(store: ToolkitStore, toolkit_id: str) -> Path:
-    return store.toolkit_dir(toolkit_id) / ".server" / "adapter-base.json"
-
-
 def read_base(store: ToolkitStore, toolkit_id: str) -> dict[str, Any] | None:
-    path = _base_path(store, toolkit_id)
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    from webwright.server.package_workspace import read_state, read_package
+    base = read_state(store, toolkit_id).get("retained_base")
+    if not base:
+        return None
+    files, _ = read_package(store, toolkit_id, base["digest"])
+    return {**base, "files": {name: base64.b64encode(value).decode("ascii") for name, value in files.items()}}
 
 
-def bind_base(
-    store: ToolkitStore, toolkit_id: str, *, profile: str, digest: str,
-    files: dict[str, str],
-) -> dict[str, Any]:
-    if read_base(store, toolkit_id) is not None:
-        raise ValueError("Adapter is already bound to this workspace.")
-    if not isinstance(profile, str) or not _PROFILE.fullmatch(profile) or not isinstance(files, dict):
-        raise ValueError("A complete Adapter package and profile are required.")
-    if not 1 <= len(files) <= 512 or any(not _safe_package_path(name) or not isinstance(value, str)
-                                         for name, value in files.items()):
-        raise ValueError("Adapter package contains an unsafe file path.")
-    decoded = {name: base64.b64decode(value, validate=True) for name, value in files.items()}
-    if sum(len(content) for content in decoded.values()) > 32 * 1024 * 1024:
-        raise ValueError("Adapter package exceeds the size limit.")
-    manifest = json.loads(decoded["manifest.json"])
-    _check_package_identity(manifest.get("name"), digest)
-    if package_digest(decoded) != digest:
-        raise ValueError("Adapter package changed during import.")
-    if manifest.get("schema_version") != 2 or not manifest.get("name"):
-        raise ValueError("Only v2 Adapter packages can be extended.")
-    toolkit = store.get_toolkit(toolkit_id)
-    metadata = {**toolkit, "name": manifest["name"], "adapter_name": manifest["name"]}
-    atomic_write_json(store.metadata_path(toolkit_id), metadata)
-    base = {"profile": profile, "digest": digest, "name": manifest["name"], "files": files}
-    atomic_write_json(_base_path(store, toolkit_id), base)
-    return {"name": manifest["name"], "digest": digest, "profile": profile}
+def bind_base(store: ToolkitStore, toolkit_id: str, *, profile: str, digest: str,
+              files: dict[str, str]) -> dict[str, Any]:
+    from webwright.server.package_workspace import read_state, save_state, write_package
+    with store._slot_lock:
+        state = read_state(store, toolkit_id)
+        if state.get("retained_base") or state.get("candidate_digest"):
+            raise ValueError("Adapter workspace already contains a package.")
+        if not isinstance(profile, str) or not _PROFILE.fullmatch(profile) or not isinstance(files, dict):
+            raise ValueError("A complete Adapter package and profile are required.")
+        if not 1 <= len(files) <= 512 or any(not _safe_package_path(name) or not isinstance(value, str) for name, value in files.items()):
+            raise ValueError("Adapter package contains an unsafe file path.")
+        decoded = {name: base64.b64decode(value, validate=True) for name, value in files.items()}
+        if sum(map(len, decoded.values())) > 32 * 1024 * 1024:
+            raise ValueError("Adapter package exceeds the size limit.")
+        manifest = json.loads(decoded["manifest.json"])
+        _check_package_identity(manifest.get("name"), digest)
+        if package_digest(decoded) != digest or manifest.get("schema_version") != 2:
+            raise ValueError("Invalid v2 Adapter package.")
+        write_package(store, toolkit_id, decoded)
+        toolkit = store.get_toolkit(toolkit_id)
+        atomic_write_json(store.metadata_path(toolkit_id), {**toolkit, "name": manifest["name"], "adapter_name": manifest["name"]})
+        base = {"profile": profile, "digest": digest, "name": manifest["name"]}
+        state.update(retained_base=base, install_baseline_digest=digest, profile=profile)
+        save_state(store, toolkit_id, state)
+        return base
 
 
 def adapter_name(store: ToolkitStore, toolkit_id: str) -> str:
@@ -107,7 +106,7 @@ from webwright.tool_runtime.toolkit_runtime import PublishedToolkitRunner
 
 sys.dont_write_bytecode = True
 
-{str(slot["code"]).rstrip()}
+{str(slot["code"])}
 
 SCHEMA = {specification!r}
 RUNNER = PublishedToolkitRunner(
@@ -170,72 +169,19 @@ if __name__ == "__main__":
 
 
 def render_package(store: ToolkitStore, toolkit_id: str) -> dict[str, bytes]:
-    toolkit = store.get_toolkit(toolkit_id)
-    base = read_base(store, toolkit_id)
-    files = ({name: base64.b64decode(content, validate=True)
-              for name, content in base["files"].items()} if base else {})
-    manifest = json.loads(files["manifest.json"]) if base else {
-        "schema_version": 2, "name": adapter_name(store, toolkit_id),
-        "version": "1.0.0", "description": toolkit.get("description") or toolkit["name"],
-        "runtime_allowed_hosts": toolkit["allowed_domains"], "commands": [],
-    }
-    if base:
-        major, minor, patch = (int(part) for part in manifest["version"].split("-")[0].split("+")[0].split("."))
-        manifest["version"] = f"{major}.{minor}.{patch + 1}"
-        manifest["runtime_allowed_hosts"] = list(dict.fromkeys([
-            *(manifest.get("runtime_allowed_hosts") or []), *toolkit["allowed_domains"],
-        ]))
-    existing = {command["id"] for command in manifest["commands"]}
-    for tool in store.list_tools(toolkit_id):
-        tool_id = str(tool["tool_id"])
-        slot = store.read_formal_slot(toolkit_id, tool_id)
-        if not slot:
-            continue
-        command_id = tool_id.replace("_", "-")
-        if command_id in existing:
-            raise ValueError(f"Adapter command already exists: {command_id}")
-        module = f"wewright/commands/{command_id}.py"
-        compile(slot["code"], module, "exec")
-        files[module] = _command_source(
-            toolkit_id=toolkit_id, tool_id=tool_id, toolkit=toolkit, tool=tool, slot=slot,
-        ).encode("utf-8")
-        manifest["commands"].append({
-            "id": command_id, "runtime": "wewright", "module": module,
-            "description": slot.get("description") or tool.get("goal") or command_id,
-            "schema": slot["parameters_schema"], "safety": "read",
-        })
-        existing.add(command_id)
-    if not manifest["commands"]:
-        raise ValueError("Adapter has no published commands.")
-    files["manifest.json"] = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
-    return files
+    return current_package(store, toolkit_id)[1]
 
 
 def snapshot_package(store: ToolkitStore, toolkit_id: str) -> dict[str, Any]:
-    files = render_package(store, toolkit_id)
-    digest = package_digest(files)
-    name = adapter_name(store, toolkit_id)
-    _check_package_identity(name, digest)
-    if any(not _safe_package_path(relative) for relative in files):
-        raise ValueError("Adapter package contains an unsafe file path.")
-    root = store.toolkit_dir(toolkit_id) / "v2-snapshots" / digest / name
-    for relative, content in files.items():
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists() and target.read_bytes() != content:
-            raise ValueError("Published Adapter snapshot was modified.")
-        if not target.exists():
-            target.write_bytes(content)
-    metadata = {"name": name, "digest": digest, "version": json.loads(files["manifest.json"])["version"]}
-    atomic_write_json(store.toolkit_dir(toolkit_id) / ".server" / "v2-current.json", metadata)
-    return metadata
+    return current_package(store, toolkit_id)[0]
 
 
 def current_package(store: ToolkitStore, toolkit_id: str) -> tuple[dict[str, Any], dict[str, bytes], Path]:
-    metadata = json.loads((store.toolkit_dir(toolkit_id) / ".server" / "v2-current.json").read_text(encoding="utf-8"))
-    _check_package_identity(metadata["name"], metadata["digest"])
-    root = store.toolkit_dir(toolkit_id) / "v2-snapshots" / metadata["digest"] / metadata["name"]
-    files = {path.relative_to(root).as_posix(): path.read_bytes() for path in root.rglob("*") if path.is_file()}
-    if package_digest(files) != metadata["digest"]:
-        raise ValueError("Published Adapter snapshot changed.")
-    return metadata, files, root
+    from webwright.server.package_workspace import read_state, read_package
+    state = read_state(store, toolkit_id)
+    digest = state.get("candidate_digest")
+    if not digest:
+        raise ValueError("Adapter has no saved commands.")
+    files, root = read_package(store, toolkit_id, digest)
+    manifest = json.loads(files["manifest.json"])
+    return {"name": manifest["name"], "digest": digest, "version": manifest["version"]}, files, root

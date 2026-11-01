@@ -1,3 +1,5 @@
+import { needsAdapterApplyReview, adapterApplyFeedback } from '../utils/website-adapter-apply.js'
+import { getInstallReview, applyAdapter } from '../api/website-exploration-api.js'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -94,4 +96,38 @@ test('a concurrent navigation cannot replace an unresolved leave request', async
   store.getState().resolveLeave(false)
   assert.equal(await first, false)
   store.setState({ codeDraft: null })
+})
+
+
+test('whole Adapter review covers multiple commands and installation changes', () => {
+  const review = { addedPermissions: [], changedTools: ['read_page'] }
+  assert.equal(needsAdapterApplyReview(review), false)
+  for (const change of [{ changedTools: ['read_page', 'list_items'] }, { addedPermissions: ['host:example.com'] }, { sourceChange: true }, { downgrade: true }, { overwritesNewerBase: true }]) {
+    assert.equal(needsAdapterApplyReview({ ...review, ...change }), true)
+  }
+})
+
+test('installation feedback distinguishes refresh and workspace acknowledgement failures', () => {
+  assert.match(adapterApplyFeedback({ refreshed: false, acknowledged: true }), /能力同步待完成/)
+  assert.match(adapterApplyFeedback({ refreshed: true, acknowledged: false }), /开发区状态同步待完成/)
+  assert.match(adapterApplyFeedback({ refreshed: true, acknowledged: true }), /对话中调试/)
+})
+
+test('direct apply uses host review and install without local publish or debug calls', async () => {
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  const calls = []
+  globalThis.window = { electronAPI: {} }
+  globalThis.fetch = async (url, options) => {
+    calls.push([String(url), options])
+    return Response.json(String(url).endsWith('install-review') ? { reviewId: 'review-test' } : { refreshed: true, acknowledged: true })
+  }
+  try {
+    const review = await getInstallReview('demo')
+    await applyAdapter('demo', review.reviewId, true)
+    assert.equal(calls.length, 2)
+    assert.match(calls[0][0], /toolkits\/demo\/install-review$/)
+    assert.match(calls[1][0], /toolkits\/demo\/install-apply$/)
+    assert.deepEqual(JSON.parse(calls[1][1].body), { reviewId: 'review-test', acceptChanges: true })
+  } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })

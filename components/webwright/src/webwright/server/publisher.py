@@ -553,55 +553,6 @@ class ToolkitPublisher:
         atomic_write_json(self.build_path(toolkit_id), build)
         return build
 
-    def publish(self, toolkit_id: str, tool_id: str) -> dict[str, Any]:
-        with self._lock:
-            development = self.store.read_development_slot(toolkit_id, tool_id)
-            if development is None:
-                raise ValueError("Tool has no development version.")
-            if not self.debug_store.has_successful_run(
-                tool_id=tool_id,
-                channel="development",
-                code_hash=str(development["code_hash"]),
-            ):
-                raise ValueError("Current development code has no succeeded Debug Run.")
-            atomic_write_json(
-                self.journal_path(toolkit_id),
-                {
-                    "toolkit_id": toolkit_id,
-                    "tool_id": tool_id,
-                    "code_hash": development["code_hash"],
-                    "phase": "prepared",
-                    "created_at": now_iso(),
-                },
-            )
-            try:
-                formal = self.store.promote_development_slot(
-                    toolkit_id,
-                    tool_id,
-                    expected_code_hash=str(development["code_hash"]),
-                )
-            except Exception:
-                self.journal_path(toolkit_id).unlink(missing_ok=True)
-                raise
-            atomic_write_json(
-                self.journal_path(toolkit_id),
-                {
-                    "toolkit_id": toolkit_id,
-                    "tool_id": tool_id,
-                    "code_hash": development["code_hash"],
-                    "phase": "formal_installed",
-                    "created_at": now_iso(),
-                },
-            )
-            build = snapshot_package(self.store, toolkit_id)
-            self.store.clear_development_slot(
-                toolkit_id,
-                tool_id,
-                expected_code_hash=str(development["code_hash"]),
-            )
-            self.journal_path(toolkit_id).unlink(missing_ok=True)
-            return {"formal": formal, "build": build}
-
     def export_status(self, toolkit_id: str) -> dict[str, Any]:
         try:
             metadata, files, _ = current_package(self.store, toolkit_id)
@@ -643,7 +594,7 @@ class ToolkitPublisher:
             "tools": tools,
             "unverified_tools": unverified,
             "artifacts_consistent": True,
-            "export_eligible": bool(tools) and not unverified,
+            "export_eligible": bool(manifest["commands"]),
         }
 
     def export_zip(self, toolkit_id: str) -> bytes:
@@ -698,18 +649,6 @@ class ToolkitPublisher:
         return current
 
     def recover(self, toolkit_id: str) -> None:
-        path = self.journal_path(toolkit_id)
-        if not path.is_file():
-            return
-        journal = json.loads(path.read_text(encoding="utf-8"))
-        tool_id = str(journal["tool_id"])
-        expected_code_hash = str(journal["code_hash"])
-        formal = self.store.read_formal_slot(toolkit_id, tool_id)
-        if formal and formal.get("code_hash") == expected_code_hash:
-            snapshot_package(self.store, toolkit_id)
-            self.store.clear_development_slot(
-                toolkit_id,
-                tool_id,
-                expected_code_hash=expected_code_hash,
-            )
-        path.unlink(missing_ok=True)
+        # Atomic workspace pointers need no promotion journal. Host acknowledgement
+        # is retried by the same install operation after a lost response.
+        return None

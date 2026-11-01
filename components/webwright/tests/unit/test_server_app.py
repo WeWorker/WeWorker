@@ -595,7 +595,7 @@ def test_manual_development_code_update_api_rehashes_and_rejects_stale_save(
     assert payload["development"]["code"] == updated_code
     assert payload["development"]["code_hash"] != original["code_hash"]
     assert payload["development"]["source_exploration_id"] == "exp_1"
-    assert payload["publish_eligible"] is False
+    assert payload["publish_eligible"] is True
 
     invalid = client.put(
         "/api/toolkits/blog_admin/tools/search_blog/development",

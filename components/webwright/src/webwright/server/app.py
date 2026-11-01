@@ -123,12 +123,11 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/development/events": {"get": op("Stream Tool development events")},
             "/api/development-runs/{development_run_id}": {"get": op("Get Development Run details")},
             "/api/development-runs/{development_run_id}/files/{path}": {"get": op("Read a Development Run artifact")},
-            "/api/toolkits/{toolkit_id}/tools/{tool_id}/publish": {"post": op("Publish the development Tool")},
             "/api/toolkits/{toolkit_id}/export-status": {"get": op("Get v2 Adapter package export eligibility")},
             "/api/toolkits/{toolkit_id}/export": {"get": op("Download the verified v2 Adapter ZIP")},
             "/api/toolkits/{toolkit_id}/bind-adapter": {"post": op("Bind a host-validated v2 Adapter baseline in embedded mode")},
             "/api/toolkits/{toolkit_id}/adapter-base": {"get": op("Read the bound Adapter identity in embedded mode")},
-            "/api/toolkits/{toolkit_id}/v2-package": {"get": op("Read the verified complete v2 package in embedded mode")},
+            "/api/toolkits/{toolkit_id}/v2-package": {"get": op("Read the saved complete v2 package in embedded mode")},
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/debug-runs": {
                 "get": op("List Debug Runs"),
                 "post": op("Create and start a Debug Run"),
@@ -252,8 +251,7 @@ It has no independent model configuration API or persistent model store.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/restart-from-exploration` - clear development and rebuild only from one succeeded Tool-owned Exploration.
 - `DELETE /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development` - discard development.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/events` - latest Development Run SSE.
-- `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/publish` - publish after a matching succeeded Debug Run.
-- `GET /api/toolkits/{{toolkit_id}}/export-status` - get current formal artifact hash, per-Tool verification, and export eligibility.
+- `GET /api/toolkits/{{toolkit_id}}/export-status` - get the saved candidate package digest and export eligibility.
 - `GET /api/toolkits/{{toolkit_id}}/export` - download the verified Toolkit ZIP after server-side revalidation.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/debug-runs` - list Debug Runs.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/debug-runs` - run the formal or development slot.
@@ -874,6 +872,9 @@ def create_app(
         toolkits.finish_tool_deletion(
             toolkit_id, tool_id, str(payload.get("transaction_id") or ""),
             restore=payload.get("restore") is True,
+            host_uninstalled=payload.get("host_uninstalled") is True,
+            host_package=payload.get("host_package") if isinstance(payload.get("host_package"), dict) else None,
+            host_revision=payload.get("host_revision"),
         )
         return jsonify({"ok": True})
 
@@ -895,14 +896,7 @@ def create_app(
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/development")
     def get_development_slot(toolkit_id: str, tool_id: str):
         development = toolkits.read_development_slot(toolkit_id, tool_id)
-        publish_eligible = bool(
-            development
-            and debug_runs.has_successful_run(
-                tool_id=tool_id,
-                channel="development",
-                code_hash=str(development["code_hash"]),
-            )
-        )
+        publish_eligible = bool(development)
         runs = development_runs.list_for_tool(toolkit_id, tool_id)
         return jsonify(
             {
@@ -930,11 +924,7 @@ def create_app(
         return jsonify(
             {
                 "development": development,
-                "publish_eligible": debug_runs.has_successful_run(
-                    tool_id=tool_id,
-                    channel="development",
-                    code_hash=str(development["code_hash"]),
-                ),
+                "publish_eligible": True,
             }
         )
 
@@ -1048,18 +1038,6 @@ def create_app(
         )
         return send_file(resolve_task_file(run_dir, relative_path))
 
-    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/publish")
-    def publish_tool(toolkit_id: str, tool_id: str):
-        result = toolkit_publisher.publish(toolkit_id, tool_id)
-        return jsonify(
-            {
-                "toolkit_id": toolkit_id,
-                "tool_id": tool_id,
-                "code_hash": result["formal"]["code_hash"],
-                "build": result["build"],
-            }
-        )
-
     @app.get("/api/toolkits/<toolkit_id>/export-status")
     def toolkit_export_status(toolkit_id: str):
         return jsonify(toolkit_publisher.export_status(toolkit_id))
@@ -1086,14 +1064,40 @@ def create_app(
         def get_v2_package(toolkit_id: str):
             status = toolkit_publisher.export_status(toolkit_id)
             if not status["export_eligible"]:
-                return _error("invalid_state", "Adapter requires successful formal Debug Runs.", 409)
-            metadata, files, _ = current_package(toolkits, toolkit_id)
+                return _error("invalid_state", "Adapter has no complete saved candidate.", 409)
+            from webwright.server.package_workspace import prepare_apply
+            with toolkits._slot_lock:
+                state = prepare_apply(toolkits, toolkit_id)
+                metadata, files, _ = current_package(toolkits, toolkit_id)
             return jsonify({
                 "name": metadata["name"], "digest": metadata["digest"],
                 "files": {name: base64.b64encode(content).decode("ascii")
                           for name, content in files.items()},
                 "base": read_base(toolkits, toolkit_id),
+                "install_baseline_digest": state.get("install_baseline_digest"),
+                "profile": state.get("profile"),
+                "changed_tools": sorted(set(state["drafts"]) | set(state["removed_tools"])),
+                "operation_id": state["operation_id"],
             })
+
+        @app.post("/api/toolkits/<toolkit_id>/installation-ack")
+        def acknowledge_installation(toolkit_id: str):
+            from webwright.server.package_workspace import acknowledge_apply
+            payload = _request_json()
+            revision = payload.get("revision")
+            profile = payload.get("profile")
+            if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0 or not isinstance(profile, str) or not profile:
+                raise ValueError("Invalid installation acknowledgement.")
+            return jsonify(acknowledge_apply(toolkits, toolkit_id, digest=payload.get("digest"), revision=revision, profile=profile, operation_id=payload.get("operation_id")))
+
+        @app.post("/api/toolkits/<toolkit_id>/installation-reconcile")
+        def reconcile_host_installation(toolkit_id: str):
+            from webwright.server.package_workspace import reconcile_installation
+            payload = _request_json()
+            revision, profile = payload.get("revision"), payload.get("profile")
+            if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0 or not isinstance(profile, str) or not profile:
+                raise ValueError("Invalid installation acknowledgement.")
+            return jsonify(reconcile_installation(toolkits, toolkit_id, digest=payload.get("digest"), revision=revision, profile=profile))
 
     @app.get("/api/toolkits/<toolkit_id>/export")
     def export_toolkit(toolkit_id: str):

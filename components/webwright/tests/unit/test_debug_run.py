@@ -40,8 +40,8 @@ def _stores(tmp_path: Path) -> tuple[ToolkitStore, DebugRunStore]:
         "result_schema": {"type": "object"},
         "source_exploration_id": "exp_1",
     }
-    toolkits.write_development_slot("blog_admin", "search_blog", slot)
     toolkits.write_formal_slot("blog_admin", "search_blog", slot)
+    toolkits.write_development_slot("blog_admin", "search_blog", slot)
     return toolkits, DebugRunStore(toolkits)
 
 
