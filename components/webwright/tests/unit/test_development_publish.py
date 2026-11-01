@@ -33,6 +33,7 @@ from webwright.runtime_identity import RuntimeIdentity
 from webwright.server.records import TaskStore, atomic_write_json
 from webwright.server.status import DebugRunStatus, DevelopmentRunStatus
 from webwright.server.toolkit_store import ToolkitStore
+from webwright.server.package_workspace import prepare_apply, acknowledge_apply, read_state
 
 
 def _stores(tmp_path: Path):
@@ -47,6 +48,15 @@ def _stores(tmp_path: Path):
         start_url="https://blog.example.com/posts",
     )
     return toolkits, DebugRunStore(toolkits), DevelopmentRunStore(toolkits)
+
+
+def _apply(store, tool_id="search_blog"):
+    operation = prepare_apply(store, "blog_admin")
+    build = current_package(store, "blog_admin")[0]
+    acknowledge_apply(store, "blog_admin", digest=operation["candidate_digest"],
+        revision=operation.get("host_revision", 0) + 1, profile=operation.get("profile", "default"),
+        operation_id=operation["operation_id"])
+    return {"formal": store.read_formal_slot("blog_admin", tool_id), "build": build}
 
 
 def _verified_formal_run(toolkits: ToolkitStore, debug_runs: DebugRunStore, tool_id: str, build: dict):
@@ -261,7 +271,7 @@ def test_exploration_only_start_clears_draft_and_preserves_formal_artifact(
     assert evidence["debug_run_evidence"] is None
     assert build["artifact_hash"] == publisher.ensure_consistent("blog_admin")["artifact_hash"]
     assert publisher.export_status("blog_admin")["export_eligible"] is True
-    assert current_package(toolkits, "blog_admin")[0] == v2_build
+    assert current_package(toolkits, "blog_admin")[0]["digest"] == read_state(toolkits, "blog_admin")["last_applied_digest"]
     assert artifact_before == {
         path.relative_to(skill_root).as_posix(): path.read_bytes()
         for path in skill_root.rglob("*")
@@ -351,12 +361,12 @@ def test_exploration_only_success_is_published_before_formal_artifact_changes(
         development_debug["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value
     )
 
-    published = publisher.publish("blog_admin", "search_blog")
+    published = _apply(toolkits)
 
     assert published["formal"]["code_hash"] == development["code_hash"]
     assert published["build"]["digest"] == current_package(toolkits, "blog_admin")[0]["digest"]
     assert toolkits.read_development_slot("blog_admin", "search_blog") is None
-    assert publisher.export_status("blog_admin")["export_eligible"] is False
+    assert publisher.export_status("blog_admin")["export_eligible"] is True
 
 
 def test_finish_development_validates_and_overwrites_single_slot(tmp_path: Path) -> None:
@@ -732,9 +742,8 @@ def test_publisher_is_deterministic_and_old_hash_does_not_qualify(tmp_path: Path
             "result_schema": _slot()["result_schema"],
         }
     ]
-    with pytest.raises(ValueError, match="no succeeded Debug Run"):
-        publisher.publish("blog_admin", "search_blog")
-    assert toolkits.read_development_slot("blog_admin", "search_blog")["code_hash"] == changed["code_hash"]
+    _apply(toolkits)
+    assert toolkits.read_formal_slot("blog_admin", "search_blog")["code_hash"] == changed["code_hash"]
 
 
 def test_consistency_generator_installs_formal_artifacts(tmp_path: Path) -> None:
@@ -907,7 +916,7 @@ def test_generated_cli_starts_from_isolated_artifact_directory(tmp_path: Path) -
     assert not (isolated / ".server").exists()
 
 
-def test_export_requires_every_formal_tool_for_current_artifact(monkeypatch, tmp_path: Path) -> None:
+def test_export_does_not_require_business_runs(monkeypatch, tmp_path: Path) -> None:
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     search_formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     toolkits.create_tool(
@@ -926,10 +935,9 @@ def test_export_requires_every_formal_tool_for_current_artifact(monkeypatch, tmp
     _verified_formal_run(toolkits, debug_runs, "search_blog", build)
 
     pending = publisher.export_status("blog_admin")
-    assert pending["export_eligible"] is False
+    assert pending["export_eligible"] is True
     assert pending["unverified_tools"] == ["open_blog"]
-    with pytest.raises(ValueError, match="not eligible"):
-        publisher.export_zip("blog_admin")
+    assert publisher.export_zip("blog_admin")
 
     _verified_formal_run(toolkits, debug_runs, "open_blog", build)
 
@@ -946,7 +954,7 @@ def test_export_requires_every_formal_tool_for_current_artifact(monkeypatch, tmp
     assert {command["id"] for command in manifest["commands"]} == {"open-blog", "search-blog"}
     changed_runtime = {**RuntimeIdentity.resolve().as_health_fields(), "build": "changed-build"}
     monkeypatch.setattr(publisher_module.RuntimeIdentity, "resolve", lambda: SimpleNamespace(as_health_fields=lambda: changed_runtime))
-    assert publisher.export_status("blog_admin")["export_eligible"] is False
+    assert publisher.export_status("blog_admin")["export_eligible"] is True
 
 
 def test_mixed_v2_package_retains_extension_bytes_and_validates_with_host(tmp_path: Path) -> None:
@@ -990,7 +998,7 @@ if (result.digest !== payload.digest || result.commands.length !== 2) process.ex
     assert verified.returncode == 0, verified.stderr
 
 
-def test_export_api_rechecks_eligibility_and_old_artifact_is_invalidated(tmp_path: Path) -> None:
+def test_export_api_uses_saved_candidate_without_business_runs(tmp_path: Path) -> None:
     toolkits, debug_runs, _development_runs = _stores(tmp_path)
     formal = toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
     publisher = ToolkitPublisher(toolkits, debug_runs)
@@ -1024,12 +1032,12 @@ def test_export_api_rechecks_eligibility_and_old_artifact_is_invalidated(tmp_pat
     debug_runs.update(
         development_run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value
     )
-    publisher.publish("blog_admin", "search_blog")
+    _apply(toolkits)
 
     stale = client.get("/api/toolkits/blog_admin/export-status").get_json()
-    assert stale["export_eligible"] is False
+    assert stale["export_eligible"] is True
     assert stale["unverified_tools"] == ["search_blog"]
-    assert client.get("/api/toolkits/blog_admin/export").status_code == 400
+    assert client.get("/api/toolkits/blog_admin/export").status_code == 200
 
 
 def test_embedded_capability_directly_overwrites_project_skill(
@@ -1155,7 +1163,7 @@ def test_startup_preserves_package_and_development_but_old_formal_run_is_unverif
     ] == development["code_hash"]
     assert debug_runs.read(legacy_run["debug_run_id"])["artifact_hash"] == ""
     status = app.test_client().get("/api/toolkits/blog_admin/export-status").get_json()
-    assert status["export_eligible"] is False
+    assert status["export_eligible"] is True
     assert status["unverified_tools"] == ["search_blog"]
     assert status["distribution_hash"] == build["digest"]
 
@@ -1197,7 +1205,7 @@ def test_publish_installs_all_artifacts_and_clears_development(tmp_path: Path) -
     debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
     publisher = ToolkitPublisher(toolkits, debug_runs)
 
-    result = publisher.publish("blog_admin", "search_blog")
+    result = _apply(toolkits)
 
     root = toolkits.toolkit_dir("blog_admin")
     assert result["formal"]["code_hash"] == development["code_hash"]
@@ -1211,121 +1219,54 @@ def test_publish_installs_all_artifacts_and_clears_development(tmp_path: Path) -
     assert not publisher.journal_path("blog_admin").exists()
 
 
-def test_publish_preserves_newer_development_written_during_install(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    toolkits, debug_runs, _development_runs = _stores(tmp_path)
-    development = toolkits.write_development_slot("blog_admin", "search_blog", _slot())
-    newer = _slot(", 'newer': True")
-    run = debug_runs.create(
-        tool_id="search_blog",
-        channel="development",
-        code_hash=development["code_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
-    publisher = ToolkitPublisher(toolkits, debug_runs)
-    from webwright.server import publisher as publisher_module
-    original_snapshot = publisher_module.snapshot_package
-
-    def snapshot_after_new_development(store: ToolkitStore, toolkit_id: str):
-        toolkits.write_development_slot(toolkit_id, "search_blog", newer)
-        return original_snapshot(store, toolkit_id)
-
-    monkeypatch.setattr(publisher_module, "snapshot_package", snapshot_after_new_development)
-
-    publisher.publish("blog_admin", "search_blog")
-
-    current = toolkits.read_development_slot("blog_admin", "search_blog")
-    assert current is not None
-    assert current["code_hash"] != development["code_hash"]
-    assert "newer" in current["code"]
+def test_install_ack_preserves_newer_development(tmp_path: Path) -> None:
+    toolkits, _, _ = _stores(tmp_path)
+    original = toolkits.write_development_slot("blog_admin", "search_blog", _slot())
+    operation = prepare_apply(toolkits, "blog_admin")
+    newer = toolkits.write_development_slot("blog_admin", "search_blog", _slot(", 'newer': True"))
+    acknowledge_apply(toolkits, "blog_admin", digest=operation["candidate_digest"], revision=1,
+        profile="public", operation_id=operation["operation_id"])
+    assert toolkits.read_development_slot("blog_admin", "search_blog") == newer
+    assert toolkits.read_formal_slot("blog_admin", "search_blog") == original
+    assert current_package(toolkits, "blog_admin")[0]["version"] == "1.0.1"
 
 
-def test_publish_aborts_if_development_changes_before_promotion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    toolkits, debug_runs, _development_runs = _stores(tmp_path)
-    development = toolkits.write_development_slot("blog_admin", "search_blog", _slot())
-    newer = _slot(", 'newer': True")
-    run = debug_runs.create(
-        tool_id="search_blog",
-        channel="development",
-        code_hash=development["code_hash"],
-        parameters={"keyword": "x"},
-    )
-    debug_runs.update(run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value)
-    publisher = ToolkitPublisher(toolkits, debug_runs)
-    original_promote = toolkits.promote_development_slot
-
-    def promote_after_new_development(
-        toolkit_id: str, tool_id: str, *, expected_code_hash: str
-    ):
-        toolkits.write_development_slot(toolkit_id, tool_id, newer)
-        return original_promote(
-            toolkit_id, tool_id, expected_code_hash=expected_code_hash
-        )
-
-    monkeypatch.setattr(toolkits, "promote_development_slot", promote_after_new_development)
-
-    with pytest.raises(ValueError, match="changed during publish"):
-        publisher.publish("blog_admin", "search_blog")
-
-    current = toolkits.read_development_slot("blog_admin", "search_blog")
-    assert current is not None
-    assert "newer" in current["code"]
-    assert toolkits.read_formal_slot("blog_admin", "search_blog") is None
-    assert not publisher.journal_path("blog_admin").exists()
+def test_install_ack_rejects_different_digest_and_profile(tmp_path: Path) -> None:
+    toolkits, _, _ = _stores(tmp_path)
+    toolkits.write_development_slot("blog_admin", "search_blog", _slot())
+    first = prepare_apply(toolkits, "blog_admin")
+    _apply(toolkits)
+    toolkits.write_development_slot("blog_admin", "search_blog", _slot(", 'newer': True"))
+    second = prepare_apply(toolkits, "blog_admin")
+    with pytest.raises(ValueError, match="digest changed"):
+        acknowledge_apply(toolkits, "blog_admin", digest=second["candidate_digest"], revision=2,
+            profile="default", operation_id=first["operation_id"])
+    with pytest.raises(ValueError, match="another build profile"):
+        acknowledge_apply(toolkits, "blog_admin", digest=second["candidate_digest"], revision=2,
+            profile="other", operation_id=second["operation_id"])
+    assert toolkits.read_development_slot("blog_admin", "search_blog") is not None
 
 
-def test_publish_journal_recovers_formal_installed_phase(tmp_path: Path) -> None:
-    toolkits, debug_runs, _development_runs = _stores(tmp_path)
-    development = toolkits.write_development_slot(
-        "blog_admin", "search_blog", _slot(", 'draft': True")
-    )
-    formal = toolkits.write_formal_slot("blog_admin", "search_blog", development)
-    publisher = ToolkitPublisher(toolkits, debug_runs)
-    atomic_write_json(
-        publisher.journal_path("blog_admin"),
-        {
-            "toolkit_id": "blog_admin",
-            "tool_id": "search_blog",
-            "code_hash": formal["code_hash"],
-            "phase": "formal_installed",
-        },
-    )
-
-    publisher.recover("blog_admin")
-
-    assert toolkits.read_development_slot("blog_admin", "search_blog") is None
-    assert not publisher.journal_path("blog_admin").exists()
-    assert current_package(toolkits, "blog_admin")[0]["digest"]
+def test_install_ack_recovers_after_restart(tmp_path: Path) -> None:
+    toolkits, _, _ = _stores(tmp_path)
+    original = toolkits.write_development_slot("blog_admin", "search_blog", _slot())
+    operation = prepare_apply(toolkits, "blog_admin")
+    restarted = ToolkitStore(toolkits.root)
+    for _ in range(2):
+        acknowledge_apply(restarted, "blog_admin", digest=operation["candidate_digest"], revision=1,
+            profile="public", operation_id=operation["operation_id"])
+    assert restarted.read_formal_slot("blog_admin", "search_blog") == original
+    assert restarted.read_development_slot("blog_admin", "search_blog") is None
 
 
-def test_publish_journal_recovers_prepared_phase_after_formal_write(tmp_path: Path) -> None:
-    toolkits, debug_runs, _development_runs = _stores(tmp_path)
-    toolkits.write_formal_slot("blog_admin", "search_blog", _slot())
-    publisher = ToolkitPublisher(toolkits, debug_runs)
-    snapshot_package(toolkits, "blog_admin")
-    development = toolkits.write_development_slot(
-        "blog_admin", "search_blog", _slot(", 'recovered': True")
-    )
-    atomic_write_json(
-        publisher.journal_path("blog_admin"),
-        {
-            "toolkit_id": "blog_admin",
-            "tool_id": "search_blog",
-            "code_hash": development["code_hash"],
-            "phase": "prepared",
-        },
-    )
-    toolkits.write_formal_slot("blog_admin", "search_blog", development)
-
-    publisher.recover("blog_admin")
-
-    assert "recovered" in current_package(toolkits, "blog_admin")[1]["wewright/commands/search-blog.py"].decode("utf-8")
-    assert toolkits.read_development_slot("blog_admin", "search_blog") is None
-    assert not publisher.journal_path("blog_admin").exists()
+def test_prepared_operation_does_not_mark_candidate_installed(tmp_path: Path) -> None:
+    toolkits, _, _ = _stores(tmp_path)
+    original = toolkits.write_development_slot("blog_admin", "search_blog", _slot())
+    operation = prepare_apply(toolkits, "blog_admin")
+    restarted = ToolkitStore(toolkits.root)
+    assert restarted.read_formal_slot("blog_admin", "search_blog") is None
+    assert restarted.read_development_slot("blog_admin", "search_blog") == original
+    assert current_package(restarted, "blog_admin")[0]["digest"] == operation["candidate_digest"]
 
 
 class PendingProcess:

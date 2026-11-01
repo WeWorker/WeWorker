@@ -177,12 +177,6 @@ class ToolkitStore:
     def tool_path(self, toolkit_id: str, tool_id: str) -> Path:
         return self.tool_dir(toolkit_id, tool_id) / "tool.json"
 
-    def formal_path(self, toolkit_id: str, tool_id: str) -> Path:
-        return self.tool_dir(toolkit_id, tool_id) / "formal.json"
-
-    def development_path(self, toolkit_id: str, tool_id: str) -> Path:
-        return self.toolkit_dir(toolkit_id) / "development" / tool_id / "current.json"
-
     def list_toolkits(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for path in self.root.glob("*/.server/toolkit.json"):
@@ -243,7 +237,8 @@ class ToolkitStore:
                     )
             payload["allowed_domains"] = domains
         payload["updated_at"] = now_iso()
-        atomic_write_json(self.metadata_path(toolkit_id), payload)
+        from webwright.server.package_workspace import update_metadata
+        update_metadata(self, toolkit_id, self.metadata_path(toolkit_id), payload)
         return payload
 
     def delete_toolkit(self, toolkit_id: str) -> None:
@@ -353,68 +348,72 @@ class ToolkitStore:
         if expected_effect is not None:
             payload["expected_effect"] = str(expected_effect).strip()
         payload["updated_at"] = now_iso()
-        atomic_write_json(self.tool_path(toolkit_id, tool_id), payload)
+        from webwright.server.package_workspace import update_metadata
+        update_metadata(self, toolkit_id, self.tool_path(toolkit_id, tool_id), payload, tool_id)
         return self._with_slot_facts(payload)
 
     def delete_tool(self, toolkit_id: str, tool_id: str) -> None:
-        self.get_tool(toolkit_id, tool_id)
-        dev_dir = self.development_path(toolkit_id, tool_id).parent
-        if dev_dir.exists():
-            shutil.rmtree(dev_dir)
-        shutil.rmtree(self.tool_dir(toolkit_id, tool_id))
+        with self._slot_lock:
+            self.get_tool(toolkit_id, tool_id)
+            from webwright.server.package_workspace import remove_tool_context
+            remove_tool_context(self, toolkit_id, tool_id)
+            shutil.rmtree(self.tool_dir(toolkit_id, tool_id))
 
     def stage_tool_deletion(self, toolkit_id: str, tool_id: str) -> str:
-        self.get_tool(toolkit_id, tool_id)
-        transaction_id = uuid.uuid4().hex
-        staged = self.toolkit_dir(toolkit_id) / ".server" / "tool-deletions" / transaction_id
-        staged.mkdir(parents=True)
-        tool_dir = self.tool_dir(toolkit_id, tool_id)
-        development_dir = self.development_path(toolkit_id, tool_id).parent
-        try:
-            tool_dir.rename(staged / "tool")
-            if development_dir.exists():
-                development_dir.rename(staged / "development")
-        except Exception:
-            if (staged / "tool").exists():
-                (staged / "tool").rename(tool_dir)
-            shutil.rmtree(staged)
-            raise
-        return transaction_id
+        with self._slot_lock:
+            self.get_tool(toolkit_id, tool_id)
+            transaction_id = uuid.uuid4().hex
+            staged = self.toolkit_dir(toolkit_id) / ".server" / "tool-deletions" / transaction_id
+            staged.mkdir(parents=True)
+            self.tool_dir(toolkit_id, tool_id).rename(staged / "tool")
+            return transaction_id
 
-    def finish_tool_deletion(self, toolkit_id: str, tool_id: str, transaction_id: str, *, restore: bool) -> None:
+    def finish_tool_deletion(
+        self, toolkit_id: str, tool_id: str, transaction_id: str, *,
+        restore: bool, host_uninstalled: bool = False,
+        host_package: dict[str, Any] | None = None, host_revision: int | None = None,
+    ) -> None:
         if not re.fullmatch(r"[a-f0-9]{32}", transaction_id):
-            raise ValueError("Invalid Tool deletion transaction.")
-        staged = self.toolkit_dir(toolkit_id) / ".server" / "tool-deletions" / transaction_id
-        if not (staged / "tool" / "tool.json").is_file():
-            raise FileNotFoundError("Tool deletion transaction not found.")
-        payload = json.loads((staged / "tool" / "tool.json").read_text(encoding="utf-8"))
-        if payload.get("toolkit_id") != toolkit_id or payload.get("tool_id") != tool_id:
-            raise ValueError("Tool deletion transaction does not match the Tool.")
-        if restore:
-            tool_dir = self.tool_dir(toolkit_id, tool_id)
-            development_dir = self.development_path(toolkit_id, tool_id).parent
-            if tool_dir.exists() or development_dir.exists():
-                raise ValueError("Tool changed while deletion was pending.")
-            (staged / "tool").rename(tool_dir)
-            if (staged / "development").exists():
-                development_dir.parent.mkdir(parents=True, exist_ok=True)
-                (staged / "development").rename(development_dir)
-        shutil.rmtree(staged)
+            raise ValueError("Invalid deletion transaction.")
+        with self._slot_lock:
+            staged = self.toolkit_dir(toolkit_id) / ".server" / "tool-deletions" / transaction_id
+            payload = self._read_optional_json(staged / "tool" / "tool.json")
+            if not payload or payload.get("tool_id") != tool_id or payload.get("toolkit_id") != toolkit_id:
+                raise ValueError("Deletion transaction does not match Tool.")
+            if restore:
+                target = self.tool_dir(toolkit_id, tool_id)
+                if target.exists():
+                    raise ValueError("Tool changed while deletion was pending.")
+                (staged / "tool").rename(target)
+            else:
+                from webwright.server.package_workspace import remove_tool_context
+                remove_tool_context(
+                    self, toolkit_id, tool_id,
+                    host_uninstalled=host_uninstalled,
+                    host_package=host_package,
+                    host_revision=host_revision,
+                )
+            shutil.rmtree(staged)
 
     def read_formal_slot(self, toolkit_id: str, tool_id: str) -> dict[str, Any] | None:
         self.get_tool(toolkit_id, tool_id)
-        return self._read_optional_json(self.formal_path(toolkit_id, tool_id))
+        from webwright.server.package_workspace import read_slot
+        return read_slot(self, toolkit_id, tool_id, applied=True)
 
     def read_development_slot(self, toolkit_id: str, tool_id: str) -> dict[str, Any] | None:
         self.get_tool(toolkit_id, tool_id)
-        return self._read_optional_json(self.development_path(toolkit_id, tool_id))
+        from webwright.server.package_workspace import read_slot
+        return read_slot(self, toolkit_id, tool_id)
 
     def write_formal_slot(
         self, toolkit_id: str, tool_id: str, slot: dict[str, Any]
     ) -> dict[str, Any]:
         with self._slot_lock:
             payload = self._validate_slot(toolkit_id, tool_id, slot)
-            atomic_write_json(self.formal_path(toolkit_id, tool_id), payload)
+            from webwright.server.package_workspace import write_slot, prepare_apply, acknowledge_apply
+            write_slot(self, toolkit_id, tool_id, payload)
+            state = prepare_apply(self, toolkit_id)
+            acknowledge_apply(self, toolkit_id, digest=state["candidate_digest"], revision=state.get("host_revision", 0) + 1, profile=state.get("profile", "default"), operation_id=state["operation_id"])
             return payload
 
     def write_development_slot(
@@ -427,7 +426,8 @@ class ToolkitStore:
                 "source_exploration_id"
             ):
                 raise ValueError("source_exploration_id cannot change during a development cycle.")
-            atomic_write_json(self.development_path(toolkit_id, tool_id), payload)
+            from webwright.server.package_workspace import write_slot
+            write_slot(self, toolkit_id, tool_id, payload)
             return payload
 
     def update_development_code(
@@ -453,17 +453,9 @@ class ToolkitStore:
                 tool_id,
                 {**current, "code": code},
             )
-            atomic_write_json(self.development_path(toolkit_id, tool_id), payload)
+            from webwright.server.package_workspace import write_slot
+            write_slot(self, toolkit_id, tool_id, payload)
             return payload
-
-    def promote_development_slot(
-        self, toolkit_id: str, tool_id: str, *, expected_code_hash: str
-    ) -> dict[str, Any]:
-        with self._slot_lock:
-            current = self.read_development_slot(toolkit_id, tool_id)
-            if current is None or current.get("code_hash") != expected_code_hash:
-                raise ValueError("Development version changed during publish.")
-            return self.write_formal_slot(toolkit_id, tool_id, current)
 
     def clear_development_slot(
         self,
@@ -474,14 +466,11 @@ class ToolkitStore:
     ) -> bool:
         with self._slot_lock:
             self.get_tool(toolkit_id, tool_id)
-            path = self.development_path(toolkit_id, tool_id)
-            if not path.is_file():
+            current = self.read_development_slot(toolkit_id, tool_id)
+            if current is None or (expected_code_hash is not None and current["code_hash"] != expected_code_hash):
                 return False
-            if expected_code_hash is not None:
-                current = self.read_development_slot(toolkit_id, tool_id)
-                if current is None or current.get("code_hash") != expected_code_hash:
-                    return False
-            path.unlink()
+            from webwright.server.package_workspace import discard_slot
+            discard_slot(self, toolkit_id, tool_id)
             return True
 
     def reset_development_from_formal(
@@ -496,7 +485,8 @@ class ToolkitStore:
             payload["based_on_formal_hash"] = str(formal["code_hash"])
             payload["debug_run_evidence_id"] = ""
             written = self._validate_slot(toolkit_id, tool_id, payload)
-            atomic_write_json(self.development_path(toolkit_id, tool_id), written)
+            from webwright.server.package_workspace import write_slot
+            write_slot(self, toolkit_id, tool_id, written)
             return written
 
     def read_runtime(self, toolkit_id: str) -> dict[str, Any]:
@@ -529,8 +519,10 @@ class ToolkitStore:
         item = dict(payload)
         toolkit_id = str(item["toolkit_id"])
         tool_id = str(item["tool_id"])
-        item["has_formal"] = self.formal_path(toolkit_id, tool_id).is_file()
-        item["has_development"] = self.development_path(toolkit_id, tool_id).is_file()
+        from webwright.server.package_workspace import read_state
+        state = read_state(self, toolkit_id)
+        item["has_formal"] = tool_id in state["applied_contexts"]
+        item["has_development"] = tool_id in state["drafts"]
         return item
 
     def _validate_slot(

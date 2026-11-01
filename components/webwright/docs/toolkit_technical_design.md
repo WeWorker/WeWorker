@@ -1,4 +1,19 @@
-# Webwright Toolkit 技术设计
+# 网站探索agent Toolkit 技术设计
+
+## 现行流程（2026-11-01）
+
+现行实现以[开发产物与直接应用 Adapter 实施方案](../../../docs/website_exploration_adapter_workflow_plan.md)为准：
+
+- 页面仅保留「探索｜开发」两个工作区，开发区的即时调试为可选操作。
+- 开发保存时由工程端生成 Adapter v2 最终格式候选包；点击「应用到 Adapter」直接进入宿主评审、安装与状态同步。
+- 主要调试入口是 WeWorker 对话。应用和导出不要求预先通过业务测试，包结构、语法、权限及安装冲突检查继续保留。
+- 模型边界、提示词、通信协议及生成职责不变。工程端维护 manifest、入口包装、资源与版本。
+- 新工作区以包文件保存代码，以少量 JSON 保存来源、草稿修订号、候选/安装快照引用及安装操作；不创建旧开发/正式代码 JSON，不做旧数据迁移。
+- 同步失败可以重试；不会把本地生成成功误报为已安装，也不会清除安装期间产生的新草稿。
+
+以下内容保留为历史设计记录，其中三工作区、两次验证门槛、五文件旧产物、Publisher 本地提升与磁盘直装等描述均不再作为现行要求。共享浏览器和宿主权限边界继续遵守现行项目规范。
+
+## 历史设计记录
 
 > 当前执行合同：Publisher 生成五文件 Toolkit Adapter Skill，WebCLI 根据 `adapter_type=toolkit` 发现并通过 embedded runtime 的 `--internal-script` 执行。用户入口为 `webcli call`，不再提供 `webcli-py`。完整设计见 [`../../../docs/webcli_toolkit_adapter_design.md`](../../../docs/webcli_toolkit_adapter_design.md)。本文后续历史描述中的旧命令与四文件合同不再构成现行规范。
 

@@ -250,10 +250,6 @@ export function restartDevelopment(toolkitId, toolId) {
   return request(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/development`, { method: "DELETE" });
 }
 
-export function publishTool(toolkitId, toolId) {
-  return post(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/publish`);
-}
-
 export function getExportStatus(toolkitId) {
   return request(`/api/toolkits/${encode(toolkitId)}/export-status`);
 }

@@ -54,21 +54,20 @@ def test_tool_deletion_can_be_staged_restored_and_finished(tmp_path: Path) -> No
     store = _store(tmp_path)
     store.create_tool("blog_admin", name="search_blog", goal="Search posts",
                       start_url="https://blog.example.com/admin/posts")
-    development = store.development_path("blog_admin", "search_blog")
-    development.parent.mkdir(parents=True)
-    development.write_text("draft", encoding="utf-8")
-
+    slot = store.write_development_slot("blog_admin", "search_blog", {
+        "code": "async def search_blog(ctx):\n    return {}\n",
+        "parameters_schema": {"type": "object", "properties": {}},
+        "result_schema": {"type": "object"},
+    })
     first = store.stage_tool_deletion("blog_admin", "search_blog")
     assert store.list_tools("blog_admin") == []
-    assert not development.exists()
     store.finish_tool_deletion("blog_admin", "search_blog", first, restore=True)
-    assert store.get_tool("blog_admin", "search_blog")["tool_id"] == "search_blog"
-    assert development.read_text(encoding="utf-8") == "draft"
-
+    assert store.read_development_slot("blog_admin", "search_blog") == slot
     second = store.stage_tool_deletion("blog_admin", "search_blog")
     store.finish_tool_deletion("blog_admin", "search_blog", second, restore=False)
     assert store.list_tools("blog_admin") == []
-    assert not development.exists()
+    from webwright.server.package_workspace import read_state
+    assert read_state(store, "blog_admin")["candidate_digest"] is None
 
 
 def test_tool_ids_are_global_and_paths_reject_unsafe_ids(tmp_path: Path) -> None:

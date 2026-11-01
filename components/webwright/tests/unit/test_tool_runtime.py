@@ -712,11 +712,23 @@ class PropertyCertificateSession(RunnerSession):
         type(self).last_events = self.page.events
 
 
+def _certificate_workspace(tmp_path: Path) -> ToolkitStore:
+    # Existing public fixture is a test input, not a runtime storage migration.
+    fixture = Path(__file__).parents[1] / "fixtures" / "toolkits" / "tianjin_property"
+    metadata = json.loads((fixture / ".server" / "toolkit.json").read_text(encoding="utf-8"))
+    tool = json.loads((fixture / "tools" / "print_property_certificate" / "tool.json").read_text(encoding="utf-8"))
+    store = ToolkitStore(tmp_path / "toolkits")
+    store.create_toolkit(name="tianjin_property", allowed_domains=metadata["allowed_domains"])
+    store.create_tool("tianjin_property", name="print_property_certificate", goal=tool["goal"], start_url=tool["start_url"])
+    formal = json.loads((fixture / "tools" / "print_property_certificate" / "formal.json").read_text(encoding="utf-8"))
+    development = json.loads((fixture / "development" / "print_property_certificate" / "current.json").read_text(encoding="utf-8"))
+    store.write_formal_slot("tianjin_property", "print_property_certificate", formal)
+    store.write_development_slot("tianjin_property", "print_property_certificate", development)
+    return store
+
+
 def test_reusable_property_certificate_tool_fixture_runs_through_runner(tmp_path: Path) -> None:
-    fixture_root = Path(__file__).parents[1] / "fixtures" / "toolkits"
-    store_root = tmp_path / "toolkits"
-    shutil.copytree(fixture_root, store_root)
-    store = ToolkitStore(store_root)
+    store = _certificate_workspace(tmp_path)
 
     tool = store.get_tool("tianjin_property", "print_property_certificate")
     slot = store.read_development_slot(
@@ -747,10 +759,7 @@ def test_reusable_property_certificate_tool_fixture_runs_through_runner(tmp_path
 def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_artifact(
     tmp_path: Path,
 ) -> None:
-    fixture_root = Path(__file__).parents[1] / "fixtures" / "toolkits"
-    store_root = tmp_path / "toolkits"
-    shutil.copytree(fixture_root, store_root)
-    store = ToolkitStore(store_root)
+    store = _certificate_workspace(tmp_path)
     debug_store = DebugRunStore(store)
     publisher = ToolkitPublisher(store, debug_store)
 
@@ -778,11 +787,10 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     assert "PublishedToolkitRunner" in source
     assert "ToolkitStore" not in source
     assert "formal.json" not in source
-    assert store.read_runtime("tianjin_property") == {
+    assert {key: value for key, value in store.read_runtime("tianjin_property").items() if key != "updated_at"} == {
         "target_id": "",
         "last_url": "",
         "last_title": "",
-        "updated_at": "",
     }
 
     formal_output = asyncio.run(
@@ -821,7 +829,7 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     )
     assert published_output["ok"] is True
     v2_build = snapshot_package(store, "tianjin_property")
-    assert publisher.export_status("tianjin_property")["export_eligible"] is False
+    assert publisher.export_status("tianjin_property")["export_eligible"] is True
 
     stale_run = debug_store.create(
         tool_id="print_property_certificate",
@@ -833,7 +841,7 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     debug_store.update(
         stale_run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value
     )
-    assert publisher.export_status("tianjin_property")["export_eligible"] is False
+    assert publisher.export_status("tianjin_property")["export_eligible"] is True
 
     formal_run = debug_store.create(
         tool_id="print_property_certificate",
