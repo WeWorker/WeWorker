@@ -1,4 +1,12 @@
+<div align="center">
+
 # WeWorker
+
+**让 AI 真正操作网站的开源桌面 Agent**
+
+自然语言任务 → Adapter → 真实浏览器执行。内置 33 个网站 Adapter，支持 Windows 与 macOS。
+
+*An open-source desktop agent that turns natural-language tasks into real browser actions through extensible Adapters.*
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Validate](https://github.com/WeWorker/WeWorker/actions/workflows/validate.yml/badge.svg)](https://github.com/WeWorker/WeWorker/actions/workflows/validate.yml)
@@ -6,9 +14,31 @@
 [![GitHub stars](https://img.shields.io/github/stars/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/issues)
 
-WeWorker 是一个 AI 驱动的桌面端网页自动化工具。它将自然语言任务交给 AI Agent，通过浏览器扩展或内置 Toolkit Adapter 调用网站能力，并在涉及登录、提交、下单、支付等关键步骤时保留用户确认环节。
+[官网](https://www.weworker.cc) · [下载](https://www.weworker.cc/download) · [快速开始](https://www.weworker.cc/docs/quick-start) · [33 个 Adapter](docs/ADAPTERS.md) · [社区讨论](https://github.com/WeWorker/WeWorker/discussions)
 
-官网：[https://www.weworker.cc](https://www.weworker.cc)
+![WeWorker：让 AI 真正操作网站](officialWeb/public/social-preview.png)
+
+</div>
+
+WeWorker 将自然语言任务交给 AI Agent，通过浏览器扩展或内置 Toolkit Adapter 调用网站能力；涉及登录、提交、下单、支付等关键步骤时，仍由用户确认。
+
+## 一分钟了解
+
+例如，直接告诉 WeWorker：
+
+```text
+帮我查看 GitHub Trending 和 Hacker News 的热门项目，整理出值得关注的 AI 工具
+```
+
+WeWorker 会选择对应 Adapter、读取网站信息并返回整理结果，而不是只给出操作建议。[在官网查看跨站任务演示](https://www.weworker.cc/#demo)。
+
+![WeWorker 调用 GitHub 与 Hacker News Adapter 并整理公开结果](docs/assets/weworker-public-demo.gif)
+
+适合这些场景：
+
+- **跨站信息整理**：同时查询多个网站，并将结果汇总、比较或推送。
+- **重复网页工作**：查邮件、搜索内容、填写表单、执行定时任务。
+- **扩展新的站点能力**：用 Adapter 描述网站工具，通过统一的 `webcli call` 入口调用。
 
 ## 功能
 
@@ -22,7 +52,7 @@ WeWorker 是一个 AI 驱动的桌面端网页自动化工具。它将自然语�
 
 ## Adapter 支持
 
-WeWorker 初次开源版本已内置一批常用网站 Adapter。常用示例：
+WeWorker 当前内置 33 个常用网站 Adapter。部分示例：
 
 | 网站 | Adapter ID | 当前能力 |
 | --- | --- | --- |
