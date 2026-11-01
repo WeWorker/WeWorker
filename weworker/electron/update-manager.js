@@ -4,28 +4,18 @@ import path from 'path'
 import updater from 'electron-updater'
 import deploymentRaw from '../deployment.json' with { type: 'json' }
 import deploymentConfigModule from '../deployment-config.cjs'
+import { normalizeUpdateSettings } from './update-settings.js'
 
 const DEPLOYMENT = deploymentConfigModule.normalizeDeploymentConfig(deploymentRaw)
 
 const SUPPORTED_PLATFORMS = new Set(['win32', 'darwin'])
 const UPDATE_SOURCES = [
   {
-    id: 'official',
-    label: '官网',
-    url: DEPLOYMENT.downloadUrl,
-  },
-  {
     id: 'github',
     label: 'GitHub latest',
     url: DEPLOYMENT.githubUrl,
   },
 ]
-const DEFAULT_UPDATE_SETTINGS = {
-  autoCheckEnabled: true,
-  checkIntervalHours: 1,
-}
-const ALLOWED_CHECK_INTERVAL_HOURS = new Set([1, 3, 6, 9, 12, 15, 18, 21, 24])
-
 function normalizeError(error) {
   if (!error) return ''
   return error.message || String(error)
@@ -71,21 +61,6 @@ function getPublicUpdateSources(platform = process.platform) {
     url: source.url,
     metadataUrl: getSourceDisplayUrl(source, platform),
   }))
-}
-
-function normalizeSettings(settings = {}) {
-  const legacyIntervalHours = Number(settings.checkIntervalMinutes) / 60
-  const interval = Number.isFinite(Number(settings.checkIntervalHours))
-    ? Number(settings.checkIntervalHours)
-    : legacyIntervalHours
-  const roundedInterval = Math.round(interval)
-  const checkIntervalHours = ALLOWED_CHECK_INTERVAL_HOURS.has(roundedInterval)
-    ? roundedInterval
-    : DEFAULT_UPDATE_SETTINGS.checkIntervalHours
-  return {
-    autoCheckEnabled: settings.autoCheckEnabled !== false,
-    checkIntervalHours,
-  }
 }
 
 export class UpdateManager {
@@ -203,7 +178,7 @@ export class UpdateManager {
   }
 
   setSettings(nextSettings = {}) {
-    this.settings = normalizeSettings({ ...this.settings, ...nextSettings })
+    this.settings = normalizeUpdateSettings({ ...this.settings, ...nextSettings })
     this.saveSettings()
     this.setState({ settings: this.getSettings() })
     this.scheduleAutoChecks({ runStartupCheck: false })
@@ -212,12 +187,12 @@ export class UpdateManager {
 
   loadSettings() {
     try {
-      if (!fs.existsSync(this.settingsPath)) return normalizeSettings()
+      if (!fs.existsSync(this.settingsPath)) return normalizeUpdateSettings()
       const raw = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8'))
-      return normalizeSettings(raw)
+      return normalizeUpdateSettings(raw)
     } catch (error) {
       this.log(`[update] failed to load settings: ${normalizeError(error)}`)
-      return normalizeSettings()
+      return normalizeUpdateSettings()
     }
   }
 

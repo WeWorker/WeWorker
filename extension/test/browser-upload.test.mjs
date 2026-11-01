@@ -79,3 +79,26 @@ test('isolated target preparation expires before retaining a node and guards sub
   name='Example file';node.disabled=true;assert.throws(()=>context.exampleRetained.validate('before'),{code:'ELEMENT_DISABLED'});
   node.disabled=false;node.isConnected=false;assert.throws(()=>context.exampleRetained.validate('after'),{code:'UPLOAD_TARGET_CHANGED'});
 });
+
+test('directory verification uses complete relative paths, tolerates enumeration order and rejects mismatches',()=>{
+  const token='example-directory-unit';const node={files:[{name:'a.json',size:2,webkitRelativePath:'folder/nested/a.json'},{name:'a.json',size:1,webkitRelativePath:'folder/a.json'}]};
+  globalThis[token]={node,validate:()=>{}};
+  try{
+    const expected=[{name:'a.json',size:1,relativePath:'folder/a.json'},{name:'a.json',size:2,relativePath:'folder/nested/a.json'}];
+    assert.equal(inspectUploadTarget.call(node,token,'after',expected).ok,true);
+    node.files[0].webkitRelativePath='folder/wrong/a.json';assert.equal(inspectUploadTarget.call(node,token,'after',expected).error.code,'UPLOAD_VERIFICATION_FAILED');
+    node.files.pop();assert.equal(inspectUploadTarget.call(node,token,'after',expected).ok,false);
+  }finally{delete globalThis[token];}
+});
+
+test('chooser node retention rejects wrong input mode, disabled, replacement and document drift',async()=>{
+  const {retainChooserInput}=await import('../background/browser-upload.js');
+  const document={},location={href:'https://example.com/'},node={tagName:'INPUT',type:'file',isConnected:true,multiple:true,ownerDocument:document,matches:()=>false,closest:()=>null,getAttribute:()=>null};
+  const context=vm.createContext({document,location,Date});
+  const retain=vm.runInContext(`(${retainChooserInput.toString()})`,context);
+  assert.equal(retain.call(node,'retained',Date.now()+1000,false,2).ok,true);
+  assert.equal(retain.call(node,'wrong',Date.now()+1000,true,2).ok,false);
+  node.isConnected=false;assert.throws(()=>context.retained.validate(),{code:'UPLOAD_TARGET_CHANGED'});
+  node.isConnected=true;location.href+='changed';assert.throws(()=>context.retained.validate(),{code:'UPLOAD_TARGET_CHANGED'});
+  node.matches=()=>true;assert.equal(retain.call(node,'disabled',Date.now()+1000,false,2).error.code,'ELEMENT_DISABLED');
+});

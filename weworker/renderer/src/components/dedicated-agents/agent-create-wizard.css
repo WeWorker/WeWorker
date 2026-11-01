@@ -1,0 +1,29 @@
+.agent-create-wizard--site {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: min-content;
+}
+
+.agent-create-wizard--site > *,
+.agent-create-wizard__site > *,
+.agent-site-picker > * {
+  flex-shrink: 0;
+}
+
+.agent-create-wizard--site > .agent-create-wizard__section,
+.agent-create-wizard__site,
+.agent-create-wizard__site > .agent-site-picker {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: min-content;
+}
+
+.agent-site-picker > .agent-site-picker__list {
+  flex: 1 1 auto;
+  height: 0;
+  min-height: 120px;
+  grid-auto-rows: max-content;
+  overscroll-behavior-y: contain;
+}

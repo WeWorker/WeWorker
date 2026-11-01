@@ -19,6 +19,9 @@ function fakeChrome({ windows = [{ id: 11 }] } = {}) {
   const calls = [];
   return {
     calls,
+    runtime: {
+      getURL: (relative) => `chrome-extension://fixture/${relative}`,
+    },
     tabs: {
       create: async (props) => { calls.push(['tabs.create', props]); return { id: 21, windowId: props.windowId ?? 11, active: props.active !== false }; },
       update: async (id, props) => { calls.push(['tabs.update', id, props]); return { id, ...props }; },
@@ -115,14 +118,14 @@ test('a window the user activates is brought on-screen, only in WeWorker browser
   setBrowserInstanceForTest(null);
 });
 
-test('in WeWorker browser background tabs stay inactive and a missing window is created unfocused', async () => {
+test('in WeWorker browser background tabs stay inactive and a missing window is recreated with the dedicated landing page', async () => {
   setBrowserInstanceForTest({ kind: 'dedicated', token: 't' });
   const api = fakeChrome({ windows: [] });
-  await createBrowserTab({ url: 'about:blank', active: false }, api);
+  await createBrowserTab({ url: 'https://example.com/', active: false }, api);
   assert.deepEqual(api.calls, [
     ['windows.getAll', { windowTypes: ['normal'] }],
-    ['windows.create', { url: 'about:blank', focused: false }],
-    ['tabs.create', { url: 'about:blank', active: false, windowId: 31 }],
+    ['windows.create', { url: 'chrome-extension://fixture/dedicated-browser/index.html', focused: false }],
+    ['tabs.create', { url: 'https://example.com/', active: false, windowId: 31 }],
   ]);
   const explicit = fakeChrome();
   await createBrowserTab({ url: 'about:blank', windowId: 5, active: false }, explicit);

@@ -1,6 +1,6 @@
 import { normalizeWorkflowOrigin } from './page-workflow-origins.js';
 
-// Unintegrated foundation: no generated workflow schema/capability uses this.
+// A declaration identifies owners, never a browser's transient frame IDs.
 
 /** Persist owner declarations, never a transient browser frame/document ID. */
 export function normalizeWorkflowFrames(value) {
@@ -16,4 +16,22 @@ export function normalizeWorkflowFrames(value) {
   });
 }
 export const usesWorkflowFrames = source => Boolean(source?.steps?.some(step => step.frames));
+export const requiresWorkflowFrameCapability = source => Boolean(source?.steps?.some(step => step.frames || step.query?.mode === 'read'));
 export const workflowFrameOrigins = source => [...new Set((source?.steps || []).flatMap(step => (step.frames || []).map(frame => frame.origin)))];
+export const workflowContextKey = step => JSON.stringify((step.frames || []).map(frame => frame.selector));
+
+/** Each owner chain is resolved once; later steps retain its original declaration. */
+export function validateWorkflowFrameSequence(steps) {
+  const previous = new Map(), declarations = new Map();
+  for (const step of steps) {
+    const key = workflowContextKey(step);
+    if (step.frames) {
+      const frames = normalizeWorkflowFrames(step.frames), serialized = JSON.stringify(frames);
+      if (declarations.has(key) && declarations.get(key) !== serialized) throw new Error('Reuse the original frame owner declaration after navigation.');
+      declarations.set(key, serialized);
+      if (!previous.has(key) && step.pathname !== frames.at(-1).pathname) throw new Error('The first action in a frame must start on its declared initial pathname.');
+    }
+    if (previous.has(key) && step.pathname !== previous.get(key).query.resultPathname) throw new Error('Each context must continue from its preceding destination pathname.');
+    previous.set(key, step);
+  }
+}

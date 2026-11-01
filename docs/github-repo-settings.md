@@ -49,18 +49,18 @@ workflow-automation
 ## 仓库 URL
 
 ```
-https://github.com/aiceflower/WeWorker
+https://github.com/WeWorker/WeWorker
 ```
 
 ---
 
 ## 设置步骤
 
-1. 访问仓库页面: https://github.com/aiceflower/WeWorker
+1. 访问仓库页面: https://github.com/WeWorker/WeWorker
 2. 点击右侧齿轮图标 (⚙️) 编辑仓库信息
 3. 填写:
    - **Description**: AI 驱动的网页自动化工具，通过浏览器扩展将网站操作封装为工具，供 AI Agent 调用，实现对任意网站的自动化操控。
-   - **Website**: https://github.com/aiceflower/WeWorker
+   - **Website**: https://www.weworker.cc
    - **Topics**: ai, automation, browser-extension, electron, web-automation, agent, playwright, desktop-app, cli-tool, workflow-automation
 4. 上传社交预览图
 5. 点击 **Save** 保存
@@ -73,11 +73,11 @@ https://github.com/aiceflower/WeWorker
 
 ```bash
 # 设置仓库描述
-gh repo edit aiceflower/WeWorker --description "AI 驱动的网页自动化工具，通过浏览器扩展将网站操作封装为工具，供 AI Agent 调用，实现对任意网站的自动化操控。"
+gh repo edit WeWorker/WeWorker --description "AI 驱动的网页自动化工具，通过浏览器扩展将网站操作封装为工具，供 AI Agent 调用，实现对任意网站的自动化操控。"
 
 # 设置话题标签
-gh repo edit aiceflower/WeWorker --add-topic ai,automation,browser-extension,electron,web-automation,agent,playwright,desktop-app,cli-tool,workflow-automation
+gh repo edit WeWorker/WeWorker --add-topic ai,automation,browser-extension,electron,web-automation,agent,playwright,desktop-app,cli-tool,workflow-automation
 
 # 设置网站
-gh repo edit aiceflower/WeWorker --homepage "https://github.com/aiceflower/WeWorker"
+gh repo edit WeWorker/WeWorker --homepage "https://www.weworker.cc"
 ```

@@ -214,28 +214,71 @@ async function getRepositoryDetail({ repository_url = '' } = {}) {
 // ─── Issue / PR detail ───────────────────────────────────────────────────────
 
 async function getIssueOrPrDetail({ issue_url = '', max_comments = 3 } = {}) {
-  const targetUrl = issue_url ? normalizeRepositoryUrl(issue_url) : window.location.href;
-  if (!isSameUrl(targetUrl)) {
-    return navigateAndAskRetry(targetUrl, '已打开 GitHub Issue/PR 页面，请等待页面加载完成后再次调用该工具。');
+  const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
+  const target = new URL(issue_url ? normalizeRepositoryUrl(issue_url) : window.location.href);
+  const route = target.pathname.match(/^\/([^/]+)\/([^/]+)\/(issues|pulls|pull)(?:\/(\d+))?\/?$/);
+  if (target.origin !== 'https://github.com' || target.username || target.password || !route
+      || (route[4] ? route[3] === 'pulls' : route[3] === 'pull')) {
+    fail('INVALID_ARGS', 'Use a GitHub Issue/PR detail URL or an issues/pulls list URL.');
   }
 
-  const listMatch = window.location.pathname.match(/^\/([^/]+)\/([^/]+)\/(issues|pulls)\/?$/);
-  if (listMatch) {
-    const [, owner, repo, section] = listMatch;
-    const type = section === 'pulls' ? 'pull' : 'issues';
-    const detailLink = Array.from(document.querySelectorAll(`a[href^="/${owner}/${repo}/${type}/"]`))
-      .find((link) => /\/\d+/.test(link.getAttribute('href') || ''));
-    if (detailLink) {
-      return navigateAndAskRetry(absoluteUrl(detailLink.getAttribute('href')), '已从列表页打开第一条 Issue/PR，请等待页面加载完成后再次调用该工具。');
+  const checkPage = (checkMissing = true) => {
+    if (checkMissing && /^Page not found\b/i.test(document.title || '')) fail('NOT_FOUND', 'GitHub page is unavailable; check its URL and browser access.');
+    if (window.location.pathname === '/login' || document.querySelector('form[action="/session"]')) {
+      fail('AUTH_REQUIRED', 'Complete GitHub login in the connected browser before retrying.');
     }
-  }
+  };
+  checkPage(false);
+  const navigation = url => ({ __webcli_navigation: { version: 1, url, resume: true } });
+  const key = '__weworker_github_detail_navigation';
+  let pending;
+  try { pending = JSON.parse(sessionStorage.getItem(key)); } catch { }
+  const prefix = `/${route[1]}/${route[2]}/${route[3] === 'pulls' ? 'pull' : 'issues'}/`;
+  const current = new URL(window.location.href);
+  const resumed = !route[4] && pending?.list === target.href && Date.now() - pending.at >= 0 && Date.now() - pending.at < 120000
+    && pending.detail === current.href && current.origin === target.origin
+    && current.pathname.startsWith(prefix) && /^\d+\/?$/.test(current.pathname.slice(prefix.length));
+  if (!isSameUrl(target.href) && !resumed) return navigation(target.href);
+  checkPage();
 
-  const safeMaxComments = Math.max(0, Math.min(Number(max_comments) || 3, 10));
+  const waitFor = async read => {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      checkPage();
+      const value = read();
+      if (value) return value;
+      if (attempt < 59) await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    fail('NOT_READY', 'GitHub Issue/PR content is not ready or the page structure is unsupported; retain the trace and retry.');
+  };
+  if (!route[4] && !resumed) {
+    const detail = await waitFor(() => {
+      for (const link of document.querySelectorAll('a[href]')) {
+        let url;
+        try { url = new URL(link.getAttribute('href'), window.location.href); } catch { continue; }
+        if (url.origin === target.origin && !url.username && !url.password && url.pathname.startsWith(prefix)
+            && /^\d+\/?$/.test(url.pathname.slice(prefix.length))) return url.href;
+      }
+    });
+    try { sessionStorage.setItem(key, JSON.stringify({ list: target.href, detail, at: Date.now() })); }
+    catch { fail('NAVIGATION_UNAVAILABLE', 'GitHub read navigation requires browser session storage.'); }
+    return navigation(detail);
+  }
+  const detailPath = window.location.pathname.match(/^\/[^/]+\/[^/]+\/(issues|pull)\/\d+\/?$/);
+  if (!detailPath) fail('NOT_READY', 'GitHub has not reached an Issue/PR detail page.');
+  const content = await waitFor(() => {
+    const titleNode = document.querySelector('bdi.js-issue-title, [data-testid="issue-title"], h1 bdi');
+    const bodyNode = document.querySelector('.js-comment-body, [data-testid="markdown-body"], .comment-body');
+    const title = normalizedText(titleNode?.innerText || '');
+    return title && bodyNode ? { title, bodySummary: normalizedText(bodyNode.innerText || '').slice(0, 1200) } : null;
+  });
+  if (resumed) { try { sessionStorage.removeItem(key); } catch { } }
+  const count = Number(max_comments);
+  const safeMaxComments = Number.isFinite(count) ? Math.max(0, Math.min(Math.floor(count), 10)) : 3;
   const kind = window.location.pathname.includes('/pull/') ? 'pull_request' : (window.location.pathname.includes('/issues/') ? 'issue' : 'list_or_unknown');
-  const title = normalizedText(document.querySelector('bdi.js-issue-title, [data-testid="issue-title"], h1 bdi, h1')?.innerText || '');
+  const title = content.title;
   const state = normalizedText(document.querySelector('[data-testid="issue-state"], .State, span.State')?.innerText || '');
   const author = normalizedText(document.querySelector('.author, a.author, [data-hovercard-type="user"]')?.innerText || '');
-  const bodySummary = normalizedText(document.querySelector('.js-comment-body, [data-testid="markdown-body"], .comment-body')?.innerText || '').slice(0, 1200);
+  const bodySummary = content.bodySummary;
   const labels = Array.from(document.querySelectorAll('a.IssueLabel, [data-testid="label"]'))
     .map((el) => normalizedText(el.innerText))
     .filter(Boolean);

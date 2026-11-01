@@ -530,7 +530,7 @@ export class DedicatedBrowserManager {
       }
       this._extensionId = extensionId;
       // One off-screen window: tabs opened by the extension land here, later windows inherit its position.
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true });
+      const { targetId } = await cdp.send('Target.createTarget', { url: this._landingPageUrl(), newWindow: true, background: true });
       const cdpUrl = await this._discoverEndpoint(this._userDataDir, targetId);
       this._descriptor = { instanceId: randomBytes(16).toString('hex'), cdpUrl };
       const { windowId } = await cdp.send('Browser.getWindowForTarget', { targetId });
@@ -652,6 +652,10 @@ export class DedicatedBrowserManager {
     return this._setStatus('stopped');
   }
 
+  _landingPageUrl() {
+    return this._extensionId ? `chrome-extension://${this._extensionId}/dedicated-browser/index.html` : 'about:blank';
+  }
+
   async _pageWindows() {
     const cdp = this._cdp;
     const { targetInfos = [] } = await cdp.send('Target.getTargets');
@@ -761,7 +765,7 @@ export class DedicatedBrowserManager {
     }
     if (!target) [target] = await this._pageWindows();
     if (!target) {
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', newWindow: true, background: true });
+      const { targetId } = await cdp.send('Target.createTarget', { url: this._landingPageUrl(), newWindow: true, background: true });
       const { windowId, bounds } = await cdp.send('Browser.getWindowForTarget', { targetId });
       target = { windowId, bounds, targetId };
     }

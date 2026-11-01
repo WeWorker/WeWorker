@@ -42,6 +42,36 @@ test('rename patches only the title and deletion clears only the target task', a
   assert.deepEqual(useScheduledTasksStore.getState().executions, { 'example-two': [] })
 })
 
+test('the sidebar switch PATCHes the requested state and failed updates preserve the current state', async () => {
+  const source = fs.readFileSync(new URL('../components/sidebar/ScheduledTasksList.jsx', import.meta.url), 'utf8')
+  assert.match(source, /<AppSwitch[\s\S]*?checked=\{Boolean\(task\.enabled\)\}[\s\S]*?onChange=\{toggleEnabled\}/)
+  assert.match(source, /aria-label=\{`\$\{task\.enabled \? '关闭' : '启用'\}定时任务 \$\{title\}`\}/)
+  assert.match(source, /className="sidebar-row-actions"[\s\S]*?onClick=\{\(event\) => event\.stopPropagation\(\)\}[\s\S]*?<AppSwitch/)
+  assert.match(source, /await updateTask\(task\.id, \{ enabled: event\.target\.checked \}\)/)
+
+  const task = { id: 'example-toggle', title: 'Example schedule', enabled: true }
+  globalThis.window = {}
+  useScheduledTasksStore.setState({ tasks: [task] })
+  globalThis.fetch = async (url, options) => {
+    assert.match(url, /\/scheduled-tasks\/example-toggle$/)
+    assert.equal(options.method, 'PATCH')
+    assert.deepEqual(JSON.parse(options.body), { enabled: false })
+    return Response.json({ ...task, enabled: false })
+  }
+
+  await useScheduledTasksStore.getState().updateTask(task.id, { enabled: false })
+  assert.equal(useScheduledTasksStore.getState().tasks[0].enabled, false)
+
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(options.method, 'PATCH')
+    assert.deepEqual(JSON.parse(options.body), { enabled: true })
+    return Response.json({ error: 'Example rejection' }, { status: 500 })
+  }
+
+  await assert.rejects(useScheduledTasksStore.getState().updateTask(task.id, { enabled: true }), /Example rejection/)
+  assert.deepEqual(useScheduledTasksStore.getState().tasks, [{ ...task, enabled: false }])
+})
+
 test('creating a task from the sidebar requests an enabled schedule', async () => {
   const source = fs.readFileSync(new URL('../components/layout/Sidebar.jsx', import.meta.url), 'utf8')
   const start = source.indexOf('const handleCreateTask =')

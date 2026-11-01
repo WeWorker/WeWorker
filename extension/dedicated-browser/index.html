@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WeWorker 专用浏览器</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; color: #172033; background: #f4f7fb; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    main { width: min(680px, calc(100vw - 48px)); box-sizing: border-box; padding: 48px; border: 1px solid #d9e1ee; border-radius: 18px; background: #fff; box-shadow: 0 18px 60px rgba(32, 54, 92, .12); }
+    .mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: #e6f0ff; color: #1d5fd1; font-weight: 700; font-size: 22px; }
+    h1 { margin: 20px 0 12px; font-size: 28px; letter-spacing: -.4px; }
+    p { margin: 0; color: #52627a; line-height: 1.7; font-size: 15px; }
+    .notice { margin-top: 28px; padding: 16px 18px; border-radius: 12px; background: #fff7e5; color: #754b00; line-height: 1.6; }
+    ul { margin: 20px 0 0; padding-left: 22px; color: #52627a; line-height: 1.9; }
+    footer { margin-top: 30px; color: #8995a8; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">W</div>
+    <h1>WeWorker 专用浏览器</h1>
+    <p>这是由 WeWorker 单独管理的 Chrome 实例。它使用独立的浏览器配置和网站登录状态，供 WeWorker 执行网站任务、展示登录页面和完成必要授权。</p>
+    <div class="notice"><strong>请不要将此浏览器用于日常浏览。</strong><br>请不要在这里保存个人书签、安装扩展、访问无关网站或处理与 WeWorker 任务无关的内容。</div>
+    <ul>
+      <li>当 WeWorker 需要你登录网站时，会自动打开对应页面。</li>
+      <li>你可以完成扫码、短信验证码或其他网站要求的认证。</li>
+      <li>完成后返回 WeWorker，任务会继续执行或提示你继续操作。</li>
+    </ul>
+    <footer>此页面由 WeWorker 本地扩展提供，不会访问网络。</footer>
+  </main>
+</body>
+</html>

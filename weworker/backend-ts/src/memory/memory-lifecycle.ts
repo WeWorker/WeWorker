@@ -1,6 +1,7 @@
 import type { MemoryScope, MemoryUpdateCandidate } from './memory-types.js'
 import type { MemoryStore } from './memory-store.js'
 import { applyMemoryUpdate } from './memory-updater.js'
+import { automaticMemoryEnabled } from './automatic-memory.js'
 
 export interface ProcessMemoryEventInput {
   eventId: string
@@ -15,7 +16,7 @@ export async function processMemoryEvent(input: ProcessMemoryEventInput): Promis
   | { status: 'saved'; memoryId: string }
   | { status: 'failed'; error: string }
 > {
-  if (!input.candidate) return { status: 'not_applicable' }
+  if (!automaticMemoryEnabled() || !input.candidate) return { status: 'not_applicable' }
   if (!input.store.beginEvent(input.eventId)) return { status: 'duplicate' }
 
   try {

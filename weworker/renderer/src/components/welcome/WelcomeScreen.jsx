@@ -29,6 +29,8 @@ import {
   clampText,
   fallbackScenarios,
   filterScenarios,
+  getFeaturedSiteAvailability,
+  getHiddenFeaturedSites,
   readFeaturedOrder,
   readFeaturedSquareCards,
   readFeaturedVisibleCount,
@@ -37,7 +39,7 @@ import {
 } from './welcome-utils.js'
 import { FEATURED_GRID_COLUMN_GAP, useWelcomeResponsiveLayout } from './welcome-responsive.js'
 
-const FEATURED_LAYOUT_TRANSITION_MS = 220
+const FEATURED_LAYOUT_TRANSITION_MS = 180
 const SHOWCASE_TOGGLE_TRANSITION_MS = 220
 const FLOATING_PICKER_GAP = 6
 const FLOATING_PICKER_MARGIN = 14
@@ -221,6 +223,7 @@ function ScenarioPickerListItem({
 export default function WelcomeScreen({ onFillInput }) {
   const sites = useSitesStore((s) => s.sites)
   const loadSites = useSitesStore((s) => s.load)
+  const toggleSiteVisibility = useSitesStore((s) => s.toggleVisibility)
   const settingsLoaded = useSettingsStore((s) => s.loaded)
   const loadSettings = useSettingsStore((s) => s.load)
   const welcomeFeaturedSiteLimit = useSettingsStore((s) => s.welcomeFeaturedSiteLimit)
@@ -316,9 +319,9 @@ export default function WelcomeScreen({ onFillInput }) {
     return () => window.removeEventListener('resize', bumpFeaturedGridLayout)
   }, [bumpFeaturedGridLayout])
 
-  const rows = useMemo(() => {
+  const enabledRows = useMemo(() => {
     return sites
-      .filter((site) => site.enabled && site.visible)
+      .filter((site) => site.enabled)
       .map((site) => {
         const scenarios = normalizeSiteScenarios(site)
         const visibleScenarios = scenarios.length ? scenarios : fallbackScenarios(site)
@@ -327,30 +330,45 @@ export default function WelcomeScreen({ onFillInput }) {
       .filter((row) => row.scenarios.length > 0)
   }, [sites])
 
+  const rows = useMemo(() => enabledRows.filter(({ site }) => site.visible), [enabledRows])
+
   const showcaseItems = useMemo(() => {
     return rows.flatMap(({ site, scenarios }) =>
       scenarios.map((scenario) => ({ site, scenario, prompt: getScenarioPromptText(site, scenario) }))
     ).slice(0, 6)
   }, [rows])
 
-  const orderedRows = useMemo(() => {
-    const byId = new Map(rows.map((row) => [row.site.id, row]))
+  const orderedEnabledRows = useMemo(() => {
+    const byId = new Map(enabledRows.map((row) => [row.site.id, row]))
     const ordered = featuredOrder.map((id) => byId.get(id)).filter(Boolean)
     const orderedIds = new Set(ordered.map((row) => row.site.id))
-    return [...ordered, ...rows.filter((row) => !orderedIds.has(row.site.id))]
-  }, [rows, featuredOrder])
+    return [...ordered, ...enabledRows.filter((row) => !orderedIds.has(row.site.id))]
+  }, [enabledRows, featuredOrder])
+
+  const orderedRows = useMemo(() => orderedEnabledRows.filter(({ site }) => site.visible), [orderedEnabledRows])
+  const hiddenWelcomeSites = useMemo(() => orderedEnabledRows.filter(({ site }) => !site.visible), [orderedEnabledRows])
 
   const featuredSiteLimit = Math.max(1, Number(welcomeFeaturedSiteLimit) || DEFAULT_WELCOME_FEATURED_SITE_LIMIT)
-  const maxVisibleFeaturedCount = Math.min(featuredSiteLimit, orderedRows.length)
+  const maxVisibleFeaturedCount = Math.min(featuredSiteLimit, orderedEnabledRows.length)
   const visibleFeaturedCount = Math.min(
     Math.max(0, featuredVisibleCount),
     maxVisibleFeaturedCount,
+    orderedRows.length,
   )
   const featuredSites = orderedRows.slice(0, visibleFeaturedCount)
-  const hiddenFeaturedSites = orderedRows.slice(visibleFeaturedCount)
-  const featuredSiteLimitReached = visibleFeaturedCount >= featuredSiteLimit
+  const hiddenFeaturedSites = getHiddenFeaturedSites({
+    visibleSites: orderedRows,
+    enabledSites: hiddenWelcomeSites,
+    visibleCount: visibleFeaturedCount,
+  })
+  const featuredAvailability = getFeaturedSiteAvailability({
+    siteLimit: featuredSiteLimit,
+    visibleCount: visibleFeaturedCount,
+    availableCount: hiddenFeaturedSites.length,
+  })
+  const featuredSiteLimitReached = featuredAvailability.limitReached
+  const canAddFeaturedSite = featuredAvailability.canAdd
   const allAvailableFeaturedSitesShown = hiddenFeaturedSites.length === 0
-  const canAddFeaturedSite = visibleFeaturedCount < featuredSiteLimit && hiddenFeaturedSites.length > 0
   const addFeaturedLimitTitle = featuredSiteLimitReached
     ? `已达上限 ${featuredSiteLimit} 个，可在设置 → 配置中调整「欢迎页常用场景网站上限」`
     : (allAvailableFeaturedSitesShown ? '已添加全部可用网站' : undefined)
@@ -497,6 +515,8 @@ export default function WelcomeScreen({ onFillInput }) {
   useLayoutEffect(() => {
     const gridRect = featuredGridRef.current?.getBoundingClientRect()
     const nextRects = new Map()
+    const animations = []
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     for (const [layoutId, node] of featuredLayoutRefs.current.entries()) {
       if (!node?.isConnected) continue
       const rawNextRect = node.getBoundingClientRect()
@@ -509,35 +529,35 @@ export default function WelcomeScreen({ onFillInput }) {
       const previousRect = previousFeaturedLayoutRects.current.get(layoutId)
       nextRects.set(layoutId, nextRect)
 
+      if (reduceMotion) continue
+
       if (!previousRect) {
-        node.animate(
+        animations.push(node.animate(
           [
-            { opacity: 0, transform: 'translateY(-6px) scale(0.98)' },
-            { opacity: 1, transform: 'translateY(0) scale(1)' },
+            { opacity: 0 },
+            { opacity: 1 },
           ],
           { duration: 170, easing: 'ease-out' },
-        )
+        ))
         continue
       }
 
       const deltaX = previousRect.left - nextRect.left
       const deltaY = previousRect.top - nextRect.top
-      const scaleX = previousRect.width > 0 && nextRect.width > 0 ? previousRect.width / nextRect.width : 1
-      const scaleY = previousRect.height > 0 && nextRect.height > 0 ? previousRect.height / nextRect.height : 1
       const moved = Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1
-      const resized = Math.abs(scaleX - 1) > 0.02 || Math.abs(scaleY - 1) > 0.02
+      const resized = Math.abs(previousRect.width - nextRect.width) > 1 || Math.abs(previousRect.height - nextRect.height) > 1
       if (!moved && !resized) continue
 
-      node.animate(
+      animations.push(node.animate(
         [
-          { transform: `translate(${deltaX}px, ${deltaY}px) scale(${scaleX}, ${scaleY})` },
-          { transform: 'translate(0, 0) scale(1, 1)' },
+          { opacity: 0.65 },
+          { opacity: 1 },
         ],
-        { duration: FEATURED_LAYOUT_TRANSITION_MS, easing: 'ease' },
-      )
+        { duration: FEATURED_LAYOUT_TRANSITION_MS, easing: 'ease-out' },
+      ))
     }
     previousFeaturedLayoutRects.current = nextRects
-    return undefined
+    return () => animations.forEach((animation) => animation.cancel())
   }, [featuredLayoutSignature])
 
   useEffect(() => {
@@ -799,14 +819,22 @@ export default function WelcomeScreen({ onFillInput }) {
     setAddPickerOpen((open) => !open)
   }
 
-  const selectFeaturedSite = (siteId) => {
-    const ids = orderedRows.map((row) => row.site.id)
+  const selectFeaturedSite = async (siteId) => {
+    const selectedRow = hiddenFeaturedSites.find(({ site }) => site.id === siteId)
+    if (!selectedRow) return
+    if (!selectedRow.site.visible) {
+      await toggleSiteVisibility(siteId)
+      const site = useSitesStore.getState().sites.find((item) => item.id === siteId)
+      if (!site?.visible) return
+    }
+
+    const ids = orderedEnabledRows.map((row) => row.site.id)
     const sourceIndex = ids.indexOf(siteId)
     if (sourceIndex < 0) return
     const next = [...ids]
     const [selected] = next.splice(sourceIndex, 1)
     next.splice(visibleFeaturedCount, 0, selected)
-    const nextCount = Math.min(maxVisibleFeaturedCount, visibleFeaturedCount + 1)
+    const nextCount = featuredAvailability.nextVisibleCount
     persistFeaturedOrder(next)
     persistFeaturedVisibleCount(nextCount)
     focusSitePreview(siteId)
@@ -895,7 +923,7 @@ export default function WelcomeScreen({ onFillInput }) {
                 </div>
               </div>
 
-              <button type="button" onClick={() => fillScenario(active)} style={tryButtonStyle}>
+              <button data-app-button="action" type="button" onClick={() => fillScenario(active)} style={tryButtonStyle}>
                 在对话中使用
               </button>
 
@@ -936,7 +964,7 @@ export default function WelcomeScreen({ onFillInput }) {
             </button>
           </div>
           <div style={featuredHeaderActionsStyle}>
-            <button type="button" onClick={handleOpenAllScenarios} style={allScenariosButtonStyle}>
+            <button type="button" onClick={handleOpenAllScenarios} style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
               {capabilitiesPanelOpen ? <ClosePanelIcon /> : <ListIcon />}
               {capabilitiesPanelOpen ? '关闭所有场景' : '查看所有场景'}
             </button>
@@ -1742,8 +1770,6 @@ const featuredSquareAddIconStyle = {
 const featuredSiteWrapStyle = {
   position: 'relative',
   minWidth: 0,
-  transformOrigin: 'top left',
-  willChange: 'transform, opacity',
   overflow: 'visible',
 }
 

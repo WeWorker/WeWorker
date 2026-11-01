@@ -2,6 +2,9 @@ import { workflowOriginRoutes, workflowOriginTargets } from './page-workflow-ori
 import { matchesPagePath, resolvePageDestination } from './page-navigation.js';
 import { normalizeWorkflowControl, workflowConditionMatches, workflowValue, usesWorkflowControl } from './page-workflow-control.js';
 import { navigationParameters } from './page-navigation-parameters.js';
+import { workflowContextKey, validateWorkflowFrameSequence } from './page-workflow-frames.js';
+import { resolvePageFrame } from './page-frame-context.js';
+import { executeFramePageQuery } from './page-frame-query.js';
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const namesFor = query => query.mode === 'navigate' ? navigationParameters(query).map(binding => binding.name) : query.trigger?.parameter ? [query.trigger.parameter] : [];
@@ -17,7 +20,7 @@ export function pageRoutePaths(route) {
 }
 
 export function pageRouteTargets(route) {
-  if (route.workflow) return workflowOriginTargets(route.workflow, route.origin);
+  if (route.workflow) return workflowOriginTargets(route.workflow, route.origin, route.pathname);
   return [{ origin: route.origin, pathname: route.pathname },
     ...(route.additionalPaths || []).map(pathname => ({ origin: route.origin, pathname })),
     ...(route.navigation ? [{ origin: route.navigation.resultOrigin || route.origin, pathname: route.navigation.pathname }] : [])];
@@ -30,28 +33,29 @@ export async function executePageWorkflow(options, executeStep) {
   if (!Array.isArray(source.steps) || source.steps.length < 2 || source.steps.length > 8
     || !Number.isSafeInteger(source.timeoutMs) || source.timeoutMs < 1000 || source.timeoutMs > 30000) throw fail('INVALID_PAGE_WORKFLOW', 'Invalid workflow steps or total deadline.');
   let originRoutes;
-  try { originRoutes = workflowOriginRoutes(source, expectedOrigin); } catch (error) { throw fail('INVALID_PAGE_WORKFLOW', error.message); }
+  try { validateWorkflowFrameSequence(source.steps); originRoutes = workflowOriginRoutes(source, expectedOrigin); } catch (error) { throw fail('INVALID_PAGE_WORKFLOW', error.message); }
   const names = new Set(source.steps.flatMap(step => namesFor(step.query)));
   if (!values || typeof values !== 'object' || Array.isArray(values) || Object.keys(values).some(name => !names.has(name))) throw fail('INVALID_PAGE_QUERY_ARGUMENT', 'Unexpected workflow parameter.');
   // Validate every parameter before dispatching the first action.
   for (let i = 0; i < source.steps.length; i++) {
     const { pathname, query } = source.steps[i];
     try { normalizeWorkflowControl(source.steps[i], i); } catch (error) { throw fail('INVALID_PAGE_WORKFLOW', error.message); }
-    if (!['navigate', 'query', 'filter'].includes(query?.mode) || !query.result || (i && pathname !== source.steps[i - 1].query.resultPathname)) throw fail('INVALID_PAGE_WORKFLOW', 'Workflow paths and steps must form an ordered chain.');
+    if (!['navigate', 'query', 'filter', 'read'].includes(query?.mode) || !query.result || query.mode === 'read' && query.resultPathname !== pathname) throw fail('INVALID_PAGE_WORKFLOW', 'Workflow paths and steps must form an ordered chain.');
     const argumentsForStep = Object.fromEntries(namesFor(query).filter(name => Object.hasOwn(values, name)).map(name => [name, values[name]]));
     if (query.mode === 'navigate') resolvePageDestination(originRoutes[i].origin, query, argumentsForStep, true);
     else if (namesFor(query).some(name => typeof values[name] !== 'string' || !values[name].trim() || values[name].length > 1000)) throw fail('INVALID_PAGE_QUERY_ARGUMENT', 'Provide every declared workflow parameter.');
   }
   const initial = new URL((await chrome.tabs.get(tabId)).url);
   const entry = source.steps[0];
-  const entryTargets = entry.query.mode === 'navigate' ? workflowOriginTargets(source, expectedOrigin) : [{ origin: expectedOrigin, pathname: entry.pathname }];
+  const entryTargets = entry.query.mode === 'navigate' && !entry.frames ? workflowOriginTargets(source, expectedOrigin, expectedPath) : [{ origin: expectedOrigin, pathname: expectedPath }];
   if (!entryTargets.some(target => initial.origin === target.origin && matchesPagePath(initial.pathname, target.pathname))) throw fail('PAGE_QUERY_ROUTE_CHANGED', 'Open a declared workflow entry page.');
   const deadline = now() + source.timeoutMs;
   const assertRunning = () => {
     options.assertRunning();
     if (now() >= deadline) throw fail('PAGE_WORKFLOW_TIMEOUT', 'Workflow deadline reached; remaining steps were not dispatched.');
   };
-  let completedSteps = 0, output, previousPage, skippedSteps = 0, executedActions = 0, collectionBytes = 0;
+  let completedSteps = 0, output, skippedSteps = 0, executedActions = 0, collectionBytes = 0;
+  const pages = new Map(), framePins = new Map();
   const collections = [], controlled = usesWorkflowControl(source);
   const canonical = value => JSON.stringify(value, (_, item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
@@ -59,21 +63,30 @@ export async function executePageWorkflow(options, executeStep) {
     try { return workflowConditionMatches(data, expected); }
     catch (error) { throw fail('PAGE_WORKFLOW_CONDITION', error.message); }
   };
+  try {
   for (const [index, step] of source.steps.entries()) {
     let iterations = 0;
     try {
       assertRunning();
-      const current = new URL((await chrome.tabs.get(tabId)).url);
+      const key = workflowContextKey(step);
+      let pin = framePins.get(key);
+      if (step.frames && !pin) {
+        pin = await resolvePageFrame({ chrome, tabId, frames: step.frames, ensureCdpAttached: options.ensureCdpAttached, assertRunning, deadline });
+        framePins.set(key, pin);
+      }
+      const currentPage = async () => pin ? pin.snapshot() : { url: (await chrome.tabs.get(tabId)).url };
+      const current = new URL((await currentPage()).url);
       const assertPage = async url => {
+        const previousPage = pages.get(key);
         if (!previousPage) return;
-        const frame = (await chrome.debugger.sendCommand({ tabId }, 'Page.getFrameTree'))?.frameTree?.frame;
+        const frame = pin ? await pin.tree() : (await chrome.debugger.sendCommand({ tabId }, 'Page.getFrameTree'))?.frameTree?.frame;
         if (url.href !== previousPage.url || frame?.id !== previousPage.frameId || frame?.loaderId !== previousPage.loaderId) {
           throw fail('PAGE_QUERY_ROUTE_CHANGED', 'The completed document was replaced; remaining actions were not dispatched.');
         }
       };
       await assertPage(current);
-      const startPath = index === 0 && step.query.mode === 'navigate' ? initial.pathname : step.pathname;
-      const startOrigin = index === 0 && step.query.mode === 'navigate' ? initial.origin : originRoutes[index].origin;
+      const startPath = index === 0 && step.query.mode === 'navigate' && !pin ? initial.pathname : step.pathname;
+      const startOrigin = index === 0 && step.query.mode === 'navigate' && !pin ? initial.origin : originRoutes[index].origin;
       if (current.origin !== startOrigin || !matchesPagePath(current.pathname, startPath)) throw fail('PAGE_QUERY_ROUTE_CHANGED', 'Page changed between workflow steps.');
       const collected = [], identities = new Map();
       const collect = result => {
@@ -105,18 +118,19 @@ export async function executePageWorkflow(options, executeStep) {
       let finished = !shouldRun;
       for (; shouldRun && iterations < (step.repeat?.maxIterations || 1);) {
         assertRunning();
-        const currentUrl = new URL((await chrome.tabs.get(tabId)).url);
+        const currentUrl = new URL((await currentPage()).url);
         await assertPage(currentUrl);
         const budget = deadline - now();
         if (budget < 1000) throw fail('PAGE_WORKFLOW_TIMEOUT', 'Workflow deadline reached before the next action.');
         const query = { ...step.query, ...(step.query.mode === 'navigate' && currentUrl.origin !== originRoutes[index].resultOrigin ? { resultOrigin: originRoutes[index].resultOrigin } : {}), timeoutMs: Math.min(step.query.timeoutMs, budget) };
-        output = await executeStep({ ...options, assertRunning, payload: { source: query, values: Object.fromEntries(namesFor(query).map(name => [name, values[name]])),
+        output = await (pin ? executeFramePageQuery : executeStep)({ ...options, assertRunning, ...(pin ? { frameContext: pin } : {}), payload: { source: query, values: Object.fromEntries(namesFor(query).map(name => [name, values[name]])),
           expectedOrigin: currentUrl.origin, expectedPath: currentUrl.pathname, metadataOnly: !controlled && payload.metadataOnly && index === source.steps.length - 1 }, allowStaticNavigation: true, captureWorkflowPage: true });
         executedActions++; iterations++;
         if (!output?.ok) throw fail(output?.error?.code || 'PAGE_QUERY_FAILED', output?.error?.message || 'Later steps were not dispatched.');
         assertRunning();
-        previousPage = output.internalWorkflowPage;
+        const previousPage = output.internalWorkflowPage;
         if (!previousPage?.frameId || !previousPage.loaderId) throw fail('PAGE_QUERY_ROUTE_CHANGED', 'Workflow step did not retain its completed document identity.');
+        pages.set(key, previousPage);
         const progress = collect(output);
         const done = !step.repeat || condition(output.data, step.repeat.until);
         if (step.repeat?.collect && progress.added === 0 && (progress.rows > 0 || !done)) throw fail('PAGE_WORKFLOW_NO_PROGRESS', 'The repeated page added no new identities; partial results were not returned.');
@@ -142,4 +156,5 @@ export async function executePageWorkflow(options, executeStep) {
     return { ok: true, shape: shape(result.data), workflow: { completedSteps, skippedSteps, executedActions, collectedCounts: collections.map(item => item.items.length) } };
   }
   return { ...result, workflow: { completedSteps, ...(controlled ? { skippedSteps, executedActions, collections } : {}) } };
+  } finally { await Promise.all([...framePins.values()].map(pin => pin.release())); }
 }

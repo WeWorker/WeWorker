@@ -2,8 +2,8 @@
  * Target choice and chrome.debugger capture for `capture_screenshot`.
  *
  * Adapter commands run in background tabs, so the window's active tab is often
- * unrelated to what the model wants to show (in WeWorker 浏览器 it is the
- * start-up about:blank). The screenshot therefore goes to the tab of the last
+ * unrelated to what the model wants to show (in WeWorker 浏览器 it is often the
+ * dedicated landing page). The screenshot therefore goes to the tab of the last
  * Adapter call, selected in its window first: a background tab may never
  * paint, and a CDP screenshot waits for a frame.
  *

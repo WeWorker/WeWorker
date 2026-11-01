@@ -22,6 +22,7 @@ export default function SitesCapabilitiesView({
   onSearchQueryChange,
   hideToolbarSearch = false,
   viewMode = 'list',
+  scrollContainerRef,
 }) {
   const { sites, loading } = useSitesStore()
   const [focusedId, setFocusedId] = useState(null)
@@ -34,6 +35,7 @@ export default function SitesCapabilitiesView({
   const gridRef = useRef(null)
   const layoutNodeRefs = useRef(new Map())
   const previousLayoutRects = useRef(new Map())
+  const previousScrollTop = useRef(0)
   const requestFill = useChatInputFillStore((s) => s.requestFill)
 
   const handleScenarioClick = (site, scenario, editedPrompt) => {
@@ -58,8 +60,36 @@ export default function SitesCapabilitiesView({
       )
     })
   }, [sites, searchQuery])
+  const focusedSite = useMemo(
+    () => (focusedId ? sites.find((site) => site.id === focusedId) || null : null),
+    [focusedId, sites],
+  )
+  const visibleSites = focusedSite ? [focusedSite] : filtered
+
+  const toggleSite = (siteId) => {
+    if (focusedId === siteId) {
+      setFocusedId(null)
+      return
+    }
+    if (!focusedId && scrollContainerRef?.current) {
+      previousScrollTop.current = scrollContainerRef.current.scrollTop
+    }
+    setFocusedId(siteId)
+  }
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef?.current
+    if (!container) return
+    const restoreScroll = () => {
+      container.scrollTop = focusedId ? 0 : previousScrollTop.current
+    }
+    restoreScroll()
+    const settleTimer = window.setTimeout(restoreScroll, 240)
+    return () => window.clearTimeout(settleTimer)
+  }, [focusedId, scrollContainerRef])
+
   const activeViewMode = viewMode === 'grid' ? 'grid' : 'list'
-  const gridRows = useMemo(() => chunkIntoRows(filtered, gridColumnCount), [filtered, gridColumnCount])
+  const gridRows = useMemo(() => chunkIntoRows(visibleSites, gridColumnCount), [visibleSites, gridColumnCount])
   const gridLayoutSignature = useMemo(
     () => `${displayedViewMode}:${focusedId || ''}:${gridColumnCount}:${filtered.map((site) => site.id).join('|')}`,
     [displayedViewMode, filtered, focusedId, gridColumnCount],
@@ -160,7 +190,7 @@ export default function SitesCapabilitiesView({
     if (mode === 'list') {
       return (
         <div className="cap-site-list">
-          {filtered.map((site) => {
+          {visibleSites.map((site) => {
             const scenarios = normalizeSiteScenarios(site)
             const expanded = focusedId === site.id
             return (
@@ -169,7 +199,7 @@ export default function SitesCapabilitiesView({
                 site={site}
                 scenarios={scenarios}
                 expanded={expanded}
-                onToggle={() => setFocusedId(expanded ? null : site.id)}
+                onToggle={() => toggleSite(site.id)}
                 onScenarioClick={handleScenarioClick}
                 dragProps={siteDragProps(site)}
                 layoutRef={displayedViewMode === 'grid' ? bindLayoutNode(site.id) : undefined}
@@ -182,14 +212,14 @@ export default function SitesCapabilitiesView({
 
     return (
       <div className="cap-site-mini-grid" ref={options.leaving ? null : gridRef}>
-        {gridRows.map((row, rowIndex) => {
+          {gridRows.map((row, rowIndex) => {
           const expandedIndex = row.findIndex((site) => site.id === focusedId)
           if (expandedIndex === -1) {
             return (
               <MiniTileRow
                 key={`row-${rowIndex}`}
                 sites={row}
-                onToggleSite={setFocusedId}
+                onToggleSite={toggleSite}
                 dragPropsForSite={siteDragProps}
                 layoutRefForSite={bindLayoutNode}
               />
@@ -205,7 +235,7 @@ export default function SitesCapabilitiesView({
               {before.length > 0 && (
                 <MiniTileRow
                   sites={before}
-                  onToggleSite={setFocusedId}
+                  onToggleSite={toggleSite}
                   dragPropsForSite={siteDragProps}
                   layoutRefForSite={bindLayoutNode}
                 />
@@ -215,7 +245,7 @@ export default function SitesCapabilitiesView({
                 scenarios={scenarios}
                 expanded
                 className="cap-site-grid-expanded"
-                onToggle={() => setFocusedId(null)}
+                onToggle={() => toggleSite(site.id)}
                 onScenarioClick={handleScenarioClick}
                 dragProps={siteDragProps(site)}
                 layoutRef={bindLayoutNode(site.id)}
@@ -223,7 +253,7 @@ export default function SitesCapabilitiesView({
               {after.length > 0 && (
                 <MiniTileRow
                   sites={after}
-                  onToggleSite={setFocusedId}
+                  onToggleSite={toggleSite}
                   dragPropsForSite={siteDragProps}
                   layoutRefForSite={bindLayoutNode}
                 />
@@ -626,7 +656,7 @@ const CAPABILITY_CSS = `
 .cap-site-row-card:hover { border-bottom-color: color-mix(in srgb, var(--border) 58%, transparent); }
 .cap-site-row-card--open {
   border-bottom-color: color-mix(in srgb, var(--accent) 18%, var(--border));
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  background: var(--bg-primary);
 }
 .cap-site-row-card--off { opacity: 0.55; }
 .cap-site-grid-expanded { grid-column: 1 / -1; }
@@ -638,11 +668,19 @@ const CAPABILITY_CSS = `
   background: transparent;
   cursor: default;
 }
-.cap-site-row:active { cursor: default; }
-.cap-site-row:hover {
+.cap-site-row::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 4px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--bg-tertiary) 48%, transparent);
+  pointer-events: none;
+  transition: background-color 160ms ease;
 }
+.cap-site-row:active { cursor: default; }
+.cap-site-row:hover::before,
+.cap-site-row:focus-visible::before { background: var(--bg-hover); }
+.cap-site-row > * { position: relative; z-index: 1; }
 .cap-floating-tooltip {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -732,7 +770,7 @@ const CAPABILITY_CSS = `
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 4px;
 }
 .cap-scenario {
-  display: flex; align-items: flex-start; gap: 6px; padding: 5px 6px; border-radius: 6px;
+  display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 6px;
   background: var(--bg-primary); border: 1px solid transparent;
   width: 100%; text-align: left; font: inherit; color: inherit;
   min-height: 34px;
@@ -749,7 +787,7 @@ const CAPABILITY_CSS = `
   display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 800; color: var(--accent);
   background: var(--bg-secondary); border: 1px solid var(--border);
-  margin-top: 1px;
+  margin-top: 0;
 }
 .cap-scenario-body { min-width: 0; flex: 1; }
 .cap-scenario-line {

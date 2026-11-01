@@ -51,7 +51,9 @@ it('preserves nonzero errors and refuses non-JSON follow before starting a Bridg
 
 it('formats catalog lists and global help; rejects unsupported Adapter output before a mutation', () => {
   for (const args of [['list'], ['adapter', 'list'], ['--help'], ['adapter', '--help']]) {
-    const run = format => execFileSync(process.execPath, [entry, ...args, '--output-format=' + format], { encoding: 'utf8' });
+    // The complete prepared Adapter catalog exceeds Node's default 1 MiB pipe
+    // buffer. Keep the full JSON/YAML comparison with an explicit finite bound.
+    const run = format => execFileSync(process.execPath, [entry, ...args, '--output-format=' + format], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 15000 });
     const value = JSON.parse(run('json'));
     expect(run('yaml').trimEnd()).toBe(formatCallOutput(value, 'yaml').trimEnd());
   }

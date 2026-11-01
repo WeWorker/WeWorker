@@ -25,7 +25,7 @@ export const browserCommands = {
   focus: { description: 'Focus an element.', params: ['session', ...target] },
   hover: { description: 'Move the pointer over an element.', params: ['session', ...target] },
   drag: { description: 'Drag between two unambiguous CSS targets in the selected frame using a native pointer.', params: ['session', 'selector', 'toSelector', 'frameId?', 'documentId?', 'shadow?'] },
-  upload: { description: 'Set files on one retained native input, including hidden, shadow and frame targets. Supports selector/semantic/ref targets and AX references. paths are absolute local files; file names/sizes are verified after selection. Directory inputs are unsupported.', params: ['session', ...target, 'paths'] },
+  upload: { description: 'Set files on one retained native input, including hidden, shadow and frame targets. Supports selector/semantic/ref targets and AX references. paths are absolute local files; file names/sizes are verified after selection. Use directory=true with one directory; chooser=true targets the button opening a native file chooser. Selection verifies metadata, not server receipt.', params: ['session', ...target, 'paths', 'directory?', 'chooser?'] },
   scroll: { description: 'Scroll the page or element in a direction.', params: ['session', ...target, 'direction?', 'amount?'] },
   keys: { description: 'Send a keyboard key or modifier combination to the focused page.', params: ['session', 'key'] },
   frames: { description: 'List accessible page frames, including cross-origin frames, with Chrome frameId and documentId for navigation-safe selection.', params: ['session'] },

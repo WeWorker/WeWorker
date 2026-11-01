@@ -1,5 +1,5 @@
 import { explorationError as fail } from './exploration-commands.js';
-import { writeResultIdentityMatches } from './exploration-write-result.js';
+import { writeResultIdentityMatches, writeResultSpecs } from './exploration-write-result.js';
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const invalid = () => { throw fail('INVALID_WRITE_CASE', 'Effect polling requires bounded integer intervalMs/maxAttempts and explicit pending equals assertions distinct from the final state.'); };
@@ -12,7 +12,7 @@ export function normalizeWritePoll(input, effect) {
     || !Number.isInteger(input.intervalMs) || input.intervalMs < 250 || input.intervalMs > 5000
     || !Number.isInteger(input.maxAttempts) || input.maxAttempts < 2 || input.maxAttempts > 20
     || input.pending === undefined && input.resultPending === undefined) invalid();
-  for (const [name, final] of [['pending', effect.after], ['resultPending', effect.resultReadback?.expect]]) {
+  for (const [name, final] of [['pending', effect.after], ...(effect.resultReadback ? writeResultSpecs(effect.resultReadback).map(spec=>['resultPending',spec.expect]) : [['resultPending',undefined]])]) {
     const condition = input[name];
     if (condition === undefined) continue;
     if (!final || !object(condition) || Object.keys(condition).join(',') !== 'equals' || !object(condition.equals)
@@ -65,10 +65,14 @@ export async function readWriteEffect({ execution, phase, binding, read, verify,
     }
     if (!passed) pending = matches(value, poll?.pending);
     else if (binding) {
-      const spec = effect.resultReadback, resource = await get({ url: binding.url });
-      if (!writeResultIdentityMatches(resource, spec, binding.id)) return { passed: false, attempts, document: currentDocument };
-      passed = matches(resource, spec.expect);
-      if (!passed) pending = matches(resource, poll?.resultPending);
+      const specs = writeResultSpecs(effect.resultReadback), bindings = binding.bindings || [binding];
+      if(bindings.length!==specs.length)return {passed:false,attempts,document:currentDocument};
+      for(let index=0;index<specs.length;index++) {
+        const spec=specs[index],selected=bindings[index],resource=await get({url:selected.url});
+        if (!writeResultIdentityMatches(resource, spec, selected.id)) return { passed: false, attempts, document: currentDocument };
+        passed = matches(resource, spec.expect);
+        if (!passed) {pending = matches(resource, poll?.resultPending);break;}
+      }
     }
     if (passed || !pending || attempts === maxAttempts) return { passed: Boolean(passed), attempts, document: currentDocument };
     await wait(poll.intervalMs, signal, deadline);

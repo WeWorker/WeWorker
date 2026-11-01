@@ -20,6 +20,12 @@ export interface ChannelNotificationTarget {
   chatType: 1 | 2
 }
 
+export interface ChannelImage {
+  data: Buffer
+  filename: string
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
+}
+
 export interface Channel {
   start(): Promise<void>
   stop(): Promise<void>
@@ -28,6 +34,8 @@ export interface Channel {
   sendNotification?(text: string): Promise<void>
   /** Actively send to an explicitly authorized target (no last-chat fallback). */
   sendNotificationToTarget?(target: ChannelNotificationTarget, text: string): Promise<void>
+  /** Send a validated in-memory image to an explicit target. */
+  sendImageToTarget?(target: ChannelNotificationTarget, image: ChannelImage): Promise<void>
 }
 
 export class ChannelManager {

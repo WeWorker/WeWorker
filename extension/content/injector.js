@@ -140,6 +140,7 @@ function summarizePrivilegedResult(action, result) {
         method: entry.method,
         responseStatus: entry.responseStatus,
         responseBodyFullSize: entry.responseBodyFullSize,
+        responseBodyError: entry.responseBodyError,
         responseBodyTruncated: entry.responseBodyTruncated,
       })),
     };
@@ -338,7 +339,7 @@ const traceLogs = new Map(); // traceID -> string[]
 function traceLog(traceID, message) {
   if (!traceID) return;
   if (!traceLogs.has(traceID)) traceLogs.set(traceID, []);
-  const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+  const ts = new Date().toISOString(); // Retain the date for diagnostic windows across midnight.
   traceLogs.get(traceID).push(`[${ts}] [${traceID}] ${message}`);
   if (traceLogs.get(traceID).length > 300) {
     traceLogs.get(traceID).shift();

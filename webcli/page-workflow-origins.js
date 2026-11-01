@@ -10,29 +10,39 @@ export function normalizeWorkflowOrigin(value) {
 export function workflowOriginRoutes(source, entryOrigin) {
   normalizeWorkflowOrigin(entryOrigin);
   if (!Array.isArray(source?.steps) || !source.steps.length) throw new Error('Declare workflow steps before resolving origins.');
-  let previous;
+  const previous = new Map();
   return source.steps.map((step, index) => {
-    const origin = normalizeWorkflowOrigin(step.origin ?? entryOrigin);
+    const key = JSON.stringify((step.frames || []).map(frame => frame.selector));
+    const initialOrigin = step.frames?.at(-1)?.origin ?? entryOrigin;
+    const origin = normalizeWorkflowOrigin(step.origin ?? initialOrigin);
     const resultOrigin = normalizeWorkflowOrigin(step.query.resultOrigin ?? origin);
-    if (index === 0 && origin !== entryOrigin) throw new Error('The first workflow origin must be the observed entry origin.');
-    if (previous && origin !== previous.resultOrigin) throw new Error('Each workflow origin must equal the preceding destination origin.');
+    if (!previous.has(key) && origin !== initialOrigin) throw new Error('The first workflow origin must be the observed entry origin or declared frame origin.');
+    if (previous.has(key) && origin !== previous.get(key).resultOrigin) throw new Error('Each workflow origin must equal the preceding destination origin in that context.');
     if (resultOrigin !== origin && step.query.mode !== 'navigate') throw new Error('Only an explicitly declared navigation may change origin.');
     if ((step.when || step.repeat) && resultOrigin !== origin) throw new Error('Conditional and repeated steps must preserve their origin.');
-    previous = { origin, pathname: step.pathname, resultOrigin, resultPathname: step.query.resultPathname };
-    return previous;
+    const route = { origin, pathname: step.pathname, resultOrigin, resultPathname: step.query.resultPathname };
+    previous.set(key, route);
+    return route;
   });
 }
-export function workflowOriginTargets(source, entryOrigin) {
+export function workflowOriginTargets(source, entryOrigin, entryPath = source.steps[0].pathname) {
   const routes = workflowOriginRoutes(source, entryOrigin);
-  return [{ origin: entryOrigin, pathname: routes[0].pathname }, ...routes.map(route => ({ origin: route.resultOrigin, pathname: route.resultPathname }))];
+  return [{ origin: entryOrigin, pathname: entryPath }, ...routes.filter((_, index) => !source.steps[index].frames).map(route => ({ origin: route.resultOrigin, pathname: route.resultPathname }))];
 }
-export const usesWorkflowOrigins = source => Boolean(source?.resultOrigin || source?.steps?.some(step => step.origin || step.query?.resultOrigin));
+export function workflowPermissionTargets(source, entryOrigin, entryPath) {
+  const routes = workflowOriginRoutes(source, entryOrigin);
+  return [...workflowOriginTargets(source, entryOrigin, entryPath), ...source.steps.flatMap(step => (step.frames || []).map(({ origin, pathname }) => ({ origin, pathname }))),
+    ...routes.flatMap(route => [{ origin: route.origin, pathname: route.pathname }, { origin: route.resultOrigin, pathname: route.resultPathname }])];
+}
+export const usesWorkflowOrigins = source => Boolean(source?.resultOrigin || source?.steps?.some(step => step.origin || step.frames || step.query?.resultOrigin));
 
 export function pageSourceOriginTargets(source, entryOrigin, entryPath) {
-  if (source?.mode === 'workflow') return workflowOriginTargets(source, entryOrigin);
+  if (source?.mode === 'workflow') return workflowOriginTargets(source, entryOrigin, entryPath);
   return [{ origin: entryOrigin, pathname: entryPath }, ...(source?.mode === 'navigate'
     ? [{ origin: normalizeWorkflowOrigin(source.resultOrigin ?? entryOrigin), pathname: source.resultPathname }] : [])];
 }
+export const pageSourcePermissionTargets = (source, entryOrigin, entryPath) => source?.mode === 'workflow'
+  ? workflowPermissionTargets(source, entryOrigin, entryPath) : pageSourceOriginTargets(source, entryOrigin, entryPath);
 export function matchesOriginTarget(url, target, allowStructuralPath = false) {
   if (url.origin !== target.origin) return false;
   const actual = url.pathname.split('/'), expected = target.pathname.split('/');

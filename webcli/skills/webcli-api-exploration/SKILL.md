@@ -5,6 +5,34 @@ description: 通过 WebCLI 探索公开/鉴权 HTTP API，或通过浏览器插�
 
 # API 探索与 Adapter 生成
 
+## B02 日期与弹层选项
+
+UI v2 的 kind=date 声明原生 input[type=date]，要求精确 ISO 值和有效 min/max/step。kind=choice 须声明 popup 和 option selectors：控件是 type=button、role=combobox、data-field 匹配 name、无提交 name；当前值为 data-value。点击后 popup 唯一可见且 role=listbox/grid，id 与 aria-controls 对应，aria-expanded=true；在 popup 内精确匹配一个可用 option/gridcell 的 data-value，再点击一次。日历可用 ISO 日期 data-value，不自动翻月。要求 native-input-change 和选定 profile 的 ui_write_choices_v1。页面负责 choice 事件，不另发重复 input/change；任一替换/歧义/禁用/值回退停止。沿用独立效果验证、安装门禁和单工具普通调用。普通 browser 层复用 find/click/get；目录与 chooser 上传见 webcli-browser，不能把路径写入生成包。
+
+## 写控件、序列与实际结果（W01–W04）
+
+UI 新契约使用 `uiWrite.version:2`，选定 profile 必须支持 `ui_write_controls_v2`。显式 `inputMode:native-input-change` 填写后派发 input/change，支持 text、select、checkbox（精确字符串 true/false）和声明 `role=textbox`、`data-field` 的 contenteditable。事件可能自动保存；`submit:{mode:"none"}` 不再提交。显式 requestSubmit、DOM click 或原生 Enter；Enter selector 是已声明输入，text 对应 aria-label。值撤回、节点替换、焦点/身份变化时停止，不重新选控件或重放。
+
+`hiddenFields:[{selector,name,source:"page"}]` 保持页面自带 hidden/CSRF 值，不捕获为参数、默认值、fixture 或日志。`shadowRoots` 指定开放根链；`frames` 复用 B01 的保留 owner/祖先/文档身份与独立 origin 权限。整页提交必须明确 `navigation:{url}` 固定同源目的地，验证原 frame 的导航和新回执，再在新文档回查效果。闭合 Shadow、任意自定义控件脚本和不受约束的重定向不在此契约内。
+
+写 fixture 可为单例或 `{cases:[...]}`（2–10 个唯一 id）；多例 `write-review/verify` 必须传 caseId，全部用例真实效果通过后才能安装。`write-sequence-review/verify` 用 steps:[{id,tool,caseId}] 编排 2–20 步明确用例。后续 fixture 的完整标量 `{{result:step}}`／`{{result:step:0}}` 只绑定先前已验证步骤持久保存的实际公开 ID，保留类型，不从 mock 或 handler 映射取值。每步先持久消费再派发，失败停止；同 reviewId 不重放。`write-sequence-readback` 只 GET；只有先前失败步骤确实未派发，才可用 resumeFrom 新审阅续跑并跳过已验证步骤，uncertain 禁止自动续跑。
+
+effect.resultReadback 支持一个声明或最多十个明确声明的数组。idType 除 string/integer 外，支持 signed-integer（安全负整数）和 decimal（保留原 JSON 整数 token 的规范十进制文本，不舍入，最长 512 字符）。来源可为 responsePath、公开 x-* header、带精确同源 template 的 Location 或响应 URL；Header/URL 使用 string/decimal，不隐式转数字。动态资源 URL 始终由单独审阅的 :id 模板构造；资源身份、全部输入和内容均须独立 GET 核对。扩展新回查需要 write_results_v2。
+
+UI v2 可用 `result:{source:"network",url,method,ids:[{publicId:true,idType,responsePath或responseSource}]}` 绑定原文档/frame 中唯一匹配 mutation 的真实响应；多个匹配请求拒绝，不取邻近 frame、不重放请求。单 ID 返回 resultId，多 ID 返回 resultIds，fixture 对应 resultId／resultIds.0 等。页面回执与业务效果仍要分别验证。详细契约和公开示例见 `docs/opencli_write_workflows.md`；下文原生单提交说明是 v1 基线。
+
+## 可靠调用入口
+
+未知站点从 `webcli call browser.open --session=explore --url=<url>` 开始，再用返回的 tabId 创建探索任务。不要使用依赖已安装 Adapter 允许列表的 open_browser；允许列表错误不通过改用 HTTPS 解决。
+
+Windows 和其他 shell 都优先将完整参数对象写入 UTF-8 JSON 文件，再执行 `webcli call exploration.draft-write --args-file "<file path>"`。content 必须是 JSON 对象内的字符串；不要把多行源码直接拼进 shell 命令，也不要反复尝试引号转义。文件支持 BOM，最大 2 MiB；--args 与 --args-file 只能选一个。
+
+已有草稿的 generate 只可复用相同计划；PLAN_CONFLICT 时读取 draft-read 的 draftHash，用 replan 保留旧方案后重新生成。不要通过只改 manifest 绕过计划，也不要安装 t1 等临时调试命令。
+
+PAGE_FETCH 的 fetchGet 返回 `{ok,status,url,data:解析后的响应体,rawText}`。先检查 HTTP 层，再按实际观察读取业务层，不能假定业务 code 在顶层。draft-read 提供相关契约；运行失败先核对契约、具体 case 和响应结构，不反复修改断言猜测答案。
+
+审阅时逐项核对标准命令名、参数边界、源字段映射、缺失值和分页。verificationCoverage 的结构类警告不是业务正确性证明；VERIFICATION_CHANGED 要检查是否弱化原需求。执行策略与实际路径分开记录：无需用户手动开页不等于底层完全无页，普通调用可能由宿主管理标签页。
+
 ## 先固定本次业务契约
 
 生成前从本轮用户请求列清：允许的参数值、默认选择范围、返回字段、计算精度和缺失值语义，并用它们检查 manifest、实现和每组 cases。用户明确给出的枚举应原样使用，不沿用历史记忆、旧草稿里的别名或额外分类；观察到接口还含其他业务数据，不代表用户要求把它一起封装。数值计算保留来源精度，只有用户明确要求展示舍入时才舍入。安装前逐项复核当前需求，不能仅以自己写的 cases 全绿作为需求全部满足的证明。
@@ -237,14 +265,16 @@ navigate 可加 `hashNavigation:{template:"items/:id",pathParameters:[{segmentIn
 
 - HTTP 写工具支持 PUBLIC_API/COOKIE_API/AUTH_API；声明式 Extension PAGE_FETCH 写见下文。使用已成功观察的 write 候选，或 `declare-write` 显式传 taskId/url/method/bodyKeys/reason；声明零请求，不能当作成功证据。仅支持 POST/PUT/PATCH/DELETE，任务 origin 必须已声明。
 - generate 显式计划使用 `risk:"write"`、`sourceApiKind:"action"`、一个 sourceApiIndexes、HTTP strategy 和 writeReason/strategyNote。骨架不会猜测写语义；Agent 编辑 schema/模块，保留确认保护并设置 `x-webcli-agent-authored:true`。`__confirmed` 省略/false 时必须返回 `{blocked:true,requiresConfirmation:true}`，零请求；true 才发送一次请求。
-- `write-verification-read/write` 读取 hash、更新 fixture；每工具一个公开测试用例，字段为 id、representativeArgs、expectedRequest、successResponse/successExpectation、failureResponse/failureExpectation、effect。expectedRequest 为精确 method/url/body 和可选 content-type headers。effect 为独立 GET 的 readback:{url}、before/after 严格断言；同一非通配标量路径必须有不同 equals 值。代表参数不得包含 __confirmed 或凭据。
+- `write-verification-read/write` 读取 hash、更新 fixture；支持单个公开测试用例或上方 W03 的多组 cases，单例字段为 id、representativeArgs、expectedRequest、successResponse/successExpectation、failureResponse/failureExpectation、effect。expectedRequest 为精确 method/url/body 和可选 content-type headers。effect 为独立 GET 的 readback:{url}、before/after 严格断言；同一非通配标量路径必须有不同 equals 值。代表参数不得包含 __confirmed 或凭据。
 - 例：representativeArgs 为 `{"title":"After"}`，expectedRequest 为 `{"method":"PUT","url":"https://example.com/items/example","body":{"title":"After"}}`；effect 为 `{"readback":{"url":"https://example.com/items/example"},"before":{"equals":{"title":"Before"}},"after":{"equals":{"title":"After"}}}`。mock successResponse 为 `{"status":200,"body":{"ok":true,"title":"After"}}`，successExpectation 为 `{"ok":true,"title":"After"}`；failureResponse 为 `{"status":409,"body":{}}`，失败解释按作者代码明确断言。鉴权仍通过 HTTP 契约。
 - 普通 validate 只跑写 mock 和真实只读用例，返回 write_review_ready。write-review 返回完整参数/请求/回查/鉴权声明与综合摘要。已有用户授权覆盖该目标和副作用时，调用 `write-verify --tool=... --reviewId=... --confirmed=true`；否则先展示这份具体审阅并取得授权。安装授权不自动授权远端写测试。
 - 实际验证先 GET 核对 before，再一次写请求，再 GET 核对 after；总预算 30 秒。reviewId 在派发前持久化并消耗，同一任务重复调用/取消/重启均不重发。失败后先查看 writeExecutions；uncertain 表示可能已有副作用，使用 write-readback 仅回查，不能把它当成重新通过验证或自动重试理由。无自动回滚。
 - 全部当前读/写验证通过后才能 review/install；安装只重跑 mock。普通 HTTP write 仍需 __confirmed=true，最多一次请求、拒绝重定向。普通 call 没有探索 reviewId 去重；失败应先检查效果。新声明、修改文件或 fixture 需要重新验证与审阅，不要为了重试而机械改 fixture id。
-- 当前未支持任意作者页面 JS/复杂 UI 控件写、多步/批量写、多 ID/header/响应 URL 回查、幂等键协商；单个用例只证明本次明确场景。
+- 声明式控件、任务内有限序列、多 ID/header/响应 URL 回查使用上方 W01–W04 契约。任意作者页面 JS、任意第三方控件脚本和自动幂等键协商仍未支持；单个用例只证明本次明确场景。
 
 ### 写响应 ID 的只读回查
+
+以下说明原有单 ID/string/integer 基线；多 ID、signed-integer、decimal、Header/URL 来源及声明导航以本文件开头 W02/W04 契约为准。
 
 - HTTP 与 PAGE_FETCH fixture 的 effect 可增加 `resultReadback:{url:"https://example.com/items/:id",publicId:true,responsePath:"item.id",identityPath:"id",expect:{equals:{title:"After"}}}`；原固定 readback/before/after 仍必需。successResponse.body 要包含公开 mock ID；真实执行仅从实际传输响应取 ID，HTTP 作者 handler 的结果映射不控制回查目标。
 - 只声明确认为公开且允许存储的标识。固定同写接口 origin、一个 :id 段、无 query/hash；精确属性路径不含通配符/敏感名。默认 idType=string，收 1–512 字符字符串，Unicode 字母/数字及 `_.-`，拒绝 `.`/`..` 和分隔符/百分号，保留前导零。数字 ID 必须显式 idType=integer，只收 0–Number.MAX_SAFE_INTEGER 的 JSON 整数，拒绝负数、负零、小数、越界和字符串。mock/实际响应/资源身份/持久恢复全程保留类型，不转换或使用服务端返回 URL。
@@ -264,7 +294,7 @@ navigate 可加 `hashNavigation:{template:"items/:id",pathParameters:[{segmentIn
 - **只有目标服务端明确保证幂等键去重时才填写该声明**。Chromium 响应丢失时可能重发请求；一次 fetch 不等于一次网络发送。支持 idempotency-key/x-idempotency-key，不自动探测或协商，不能凭空声称服务端已支持。
 - 生成固定注册模块及 manifest.pageWrite，参数映射直接在计划/manifest 中声明；不要编辑模块为自定义 JS。每工具写 fixture 沿用上述格式，失败解释为 `{ok:false,errorCode:"PAGE_WRITE_HTTP_STATUS"}`，成功返回原始 JSON。validate 只跑 mock；write-review 明列路由、请求、回查和实际幂等 header/key。
 - 用户授权覆盖目标副作用后 write-verify；相同 review 消耗后不再派发。浏览器同源 Cookie/HttpOnly 保留在浏览器，before/write/after 必须同一文档，取消/断线阻止后续步骤，已派发请求可能完成。响应丢失仍 uncertain，独立只读 readback 不会放行安装。
-- 普通 call 需 `__confirmed:true`，每次显式调用有新幂等键，不能把重复 call 当成安全重试。没有服务端幂等保证、动态 CSRF/签名、任意正文/结果映射、复杂 UI 提交、多步写/多 ID 继续未支持。
+- 普通 call 需 `__confirmed:true`，每次显式调用有新幂等键，不能把重复 call 当成安全重试。PAGE_FETCH 仍要求服务端幂等保证；页面 hidden/CSRF、控件提交、有限写序列和多 ID 使用上方各自的显式契约，不推导任意签名或任意正文/结果映射。
 
 ### 多步只读网站流程（UI_SELECTOR workflow）
 
@@ -308,7 +338,7 @@ navigate 可加 `hashNavigation:{template:"items/:id",pathParameters:[{segmentIn
 - 观察/作者验证期间取消，扩展收到对应 operationId 后停止后续步骤；已派发的动作可能完成。Bridge 断线停止当前流程后续步骤，重启任务为 interrupted，不自动续跑。普通已安装调用没有单独的任务取消入口。
 - 所有参数合并为必填字符串；每个参数都至少需要两组不同值的作者 cases，精确验证最终业务结果。作者验证逐 case 发往扩展，避免多条长流程堆在一个传输超时内。无参数流程也须至少一组作者断言。
 - manifest.pageRoute.workflow 记录动作、参数、关联条件、顺序与路由，整体纳入安装权限；源码不能跳步或改变动作而保留旧权限。结果读取选择器可通过 scoped repair 修改，动作选择器/顺序/参数变化需要重新生成、验证和审阅。知识保存完整来源，观察 values 不自动保存为默认值。
-- 仍不支持写动作、跨源/子 frame 工作流、任意自定义控件、任意脚本控制与动态步骤生成。不得把只读流程通过当作写操作或任意网站流程通过。
+- 仍不支持写动作、任意自定义控件、任意脚本控制与动态步骤生成。显式跨源和子 frame 读取契约见下文；不得把只读流程通过当作写操作或任意网站流程通过。
 
 ### 明确目的源的只读导航
 
@@ -320,7 +350,17 @@ workflow 的后续步骤若留在目的源，逐步写 `origin:"https://example.
 
 观察必须从原任务 origin 开始；后续验证可在该来源的声明结果页继续，重启后仍固定任务 tab。跨源预览不找替代 tab，普通调用歧义则失败。旧 profile 零派发拒绝；取消/断线不开始下一动作或作者 case，不重放导航。frame、自定义脚本及业务写不在此读取授权内。
 
-导航提交后 tabs URL 可能短暂滞后，运行时仅在既有预算内等待精确旧 URL 更新；旧页不作为结果读取，必须保留完整目的 URL、新文档或 hash 刷新证明及稳定业务字段。超时/重定向失败后先检查实际状态，不手动放宽来源、换 tab 或补发导航。仓库中的 frame 身份基础探针尚未接入生成流程，不能据此编写 frame workflow。
+导航提交后 tabs URL 可能短暂滞后，运行时仅在既有预算内等待精确旧 URL 更新；旧页不作为结果读取，必须保留完整目的 URL、新文档或 hash 刷新证明及稳定业务字段。超时/重定向失败后先检查实际状态，不手动放宽来源、换 tab 或补发导航。
+
+### 显式 frame 只读工作流（page_workflow_frames_v1）
+
+在每个子 frame 步骤声明 `frames:[{"selector":"#owner","origin":"https://example.org","pathname":"/child"}]`，按主文档到叶节点顺序列出 1–8 层 iframe owner。每层选择器必须唯一，origin/pathname 是该 owner 初次解析的精确地址；不接受持久化 frameId/documentId、按 URL 找 frame 或自动改选页。所有祖先和目的源都须在 start.allowedOrigins 中声明。
+
+相同 owner 链在一次 workflow 中只解析一次，后续步骤复用完全相同的初始 frames 声明。步骤 pathname/origin 表示该上下文当前地址；叶节点跨源导航后显式写 step.origin，省略 origin 表示 frames 末项的初始 origin。无 frames 表示主文档，各上下文单独衔接路径；固定 tab 的匹配仅使用主文档路由，不把 child 地址当作主页面。若普通调用需要重置流程，可先显式 navigate 主文档，再首次解析所有 frame。
+
+支持已有 navigate、query、filter、when/repeat/until/collect，以及 workflow 专用 `query:{"mode":"read","result":{"strategy":"DOM_STATE","path":["publicResult"]}}` 被动读取。动作限已有原生搜索、筛选和翻页语义；同一 frame 的明确导航可更新叶文档，必须保留原 owner 和全部祖先，任一 owner/祖先替换或歧义都停止。hash 仍需业务关联、刷新字段和同目标 reload；不会重载父页面代替子页面。
+
+完整 frames、动作和路线纳入 manifest 权限、review 和知识；repair 只改变结果提取，不改变 owner 或动作。作者 cases 全部重验，旧 profile 在观察、验证与普通调用前拒绝，不回退其他 profile。取消、断线、单步或总预算耗尽后不继续或重放。此契约不授权 frame 写、任意脚本或自定义控件。
 
 ### 有界分支与循环（page_workflow_control_v1）
 
@@ -389,7 +429,7 @@ webcli call exploration.repair --args '{"taskId":"example-task","site":"example.
 - Bridge 重启中的任务标记 interrupted，明确选择重新 collect（HTTP 模式 discover/request）或 validate；不自动重放探测或安装。
 - `cancel` 停止后续阶段并丢弃迟到结果；已派发浏览器请求可能完成。安装开始后不能取消。
 - start 可传 allowedOrigins 数组，显式授权额外 API 或页面导航 origin，如 `https://api.example.com`；只允许精确 origin，无路径、凭据或通配符。流量不会自动扩大权限，安装 review 会列出新域名。
-- 默认 GET、Agent 计划下的只读 POST JSON/form/GraphQL query、API 动态路径、声明式 UI_SELECTOR/DOM_STATE、单步 INTERCEPT、跨文档页面查询、参数化详情导航和显式 2–8 步只读 workflow 已支持。HTTP 和有明确幂等契约的 Extension 单请求写走独立 mock/审阅/效果验证；更广 UI 控件写、任意自定义多步 UI、frame 工作流仍未支持；主文档跨源需要明确目的源声明；报告限制，不伪装成功。
+- 默认 GET、Agent 计划下的只读 POST JSON/form/GraphQL query、API 动态路径、声明式 UI_SELECTOR/DOM_STATE、单步 INTERCEPT、跨文档页面查询、参数化详情导航和显式只读 workflow 已支持。frame 读取使用 B01 契约，受控 UI/frame 写与有限序列使用上方 W01–W04 契约。HTTP 和有明确幂等契约的 PAGE_FETCH 写仍独立 mock/审阅/效果验证；任意自定义 UI 脚本不在支持范围，主文档跨源需要明确目的源声明。报告限制，不伪装成功。
 - 使用 webcli-browser Skill 的 browser.* 触发搜索、翻页或检查页面状态，再 collect。采集/验证进行中不要操作同一页；TAB_BUSY 时等待。
 - trace 输出结构诊断、事件、文件清单与计划，便于交接修复；不含捕获正文或代码。verification-read 与 knowledge-read 可恢复作者测试用例；安装后修复使用 repair-info/repair，再走相同的验证、审阅与安装流程。
 - 证据的 URL 参数值被省略；不要把 `<value>` 作为实际查询值。业务参数来自用户输入，登录信息由既有浏览器运行时取得。
@@ -400,7 +440,7 @@ webcli call exploration.repair --args '{"taskId":"example-task","site":"example.
 
 浏览器 capabilities 必须包含 ui_write_v1 和 page_write_v1。使用明确 action 声明/观察来源、strategy=UI_SELECTOR、risk=write、pagePathname 和 uiWrite 生成。uiWrite 指定 form、inputMode=native-setter-no-events、inputs:[{selector,name,parameter}]、submit:{selector,text}、confirmation:{selector,attribute,parameter}；完整字段与公开示例见仓库 docs/api_exploration_write.md 的“UI_SELECTOR 原生表单单次提交”。
 
-先从实际页面确认表单提交时读取原生字段、无自动保存，独立 GET 可关联到准确资源与本次输入。原生 setter 不发 input/change/click，只调用一次 requestSubmit；受控/复杂组件、hidden CSRF、整页跳转、Shadow/frame、click/Enter 流程不在支持范围，不能绕过守卫或退回任意 JS 实写。来源声明零请求，不是成功证据。
+v1 先从实际页面确认表单提交时读取原生字段、无自动保存，独立 GET 可关联到准确资源与本次输入。原生 setter 不发 input/change/click，只调用一次 requestSubmit。受控输入、hidden、导航和 Shadow/frame 使用上方明确 v2 契约，不绕过守卫或退回任意 JS 实写。来源声明零请求，不是成功证据。
 
 UI fixture 用 id、representativeArgs、expectedSubmission:{url,method:"POST",body}、effect:{readback,identityPath,argumentPaths,before,after}，不用 HTTP mock 响应。每个参数在 argumentPaths 绑定不同精确公开字段，after.equals 等于该参数；identityPath 在 before/after 保持相同非空公开字符串，confirmation.parameter 对应字段必须改变。独立资源身份、内容和关联值都要验证，不能只检查页面“成功”或条数。
 

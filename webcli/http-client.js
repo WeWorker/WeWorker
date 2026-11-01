@@ -1,6 +1,7 @@
 import { adapterError } from './adapter-package-files.js';
 import { httpAuthHeaders } from './http-contract.js';
 import { createHttpAuthenticator } from './http-auth.js';
+import { parseWriteJson } from './write-result-json.js';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const deniedHeaders = /^(?:cookie|authorization|proxy-authorization|host|connection|content-length|transfer-encoding|upgrade|proxy-.*|sec-.*)$/i;
@@ -97,6 +98,11 @@ export function createHttpClient(command, options = {}) {
         return request(forwarded, redirects + 1);
       }
       const observation = { url: url.href, method, requestBody: body, status: response.status, responseContentType: response.headers.get('content-type') || '' };
+      const resultSpecs = options.writeResult ? (Array.isArray(options.writeResult) ? options.writeResult : [options.writeResult]) : [];
+      if (resultSpecs.length) observation.resultMetadata = {
+        headers:Object.fromEntries(resultSpecs.filter(value=>value.responseSource?.kind==='header').map(value=>[value.responseSource.name,redact(response.headers.get(value.responseSource.name))])),
+        ...(resultSpecs.some(value=>value.responseSource?.kind==='url') ? {url:redact(response.url || url.href)} : {}),
+      };
       if (!response.ok) options.observe?.(observation);
       if (!response.ok) { await response.body?.cancel(); throw fail([401, 403].includes(response.status) ? 'AUTH_REQUIRED' : 'STATUS', 'HTTP endpoint returned status ' + response.status + '.'); }
       const chunks = []; let size = 0;
@@ -109,7 +115,9 @@ export function createHttpClient(command, options = {}) {
       if (input.response === 'text') return redact(text);
       if (method === 'HEAD' || response.status === 204) { options.observe?.(observation); return null; }
       let parsed;
-      try { parsed = JSON.parse(text); } catch { throw fail('INVALID_JSON', 'HTTP endpoint did not return valid JSON.'); }
+      try { parsed = parseWriteJson(text, options.decimalPaths || []); } catch { throw fail('INVALID_JSON', 'HTTP endpoint did not return valid exact JSON.'); }
+      const decimalPaths=resultSpecs.filter(value=>value.idType==='decimal'&&value.responsePath).map(value=>value.responsePath);
+      if(decimalPaths.length)observation.resultMetadata.exactBody=redact(parseWriteJson(text,decimalPaths));
       const result = redact(parsed);
       options.observe?.({ ...observation, responseBody: result });
       return result;

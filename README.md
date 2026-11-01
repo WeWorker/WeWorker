@@ -1,12 +1,14 @@
 # WeWorker
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![CI](https://github.com/WeWorker/WeWorker/actions/workflows/ci.yml/badge.svg)](https://github.com/WeWorker/WeWorker/actions/workflows/ci.yml)
+[![Validate](https://github.com/WeWorker/WeWorker/actions/workflows/validate.yml/badge.svg)](https://github.com/WeWorker/WeWorker/actions/workflows/validate.yml)
 [![GitHub release](https://img.shields.io/github/v/release/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/releases)
 [![GitHub stars](https://img.shields.io/github/stars/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/issues)
 
 WeWorker 是一个 AI 驱动的桌面端网页自动化工具。它将自然语言任务交给 AI Agent，通过浏览器扩展或内置 Toolkit Adapter 调用网站能力，并在涉及登录、提交、下单、支付等关键步骤时保留用户确认环节。
+
+官网：[https://www.weworker.cc](https://www.weworker.cc)
 
 ## 功能
 
@@ -41,7 +43,7 @@ WeWorker 初次开源版本已内置一批常用网站 Adapter。常用示例：
 
 ### 下载桌面应用
 
-从 [GitHub Releases](https://github.com/WeWorker/WeWorker/releases) 下载对应平台的安装包：
+可从[官网](https://www.weworker.cc/download)选择平台，安装包由 [GitHub Releases](https://github.com/WeWorker/WeWorker/releases) 提供：
 
 - Windows 10/11 x64：`.exe`
 - macOS Intel：x64 `.dmg`
@@ -53,10 +55,20 @@ WeWorker 初次开源版本已内置一批常用网站 Adapter。常用示例：
 
 前置环境：
 
-- Node.js 22
+- Node.js 22.x（不支持使用其他主版本代替）
 - npm
 - [uv](https://docs.astral.sh/uv/)
 - Chrome 或 Chromium 浏览器
+
+先确认实际生效的版本：
+
+```bash
+node --version
+npm --version
+uv --version
+```
+
+`node --version` 必须输出 `v22.x.x`。项目所需的 Python 由 `uv` 自动准备，不需要预先安装系统 Python 或 PyInstaller。
 
 ```bash
 git clone https://github.com/WeWorker/WeWorker.git
@@ -65,7 +77,7 @@ npm run install:all
 npm run dev
 ```
 
-首次安装会同步网站探索agent运行环境，并安装桌面端、Renderer、Backend 和 WebCLI 的依赖。
+首次安装会同步网站探索agent运行环境，并通过 npm 官方的 `npm ci` 命令严格按照各目录的 `package-lock.json` 安装桌面端、Renderer、Backend 和 WebCLI 依赖。`npm ci` 会先删除对应目录已有的 `node_modules`，且不会改写 lockfile，适合首次克隆和复现正式构建；日常开发新增或升级依赖时请使用 `npm install <package>`，并提交同步更新的 `package.json` 和 `package-lock.json`。期间会下载 Python 运行环境和 Electron（约 120 MB），可能出现一段时间没有新日志；请确保能够访问 npm registry、GitHub Releases 和相关 CDN。
 
 ### 加载浏览器扩展
 
@@ -157,6 +169,21 @@ cd weworker
 npm run build:mac
 ```
 
+Windows 构建产物位于 `weworker/dist-app/`，成功后至少包含 `.exe`、`.exe.blockmap`、`latest.yml` 和 `win-unpacked/`。
+
+### Windows 下载与权限问题
+
+如果 Electron 下载长期停留在 GitHub，可在**同一个 PowerShell 窗口**临时使用镜像后重新安装或构建：
+
+```powershell
+$env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+$env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
+npm run install:all
+npm run build:win
+```
+
+这些变量只影响当前 PowerShell 会话，不建议写入项目文件。如果 `electron-builder` 报“无法创建符号链接/客户端没有所需的特权”，请开启 Windows 开发者模式，或从管理员 PowerShell 构建。如果刚生成的网站探索 Agent 或解密工具报 `EPERM`/“拒绝访问”，通常是终端安全软件阻止未签名的 PyInstaller 产物；不要关闭安全防护，应让管理员放行构建目录或改用允许执行本地构建产物的可信机器。
+
 详细说明见：
 
 - [桌面端开发与构建](weworker/README.md)
@@ -171,14 +198,33 @@ npm run build:mac
 
 ## 版本
 
-当前版本为 `1.0.0`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本为 `1.0.2`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 正式发布由维护者完成；推送版本 Tag 后会自动构建 Draft Release，维护者验证安装包后再发布。创建 Tag 前必须通过项目规定的审核、测试、构建和发布验证，完整流程见 [发布指南](docs/RELEASE.md)。
+
+### 版本号与分支号对应
+
+`dev-X.Y.Z` 分支的版本号必须与分支号保持一致。创建或维护 `dev-X.Y.Z` 分支时，需要将以下位置的版本统一更新为 `X.Y.Z`（`scripts/check-public-config.mjs` 会强制校验）：
+
+- `weworker/package.json`
+- `weworker/renderer/package.json`
+- `weworker/backend-ts/package.json`
+- `officialWeb/package.json`
+- `metrics-server/package.json`
+- `extension/manifest.json`
+- 上述各目录下 `package-lock.json` 的根版本字段（仅根条目，不含依赖版本）
+- `weworker/changelog.json` 的首条版本记录
+- `officialWeb/src/lib/downloadConfig.js` 的 `APP_VERSION`
+- `CHANGELOG.md` 与 README「版本」章节
+
+注意：`webcli/` 走 npm 独立发布节奏，版本与桌面端解耦，不随分支号更新。
+
+桌面端打包（electron-builder）与安装后显示的版本均取自 `weworker/package.json`；若分支号与版本号不对应，打包产物名称和安装后的版本显示都会与预期不符。WebCLI 版本一致性由 `webcli/version.json`、`webcli/.claude-plugin/plugin.json` 和 `webcli/skills/webcli/SKILL.md` 的独立账本约束。
 
 ## 许可证
 

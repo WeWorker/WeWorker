@@ -35,7 +35,9 @@ describe('focused tool guard', () => {
 
   it('allows only webcli calls for the agent website', () => {
     expect(checkFocusedWebcliCommand('webcli call example.com.list_orders --limit=5', SITES)).toEqual({ ok: true })
-    expect(checkFocusedWebcliCommand('webcli call open_browser --url=https://example.com', SITES)).toEqual({ ok: true })
+    expect(checkFocusedWebcliCommand('webcli call open_browser --url=https://example.com --adapter=example.com', SITES)).toEqual({ ok: true })
+    expect(checkFocusedWebcliCommand('webcli call open_browser --url=https://example.com', SITES).ok).toBe(false)
+    expect(checkFocusedWebcliCommand('webcli call open_browser --url=https://example.org --adapter=example.org', SITES).ok).toBe(false)
     expect(checkFocusedWebcliCommand('webcli help', SITES)).toEqual({ ok: true })
     expect(checkFocusedWebcliCommand('webcli example.com help', SITES)).toEqual({ ok: true })
     expect(checkFocusedWebcliCommand('webcli call example.org.search', SITES).ok).toBe(false)

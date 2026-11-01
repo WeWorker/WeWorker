@@ -42,7 +42,7 @@ function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) 
   const deployment = normalizeDeploymentConfig(JSON.parse(fs.readFileSync(deploymentPath, 'utf8')))
   const config = {
     ...packageJson.build,
-    publish: [{ provider: 'generic', url: deployment.downloadUrl }],
+    publish: [{ provider: 'generic', url: deployment.githubUrl }],
   }
   const targetPath = outputPath || path.join(root, 'build', '.electron-builder-config.json')
   fs.mkdirSync(path.dirname(targetPath), { recursive: true })

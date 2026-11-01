@@ -40,6 +40,17 @@ function codedError(code, message, auth = null) {
   return Object.assign(new Error(message), { code, ...(auth ? { auth } : {}) });
 }
 
+function decodeQrImage(dataUrl) {
+  const match = /^data:image\/(?:png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=\s]+)$/i.exec(String(dataUrl || ''));
+  if (!match) return null;
+  const bytes = Buffer.from(match[1], 'base64');
+  if (!bytes.length || bytes.length > 2 * 1024 * 1024) return null;
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { bytes, ext: 'png' };
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return { bytes, ext: 'jpg' };
+  if (bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') return { bytes, ext: 'webp' };
+  return null;
+}
+
 const hostMatches = hostMatchesPattern;
 
 /** Auto-login types only into HTTPS pages (or local test pages) on the site's declared hosts. */
@@ -56,6 +67,11 @@ export function isAutologinPage(manifest, value) {
 
 export function siteName(manifest) {
   return manifest?.auth?.display_name || manifest?.i18n?.zh?.name || manifest?.name || '';
+}
+
+/** Adapter capability policy; user preferences still default to disabled. */
+export function siteAutologinMode(manifest) {
+  return manifest?.auth?.autologin?.mode === 'off' ? 'off' : 'auto';
 }
 
 export class SiteLoginCoordinator {
@@ -142,7 +158,7 @@ export class SiteLoginCoordinator {
     }
     if (outcome === 'timeout') throw codedError('AUTH_REQUIRED', `${name} 登录等待超时。`, { ...auth, status: 'timeout' });
     // Still waiting: the caller's wait ended; the flow keeps running and reports completion as an event.
-    const screenshot = flow.screenshot ? { screenshot: flow.screenshot } : {};
+    const screenshot = flow.qr?.available && flow.screenshot ? { screenshot: flow.screenshot } : {};
     throw codedError('AUTH_REQUIRED',
       `需要登录 ${name}：登录页已在 WeWorker 浏览器中打开（支持扫码、短信验证码或账号密码），用户完成登录后重新执行此命令即可。`,
       { ...auth, status: 'waiting_user', ...screenshot });
@@ -191,13 +207,17 @@ export class SiteLoginCoordinator {
       if (refresh && manifest.auth.check?.cookies) await this.check(manifest.name, { cookiesOnly: true }).catch(() => {});
       const cached = this._states.get(manifest.name);
       const flow = this._flows.get(manifest.name);
+      const mode = siteAutologinMode(manifest);
+      const preferences = this._vault ? this._vault.site(manifest.name) : {};
       list.push({
         site: manifest.name,
         name: siteName(manifest),
         state: cached?.state || 'unknown',
         checkedAt: cached?.checkedAt || null,
         flow: flow ? flow.status : null,
-        autologin: this._vault ? { supported: this._vault.supported, ...this._vault.site(manifest.name) } : { supported: false },
+        autologin: this._vault
+          ? { supported: this._vault.supported, allowed: mode !== 'off', mode, ...preferences, ...(mode === 'off' ? { enabled: false } : {}) }
+          : { supported: false, allowed: mode !== 'off', mode },
       });
     }
     return { sites: list, autologinSupported: !!this._vault?.supported };
@@ -206,16 +226,20 @@ export class SiteLoginCoordinator {
   // ── Explicit actions ──────────────────────────────────────────────────────
 
   /** `webcli login <site>` / the desktop "登录" button: check first, then run the flow. */
-  async login(site, { waitMs = DEFAULT_LOGIN_WAIT_MS } = {}) {
+  async login(site, { waitMs = DEFAULT_LOGIN_WAIT_MS, skipCheck = false, targetTabId, pageUrl } = {}) {
     const manifest = this._manifestFor(site);
     if (!manifest) throw new Error(`Adapter "${site}" is not available.`);
-    if (!this._flows.has(site) && manifest.auth?.check) {
+    if (!this._flows.has(site) && !skipCheck && manifest.auth?.check) {
       const current = await this.check(site).catch(() => null);
       if (current?.logged_in === true) return { site, status: 'already_logged_in' };
     }
-    const flow = this._ensureFlow(manifest, { manual: true });
+    const flow = this._ensureFlow(manifest, { manual: true, targetTabId, pageUrl });
     const outcome = await this._waitFor(flow, waitMs);
-    return { site, status: outcome === 'pending' ? 'waiting_user' : outcome, ...(flow.screenshot ? { screenshot: flow.screenshot } : {}) };
+    return {
+      site, status: outcome === 'pending' ? 'waiting_user' : outcome,
+      ...(flow.qr?.available && flow.screenshot ? { screenshot: flow.screenshot } : {}),
+      ...(flow.qr ? { qr: flow.qr } : {}),
+    };
   }
 
   cancel(site) {
@@ -225,6 +249,34 @@ export class SiteLoginCoordinator {
     return true;
   }
 
+  /** Focus this site's current login page without exposing a URL to desktop clients. */
+  async show(site) {
+    const manifest = this._manifestFor(site);
+    const flow = manifest ? this._flows.get(manifest.name) : null;
+    if (!flow || flow.status !== 'waiting_user') return { shown: false, reason: 'NO_WAITING_LOGIN' };
+
+    if (this._browser.mode() === 'dedicated' && flow.url) {
+      try {
+        await this._browser.showPage(flow.url);
+        flow.shown = true;
+        return { shown: true, site: manifest.name };
+      } catch (error) {
+        this._log(`[login] ${manifest.name} direct show failed, refreshing login tab: ${error.message}`);
+      }
+    }
+
+    const opened = await this._extension('auth_open_login', {
+      site: manifest.name, focus: this._browser.mode() !== 'dedicated',
+    }, 20_000);
+    if (opened?.url) flow.url = opened.url;
+    if (!flow.url) return { shown: false, reason: 'LOGIN_TAB_UNAVAILABLE' };
+    if (this._browser.mode() === 'dedicated') {
+      await this._browser.showPage(flow.url);
+      flow.shown = true;
+    }
+    return { shown: true, site: manifest.name };
+  }
+
   // ── The flow ──────────────────────────────────────────────────────────────
 
   _ensureFlow(manifest, options = {}) {
@@ -232,7 +284,8 @@ export class SiteLoginCoordinator {
     if (existing) return existing;
     let resolve;
     const flow = {
-      site: manifest.name, status: 'login_required', cancelled: false, shown: false, screenshot: null,
+      site: manifest.name, status: 'login_required', cancelled: false, shown: false,
+      screenshot: null, screenshotVersion: 0, qr: null,
       done: new Promise((r) => { resolve = r; }),
     };
     this._flows.set(manifest.name, flow);
@@ -259,14 +312,21 @@ export class SiteLoginCoordinator {
 
   _emit(manifest, flow, status, extra = {}) {
     flow.status = status;
-    this._broadcast({ type: 'auth_event', site: manifest.name, name: siteName(manifest), status, at: new Date(this._now()).toISOString(), ...extra });
+    this._broadcast({
+      type: 'auth_event', site: manifest.name, name: siteName(manifest), status,
+      autologinMode: siteAutologinMode(manifest), at: new Date(this._now()).toISOString(), ...extra,
+    });
   }
 
-  async _runFlow(manifest, flow, { pageUrl, manual = false } = {}) {
+  async _runFlow(manifest, flow, { pageUrl, manual = false, targetTabId } = {}) {
     const site = manifest.name;
     const deadline = this._now() + this._flowTimeoutMs;
     this._emit(manifest, flow, 'login_required');
-    const opened = await this._extension('auth_open_login', { site, ...(pageUrl ? { url: pageUrl } : {}) }, 20_000);
+    const opened = await this._extension('auth_open_login', {
+      site,
+      ...(pageUrl ? { url: pageUrl } : {}),
+      ...(Number.isInteger(targetTabId) ? { tabId: targetTabId } : {}),
+    }, 20_000);
     flow.url = opened?.url || '';
     const finish = async (outcome, extra = {}) => {
       if (flow.shown && outcome !== 'timeout') await this._browser.hideWindows().catch(() => {});
@@ -287,28 +347,36 @@ export class SiteLoginCoordinator {
     const autologin = await this._tryAutologin(manifest, flow);
     if (autologin === 'logged_in') return finish('logged_in', { autologin: true });
 
-    // Hand over to the user: QR code, SMS code or password on the real login page.
-    if (this._browser.mode() === 'dedicated') {
-      await this._browser.showPage(flow.url).catch((error) => this._log(`[login] show failed: ${error.message}`));
-      flow.shown = true;
-    } else {
-      await this._extension('auth_open_login', { site, focus: true }, 20_000).catch(() => {});
-    }
+    flow.qr = await this._prepareQrLogin(manifest, flow);
+
+    // Keep the prepared login page in the background. The user can open the
+    // exact login tab from the desktop notice when convenient.
     await this._refreshScreenshot(manifest, flow);
-    this._emit(manifest, flow, 'waiting_user', flow.screenshot ? { screenshot: flow.screenshot } : {});
+    this._emit(manifest, flow, 'waiting_user', {
+      ...(flow.qr?.available && flow.screenshot ? { screenshot: flow.screenshot, screenshotVersion: flow.screenshotVersion } : {}),
+      ...(flow.qr ? { qr: flow.qr } : {}),
+    });
     let lastShot = this._now();
     while (this._now() < deadline) {
       if (flow.cancelled) return finish('cancelled');
       const state = await this._evaluate(manifest, flow);
       if (state === 'done') {
-        this._recordManualLogin(site);
-        return finish('logged_in', this._offerAutologin(site));
+        this._recordManualLogin(manifest);
+        return finish('logged_in', this._offerAutologin(manifest));
       }
       if (state === 'closed') return finish('cancelled');
       if (this._now() - lastShot >= SCREENSHOT_REFRESH_MS) {
         // QR codes expire and refresh on the page; keep the copy for remote users current.
         await this._refreshScreenshot(manifest, flow);
+        const refreshedQr = flow.qr?.available ? await this._prepareQrLogin(manifest, flow) : null;
+        if (refreshedQr?.available) flow.qr = refreshedQr;
         lastShot = this._now();
+        if (flow.qr?.available && flow.screenshot) {
+          this._emit(manifest, flow, 'waiting_user', {
+            screenshot: flow.screenshot, screenshotVersion: flow.screenshotVersion, screenshotUpdated: true,
+            ...(flow.qr ? { qr: flow.qr } : {}),
+          });
+        }
       }
       await this._sleep(this._pollMs);
     }
@@ -349,39 +417,72 @@ export class SiteLoginCoordinator {
     return tabOpen ? 'done' : 'closed';
   }
 
+  async _prepareQrLogin(manifest, flow) {
+    // QR discovery is a host default. Adapters only opt out when the site has no
+    // QR login or automatic probing is inappropriate.
+    if (manifest.auth?.qr?.mode === 'off') return null;
+    try {
+      const result = await this._extension('auth_prepare_qr', { site: manifest.name }, 10_000);
+      if (!result || typeof result !== 'object') return { available: false, method: 'heuristic' };
+      this._log(`[login] ${manifest.name} QR preparation: available=${result.available === true} clicked=${result.clicked === true} image=${typeof result.imageDataUrl === 'string' && result.imageDataUrl.length > 0} reason=${result.reason || 'none'}`);
+      const qr = {
+        available: result.available === true,
+        method: 'heuristic',
+        ...(result.clicked === true ? { clicked: true } : {}),
+      };
+      const image = decodeQrImage(result.imageDataUrl);
+      if (image) {
+        this._fs.mkdirSync(this._screenshotDir, { recursive: true });
+        const file = path.join(this._screenshotDir, `${manifest.name}.qr.${image.ext}`);
+        this._fs.writeFileSync(file, image.bytes);
+        qr.image = file;
+        qr.imageVersion = (flow?.qr?.imageVersion || 0) + 1;
+      }
+      return qr;
+    } catch (error) {
+      this._log(`[login] ${manifest.name} QR preparation failed: ${error.message}`);
+      return { available: false, method: 'heuristic' };
+    }
+  }
+
   async _refreshScreenshot(manifest, flow) {
-    if (this._browser.mode() !== 'dedicated' || !flow.url) return;
+    if (this._browser.mode() !== 'dedicated' || !flow.url) return false;
     try {
       const data = await this._browser.screenshot(flow.url);
-      if (!data) return;
+      if (!data) return false;
       this._fs.mkdirSync(this._screenshotDir, { recursive: true });
       const file = path.join(this._screenshotDir, `${manifest.name}.jpg`);
       this._fs.writeFileSync(file, Buffer.from(data, 'base64'));
       flow.screenshot = file;
+      flow.screenshotVersion += 1;
+      return true;
     } catch (error) {
       this._log(`[login] screenshot failed: ${error.message}`);
+      return false;
     }
   }
 
   // ── Auto-login ────────────────────────────────────────────────────────────
 
-  _recordManualLogin(site) {
-    if (!this._vault) return;
+  _recordManualLogin(manifest) {
+    if (!this._vault || siteAutologinMode(manifest) === 'off') return;
+    const site = manifest.name;
     try {
       const current = this._vault.site(site);
       this._vault.updateSite(site, { manual_logins: current.logins + 1 });
     } catch { /* Preferences are best effort. */ }
   }
 
-  /** Offer auto-login after the second manual login, unless the user declined it. */
-  _offerAutologin(site) {
-    if (!this._vault?.supported) return {};
-    const prefs = this._vault.site(site);
+  /** Offer auto-login after the second manual login, unless the Adapter forbids it or the user declined it. */
+  _offerAutologin(manifest) {
+    if (!this._vault?.supported || siteAutologinMode(manifest) === 'off') return {};
+    const prefs = this._vault.site(manifest.name);
     return !prefs.enabled && !prefs.dismissed && prefs.logins >= 2 ? { offerAutologin: true } : {};
   }
 
   async _tryAutologin(manifest, flow) {
     const site = manifest.name;
+    if (siteAutologinMode(manifest) === 'off') return 'skipped';
     if (!this._vault?.supported || this._browser.mode() !== 'dedicated') return 'skipped';
     const prefs = this._vault.site(site);
     if (!prefs.enabled) return 'skipped';

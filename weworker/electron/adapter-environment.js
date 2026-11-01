@@ -69,13 +69,18 @@ export function buildAdapterEnvironment({ env = process.env, packaged, resources
   const userDir = path.resolve(userOverride || path.join(home, '.weworker/adapters', ...(profile === 'public' ? [] : ['.profiles', profile])));
   assertExplicitRootProfile(userDir, profile);
   const dataDir = path.resolve(env.WEWORKER_ADAPTER_DATA_DIR || (userOverride ? path.join(userDir, '.host-data') : path.join(home, '.weworker')));
-  return {
+  const childEnv = {
     ...env,
     WEWORKER_BUILD_PROFILE: profile,
     WEWORKER_BUILTIN_ADAPTERS_DIR: path.resolve(builtinDir),
     WEWORKER_USER_ADAPTERS_DIR: userDir,
     WEBCLI_ADAPTERS_DIR: userDir,
     WEWORKER_ADAPTER_DATA_DIR: dataDir,
+    // Desktop children always talk to the desktop Bridge, even if the parent shell
+    // was configured for the standalone npm WebCLI.
+    WEBCLI_BRIDGE_PORT: '3711',
     ...(packaged ? { WEWORKER_RESOURCES_PATH: resourcesPath } : {}),
   };
+  delete childEnv.WEWORKER_WEBCLI_DISTRIBUTION;
+  return childEnv;
 }

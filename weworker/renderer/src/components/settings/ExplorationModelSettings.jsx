@@ -92,10 +92,10 @@ export default function ExplorationModelSettings() {
             <label className="exploration-model-checkbox"><AppSwitch checked={form.use_main_key} onChange={event => edit('use_main_key', event.target.checked)} />使用现有 API Key（跟随当前主模型服务）</label>
             {!form.use_main_key && <label>API Key<input type="password" autoComplete="new-password" required={!stored?.has_key} value={form.api_key} onChange={event => edit('api_key', event.target.value)} placeholder={stored?.has_key ? '已保存，留空保持不变' : '填写此服务的 API Key'} /></label>}
             <label>模型<input value={form.model} onChange={event => edit('model', event.target.value)} placeholder={`留空使用主模型${stored?.main_model ? `：${stored.main_model}` : ''}`} /></label>
-          <div className="exploration-model-actions"><button type="button" onClick={() => run(false)}>重新检测已保存配置</button><button type="submit">验证并保存</button></div>
+          <div className="exploration-model-actions"><button data-app-button="action" type="button" onClick={() => run(false)}>重新检测已保存配置</button><button data-app-button="action" type="submit">验证并保存</button></div>
         </fieldset>
       </form>}
-      {!form && <button type="button" disabled={busy} onClick={() => run(false)}>重新检测</button>}
+      {!form && <button data-app-button="action" type="button" disabled={busy} onClick={() => run(false)}>重新检测</button>}
       {loadError && <p role="alert">{loadError}</p>}
       {result && <div role="status" className={`exploration-model-result${result.ok ? ' is-success' : ''}`}><p>{connectionMessage(result)}</p>{!result.ok && result.detail && <details><summary>查看详情</summary><pre>{result.detail}</pre></details>}</div>}
     </div>}

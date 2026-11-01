@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { normalizeWriteResult, resolveWriteResult, savedWriteResult, writeResultIdentityMatches } from '../exploration-write-result.js';
+import { normalizeWriteResult, resolveWriteResult, savedWriteResult, writeResultIdentityMatches, parseWriteJson } from '../exploration-write-result.js';
 
 const origin = 'https://example.com';
 const spec = { url: origin + '/items/:id', publicId: true, responsePath: 'item.id', identityPath: 'id', expect: { equals: { title: 'After' } } };
@@ -54,4 +54,36 @@ it('does not infer an ID type from the mock or silently widen an old declaration
   expect(() => normalizeWriteResult(spec, { item: { id: 1 } }, origin)).toThrow();
   expect(() => normalizeWriteResult({ ...spec, idType: 'integer' }, { item: { id: '1' } }, origin)).toThrow();
   expect(normalizeWriteResult(spec, { item: { id: '007' } }, origin)).not.toHaveProperty('idType');
+});
+
+it('preserves signed safe integers and exact arbitrary-precision decimal JSON only when declared',()=>{
+  const signed={...spec,idType:'signed-integer'};expect(resolveWriteResult(signed,{item:{id:-17}},origin).id).toBe(-17);
+  const decimal={...spec,idType:'decimal'},text='{"item":{"id":-9007199254740993123456789},"count":3}';
+  const exactBody=parseWriteJson(text,['item.id']);expect(exactBody).toEqual({item:{id:'-9007199254740993123456789'},count:3});
+  expect(resolveWriteResult(decimal,JSON.parse(text),origin,{exactBody}).id).toBe('-9007199254740993123456789');
+  expect(()=>resolveWriteResult(decimal,JSON.parse(text),origin)).toThrow();
+  for(const raw of ['-0','1.0','1e3'])expect(()=>parseWriteJson('{"id":'+raw+'}',['id'])).toThrow();
+  expect(parseWriteJson('{"id":"007","count":3}',['id'])).toEqual({id:'007',count:3});
+});
+
+it('reads only explicitly reviewed public headers and exact response URL templates',()=>{
+  const header={...spec,responsePath:undefined,responseSource:{kind:'header',name:'x-resource-id'}};delete header.responsePath;
+  const normalized=normalizeWriteResult(header,{},origin,{headers:{'x-resource-id':'007'}});
+  expect(resolveWriteResult(normalized,{},origin,{headers:{'x-resource-id':'actual'}}).id).toBe('actual');
+  expect(()=>resolveWriteResult(normalized,{item:{id:'mock'}},origin)).toThrow();
+  const url={...header,responseSource:{kind:'url',template:origin+'/created/:id'}};
+  expect(normalizeWriteResult(url,{},origin,{url:origin+'/created/007'})).toMatchObject({responseSource:url.responseSource});
+  expect(resolveWriteResult(url,{},origin,{url:origin+'/created/%E7%A4%BA%E4%BE%8B'}).id).toBe('示例');
+  for(const actual of ['https://example.org/created/7',origin+'/other/7',origin+'/created/7?secret=x',origin+'/created/a%2fb'])expect(()=>resolveWriteResult(url,{},origin,{url:actual})).toThrow();
+  for(const name of ['authorization','x-token','set-cookie'])expect(()=>normalizeWriteResult({...header,responseSource:{kind:'header',name}},{},origin,{headers:{[name]:'example'}})).toThrow();
+});
+
+it('validates all IDs before any resource read and reconstructs a minimal multi-ID durable binding',()=>{
+  const specs=[spec,{...spec,responsePath:'other.id',url:origin+'/others/:id',idType:'signed-integer'}];
+  const normalized=normalizeWriteResult(specs,{item:{id:'007'},other:{id:-3}},origin);
+  const resolved=resolveWriteResult(normalized,{item:{id:'actual'},other:{id:-4}},origin);
+  expect(resolved.ids).toEqual(['actual',-4]);
+  expect(savedWriteResult({effect:{resultReadback:normalized},http:{origins:[origin]},resultBinding:{ids:resolved.ids}})).toEqual(resolved);
+  expect(()=>resolveWriteResult(normalized,{item:{id:'actual'}},origin)).toThrow();
+  expect(()=>savedWriteResult({effect:{resultReadback:normalized},http:{origins:[origin]},resultBinding:{ids:['actual']}})).toThrow();
 });

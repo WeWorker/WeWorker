@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "github.com",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GitHub：Trending 仓库读取、登录检查、仓库搜索、仓库详情、Issue/PR 详情和 Star 仓库",
   "match": [
     "github.com"
@@ -131,7 +131,7 @@
       "id": "get-issue-or-pr-detail",
       "runtime": "extension",
       "module": "extension/commands/get-issue-or-pr-detail.js",
-      "description": "打开或读取 GitHub Issue/Pull Request 详情页，返回标题、状态、作者、正文摘要、标签、评论摘要和链接。传列表页时会进入第一条详情，页面加载后再次调用可读取详情。",
+      "description": "读取 GitHub Issue/Pull Request 详情。宿主在同次只读调用内完成导航和内容等待；传列表页时选取首个匹配详情链接。页面不可用或未就绪时明确失败。",
       "safety": "read",
       "schema": {
         "type": "object",

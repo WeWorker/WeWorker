@@ -1,4 +1,4 @@
-import { normalizeWorkflowOrigin, workflowOriginRoutes } from './page-workflow-origins.js';
+import { normalizeWorkflowOrigin, workflowPermissionTargets } from './page-workflow-origins.js';
 /**
  * Adapter Package v2 — 校验、发现与解析
  *
@@ -193,6 +193,7 @@ export function validateV2Manifest(manifest, directoryName = "?") {
     validateHttpContract(command);
     validatePageWrite(command);
     validateUiWrite(command);
+    if (command.uiWrite?.frames?.some(frame => !adapterPagePatterns(manifest).some(pattern => hostMatchesPattern(new URL(frame.origin).hostname, pattern)))) fail(adapterName, 'UI write frame hosts must be declared in the page scope.');
     if (command.execution !== undefined && (command.runtime !== 'extension' || !command.execution
       || command.execution.type !== 'api' || command.execution.runtime !== 'background'
       || Object.keys(command.execution).some((key) => !['type', 'runtime'].includes(key)))) {
@@ -242,10 +243,10 @@ export function validateV2Manifest(manifest, directoryName = "?") {
     if (command.pageRoute?.workflow !== undefined) {
       try {
         const source = validatePageWorkflowContract(command.pageRoute.workflow);
-        const routes = workflowOriginRoutes(source, command.pageRoute.origin);
-        if (routes.some(route => [route.origin, route.resultOrigin].some(origin => !adapterPagePatterns(manifest).some(pattern => hostMatchesPattern(new URL(origin).hostname, pattern))))) throw new Error('Workflow hosts must be declared.');
+        const routes = workflowPermissionTargets(source, command.pageRoute.origin, command.pageRoute.pathname);
+        if (routes.some(route => !adapterPagePatterns(manifest).some(pattern => hostMatchesPattern(new URL(route.origin).hostname, pattern)))) throw new Error('Workflow hosts must be declared.');
         if (command.pageWorkflow !== true || command.pageRoute.navigation || command.pageRoute.additionalPaths
-          || source.steps[0].pathname !== command.pageRoute.pathname) throw new Error('Invalid entry route.');
+          || source.steps.find(step => !step.frames) && source.steps.find(step => !step.frames).pathname !== command.pageRoute.pathname) throw new Error('Invalid entry route.');
       } catch { fail(adapterName, 'pageRoute.workflow requires a complete normalized read-only step sequence beginning at pathname.'); }
     }
     if (command.pageRoute?.additionalPaths !== undefined) {
@@ -304,7 +305,7 @@ export function validateV2Manifest(manifest, directoryName = "?") {
   return { name: manifest.name, manifest, commands };
 }
 
-const AUTH_FIELDS = new Set(["login_url", "login_hosts", "check", "autologin", "display_name"]);
+const AUTH_FIELDS = new Set(["login_url", "login_hosts", "check", "autologin", "display_name", "qr"]);
 const AUTH_HOST_RE = /^(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/;
 
 const authHostMatches = hostMatchesPattern;
@@ -312,9 +313,8 @@ const authHostMatches = hostMatchesPattern;
 function authUrl(adapterName, value, field, hosts) {
   let url;
   try { url = new URL(String(value)); } catch { fail(adapterName, `auth.${field} must be an absolute URL.`); }
-  const local = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
-  if ((url.protocol !== "https:" && !local) || url.username || url.password) {
-    fail(adapterName, `auth.${field} must be an https URL without credentials.`);
+  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) {
+    fail(adapterName, `auth.${field} must be an HTTP(S) URL without credentials.`);
   }
   if (!hosts.some((pattern) => authHostMatches(url.hostname.toLowerCase(), pattern))) {
     fail(adapterName, `auth.${field} host must be declared in match, domains, runtime_allowed_hosts or auth.login_hosts.`);
@@ -386,10 +386,21 @@ function validateAuth(adapterName, manifest, commands, hasExtension) {
   }
   if (auth.autologin !== undefined) {
     const autologin = auth.autologin;
+    const selectorFields = ["switch", "username", "password", "submit"];
     if (!autologin || typeof autologin !== "object" || Array.isArray(autologin)
-      || Object.entries(autologin).some(([key, value]) => !["switch", "username", "password", "submit"].includes(key)
-        || typeof value !== "string" || !value.trim() || value.length > 200)) {
-      fail(adapterName, "auth.autologin may only declare switch, username, password and submit CSS selectors.");
+      || Object.keys(autologin).some((key) => !["mode", ...selectorFields].includes(key))
+      || (autologin.mode !== undefined && !["auto", "off"].includes(autologin.mode))
+      || selectorFields.some((key) => autologin[key] !== undefined
+        && (typeof autologin[key] !== "string" || !autologin[key].trim() || autologin[key].length > 200))) {
+      fail(adapterName, "auth.autologin may only declare mode: auto|off and switch, username, password or submit CSS selectors (default: auto).");
+    }
+  }
+  if (auth.qr !== undefined) {
+    const qr = auth.qr;
+    if (!qr || typeof qr !== "object" || Array.isArray(qr)
+      || Object.keys(qr).some((key) => !["mode"].includes(key))
+      || (qr.mode !== undefined && !["auto", "off"].includes(qr.mode))) {
+      fail(adapterName, "auth.qr may only declare mode: auto|off (default: auto).");
     }
   }
 }

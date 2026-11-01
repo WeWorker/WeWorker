@@ -335,6 +335,8 @@ describe('context snapshot display helpers', () => {
     assert.equal(parseContextLimitInput('128K'), 128000)
     assert.equal(parseContextLimitInput('1M'), 1000000)
     assert.equal(parseContextLimitInput('1.5M'), 1500000)
+    assert.equal(parseContextLimitInput('1000000'), null)
+    assert.equal(parseContextLimitInput('1G'), null)
     assert.equal(parseContextLimitInput('nope'), null)
     assert.equal(formatContextLimitInput(1000000), '1M')
   })

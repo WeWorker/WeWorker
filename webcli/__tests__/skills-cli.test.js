@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,14 +26,34 @@ it('lists metadata and reads root/reference resources byte-for-byte without exec
   expect(listBundledSkills(root)[0].description).toBe('Public example');
 });
 it('rejects traversal, absolute paths, links, non-files and excessive resources', () => {
-  const root = fixture(); fs.symlinkSync(path.join(root, 'example'), path.join(root, 'linked'));
-  fs.symlinkSync('/etc/hosts', path.join(root, 'example/reference.md'));
+  const root = fixture(), linkType = process.platform === 'win32' ? 'junction' : 'dir';
+  fs.symlinkSync(path.join(root, 'example'), path.join(root, 'linked'), linkType);
+  fs.symlinkSync(path.join(root, 'example/references'), path.join(root, 'example/linked-references'), linkType);
   fs.writeFileSync(path.join(root, 'example/large.md'), 'x'.repeat(512001));
-  for (const target of ['../example', '/example', 'example/../example/SKILL.md', 'example//SKILL.md', 'example\\SKILL.md', 'example/./SKILL.md', 'example\0', 'linked', 'example/reference.md', 'example/references', 'example/large.md']) {
+  for (const target of ['../example', '/example', 'example/../example/SKILL.md', 'example//SKILL.md', 'example\\SKILL.md', 'example/./SKILL.md', 'example\0', 'linked', 'example/linked-references/example.md', 'example/references', 'example/large.md']) {
     expect(() => readBundledSkill(target, undefined, root)).toThrow();
   }
   expect(() => readBundledSkill('example/SKILL.md', 'other.md', root)).toThrow();
   expect(listBundledSkills(root).map(item => item.name)).toEqual(['example']);
+});
+it('rejects a final file link before reading its contents', () => {
+  const root = fixture(), target = path.join(root, 'example/reference.md');
+  let statMock;
+  if (process.platform === 'win32') {
+    // File symlinks need OS privileges; real junctions above cover traversal.
+    // Exercise final-file link metadata without requiring machine changes.
+    fs.writeFileSync(target, 'Public linked file');
+    const stat = fs.lstatSync.bind(fs);
+    statMock = vi.spyOn(fs, 'lstatSync').mockImplementation((file, ...args) => {
+      const value = stat(file, ...args);
+      return file === target ? Object.assign(Object.create(value), { isSymbolicLink: () => true }) : value;
+    });
+  } else fs.symlinkSync(path.join(root, 'example/references/example.md'), target);
+  const read = vi.spyOn(fs, 'readFileSync');
+  try {
+    expect(() => readBundledSkill('example/reference.md', undefined, root)).toThrow(/cannot follow links/);
+    expect(read).not.toHaveBeenCalled();
+  } finally { read.mockRestore(); statMock?.mockRestore(); }
 });
 it('runs actual CLI list/read/help with formats and rejects invalid input before any Bridge connection', () => {
   const run = args => execFileSync(process.execPath, [cli, 'skills', ...args], { encoding: 'utf8' });

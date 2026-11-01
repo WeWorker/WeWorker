@@ -6,7 +6,6 @@
 - 日期：2026-08-06
 - 状态：代码基线已实现；macOS arm64 真实 embedded 闭环、macOS x64 与 Windows x64 安装包待验收
 - 适用范围：WeWorker 内置 WebCLI、Extension Adapter、网站探索导出的 Toolkit Adapter
-- 进度源：[`../ROADMAP.md`](../ROADMAP.md)
 
 ## 一、结论
 

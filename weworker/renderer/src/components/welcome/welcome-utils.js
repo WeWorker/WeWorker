@@ -7,6 +7,30 @@ export const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
 export const DEFAULT_FEATURED_SQUARE_CARDS = true
 export const ADD_FEATURED_DROP_TARGET = '__add-featured-drop-target__'
 
+export function getFeaturedSiteAvailability({ siteLimit, visibleCount, availableCount }) {
+  const limit = Math.max(1, Number(siteLimit) || DEFAULT_WELCOME_FEATURED_SITE_LIMIT)
+  const count = Math.max(0, Number(visibleCount) || 0)
+  const available = Math.max(0, Number(availableCount) || 0)
+  return {
+    limitReached: count >= limit,
+    canAdd: count < limit && available > 0,
+    nextVisibleCount: Math.min(limit, count + 1),
+  }
+}
+
+export function getHiddenFeaturedSites({ visibleSites, enabledSites, visibleCount }) {
+  const candidates = [
+    ...visibleSites.slice(visibleCount),
+    ...enabledSites.filter(({ site }) => !site.visible),
+  ]
+  const candidateIds = new Set()
+  return candidates.filter(({ site }) => {
+    if (candidateIds.has(site.id)) return false
+    candidateIds.add(site.id)
+    return true
+  })
+}
+
 export function readFeaturedOrder() {
   if (typeof window === 'undefined') return []
   try {

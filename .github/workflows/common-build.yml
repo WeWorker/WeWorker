@@ -1,0 +1,233 @@
+# Shared public desktop packaging implementation used by Build Desktop and Release Desktop.
+name: Common Build
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Optional new release tag validated against the package version
+        required: false
+        type: string
+        default: ''
+      build_matrix:
+        description: JSON matrix include array for requested desktop targets
+        required: true
+        type: string
+      artifact_prefix:
+        description: Prefix used for uploaded build artifacts
+        required: true
+        type: string
+    outputs:
+      source_sha:
+        description: Immutable public source SHA
+        value: ${{ jobs.resolve.outputs.source_sha }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve immutable source SHA
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate source and optional release tag
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$GITHUB_SHA"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+          if [[ -z "$RELEASE_TAG" ]]; then
+            exit 0
+          fi
+
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || {
+            echo 'Release tag must use vMAJOR.MINOR.PATCH or a supported prerelease suffix' >&2
+            exit 1
+          }
+          base_tag="${RELEASE_TAG%%-*}"
+          version="$(node -p "require('./weworker/package.json').version")"
+          test "$base_tag" = "v$version"
+          if gh api --silent "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Tag already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if gh api --silent "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+  build:
+    name: ${{ matrix.job }}
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.build_matrix) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            webcli/package-lock.json
+            weworker/package-lock.json
+            weworker/renderer/package-lock.json
+            weworker/backend-ts/package-lock.json
+
+      - name: Set up Python 3.12 for Windows decrypt tool
+        if: matrix.target == 'windows'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: 0.11.31
+          enable-cache: true
+
+      - name: Install website exploration agent Python
+        shell: pwsh
+        run: uv python install 3.14.6
+
+      - name: Verify native architecture
+        shell: pwsh
+        run: |
+          if ((node -p process.arch) -ne '${{ matrix.arch }}') {
+            throw 'Runner Node.js architecture does not match the requested package architecture'
+          }
+
+      - name: Install Windows Python build dependencies
+        if: matrix.target == 'windows'
+        run: uv pip install --system pyinstaller pywin32
+
+      - name: Install desktop dependencies
+        shell: pwsh
+        run: |
+          foreach ($directory in @('webcli', 'weworker', 'weworker/renderer', 'weworker/backend-ts')) {
+            Push-Location (Join-Path $env:GITHUB_WORKSPACE $directory)
+            try {
+              npm ci
+              if ($LASTEXITCODE -ne 0) { throw "npm ci failed in $directory" }
+            } finally {
+              Pop-Location
+            }
+          }
+
+      - name: Prepare and test shared build inputs
+        working-directory: weworker
+        run: |
+          node scripts/prepare-build.cjs
+          npm run test:webwright-integration
+          node scripts/ensure-webwright.cjs
+
+      - name: Build Windows x64
+        if: matrix.target == 'windows'
+        working-directory: weworker
+        run: npm run build:win
+
+      - name: Build macOS package
+        if: matrix.target == 'macos'
+        working-directory: weworker
+        run: npm run build:mac
+
+      - name: Verify Windows package
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw 'weworker/package.json' | ConvertFrom-Json).version
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'weworker/dist-app'
+          $installer = Join-Path $dist "WeWorker-$version-win-x64.exe"
+          foreach ($file in @($installer, "$installer.blockmap", (Join-Path $dist 'latest.yml'))) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing Windows artifact: $file" }
+          }
+          $resources = Join-Path $dist 'win-unpacked/resources'
+          $runtime = Get-Content -Raw (Join-Path $resources 'webwright/webwright-runtime.json') | ConvertFrom-Json
+          if ($runtime.platform -ne 'win32' -or $runtime.arch -ne 'x64' -or $runtime.mode -ne 'embedded') {
+            throw "Unexpected embedded runtime: $($runtime | ConvertTo-Json -Compress)"
+          }
+          $profile = Get-Content -Raw 'weworker/build-profile.json' | ConvertFrom-Json
+          $packagedAdapters = @(Get-ChildItem (Join-Path $resources 'adapters') -Directory | ForEach-Object Name | Sort-Object)
+          if (Compare-Object $packagedAdapters @($profile.adapters | Sort-Object)) {
+            throw 'Packaged adapters differ from build-profile.json'
+          }
+
+      - name: Verify macOS package
+        if: matrix.target == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$(find weworker/dist-app -type d -name WeWorker.app -print -quit)"
+          test -n "$app"
+          test "$(lipo -archs "$app/Contents/MacOS/WeWorker")" = '${{ matrix.machine }}'
+          test "$(lipo -archs "$app/Contents/Resources/webwright/Webwright")" = '${{ matrix.machine }}'
+          codesign --verify --deep --strict --verbose=4 "$app"
+          signature_info="$(codesign -dv --verbose=4 "$app" 2>&1)"
+          grep -q 'Signature=adhoc' <<< "$signature_info"
+          grep -q 'TeamIdentifier=not set' <<< "$signature_info"
+
+      - name: Collect artifacts, provenance, and checksums
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE 'weworker/dist-app'
+          $output = Join-Path $env:RUNNER_TEMP 'artifacts'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          if ('${{ matrix.target }}' -eq 'windows') {
+            Copy-Item (Join-Path $source 'WeWorker-*-win-x64.exe*') $output
+            Copy-Item (Join-Path $source 'latest.yml') $output
+          } else {
+            Copy-Item (Join-Path $source 'WeWorker-*-mac-*') $output
+            Copy-Item (Join-Path $source 'latest-mac.yml') $output
+          }
+
+          $profile = Get-Content -Raw 'weworker/build-profile.json' | ConvertFrom-Json
+          $version = (Get-Content -Raw 'weworker/package.json' | ConvertFrom-Json).version
+          [ordered]@{
+            schemaVersion = 1
+            repository = $env:GITHUB_REPOSITORY
+            sourceSha = $env:SOURCE_SHA
+            version = $version
+            releaseTag = $env:RELEASE_TAG
+            platform = "$(node -p 'process.platform')-$(node -p 'process.arch')"
+            adapterCount = @($profile.adapters).Count
+          } | ConvertTo-Json | Set-Content (Join-Path $output 'provenance.json') -Encoding utf8NoBOM
+
+          Get-ChildItem $output -File | Sort-Object Name | ForEach-Object {
+            "$(($_ | Get-FileHash -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content (Join-Path $output 'SHA256SUMS.txt') -Encoding utf8NoBOM
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact_prefix }}-${{ matrix.job }}
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: error
+          retention-days: 7

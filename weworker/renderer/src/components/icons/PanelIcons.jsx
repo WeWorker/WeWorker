@@ -2,9 +2,9 @@ import React from 'react'
 
 /** Small UI icons for panels (not site/registry icons). */
 
-export function RestoreWindowIcon({ size = 12 }) {
+export function RestoreWindowIcon({ size = 12, strokeWidth = 1.5 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M5 2h7a2 2 0 0 1 2 2v7" />
       <rect x="2" y="5" width="9" height="9" rx="1.5" />
     </svg>

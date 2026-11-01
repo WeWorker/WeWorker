@@ -36,19 +36,21 @@ import {
 } from '../../utils/style-draft.js'
 import { CONTEXT_LIMIT_PRESETS, formatContextLimitInput, parseContextLimitInput } from '../../utils/context-window.js'
 import { DEFAULT_WELCOME_FEATURED_SITE_LIMIT } from '../welcome/welcome-utils.js'
+import { DEFAULT_UPDATE_SETTINGS, UPDATE_CHECK_INTERVAL_HOURS } from '../../../../electron/update-settings.js'
 import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import { backendFetch } from '../../api/http.js'
 import { fetchProviderModels } from '../../api/provider-models.js'
 import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.js'
 import { showConfirm } from '../../store/dialog.js'
+import { showNotification, useNotificationsStore } from '../../store/notifications.js'
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
 
 const API = 'http://127.0.0.1:8765'
 const OFFICIAL_URL = deploymentConfig.officialUrl
-const DOWNLOAD_URL = deploymentConfig.downloadUrl
+const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
 const GITHUB_UPDATE_URL = deploymentConfig.githubUrl
 
 const EXACT_PATH_PLACEHOLDER = '例如 folder-b/foo/.env 或 .env'
@@ -269,7 +271,7 @@ function BackgroundSettingsGroup() {
             label="开机自动启动 WeWorker（在后台启动，不弹出窗口）"
           />
           {!settings.launchAtLoginSupported && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>开发模式下不可用，安装后的客户端默认开启。</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>当前运行环境不可用；标准安装客户端首次启动默认开启。</div>
           )}
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {settings.platform === 'darwin'
@@ -314,16 +316,14 @@ function BrowserSettingsGroup() {
     <div className="settings-group">
       <SettingRow title="网站操作浏览器" description={describeBrowserMode(settings.browserMode)} stacked>
         <div className="settings-update-settings">
-          <div className="settings-pill settings-pill--wide">
-            <AppDropdownSelect
-              value={settings.browserMode}
-              options={BROWSER_MODE_OPTIONS}
-              disabled={saving}
-              onChange={change}
-              matchAnchorWidth
-              ariaLabel="网站操作浏览器"
-            />
-          </div>
+          <AppDropdownSelect
+            value={settings.browserMode}
+            options={BROWSER_MODE_OPTIONS}
+            disabled={saving}
+            onChange={change}
+            matchAnchorWidth
+            ariaLabel="网站操作浏览器"
+          />
           {saving && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>正在切换…</div>}
           {error && <div style={{ fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
         </div>
@@ -338,10 +338,7 @@ function AboutTab({ appVersion, commitHash }) {
   const [downloading, setDownloading] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [savingUpdateSettings, setSavingUpdateSettings] = useState(false)
-  const [updateSettings, setUpdateSettings] = useState({
-    autoCheckEnabled: true,
-    checkIntervalHours: 1,
-  })
+  const [updateSettings, setUpdateSettings] = useState(DEFAULT_UPDATE_SETTINGS)
 
   useEffect(() => {
     let cancelled = false
@@ -373,11 +370,10 @@ function AboutTab({ appVersion, commitHash }) {
   const updateSources = Array.isArray(updateState?.updateSources) && updateState.updateSources.length > 0
     ? updateState.updateSources
     : [
-        { id: 'official', label: '官网', metadataUrl: `${DOWNLOAD_URL}${updateMetadataFile}` },
         { id: 'github', label: 'GitHub latest', metadataUrl: `${GITHUB_UPDATE_URL}${updateMetadataFile}` },
       ]
   const activeUpdateSourceId = updateState?.activeUpdateSource?.id || ''
-  const checkIntervalValue = Number(updateSettings.checkIntervalHours || 1)
+  const checkIntervalValue = Number(updateSettings.checkIntervalHours || 12)
   const canCheck = status !== 'checking' && status !== 'downloading'
   const canDownload = status === 'available'
   const canInstall = status === 'downloaded'
@@ -418,9 +414,9 @@ function AboutTab({ appVersion, commitHash }) {
   const saveUpdateSettings = async () => {
     const nextSettings = {
       autoCheckEnabled: updateSettings.autoCheckEnabled !== false,
-      checkIntervalHours: [1, 3, 6, 9, 12, 15, 18, 21, 24].includes(Number(updateSettings.checkIntervalHours))
+      checkIntervalHours: UPDATE_CHECK_INTERVAL_HOURS.includes(Number(updateSettings.checkIntervalHours))
         ? Number(updateSettings.checkIntervalHours)
-        : 1,
+        : DEFAULT_UPDATE_SETTINGS.checkIntervalHours,
     }
     setSavingUpdateSettings(true)
     try {
@@ -454,7 +450,7 @@ function AboutTab({ appVersion, commitHash }) {
         </div>
         <div className="settings-about-links">
           <InfoLine label="官网" value={OFFICIAL_URL} href={OFFICIAL_URL} />
-          <InfoLine label="下载" value={DOWNLOAD_URL} href={DOWNLOAD_URL} />
+          <InfoLine label="下载" value={GITHUB_RELEASE_URL} href={GITHUB_RELEASE_URL} />
         </div>
       </div>
 
@@ -470,7 +466,7 @@ function AboutTab({ appVersion, commitHash }) {
           description="启动时检查一次；开启后按设定间隔在后台检测新版本"
           stacked
           footer={(
-            <button
+            <button data-app-button="action"
               type="button"
               className="settings-btn settings-btn-primary"
               onClick={saveUpdateSettings}
@@ -500,7 +496,7 @@ function AboutTab({ appVersion, commitHash }) {
                   ...current,
                   checkIntervalHours: Number(hours),
                 }))}
-                options={[1, 3, 6, 9, 12, 15, 18, 21, 24].map((hours) => ({
+                options={UPDATE_CHECK_INTERVAL_HOURS.map((hours) => ({
                   value: hours,
                   label: `${hours} 小时`,
                 }))}
@@ -521,18 +517,18 @@ function AboutTab({ appVersion, commitHash }) {
           stacked
           footer={(
             <div className="settings-inline-actions">
-              <button
+              <button data-app-button="action"
                 type="button"
-                className="settings-btn settings-btn-secondary"
+                className="settings-btn settings-btn-secondary settings-update-action"
                 onClick={checkUpdate}
                 disabled={!canCheck || checking}
               >
                 {checking || status === 'checking' ? '检查中...' : '检查更新'}
               </button>
               {canDownload && (
-                <button
+                <button data-app-button="action"
                   type="button"
-                  className="settings-btn settings-btn-primary"
+                  className="settings-btn settings-btn-primary settings-update-action"
                   onClick={downloadUpdate}
                   disabled={downloading}
                 >
@@ -540,9 +536,9 @@ function AboutTab({ appVersion, commitHash }) {
                 </button>
               )}
               {canInstall && (
-                <button
+                <button data-app-button="action"
                   type="button"
-                  className="settings-btn settings-btn-primary"
+                  className="settings-btn settings-btn-primary settings-update-action"
                   onClick={installUpdate}
                   disabled={installing}
                 >
@@ -703,7 +699,7 @@ function PermissionsTab() {
           fallback="默认只允许已安装站点适配器中的地址；新增地址保存后会用于下一次 open_browser 调用"
           stacked
           footer={(
-            <button
+            <button data-app-button="action"
               type="button"
               onClick={handleSave}
               disabled={saving || !dirty}
@@ -723,7 +719,7 @@ function PermissionsTab() {
                 placeholder="例如 http://127.0.0.1:8765"
                 style={{ fontFamily: 'Consolas, monospace' }}
               />
-              <button type="button" onClick={addOrigin} className="settings-pill-btn">添加</button>
+              <button data-app-button="action" type="button" onClick={addOrigin} className="settings-pill-btn">添加</button>
             </div>
 
             {origins.length === 0 ? (
@@ -738,7 +734,7 @@ function PermissionsTab() {
                       readOnly
                       style={{ fontFamily: 'Consolas, monospace' }}
                     />
-                    <button type="button" onClick={() => removeOrigin(origin)} className="settings-pill-btn" style={{ color: 'var(--error)' }}>删除</button>
+                    <button data-app-button="action" data-variant="danger" type="button" onClick={() => removeOrigin(origin)} className="settings-pill-btn" style={{ color: 'var(--error)' }}>删除</button>
                   </div>
                 ))}
               </div>
@@ -766,7 +762,7 @@ function OriginList({ origins = [], emptyText, onRemove, readOnly = false }) {
             style={{ fontFamily: 'Consolas, monospace' }}
           />
           {!readOnly && (
-            <button type="button" onClick={() => onRemove?.(origin)} className="settings-pill-btn" style={{ color: 'var(--error)' }}>删除</button>
+            <button data-app-button="action" data-variant="danger" type="button" onClick={() => onRemove?.(origin)} className="settings-pill-btn" style={{ color: 'var(--error)' }}>删除</button>
           )}
         </div>
       ))}
@@ -1144,14 +1140,14 @@ function ConfigTab({ active = true }) {
           onSave={handleSaveUserDirectory}
           saving={savingUser}
         >
-          <div className="settings-pill settings-pill--wide">
+          <div className="settings-pill settings-pill--wide settings-pill--directory">
             <input
               className="settings-pill-input"
               value={userValue}
               onChange={(e) => { setUserValue(e.target.value); setUserMessage(null) }}
               placeholder="选择用户目录"
             />
-            <button type="button" onClick={chooseUserDirectory} className="settings-pill-btn">选择</button>
+            <button data-app-button="action" type="button" onClick={chooseUserDirectory} className="settings-pill-btn">选择</button>
           </div>
         </SettingRow>
 
@@ -1163,14 +1159,14 @@ function ConfigTab({ active = true }) {
           onSave={handleSaveDownloadDirectory}
           saving={savingDownload}
         >
-          <div className="settings-pill settings-pill--wide">
+          <div className="settings-pill settings-pill--wide settings-pill--directory">
             <input
               className="settings-pill-input"
               value={downloadValue}
               onChange={(e) => { setDownloadValue(e.target.value); setDownloadMessage(null) }}
               placeholder="download"
             />
-            <button type="button" onClick={chooseDownloadDirectory} className="settings-pill-btn">选择</button>
+            <button data-app-button="action" type="button" onClick={chooseDownloadDirectory} className="settings-pill-btn">选择</button>
           </div>
         </SettingRow>
 
@@ -1181,7 +1177,7 @@ function ConfigTab({ active = true }) {
           fallback={blacklistHasInvalidEntries || draftPatternError ? '存在无效规则时无法保存，请先修正输入' : '精确匹配按完整路径段/文件名；正则匹配按 JavaScript 正则解析'}
           stacked
           footer={(
-            <button
+            <button data-app-button="action"
               type="button"
               onClick={handleSaveBlacklist}
               disabled={savingBlacklist || !canSaveBlacklist}
@@ -1210,7 +1206,7 @@ function ConfigTab({ active = true }) {
                 placeholder={draftMatchMode === 'regex_path' ? REGEX_PATH_PLACEHOLDER : EXACT_PATH_PLACEHOLDER}
                 style={{ fontFamily: 'Consolas, monospace' }}
               />
-              <button type="button" onClick={handleAddBlacklistEntry} className="settings-pill-btn">添加</button>
+              <button data-app-button="action" type="button" onClick={handleAddBlacklistEntry} className="settings-pill-btn">添加</button>
             </div>
             {blacklist.length === 0 ? (
               <div className="settings-action-hint">暂无规则。精确匹配可直接粘贴路径或文件名；正则匹配需手写 JavaScript 正则。</div>
@@ -1236,7 +1232,7 @@ function ConfigTab({ active = true }) {
                         style={{ fontFamily: 'Consolas, monospace', borderColor: invalid ? 'var(--error)' : undefined }}
                         title={invalid || ''}
                       />
-                      <button type="button" onClick={() => handleRemoveBlacklistEntry(index)} className="settings-pill-btn" style={{ color: 'var(--error)' }}>删除</button>
+                      <button data-app-button="action" data-variant="danger" type="button" onClick={() => handleRemoveBlacklistEntry(index)} className="settings-pill-btn" style={{ color: 'var(--error)' }}>删除</button>
                     </div>
                   )
                 })}
@@ -1314,7 +1310,7 @@ function ConfigTab({ active = true }) {
           stacked
           footer={(
             <div className="settings-btn-group">
-              <button
+              <button data-app-button="action"
                 type="button"
                 onClick={handleResetPreviewExtensions}
                 disabled={resettingPreviewExtensions || (!resourcePreviewExtensionsCustomized && !previewExtensionsDirty)}
@@ -1322,7 +1318,7 @@ function ConfigTab({ active = true }) {
               >
                 {resettingPreviewExtensions ? '恢复中...' : '恢复默认'}
               </button>
-              <button
+              <button data-app-button="action"
                 type="button"
                 onClick={handleSavePreviewExtensions}
                 disabled={savingPreviewExtensions || !previewExtensionsDirty}
@@ -1387,7 +1383,7 @@ function ConfigTab({ active = true }) {
               onKeyDown={handlePreviewExtensionInputKeyDown}
               placeholder="添加后缀，例如 rs 或 .java"
             />
-            <button type="button" onClick={addPreviewExtension} className="settings-pill-btn">添加</button>
+            <button data-app-button="action" type="button" onClick={addPreviewExtension} className="settings-pill-btn">添加</button>
           </div>
         </SettingRow>
       </div>
@@ -1396,7 +1392,7 @@ function ConfigTab({ active = true }) {
 }
 
 function ModelTab() {
-  const { activeProvider, providers, addProvider, deleteProvider, saveProvider, activateProvider } = useSettingsStore()
+  const { activeProvider, providers, addProvider, deleteProvider, saveProvider, activateProvider, saveCustomModels, customModelsSaving } = useSettingsStore()
   const [selectedProvider, setSelectedProvider] = useState(activeProvider || null)
   const [providerSearch, setProviderSearch] = useState('')
   const [addPickerOpen, setAddPickerOpen] = useState(false)
@@ -1429,6 +1425,20 @@ function ModelTab() {
   const [advancedProviders, setAdvancedProviders] = useState({})
   const [catalogAddressExpanded, setCatalogAddressExpanded] = useState({})
   const [forms, setForms] = useState({})
+  const previousProviders = useRef(providers)
+  useEffect(() => {
+    const previous = previousProviders.current
+    previousProviders.current = providers
+    setForms(current => {
+      let next = current
+      for (const [pid, stored] of Object.entries(providers)) {
+        if (current[pid] && stored.model !== previous[pid]?.model) {
+          next = { ...next, [pid]: { ...current[pid], model: stored.model } }
+        }
+      }
+      return next
+    })
+  }, [providers])
   const formNameTouched = useRef({})
   const [catalogs, setCatalogs] = useState({})
   const [catalogLoading, setCatalogLoading] = useState({})
@@ -1444,6 +1454,34 @@ function ModelTab() {
   const [testing, setTesting] = useState({})
   const testingProviders = useRef(new Set())
   const [testResult, setTestResult] = useState(null)
+  const contextLimitNoticeId = useRef(null)
+
+  const reportContextLimitError = () => {
+    const { notices } = useNotificationsStore.getState()
+    if (notices.some((notice) => notice.id === contextLimitNoticeId.current)) return
+    contextLimitNoticeId.current = showNotification('上下文窗口请输入 1K 到 100M 之间的数值，单位只能是 K 或 M，例如 200K、1M', { type: 'error' })
+  }
+
+  const clearContextLimitError = () => {
+    useNotificationsStore.getState().dismiss(contextLimitNoticeId.current)
+    contextLimitNoticeId.current = null
+  }
+
+  const changeContextLimit = (pid, value) => {
+    setFormField(pid, 'context_limit', value)
+    if (parseContextLimitInput(value) !== null) clearContextLimitError()
+    else if (/[^\d.,\sKM]/iu.test(value)) reportContextLimitError()
+  }
+
+  const finishContextLimit = (pid, value) => {
+    const parsed = parseContextLimitInput(value)
+    if (parsed === null) {
+      reportContextLimitError()
+      return
+    }
+    clearContextLimitError()
+    setFormField(pid, 'context_limit', formatContextLimitInput(parsed))
+  }
 
   const singleProvider = PROVIDERS.length === 1
   const { visible: visibleProviders, addable: addableProviders } = useMemo(
@@ -1485,16 +1523,17 @@ function ModelTab() {
   }, [visibleProviders])
 
   const getForm = (pid) => {
-    if (forms[pid]) return forms[pid]
     const p = providerDefinition(pid)
     const stored = providers[pid] ?? {}
+    const custom_models = Array.isArray(stored.custom_models) ? stored.custom_models : []
+    if (forms[pid]) return { ...forms[pid], custom_models }
     const name = visibleProviders.find(provider => provider.id === pid)?.name || p?.name || ''
     return {
       name,
       api_key: '',
       openai_api_key: '',
       model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.model || p?.defaultModel || '',
-      custom_models: Array.isArray(stored.custom_models) ? stored.custom_models : [],
+      custom_models,
       openai_model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.openai_model ?? (stored.model || p?.defaultModel || ''),
       context_limit: formatContextLimitInput(stored.context_limit),
       base_url: stored.base_url || '',
@@ -1514,7 +1553,7 @@ function ModelTab() {
   const setFormField = (pid, k, v) => {
     if (k === 'name') formNameTouched.current[pid] = true
     setForms((f) => ({ ...f, [pid]: {
-      ...getForm(pid),
+      ...(f[pid] || getForm(pid)),
       [k]: v,
     } }))
     setTestResult(null)
@@ -1570,7 +1609,12 @@ function ModelTab() {
       if (catalogRequestIds.current[key] !== requestId) return
       setCatalogs((current) => ({ ...current, [key]: { ...data, explicitRefresh } }))
       setForms((current) => {
-        const latestForm = current[pid] || getForm(pid)
+        const latestState = useSettingsStore.getState()
+        // A model save may finish while this catalog request is in flight.
+        if (latestState.customModelsSaving[pid]) return current
+        const latestStored = latestState.providers[pid]
+        const latestForm = { ...(current[pid] || getForm(pid)), custom_models: latestStored?.custom_models || [] }
+        if (latestStored?.model !== providers[pid]?.model) latestForm.model = latestStored.model
         const field = target === 'webwright' ? 'openai_model' : 'model'
         const nextModel = selectModelAfterCatalogRefresh(latestForm[field], data, {
           customModels: target === 'weworker' ? latestForm.custom_models : [],
@@ -1623,11 +1667,12 @@ function ModelTab() {
     }
     const contextLimit = parseContextLimitInput(f.context_limit)
     if (!isBuiltinProvider(pid) && contextLimit === null) {
-      setTestResult({ ok: false, message: '上下文窗口请输入 1K 到 100M 之间的整数，可使用 K/M 单位' })
+      reportContextLimitError()
       setSaving(null)
       return
     }
-    const updates = isBuiltinProvider(pid) ? { name } : { name, model: f.model, context_limit: contextLimit }
+    clearContextLimitError()
+    const updates = isBuiltinProvider(pid) ? { name } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
     if (f.api_key) updates.api_key = f.api_key
     if (f.openai_api_key) updates.openai_api_key = f.openai_api_key
     if (providerType(pid) === 'custom') {
@@ -1642,7 +1687,6 @@ function ModelTab() {
       updates.models_auth_type = f.models_auth_type
       updates.openai_models_url = f.openai_models_url
       updates.openai_models_url_is_full = f.openai_models_url_is_full
-      updates.custom_models = f.custom_models
       if (f.openai_model) updates.openai_model = f.openai_model
     }
     try {
@@ -1675,7 +1719,7 @@ function ModelTab() {
   const handleDelete = async (pid) => {
     const provider = visibleProviders.find(item => item.id === pid)
     if (!provider || isBuiltinProvider(pid) || isFixedProvider(pid) || activeProvider === pid) return
-    if (!await showConfirm(`确定删除“${provider.name}”吗？此配置中的设置将被移除。`, '删除模型配置')) return
+    if (!await showConfirm(`确定删除“${provider.name}”吗？此配置中的设置将被移除。`, '删除模型配置', { danger: true })) return
     setDeletingProvider(pid)
     setTestResult(null)
     try {
@@ -1995,35 +2039,44 @@ function ModelTab() {
           const remoteModels = !catalogIssue && catalog?.source === 'remote' ? catalog.models : []
           const modelOptions = buildModelOptions(remoteModels, f.model, { customModels: f.custom_models })
             .map(option => ({ ...option, removable: option.custom }))
+          const modelSaving = Boolean(customModelsSaving[p.id])
+          const persistCustomModels = async (model, customModels) => {
+            if (useSettingsStore.getState().customModelsSaving[p.id]) return
+            try {
+              await saveCustomModels(p.id, model, customModels)
+              setFormField(p.id, 'model', model)
+            } catch {
+              showNotification('自定义模型保存失败，请重试。', { type: 'error' })
+            }
+          }
           const handleModelChange = (value) => {
-            const custom_models = remoteModels.some(model => String(model).trim() === value)
-              ? f.custom_models
-              : [...new Set([...(f.custom_models || []), value])]
-            setFormField(p.id, 'model', value)
-            setForms(current => ({ ...current, [p.id]: { ...(current[p.id] || getForm(p.id)), custom_models } }))
+            if (remoteModels.some(model => String(model).trim() === value) && !f.custom_models.includes(value)) {
+              setFormField(p.id, 'model', value)
+              return
+            }
+            void persistCustomModels(value, [...new Set([...f.custom_models, value])])
           }
           const handleRemoveCustomModel = (value) => {
             const custom_models = (f.custom_models || []).filter(model => model !== value)
             const model = f.model === value
-              ? String(remoteModels.find(item => String(item).trim() !== value) || '')
+              ? String(custom_models[0] || remoteModels.find(item => String(item).trim() !== value) || '')
               : f.model
-            setFormField(p.id, 'model', model)
-            setForms(current => ({ ...current, [p.id]: { ...(current[p.id] || getForm(p.id)), custom_models } }))
+            void persistCustomModels(model, custom_models)
           }
           const openAiModelOptions = buildModelOptions(!openAiCatalogIssue && openAiCatalog?.source === 'remote' ? openAiCatalog.models : [], f.openai_model)
           const providerColor = templateId === 'custom' ? 'var(--provider-custom)' : p.color
           const detailActions = (
             <div className="settings-btn-group model-settings-header-actions">
-              <button type="button" onClick={() => handleTest(p.id)} disabled={!!testing[p.id] || (isBuiltinProvider(p.id) && !stored.has_key)} className="settings-btn settings-btn-secondary">
+              <button data-app-button="action" type="button" onClick={() => handleTest(p.id)} disabled={!!testing[p.id] || (isBuiltinProvider(p.id) && !stored.has_key)} className="settings-btn settings-btn-secondary">
                 {testing[p.id] ? '检测中…' : isBuiltinProvider(p.id) ? '测试连通性' : '测试模型可用性'}
               </button>
               {!singleProvider && !isActive && (
-                <button type="button" onClick={() => handleActivate(p.id)} disabled={!!activating || !stored.has_key} title={!stored.has_key ? '请先保存 API Key' : ''} className="settings-btn settings-btn-provider" style={{ '--provider-color': providerColor }}>
+                <button data-app-button="action" type="button" onClick={() => handleActivate(p.id)} disabled={!!activating || !stored.has_key} title={!stored.has_key ? '请先保存 API Key' : ''} className="settings-btn settings-btn-provider" style={{ '--provider-color': providerColor }}>
                   {activating === p.id ? '切换中...' : '切换使用'}
                 </button>
               )}
-              <button type="button" onClick={() => handleSave(p.id)} disabled={saving === p.id} className={`settings-btn ${saved === p.id ? 'settings-btn-success' : 'settings-btn-primary'}`}>
-                {saving === p.id ? '保存中...' : saved === p.id ? '已保存 ✓' : '保存'}
+              <button data-app-button="action" type="button" onClick={() => handleSave(p.id)} disabled={saving === p.id || modelSaving} className={`settings-btn ${saved === p.id ? 'settings-btn-success' : 'settings-btn-primary'}`}>
+                {saving === p.id || modelSaving ? '保存中...' : saved === p.id ? '已保存 ✓' : '保存'}
               </button>
             </div>
           )
@@ -2139,7 +2192,7 @@ function ModelTab() {
                         <AppDropdownSelect
                           value={f.model}
                           options={modelOptions}
-                          disabled={hasFixedModel(templateId)}
+                          disabled={hasFixedModel(templateId) || modelSaving || saving === p.id}
                           onChange={handleModelChange}
                           onRemoveOption={handleRemoveCustomModel}
                           ariaLabel="模型"
@@ -2149,25 +2202,24 @@ function ModelTab() {
                           searchable
                           allowCustom
                           searchPlaceholder="搜索或者添加自定义模型"
+                          customOptionLabel={(value) => `添加并使用“${value}”模型`}
                         />
-                        <button type="button" onClick={() => loadModels(p.id, true)} disabled={hasFixedModel(templateId) || loadingModels || Boolean(catalogIssue)} className="settings-btn settings-btn-secondary">
+                        <button data-app-button="action" type="button" onClick={() => loadModels(p.id, true)} disabled={hasFixedModel(templateId) || loadingModels || Boolean(catalogIssue)} className="settings-btn settings-btn-secondary">
                           {loadingModels ? '获取中…' : '刷新模型'}
                         </button>
                       </div>
                     </div>
                   </Field>
 
-                  <Field label="上下文窗口" hint="用于估算上下文占用率，可选择或直接输入">
+                  <Field label="上下文窗口" hint="用于估算上下文占用率，单位仅支持 K 或 M">
                     <AppDropdownInput
                       className="settings-input"
                       ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
                       value={f.context_limit}
-                      onChange={(e) => setFormField(p.id, 'context_limit', e.target.value)}
-                      onBlur={() => {
-                        const parsed = parseContextLimitInput(f.context_limit)
-                        if (parsed !== null) setFormField(p.id, 'context_limit', formatContextLimitInput(parsed))
-                      }}
-                      placeholder="例如 200K、1M 或 1000000"
+                      onChange={(e) => changeContextLimit(p.id, e.target.value)}
+                      onBlur={(e) => finishContextLimit(p.id, e.target.value)}
+                      aria-invalid={parseContextLimitInput(f.context_limit) === null}
+                      placeholder="例如 200K 或 1M"
                       inputMode="text"
                     />
 
@@ -2225,7 +2277,7 @@ function ModelTab() {
                           <AppDropdownSelect
                             value={f.model}
                             options={modelOptions}
-                            disabled={hasFixedModel(templateId)}
+                            disabled={hasFixedModel(templateId) || modelSaving || saving === p.id}
                             onChange={handleModelChange}
                             onRemoveOption={handleRemoveCustomModel}
                             ariaLabel="WeWorker 对话模型"
@@ -2235,15 +2287,16 @@ function ModelTab() {
                             searchable
                             allowCustom
                             searchPlaceholder="搜索或者添加自定义模型"
+                            customOptionLabel={(value) => `添加并使用“${value}”模型`}
                           />
-                          <button type="button" onClick={() => loadModels(p.id, true, 'weworker')} disabled={hasFixedModel(templateId) || loadingModels || Boolean(catalogIssue)} className="settings-btn settings-btn-secondary">
+                          <button data-app-button="action" type="button" onClick={() => loadModels(p.id, true, 'weworker')} disabled={hasFixedModel(templateId) || loadingModels || Boolean(catalogIssue)} className="settings-btn settings-btn-secondary">
                             {loadingModels ? '获取中…' : '刷新模型'}
                           </button>
                         </div>
                       </Field>
                       {catalogAddressFields()}
-                      <Field label="上下文窗口" hint="用于估算上下文占用率，可选择或直接输入">
-                        <AppDropdownInput className="settings-input" ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))} value={f.context_limit} onChange={(e) => setFormField(p.id, 'context_limit', e.target.value)} onBlur={() => { const parsed = parseContextLimitInput(f.context_limit); if (parsed !== null) setFormField(p.id, 'context_limit', formatContextLimitInput(parsed)) }} placeholder="例如 200K、1M 或 1000000" inputMode="text" />
+                      <Field label="上下文窗口" hint="用于估算上下文占用率，单位仅支持 K 或 M">
+                        <AppDropdownInput className="settings-input" ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))} value={f.context_limit} onChange={(e) => changeContextLimit(p.id, e.target.value)} onBlur={(e) => finishContextLimit(p.id, e.target.value)} aria-invalid={parseContextLimitInput(f.context_limit) === null} placeholder="例如 200K 或 1M" inputMode="text" />
 
                       </Field>
                       </div>
@@ -2293,7 +2346,7 @@ function ModelTab() {
                                       matchAnchorWidth
                                       className="settings-model-dropdown"
                                     />
-                                    <button type="button" onClick={() => loadModels(p.id, true, 'webwright')} disabled={hasFixedModel(templateId) || loadingOpenAiModels || Boolean(openAiCatalogIssue)} className="settings-btn settings-btn-secondary">
+                                    <button data-app-button="action" type="button" onClick={() => loadModels(p.id, true, 'webwright')} disabled={hasFixedModel(templateId) || loadingOpenAiModels || Boolean(openAiCatalogIssue)} className="settings-btn settings-btn-secondary">
                                       {loadingOpenAiModels ? '获取中…' : '刷新模型'}
                                     </button>
                                   </div>
@@ -2358,7 +2411,7 @@ function SettingRow({
         <div className="settings-row-footer">
           <span className={hintClass}>{message?.text || fallback}</span>
           {footer || (onSave ? (
-            <button type="button" onClick={onSave} disabled={saving} className="settings-btn settings-btn-primary">
+            <button data-app-button="action" type="button" onClick={onSave} disabled={saving} className="settings-btn settings-btn-primary">
               {saving ? '保存中...' : '保存'}
             </button>
           ) : null)}
@@ -2534,7 +2587,7 @@ function CustomStyleDialog({ draft: initialDraft, canDelete, onSave, onDelete, o
   const requestDelete = async () => {
     if (confirming) return
     setConfirming(true)
-    const confirmed = await showConfirm(styleDeleteConfirmMessage(initialDraft?.label), STYLE_DELETE_CONFIRM_TITLE)
+    const confirmed = await showConfirm(styleDeleteConfirmMessage(initialDraft?.label), STYLE_DELETE_CONFIRM_TITLE, { danger: true })
     if (confirmed) {
       // 父级删除后会关闭本弹窗，这里不再回写状态。
       onDelete()
@@ -2606,7 +2659,7 @@ function CustomStyleDialog({ draft: initialDraft, canDelete, onSave, onDelete, o
           </span>
           <footer>
             {canDelete && (
-              <button
+              <button data-app-button="action" data-variant="danger"
                 type="button"
                 className="weworker-dialog__button settings-style-dialog__delete"
                 onClick={requestDelete}
@@ -2615,8 +2668,8 @@ function CustomStyleDialog({ draft: initialDraft, canDelete, onSave, onDelete, o
                 {STYLE_DELETE_LABEL}
               </button>
             )}
-            <button type="button" className="weworker-dialog__button" onClick={onClose}>取消</button>
-            <button type="submit" className="weworker-dialog__button is-primary">保存</button>
+            <button data-app-button="action" type="button" className="weworker-dialog__button" onClick={onClose}>取消</button>
+            <button data-app-button="action" type="submit" className="weworker-dialog__button is-primary">保存</button>
           </footer>
         </form>
       </section>
@@ -2819,7 +2872,7 @@ function StyleSettingsPanel({ active = true }) {
         fallback={`当前默认：${selectedStyleLabel}`}
         stacked
         footer={(
-          <button
+          <button data-app-button="action"
             type="button"
             onClick={handleSaveRoles}
             disabled={savingRoles || !rolesDirty}

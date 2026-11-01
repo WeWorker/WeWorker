@@ -402,8 +402,8 @@ function DeleteConfirmDialog({ item, onConfirm, onCancel }) {
           {'\u786e\u5b9a\u5220\u9664 "' + item.name + '"\uff1f'}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
-          <button type="button" onClick={onCancel} style={confirmCancelButtonStyle}>{'\u53d6\u6d88'}</button>
-          <button type="button" onClick={onConfirm} style={confirmDeleteButtonStyle}>{'\u5220\u9664'}</button>
+          <button data-app-button="action" type="button" onClick={onCancel} style={confirmCancelButtonStyle}>{'\u53d6\u6d88'}</button>
+          <button data-app-button="action" data-variant="danger" type="button" onClick={onConfirm} style={confirmDeleteButtonStyle}>{'\u5220\u9664'}</button>
         </div>
       </div>
     </div>,

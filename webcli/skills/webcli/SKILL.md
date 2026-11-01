@@ -1,6 +1,6 @@
 ---
 name: webcli
-version: 1.0.4
+version: 1.1.6
 description: "通过 WebCLI 操作网站的浏览器自动化。当用户想操作网站时使用——打开某个网站、搜索、下单、查订单、填表、读取页面内容、截图，或让浏览器自动完成网页任务。涵盖：打开浏览器、调用网站工具、截图。支持京东、1688、闲鱼、B 站、知乎、微博、抖音、小红书、豆瓣、贴吧、12306、携程、51job、BOSS 直聘、GitHub、Gitee、V2EX、掘金、有道云笔记、大众点评、什么值得买、雪球、Wikipedia、arXiv、Hacker News 等站点。"
 allowed-tools: Bash(webcli *), Bash(npm install *), Bash(npm view *)
 ---
@@ -112,13 +112,27 @@ AdapterHub 的结果、help 和错误也支持显式输出格式，仍须遵守�
 
 编辑内置 v2 包时，`adapter eject <id> --directory <new-directory>` 复制到包名相同的新目录（父目录须存在），不自动激活或覆盖。先静态检查与实际验证，再用 `adapter develop <directory>` 显式选择；`adapter use <id> builtin` 切回且保留编辑文件。eject/develop/use 支持六类输出，不自动删除本地 override。
 
+打开已知 Adapter 的网站并接入其登录 flow：
+
 ```bash
-webcli call open_browser --args '{"url":"<url>"}'
+webcli call open_browser --url="<Homepage URL>" --adapter=<adapter-id>
 ```
+
+`--adapter` 是显式绑定，不由 Bridge 根据 URL 或共享 SSO 地址反查。Bridge 会验证 URL 属于该 Adapter；已登录时直接返回，未登录时在后台启动登录流程并返回 `auth.status=waiting_user`。打开普通网页或探索未知网站时可以省略 `--adapter`，此时只开页面、不处理登录。
 
 使用目标适配器 Skill 文档里的 **Homepage** URL——它带有正确的协议（http/https）和路径。不要猜测或默认用 https，部分站点只支持 http。
 
 仅页面型命令需要打开业务网页并等待注入完成。先用 `adapter info/skill` 查看具体命令：PUBLIC_API/AUTH_API 无浏览器依赖；COOKIE_API 和 Extension 后台 API 可以复用浏览器登录态而无需业务页。Extension 后台是否还使用页面 helper，以其代码和实际验收为准，不凭登录要求推断必须开页。
+
+### 遇到登录要求（AUTH_REQUIRED）
+
+脚本/AI 调用遇到未登录时**立即返回**，不会阻塞等待：命令返回 `AUTH_REQUIRED`，WeWorker 浏览器已自动打开登录页，登录流程在后台继续。此时：
+
+1. **立即告知用户**去登录：「WeWorker 浏览器已打开 <站点名> 登录页，请完成登录（支持扫码、短信验证码或账号密码）」。不要替用户等待或反复重试。
+2. **用户确认后重新执行原命令**——这是最通用的方式：原命令在未登录时会立即返回 `AUTH_REQUIRED`（不会阻塞），登录后则直接出结果；不需要也不依赖各 Adapter 是否实现 `check-login-status` 类工具（各站命名与实现不一，并非都有）。
+3. 主动探测（可选）：仅当站点可用 `webcli auth check <站点>`（基于 manifest `auth` 声明，非所有站点支持）或该 Adapter 确有登录检查类工具时才轮询，且有界（如每 15 秒一次、最多 5 次）；无探测手段就直接重跑原命令判断。
+4. 返回 `AUTH_RETRY_REQUIRED` 表示登录已完成但该命令是写操作，为防重复执行没有自动重试——向用户确认后重新执行。
+5. 需要 CLI 代为等待时显式传 `--login-wait=<秒>`（上限 900）；终端人工使用默认等待 300 秒并自动继续，脚本/AI 默认不等待。
 
 ### 截图
 
@@ -139,13 +153,13 @@ webcli adapter skill <id>        # 输出某适配器的 SKILL.md
 ## 规则
 
 1. 调用前检查命令运行时与鉴权说明；已有后台 API 直接调用。只有实际依赖页面或明确需要重新登录时才打开网站，不能给所有 Adapter 增加开页前置步骤。
-2. 用 `open_browser` 时，始终使用适配器 Skill 文档里的 **Homepage** URL——它带有正确的协议（http vs https）和路径，不要默认 https。
+2. 用 `open_browser` 打开已知 Adapter 网站时，传入 `--adapter=<adapter-id>` 并使用该 Adapter Skill 的 **Homepage** URL；Bridge 会校验二者归属并接入登录 flow。探索未知网页时省略 `--adapter`。不要默认猜测 http/https。
 3. 页面型命令打开网站后等待页面和 Adapter 就绪；后台型命令不等待页面注入。
 4. 工具名遵循 `<domain>.<action>` 格式，如 `jd.com.search_products`。
 5. 参数优先用 `--key=value`；数组/对象用 `--args '<json>'`；重复 flag 会聚合成数组。数字文本保持字符串，由适配器按自身 schema 解析。
 6. 工具返回错误时，最多重试 2 次。仍失败则告知用户。
 7. 如果调用报 `Extension not connected` / `Chrome扩展未连接`，检查浏览器、插件和 Bridge 连接；该错误不能证明需要业务页面。
-8. 登录态按命令实际 Cookie、宿主环境或缓存来源检查。仅在包确有对应工具且其运行时适合时使用登录检查；页面就绪辅助命令不能证明后台鉴权可用。
+8. `open_browser` 返回 `auth.status=waiting_user` 时，页面已打开但登录尚未完成；提示用户登录并停止后续网站调用，不要重试 `open_browser`。登录态按命令实际 Cookie、宿主环境或缓存来源检查。仅在包确有对应工具且其运行时适合时使用登录检查；页面就绪辅助命令不能证明后台鉴权可用。
 
 
 ### 静态规范审计

@@ -102,7 +102,9 @@ export async function runPagePrep(
   let toolsReady = false
   let waitedMs = 0
   try {
-    const parsed = JSON.parse(await dispatch('open_browser', JSON.stringify({ url }), workId)) as {
+    const catalogTool = getCatalog().byName.get(tool)
+    const adapter = catalogTool?.adapterId
+    const parsed = JSON.parse(await dispatch('open_browser', JSON.stringify({ url, ...(adapter ? { adapter } : {}) }), workId)) as {
       toolsReady?: unknown
       waitedMs?: unknown
     } | null

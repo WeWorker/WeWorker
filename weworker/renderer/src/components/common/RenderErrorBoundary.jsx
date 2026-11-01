@@ -31,9 +31,9 @@ export default class RenderErrorBoundary extends React.Component {
           若从桌面快捷方式打开，可能是旧安装版。请改用项目目录运行 <code style={codeStyle}>npm run dev</code>。
         </p>
         <div style={actionsStyle}>
-          <button type="button" style={buttonStyle} onClick={this.handleRetry}>重试</button>
+          <button data-app-button="action" type="button" style={buttonStyle} onClick={this.handleRetry}>重试</button>
           {this.props.onClose && (
-            <button type="button" style={secondaryButtonStyle} onClick={this.props.onClose}>关闭工具包</button>
+            <button data-app-button="action" type="button" style={secondaryButtonStyle} onClick={this.props.onClose}>关闭工具包</button>
           )}
         </div>
       </div>

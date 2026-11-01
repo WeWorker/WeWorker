@@ -9,7 +9,7 @@ export function parseContextLimit(value: unknown): number | null {
   }
 
   const text = String(value ?? '').trim().replace(/,/g, '')
-  const match = text.match(/^(\d+(?:\.\d+)?)\s*([km])?$/iu)
+  const match = text.match(/^(\d+(?:\.\d+)?)\s*([km])$/iu)
   if (!match) return null
   const multiplier = match[2]?.toLowerCase() === 'm'
     ? 1_000_000

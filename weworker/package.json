@@ -1,6 +1,6 @@
 {
   "name": "weworker",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "WeWorker — AI 操作网站的桌面应用",
   "type": "module",
   "main": "electron/main.js",
@@ -11,7 +11,7 @@
     "build:webwright": "node scripts/build-webwright.cjs",
     "test:webwright-integration": "node --test scripts/__tests__/webwright-scripts.test.cjs electron/__tests__/webwright-manager.test.mjs renderer/src/__tests__/webwright-status.test.js",
     "dev:renderer": "cd renderer && npm run dev",
-    "dev:electron": "wait-on --timeout 30000 tcp:localhost:5173 && cross-env NODE_ENV=development electron .",
+    "dev:electron": "wait-on --timeout 30000 tcp:localhost:5173 && cross-env NODE_ENV=development node scripts/start-dev-electron.cjs",
     "build:renderer": "cd renderer && npm run build",
     "build:backend-ts": "node scripts/bundle-backend-ts.cjs",
     "gen:routes": "node scripts/gen-routes.mjs",
@@ -22,7 +22,7 @@
     "build:mac": "node scripts/prepare-build.cjs && npm run build:webwright && npm run build:renderer && npm run build:backend-ts && npm run build:bridge && npm run build:webcli && node scripts/build-electron-current-arch.cjs --mac",
     "build:decrypt": "node scripts/build-decrypt.cjs",
     "build:win": "node scripts/prepare-build.cjs && npm run build:webwright && npm run build:renderer && npm run build:backend-ts && npm run build:bridge:win && npm run build:webcli && npm run build:decrypt && node scripts/build-electron-current-arch.cjs --win",
-    "install:all": "npm run ensure:webwright && npm run sync:webwright && npm install && cd renderer && npm install && cd ../backend-ts && npm install && cd ../../webcli && npm install && cd ../weworker && npm run build:webcli"
+    "install:all": "npm run ensure:webwright && npm run sync:webwright && npm ci && cd renderer && npm ci && cd ../backend-ts && npm ci && cd ../../webcli && npm ci && cd ../weworker && npm run build:webcli"
   },
   "dependencies": {
     "electron-updater": "^6.1.0"
@@ -49,7 +49,8 @@
       "electron/**",
       "renderer/dist/**",
       "deployment.json",
-      "deployment-config.cjs"
+      "deployment-config.cjs",
+      "asset/icon.ico"
     ],
     "extraResources": [
       {
@@ -178,7 +179,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://111.230.33.112/downloads/"
+        "url": "https://github.com/WeWorker/WeWorker/releases/latest/download/"
       }
     ]
   }

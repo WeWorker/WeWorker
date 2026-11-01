@@ -16,9 +16,12 @@ vi.mock('../adapter-host.js', async original => ({ ...await original(), resolveA
   : name === 'example.control-workflow' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { workflow: { steps: [{ when: { path: 'hasNext', equals: true }, query: {} }] } } }, adapter: { root: '/example' } }
   : name === 'example.origin-navigation' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { navigation: { resultOrigin: 'https://example.org' } } }, adapter: { root: '/example' } }
   : name === 'example.origin-workflow' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { workflow: { steps: [{ origin: 'https://example.org', query: {} }] } } }, adapter: { root: '/example' } }
+  : name === 'example.frame-workflow' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { workflow: { steps: [{ frames: [{ selector: '#owner', origin: 'https://example.org', pathname: '/child' }], query: {} }] } } }, adapter: { root: '/example' } }
   : name === 'example.hash-navigation' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { navigation: { hashNavigation: {} } } }, adapter: { root: '/example' } }
   : name === 'example.hash-workflow' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { workflow: { steps: [{ query: { hashNavigation: {} } }] } } }, adapter: { root: '/example' } }
   : name === 'example.ui-result' ? { command: { runtime: 'extension', safety: 'write', uiWrite: { result: { attribute: 'data-result-id', publicId: true, idType: 'integer' } }, pageRoute: { origin: 'https://example.com', pathname: '/editor' } }, adapter: { root: '/example' } }
+  : name === 'example.ui-choice' ? {command:{runtime:'extension',safety:'write',uiWrite:{version:2,inputs:[{kind:'choice'}]},pageRoute:{origin:'https://example.com',pathname:'/editor'}},adapter:{root:'/example'}}
+  : name === 'example.ui-controls' ? {command:{runtime:'extension',safety:'write',uiWrite:{version:2},pageRoute:{origin:'https://example.com',pathname:'/editor'}},adapter:{root:'/example'}}
   : name === 'example.workflow' ? { command: { runtime: 'extension', id: 'read', pageWorkflow: true, pageRoute: { workflow: { steps: [] } } }, adapter: { root: '/example' } } : null }));
 vi.mock('../toolkit-runner.js', () => ({ runToolkitTool: vi.fn(async () => ({ exitCode: 0, result: { example: 'toolkit' } })) }));
 vi.mock('../http-runner.js', () => ({ runHttpTool: vi.fn(async () => ({ exitCode: 0, result: { example: 'http' } })) }));
@@ -237,12 +240,38 @@ it('rejects UI result IDs on an older profile before ordinary call dispatch with
   expect((await rpc({ type: 'call_tool', toolName: 'example.ui-result', args, browserProfile: current.contextId })).result.contextId).toBe(current.contextId);
 });
 
-it.each(['query-navigation', 'query-workflow', 'hash-navigation', 'hash-workflow', 'control-workflow', 'origin-navigation', 'origin-workflow'])('refuses %s on a selected legacy peer without any dispatch or profile fallback', async kind => {
+it('gates event-driven UI writes on the selected profile before any ordinary dispatch',async()=>{
+  const {rpc,peer}=await setup(),caps=['adapter_catalog_v1','page_sources_v1','page_write_v1','ui_write_v1'];
+  const old=await peer(randomUUID(),caps),current=await peer(randomUUID(),[...caps,'ui_write_controls_v2']);
+  const request=browserProfile=>rpc({type:'call_tool',toolName:'example.ui-controls',args:{title:'Example',__confirmed:true},browserProfile});
+  expect((await request(old.contextId)).error).toMatch(/event-driven UI/);
+  expect([...old.received,...current.received].some(value=>value.type==='call_tool')).toBe(false);
+  expect((await request(current.contextId)).result.contextId).toBe(current.contextId);
+});
+
+it.each(['query-navigation', 'query-workflow', 'hash-navigation', 'hash-workflow', 'control-workflow', 'origin-navigation', 'origin-workflow', 'frame-workflow'])('refuses %s on a selected legacy peer without any dispatch or profile fallback', async kind => {
   const { rpc, peer } = await setup();
   const capabilities = ['adapter_catalog_v1', 'page_sources_v1', 'page_query_v1', 'page_navigation_v1', 'page_workflow_v1'];
-  const old = await peer(randomUUID(), capabilities), current = await peer(randomUUID(), [...capabilities, 'page_navigation_query_v1', 'page_navigation_hash_v1', 'page_workflow_control_v1', 'page_navigation_origin_v1']);
+  const old = await peer(randomUUID(), capabilities), current = await peer(randomUUID(), [...capabilities, 'page_navigation_query_v1', 'page_navigation_hash_v1', 'page_workflow_control_v1', 'page_navigation_origin_v1', 'page_workflow_frames_v1']);
   const request = browserProfile => rpc({ type: 'call_tool', toolName: 'example.' + kind, args: { keyword: '007' }, browserProfile });
-  expect((await request(old.contextId)).error).toMatch(/public URL query navigation|hash navigation|conditional or repeated page workflows|explicit cross-origin page reading/);
+  expect((await request(old.contextId)).error).toMatch(/public URL query navigation|hash navigation|conditional or repeated page workflows|explicit cross-origin page reading|frame workflows/);
   expect([...old.received, ...current.received].some(msg => msg.type === 'call_tool')).toBe(false);
+  expect((await request(current.contextId)).result.contextId).toBe(current.contextId);
+});
+
+it('requires the frame capability even when the selected profile supports cross-origin workflows', async () => {
+  const { rpc, peer } = await setup();
+  const capabilities = ['adapter_catalog_v1', 'page_sources_v1', 'page_query_v1', 'page_navigation_v1', 'page_workflow_v1', 'page_navigation_origin_v1'];
+  const old = await peer(randomUUID(), capabilities), current = await peer(randomUUID(), [...capabilities, 'page_workflow_frames_v1']);
+  expect((await rpc({ type: 'call_tool', toolName: 'example.frame-workflow', args: {}, browserProfile: old.contextId })).error).toMatch(/frame workflows/);
+  expect([...old.received, ...current.received].some(msg => msg.type === 'call_tool')).toBe(false);
+});
+
+it('gates popup choice ordinary calls on the chosen profile without switching peers',async()=>{
+  const {rpc,peer}=await setup(),caps=['adapter_catalog_v1','page_sources_v1','page_write_v1','ui_write_v1','ui_write_controls_v2'];
+  const old=await peer(randomUUID(),caps),current=await peer(randomUUID(),[...caps,'ui_write_choices_v1']);
+  const request=browserProfile=>rpc({type:'call_tool',toolName:'example.ui-choice',args:{title:'Example',__confirmed:true},browserProfile});
+  expect((await request(old.contextId)).error).toMatch(/date and popup choices/);
+  expect([...old.received,...current.received].some(value=>value.type==='call_tool')).toBe(false);
   expect((await request(current.contextId)).result.contextId).toBe(current.contextId);
 });

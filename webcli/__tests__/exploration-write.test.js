@@ -14,7 +14,7 @@ import { verifyRetainedPackage, verifyRepairRetention } from '../generation-harn
 
 const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); vi.unstubAllEnvs(); });
-async function setup({ behavior = 'normal', source, auth = false, mixed = false, resultId, detail = {}, asyncEffect } = {}) {
+async function setup({ behavior = 'normal', source, auth = false, mixed = false, resultId, detail = {}, asyncEffect, exactId, responseHeaders } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'exploration-write-'));
   cleanup.push(() => fs.rmSync(root, { recursive: true, force: true }));
   let title = 'Before', effectReads = 0, responseField = 'title', beforeRead; const requests = [];
@@ -22,14 +22,16 @@ async function setup({ behavior = 'normal', source, auth = false, mixed = false,
     let raw = ''; for await (const chunk of req) raw += chunk;
     requests.push({ method: req.method, url: req.url, body: raw, auth: req.headers.authorization });
     res.setHeader('content-type', 'application/json');
+    for(const [name,value] of Object.entries(responseHeaders||{}))res.setHeader(name,value);
+    const json=value=>JSON.stringify(value).replace('"id":"example-exact-id"','"id":'+exactId);
     if (req.method === 'PUT') {
       if (behavior === 'redirect') { res.writeHead(307, { location: '/items/example' }); res.end(); return; }
       if (behavior !== 'no-effect') title = JSON.parse(raw).title;
       if (behavior === 'hang') return;
       if (behavior === 'disconnect') { req.socket.destroy(); return; }
-      res.end(JSON.stringify({ ok: true, id: resultId ?? 'example', [responseField]: title, live: true })); return;
+      res.end(json({ ok: true, id: exactId?'example-exact-id':resultId ?? 'example', [responseField]: title, live: true })); return;
     }
-    if (req.url.startsWith('/records/')) { res.end(JSON.stringify({ id: resultId, title, ...detail })); return; }
+    if (req.url.startsWith('/records/')) { res.end(json({ id: exactId?'example-exact-id':resultId, title, ...detail })); return; }
     beforeRead?.();
     const state = !asyncEffect ? undefined : title === 'Before' ? 'idle' : ++effectReads <= asyncEffect.pendingReads ? 'pending' : 'ready';
     res.end(JSON.stringify({ id: 'example', title, state, responseOnly: 'example-unpersisted-body' }));
@@ -96,6 +98,57 @@ async function reviewed(f) {
   expect(response.ok).toBe(true);
   return response.data;
 }
+
+it.each(['signed','decimal','header','location','url','multi'])('verifies actual HTTP %s IDs and keeps only durable identifiers',async mode=>{
+  const exact='-9007199254740993123456789';
+  const f=await setup({resultId:mode==='signed'?-7:mode==='url'?'example':'007',...(mode==='decimal'?{exactId:exact}:{}),responseHeaders:{'x-resource-id':'007',location:'/records/007'}});
+  const spec={url:f.origin+'/records/:id',publicId:true,responsePath:'id',identityPath:'id',expect:{equals:{title:'After'}}};
+  if(mode==='signed'){spec.idType='signed-integer';f.fixture.successResponse.body.id=-1;}
+  if(mode==='decimal'){spec.idType='decimal';f.fixture.successResponse.body.id='7';}
+  if(mode==='header'||mode==='multi'){delete spec.responsePath;spec.responseSource={kind:'header',name:'x-resource-id'};f.fixture.successResponse.headers={'x-resource-id':'example-mock'};}
+  if(mode==='url'){delete spec.responsePath;spec.responseSource={kind:'url',template:f.origin+'/items/:id'};f.fixture.successResponse.url=f.origin+'/items/example';}
+  if(mode==='location'){delete spec.responsePath;spec.responseSource={kind:'header',name:'location',template:f.origin+'/records/:id'};f.fixture.successResponse.headers={location:'/records/example'};}
+  f.fixture.effect.resultReadback=mode==='multi'?[spec,{...spec,responseSource:undefined,responsePath:'id'}]:spec;
+  if(mode==='multi')delete f.fixture.effect.resultReadback[1].responseSource;
+  expect((await f.saveFixture()).ok).toBe(true);const review=await reviewed(f);await f.call('write-verify',{tool:f.tool,reviewId:review.reviewId,confirmed:true});
+  expect(f.run.status,JSON.stringify(f.run.writeExecutions)).toBe('review_ready');
+  const expected=mode==='signed'?-7:mode==='decimal'?exact:mode==='url'?'example':'007';
+  expect(f.run.writeExecutions[0].resultBinding).toEqual(mode==='multi'?{ids:[expected,expected]}:{id:expected});
+  expect(f.requests.filter(value=>value.url.startsWith('/records/')).every(value=>value.url==='/records/'+expected)).toBe(true);
+});
+
+async function sequenceFixture(f,{before='After',bind=false}={}) {
+  const first=structuredClone(f.fixture),second=structuredClone(first);second.id='second';
+  const title=bind?'{{result:first}}':'Again';second.representativeArgs.title=title;second.expectedRequest.body.title=title;second.successResponse.body.title=title;second.successExpectation.title=title;second.effect.before.equals.title=before;second.effect.after.equals.title=title;
+  if(bind)first.effect.resultReadback={url:f.origin+'/records/:id',publicId:true,responsePath:'id',identityPath:'id',expect:{equals:{title:'After'}}};
+  expect((await f.saveFixture({cases:[first,second]})).ok).toBe(true);await f.call('validate');expect(f.run.status,JSON.stringify(f.run.runtimeSummary)).toBe('write_review_ready');
+  const steps=[{id:'first',tool:f.tool,caseId:first.id},{id:'second',tool:f.tool,caseId:'second'}];
+  const review=await f.call('write-sequence-review',{steps});expect(review.ok,JSON.stringify(review)).toBe(true);return {steps,review:review.data};
+}
+
+it('sequences real writes, transfers only durable actual IDs and never replays after restart',async()=>{
+  const f=await setup({resultId:'actual-record-id'}),s=await sequenceFixture(f,{bind:true});expect(f.requests).toHaveLength(0);
+  expect((await f.call('write-review',{tool:f.tool,caseId:'second'})).error.code).toBe('WRITE_SEQUENCE_REQUIRED');
+  const args={steps:s.steps,reviewId:s.review.reviewId,confirmed:true};await f.call('write-sequence-verify',args);
+  expect(f.run.writeSequenceExecutions[0].status,JSON.stringify(f.run)).toBe('verified');expect(f.run.status).toBe('review_ready');
+  expect(f.requests.filter(value=>value.method==='PUT').map(value=>JSON.parse(value.body).title)).toEqual(['After','actual-record-id']);
+  const count=f.requests.length;await f.call('write-sequence-verify',args);expect(f.requests).toHaveLength(count);
+  const restored=new ExplorationService(f.options);await restored.execute('write-sequence-verify',{taskId:f.taskId,...args});expect(f.requests).toHaveLength(count);
+  expect(JSON.stringify((await f.call('get')).data)).not.toContain('actual-record-id');
+});
+
+it('partial sequence resume obtains a new review and skips verified steps; uncertain writes cannot resume',async()=>{
+  const f=await setup(),s=await sequenceFixture(f,{before:'ExternalReady'}),args={steps:s.steps,reviewId:s.review.reviewId,confirmed:true};
+  await f.call('write-sequence-verify',args);expect(f.run.writeSequenceExecutions[0].status).toBe('partial');expect(f.requests.filter(value=>value.method==='PUT')).toHaveLength(1);
+  f.setTitle('ExternalReady');const resumed=(await f.call('write-sequence-review',{steps:s.steps,resumeFrom:s.review.reviewId})).data;
+  expect(resumed.reviewId).not.toBe(s.review.reviewId);
+  await f.call('write-sequence-verify',{steps:s.steps,resumeFrom:s.review.reviewId,reviewId:resumed.reviewId,confirmed:true});expect(f.run.status).toBe('review_ready');
+  expect(f.requests.filter(value=>value.method==='PUT').map(value=>JSON.parse(value.body).title)).toEqual(['After','Again']);expect(f.run.writeSequenceExecutions[1].steps[0].reused).toBe(true);
+  const u=await setup({behavior:'disconnect'}),q=await sequenceFixture(u);await u.call('write-sequence-verify',{steps:q.steps,reviewId:q.review.reviewId,confirmed:true});
+  expect(u.run.writeExecutions[0].status).toBe('uncertain');expect((await u.call('write-sequence-review',{steps:q.steps,resumeFrom:q.review.reviewId})).error.code).toBe('WRITE_SEQUENCE_UNCERTAIN');
+  const count=u.requests.filter(value=>value.method==='PUT').length;await u.call('write-sequence-readback',{reviewId:q.review.reviewId});expect(u.requests.filter(value=>value.method==='PUT')).toHaveLength(count);
+  expect(u.run.writeExecutions[0].status).toBe('uncertain');
+});
 
 it('generates declared HTTP writes, runs no-network mocks, verifies a real effect and installs with ordinary call confirmation', async () => {
   const f = await setup();
@@ -298,6 +351,9 @@ it('reads the actual response ID, persists only that binding, installs and recov
   expect(f.run.writeExecutions[0].resultBinding).toEqual({ id: '007示例' });
   expect(JSON.stringify((await f.call('get')).data)).not.toContain('007示例');
   expect(JSON.stringify((await f.call('write-review', { tool: f.tool })).data)).not.toContain('007示例');
+  const reviewedExecution = (await f.call('write-review', { tool: f.tool })).data.execution;
+  expect(reviewedExecution).not.toHaveProperty('effect');
+  expect(reviewedExecution).not.toHaveProperty('http');
   const restored = new ExplorationService(f.options);
   expect((await restored.execute('write-readback', { taskId: f.taskId, reviewId: args.reviewId })).data.passed).toBe(true);
   await restored.execute('write-verify', { taskId: f.taskId, ...args });

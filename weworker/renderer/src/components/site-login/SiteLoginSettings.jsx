@@ -38,11 +38,12 @@ export default function SiteLoginSettings() {
     } finally { setBusy('') }
   }
   const toggleAutologin = (entry, enabled) => {
-    if (enabled && !entry.autologin?.configured) { setDialog({ site: entry.site, name: entry.name }); return }
+    if (entry.autologin?.allowed === false || entry.autologin?.mode === 'off') return
+    if (enabled && !entry.autologin?.configured) { setDialog({ site: entry.site, name: entry.name, autologinMode: entry.autologin?.mode }); return }
     void act(entry.site, () => api.siteAuthControl('set_autologin', { site: entry.site, enabled }))
   }
   const forget = async (entry) => {
-    if (!await showConfirm(`删除为 ${entry.name} 保存的账号密码？删除后需要时会改为手动登录。`, '删除保存的密码')) return
+    if (!await showConfirm(`删除为 ${entry.name} 保存的账号密码？删除后需要时会改为手动登录。`, '删除保存的密码', { danger: true })) return
     void act(entry.site, () => api.siteAuthControl('forget_credential', { site: entry.site }))
   }
 
@@ -59,7 +60,7 @@ export default function SiteLoginSettings() {
             </div>
           </div>
           <div className="settings-row-control">
-            <button type="button" className="settings-btn settings-btn-secondary" disabled={!!busy} onClick={() => act('refresh', () => refresh(true))}>刷新状态</button>
+            <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" disabled={!!busy} onClick={() => act('refresh', () => refresh(true))}>刷新状态</button>
           </div>
         </div>
         {error && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
@@ -67,6 +68,7 @@ export default function SiteLoginSettings() {
       {sites.map((entry) => {
         const state = describeLoginState(entry)
         const auto = entry.autologin || {}
+        const autologinAllowed = auto.allowed !== false && auto.mode !== 'off'
         return (
           <div key={entry.site} className="settings-row">
             <div className="settings-row-main">
@@ -78,16 +80,16 @@ export default function SiteLoginSettings() {
                 <div className="settings-row-desc">{entry.site} · {describeAutologin(entry)}</div>
               </div>
               <div className="settings-row-control" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <button type="button" className="settings-btn settings-btn-secondary" disabled={busy === entry.site || !!entry.flow}
+                <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" disabled={busy === entry.site || !!entry.flow}
                   onClick={() => act(entry.site, () => api.siteAuthControl('login', { site: entry.site }))}>登录</button>
-                {auto.supported && auto.configured && (
-                  <button type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site}
-                    onClick={() => setDialog({ site: entry.site, name: entry.name })}>更新密码</button>
+                {auto.supported && autologinAllowed && auto.configured && (
+                  <button data-app-button="action" type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site}
+                    onClick={() => setDialog({ site: entry.site, name: entry.name, autologinMode: auto.mode })}>更新密码</button>
                 )}
                 {auto.supported && auto.configured && (
-                  <button type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site} onClick={() => forget(entry)}>删除密码</button>
+                  <button data-app-button="action" data-variant="danger" type="button" className="settings-btn settings-btn-ghost" disabled={busy === entry.site} onClick={() => forget(entry)}>删除密码</button>
                 )}
-                {auto.supported && (
+                {auto.supported && autologinAllowed && (
                   <AppSwitch aria-label={`${entry.name} 自动登录`} checked={auto.enabled === true} disabled={busy === entry.site}
                     onChange={(event) => toggleAutologin(entry, event.target.checked)} />
                 )}
@@ -97,7 +99,7 @@ export default function SiteLoginSettings() {
         )
       })}
       {dialog && (
-        <AutoLoginDialog site={dialog.site} name={dialog.name} onClose={() => setDialog(null)} onSaved={() => { void refresh(false) }} />
+        <AutoLoginDialog site={dialog.site} name={dialog.name} autologinMode={dialog.autologinMode} onClose={() => setDialog(null)} onSaved={() => { void refresh(false) }} />
       )}
     </div>
   )

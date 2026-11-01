@@ -1,5 +1,131 @@
 # API 自动探索 CLI 改造跟进与交接
 
+## 2026-10-29：U06 统一诊断交付
+
+指定恢复 checkout 从干净 U01 `72b01a39a5df8bf935c98ef7ff223ba3a6c2da7e` 建立 `codex/opencli-u06-diagnostics`。重新 fetch 后目标 `dev-1.0.2` 为 `c15dfe5`；#181/#186/#187/#188 均 OPEN、mergeCommit=null，四级祖先关系成立，`git cherry` 未见等价 patch 已进入目标。以 merge `327613f` 纳入目标新增的登录立即返回修复，不 cherry-pick 前序、不改其他 checkout。依赖仍为本 PR → #188 → #187 → #186 → #181；未来 squash/rebase 合并必须再按 patch/祖先整理后续增量。
+
+本轮增量为 `exploration.export` 及专属的 task-tab trace 读取：复用任务记录、browser events/state/screenshot 和 U01 静态/历史诊断，按 task/profile、UTC 窗口和预算生成 receipt/summary/时间线等统一产物。新目录独占写、默认结构脱敏、图片显式选择、部分结果退出 1；不自动启动服务、不调用 Adapter、不重放动作、不授予写权限。完整契约、上游和当前限制见 [U06 专项](opencli_u06_diagnostics.md)。
+
+| 验证层 | 结果与本机记录 |
+| --- | --- |
+| 固定上游来源 | npm 1.8.8 tarball SHA256 与前序一致；四个执行/审计 JS 模块与 tarball 字节一致；固定 tag 的 cdp/journal Git blob 重取并核验。未使用新版 |
+| 上游实际行为 | `opencli-u06-audit-cKINAp/report.json`：真实 direct CDP 的 page/SW-returned、独立 Worker 请求、未结束与完成正文、失败；journal/export 函数 harness 的结果续取/丢失/过大和导出零请求。不是 upstream CLI/daemon/扩展全链路 |
+| WebCLI 完整 | 151 文件／1759 项，`.cache/u06-webcli-full.log`；两 worker。扩展/Bridge/任务来源、既有写保护回归均未放宽 |
+| 扩展完整 | 365 项，`.cache/u06-extension-full.log`；含新增任务 trace 范围/身份/origin/预算拒绝测试 |
+| 浏览器源码 | `webcli-browser-acceptance-HznUDk/report.json`，7 项：含两项基础连接，5 项 U06 网络/产物/截图/完成正文/截断失败 |
+| CLI＋Bridge 双 bundle | `webcli-browser-acceptance-Dcu7ty/report.json`，8 项；在相同 U06 专项上另验第二个真实 profile 拒绝读取原任务。早期双 bundle `SouJX2` 7 项保留，不重复累加 |
+| 实际普通调用关联 | 双 bundle `webcli-browser-acceptance-fHmDlU/report.json`，5 项；复用已有后台验收的生成/作者 cases/安装/普通调用/知识，导出真实 trace ID，来源摘要匹配，零新请求。普通 call 不认证独立效果，trace retention 未知保持 partial |
+| HTTP 源码／双 bundle | `webcli-http-discovery-ONUPKc` / `webcli-http-discovery-vZFxff`，各 4 项；已有真实两组作者 cases、生成安装、普通调用和知识被关联到产物，零额外请求，浏览器来源明确不适用 |
+| 实际临时 npm | `webcli-u06-npm-sAzyI3/report.json`，4 项；真实 npm-entry/Bridge 读取复制的已验 HTTP 任务/包/知识，未重新运行作者验证；无 Bridge 不启动，要求不可用来源时退出 1，源码/prepared/npm 必需文件字节匹配（worker 仅既有 3712 差异） |
+
+上述报告均在系统临时根，日志位于当前 checkout `.cache`；不提交测试浏览器 profile、实际产物或运行时缓存。各层证据有重叠，不相加为独立案例总数。最后导出等待/断线提示补充“检查原目录、不覆盖部分产物”，随后重建最终 bundle/npm 并补聚焦与分发检查；最终补录见下方，先前成功不冒充最后未变更模块之外的重跑。
+
+中间失败：`webcli-browser-acceptance-OwuGGz` 首次期待完成后的 SSE 原始正文，实际被现有非 JSON 正文省略规则拒绝。改验收为“SSE 完成事件但正文省略；JSON 长响应完成后正文可读”，没有放宽产品脱敏，最终源码和 bundle 通过。已有三个列映射资源缺失构建提示仍存在。没有通过删除断言、增加重发或扩大控件权限获得通过。
+
+U06 本轮关闭契约内统一任务诊断导出及分发缺口，并补限定 Worker/流式/replay 行为证据；上游真实扩展/daemon 的网络与断线结果续取仍未验，HTTP/Toolkit 普通 trace 全局汇总不在此入口。没有新增完整 Worker 观察、未结束增量正文或流量重发。U04/U05 不展开；U03 未映射不等于缺失。W03 安装后单工具调用、W01/W02/B02 明确控件契约、W04 明确实际来源/512 字符 decimal、B02 browser 上传和 U01 历史证据边界全部保持。
+
+E01–E04 继续开放，尤其 **E02 实际 Windows/macOS 客户端安装没有执行**。CI 打包、npm 安装和隔离 Chrome 均不能替代实机客户端安装。没有安装或替换用户客户端、真实账户写、接管未知进程/端口、改全局工具环境、CI/CD、发布、内部配置、持久记忆、新对话或子 Agent。不自动合并；以交付 PR 当前 HEAD 的 CI 为准。
+
+最终分发补录：导出等待提示细化后，相关 4 文件／51 项通过（`.cache/u06-final-focused.log`）；最终 CLI/Bridge 重新构建，实际临时 npm pack **1094 文件**（含 diagnostic-export.js）。最终 HTTP 双 bundle `webcli-http-discovery-bwPGZ0` **4 项**，最终实际 npm `webcli-u06-npm-CMuRNr` **4 项**通过，六个宿主模块和三个扩展文件的源码/prepared/npm 对应检查包含最终 exploration-client。17 个改动 JS/MJS 语法与 diff whitespace 通过。没有重跑未变更的浏览器执行模块并冒称新客户端安装。提交前再次 fetch：目标仍为 c15dfe5，四个前序 PR 仍 OPEN。
+
+## 2026-10-28：U01 通用验证与诊断交付
+
+在指定恢复 checkout，从干净 B02 `db712f397b218dd654d6a77baa28e9a3b9f660a9` 建立 `codex/opencli-u01-verification`。开始和提交前复核：目标 `dev-1.0.2` 仍为 `9a01e40`，#181/#186/#187 均未合并。本 PR 依赖 #187 → #186 → #181，不重复摘取提交；合并方式尚未确定，若前序 squash/rebase 须重新整理后续增量。未切换或覆盖其他 checkout。
+
+新增 `adapter verify` 复用静态校验与显式知识源的历史作者证据；`--runtime legacy|toolkit` 保留无效候选并诊断语法/完整性/运行时文件；`adapter source <local-repo> --ref <full-sha>` 发现固定提交中的 v2 子包，`install --git ... --package ... --digest ...` 通过原安装 store。没有新 Runner、隐式写验证或权限放宽。契约、具体错误、上游 1.8.8 真实行为、Git 生命周期未覆盖范围和 U06 排期见 [U01 专项](opencli_u01_verification.md)。
+
+本机 Windows、Node 24.20.0；真实调用只用任务自有 Git/临时安装根/loopback，未安装客户端或操作真实账户。报告仅存本机临时目录，不提交业务响应或 profile。
+
+| 验证层 | 结果及本机证据 |
+| --- | --- |
+| 固定上游实际函数 | `opencli-u01-audit-Dp0Eea/report.json`：普通 read/write verify 零执行、缺 smoke 明确失败、空目标零命令、禁用子包过滤；不是上游 daemon/安装生命周期 |
+| WebCLI 完整 | 150 文件／1738 项通过，`.cache/u01-webcli-full.log`；两 worker。最后分类/权限摘要/读取预算细化另有下面聚焦及最终打包复验 |
+| 最终相关聚焦 | 4 文件／42 项通过，`.cache/u01-final-focused.log`；含验证、Git、Toolkit、安装 store。Git 链接和脏 checkout 保留有实 Git 对象覆盖 |
+| 最终源码管理与调用 | 5 项，`webcli-u01-acceptance-02ZrmN/report.json` |
+| 最终打包管理与调用 | 5 项，`webcli-u01-acceptance-hbnhPM/report.json`；真实固定 commit 安装、普通 GET、六格式、legacy/Toolkit 失败及零写诊断 |
+| 实际 npm 分发安装 | `npm pack` 1093 文件，安装到任务 `.cache/u01-npm/install`；实际 npm-entry 5 项，`webcli-u01-acceptance-t4CZAG/report.json`；没有全局安装或更换用户客户端 |
+| 完整 HTTP 回归 | 源码 29 项 `webcli-http-discovery-V29DGX`，CLI＋Bridge 29 项 `webcli-http-discovery-wB9wEr`；生成/作者验证/安装/普通调用/知识、独立写效果/取消/重启/修复/不重放 |
+| 最终生成和证据专项 | 源码 4 项 `webcli-http-discovery-73RNqs`，双 bundle 4 项 `webcli-http-discovery-FXFQ3V`；两个真实作者 cases 与已安装摘要匹配，verify 没有新请求 |
+| 实际历史写证据补查 | 对上述完整 HTTP 留下的包和知识，源码与最终 bundle 均识别真实 HISTORICAL_WRITE_EFFECT；同时保留其他命令的 missing/digest mismatch，require-evidence 均退出 1；没有重放，未把部分证明认证为全包通过 |
+| 资源和边界检查 | 8 个改动运行模块与实际 npm 安装副本字节一致；5 个前序扩展模块的源码/prepared/npm 一致，npm worker 按既有 3712 规则核对。公开 prepare 33 个包成功，JS/MJS 语法与 diff whitespace 通过；增量私网 IP/常见 Token/私钥模式零命中 |
+
+各专项有重叠，不合并为独立案例总数。扩展执行代码未修改，B02 最终 363 项和控件/上传实机证据沿用原范围，没有冒称本轮重跑。最后 bundle 重新构建，仍有三个既有列映射资源缺失提示；没有改成静默成功。资源及历史写证据摘要为 `.cache/u01-delivery-summary.json`。
+
+中间失败：Windows Git 逐文件子进程读取使一项测试超时，改为有界 cat-file batch 后通过，未放宽超时；上游缺依赖和合成注册缺 access 的失败保留在专项。历史写证据补查首次错误期待全部命令通过，真实记录存在旧摘要和缺失；修正验收预期，保留严格产品门禁。这是证据范围纠正，不是放宽校验。
+
+下一阶段 U06：首先统一有界、脱敏、来源明确的诊断产物导出（任务/普通 trace、network、console、状态和可选截图）；Worker、未结束 SSE/长响应、结果续取和流量 replay 先核对固定上游 1.8.8 行为。U04/U05 不自动展开，U03 无映射不视为缺失。E01–E04 保留，尤其 E02 Windows/macOS 实际客户端安装未执行；已有 CI 安装包成功和本轮 npm 安装均不能替代。远程 Git clone/update、OpenCLI TS 插件生命周期和 embedded Toolkit 真运行未因此关闭。
+
+没有发布或改 CI/CD、没有真实账户写、没有创建聊天/子 Agent、没有改持久记忆。PR 与当前提交 CI 状态以 GitHub 的最新记录为准，不自动合并。
+
+交付 PR 为 #188。首轮 Linux CI 的 WebCLI 1737 项通过、1 项失败：Toolkit 链接文件更早拒绝后的错误文字遗漏原普通文件契约；恢复兼容说明并保持 UNSAFE_TOOLKIT_FILE 分类，增加父目录链接断言，原拒绝标准不放宽。配置和构建检查已通过；修复提交重新核验当前 CI，旧提交结果不代替最终提交。
+
+## 2026-10-28：B02 控件与上传
+
+在指定的恢复 checkout 核对后，从 #186 最新 af85115 建立独立 codex/opencli-b02-controls 分支。开始及开发复核时 #181、#186 均 OPEN，远程 dev-1.0.2 为 9a01e40；B02 依赖 #186（再依赖 #181），不重复 cherry-pick 前序提交，目标仍为 dev-1.0.2，不自动合并。原始公开 checkout 保持原分支；内部 checkout 的已有修改未触碰。
+
+B02 新增明确 date/choice UI 契约、目录输入和原 frame 原生 chooser；已有 browser 操作、W02 的审阅/效果/安装链复用。生成、零写 mock、独立效果、安装和普通工具调用对日期/选项实测；上传是 browser 原语，验证动态 input、目录、真实字节与 multipart 接收，不把本地路径或验证任务安装到用户客户端。准确边界见 [B02 专项](opencli_b02_controls.md)。W03 仍是探索任务内序列，安装后单工具调用；W04 仍只使用明确实际来源与最多 512 字符 decimal ID。
+
+固定 npm OpenCLI 1.8.8：实际 BasePage + CDP harness 验证 type 日期、原生 select/file、目录路径，确认 fill 日期/custom select/chooser 按钮 upload 的拒绝行为；未审计新版或冒称上游 daemon/扩展全链路。
+
+WebCLI 完整 148 文件/1727 项通过（maxWorkers=2，原测试超时未放宽）；最终扩展 363 项通过。首轮 1718 通过/8 失败中两项能力元数据空值检查已修，其余六项在降低并发且构建目录稳定后复查通过，六文件专项共 91 项通过。失败原因和本机打包依赖问题保留在专项文档。
+
+最终双打包控件 9 项（CdnxMZ）、上传 4 项（OO3WMp）、随包 Skill 4 项（mCxpE4）通过；npm 1091 文件与 5 个扩展模块资源核对通过。最后预检及 chooser 时序补强后扩展 363 项重跑通过；完整证据和失败记录见 B02 专项。
+
+后续仍开放：B03 跨 frame/DataTransfer 拖拽，B04 AX/Shadow/子 frame 截图及设备恢复；A01 YAML/更广文档引用、A02 站点签名/OAuth；U01/U02 管理/格式等余项、U03 行为映射、U04 外部 CDP、U05 external、U06 网络诊断；E01–E04 跨浏览器/平台、实际安装包、新对话和真实认证站点。没有创建新对话/子 Agent、改持久记忆、发布或改 CI/CD。以下记录均按其当时阶段阅读。
+
+
+## 2026-10-28：W01–W04 写工作流
+
+用户继续授权开发 W01–W04。在 B01 提交 `e9db5f0` 上建立独立 `codex/opencli-write-workflows` 分支，未把新功能追加到 B01 PR #181。通用代码仅在公开仓库修改，原始公开/内部 checkout 未切换或覆盖。
+
+本轮接通 UI v2 控件/事件/自动保存、页面 hidden 字段、DOM click/CDP Enter、精确导航、开放 Shadow/嵌套跨源 frame；CLI 任务多用例/有限序列/实际 ID 传值/部分恢复；多 ID、公开 Header/Location/响应 URL、唯一匹配 UI 网络响应和精确 signed/decimal ID。W03 序列只在探索任务内编排，安装后仍为单工具调用；uncertain 不自动重试或放行安装。
+
+WebCLI 全量 147 文件/1722 项、扩展 360 项、双打包 UI 20 项、最终 frame/导航 6 项、网络结果 7 项、源码和双打包序列各 4 项、完整双打包 HTTP 28 项通过。最后审阅摘要/结果聚焦 2 文件/107 项通过。实现文件、最终补测、打包与保留失败见 [写工作流契约与证据](opencli_write_workflows.md)。范围内状态更新见 [完整台账](opencli_parity.md)。
+
+未发布、未安装到用户客户端、未操作真实账户写，未修改 CI/CD 或内部差异仓库。B02–04、A/U 余项和 E 系列仍开放；下文暂停和 W 系列待办均为历史快照，不能覆盖本节。
+
+## 2026-10-28：四项基线测试失败已处理
+
+接续 B01 提交 `5e3c09b`，按用户要求处理两个 Windows symlink EPERM、上传大小 12/8192 和输出 ENOBUFS。最终修复测试与合成夹具，保留产品校验；上传诊断证明 Node/Chrome 对文本文件有不同视图，未采用会造成 Chrome 误报的句柄大小替代。详情见 [Windows 测试基线修复](webcli_windows_test_baseline.md)。
+
+最新 WebCLI 全量 **147 文件/1708 项全部通过**；聚焦 37 项；源码上传 6u6czT 与 CLI＋Bridge 双打包 d5nsFK 各 4 项通过，包含真实字节和表单接收验证。构建通过，既有三个列映射资源提示保留。下方 B01 验收的“4 个基线失败”为历史结果，已由本节关闭；本机文件视图差异本身未改变。
+
+## 2026-10-28：恢复并完成 B01 frame
+
+用户基于内外 `dev-1.0.2` 恢复并明确要求完成 B01。公开基线 9a01e40，隔离分支 `codex/opencli-frame-resume`；原始公开/内部 checkout 未切换或覆盖。frame 声明、原生读取动作、跨源/hash 导航、有界循环、权限/capability、生成/安装/普通调用/知识/提取修复已接通。最终双打包 GOTyK7 16 项、源码 hash/中断 i2y5rz 10 项、基础 BRBCmv、扩展 353 项、主机聚焦 81 项通过；全量 WebCLI 1699 通过/4 个基线已复现失败。契约见 [frame 工作流](opencli_frame_workflows.md)，完整证据、失败与分发边界见 [上下文审计末节](opencli_workflow_context_audit.md)。
+
+B01 已关闭，其他 W/B02–04/A/U/E 余项保持。未推送/PR/发布/安装，内部差异仓库无需复制通用运行时；内部独立 npm 重打包和实际安装包仍需单独验收。下方历史“暂停”“frame 未接入”记录按其当时快照阅读，不覆盖本节。
+
+## 2026-10-26：探索可靠性与本地客户端验收
+
+PR #170 的首轮 Linux CI：WebCLI 1666 项通过、1 项失败。失败来自 `wecli-shorthand.test.js` 对旧解析器内部字段 `argsJson` 的断言未同步；`call` 当前已将结构化参数合入 `flagArgs`，不再重复传入原始 JSON。修正该断言，并新增真实 Node 子进程覆盖两种 `--args` 写法、参数顺序、JSON 数字及前导零字符串 ID；相关 3 文件 36 项通过。此项在此前聚焦测试之外，完整回归状态以 PR 最新 CI 为准。
+
+随后 Linux CI 的 WebCLI 全量 1668 项通过，Backend 1392 项通过、1 项失败、2 项跳过：失败为完整系统提示词内联快照未同步本次两处 browser.open 说明。逐段核对并更新快照，相关 3 项通过。Windows 本机全量仍有额外失败：WebCLI 两处符号链接 EPERM、一处上传夹具大小差异；Backend 两处 SDK spawn UNKNOWN、一处属性测试超时。上述用例在该轮 Linux CI 通过，不能将本机全量称为通过，也不通过放宽这些断言掩盖差异。
+
+本轮基于公开 `origin/dev-1.0.1` 的 `4ca11071cbf535c6683754500bdc6367f6103e46`，工作分支 `codex/webcli-exploration-reliability`。按内部覆盖方式组装完整开发客户端；通用修改留在公开仓库，内部原工作区及其已有改动保留，内部测试使用独立分支。2026-10-26 已获授权提交 PR 到 `dev-1.0.1`；未发布、未验证正式安装包。目标分支已移除根目录 ROADMAP，本轮持续记录保留在本文。下文 2026-10-18 的交付授权、分支与暂停状态是历史记录，不作为本轮发布授权。
+
+已实现六组改进：参数文件/多行源码传入；显式 WebCLI 路由及 HTTP 页面快照；generate 计划冲突/replan；helper 契约和固定错误诊断；验证覆盖/断言变更提示；运行来源与客户端完整链路验收。具体契约见 [开发设计](api_exploration_cli_design.md#2026-10-26-可靠性增量)。额外修复 HTTP Runner 的普通 flag 数字与 JSON 验证参数差异；CLI 层仍不按业务 schema 转型。
+
+### 真实开发客户端结果
+
+使用本地公开排行榜夹具（`127.0.0.1`，三类榜单和分页，嵌套响应），从单句请求开始，通过普通聊天完成观察、生成、编写 cases、验证、审阅、安装和查询，中途没有人工提供修复命令。Tier4 开启，显式 WebCLI 请求日志为 `explicit-webcli`；未知页面走 `browser.open`。
+
+- 首次流程耗时 601.84 秒，47 次工具调用，其中 7 次标记失败；模型及等待 391.02 秒，执行 210.82 秒。成功不代表全程无错，也不能与其他站点的历史耗时直接作性能比较。
+- 首包验证使用 JSON 数字通过，普通 `--page=1` 调用失败，Agent 自行 repair 后安装 1.0.1。此缺陷随后在 HTTP Runner 修正，并分别通过源码和打包 CLI 的真实子进程回归；没有把初次流程重写成修正后的零失败证明。
+- 最终只读 HTTP 工具覆盖 rating 第 1 页、votes 第 2 页、hot 默认参数，包含精确 ID/分值断言。安装来源为 user；实际查询前核对版本和包摘要。本例不依赖 Cookie 或业务页面。
+- 关闭仅由该测试创建的页面后，新会话自然语言查询 votes 第 2 页：直接一次标准 `webcli call 127.0.0.1.query-rankings --kind=votes --page=2 --size=2`，22.075 秒返回 B/9、D/3；前后浏览器业务标签列表均为空。此为重复使用验收，不是新一轮冷生成。
+
+### 自动化及边界
+
+- WebCLI 探索、生成器、CLI 参数与调用聚焦：22 文件、333 项通过；HTTP Runner 19 项通过（另用打包 CLI 重跑 19 项）。
+- Tier4 31 项、Backend 类型检查、HTTP 快照/compound/shadow 13 项通过；内部 31 个包 prepare-build、CLI/Bridge/Backend 打包通过。测试构建使用现有 metrics 测试豁免，无正式指标凭据。
+- Windows 验收脚本使用 junction；固定隔离 Bridge 端口与 system 浏览器模式，避免源码入口仍尝试 3711 或普通调用切到另一个 profile。Chrome 137+ 使用显式 `--cdp-extension`，与旧 `--load-extension`/允许列表启动参数互斥。早期扩展连接失败和错误 profile 的失败记录保留，不计为通过。
+- 完整 OpenCLI 对齐、macOS、真实业务站点重新生成、正式安装包与正式指标上报不在此次通过范围。断言审阅提示只是启发式检查，不能自动证明业务字段、排序和筛选全部正确。当前运行状态与实际构建内容以本地 `.internal-dev.json` 和本轮报告为准。
+
+最终双打包验收：HTTP 24 项通过（系统临时目录 `webcli-http-discovery-VDTu9g/report.json`）；Chrome 156 后台浏览器 9 项通过（`webcli-browser-acceptance-0yDDBo/report.json`），含无业务页普通 GET/POST、混合页面/后台包、修复不退化、Bridge 重启、缺失 Cookie 与服务端登录过期。复跑入口分别为 `verify-exploration-http.mjs --bundled` 和 `verify-exploration-browser.mjs --background-only --bundled-cli --bundled-bridge --cdp-extension --playwright=<path> --chromium=<path>`。报告可能被系统清理；本轮没有重跑浏览器完整 77 项历史验收。
+
+最终源码已同步并重启本次开发客户端。重启后核对同一 user 包及摘要，普通 CLI 热度榜返回 A/40、B/30，业务标签列表仍为空。开发客户端与本地夹具保留运行供继续检查；更详细的本机路径、包摘要和进程证据在仓库外的验收记录中，不写入公开源码。
+
 2026-10-18 PR 交付授权：用户已明确选择“推送源分支与原始基线，创建 PR 到目标分支”，解除本次交付的历史不推送/不建 PR 限制。仓库为 `WeWorker/WeWorker`，源分支 `codex/api-exploration-cli`，目标 `codex/api-exploration-base`；原始基线保持 `baf9f98`，覆盖截至 `ea61385` 的全部 59 个提交，并附交付记录和一处验收脚本行尾空白清理。交付前工作区干净、基线是源分支祖先，远端尚无这两个分支或对应 PR；不先合并基线、不同步新的 develop/dev-1.1.0、不改变最终发布目标。推送及 PR 的最终状态以 GitHub 为准。下文“未推送/未建 PR”均为当时快照；客户端目标已完成、全面对齐暂停及全部欠账保持。
 
 本次交付检查：完整差异 `git diff --check` 与验收脚本 `node --check` 通过；`node webcli/scripts/verify-output-formats.mjs --python=<已有隔离 Python>` 的真实 CLI/HTTP 与独立 YAML/CSV 解析 **5 组检查通过**，未操作用户浏览器或 Bridge。新增差异和全部功能提交历史已在本地完成常见敏感信息模式检查。没有重跑全仓测试或实站生成，下述各阶段功能证据保持其原验证范围。

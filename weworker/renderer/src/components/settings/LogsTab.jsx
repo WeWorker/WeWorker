@@ -148,14 +148,14 @@ export default function LogsTab() {
             outline: 'none', fontFamily: 'inherit',
           }}
         />
-        <button onClick={loadLogs} disabled={loading} style={{
+        <button data-app-button="action" onClick={loadLogs} disabled={loading} style={{
           background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6,
           padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--text-secondary)',
           fontFamily: 'inherit',
         }}>
           {loading ? '...' : '刷新'}
         </button>
-        <button onClick={handleCopy} style={{
+        <button data-app-button="action" onClick={handleCopy} style={{
           background: copied ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)',
           border: `1px solid ${copied ? 'rgba(34,197,94,0.4)' : 'var(--border)'}`,
           borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer',

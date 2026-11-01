@@ -1,5 +1,7 @@
 # 后台 API 探索与页面依赖
 
+2026-10-26 验收口径：分别记录“用户无需手动开页”“宿主创建/复用业务页”“完全后台无业务页”。PAGE_FETCH 可能满足第一项，不能仅凭它使用页面就判定查询失败；PUBLIC_API/EXTENSION_API 的声明也不能代替实际证明。检查当前 Adapter 的 source/version/digest 与 runtime/execution，只关闭测试任务自有标签页后执行普通调用，记录是否创建新页或回退。此次本地公开排行榜夹具的 HTTP 工具在零业务页时通过新会话查询，细节见 [交接记录](api_exploration_cli_handoff.md)。
+
 2026-10-18：通用流程修正。开源与内部仓库复用同一 CLI、Bridge、Extension 与生成/验证/修复实现，差别留在 Adapter 内容和对应打包范围。内部源码只用于核对现有能力，本文件及验收使用公开占位站点。
 
 ## 为什么修正

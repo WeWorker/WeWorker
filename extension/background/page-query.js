@@ -2,6 +2,7 @@ import { prepareInterceptAction } from './intercept-read.js';
 import { executePageSource } from './page-source.js';
 import { executePageNavigation } from './page-navigation.js';
 import { executePageWorkflow } from './page-workflow.js';
+import { createFrameOperation } from './frame-operation.js';
 const busy = new Set();
 const cancelled = new Map();
 let connectionEpoch = 0;
@@ -36,6 +37,17 @@ async function executeSinglePageQuery({ chrome, ensureCdpAttached, tabId, payloa
     assertRunning();
     const { source, expectedOrigin, expectedPath, values = {}, metadataOnly = false } = payload;
     if (source?.mode === 'workflow') return await executePageWorkflow({ chrome, ensureCdpAttached, tabId, payload, now, sleep, assertRunning }, executeSinglePageQuery);
+    if (source?.mode === 'read' && captureWorkflowPage) {
+      const guard = createFrameOperation({ assertRunning, deadline: now() + source.timeoutMs });
+      const tab = await guard.run(() => chrome.tabs.get(tabId));
+      if (new URL(tab.url).origin !== expectedOrigin || new URL(tab.url).pathname !== expectedPath) throw fail('PAGE_QUERY_ROUTE_CHANGED', 'Read step route changed.');
+      await guard.run(() => ensureCdpAttached(tabId));
+      const frame = (await guard.run(() => chrome.debugger.sendCommand({ tabId }, 'Page.getFrameTree')))?.frameTree?.frame;
+      const result = await guard.run(() => executePageSource(chrome, tabId, { source: source.result, expectedOrigin, expectedPath, metadataOnly }));
+      const final = (await guard.run(() => chrome.debugger.sendCommand({ tabId }, 'Page.getFrameTree')))?.frameTree?.frame;
+      if (!frame?.loaderId || final?.loaderId !== frame.loaderId || final?.id !== frame.id || (await chrome.tabs.get(tabId)).url !== tab.url) throw fail('PAGE_QUERY_ROUTE_CHANGED', 'Read step document changed.');
+      return { ...result, internalWorkflowPage: { url: tab.url, frameId: frame.id, loaderId: frame.loaderId } };
+    }
     if (!['query', 'navigate', 'filter'].includes(source?.mode) || source.strategy !== 'UI_SELECTOR' || !source.result) throw fail('INVALID_PAGE_QUERY', 'Expected a declared UI query source.');
     const timeoutMs = source.timeoutMs;
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 30000) throw fail('INVALID_PAGE_QUERY', 'Invalid page query timeout.');

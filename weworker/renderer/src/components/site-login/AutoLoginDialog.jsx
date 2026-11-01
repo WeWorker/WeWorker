@@ -5,7 +5,7 @@ import { AUTOLOGIN_NOTICE_LINES, validateCredentialForm } from '../../utils/site
  * Turn on auto-login for one site. The password goes once to the Bridge,
  * which encrypts it with the system key; this component forgets it right away.
  */
-export default function AutoLoginDialog({ site, name, onClose, onSaved }) {
+export default function AutoLoginDialog({ site, name, autologinMode = 'auto', contextId, onClose, onSaved }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [acknowledged, setAcknowledged] = useState(false)
@@ -22,12 +22,15 @@ export default function AutoLoginDialog({ site, name, onClose, onSaved }) {
 
   const save = async (event) => {
     event.preventDefault()
+    if (autologinMode === 'off') { setError('该网站不支持自动登录，请手动完成登录。'); return }
     const problem = validateCredentialForm({ username, password, acknowledged })
     if (problem) { setError(problem); return }
     setSaving(true)
     setError('')
     try {
-      const result = await window.electronAPI.siteAuthControl('save_credential', { site, username, password })
+      const result = await window.electronAPI.siteAuthControl('save_credential', {
+        site, username, password, ...(contextId ? { contextId } : {}),
+      })
       setPassword('')
       onSaved?.(result)
       onClose?.()
@@ -68,8 +71,8 @@ export default function AutoLoginDialog({ site, name, onClose, onSaved }) {
         </label>
         {error && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-          <button type="button" className="settings-btn settings-btn-secondary" disabled={saving} onClick={() => onClose?.()}>取消</button>
-          <button type="submit" className="settings-btn settings-btn-primary" disabled={saving}>{saving ? '正在保存…' : '保存并开启'}</button>
+          <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" disabled={saving} onClick={() => onClose?.()}>取消</button>
+          <button data-app-button="action" type="submit" className="settings-btn settings-btn-primary" disabled={saving}>{saving ? '正在保存…' : '保存并开启'}</button>
         </div>
       </form>
     </div>

@@ -20,16 +20,18 @@
  */
 
 import { spawn } from "child_process";
-import { openSync, existsSync, statSync, readSync, closeSync, realpathSync } from "fs";
+import { openSync, existsSync, statSync, readSync, closeSync, realpathSync, readFileSync } from "fs";
 import { mkdir, writeFile, readFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import { WebSocket } from "ws";
-import { randomUUID } from "crypto";
+import { createConnection } from "net";
+import { createHash, randomUUID } from "crypto";
 import { resolveToolCallTimeout } from "./tool-timeouts.js";
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readBrowserMode } from "./dedicated-browser.js";
+import { bridgeUrl, resolveBridgeInstance } from "./bridge-instance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
@@ -38,7 +40,8 @@ const __dirname  = dirname(__filename);
 // 与「bridge 派发」「扩展内部执行」分开观测（bridge 侧的调用分段日志）。
 const CLI_STARTED_AT = Date.now();
 
-const WS_PORT    = 3711;
+const INSTANCE   = resolveBridgeInstance();
+const WS_PORT    = INSTANCE.port;
 const WEBCLI_DIR = join(homedir(), ".webcli");
 const WEBMCP_DIR = join(homedir(), ".webmcp"); // backward compat
 
@@ -48,8 +51,34 @@ function getConfigDir() {
   return join(homedir(), ".webcli"); // new install default
 }
 
-const PID_FILE   = join(getConfigDir(), "service.pid");
-const LOG_FILE   = join(getConfigDir(), "service.log");
+/** npm and desktop have independent daemon state; npm never reads desktop PID/log files. */
+function getServiceStateDir() {
+  return INSTANCE.stateDir || getConfigDir();
+}
+
+const PID_FILE   = join(getServiceStateDir(), "service.pid");
+const LOG_FILE   = join(getServiceStateDir(), "service.log");
+const OWNER_FILE = join(getServiceStateDir(), "service.owner.json");
+
+function tokenHash(token) {
+  return token ? createHash("sha256").update(String(token)).digest("hex") : null;
+}
+
+async function readServiceOwner() {
+  try { return JSON.parse(await readFile(OWNER_FILE, "utf8")); }
+  catch { return null; }
+}
+
+/** TCP-level occupancy check; a foreign or half-open listener still counts as occupied. */
+function isPortOccupied(timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: INSTANCE.connectHost, port: INSTANCE.port });
+    const finish = (value) => { socket.removeAllListeners(); socket.destroy(); resolve(value); };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.once("connect", () => { clearTimeout(timer); finish(true); });
+    socket.once("error", () => { clearTimeout(timer); finish(false); });
+  });
+}
 const TRACE_LOG_READ_BYTES = 2 * 1024 * 1024;
 
 // ─── Help & version ──────────────────────────────────────────────────────────
@@ -77,7 +106,7 @@ Login（网站登录由 WeWorker 自动处理：命令遇到未登录时打开�
   auth save <网站>               保存账号密码并开启自动登录（需确认；Windows 系统密钥加密）
   auth autologin <网站> on|off   开启或暂停自动登录
   auth forget <网站>             删除保存的账号密码
-  call ... --login-wait=<秒>     本次调用最多等待登录的时间（终端默认 300 秒，脚本/AI 默认 75 秒）
+  call ... --login-wait=<秒>     本次调用最多等待登录的时间（终端默认 300 秒；脚本/AI 默认不等待，立即返回登录提示与截图，登录流程后台继续）
 
 API exploration (standalone, no desktop/model key required):
   call exploration.help                    探索、草稿编辑、验证与安装命令
@@ -91,6 +120,8 @@ Adapters:
   <adapter> <command> help                 单个命令参数说明（第三级）
   adapter validate <dir>                   校验 v2 adapter 包（结构+禁入文件，规范 docs/adapter_package_spec.md）
   adapter convention-audit <dir>           静态规范审计（不执行命令；--installed [id] 检查已安装包）
+  adapter verify <dir>                     静态校验及历史证据（--installed [id]；--runtime managed|legacy|toolkit）
+  adapter source <repo> --ref <full-sha>     只读发现本地 Git 固定提交中的 v2 子包
   adapter list                             列出已安装的 adapter
   adapter list --json                      JSON 格式输出（含工具定义）
   adapter info <id>                        查看 adapter 的工具列表
@@ -102,7 +133,8 @@ Adapters:
   adapter knowledge <id> --json            输出 WEBCLI_KNOWLEDGE.json 内容
   adapter skills-path                      输出 adapters 目录路径
   adapter install --url <url> [--reload]   从 URL 安装（仅 https）
-  adapter install --file <path> [--reload] 从本地文件安装
+  adapter install --directory <dir>       安装解包后的 v2 目录
+  adapter install --file <path.adapt>      安装 v2 归档（旧式 .js 仍兼容）
   adapter remove  <id>  [--reload]         移除 adapter
 
 AdapterHub:
@@ -128,8 +160,10 @@ Tools:
   completion bash|zsh|fish                 输出动态 shell 补全脚本（不修改 shell 配置）
   call <tool_name> [--key=value ...] [-v, --verbose] [--output-format=json|markdown|table|plain|csv|yaml]
                                   调用 Adapter 工具（Extension 自动启动 Bridge；Toolkit 直接运行）
+                                  打开已知 Adapter 网站：open_browser --url=<Homepage> --adapter=<adapter-id>
+                                  未知站点探索：webcli call browser.open --session=explore --url=https://example.com
                                   参数直接以 --key=value 形式传递：
-                                    webcli call open_browser --url=http://jd.com
+                                    webcli call open_browser --url=http://jd.com --adapter=jd.com
                                     webcli call jd.com.search_products --keyword=手机 --limit=5
                                   数组/对象用 JSON 字面量：
                                     webcli call tool --fields='{"标题":"xxx"}'
@@ -137,6 +171,8 @@ Tools:
                                   同名 flag 重复出现会聚合成数组：
                                     webcli call tool --tags=web --tags=api
                                   兼容旧格式：--args '{"url":"http://jd.com"}'
+                                  多行代码/复杂参数：--args-file <UTF-8 JSON对象文件>（最大 2 MiB，支持 BOM）
+                                  --args 与 --args-file 只能选一个，结构化参数优先于同名 flag
                                   输出格式：终端默认 markdown（按站点列名映射渲染），管道/脚本默认 json；
                                   需要结构化数据时显式用 --output-format=json
   webcli <site> <command...> [--key=value ...] [-v, --verbose] [--output-format=json|markdown|table|plain|csv|yaml]
@@ -243,6 +279,10 @@ Agent tip: use 'webcli call <tool> --key=value ...' to invoke a tool.
 }
 
 async function printVersion() {
+  if (typeof __WEBCLI_VERSION__ !== "undefined") {
+    console.log(`webcli ${__WEBCLI_VERSION__}`);
+    return;
+  }
   try {
     const pkgPath = join(__dirname, "package.json");
     const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
@@ -256,7 +296,7 @@ async function printVersion() {
 
 async function checkPortListening() {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+    const ws = new WebSocket(bridgeUrl(INSTANCE));
     const t = setTimeout(() => { ws.terminate(); resolve(false); }, 2000);
     ws.on("open",  () => { clearTimeout(t); ws.close(); resolve(true);  });
     ws.on("error", () => { clearTimeout(t);              resolve(false); });
@@ -287,9 +327,27 @@ function getServiceNodeArgs() {
 
 // ─── Command: service start ──────────────────────────────────────────────────
 
+/**
+ * Wait for a freshly spawned daemon to listen on its own port. Cold starts
+ * scan every Adapter package and can take well over 5 seconds on Windows.
+ */
+async function waitForOwnBridge(pid, { timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidRunning(pid)) return false;
+    if (await checkPortListening()) {
+      if (INSTANCE.kind !== "npm") return true;
+      const info = await probeBridgeInstance();
+      if (info && info.kind === "npm" && info.port === INSTANCE.port) return true;
+    }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return false;
+}
+
 async function cmdServiceStart(daemon, report = console.log) {
   if (daemon) {
-    await mkdir(WEBCLI_DIR, { recursive: true });
+    await mkdir(getServiceStateDir(), { recursive: true });
 
     // Check if already running
     const existing = await readPid();
@@ -298,10 +356,22 @@ async function cmdServiceStart(daemon, report = console.log) {
       return;
     }
 
+    // A foreign listener must never be adopted as this distribution's service.
+    if (INSTANCE.kind === "npm" && await isPortOccupied()) {
+      const info = await probeBridgeInstance();
+      if (info && info.kind === "npm" && info.port === INSTANCE.port) {
+        report(`WebCLI service is already running on ${bridgeUrl(INSTANCE)}`);
+        return;
+      }
+      throw new Error(`Port ${INSTANCE.port} is already in use by a different process; refusing to reuse it`);
+    }
+
     const logFd  = openSync(LOG_FILE, "a");
+    const token  = randomUUID().replace(/-/g, "");
     const child  = spawn(process.execPath, getServiceNodeArgs(), {
       detached: true,
       stdio: ["ignore", logFd, logFd, "ipc"],
+      env: { ...process.env, WEBCLI_SERVICE_TOKEN: token },
     });
     closeSync(logFd);
     // Only the process which actually bound the port may publish the PID.
@@ -320,6 +390,26 @@ async function cmdServiceStart(daemon, report = console.log) {
       throw new Error('Bridge failed to start');
     }
     await writeFile(PID_FILE, String(child.pid));
+    await writeFile(OWNER_FILE, JSON.stringify({
+      pid: child.pid, port: INSTANCE.port, kind: INSTANCE.kind, tokenHash: tokenHash(token),
+    }));
+
+    // npm reports success only after its own Bridge is actually listening.
+    // A slow cold start must NOT fail the command: the daemon keeps starting,
+    // and ensureBridgeRunning keeps waiting for it below.
+    if (INSTANCE.kind === "npm") {
+      const ready = await waitForOwnBridge(child.pid);
+      if (!ready && !isPidRunning(child.pid)) {
+        await unlink(PID_FILE).catch(() => {});
+        await unlink(OWNER_FILE).catch(() => {});
+        throw new Error(`WebCLI service failed to start on ${bridgeUrl(INSTANCE)}`);
+      }
+      if (!ready) {
+        report(`WebCLI service is starting in background (PID: ${child.pid}) — still initializing`);
+        report(`  Logs:   ${LOG_FILE}`);
+        return;
+      }
+    }
 
     report(`✓ WebCLI service started in background (PID: ${child.pid})`);
     report(`  Logs:   ${LOG_FILE}`);
@@ -342,11 +432,19 @@ async function cmdServiceStop() {
   if (!isPidRunning(pid)) {
     console.log(`PID ${pid} is no longer running — cleaning up stale PID file`);
     await unlink(PID_FILE).catch(() => {});
+    await unlink(OWNER_FILE).catch(() => {});
     return;
+  }
+  if (INSTANCE.kind === "npm") {
+    const owner = await readServiceOwner();
+    if (!owner || owner.pid !== pid || owner.port !== INSTANCE.port || owner.kind !== "npm") {
+      throw new Error(`PID ${pid} is not owned by this npm WebCLI; refusing to stop it`);
+    }
   }
   try {
     process.kill(pid, "SIGTERM");
     await unlink(PID_FILE).catch(() => {});
+    await unlink(OWNER_FILE).catch(() => {});
     console.log(`✓ WebCLI service stopped (PID: ${pid})`);
   } catch (e) {
     console.error(`Failed to stop service: ${e.message}`);
@@ -362,7 +460,7 @@ async function cmdServiceStatus() {
 
   if (listening) {
     const pidStr = pidRunning ? ` (PID: ${pid})` : "";
-    console.log(`✓ WebCLI service is running on ws://localhost:${WS_PORT}${pidStr}`);
+    console.log(`✓ WebCLI service is running on ${bridgeUrl(INSTANCE)}${pidStr}`);
   } else {
     console.log("✗ WebCLI service is not running");
     if (pid && !pidRunning) {
@@ -395,7 +493,12 @@ async function runServiceMode() {
   const { WebSocketBridge } = await import("./bridge.js");
 
   process.stderr.write("[WebCLI] Starting WebSocket bridge...\n");
-  const bridge = new WebSocketBridge();
+  const bridge = new WebSocketBridge({
+    port: INSTANCE.port,
+    host: INSTANCE.bindHost,
+    instanceKind: INSTANCE.kind,
+    serviceTokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
+  });
   bridge._wss.once('listening', () => { if (process.send) process.send({ type: 'bridge_ready' }); });
 
   // 初始化埋点上报配置（whoami / clientId / 版本号）；实时上报无需定时器。
@@ -405,7 +508,7 @@ async function runServiceMode() {
   await bridge.init({ webcliVersion: version });
 
   await new Promise(resolve => setTimeout(resolve, 500));
-  process.stderr.write(`[WebCLI] WebSocket server listening on ws://localhost:${WS_PORT}\n`);
+  process.stderr.write(`[WebCLI] WebSocket server listening on ${bridgeUrl(INSTANCE)}\n`);
   process.stderr.write("[WebCLI] Waiting for Chrome extension to connect...\n");
 
   setInterval(() => {
@@ -506,12 +609,37 @@ async function stopBrowserBeforeService() {
   try { await browserControl("stop", {}, 10_000); } catch { /* Older Bridge or already gone. */ }
 }
 
+/** npm must prove the listening service is its own before touching browser or PID. */
+async function stopOwnService() {
+  if (INSTANCE.kind !== "npm") {
+    await stopBrowserBeforeService();
+    await cmdServiceStop();
+    return;
+  }
+  const info = await probeBridgeInstance();
+  if (info && (info.kind !== "npm" || info.port !== INSTANCE.port)) {
+    throw new Error(`Refusing to stop ${bridgeUrl(INSTANCE)}: it is not owned by this npm WebCLI`);
+  }
+  if (info) {
+    const owner = await readServiceOwner();
+    if (!owner || info.tokenHash !== owner.tokenHash) {
+      throw new Error(`Refusing to stop ${bridgeUrl(INSTANCE)}: service ownership could not be verified`);
+    }
+    try { await browserControl("stop", {}, 10_000); } catch { /* Own browser already gone. */ }
+  }
+  await cmdServiceStop();
+}
+
 // ─── Website login ───────────────────────────────────────────────────────────
 
-/** A person at a terminal gets 5 minutes to sign in; scripts and agents 75 seconds (under a 2-minute tool timeout). */
+/** A person at a terminal gets 5 minutes of auto-continue; scripts and agents return
+ *  immediately so the session can render the login prompt and QR screenshot right away.
+ *  The login flow keeps running in the background either way. */
 function resolveLoginWaitMs(seconds) {
   if (Number.isFinite(seconds)) return Math.max(0, Math.min(15 * 60, seconds)) * 1000;
-  return process.stdin.isTTY && process.stderr.isTTY ? 300_000 : 75_000;
+  const env = Number(process.env.WEBCLI_LOGIN_WAIT_SECONDS);
+  if (Number.isFinite(env)) return Math.max(0, Math.min(15 * 60, env)) * 1000;
+  return process.stdin.isTTY && process.stderr.isTTY ? 300_000 : 0;
 }
 
 const AUTH_EVENT_TEXT = {
@@ -532,7 +660,7 @@ function printAuthEvent(event) {
 /** One fixed control action against the running Bridge (`browser_control` / `auth_control`). */
 async function bridgeControl(type, action, extra = {}, timeoutMs = 45_000, onEvent = null) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+    const ws = new WebSocket(bridgeUrl(INSTANCE));
     const id = `cli-${type}-${Date.now()}`;
     const timer = setTimeout(() => { ws.terminate(); reject(new Error("Bridge 未响应（可能是旧版本）")); }, timeoutMs);
     ws.on("open", () => ws.send(JSON.stringify({ type, id, action, ...extra })));
@@ -559,6 +687,11 @@ async function requireLoginSite(site) {
   if (!site) throw new Error("请指定网站，例如 webcli login ctrip.com");
   const manifest = (await loadLoginSites()).find((adapter) => adapter.name === site);
   if (!manifest) throw new Error(`"${site}" 没有声明登录（manifest auth）；可用 webcli auth status 查看支持登录管理的网站`);
+  return manifest;
+}
+
+function requireAutologinSite(manifest) {
+  if (manifest?.auth?.autologin?.mode === 'off') throw new Error('该网站不支持自动登录，请使用二维码、动态密码或其他方式手动登录。');
   return manifest;
 }
 
@@ -609,15 +742,24 @@ async function cmdAuth(sub, rest = [], { json = false, profile } = {}) {
         const sites = await loadLoginSites();
         status = {
           autologinSupported: vault.supported,
-          sites: sites.map((manifest) => ({
-            site: manifest.name, name: manifest.auth.display_name || manifest.i18n?.zh?.name || manifest.name,
-            state: "unknown", autologin: { supported: vault.supported, ...vault.site(manifest.name) },
-          })),
+          sites: sites.map((manifest) => {
+            const mode = manifest.auth.autologin?.mode === 'off' ? 'off' : 'auto';
+            const preferences = vault.site(manifest.name);
+            return {
+              site: manifest.name, name: manifest.auth.display_name || manifest.i18n?.zh?.name || manifest.name,
+              state: "unknown", autologin: {
+                supported: vault.supported, allowed: mode !== 'off', mode, ...preferences,
+                ...(mode === 'off' ? { enabled: false } : {}),
+              },
+            };
+          }),
         };
       }
       if (json) { console.log(JSON.stringify(status, null, 2)); return; }
       for (const entry of status.sites) {
-        const auto = entry.autologin?.enabled ? `自动登录：开（${entry.autologin.username}）` : entry.autologin?.configured ? "自动登录：已暂停" : "自动登录：关";
+        const auto = entry.autologin?.allowed === false
+          ? "自动登录：不支持"
+          : entry.autologin?.enabled ? `自动登录：开（${entry.autologin.username}）` : entry.autologin?.configured ? "自动登录：已暂停" : "自动登录：关";
         console.log(`${entry.site.padEnd(18)} ${entry.name.padEnd(10)} ${(LOGIN_STATE_TEXT[entry.state] || entry.state).padEnd(4)} ${auto}${entry.flow ? `  登录中（${entry.flow}）` : ""}`);
       }
       if (!status.autologinSupported) console.log("\n当前系统暂不支持安全保存密码（目前支持 Windows），自动登录不可用。");
@@ -632,7 +774,8 @@ async function cmdAuth(sub, rest = [], { json = false, profile } = {}) {
       return;
     }
     if (sub === "save") {
-      await requireLoginSite(site);
+      const manifest = await requireLoginSite(site);
+      requireAutologinSite(manifest);
       if (!vault.supported) throw new Error("当前系统暂不支持安全保存密码（目前支持 Windows）。");
       if (!process.stdin.isTTY || !process.stderr.isTTY) throw new Error("保存密码需要在本机交互式终端中运行。");
       process.stderr.write(`${AUTOLOGIN_NOTICE}\n\n`);
@@ -651,9 +794,10 @@ async function cmdAuth(sub, rest = [], { json = false, profile } = {}) {
       return;
     }
     if (sub === "autologin") {
-      await requireLoginSite(site);
+      const manifest = await requireLoginSite(site);
       const value = rest[1];
       if (!["on", "off"].includes(value)) throw new Error("用法：webcli auth autologin <网站> on|off");
+      if (value === "on") requireAutologinSite(manifest);
       if (value === "on" && !vault.hasCredential(site)) throw new Error(`请先运行 webcli auth save ${site} 保存账号密码`);
       vault.updateSite(site, { enabled: value === "on" });
       console.log(`✓ ${site} 自动登录已${value === "on" ? "开启" : "关闭"}`);
@@ -678,19 +822,63 @@ function dedicatedBrowserHint() {
 
 // ─── Command: call <tool_name> ────────────────────────────────────────────────
 
+/** Ask the listening Bridge to identify itself; null for older or foreign services. */
+async function probeBridgeInstance(timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(bridgeUrl(INSTANCE));
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { ws.terminate(); } catch {}
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    ws.on("open", () => ws.send(JSON.stringify({ type: "service_info", id: "probe" })));
+    ws.on("message", (data) => {
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (msg.type === "service_info_result" && msg.id === "probe") finish(msg.instance || null);
+    });
+    ws.on("error", () => finish(null));
+  });
+}
+
 async function ensureBridgeRunning() {
   const isRunning = await checkPortListening();
-  if (isRunning) return;
+  if (isRunning) {
+    if (INSTANCE.kind === "npm") {
+      const info = await probeBridgeInstance();
+      if (!info || info.kind !== "npm" || info.port !== INSTANCE.port) {
+        console.error(`Error: ${bridgeUrl(INSTANCE)} is used by a different service; refusing to attach.`);
+        console.error("Stop the other Bridge or free the port, then retry.");
+        process.exit(1);
+      }
+    }
+    return;
+  }
 
   process.stderr.write("Bridge not running, starting...\n");
   await cmdServiceStart(true, message => process.stderr.write(message + '\n'));
 
-  // Wait for Bridge to be ready (max 5s)
-  for (let i = 0; i < 10; i++) {
-    await new Promise(r => setTimeout(r, 500));
-    if (await checkPortListening()) return;
+  // Wait for Bridge to be ready (max 30s — cold starts scan every Adapter
+  // package); npm also verifies the identity of the service it talks to.
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 250));
+    if (!(await checkPortListening())) continue;
+    if (INSTANCE.kind !== "npm") return;
+    const info = await probeBridgeInstance();
+    if (info && info.kind === "npm" && info.port === INSTANCE.port) return;
   }
-  console.error("Error: Bridge failed to start within 5 seconds");
+  const pid = await readPid();
+  if (pid && isPidRunning(pid)) {
+    console.error(`Error: Bridge (PID: ${pid}) is still starting — retry the command in a moment.`);
+    console.error(`  Logs: ${LOG_FILE}`);
+  } else {
+    console.error("Error: Bridge failed to start");
+  }
   process.exit(1);
 }
 
@@ -768,11 +956,11 @@ async function cmdCall(toolName, argsStr, options = {}) {
       process.exitCode = 1;
       return;
     }
-    await ensureBridgeRunning();
+    if (command !== 'export') await ensureBridgeRunning();
     const { callExploration } = await import('./exploration-client.js');
-    const result = await callExploration(command, args, { profile: options.profile });
+    const result = await callExploration(command, args, { profile: options.profile, ...(command === 'export' ? { timeoutMs: 180000 } : {}) });
     printManagement(result);
-    if (!result.ok) process.exitCode = 1;
+    if (!result.ok || (command === 'export' && !result.data?.complete)) process.exitCode = 1;
     return;
   }
 
@@ -853,11 +1041,20 @@ async function cmdCall(toolName, argsStr, options = {}) {
 
   await ensureBridgeRunning();
 
-  const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+  const ws = new WebSocket(bridgeUrl(INSTANCE));
 
   const callTimeoutMs = resolveToolCallTimeout(toolName);
   const loginWaitMs = resolveLoginWaitMs(options.loginWaitSeconds);
-  const site = v2Match?.adapter?.name || "";
+  let site = v2Match?.adapter?.name || "";
+  if (toolName === 'open_browser' && args.adapter !== undefined) {
+    if (typeof args.adapter !== 'string' || !args.adapter.trim() || args.adapter.length > 128) {
+      console.log(formatCallOutput({ error: 'open_browser adapter must be one Adapter id.', code: 'INVALID_ARGUMENT', trace_id: null }, outputFormat));
+      process.exitCode = 1;
+      return;
+    }
+    site = args.adapter.trim();
+    args.adapter = site;
+  }
 
   const onTimeout = () => {
     console.log(formatCallOutput({ error: "工具调用超时", trace_id: null }, outputFormat));
@@ -954,7 +1151,7 @@ async function cmdTrace(traceID, options = {}) {
   const isBridgeRunning = await checkPortListening();
   if (isBridgeRunning) {
     const extLogs = await new Promise((resolve) => {
-      const ws = new WebSocket(`ws://localhost:${WS_PORT}`);
+      const ws = new WebSocket(bridgeUrl(INSTANCE));
       const timeout = setTimeout(() => {
         ws.terminate();
         resolve(null);
@@ -1207,26 +1404,32 @@ function assignArg(args, key, value) {
 function extractFlagArgs(argv, startIndex = 0) {
   const args = {};
   const rest = [];
+  let structuredArgs;
   for (let i = startIndex; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--args") {
-      // 兼容旧格式：--args 'JSON'
-      i++;
-      if (i < argv.length) {
-        const parsed = parseArgsJson(argv[i]);
-        for (const [k, v] of Object.entries(parsed)) assignArg(args, k, v);
-      }
+    if (arg === '--args' || arg === '--args-file' || arg.startsWith('--args-file=') || arg.startsWith('--args=')) {
+      if (structuredArgs !== undefined) throw new Error('Use exactly one --args or --args-file input.');
+      const fromFile = arg.startsWith('--args-file');
+      const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++i];
+      if (!value || value.startsWith('--')) throw new Error('Missing --args or --args-file value.');
+      if (fromFile) {
+        try {
+          if (!statSync(value).isFile() || statSync(value).size > 2 * 1024 * 1024) throw new Error();
+          structuredArgs = JSON.parse(readFileSync(value, 'utf8').replace(/^\uFEFF/, ''));
+        } catch { throw new Error('--args-file requires a readable UTF-8 JSON object file (maximum 2 MiB).'); }
+      } else structuredArgs = parseArgsJson(value);
+      if (!structuredArgs || typeof structuredArgs !== 'object' || Array.isArray(structuredArgs)) throw new Error('Structured arguments must be a JSON object.');
       continue;
     }
-    const flagMatch = arg.match(/^--([^=]+)=(.*)$/);
+    const flagMatch = arg.match(/^--([^=]+)=([\s\S]*)$/);
     if (flagMatch) {
       const [, key, value] = flagMatch;
-      assignArg(args, key, inferType(value));
+      assignArg(args, key, key === 'content' ? value : inferType(value));
       continue;
     }
     rest.push(arg);
   }
-  return { args, rest };
+  return { args: { ...args, ...structuredArgs }, rest };
 }
 
 function resolveCliInvocation(args) {
@@ -1234,11 +1437,11 @@ function resolveCliInvocation(args) {
   if (cmd === "call") {
     if (['browser.console', 'browser.network'].includes(args[1])) args = args.map(arg => arg === '--follow' ? '--follow=true' : arg);
     const { args: flagArgs, rest } = extractFlagArgs(args, 2);
-    const argsIdx = args.indexOf("--args");
+    if (rest.some(arg => !['--help', '-h'].includes(arg))) throw new Error('Unexpected positional argument after the tool name. Use --key=value or --args-file <file>.');
     return {
       type: "call",
-      toolName: rest[0] || args[1],
-      argsJson: argsIdx !== -1 ? args[argsIdx + 1] : undefined,
+      toolName: args[1],
+      argsJson: undefined,
       flagArgs,
     };
   }
@@ -1385,8 +1588,7 @@ async function main() {
       const daemon = args.includes("-d") || args.includes("--daemon");
       await cmdServiceStart(daemon);
     } else if (sub === "stop") {
-      await stopBrowserBeforeService();
-      await cmdServiceStop();
+      await stopOwnService();
     } else if (sub === "status") {
       await cmdServiceStatus();
     } else if (sub === "logs") {

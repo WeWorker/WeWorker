@@ -3,6 +3,7 @@ import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
+import AppSwitch from '../common/AppSwitch.jsx'
 import { RenameIcon, TrashIcon } from '../icons/PanelIcons.jsx'
 import Tooltip from '../Tooltip.jsx'
 import { showConfirm } from '../../store/dialog.js'
@@ -109,11 +110,26 @@ function ScheduledTaskItem({ task, active, onSelect }) {
     setBusy(true)
     setError('')
     try {
-      const confirmed = await showConfirm(`确定要删除任务「${title}」吗？\n\n这将同时删除该任务的所有执行记录，此操作不可撤销。`, '删除定时任务')
+      const confirmed = await showConfirm(`确定要删除任务「${title}」吗？\n\n这将同时删除该任务的所有执行记录，此操作不可撤销。`, '删除定时任务', { danger: true })
       if (confirmed) await deleteTask(task.id)
     } catch (err) {
       setError(err.message || '删除失败，请重试')
     } finally { pending.current = false; setBusy(false) }
+  }
+
+  const toggleEnabled = async (event) => {
+    if (pending.current || draftTitle !== null) return
+    pending.current = true
+    setBusy(true)
+    setError('')
+    try {
+      await updateTask(task.id, { enabled: event.target.checked })
+    } catch (err) {
+      setError(err.message || '切换定时任务状态失败，请重试')
+    } finally {
+      pending.current = false
+      setBusy(false)
+    }
   }
 
   return (
@@ -188,16 +204,24 @@ function ScheduledTaskItem({ task, active, onSelect }) {
         </span>
         {error && <span role="alert" style={{ display: 'block', fontSize: 11, color: 'var(--error, #ef4444)' }}>{error}</span>}
       </div>
-      <div style={{ display: 'flex', flexShrink: 0, gap: 2 }} onClick={(event) => event.stopPropagation()}>
+      <div className="sidebar-row-actions" style={{ opacity: draftTitle !== null ? 0 : undefined, pointerEvents: draftTitle !== null ? 'none' : undefined }} onClick={(event) => event.stopPropagation()}>
+        <AppSwitch
+          className="app-switch--sidebar"
+          checked={Boolean(task.enabled)}
+          disabled={busy || draftTitle !== null}
+          onChange={toggleEnabled}
+          aria-label={`${task.enabled ? '关闭' : '启用'}定时任务 ${title}`}
+          title={task.enabled ? '关闭定时任务' : '启用定时任务'}
+        />
         <Tooltip text="重命名">
-          <button type="button" className="sidebar-icon-button" aria-label={`重命名定时任务 ${title}`} disabled={busy || draftTitle !== null}
+          <button type="button" className="sidebar-row-action" aria-label={`重命名定时任务 ${title}`} disabled={busy || draftTitle !== null}
             onClick={() => { cancelled.current = false; setError(''); setDraftTitle(task.title || '') }}>
-            <RenameIcon />
+            <RenameIcon size={13} />
           </button>
         </Tooltip>
         <Tooltip text="删除">
-          <button type="button" className="sidebar-icon-button" aria-label={`删除定时任务 ${title}`} disabled={busy || draftTitle !== null} onClick={remove}>
-            <TrashIcon />
+          <button type="button" className="sidebar-row-action" aria-label={`删除定时任务 ${title}`} disabled={busy || draftTitle !== null} onClick={remove}>
+            <TrashIcon size={13} />
           </button>
         </Tooltip>
       </div>

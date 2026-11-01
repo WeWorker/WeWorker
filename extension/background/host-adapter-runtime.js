@@ -1,7 +1,7 @@
 import { adapterHelperPatterns, adapterPagePatterns, hostMatchesPattern } from './host-scope.js';
 
 /** Serialize page replacement and calls so an update cannot replace a running command's globals. */
-export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navigate, ready, query, now = Date.now, maxNavigations = 4, timeoutMs = 105000 }) {
+export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navigate, ready, recover, query, now = Date.now, maxNavigations = 4, timeoutMs = 105000 }) {
   const queues = new Map();
   const stamps = new Map();
   const documents = new Map();
@@ -24,8 +24,8 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
       const deadline = now() + timeoutMs;
       return exclusive(tabId, async () => {
         const policy = command && manifest.commands?.find(entry => entry.id === command.id);
-        let currentUrl = url, continuation = null;
-        for (let step = 0; ; step++) {
+        let currentUrl = url, continuation = null, recoveries = 0;
+        for (let step = 0; ;) {
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
           for (let attempt = 0; ; attempt++) {
             if (ready) currentUrl = await ready(tabId, manifest, Math.min(25000, deadline - now()), traceID);
@@ -51,7 +51,21 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
             }
           }
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
-          const result = operation ? await operation(Math.max(1, deadline - now()), continuation) : undefined;
+          let result;
+          try {
+            result = operation ? await operation(Math.max(1, deadline - now()), continuation) : undefined;
+          } catch (error) {
+            // Only a transport error explicitly classified as BFCache loss is
+            // replayable. Business failures, writes and confirmation-gated
+            // commands remain fail-closed.
+            if (error.code !== 'ADAPTER_BFCACHE_DISCONNECTED' || policy?.safety !== 'read'
+                || policy.requires_confirmation === true || !recover || recoveries >= 2) throw error;
+            recoveries++;
+            stamps.delete(tabId);
+            if (now() >= deadline) throw new Error('Adapter page execution timed out.');
+            await recover(tabId, manifest, currentUrl, Math.min(25000, deadline - now()));
+            continue;
+          }
           if (result?.__webcli_page_query) {
             if (continuation || !query || policy?.safety !== 'read' || policy.pageWorkflow !== true) throw new Error('Invalid or repeated page query continuation.');
             const payload = result.__webcli_page_query;
@@ -77,10 +91,27 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
           assertAdapterNavigationUrl(manifest, currentUrl, next.resume);
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
           if (!next.resume) return next.result ?? { status: 'navigation_complete', url: currentUrl };
+          step++;
         }
       });
     },
   };
+}
+
+/** Wait for the original page without activating another tab or undoing user navigation. */
+export async function waitForAdapterPageRecovery(api, tabId, manifest, expectedUrl, timeoutMs, { now = Date.now, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  assertAdapterNavigationUrl(manifest, expectedUrl);
+  const deadline = now() + timeoutMs;
+  let stable = false;
+  while (now() < deadline) {
+    const tab = await api.tabs.get(tabId);
+    if (!tab) throw new Error('Adapter tab was closed.');
+    const restored = tab.status === 'complete' && tab.url === expectedUrl && !tab.pendingUrl;
+    if (restored && stable) return assertAdapterNavigationUrl(manifest, tab.url);
+    stable = restored;
+    await sleep(150);
+  }
+  throw new Error('Adapter page entered back/forward cache; return to the original business page and retry.');
 }
 
 /**

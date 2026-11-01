@@ -1,4 +1,5 @@
 import { backendFetch } from './http.js'
+import { filterAvailableSites } from '../utils/default-sites.js'
 const API = 'http://127.0.0.1:8765'
 
 async function readJsonResponse(res) {
@@ -90,7 +91,7 @@ export async function fetchSites() {
   if (!res.ok) throw new Error(`failed to load sites (${res.status})`)
   const sites = await res.json()
   if (!Array.isArray(sites)) throw new Error('failed to load sites')
-  return enrichSitesWithIcons(sites)
+  return enrichSitesWithIcons(filterAvailableSites(sites))
 }
 
 /**

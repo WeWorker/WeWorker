@@ -1,3 +1,5 @@
+@import './components/common/app-button.css';
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -52,9 +54,7 @@
 .featured-site-card {
   transition:
     background-color 0.16s ease,
-    border-color 0.16s ease,
     box-shadow 0.16s ease,
-    transform 0.16s ease,
     opacity 0.16s ease !important;
 }
 

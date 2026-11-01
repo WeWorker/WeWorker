@@ -1,4 +1,5 @@
 import { pageSourceOriginTargets } from './page-workflow-origins.js';
+import { usesWorkflowFrames } from './page-workflow-frames.js';
 import { createHash } from 'node:crypto';
 import { explorationError as fail, textArg } from './exploration-commands.js';
 import { draftCommandId } from './generation-harness/package-draft.js';
@@ -43,7 +44,7 @@ export function normalizePageSource(input) {
 export function pageObservation({ source, url, shape, reason }) {
   const page = new URL(url);
   if (page.pathname.includes(':id') && source.mode !== 'workflow' && !(source.mode === 'navigate' && source.resultPathname === page.pathname)) throw fail('PAGE_SOURCE_DYNAMIC_ROUTE', 'Dynamic page routes need a navigation query with explicit path parameters.');
-  const target = { expectedOrigin: page.origin, expectedPath: source.mode === 'workflow' ? source.steps[0].pathname : page.pathname };
+  const target = { expectedOrigin: page.origin, expectedPath: source.mode === 'workflow' && !usesWorkflowFrames(source) ? source.steps[0].pathname : page.pathname };
   pageSourceOriginTargets(source, target.expectedOrigin, target.expectedPath);
   const id = 'page-v1-' + createHash('sha256').update(JSON.stringify({ ...target, source })).digest('hex').slice(0, 20);
   const clean = (value, depth = 0) => {

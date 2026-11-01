@@ -24,14 +24,20 @@ describe('manifest auth declaration', () => {
     expect(() => validateV2Manifest(manifest({
       login_url: 'https://sso.example.com/login', login_hosts: ['sso.example.com', '*.passport.example.com'], display_name: '示例',
       check: { cookies: { url: 'https://www.example.com/', all: ['sid'], not: { guest: 'T' } }, command: 'whoami' },
-      autologin: { switch: '#tab-password', submit: 'button[type=submit]' },
+      autologin: {
+        "mode": "auto",
+        "switch": "#tab-password",
+        "submit": "button[type=submit]"
+      }
     }), 'fixture.example.com')).not.toThrow()
+    expect(() => validateV2Manifest(manifest({ login_url: 'http://www.example.com/signin', autologin: { mode: 'off' } }), 'fixture.example.com')).not.toThrow()
     expect(() => validateV2Manifest(manifest({ login_url: 'https://www.example.com/signin' }), 'fixture.example.com')).not.toThrow()
   })
 
   it.each([
     [{ login_hosts: [] }, /login_url is required/],
-    [{ login_url: 'http://www.example.com/login' }, /https URL/],
+    [{ login_url: 'https://www.example.com/', autologin: { password: 42 } }, /mode: auto\|off/],
+    [{ login_url: 'https://www.example.com/', autologin: { mode: 'sometimes' } }, /mode: auto\|off/],
     [{ login_url: 'https://user:pass@www.example.com/login' }, /without credentials/],
     [{ login_url: 'https://elsewhere.example.net/login' }, /host must be declared/],
     [{ login_url: 'https://www.example.com/', login_hosts: ['bad host'] }, /login_hosts/],
@@ -41,7 +47,6 @@ describe('manifest auth declaration', () => {
     [{ login_url: 'https://www.example.com/', check: { command: 'missing' } }, /read Extension command/],
     [{ login_url: 'https://www.example.com/', check: { cookies: { url: 'https://tracker.example.net/', all: ['sid'] } } }, /check.cookies.url host/],
     [{ login_url: 'https://www.example.com/', check: { cookies: { url: 'https://www.example.com/' } } }, /at least one cookie/],
-    [{ login_url: 'https://www.example.com/', autologin: { password: 42 } }, /CSS selectors/],
   ])('rejects %j', (auth, message) => {
     expect(() => validateV2Manifest(manifest(auth), 'fixture.example.com')).toThrow(message)
   })

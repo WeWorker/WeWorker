@@ -13,7 +13,7 @@ const pageCommands = new Set(['state', 'find', 'get', 'extract', 'click', 'dblcl
 const fail = (code, message) => Object.assign(new Error(message), { code });
 
 /** Browser operations are explicit local CLI requests, independent of models. */
-export async function executeBrowserCommand({ command, tabId, args = {}, identity }, { chrome, ensureCdpAttached, cdpEvaluate, getCdpNetworkSnapshot, onBrowserDetach = () => {} }) {
+export async function executeBrowserCommand({ command, tabId, args = {}, identity }, { chrome, ensureCdpAttached, cdpEvaluate, getCdpNetworkSnapshot, getTraceLogs = () => [], onBrowserDetach = () => {} }) {
   try {
     const identityKey = id => `webcli-browser-tab-${id}`;
     const bind = async id => {
@@ -56,7 +56,16 @@ export async function executeBrowserCommand({ command, tabId, args = {}, identit
     if (!Number.isInteger(tabId) || tabId < 0) throw fail('INVALID_ARGUMENT', 'tabId is required.');
     const tab = await chrome.tabs.get(tabId);
     if (!/^https?:\/\//.test(tab.url || '')) throw fail('UNSUPPORTED_PAGE', 'Only HTTP(S) pages are supported.');
+    if (args.diagnosticOrigin !== undefined && new URL(tab.url).origin !== args.diagnosticOrigin) throw fail('DIAGNOSTIC_ORIGIN_CHANGED', 'The task origin changed; no diagnostic observation was collected.');
     if (command === 'identity') return { ok: true, data: { identity } };
+    if (command === 'diagnostic-trace') {
+      if (!/^[a-f0-9]{12,32}$/.test(args.traceID || '')) throw fail('INVALID_ARGUMENT', 'An explicit hexadecimal trace ID is required.');
+      const swLogs = getTraceLogs(args.traceID).slice(-100);
+      let contentLogs = [], contentAvailable = false;
+      try { const result = await chrome.tabs.sendMessage(tabId, { type: 'get_trace_logs', traceID: args.traceID }); contentLogs = (result?.logs || []).slice(-100); contentAvailable = Array.isArray(result?.logs); } catch { /* Only this task tab, never enumerate other tabs. */ }
+      const logs = [...swLogs, ...contentLogs].filter(line => typeof line === 'string' && line.includes(`[${args.traceID}]`)).map(line => line.slice(0, 8000));
+      return { ok: true, data: { logs, contentAvailable, truncated: swLogs.length === 100 || contentLogs.length === 100, retentionKnown: false } };
+    }
     const axReference = typeof args.ref === 'string' && args.ref.startsWith('ax:');
     if (axReference) {
       args = browserAxReference(args);
