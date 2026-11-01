@@ -7,6 +7,7 @@ const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-projects-'))
 
 vi.mock('../config.js', () => ({
   ensureUserDirectory: () => fixtureRoot,
+  expandHomePath: (value: string) => value,
 }))
 
 const store = await import('../works-store.js')
@@ -62,5 +63,33 @@ describe('project persistence', () => {
     store.deleteProject(project.id)
     expect(fs.existsSync(path.join(fixtureRoot, 'Empty'))).toBe(false)
     expect(store.listProjects()).toHaveLength(0)
+  })
+
+  it('repairs legacy project and message paths and is idempotent', () => {
+    const legacyRoot = path.join(fixtureRoot, 'user-files')
+    const projectsRoot = path.join(fixtureRoot, 'projects')
+    const legacyProject = path.join(legacyRoot, 'Legacy')
+    fs.mkdirSync(legacyProject, { recursive: true })
+    const attachment = path.join(legacyProject, 'report.txt')
+    fs.writeFileSync(attachment, 'fixture')
+
+    const project = store.createProject('Legacy', legacyProject)
+    const work = store.createWork('Legacy work', project.id)
+    store.appendMessage(work.id, 'user', [{
+      type: 'file_attachment',
+      name: 'report.txt',
+      path: attachment,
+    }])
+
+    const database = store._getTestDb()
+    store.migrateLegacyWorkspacePaths(database, legacyRoot, projectsRoot)
+    store.migrateLegacyWorkspacePaths(database, legacyRoot, projectsRoot)
+
+    expect(store.getProject(project.id)?.folder_path).toBe(path.join(projectsRoot, 'Legacy'))
+    expect(store.getWorkWithMessages(work.id)?.messages[0].content).toEqual([{
+      type: 'file_attachment',
+      name: 'report.txt',
+      path: path.join(projectsRoot, 'Legacy', 'report.txt'),
+    }])
   })
 })

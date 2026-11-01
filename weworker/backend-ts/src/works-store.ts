@@ -195,7 +195,75 @@ function db(): DatabaseSync {
   ]) {
     try { _db.exec(statement) } catch { /* column already exists */ }
   }
+  const projectsRoot = path.resolve(ensureUserDirectory())
+  migrateLegacyWorkspacePaths(_db, path.join(path.dirname(projectsRoot), 'user-files'), projectsRoot)
   return _db
+}
+
+function remapLegacyPath(value: string, legacyRoot: string, projectsRoot: string): string {
+  const resolved = path.resolve(expandHomePath(value))
+  const relative = path.relative(legacyRoot, resolved)
+  const inside = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+  return inside ? path.join(projectsRoot, relative) : value
+}
+
+function rewriteLegacyPaths(value: unknown, legacyRoot: string, projectsRoot: string): { value: unknown; changed: boolean } {
+  if (typeof value === 'string') {
+    const next = remapLegacyPath(value, legacyRoot, projectsRoot)
+    return { value: next, changed: next !== value }
+  }
+  if (Array.isArray(value)) {
+    let changed = false
+    const next = value.map((item) => {
+      const rewritten = rewriteLegacyPaths(item, legacyRoot, projectsRoot)
+      changed ||= rewritten.changed
+      return rewritten.value
+    })
+    return { value: next, changed }
+  }
+  if (!value || typeof value !== 'object') return { value, changed: false }
+  let changed = false
+  const next: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    const rewritten = rewriteLegacyPaths(item, legacyRoot, projectsRoot)
+    changed ||= rewritten.changed
+    next[key] = rewritten.value
+  }
+  return { value: next, changed }
+}
+
+/** Repair paths persisted by releases that still used `.weworker/user-files`. */
+export function migrateLegacyWorkspacePaths(database: DatabaseSync, legacyDirectory: string, projectsDirectory: string): void {
+  const legacyRoot = path.resolve(legacyDirectory)
+  const projectsRoot = path.resolve(projectsDirectory)
+  if (legacyRoot === projectsRoot) return
+
+  const projects = database.prepare('SELECT id, folder_path FROM projects').all() as Array<{ id: string; folder_path: string }>
+  const projectUpdates = projects
+    .map((project) => ({ id: project.id, folder_path: remapLegacyPath(project.folder_path, legacyRoot, projectsRoot) }))
+    .filter((project, index) => project.folder_path !== projects[index].folder_path)
+
+  const messages = database.prepare('SELECT id, content FROM messages').all() as Array<{ id: string; content: string }>
+  const messageUpdates: Array<{ id: string; content: string }> = []
+  for (const message of messages) {
+    let parsed: unknown
+    try { parsed = JSON.parse(message.content) } catch { continue }
+    const rewritten = rewriteLegacyPaths(parsed, legacyRoot, projectsRoot)
+    if (rewritten.changed) messageUpdates.push({ id: message.id, content: JSON.stringify(rewritten.value) })
+  }
+
+  if (!projectUpdates.length && !messageUpdates.length) return
+  database.exec('BEGIN')
+  try {
+    const updateProject = database.prepare('UPDATE projects SET folder_path = ? WHERE id = ?')
+    for (const project of projectUpdates) updateProject.run(project.folder_path, project.id)
+    const updateMessage = database.prepare('UPDATE messages SET content = ? WHERE id = ?')
+    for (const message of messageUpdates) updateMessage.run(message.content, message.id)
+    database.exec('COMMIT')
+  } catch (error) {
+    database.exec('ROLLBACK')
+    throw error
+  }
 }
 
 function toProjectSummary(project: Project): ProjectSummary {

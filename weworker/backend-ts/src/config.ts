@@ -765,8 +765,10 @@ export function getSettings(): Settings {
 function migrateLegacyProjectsDirectory(settings: Settings): void {
   const configured = path.resolve(expandHomePath(settings.user_directory || DEFAULT_USER_DIRECTORY))
   const legacyDefault = path.join(CONFIG_DIR, 'user-files')
-  const configuredIsLegacy = path.basename(configured).toLowerCase() === 'user-files'
-  const shouldMigrateDefault = configured === path.resolve(DEFAULT_USER_DIRECTORY) && fs.existsSync(legacyDefault)
+  // Only the old default root is migratable. A user-owned directory such as
+  // D:\\data\\user-files must not be renamed implicitly.
+  const configuredIsLegacy = samePath(configured, legacyDefault)
+  const shouldMigrateDefault = samePath(configured, DEFAULT_USER_DIRECTORY) && fs.existsSync(legacyDefault)
   if (!configuredIsLegacy && !shouldMigrateDefault) return
 
   const source = configuredIsLegacy ? configured : legacyDefault
@@ -781,6 +783,12 @@ function migrateLegacyProjectsDirectory(settings: Settings): void {
   }
   settings.user_directory = projects
   persistSettingsToDisk(settings)
+}
+
+function samePath(left: string, right: string): boolean {
+  const a = path.resolve(left)
+  const b = path.resolve(right)
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
 function mergeLegacyProjectsDirectory(source: string, destination: string): void {
