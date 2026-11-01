@@ -92,6 +92,25 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     setAttachments([])
   }, [fillSeq, fillText, streaming])
 
+  // Download this conversation's diagnostic log (header + message timeline + the
+  // [work:xxxxxxxx] tagged backend/bridge chain logs) as a txt for developers.
+  const handleExportLogs = async () => {
+    try {
+      const res = await backendFetch(`/works/${workId}/logs.txt`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `weworker-work-${workId?.slice(0, 8) || 'unknown'}-logs.txt`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      console.error('[chat] export logs failed:', e)
+      setError('日志导出失败，请稍后重试')
+    }
+  }
+
   const handleStop = () => {
     void queue.stop().catch(e => setError(e.message))
   }
