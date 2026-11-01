@@ -4,6 +4,24 @@ import { filterAvailableSites } from '../utils/default-sites.js'
 import { fetchSites } from '../api/sites-api.js'
 import defaultSites from '../../../default-site.json' with { type: 'json' }
 
+test('the bundled defaults keep enabled QQ Mail discoverable through the shared site API', async () => {
+  const previousFetch = globalThis.fetch
+  const previousWindow = globalThis.window
+  const qqMail = { id: 'mail.qq.com', name: 'QQ邮箱', enabled: true, visible: false, icon: 'mail' }
+  try {
+    globalThis.window = {}
+    globalThis.fetch = async (url) => {
+      assert.equal(url, 'http://127.0.0.1:8765/sites')
+      return Response.json([qqMail])
+    }
+    assert.deepEqual(await fetchSites(), [qqMail])
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+  }
+})
+
 test('release-disabled sites stay hidden even when enabled and visible in user settings', () => {
   const sites = [
     { id: 'disabled.example.com', enabled: true, visible: true },
