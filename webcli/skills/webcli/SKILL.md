@@ -1,6 +1,6 @@
 ---
 name: webcli
-version: 1.1.6
+version: 1.1.7
 description: "通过 WebCLI 操作网站的浏览器自动化。当用户想操作网站时使用——打开某个网站、搜索、下单、查订单、填表、读取页面内容、截图，或让浏览器自动完成网页任务。涵盖：打开浏览器、调用网站工具、截图。支持京东、1688、闲鱼、B 站、知乎、微博、抖音、小红书、豆瓣、贴吧、12306、携程、51job、BOSS 直聘、GitHub、Gitee、V2EX、掘金、有道云笔记、大众点评、什么值得买、雪球、Wikipedia、arXiv、Hacker News 等站点。"
 allowed-tools: Bash(webcli *), Bash(npm install *), Bash(npm view *)
 ---
@@ -82,6 +82,7 @@ fi
 不要凭记忆猜工具名或参数——已安装的适配器才是唯一真源。逐级查：
 
 ```bash
+webcli route "<自然语言需求>"    # 第零级：本地正则规则先行命中（含参数），未命中自动走决策服务推荐
 webcli help                    # 一级：已安装站点
 webcli list                    # 站点简表（adapter list 的简写）
 webcli list --json             # 站点 + 完整工具定义
@@ -90,6 +91,8 @@ webcli <site> <command> help   # 三级：单个命令的参数
 webcli <site> -help -f json    # 结构化输出，便于解析
 webcli adapter skill <id>      # 该站的 SKILL.md（含 Homepage URL）
 ```
+
+`webcli route` 只推荐不执行：本地规则命中时直接给出带参数的 `webcli call` 命令（只读命令）；低置信时返回候选清单供人工确认，不要因为 route 推荐了就自动执行写操作。
 
 ## 核心命令
 
