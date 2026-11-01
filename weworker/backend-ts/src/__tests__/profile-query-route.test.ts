@@ -56,7 +56,7 @@ describe('backend profile query route', () => {
     expect(dispatch).toHaveBeenCalledWith('mail.example.com.search', JSON.stringify({ limit: 5 }), 'w1')
     expect(send).toHaveBeenCalledWith({ type: 'turn_start', turnId: 't1', workId: 'w1' })
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: expect.stringContaining('邮件查询') }))
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'turn_end', llmMs: 0, steps: 1 }))
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'turn_end', totalMs: 100, llmMs: 100, execMs: 0, steps: 1 }))
     expect(persistAssistantMessage).toHaveBeenCalled()
   })
 

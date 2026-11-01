@@ -917,6 +917,7 @@ export class WecomChannel implements Channel {
             thinkMs = turnTiming.toolStarted(event.id)
           }
           toolCallMap.set(event.id, {
+            ...toolCallMap.get(event.id),
             name: cleanName,
             args: event.args,
             ...(thinkMs !== undefined ? { thinkMs } : {}),
@@ -931,28 +932,31 @@ export class WecomChannel implements Channel {
           lastStreamTime = Date.now()
         } else if (event.type === 'tool_call_result' && event.id) {
           const started = toolCallMap.get(event.id)
-          const toolDuration = turnTiming.toolSettled(event.id) ?? 0
+          const toolDuration = turnTiming.toolSettled(event.id)
           authTurn.finishToolCall(event.id)
-          assistantContent.push({
-            type: 'tool_use',
-            id: event.id,
-            name: started?.name ?? '',
-            args: started?.args ?? {},
-            result: event.result ?? '',
-            status: event.isError ? 'failed' : 'done',
-            execMs: toolDuration,
+          const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id) as Extract<store.ContentBlock, { type: 'tool_use' }> | undefined
+          const updated: store.ContentBlock = {
+            ...existing, type: 'tool_use', id: event.id,
+            name: started?.name ?? existing?.name ?? '', args: started?.args ?? existing?.args ?? {},
+            result: event.result ?? '', status: event.isError ? 'failed' : 'done',
+            ...(toolDuration !== undefined ? { execMs: toolDuration } : {}),
             ...(started?.thinkMs !== undefined ? { thinkMs: started.thinkMs } : {}),
-          })
+          }
+          if (existing) Object.assign(existing, updated)
+          else assistantContent.push(updated)
         } else if (event.type === 'tool_call_image' && event.data) {
           // 只回图片的工具没有 result 事件：同样结算，避免其耗时漏进 llm。
           const imageToolDuration = event.id ? turnTiming.toolObserved(event.id) : undefined
           if (event.id) authTurn.finishToolCall(event.id)
           images.push(event.data)
-          if (assistantContent.length > 0) {
-            const last = assistantContent[assistantContent.length - 1]
-            if (last.type === 'tool_use') {
-              last.image = event.data
-              if (imageToolDuration !== undefined && last.execMs === undefined) last.execMs = imageToolDuration
+          if (event.id) {
+            const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id) as Extract<store.ContentBlock, { type: 'tool_use' }> | undefined
+            if (existing) {
+              existing.image = event.data
+              if (imageToolDuration !== undefined) existing.execMs = imageToolDuration
+            } else {
+              const started = toolCallMap.get(event.id)
+              assistantContent.push({ type: 'tool_use', id: event.id, name: started?.name ?? '', args: started?.args ?? {}, image: event.data, status: 'done', ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}), ...(started?.thinkMs !== undefined ? { thinkMs: started.thinkMs } : {}) })
             }
           }
         } else if (event.type === 'error' && event.content) {
@@ -1001,6 +1005,12 @@ export class WecomChannel implements Channel {
 
     // Close the turn: trailing LLM text plus any tool that never reported a result.
     const snapshot = turnTiming.finish()
+    for (const block of assistantContent) {
+      if (block.type === 'tool_use') {
+        block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
+        if (block.status === 'running') block.status = 'done'
+      }
+    }
 
     // Save any remaining text chunk
     if (currentTextChunk.trim()) {
@@ -1023,7 +1033,7 @@ export class WecomChannel implements Channel {
     if (assistantContent.length > 0) {
       // 路由回合的 timing 已带 routeTool，用它自己的口径；再叠一条模型计时会把来源抹掉。
       if (!routed?.handled) {
-        assistantContent.push({ type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, steps: stepIndex })
+        assistantContent.push({ type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
       }
       store.appendMessage(work.id, 'assistant', assistantContent)
       store.markExternalWrite()

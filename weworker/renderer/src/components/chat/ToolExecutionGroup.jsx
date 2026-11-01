@@ -20,7 +20,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
 
   const label = getToolExecGroupLabel(blocks)
   const showRunning = streaming && blocks.some((block) => block.status === 'running')
-  // Total execution time across all commands in the group (sum of per-step execMs)
+  // Credited execution shares are disjoint, so this subtotal matches the turn ledger.
   const groupExecMs = blocks.reduce((sum, block) => sum + (block.execMs || 0), 0)
 
   const toggleDetail = (key) => {

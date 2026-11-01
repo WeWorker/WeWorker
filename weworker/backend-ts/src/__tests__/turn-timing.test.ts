@@ -21,6 +21,7 @@ describe('turn timing ledger', () => {
 
     expect(timing).toEqual({ totalMs: 5000, llmMs: 3000, execMs: 2000 })
     expect(timing.llmMs + timing.execMs).toBe(timing.totalMs)
+    expect(ledger.remainingModelMs()).toBe(2000)
   })
 
   it('never charges a tool without a result event to llmMs', () => {
@@ -62,10 +63,45 @@ describe('turn timing ledger', () => {
     expect(ledger.toolStarted('tool-a', 1000)).toBe(1000)
     expect(ledger.toolStarted('tool-b', 1000)).toBe(0)
     expect(ledger.toolSettled('tool-a', 3000)).toBe(2000)
-    expect(ledger.toolSettled('tool-b', 4000)).toBe(3000)
+    expect(ledger.toolSettled('tool-b', 4000)).toBe(1000)
     const timing = ledger.finish(5000)
 
     expect(timing).toEqual({ totalMs: 5000, llmMs: 2000, execMs: 3000 })
+  })
+
+  it('charges all overlapping tool time to execution even when starts precede results', () => {
+    const ledger = createTurnTimingLedger({ startedAt: 0 })
+    expect(ledger.toolStarted('a', 100)).toBe(100)
+    expect(ledger.toolStarted('b', 200)).toBe(0)
+    expect(ledger.toolSettled('a', 300)).toBe(200)
+    expect(ledger.toolSettled('b', 400)).toBe(100)
+    expect(ledger.toolExecutionMs('a')).toBe(200)
+    expect(ledger.toolExecutionMs('b')).toBe(100)
+    expect(ledger.finish(500)).toEqual({ totalMs: 500, llmMs: 200, execMs: 300 })
+  })
+
+  it('charges an unfinished tool through turn end to execution', () => {
+    const ledger = createTurnTimingLedger({ startedAt: 0 })
+    ledger.toolStarted('a', 100)
+    expect(ledger.toolStarted('b', 200)).toBe(0)
+    expect(ledger.finish(500)).toEqual({ totalMs: 500, llmMs: 100, execMs: 400 })
+    expect((ledger.toolExecutionMs('a') ?? 0) + (ledger.toolExecutionMs('b') ?? 0)).toBe(400)
+    expect(ledger.remainingModelMs()).toBe(0)
+  })
+
+  it('reconciles every step and the unassigned tail to the turn totals', () => {
+    const ledger = createTurnTimingLedger({ startedAt: 0 })
+    const thinkA = ledger.toolStarted('a', 100) ?? 0
+    const thinkB = ledger.toolStarted('b', 200) ?? 0
+    ledger.toolSettled('a', 300)
+    ledger.toolSettled('b', 400)
+    const thinkC = ledger.toolStarted('c', 450) ?? 0
+    ledger.toolSettled('c', 500)
+    const totals = ledger.finish(600)
+    expect(thinkA + thinkB + thinkC + ledger.remainingModelMs()).toBe(totals.llmMs)
+    expect(['a', 'b', 'c'].reduce((sum, id) => sum + (ledger.toolExecutionMs(id) ?? 0), 0)).toBe(totals.execMs)
+    expect(totals.llmMs + totals.execMs).toBe(totals.totalMs)
+    expect(ledger.remainingModelMs()).toBe(100)
   })
 
   it('ignores duplicate start events and unknown results', () => {
@@ -79,6 +115,7 @@ describe('turn timing ledger', () => {
     expect(ledger.toolSettled('tool-missing', 1500)).toBeUndefined()
     expect(ledger.toolObserved('tool-missing', 1600)).toBeUndefined()
     expect(ledger.toolSettled('tool-a', 3000)).toBe(2000)
+    expect(ledger.toolStarted('tool-a', 3500)).toBeUndefined()
     const timing = ledger.finish(4000)
 
     expect(timing).toEqual({ totalMs: 4000, llmMs: 2000, execMs: 2000 })
