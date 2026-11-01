@@ -59,6 +59,7 @@ const baseSettings = (): Settings => ({
   zcf_enabled_roles: ['weworker-clear'],
   zcf_custom_roles: [],
   memory_budgets: { user_usage: 800, task_execution: 1600, other: 1200, extension: 800 },
+  scheduled_task_history_limit: 50,
 })
 
 describe('settings-secrets', () => {

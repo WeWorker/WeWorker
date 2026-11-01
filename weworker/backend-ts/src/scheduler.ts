@@ -18,6 +18,15 @@ const WEEKDAY_NAMES: Record<string, string> = {
   '7': '日',
 }
 
+function weekdaySummary(weekday: string): string | null {
+  if (weekday === '1-5' || weekday === '1,2,3,4,5') return '工作日'
+  if (weekday === '*') return '每天'
+  const days = weekday.split(',')
+  if (!days.every((day) => /^\d$/.test(day) && WEEKDAY_NAMES[day])) return null
+  if (days.length === 1) return `每周${WEEKDAY_NAMES[days[0]]}`
+  return `每周${days.map((day) => WEEKDAY_NAMES[day]).join('、')}`
+}
+
 /**
  * 将常见 cron 表达式转换为中文摘要。
  * 支持：每小时、每 N 分钟、每天指定时间、每周指定日期时间。
@@ -31,13 +40,20 @@ export function cronToSummary(expression: string): string {
 
   // 每 N 分钟: */N * * * *
   const everyNMin = minute.match(/^\*\/(\d+)$/)
-  if (everyNMin && hour === '*' && day === '*' && month === '*' && weekday === '*') {
-    return `每 ${everyNMin[1]} 分钟`
+  if (everyNMin && hour === '*' && day === '*' && month === '*') {
+    const days = weekdaySummary(weekday)
+    if (days) return `${days === '每天' ? '' : `${days} `}每 ${everyNMin[1]} 分钟`
   }
 
   // 每小时: 0 * * * *
-  if (minute === '0' && hour === '*' && day === '*' && month === '*' && weekday === '*') {
-    return '每小时'
+  if (minute === '0' && hour === '*' && day === '*' && month === '*') {
+    const days = weekdaySummary(weekday)
+    if (days) return `${days === '每天' ? '' : `${days} `}每小时`
+  }
+
+  if (/^\d+$/.test(minute) && hour === '*' && day === '*' && month === '*') {
+    const days = weekdaySummary(weekday)
+    if (days) return `${days === '每天' ? '' : `${days} `}每小时的第${minute}分`
   }
 
   // 需要固定的 minute 和 hour 数字
@@ -47,17 +63,9 @@ export function cronToSummary(expression: string): string {
   const hh = hour.padStart(2, '0')
   const mm = minute.padStart(2, '0')
 
-  // 每周X HH:MM: M H * * D
-  if (/^\d$/.test(weekday) && WEEKDAY_NAMES[weekday]) {
-    return `每周${WEEKDAY_NAMES[weekday]} ${hh}:${mm}`
-  }
-
-  // 每天 HH:MM: M H * * *
-  if (weekday === '*') {
-    return `每天 ${hh}:${mm}`
-  }
-
-  return expression
+  const days = weekdaySummary(weekday)
+  if (days === '每天') return `每天 ${hh}:${mm}`
+  return days ? `${days} ${hh}:${mm}` : expression
 }
 
 class Scheduler {

@@ -133,7 +133,6 @@ export default function ToolPackagePage({ onClose }) {
           onSkillScopeChange={handleSkillScopeChange}
           skillScope={skillScope}
           scenarios={scenarios}
-          onClose={onClose}
           onReloadSites={loadSites}
           onDirtyChange={setEditorDirty}
         />

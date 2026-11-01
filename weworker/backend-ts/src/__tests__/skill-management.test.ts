@@ -3,7 +3,7 @@ import path from 'node:path'
 import express from 'express'
 import type { Server } from 'node:http'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createSkillManagementRouter, readManagedSkill } from '../skill-management.js'
+import { createSkillManagementRouter, markWeWorkerCreatedSkill, readManagedSkill } from '../skill-management.js'
 import { buildEnabledSkillIndex } from '../context/runtime-context.js'
 import { fingerprintSkillFiles } from '../chat-session.js'
 import { listCustomSkills, saveCustomSkills } from '../custom-skills.js'
@@ -48,8 +48,9 @@ describe('Skill management HTTP routes', () => {
     const response = await post('/skills/folders', { name: 'example-skill' })
     expect(response.status).toBe(201)
     expect(fs.readdirSync(path.join(fixtureState.root, 'example-skill'))).toEqual([])
-    const firstListing = await list() as Array<{ name: string; createdAt: number | null; creationOrderKey: string }>
+    const firstListing = await list() as Array<{ name: string; source: string; createdAt: number | null; creationOrderKey: string }>
     expect(firstListing).toMatchObject([{ name: 'example-skill', content: '', enabled: false, draft: true, resources: [] }])
+    expect(firstListing[0].source).toBe('custom')
     expect(typeof firstListing[0].creationOrderKey).toBe('string')
     const createdAt = firstListing[0].createdAt
     expect(createdAt).toBeGreaterThanOrEqual(startedAt)
@@ -59,6 +60,40 @@ describe('Skill management HTTP routes', () => {
     expect(fs.readdirSync(path.join(fixtureState.root, 'example-skill'))).toEqual([])
     await post('/skills', { name: 'example-skill', previousName: 'example-skill', content: '---\nname: renamed-skill\n---\nAuthored' })
     expect(await list()).toMatchObject([{ name: 'renamed-skill', createdAt, creationOrderKey: firstListing[0].creationOrderKey }])
+  })
+
+  it('classifies skills created outside WeWorker as official in the catalog', async () => {
+    fs.mkdirSync(path.join(fixtureState.root, 'legacy-blank-draft'), { recursive: true })
+    const external = path.join(fixtureState.root, 'webcli-third-party')
+    fs.mkdirSync(external, { recursive: true })
+    fs.writeFileSync(path.join(external, 'SKILL.md'), '# Adapter managed Skill')
+    const entries = await list() as Array<{ name: string; source: string }>
+    expect(entries).toContainEqual(expect.objectContaining({ name: 'webcli-third-party', source: 'official' }))
+    expect(entries).toContainEqual(expect.objectContaining({ name: 'legacy-blank-draft', source: 'custom' }))
+
+    await post('/skills', { name: 'weworker-created', content: '# Created in WeWorker' })
+    const afterCreate = await list() as Array<{ name: string; source: string }>
+    expect(afterCreate).toContainEqual(expect.objectContaining({ name: 'weworker-created', source: 'custom' }))
+  })
+
+  it('serves a validated root Skill icon and ignores unsafe or invalid icons', async () => {
+    const skillDir = path.join(fixtureState.root, 'webcli-example')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Adapter Skill')
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7"/></svg>'
+    fs.writeFileSync(path.join(skillDir, 'icon.svg'), svg)
+    expect(readManagedSkill(fixtureState.root, 'webcli-example').iconUrl).toBe(`data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`)
+    fs.writeFileSync(path.join(skillDir, 'icon.svg'), '<svg onload="alert(1)"/>')
+    expect(readManagedSkill(fixtureState.root, 'webcli-example').iconUrl).toBeUndefined()
+  })
+
+  it('marks a skill uploaded through WeWorker as custom', async () => {
+    const uploaded = path.join(fixtureState.root, 'uploaded-skill')
+    fs.mkdirSync(uploaded, { recursive: true })
+    fs.writeFileSync(path.join(uploaded, 'SKILL.md'), '# Uploaded by the user')
+    expect(readManagedSkill(fixtureState.root, 'uploaded-skill').source).toBe('official')
+    markWeWorkerCreatedSkill(fixtureState.root, 'uploaded-skill')
+    expect(readManagedSkill(fixtureState.root, 'uploaded-skill').source).toBe('custom')
   })
 
   it('uses the supplied build timestamp for official Skills without changing custom addition time', async () => {

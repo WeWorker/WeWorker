@@ -39,6 +39,20 @@ import {
 } from './welcome-utils.js'
 import { FEATURED_GRID_COLUMN_GAP, useWelcomeResponsiveLayout } from './welcome-responsive.js'
 
+const FEATURED_SITE_NAMES = {
+  'ctrip.com': '携程',
+  'bilibili.com': '哔哩哔哩',
+  'jd.com': '京东',
+  'mail.163.com': '网易邮箱',
+  'mail.google.com': 'Gmail',
+}
+function featuredSiteName(site) {
+  return FEATURED_SITE_NAMES[site.id] || site.name
+}
+function featuredSiteSummary(site, scenarios) {
+  return scenarios.slice(0, 2).map(item => item.title).filter(Boolean).join(' · ') || site.description || '查看可用场景'
+}
+
 const FEATURED_LAYOUT_TRANSITION_MS = 180
 const SHOWCASE_TOGGLE_TRANSITION_MS = 220
 const FLOATING_PICKER_GAP = 6
@@ -220,7 +234,7 @@ function ScenarioPickerListItem({
   )
 }
 
-export default function WelcomeScreen({ onFillInput }) {
+export default function WelcomeScreen({ onFillInput, children }) {
   const sites = useSitesStore((s) => s.sites)
   const loadSites = useSitesStore((s) => s.load)
   const toggleSiteVisibility = useSitesStore((s) => s.toggleVisibility)
@@ -859,7 +873,7 @@ export default function WelcomeScreen({ onFillInput }) {
 
   if (detailRow) {
     return (
-      <div ref={welcomeScrollRef} data-welcome-scroll style={welcomeScrollStyle}>
+      <div ref={welcomeScrollRef} data-welcome-scroll className="welcome-detail" style={welcomeScrollStyle}>
         <SiteDetailModal
           site={detailRow.site}
           scenarios={detailRow.scenarios}
@@ -874,19 +888,20 @@ export default function WelcomeScreen({ onFillInput }) {
             setDetailRow(null)
           }}
         />
+        {children}
       </div>
     )
   }
 
   return (
     <div ref={welcomeScrollRef} data-welcome-scroll style={welcomeScrollStyle}>
-      <section ref={sectionRef} style={welcomeSectionStyle}>
-        <header className="welcome-introduction" style={{ textAlign: 'center' }}>
-          <h1 style={{ fontSize: 28, fontWeight: 760, marginBottom: 6 }}>WeWorker</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 15, margin: 0 }}>
-            像聊天一样操作网站，选择一个场景就能开始。
-          </p>
+      <section ref={sectionRef} className="welcome-workspace" style={welcomeSectionStyle}>
+        <header className="welcome-introduction">
+          <span className="welcome-wordmark">WeWorker <span>AI 网页助理</span></span>
+          <h1>今天，我们一起完成什么？</h1>
+          <p>查询信息、操作网页、整理文件，从一句话开始。</p>
         </header>
+        {children && <div className="welcome-composer-seat">{children}</div>}
 
         {showShowcase && (
         <div
@@ -951,10 +966,11 @@ export default function WelcomeScreen({ onFillInput }) {
 
         <div className="welcome-featured-toolbar" style={featuredHeaderStyle}>
           <div style={featuredHeaderTitleRowStyle}>
-            <span>常用场景</span>
+            <span>常用网站</span>
             <button
               type="button"
               onClick={toggleFeaturedSquareCards}
+              className="featured-view-toggle"
               style={featuredViewToggleStyle}
               title={featuredSquareCards ? '切换为列表显示' : '切换为卡片显示'}
               aria-label={featuredSquareCards ? '切换为列表显示' : '切换为卡片显示'}
@@ -964,7 +980,7 @@ export default function WelcomeScreen({ onFillInput }) {
             </button>
           </div>
           <div style={featuredHeaderActionsStyle}>
-            <button type="button" onClick={handleOpenAllScenarios} style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
+            <button type="button" onClick={handleOpenAllScenarios} className="welcome-all-scenarios" style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
               {capabilitiesPanelOpen ? <ClosePanelIcon /> : <ListIcon />}
               {capabilitiesPanelOpen ? '关闭所有场景' : '查看所有场景'}
             </button>
@@ -984,6 +1000,7 @@ export default function WelcomeScreen({ onFillInput }) {
         <div
           ref={featuredGridRef}
           data-featured-grid=""
+          className={featuredSquareCards ? 'featured-websites-grid' : 'featured-websites-list'}
           style={featuredSquareCards ? featuredSquareGridStyle : featuredGridStyle}
         >
           {featuredSites.map(({ site, scenarios }) => {
@@ -1096,7 +1113,10 @@ export default function WelcomeScreen({ onFillInput }) {
                       <span style={featuredSquareCardIconStyle} data-featured-card-icon>
                         <SiteIcon site={site} size={34} />
                       </span>
-                      <span style={featuredSquareCardTitleStyle} data-featured-card-title>{site.name}</span>
+                      <span className="featured-site-copy" data-featured-card-title>
+                        <span className="featured-site-name">{featuredSiteName(site)}</span>
+                        <span className="featured-site-summary" title={featuredSiteSummary(site, scenarios)}>{featuredSiteSummary(site, scenarios)}</span>
+                      </span>
                       <FeaturedSiteActions
                         {...actionProps}
                         layout="column"
@@ -1151,8 +1171,8 @@ export default function WelcomeScreen({ onFillInput }) {
                   >
                     <span style={featuredIconStyle} data-featured-card-icon><SiteIcon site={site} size={34} /></span>
                     <span style={featuredCopyStyle} data-featured-card-title>
-                      <span style={featuredTitleStyle}>{site.name}</span>
-                      <span style={featuredSummaryStyle}>{clampText(site.description, 42)}</span>
+                      <span className="featured-site-name">{featuredSiteName(site)}</span>
+                      <span className="featured-site-summary" title={featuredSiteSummary(site, scenarios)}>{featuredSiteSummary(site, scenarios)}</span>
                     </span>
                     <FeaturedSiteActions {...actionProps} layout="row" showActions={showCardActions} />
                   </div>
@@ -1272,6 +1292,7 @@ export default function WelcomeScreen({ onFillInput }) {
               )}
               <button
                 data-welcome-picker
+                className="featured-add-website"
                 type="button"
                 disabled={!canAddFeaturedSite}
                 title={addFeaturedLimitTitle}
@@ -1304,12 +1325,10 @@ export default function WelcomeScreen({ onFillInput }) {
                 >
                   <AppstoreAddOutlined aria-hidden="true" />
                 </span>
-                {!featuredSquareCards && (
-                  <span style={addFeaturedCopyStyle}>
-                    <span style={addFeaturedTitleStyle}>添加</span>
-                    <span style={addFeaturedSummaryStyle}>选择一个网站加入常用场景</span>
-                  </span>
-                )}
+                <span className="featured-site-copy">
+                  <span className="featured-site-name">添加网站</span>
+                  <span className="featured-site-summary">选择常用的网站</span>
+                </span>
               </button>
 
               {mountedAddPickerOpen && (
@@ -1616,8 +1635,8 @@ const featuredViewToggleStyle = {
   width: 28,
   height: 28,
   borderRadius: 8,
-  border: '1px solid var(--border)',
-  background: 'var(--bg-secondary)',
+  border: 'none',
+  background: 'transparent',
   color: 'var(--text-secondary)',
   display: 'inline-flex',
   alignItems: 'center',

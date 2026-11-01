@@ -99,6 +99,7 @@ export default function App() {
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted)
   const poll = useStatusStore((s) => s.poll)
   const toggleUserFilesPanel = useUserFilesStore((s) => s.togglePanel)
+  const setWorkspaceWorkId = useUserFilesStore((s) => s.setWorkspaceWorkId)
   const userFilesOpen = useUserFilesStore((s) => s.open)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
@@ -108,6 +109,10 @@ export default function App() {
   // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
+
+  useEffect(() => {
+    setWorkspaceWorkId(activeWorkId)
+  }, [activeWorkId, setWorkspaceWorkId])
 
   useEffect(() => {
     if (!websiteOpen) return

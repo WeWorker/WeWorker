@@ -7,12 +7,16 @@
  * - 未命中时行为与接线前完全一致（照常跑模型、照常落一条带耗时的 timing）；
  * - 专属 Agent 任务不接入路由（它有自己的站点/技能边界）。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   tryRoutedTurn: vi.fn(),
   streamChat: vi.fn(),
   getAgent: vi.fn(),
+  workspaceRoot: '',
 }))
 
 // 路由引擎不在这里测（routed-turn.test.ts 覆盖），只桩掉 API 免得加载全部配置。
@@ -29,6 +33,19 @@ vi.mock('../style-settings.js', () => ({ resolveStyleId: () => null }))
 vi.mock('../config.js', () => ({
   getSettings: () => ({ memory_budgets: {}, api_query_llm_route: false }),
   getSiteEnabled: () => true,
+  getUserDirectory: () => mocks.workspaceRoot,
+  getConfigDirectory: () => path.join(mocks.workspaceRoot, '.weworker'),
+  expandHomePath: (value: string) => value,
+  ensureProjectsDirectory: () => {
+    const directory = path.join(mocks.workspaceRoot, 'projects')
+    fs.mkdirSync(directory, { recursive: true })
+    return directory
+  },
+  ensureProjectDirectory: (...segments: string[]) => {
+    const directory = path.join(mocks.workspaceRoot, 'projects', ...segments)
+    fs.mkdirSync(directory, { recursive: true })
+    return directory
+  },
 }))
 vi.mock('../dedicated-agents/agent-store.js', () => ({ getAgent: mocks.getAgent }))
 vi.mock('../dedicated-agents/agent-runtime.js', () => ({ buildAgentChatOptions: () => ({}) }))
@@ -74,12 +91,17 @@ function assistantTiming(workId: string): Record<string, unknown> | null {
 describe('executeTask 的路由接线', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-task-routing-'))
     _initTestDb()
     mocks.getAgent.mockReturnValue(null)
     mocks.streamChat.mockImplementation(async function* () {
       yield { type: 'text_delta', content: '模型回答' }
     })
     mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null })
+  })
+
+  afterEach(() => {
+    fs.rmSync(mocks.workspaceRoot, { recursive: true, force: true })
   })
 
   it('命中路由时跳过模型回合，落库的 timing 带 routeTool', async () => {

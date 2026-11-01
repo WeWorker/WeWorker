@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { FormOutlined } from '@ant-design/icons'
+import { CloseOutlined, FormOutlined, FolderOpenOutlined, FolderOutlined } from '@ant-design/icons'
 import TablerFolderPlusIcon, { TablerPlusIcon } from '../icons/TablerFolderPlusIcon.jsx'
 import WorksList, { LABEL_COLORS, LABEL_OPTIONS } from '../sidebar/WorksList.jsx'
 import ScheduledTasksList from '../sidebar/ScheduledTasksList.jsx'
@@ -10,6 +10,7 @@ import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { showAlert } from '../../store/dialog.js'
+import { useSettingsStore } from '../../store/settings.js'
 
 export default function Sidebar({ section, collapsed, width }) {
   const createWork = useWorksStore((s) => s.createWork)
@@ -17,10 +18,10 @@ export default function Sidebar({ section, collapsed, width }) {
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const createTask = useScheduledTasksStore((s) => s.createTask)
   const loadTasks = useScheduledTasksStore((s) => s.loadTasks)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showSearch, setShowSearch] = useState(false)
+  const userDirectory = useSettingsStore((s) => s.userDirectory)
   const [showProjectDialog, setShowProjectDialog] = useState(false)
   const [projectName, setProjectName] = useState('')
+  const [projectFolderPath, setProjectFolderPath] = useState('')
   const projectNameInputRef = useRef(null)
   const [showLabelFilter, setShowLabelFilter] = useState(false)
   const labelFilterRef = useRef(null)
@@ -66,7 +67,7 @@ export default function Sidebar({ section, collapsed, width }) {
     if (!await leaveWebsiteExploration()) return
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
-    await createWork({ forceNew: true, projectId: null })
+    await createWork({ draftOnly: true, projectId: null })
   }
 
   const handleCreateProject = async () => {
@@ -74,19 +75,25 @@ export default function Sidebar({ section, collapsed, width }) {
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
     setProjectName('')
+    setProjectFolderPath('')
     setShowProjectDialog(true)
   }
 
   const submitCreateProject = async () => {
     const name = projectName.trim()
-    if (!name) return
+    if (!name || !projectFolderPath) return
     try {
-      const project = await createProject(name)
+      const project = await createProject(name, projectFolderPath)
       setShowProjectDialog(false)
-      await createWork({ forceNew: true, projectId: project.id })
+      await createWork({ draftOnly: true, projectId: project.id })
     } catch (error) {
       showAlert(error instanceof Error ? error.message : '创建项目失败，请稍后重试')
     }
+  }
+
+  const selectProjectFolder = async () => {
+    const paths = await window.electronAPI?.selectDirectory?.({ defaultPath: userDirectory || undefined })
+    if (paths?.[0]) setProjectFolderPath(paths[0])
   }
 
   const handleOpenWorksSection = async () => {
@@ -115,7 +122,7 @@ export default function Sidebar({ section, collapsed, width }) {
       minWidth: collapsed ? 0 : width,
       borderRightWidth: collapsed ? 0 : undefined,
       visibility: collapsed ? 'hidden' : 'visible',
-      background: 'var(--bg-secondary)',
+      background: 'var(--sidebar-surface)',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
@@ -134,6 +141,7 @@ export default function Sidebar({ section, collapsed, width }) {
           <FormOutlined aria-hidden="true" />
           <span>新对话</span>
         </button>
+
         <div className="sidebar-conversation-header" style={{
           padding: '10px 12px 4px',
           display: 'flex',
@@ -142,14 +150,7 @@ export default function Sidebar({ section, collapsed, width }) {
           position: 'relative',
           WebkitAppRegion: 'no-drag',
         }}>
-          <button
-            type="button"
-            onClick={handleOpenWorksSection}
-            className="sidebar-section-heading sidebar-conversation-action"
-          >
-            <WorksNavIcon size={13} />
-            <span>对话</span>
-          </button>
+          <span className="sidebar-workspaces-label">工作区</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
             {/* Label filter — only visible when there are labeled works or a filter is active */}
             {(hasLabeled || labelFilter) && (
@@ -208,57 +209,20 @@ export default function Sidebar({ section, collapsed, width }) {
                 )}
               </div>
             )}
-            <Tooltip text="搜索对话">
-              <button
-                type="button"
-                className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
-                aria-label="搜索对话"
-                aria-expanded={showSearch}
-                onClick={() => { setShowSearch((v) => !v); if (showSearch) setSearchQuery('') }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8"/>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-            </button>
-            </Tooltip>
-              <Tooltip text="新项目">
+              <Tooltip text="新建工作区">
                 <button
                   type="button"
                   className="sidebar-new-project sidebar-icon-button"
-                  aria-label="新项目"
+                  aria-label="新建工作区"
                   onClick={handleCreateProject}
                 >
-                  <TablerFolderPlusIcon />
+                  <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>＋</span>
                 </button>
               </Tooltip>
           </div>
         </div>
-        {showSearch && (
-          <div style={{ padding: '0 8px 4px', WebkitAppRegion: 'no-drag' }}>
-            <input
-              autoFocus
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索标题或 ID..."
-              style={{
-                width: '100%',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                color: 'var(--text-primary)',
-                fontSize: 12,
-                padding: '5px 8px',
-                outline: 'none',
-                fontFamily: 'inherit',
-                boxSizing: 'border-box',
-              }}
-              onKeyDown={(e) => { if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') } }}
-            />
-          </div>
-        )}
         <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
-          <WorksList searchQuery={searchQuery} />
+          <WorksList />
         </div>
       </div>
       )}
@@ -297,46 +261,65 @@ export default function Sidebar({ section, collapsed, width }) {
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) setShowProjectDialog(false)
         }}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 2000,
-          display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start',
-          paddingTop: 116, paddingLeft: width + 72,
-          background: 'rgba(0, 0, 0, 0.08)',
-          WebkitAppRegion: 'no-drag',
-        }}
+        className="project-create-overlay"
       >
         <form
           role="dialog"
           aria-modal="true"
           aria-label="新建项目"
           onSubmit={(event) => { event.preventDefault(); submitCreateProject() }}
-          style={{
-            width: 280, padding: 16, border: '1px solid var(--border)',
-            borderRadius: 10, background: 'var(--bg-primary)',
-            color: 'var(--text-primary)',
-            WebkitAppRegion: 'no-drag',
-          }}
+          className="project-create-dialog"
         >
-          <div style={{ fontSize: 14, fontWeight: 650, marginBottom: 12 }}>新建项目</div>
-          <input
-            ref={projectNameInputRef}
-            value={projectName}
-            onChange={(event) => setProjectName(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Escape') setShowProjectDialog(false) }}
-            placeholder="项目名称"
-            aria-label="项目名称"
-            style={{
-              width: '100%', boxSizing: 'border-box', height: 32,
-              padding: '0 9px', border: '1px solid var(--border)',
-              borderRadius: 6, outline: 'none', background: 'var(--bg-primary)',
-              color: 'var(--text-primary)', font: 'inherit', fontSize: 13,
-              WebkitAppRegion: 'no-drag',
-            }}
-          />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-            <button data-app-button="action" type="button" onClick={() => setShowProjectDialog(false)} style={projectDialogButtonStyle}>取消</button>
-            <button data-app-button="action" type="submit" disabled={!projectName.trim()} style={{ ...projectDialogButtonStyle, background: 'var(--accent)', color: '#fff', opacity: projectName.trim() ? 1 : 0.5 }}>创建</button>
-          </div>
+          <header className="project-create-dialog__header">
+            <h2>新建项目</h2>
+            <button type="button" onClick={() => setShowProjectDialog(false)} aria-label="关闭" className="project-create-dialog__close">
+              <CloseOutlined />
+            </button>
+          </header>
+          <label className="project-create-name-field">
+            <span aria-hidden="true"><FolderOutlined /></span>
+            <input
+              ref={projectNameInputRef}
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape') setShowProjectDialog(false) }}
+              placeholder="项目名称"
+              aria-label="项目名称"
+            />
+          </label>
+          <section className="project-create-sources">
+            <h3>源文件夹</h3>
+            <div className={`project-create-folder-box${projectFolderPath ? ' has-folder' : ''}`}>
+              {projectFolderPath ? (
+                <div className="project-create-selected-folder">
+                  <FolderOpenOutlined aria-hidden="true" />
+                  <div className="project-create-selected-folder__path">
+                    <strong>{projectFolderPath.split(/[\\/]/).filter(Boolean).pop() || projectFolderPath}</strong>
+                    <span title={projectFolderPath}>{projectFolderPath}</span>
+                  </div>
+                  <button type="button" data-app-button="action" onClick={selectProjectFolder} className="project-create-secondary-button">更换</button>
+                </div>
+              ) : (
+                <>
+                  <span className="project-create-folder-prompt">添加此电脑上的文件夹</span>
+                  <button type="button" data-app-button="action" onClick={selectProjectFolder} className="project-create-secondary-button">
+                    <TablerFolderPlusIcon size={15} /> 添加文件夹
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
+          <footer className="project-create-dialog__footer">
+            <button data-app-button="action" type="button" onClick={() => setShowProjectDialog(false)} className="project-create-secondary-button">取消</button>
+            <button
+              data-app-button="action"
+              type="submit"
+              disabled={!projectName.trim() || !projectFolderPath}
+              className="project-create-primary-button"
+            >
+              创建项目
+            </button>
+          </footer>
         </form>
       </div>
     )}
@@ -361,16 +344,4 @@ function ScheduledNavIcon({ size = 15 }) {
       <path d="M12 7v5l3 2" />
     </svg>
   )
-}
-
-const projectDialogButtonStyle = {
-  height: 30,
-  padding: '0 12px',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  background: 'var(--bg-secondary)',
-  color: 'var(--text-secondary)',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  fontSize: 12,
 }

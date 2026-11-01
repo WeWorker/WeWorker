@@ -137,7 +137,7 @@ export function getModelConfiguration(settings: Settings, id: string | undefined
   if (!configuration || !provider) return undefined
   return { ...configuration, model: configuredModel(provider.id, configuration.model),
     ...(provider.fixedModel ? { openai_model: provider.defaultModel } : {}),
-    ...(provider.id === 'custom' ? { weworker_protocol: configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages' } : {
+    ...(provider.id === 'custom' ? { weworker_protocol: configuration.weworker_protocol === 'openai_responses' ? 'openai_responses' : configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages' } : {
       base_url: provider.weworker.baseUrl, openai_base_url: provider.webwright.baseUrl,
       base_url_is_full: false, openai_base_url_is_full: false,
       auth_type: provider.authType || 'api_key',
@@ -167,7 +167,7 @@ export function activateModelConfiguration(settings: Settings, id: string): Part
     base_url_is_full: configuration.base_url_is_full === true,
     context_limit: configuration.context_limit,
     active_auth_type: configuration.auth_type,
-    active_weworker_protocol: configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages',
+    active_weworker_protocol: configuration.weworker_protocol === 'openai_responses' ? 'openai_responses' : configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages',
   }
 }
 

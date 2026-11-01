@@ -37,7 +37,8 @@ test('D10 broadcasts fallback and generated titles and applies global title even
   }
 })
 
-const schedule = loadFunctions(read('../components/scheduled/TaskConfigView.jsx'), ['buildCron', 'parseCron', 'getNextRuns'])
+const scheduleSource = read('../utils/scheduled-task-schedule.js').replace(/^export /gm, '')
+const schedule = loadFunctions(scheduleSource, ['buildCron', 'parseCron', 'getNextRuns'])
 for (const [fields, expected] of [
   [{ frequency: 'daily', hour: 0, minute: 0 }, '0 0 * * *'],
   [{ frequency: 'weekly', hour: 0, minute: 0, weekday: '1' }, '0 0 * * 1'],

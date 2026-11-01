@@ -76,6 +76,7 @@ const log = createLogger('config')
 
 const CONFIG_DIR = path.join(os.homedir(), '.weworker')
 
+// Keep the user area stable; managed project workspaces live below user-files/projects.
 const DEFAULT_USER_DIRECTORY = path.join(CONFIG_DIR, 'user-files')
 
 const SETTINGS_FILE = path.join(CONFIG_DIR, 'settings.json')
@@ -191,6 +192,24 @@ export const DEFAULT_MEMORY_BUDGETS: MemoryBudgets = {
 
 /** 单档位预算上限；超过上限的输入回退默认值而不是截断。 */
 export const MAX_MEMORY_BUDGET = 20_000
+
+export const DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT = 50
+export const MIN_SCHEDULED_TASK_HISTORY_LIMIT = 1
+export const MAX_SCHEDULED_TASK_HISTORY_LIMIT = 500
+
+export function normalizeScheduledTaskHistoryLimit(value: unknown): number {
+  const numeric = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim()
+      ? Number(value)
+      : Number.NaN
+  if (!Number.isFinite(numeric)) return DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT
+  const limit = Math.floor(numeric)
+  if (limit < MIN_SCHEDULED_TASK_HISTORY_LIMIT || limit > MAX_SCHEDULED_TASK_HISTORY_LIMIT) {
+    return DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT
+  }
+  return limit
+}
 
 /**
  * 规范化记忆预算：缺失、非数字、负数或超过上限的档位回退默认值。
@@ -351,6 +370,9 @@ export interface Settings {
 
   /** 长期记忆按档位的估算 token 预算（extension 覆盖所有 extension:*）。 */
   memory_budgets: MemoryBudgets
+
+  /** 保留在定时任务项目中的普通执行对话数量。 */
+  scheduled_task_history_limit: number
 }
 
 
@@ -467,6 +489,7 @@ const DEFAULTS: Settings = {
 
   zcf_custom_roles: [],
   memory_budgets: { ...DEFAULT_MEMORY_BUDGETS },
+  scheduled_task_history_limit: DEFAULT_SCHEDULED_TASK_HISTORY_LIMIT,
 }
 
 
@@ -518,18 +541,32 @@ function readRawSettingsFile(): Record<string, unknown> | null {
 
     const data = JSON.parse(raw)
 
-    return data && typeof data === 'object' && !Array.isArray(data)
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    const settings = data as Record<string, unknown>
+    migrateLegacyProjectsDirectory(settings)
+    return settings
 
-      ? data as Record<string, unknown>
-
-      : null
-
-  } catch {
-
+  } catch (error) {
     return null
 
   }
 
+}
+
+function migrateLegacyProjectsDirectory(settings: Record<string, unknown>): void {
+  const configured = typeof settings.user_directory === 'string'
+    ? path.resolve(expandHomePath(settings.user_directory))
+    : path.resolve(DEFAULT_USER_DIRECTORY)
+  const previousProjectsRoot = path.join(CONFIG_DIR, 'projects')
+  if (!samePath(configured, previousProjectsRoot)) return
+  settings.user_directory = DEFAULT_USER_DIRECTORY
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
+}
+
+function samePath(left: string, right: string): boolean {
+  const a = path.resolve(left)
+  const b = path.resolve(right)
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
 }
 
 
@@ -571,12 +608,14 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   stripObsoleteZcfSettings(merged as unknown as Record<string, unknown>)
 
   merged.custom_auth_type = raw?.custom_auth_type === 'api_key' ? 'api_key' : 'auth_token'
-  merged.weworker_protocol_custom = raw?.weworker_protocol_custom === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages'
-  merged.active_weworker_protocol = raw?.active_weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages'
+  merged.weworker_protocol_custom = raw?.weworker_protocol_custom === 'openai_responses' ? 'openai_responses' : raw?.weworker_protocol_custom === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages'
+  merged.active_weworker_protocol = raw?.active_weworker_protocol === 'openai_responses' ? 'openai_responses' : raw?.active_weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages'
   for (const configuration of Object.values(merged.model_configurations || {})) {
     if (configuration?.provider_id === 'custom') {
-      configuration.weworker_protocol = configuration.weworker_protocol === 'openai_chat_completions'
-        ? 'openai_chat_completions'
+      configuration.weworker_protocol = configuration.weworker_protocol === 'openai_responses'
+        ? 'openai_responses'
+        : configuration.weworker_protocol === 'openai_chat_completions'
+          ? 'openai_chat_completions'
         : 'anthropic_messages'
     }
   }
@@ -618,6 +657,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   merged.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(merged.open_browser_allowed_origins)
   merged.zcf_custom_roles = normalizeCustomStyles(merged.zcf_custom_roles)
   merged.memory_budgets = normalizeMemoryBudgets(merged.memory_budgets)
+  merged.scheduled_task_history_limit = normalizeScheduledTaskHistoryLimit(merged.scheduled_task_history_limit)
   merged.zcf_default_role = normalizeDefaultStyleId(merged.zcf_default_role)
   merged.zcf_enabled_roles = normalizeEnabledStyles(
     merged.zcf_enabled_roles,
@@ -807,6 +847,7 @@ export function updateSettings(updates: Partial<Settings>): Settings {
   _settings.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(_settings.open_browser_allowed_origins)
   _settings.zcf_custom_roles = normalizeCustomStyles(_settings.zcf_custom_roles)
   _settings.memory_budgets = normalizeMemoryBudgets(_settings.memory_budgets)
+  _settings.scheduled_task_history_limit = normalizeScheduledTaskHistoryLimit(_settings.scheduled_task_history_limit)
   if (updates.zcf_default_role !== undefined) {
     _settings.zcf_default_role = normalizeDefaultStyleId(_settings.zcf_default_role)
   }
@@ -1168,4 +1209,24 @@ export function ensureUserDirectory(): string {
 
   return dir
 
+}
+
+export function ensureProjectDirectory(...segments: string[]): string {
+  const root = path.resolve(ensureProjectsDirectory())
+  const directory = path.resolve(root, ...segments)
+  if (directory !== root && !directory.startsWith(`${root}${path.sep}`)) {
+    throw new Error('project directory must stay inside projects root')
+  }
+  fs.mkdirSync(directory, { recursive: true })
+  return directory
+}
+
+export function getProjectsDirectory(): string {
+  return path.resolve(ensureUserDirectory(), 'projects')
+}
+
+export function ensureProjectsDirectory(): string {
+  const dir = getProjectsDirectory()
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
 }

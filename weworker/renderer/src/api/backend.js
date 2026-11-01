@@ -86,14 +86,14 @@ export async function compactConversation(workId) {
   }
 }
 
-export async function streamChat(workId, message, onEvent, signal, attachments = [], maxChatAttachments = 60, modelMessage = message, retryCompaction = false, thinkingEffort = 'off') {
+export async function streamChat(workId, message, onEvent, signal, attachments = [], maxChatAttachments = 60, modelMessage = message, retryCompaction = false, thinkingEffort = 'off', permissionMode = 'ask') {
   console.log(`[frontend] streamChat called, workId=${workId}, signal.aborted=${signal?.aborted}`)
   let res
   try {
     res = await backendFetch(`/works/${workId}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, modelMessage, attachments, retryCompaction, thinkingEffort }),
+      body: JSON.stringify({ message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode }),
       signal,
     })
   } catch (error) {
@@ -108,7 +108,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
           onEvent({ type: 'error', content: '上下文已超限，但当前没有可压缩的历史对话' })
           return
         }
-        return streamChat(workId, message, onEvent, signal, attachments, maxChatAttachments, modelMessage, true, thinkingEffort)
+        return streamChat(workId, message, onEvent, signal, attachments, maxChatAttachments, modelMessage, true, thinkingEffort, permissionMode)
       } catch (compactionError) {
         onEvent({
           type: 'context_compaction_end',
@@ -136,7 +136,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
           onEvent({ type: 'error', content: '上下文已超限，但当前没有可压缩的历史对话' })
           return
         }
-        return streamChat(workId, message, onEvent, signal, attachments, maxChatAttachments, modelMessage, true, thinkingEffort)
+        return streamChat(workId, message, onEvent, signal, attachments, maxChatAttachments, modelMessage, true, thinkingEffort, permissionMode)
       } catch (compactionError) {
         onEvent({
           type: 'context_compaction_end',
@@ -210,7 +210,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
         return
       }
       if (overflowDetected) {
-        return streamChat(workId, message, onEvent, signal, attachments, maxChatAttachments, modelMessage, true, thinkingEffort)
+        return streamChat(workId, message, onEvent, signal, attachments, maxChatAttachments, modelMessage, true, thinkingEffort, permissionMode)
       }
     } catch (error) {
       onEvent({
