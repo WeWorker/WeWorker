@@ -19,6 +19,64 @@
     "toutiao",
     "今日头条"
   ],
+  "skill_intents": {
+    "version": 1,
+    "routes": [
+      {
+        "id": "hot-default",
+        "tier": "exact",
+        "tool": "toutiao.com.hot",
+        "utterances": [
+          "查看今日头条热榜",
+          "看看今日头条热榜"
+        ],
+        "examples": [
+          "查看今日头条热榜"
+        ],
+        "negativeExamples": [
+          "发布一条今日头条",
+          "查看头条号创作者文章"
+        ]
+      },
+      {
+        "id": "hot-limited",
+        "tier": "template",
+        "tool": "toutiao.com.hot",
+        "pattern": "^查看今日头条热榜前([1-9]|[1-4][0-9]|50)条$",
+        "captures": {
+          "limit": {
+            "group": 1,
+            "type": "integer"
+          }
+        },
+        "examples": [
+          "查看今日头条热榜前10条"
+        ],
+        "negativeExamples": [
+          "查看今日头条热榜前51条",
+          "删除今日头条热榜前10条"
+        ]
+      },
+      {
+        "id": "recommend-tech",
+        "tier": "exact",
+        "tool": "toutiao.com.recommend",
+        "utterances": [
+          "查看今日头条科技频道推荐"
+        ],
+        "args": {
+          "category": "news_tech"
+        },
+        "examples": [
+          "查看今日头条科技频道推荐"
+        ],
+        "negativeExamples": [
+          "发布今日头条科技频道文章",
+          "查看今日头条体育频道推荐"
+        ]
+      }
+    ]
+  },
   "scenarios": [
     {
       "id": "hot-news",

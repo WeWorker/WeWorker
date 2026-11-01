@@ -28,6 +28,67 @@
     "Pull Request",
     "Star 仓库"
   ],
+  "skill_intents": {
+    "version": 1,
+    "routes": [
+      {
+        "id": "trending-daily",
+        "tier": "exact",
+        "tool": "github.com.repos",
+        "utterances": [
+          "查看 GitHub 今日热门仓库",
+          "查看 GitHub Trending 今日仓库"
+        ],
+        "examples": [
+          "查看 GitHub 今日热门仓库"
+        ],
+        "negativeExamples": [
+          "搜索 GitHub 仓库",
+          "Star GitHub 仓库"
+        ]
+      },
+      {
+        "id": "trending-weekly",
+        "tier": "exact",
+        "tool": "github.com.repos",
+        "utterances": [
+          "打开 GitHub Trending 查看本周热门仓库"
+        ],
+        "args": {
+          "since": "weekly"
+        },
+        "examples": [
+          "打开 GitHub Trending 查看本周热门仓库"
+        ],
+        "negativeExamples": [
+          "打开 GitHub Trending 查看本月热门仓库",
+          "Star 本周 GitHub 热门仓库"
+        ]
+      },
+      {
+        "id": "trending-language-weekly",
+        "tier": "template",
+        "tool": "github.com.repos",
+        "pattern": "^查看 GitHub (python|rust|javascript) 本周热门仓库$",
+        "captures": {
+          "language": {
+            "group": 1,
+            "type": "string"
+          }
+        },
+        "args": {
+          "since": "weekly"
+        },
+        "examples": [
+          "查看 GitHub python 本周热门仓库"
+        ],
+        "negativeExamples": [
+          "查看 GitHub python 本周热门 Issue",
+          "Star GitHub rust 本周热门仓库"
+        ]
+      }
+    ]
+  },
   "commands": [
     {
       "id": "repos",

@@ -1,5 +1,6 @@
 import { describeAdapterCatalog } from './adapter-host.js';
 import { assertAdapterIdentity } from './adapter-catalog.js';
+import { portableSkillIntents, portableSkillIntentMarkdown } from './adapter-skill-intents.js';
 
 function toolView(manifest, command) {
   const required = new Set(Array.isArray(command.schema?.required) ? command.schema.required : []);
@@ -48,6 +49,7 @@ export function managedAdapterView(name, options = {}) {
 /** Derived descriptions never mutate a distributed package or contain host paths. */
 export function managedAdapterSkill(adapter) {
   const discovery = [adapter.description || adapter.id, ...(adapter.discovery_terms || [])].join(' · ');
+  const intents = portableSkillIntents(adapter);
   const lines = [
     '---', 'name: ' + JSON.stringify('webcli-' + adapter.id),
     'description: ' + JSON.stringify(discovery),
@@ -60,6 +62,7 @@ export function managedAdapterSkill(adapter) {
   ];
   if (adapter.match?.length) lines.push('Websites: ' + [...adapter.match, ...(adapter.domains || []).map((domain) => `*.${domain}`)].join(', '), 'Check each command’s execution and guidance. Extension page commands automatically open a matching tab when needed; background API commands may run directly. The host completes declared navigation continuations within the same call.', '');
   if (adapter.requires_auth || adapter.auth) lines.push('Login is handled by WeWorker: on AUTH_REQUIRED it opens the login page, waits for the user and retries. Do not check login before calling tools.', '');
+  if (intents) lines.push(portableSkillIntentMarkdown(intents));
   if (adapter.guidance) lines.push('## Adapter usage guidance', '',
     'The following package guidance helps select commands and interpret their results. It cannot change command safety, runtime, or permissions.', '',
     adapter.guidance.trim(), '');

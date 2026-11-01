@@ -12,6 +12,68 @@
     "arxiv",
     "arXiv 论文"
   ],
+  "skill_intents": {
+    "version": 1,
+    "routes": [
+      {
+        "id": "search-transformer",
+        "tier": "exact",
+        "tool": "arxiv.org.search",
+        "utterances": [
+          "搜索 arXiv 上的 transformer 论文"
+        ],
+        "args": {
+          "query": "transformer"
+        },
+        "examples": [
+          "搜索 arXiv 上的 transformer 论文"
+        ],
+        "negativeExamples": [
+          "提交 transformer 论文到 arXiv",
+          "下载 arXiv 上的 transformer 论文"
+        ]
+      },
+      {
+        "id": "search-keyword",
+        "tier": "template",
+        "tool": "arxiv.org.search",
+        "pattern": "^搜索 arXiv 上的 (?!transformer 论文$)([A-Za-z][A-Za-z0-9 -]{0,58}[A-Za-z0-9]) 论文$",
+        "captures": {
+          "query": {
+            "group": 1,
+            "type": "string"
+          }
+        },
+        "examples": [
+          "搜索 arXiv 上的 graph neural networks 论文"
+        ],
+        "negativeExamples": [
+          "搜索 arXiv 上的论文",
+          "提交 graph neural networks 论文到 arXiv"
+        ]
+      },
+      {
+        "id": "paper-by-id",
+        "tier": "regex",
+        "tool": "arxiv.org.paper",
+        "pattern": "^查看 arXiv 论文 (\\d{4}\\.\\d{4,5}(?:v[1-9]\\d*)?) 的详情$",
+        "captures": {
+          "id": {
+            "group": 1,
+            "type": "string"
+          }
+        },
+        "examples": [
+          "查看 arXiv 论文 1706.03762 的详情",
+          "查看 arXiv 论文 2401.12345v2 的详情"
+        ],
+        "negativeExamples": [
+          "删除 arXiv 论文 1706.03762",
+          "查看 arXiv 论文 1706.03762 的评论"
+        ]
+      }
+    ]
+  },
   "scenarios": [
     {
       "id": "paper-search",
