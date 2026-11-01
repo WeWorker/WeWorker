@@ -54,14 +54,14 @@
 
 ## 2. 分层总表（每层支持什么）
 
-生产实际执行顺序如下（自上而下，命中即返回、`llmMs=0`；任一环失败即落回下一层）：
+下表保留实施时期的层级编号，**不是当前严格执行顺序**：实际代码在任何路由步骤前先检查讨论态／追问态硬门，层 P 的优先级高于模板，后续层的失败行为也可能是直接回退常规 LLM；运行顺序请以 `api-query-router/cascade.ts` 和现行架构说明为准。
 
 | 序 | 层 | 触发条件 | 数据来源 | 参数抽取 | 渲染 | 急停开关 | **明确不支持** |
 |---|---|---|---|---|---|---|---|
 | P | **配置路由** | 消息**全等**别名 / **包含**关键词 | `routes.json` | ❌（仅静态 `args`） | 通用 | 常开 | 正则、槽位、多跳、从文本抽参 |
 | 1 | **第 0 层形态 A · 单工具** | `/chat` body 携带 `scenario{adapterId, scenarioId, slots}` | `scenario-routes.json`（编译自 manifest）+ 客户端 payload | 槽位 coerce/enum；**重建比对门**（去空白后与模板逐字相等） | 通用 / 声明式覆写 | `WEWORKER_SCENARIO_ROUTE=0` | 文本被编辑（漂移）；v1 产物（无 `slotNames`/`promptTemplates`）；槽位 coerce 失败 |
 | 2 | **第 0 层形态 A · 多跳** | 同上 + manifest `route.plan` 卡片 | `plan-terminals.json` 白名单 + `plans.json` DAG | 槽位 | terminal 渲染 | 同上 | terminal 未登记；无对应 plan 定义 |
-| 3 | **Tier -2 manifest 模板直达** | 消息 `trim` 后与模板**锚定全等** `^(?:…)$`（区分大小写） | adapter `manifest.route_templates[]` | 枚举槽 `${A\|B\|C}` / 自由槽 `${名}` + `validate` | 通用 | 条目 `enabled:false`；工具被禁用 | 模糊匹配、大小写不敏感、>4 槽、模板 >120 字符、无槽模板、非 directCapable 工具；**`!` 前缀让位显式别名** |
+| 3 | **Tier -2 manifest 模板直达（实际在讨论/追问硬门之后）** | 消息 `trim` 后与模板**锚定全等** `^(?:…)$`（区分大小写） | adapter `manifest.route_templates[]` | 枚举槽 `${A\|B\|C}` / 自由槽 `${名}` + `validate` | 通用 | 条目 `enabled:false`；工具被禁用 | 模糊匹配、大小写不敏感、>4 槽、模板 >120 字符、无槽模板、非 directCapable 工具；**`!` 前缀让位显式别名** |
 | 4 | **硬门① 讨论态** | 命中「是否正常 / 失败 / 习惯 / …吗」类标记 | 代码正则 | — | — | `!` 前缀豁免 | 只识别枚举出的标记 |
 | 5 | **硬门①b 追问态** | 回指词 **且** 最近 3 条 agent 消息内有 fast-path 命中记录 | 代码正则 + 会话历史 | — | — | `!` 前缀豁免 | 历史读库失败即降级为不生效 |
 | 6 | **第 0 层形态 B · 话术** | manifest `scenarios[].route` 编译出的锚定正则 | `scenario-routes.json` | 槽位 + `guardNegative` | 通用 / 声明式覆写 | `WEWORKER_SCENARIO_ROUTE=0` | 自由措辞（只认卡片话术 ± 槽位填充）；dispatch 鉴权失败后**不降级**到 Tier -1 |
@@ -70,7 +70,7 @@
 | 9 | **plan · 锚点 DAG** | 入口正则命中 + 锚点解析链走通 | `plans.json` + `plan-terminals.json` | Anchor Resolver 产出/依赖 | terminal 渲染 | 条目 `enabled:false` | 任一跳歧义 / 未命中 / 鉴权失败 / 用户取消 → 整条落回；候选超过 5 个 → 落回 |
 | 10 | **硬门② adapter 关键词门** | Tier 0 命中但消息不含该 adapter 词 | 代码 | — | — | `!` 前缀豁免 | — |
 | 11 | **Tier 0/1 · 守卫短路 + `!` 别名** | `!全名 [args]` 显式点名（confidence=1，绕过守卫）/ override 正则命中 | `shortcuts.json` / `aliases.json` | 条目自带 `extract` | 声明式覆写 | 条目 `enabled:false` | 别名只支持 JSON 对象参数或「单个必填字符串」启发式 |
-| 12 | **Tier 2 · 词法召回 → LLM 分类** | 词法召回 top-8 且 overlap ≥ 0.08 → 一次 `/v1/messages`（12s、256 tokens） | 设置项 `api_query_llm_route` / `WEWORKER_LLM_ROUTE=1` | 由 LLM 抽取 | 通用 | **默认关** | 多工具、多跳、工具链；LLM 返回的 tool 不在候选内一律判 null（严禁臆造） |
+| 12 | **Tier 2 · 词法召回 → LLM 分类（历史设计，当前未接通）** | 设计上词法召回 top-8 且 overlap ≥ 0.08 后交模型分类；实际 `getRouteEngine` 没有注入 `llmClassify` matcher | 历史设计中的设置项；当前设置默认值不能使本层生效 | 当前无 | — | 无可用分类器 | 不能把普通 `streamChat` 的模型组参视为这一层已生效 |
 | 13 | **落回 `streamChat`** | 以上全不命中 | — | — | — | — | — |
 | 14 | **第 3 层 · siteGate 分流** | 消息命中 adapter 域名 / `gate_aliases` / 已毕业 toolkit skill | adapter manifest + toolkit skill 目录 | — | — | `WEWORKER_SITE_GATE=0` | 多站点同命中一律按 ambiguous 保守处理 |
 | 15 | **第 4 层 · 网站探索agent** | siteGate 未命中 **且** 消息含未注册站点 URL | 纯函数判定 | — | 探索任务 `final_response` | `WEWORKER_TIER4=0`、`WEWORKER_TIER4_TIMEOUT_MS`、`WEWORKER_TIER4_ALLOW_WRITES=1` | 无 URL 信号的普通对话；host 已注册（含被禁用站点）；站点判定为已知但未启用 |
@@ -80,7 +80,7 @@
 **顺序上的两条硬约束**（改动时不可交换）：
 
 - 第 0 层（形态 A/B）必须早于 Tier -1：后者是宽泛正则，会遮蔽具体话术卡片（历史上出现过卡片句被提示词层抢走、丢掉模式参数的问题）。
-- Tier -2 全等模板放在硬门之前：逐字全等的策划句没有推断成分，再过守卫没有意义；但它**让位** `!` 显式别名。
+- **现行代码与早期设计有差异**：讨论态／追问态硬门先于 Tier -2 模板执行，被硬门拦截的非 `!` 消息不会尝试模板；用户确认保留该保守行为，修正文档即可。`!` 前缀跳过模板；别名尚未实现绝对优先，后续修改需单独验证。
 
 **两道硬门防的是什么**：硬门①（讨论态）防「谈论系统/任务本身」的消息被当成查询；硬门②（adapter 关键词门）防宽泛的 override 正则吃掉没有指向任何站点的口语。两者对 `!` 显式点名豁免——用户主动点名工具是更高优先级的指令。
 
