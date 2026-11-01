@@ -110,11 +110,21 @@ describe('project persistence', () => {
     fs.writeFileSync(path.join(legacyProject, 'notes.txt'), 'fixture')
     fs.writeFileSync(path.join(userRoot, 'keep.txt'), 'user data')
 
-    const project = store.createProject('Legacy temporary root', legacyProject)
+    const staleDatabasePath = path.join(userRoot, 'Legacy')
+    fs.mkdirSync(staleDatabasePath)
+    const project = store.createProject('Legacy temporary root', staleDatabasePath)
+    fs.rmSync(staleDatabasePath, { recursive: true })
+    const work = store.createWork('Legacy work', project.id)
+    store.appendMessage(work.id, 'user', [{ type: 'file_attachment', name: 'notes.txt', path: path.join(staleDatabasePath, 'notes.txt') }])
     store.migrateLegacyWorkspacePaths(store._getTestDb(), userRoot, legacyProjectsRoot, projectsRoot)
 
     expect(store.getProject(project.id)?.folder_path).toBe(path.join(projectsRoot, 'Legacy'))
     expect(fs.existsSync(path.join(projectsRoot, 'Legacy', 'notes.txt'))).toBe(true)
+    expect(store.getWorkWithMessages(work.id)?.messages[0].content).toEqual([{
+      type: 'file_attachment',
+      name: 'notes.txt',
+      path: path.join(projectsRoot, 'Legacy', 'notes.txt'),
+    }])
     expect(fs.existsSync(userRoot)).toBe(true)
     expect(fs.readFileSync(path.join(userRoot, 'keep.txt'), 'utf8')).toBe('user data')
   })

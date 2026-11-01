@@ -272,7 +272,19 @@ export function migrateLegacyWorkspacePaths(
       : legacyRoot
         ? path.join(projectsRoot, path.relative(legacyRoot, current))
         : project.folder_path
-    if (next !== project.folder_path) mappings.push({ from: current, to: path.resolve(next) })
+    if (next !== project.folder_path) {
+      const destination = path.resolve(next)
+      mappings.push({ from: current, to: destination })
+
+      // An earlier migration moved the directory to `.weworker/projects` but
+      // left folder_path and attachment paths under `.weworker/user-files`.
+      // When that logical source is missing, recover the physical directory by
+      // its relative path under the old projects root.
+      if (!fs.existsSync(current) && pathInside(current, userRoot) && current !== userRoot) {
+        const relocated = path.join(legacyProjectsRoot, path.relative(userRoot, current))
+        if (fs.existsSync(relocated)) mappings.push({ from: relocated, to: destination })
+      }
+    }
     return { id: project.id, folder_path: next }
   }).filter((project, index) => project.folder_path !== projects[index].folder_path)
 
