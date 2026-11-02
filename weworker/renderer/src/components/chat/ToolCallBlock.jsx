@@ -17,7 +17,7 @@ function GenericToolCallBlock({ block, streaming = false }) {
   const displayName = displayToolName(rawName)
   const summary = getToolCallSummary(block.args)
   const timingLabel = [
-    block.thinkMs != null ? `思考/等待${formatTimingDuration(block.thinkMs)}` : '',
+    block.thinkMs != null ? `模型思考${formatTimingDuration(block.thinkMs)}` : '',
     block.execMs != null ? `执行${formatTimingDuration(block.execMs)}` : '',
   ].filter(Boolean).join(' · ')
 
