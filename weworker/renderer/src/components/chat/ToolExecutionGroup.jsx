@@ -21,6 +21,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
   const label = getToolExecGroupLabel(blocks)
   const showRunning = streaming && blocks.some((block) => block.status === 'running')
   // Credited execution shares are disjoint, so this subtotal matches the turn ledger.
+  const groupThinkMs = blocks.reduce((sum, block) => sum + (block.thinkMs || 0), 0)
   const groupExecMs = blocks.reduce((sum, block) => sum + (block.execMs || 0), 0)
 
   const toggleDetail = (key) => {
@@ -45,7 +46,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
         </span>
         <span className="tool-row-header__body">
           <span className="tool-exec-group__header-label">{label}</span>
-          <ToolTimingBadge execMs={groupExecMs} />
+          <ToolTimingBadge thinkMs={groupThinkMs} execMs={groupExecMs} totalMs={groupThinkMs + groupExecMs} />
           <span className="tool-row-header__chevron tool-exec-group__header-chevron" aria-hidden="true">
             <ToolRowChevron expanded={open} />
           </span>
