@@ -187,10 +187,15 @@ export default function InputBar({
   useEffect(() => {
     if (!isWelcome || String(text || '').trim() || inputDisabled) return undefined
     const timer = window.setInterval(() => {
-      setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous))
+      setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous, sites))
     }, 4200)
     return () => window.clearInterval(timer)
-  }, [inputDisabled, isWelcome, text])
+  }, [inputDisabled, isWelcome, sites, text])
+
+  useEffect(() => {
+    if (!isWelcome || String(text || '').trim()) return
+    setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous, sites))
+  }, [isWelcome, sites, text])
 
   const webcliSlashCommands = useMemo(() => buildWebcliSlashCommands(sites), [sites])
   const buildBangSlashItems = useCallback((query) => {
