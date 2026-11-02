@@ -5,7 +5,9 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import re
+import time
 import shutil
 import sys
 import tempfile
@@ -74,11 +76,34 @@ def _load_generated_module(script_path: Path) -> types.ModuleType:
     return module
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
+def _atomic_write_text(
+    path: Path,
+    content: str,
+    *,
+    max_retries: int = 30,
+    retry_delay: float = 0.02,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}_{time.time_ns()}.tmp")
     temporary.write_bytes(content.encode("utf-8"))
-    temporary.replace(path)
+    last_error: Exception | None = None
+    try:
+        for attempt in range(max_retries):
+            try:
+                temporary.replace(path)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt + 1 < max_retries:
+                    time.sleep(retry_delay)
+        if last_error:
+            raise last_error
+    finally:
+        if temporary.exists():
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
 
 
 def _formal_tools(store: ToolkitStore, toolkit_id: str, *, override: dict[str, Any] | None = None) -> list[dict[str, Any]]:
