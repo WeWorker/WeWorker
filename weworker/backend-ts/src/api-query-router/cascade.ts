@@ -14,6 +14,7 @@
 import type { MatchSource, RenderCtx, ScenarioPayload } from './types.js'
 import type { RouterRenderSpec } from '../router-config/types.js'
 import type { ScenarioOptOutHit, ScenarioPlanHit } from './scenario-routes.js'
+import { isSequentialRequest } from './gates.js'
 
 /** 级联层名（与设计文档的行号一一对应，便于日志与评测断言）。 */
 export type CascadeLayer =
@@ -76,7 +77,7 @@ export type CascadePlan = {
   /** 被本消息抑制的层（opt-out 卡片句）：规划期就剔除，执行期不再问 */
   suppressed: CascadeLayer[]
   /** 硬门拦截：整条落回 LLM，`steps` 为空 */
-  blocked?: { gate: 'discussion' | 'follow_up' | 'alias_gate'; detail?: string }
+  blocked?: { gate: 'discussion' | 'follow_up' | 'alias_gate' | 'sequential'; detail?: string }
 }
 
 export type CascadeInput = {
@@ -173,6 +174,7 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
 
   // `!` 前缀是用户显式指令：豁免硬门①/①b，并在 Tier -2 处让位（硬约束②）。
   const aliasPrefixed = guards.isAliasPrefixed(message)
+  const sequential = !aliasPrefixed && isSequentialRequest(message)
 
   // 硬门①：讨论态 / 元问题。谈系统而非查数据的消息不得被任何层抢答。
   if (!aliasPrefixed && guards.isDiscussion(message, deps.history)) {
@@ -205,7 +207,7 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
   }
 
   // ── 层 P ────────────────────────────────────────────────────────────────
-  const routeHit = safe(() => matchers.route(message), log, 'route')
+  const routeHit = sequential ? null : safe(() => matchers.route(message), log, 'route')
   if (routeHit) {
     push({
       layer: 'route',
@@ -279,6 +281,12 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
         onFailure: { action: 'continue' },
       })
     }
+  }
+
+  // Keep structured targets/templates, but never answer only one step through a broad matcher.
+  if (sequential) {
+    log('sequential request: skip inferred routing layers')
+    return steps.length ? { steps, suppressed } : { steps, suppressed, blocked: { gate: 'sequential' } }
   }
 
   // ── 第 0 层形态 B：卡片话术锚定匹配（硬约束①：必须早于 Tier -1）─────────
