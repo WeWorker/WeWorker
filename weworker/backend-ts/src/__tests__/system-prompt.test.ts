@@ -478,7 +478,7 @@ describe('System Prompt - channel permission modes', () => {
     expect(prompt).toContain('Chrome 扩展 Bridge 或内嵌 Toolkit Runtime')
     expect(prompt).toContain('WeWorker Shell')
     expect(prompt).toContain('可使用任一可用命令工具运行 `webcli call`')
-    expect(prompt).toContain('Claude Code 内置 PowerShell、WeWorker Shell 及其他可用工具均已开放')
+    expect(prompt).toContain(`Claude Code 内置 ${nativeShell}、WeWorker Shell 及其他可用工具均已开放`)
     expect(prompt).not.toContain('不得使用 `weworker_powershell`')
     expect(prompt).not.toContain(`不要调用 Claude Code 内置 ${nativeShell}`)
   })

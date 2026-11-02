@@ -1146,7 +1146,7 @@ async function* streamChatWithBaseUrl(
   await waitForAdapterRuntimeReload()
   phase.mark('adapter_reload_wait')
   const enabledAdapterIds = opts.enabledAdapterIds
-  const channelPermissionMode = opts.channelPermissionMode ?? 'workspace'
+  const channelPermissionMode = opts.channelPermissionMode ?? 'full'
   const workspaceDirectory = isGuardedDesktopMode(channelPermissionMode) && opts.workId
     ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
     : undefined
