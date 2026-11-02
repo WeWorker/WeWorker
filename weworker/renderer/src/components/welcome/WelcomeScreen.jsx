@@ -139,6 +139,10 @@ function ScenarioPickerListItem({
         className={`scenario-picker-item-row${isHovered ? ' is-hovered' : ''}`}
         onMouseEnter={() => onHover(itemKey)}
         onMouseLeave={() => onHover(null)}
+        onClick={(event) => {
+          event.stopPropagation()
+          onToggleExpand()
+        }}
       >
         <span className="scenario-picker-item-fill-wrap">
           <Tooltip text="在对话中使用" light placement="top" delay={300}>
@@ -158,6 +162,7 @@ function ScenarioPickerListItem({
         <button
           type="button"
           className="scenario-picker-item-main"
+          aria-expanded={isExpanded}
           onFocus={() => onHover(itemKey)}
           onBlur={() => onHover(null)}
           onClick={(event) => {
@@ -207,10 +212,6 @@ function ScenarioPickerListItem({
             if (event.target?.closest?.('input, textarea, button, select, [contenteditable="true"]')) return
             onFill()
           }}
-          onFocus={() => onHover(itemKey)}
-          onBlur={() => onHover(null)}
-          onMouseEnter={() => onHover(itemKey)}
-          onMouseLeave={() => onHover(null)}
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
         >
