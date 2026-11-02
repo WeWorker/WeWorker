@@ -795,7 +795,7 @@ button.app-rail__issue-item:focus-visible {
   font-family: inherit;
   line-height: 1.5;
   color: var(--text-muted) !important;
-  font-size: 12px !important;
+  font-size: var(--font-size-label) !important;
   font-weight: 560 !important;
 }
 
@@ -829,7 +829,7 @@ button.app-rail__issue-item:focus-visible {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 560;
   text-align: left;
   -webkit-app-region: no-drag;
@@ -978,9 +978,9 @@ button.app-rail__issue-item:focus-visible {
   background: transparent;
   color: var(--text-secondary);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 400;
-  line-height: 18px;
+  line-height: 24px;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
@@ -1211,8 +1211,8 @@ button.app-rail__issue-item:focus-visible {
 }
 
 [data-welcome-scroll] h1 {
-  font-size: 24px;
-  letter-spacing: -0.02em;
+  font-size: var(--font-size-display);
+  letter-spacing: 0;
 }
 
 [data-welcome-scroll] header p {
@@ -1253,7 +1253,7 @@ button.app-rail__issue-item:focus-visible {
 
 .settings-sidebar__brand h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--font-size-subtitle);
   font-weight: 650;
   color: var(--text-primary);
 }

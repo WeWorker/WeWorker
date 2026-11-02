@@ -248,7 +248,7 @@ export default function TaskConfigView({ taskId }) {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>过滤日期</span>
+              <span style={{ fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)', fontWeight: 600 }}>过滤日期</span>
               <div role="group" aria-label="过滤日期" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
                 {WEEKDAY_PRESETS.map((preset) => {
                   const selected = schedule.weekdayPreset === preset.value
@@ -266,7 +266,7 @@ export default function TaskConfigView({ taskId }) {
                         borderRadius: 15,
                         background: selected ? 'var(--accent)' : 'var(--bg-secondary)',
                         color: selected ? '#fff' : 'var(--text-secondary)',
-                        fontSize: 12,
+                        fontSize: 'var(--font-size-label)',
                         fontWeight: 600,
                         cursor: 'pointer',
                       }}
@@ -293,7 +293,7 @@ export default function TaskConfigView({ taskId }) {
                         borderRadius: '50%',
                         background: selected ? 'var(--accent)' : 'var(--bg-secondary)',
                         color: selected ? '#fff' : 'var(--text-secondary)',
-                        fontSize: 12,
+                        fontSize: 'var(--font-size-label)',
                         fontWeight: 600,
                         cursor: 'pointer',
                       }}
@@ -334,7 +334,7 @@ export default function TaskConfigView({ taskId }) {
                 ))}
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)' }}>
                 暂无可用通道，请在设置 → 通道中启用微信、QQ、企业微信或飞书
               </div>
             )}
@@ -354,7 +354,7 @@ export default function TaskConfigView({ taskId }) {
           {executions.length === 0 ? (
             <div style={emptyStateStyle}>
               <div style={{ marginBottom: 4 }}>暂无执行记录</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{nextRunsHint}</div>
+              <div style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)' }}>{nextRunsHint}</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -389,11 +389,11 @@ function ExecutionRow({ execution, onClick }) {
         transition: 'background 0.1s',
       }}
     >
-      <span style={{ fontSize: 11, fontWeight: 600, color: statusColor, background: `${statusColor}18`, padding: '2px 8px', borderRadius: 4, flexShrink: 0 }}>
+      <span style={{ fontSize: 'var(--font-size-caption)', fontWeight: 600, color: statusColor, background: `${statusColor}18`, padding: '2px 8px', borderRadius: 4, flexShrink: 0 }}>
         {STATUS_LABELS[execution.status] || execution.status}
       </span>
-      <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1 }}>{formatTime(execution.started_at)}</span>
-      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{execution.completed_at ? formatTime(execution.completed_at) : ''}</span>
+      <span style={{ fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)', flex: 1 }}>{formatTime(execution.started_at)}</span>
+      <span style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)' }}>{execution.completed_at ? formatTime(execution.completed_at) : ''}</span>
     </div>
   )
 }
@@ -405,19 +405,19 @@ function ExecutionRow({ execution, onClick }) {
 const containerStyle = { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }
 const scrollAreaStyle = { flex: 1, overflowY: 'auto', padding: '24px 32px' }
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }
-const titleStyle = { margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }
+const titleStyle = { margin: 0, fontSize: 'var(--font-size-title)', fontWeight: 600, color: 'var(--text-primary)' }
 const sectionStyle = { background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }
-const sectionTitleStyle = { margin: '0 0 12px 0', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }
+const sectionTitleStyle = { margin: '0 0 12px 0', fontSize: 'var(--font-size-subtitle)', fontWeight: 600, color: 'var(--text-primary)' }
 const fieldStyle = { marginBottom: 14 }
-const labelStyle = { display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5, fontWeight: 600 }
-const inputStyle = { width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, padding: '7px 10px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }
+const labelStyle = { display: 'block', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)', marginBottom: 5, fontWeight: 600 }
+const inputStyle = { width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 'var(--font-size-body)', padding: '7px 10px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }
 const textareaStyle = { ...inputStyle, resize: 'vertical', minHeight: 80, lineHeight: 1.5 }
-const presetBtnStyle = { border: '1px solid var(--border)', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }
-const inlineLabel = { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }
-const toggleLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' }
+const presetBtnStyle = { border: '1px solid var(--border)', borderRadius: 6, padding: '4px 12px', fontSize: 'var(--font-size-label)', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }
+const inlineLabel = { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)' }
+const toggleLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)' }
 const checkboxStyle = { accentColor: 'var(--accent)', width: 14, height: 14 }
-const channelLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)' }
-const saveBtnStyle = { border: 'none', borderRadius: 7, color: '#fff', padding: '8px 20px', fontSize: 13, fontWeight: 600, background: 'var(--accent)', fontFamily: 'inherit' }
-const deleteBtnStyle = { border: '1px solid var(--error, #ef4444)', borderRadius: 7, color: 'var(--error, #ef4444)', background: 'transparent', padding: '5px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }
-const hintStyle = { fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }
-const emptyStateStyle = { padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }
+const channelLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)' }
+const saveBtnStyle = { border: 'none', borderRadius: 7, color: '#fff', padding: '8px 20px', fontSize: 'var(--font-size-body)', fontWeight: 600, background: 'var(--accent)', fontFamily: 'inherit' }
+const deleteBtnStyle = { border: '1px solid var(--error, #ef4444)', borderRadius: 7, color: 'var(--error, #ef4444)', background: 'transparent', padding: '5px 14px', fontSize: 'var(--font-size-label)', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }
+const hintStyle = { fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)', marginTop: 6 }
+const emptyStateStyle = { padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-size-caption)' }

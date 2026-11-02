@@ -53,7 +53,7 @@
 
 .settings-title {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-title);
   font-weight: 600;
   line-height: 1.2;
   color: var(--text-primary);
@@ -61,7 +61,7 @@
 
 .settings-subtitle {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -102,7 +102,7 @@
   border: none;
   cursor: pointer;
   padding: 10px 14px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-label);
   font-weight: 500;
   color: var(--text-muted);
   border-bottom: 2px solid transparent;
@@ -208,7 +208,7 @@
 }
 
 .settings-row-title {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
@@ -216,7 +216,7 @@
 
 .settings-row-desc {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1.45;
   color: var(--text-muted);
 }
@@ -265,7 +265,7 @@
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-family: inherit;
   outline: none;
   padding: 4px 0;
@@ -285,7 +285,7 @@
   border-radius: 999px;
   background: #fff;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-label);
   font-weight: 600;
   font-family: inherit;
   padding: 5px 12px;
@@ -1193,7 +1193,7 @@
 
 .settings-field-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--text-secondary);
   margin-bottom: 4px;
   font-weight: 600;
@@ -1201,6 +1201,7 @@
 
 .settings-field-hint {
   color: var(--text-muted);
+  font-size: var(--font-size-caption);
   font-weight: 400;
   margin-left: 6px;
 }
@@ -1214,7 +1215,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-label);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -1227,12 +1228,12 @@
 .settings-input,
 .settings-select {
   width: 100%;
-  height: 32px;
+  height: 38px;
   background: var(--bg-primary);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   padding: 7px 10px;
   outline: none;
   font-family: inherit;

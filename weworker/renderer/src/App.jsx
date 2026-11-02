@@ -90,6 +90,7 @@ export default function App() {
   const startWidthRef = useRef(0)
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
+  const draftProjectId = useWorksStore((s) => s.draftProjectId)
   const scheduledTasks = useScheduledTasksStore((s) => s.tasks)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
   const tasksStatus = useScheduledTasksStore((s) => s.tasksStatus)
@@ -99,7 +100,7 @@ export default function App() {
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted)
   const poll = useStatusStore((s) => s.poll)
   const toggleUserFilesPanel = useUserFilesStore((s) => s.togglePanel)
-  const setWorkspaceWorkId = useUserFilesStore((s) => s.setWorkspaceWorkId)
+  const setWorkspaceContext = useUserFilesStore((s) => s.setWorkspaceContext)
   const userFilesOpen = useUserFilesStore((s) => s.open)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
@@ -111,8 +112,8 @@ export default function App() {
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
 
   useEffect(() => {
-    setWorkspaceWorkId(activeWorkId)
-  }, [activeWorkId, setWorkspaceWorkId])
+    setWorkspaceContext(activeWorkId, draftProjectId)
+  }, [activeWorkId, draftProjectId, setWorkspaceContext])
 
   useEffect(() => {
     if (!websiteOpen) return

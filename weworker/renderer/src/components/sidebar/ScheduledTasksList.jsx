@@ -53,7 +53,7 @@ export default function ScheduledTasksList() {
 
   if (!tasks.length) {
     return (
-      <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
+      <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--font-size-caption)' }}>
         暂无定时任务
       </div>
     )
@@ -174,12 +174,12 @@ function ScheduledTaskItem({ task, active, onSelect }) {
               if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void saveTitle() }
               if (event.key === 'Escape') { event.preventDefault(); cancelled.current = true; setDraftTitle(null); setError('') }
             }}
-            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', font: 'inherit', fontSize: 12, padding: '1px 3px', color: 'var(--text-primary)', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4 }}
+            style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', font: 'inherit', fontSize: 'var(--font-size-body)', padding: '1px 3px', color: 'var(--text-primary)', background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 4 }}
           />
         ) : <span
           style={{
-            fontSize: 12,
-            lineHeight: '18px',
+            fontSize: 'var(--font-size-body)',
+            lineHeight: '24px',
             display: 'block',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -191,8 +191,8 @@ function ScheduledTaskItem({ task, active, onSelect }) {
         </span>}
         <span
           style={{
-            fontSize: 10,
-            lineHeight: '15px',
+            fontSize: 'var(--font-size-caption)',
+            lineHeight: '20px',
             color: 'var(--text-muted)',
             display: 'block',
             overflow: 'hidden',
@@ -202,7 +202,7 @@ function ScheduledTaskItem({ task, active, onSelect }) {
         >
           {cronToSummary(task.cron_expression)}
         </span>
-        {error && <span role="alert" style={{ display: 'block', fontSize: 11, color: 'var(--error, #ef4444)' }}>{error}</span>}
+        {error && <span role="alert" style={{ display: 'block', fontSize: 'var(--font-size-caption)', color: 'var(--error, #ef4444)' }}>{error}</span>}
       </div>
       <div className="sidebar-row-actions" style={{ opacity: draftTitle !== null ? 0 : undefined, pointerEvents: draftTitle !== null ? 'none' : undefined }} onClick={(event) => event.stopPropagation()}>
         <AppSwitch

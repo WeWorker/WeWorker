@@ -7,6 +7,13 @@
 }
 
 :root {
+  --font-size-caption: 14px;
+  --font-size-label: 16px;
+  --font-size-body: 16px;
+  --font-size-subtitle: 18px;
+  --font-size-title: 24px;
+  --font-size-page-title: 28px;
+  --font-size-display: 32px;
   --bg-primary: #ffffff;
   --bg-secondary: #ffffff;
   --bg-tertiary: #e8e8ed;
@@ -177,7 +184,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
