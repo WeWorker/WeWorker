@@ -39,7 +39,7 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
     { name: 'Read', input: { file_path: path.join(workspace, 'created.txt') } },
     { name: 'PowerShell', input: { command: "Get-Content -LiteralPath '../outside.txt'" } },
     { name: 'Read', input: { file_path: path.join(workspace, 'blocked.txt') } },
-    { name: 'PowerShell', input: { command: 'Invoke-WebRequest https://unlisted.example.org' } },
+    { name: 'PowerShell', input: { command: "Write-Output 'unlisted-url https://unlisted.example.org'" } },
   ]
   if (mode === 'ask') calls.push({ name: 'PowerShell', input: { command: "Set-Content -LiteralPath './declined.txt' -Value 'must not run'" } })
   const confirmations: Array<{ id: string; createdFileExists: boolean }> = []
@@ -134,16 +134,20 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
     expect(results.get('fixture-tool-1')?.is_error).not.toBe(true)
     expect(fs.readFileSync(path.join(workspace, 'created.txt'), 'utf8').trim()).toBe('public fixture')
     expect(resultText(2)).toContain('public fixture')
-    for (const index of [3, 4, 5]) expect(results.get(`fixture-tool-${index}`)?.is_error).toBe(true)
-    expect(resultText(3)).toMatch(/inside user directory/)
-    expect(resultText(4)).toMatch(/blacklist/)
-    expect(resultText(5)).toContain('白名单')
     if (mode === 'ask') {
-      expect(confirmations).toHaveLength(4)
-      expect(confirmations.map(event => event.createdFileExists)).toEqual([false, false, true, true])
+      for (const index of [3, 4, 5]) expect(results.get(`fixture-tool-${index}`)?.is_error).not.toBe(true)
+      expect(resultText(3)).toContain('outside fixture')
+      expect(resultText(4)).toContain('blocked fixture')
+      expect(resultText(5)).toContain('unlisted-url')
+      expect(confirmations).toHaveLength(7)
+      expect(confirmations.map(event => event.createdFileExists)).toEqual([false, false, true, true, true, true, true])
       expect(results.get('fixture-tool-6')?.is_error).toBe(true)
       expect(fs.existsSync(path.join(workspace, 'declined.txt'))).toBe(false)
     } else {
+      for (const index of [3, 4, 5]) expect(results.get(`fixture-tool-${index}`)?.is_error).toBe(true)
+      expect(resultText(3)).toMatch(/inside user directory/)
+      expect(resultText(4)).toMatch(/blacklist/)
+      expect(resultText(5)).toContain('白名单')
       expect(confirmations).toEqual([])
     }
   } finally {

@@ -34,6 +34,10 @@ export function createWeWorkerToolPolicy(mode: ChannelPermissionMode): CanUseToo
       return deny('This channel is configured for question answering only. Tool use is disabled.')
     }
 
+    if (mode === 'ask' || mode === 'workspace' || mode === 'full') {
+      return { behavior: 'allow' }
+    }
+
     if (toolName === 'Bash' || toolName === 'PowerShell') {
       if (allowsNativeCommands(mode) && isAllowedBashCommand(input.command)) {
         return { behavior: 'allow' }

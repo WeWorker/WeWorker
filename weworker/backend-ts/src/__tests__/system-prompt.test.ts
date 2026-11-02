@@ -235,7 +235,7 @@ describe('System Prompt - behavioral rules retained (Req 4.3)', () => {
     expect(prompt).toContain('无需先打开业务页或检测页面登录')
   })
 
-  it('retains ask_user rules and forbids AskUserQuestion', async () => {
+  it('retains interactive user choice guidance without restricting other available tools', async () => {
     const jdAdapter = makeAdapter()
     mockAdapterMap.set(jdAdapter.id, jdAdapter)
     enabledSites.add(jdAdapter.id)
@@ -244,8 +244,8 @@ describe('System Prompt - behavioral rules retained (Req 4.3)', () => {
     const prompt = buildSystemPrompt()
 
     expect(prompt).toContain('ask_user')
-    expect(prompt).toMatch(/AskUserQuestion/)
-    expect(prompt).toMatch(/禁止调用内置工具/)
+    expect(prompt).toContain('其他可用选择工具也可按当前权限模式使用')
+    expect(prompt).not.toMatch(/禁止调用内置工具/)
   })
 
   it('does not require assistant replies to append a current-status line', async () => {
@@ -388,7 +388,7 @@ describe('System Prompt - file access scope', () => {
 
     expect(prompt).toContain('## 文件访问范围')
     expect(prompt).toContain('C:\\Users\\test\\.weworker\\user-files')
-    expect(prompt).toContain('原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具只能访问用户目录')
+    expect(prompt).toContain('所有工具的文件读取、写入、列出、搜索、上传、解密和发送都只能访问当前绑定的工作区')
   })
 })
 
@@ -461,24 +461,25 @@ describe('System Prompt - channel permission modes', () => {
     expect(prompt).not.toMatch(/璇峰嬁灏濊瘯鎵撳紑娴忚鍣ㄦ垨鎿嶄綔缃戠珯/)
   })
 
-  it('full prompt runs both Adapter types through the native shell and webcli', async () => {
+  it('full prompt allows all available command tools for both Adapter types', async () => {
     const jdAdapter = makeAdapter()
     mockAdapterMap.set(jdAdapter.id, jdAdapter)
     enabledSites.add(jdAdapter.id)
 
     const { buildSystemPrompt } = await import('../agent.js')
-    const prompt = buildSystemPrompt()
+    const prompt = buildSystemPrompt({ channelPermissionMode: 'full' })
 
     expect(prompt).not.toContain('webcli_call')
     const nativeShell = process.platform === 'win32' ? 'PowerShell' : 'Bash'
-    expect(prompt).toContain(`Claude Code 内置 ${nativeShell} 已开放`)
-    expect(prompt).toContain('不受 WeWorker 用户目录白名单、黑名单、绝对路径或命令类型限制')
+    expect(prompt).toContain(`Claude Code 内置 ${nativeShell}、WeWorker Shell 及其他可用工具均已开放`)
+    expect(prompt).toContain('完全权限允许使用所有可用工具、任意命令和任意文件路径')
     expect(prompt).toContain('webcli call <完整工具名> --参数名=参数值')
     expect(prompt).toContain('Extension Adapter 或 Toolkit Adapter')
     expect(prompt).toContain('Chrome 扩展 Bridge 或内嵌 Toolkit Runtime')
     expect(prompt).toContain('WeWorker Shell')
-    expect(prompt).toContain(`必须使用 Claude Code 内置 ${nativeShell}`)
-    expect(prompt).toContain('不得使用 `weworker_powershell`')
+    expect(prompt).toContain('可使用任一可用命令工具运行 `webcli call`')
+    expect(prompt).toContain('Claude Code 内置 PowerShell、WeWorker Shell 及其他可用工具均已开放')
+    expect(prompt).not.toContain('不得使用 `weworker_powershell`')
     expect(prompt).not.toContain(`不要调用 Claude Code 内置 ${nativeShell}`)
   })
 
@@ -487,24 +488,38 @@ describe('System Prompt - channel permission modes', () => {
     for (const platform of ['win32', 'linux'] as const) {
       const nativeShell = platform === 'win32' ? 'PowerShell' : 'Bash'
       const prompt = buildSystemPrompt({ channelPermissionMode: 'workspace', platform, workspaceDirectory: 'C:/example/workspace' })
-      expect(prompt).toContain(`Claude Code 内置 ${nativeShell} 已开放`)
-      expect(prompt).toContain('Extension Adapter 或 Toolkit Adapter')
+      expect(prompt).toContain(`Claude Code 内置 ${nativeShell} 与 WeWorker Shell 都可执行命令`)
+      expect(prompt).toContain('Extension Adapter 与 Toolkit Adapter 可正常调用')
       expect(prompt).toContain('C:/example/workspace')
       expect(prompt).toContain('站点白名单')
       expect(prompt).toContain('黑名单')
       expect(prompt).not.toContain('需要 full 权限')
       expect(prompt).not.toContain('不能执行 Extension Adapter')
-      expect(prompt).not.toContain('不受 WeWorker 用户目录白名单')
+      expect(prompt).not.toContain('完全权限允许使用所有可用工具')
       expect(buildDisallowedTools('workspace', platform)).not.toContain(nativeShell)
+      expect(buildDisallowedTools('workspace', platform)).toEqual([])
     }
+  })
+
+  it('distinguishes ask and full prompts from workspace access boundaries', async () => {
+    const { buildSystemPrompt, buildDisallowedTools } = await import('../agent.js')
+    const ask = buildSystemPrompt({ channelPermissionMode: 'ask', platform: 'win32', workspaceDirectory: 'C:/example/workspace' })
+    const full = buildSystemPrompt({ channelPermissionMode: 'full', platform: 'win32', workspaceDirectory: 'C:/example/workspace' })
+    expect(ask).toContain('每次工具调用')
+    expect(ask).not.toContain('站点白名单限制')
+    expect(ask).not.toContain('工作区内修改')
+    expect(full).toContain('完全权限不受白名单、黑名单或工作区目录限制')
+    expect(full).not.toContain('被黑名单命中的路径不可')
+    expect(buildDisallowedTools('ask', 'win32')).toEqual([])
+    expect(buildDisallowedTools('full', 'win32')).toEqual([])
   })
 
   it('uses native PowerShell throughout the Windows full prompt', async () => {
     const { buildSystemPrompt } = await import('../agent.js')
     const prompt = buildSystemPrompt({ channelPermissionMode: 'full', platform: 'win32' })
 
-    expect(prompt).toContain('Claude Code 内置 PowerShell 已开放')
-    expect(prompt).toContain('必须使用 Claude Code 内置 PowerShell')
+    expect(prompt).toContain('Claude Code 内置 PowerShell、WeWorker Shell 及其他可用工具均已开放')
+    expect(prompt).toContain('可使用所有可用命令工具')
     expect(prompt).toContain('当前平台默认 Shell（powershell）')
     expect(prompt).not.toContain('Claude Code 内置 Bash 已开放')
   })

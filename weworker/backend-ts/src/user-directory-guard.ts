@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { expandHomePath, getConfigDirectory, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { formatBlacklistEntry, isPathBlacklisted } from './user-directory-blacklist.js'
-import { getActiveWorkspaceDirectory } from './workspace-access-context.js'
+import { getActivePermissionMode, getActiveWorkspaceDirectory } from './workspace-access-context.js'
 
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(String(value || '').trim()) || String(value || '').trim().startsWith('\\\\')
@@ -49,6 +49,7 @@ export function isPathInsideAllowedDirectory(targetPath: string): boolean {
 }
 
 export function isPathBlockedByBlacklist(targetPath: string): boolean {
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return false
   const resolved = resolvePathAgainstUserDirectory(targetPath)
   if (isPathInsideRuntimeSkillsDirectory(resolved)) return false
   const entries = getUserDirectoryBlacklist()
@@ -57,6 +58,7 @@ export function isPathBlockedByBlacklist(targetPath: string): boolean {
 }
 
 export function assertPathNotBlacklisted(targetPath: string, label = 'path'): void {
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return
   const resolved = resolvePathAgainstUserDirectory(targetPath)
   const entries = getUserDirectoryBlacklist()
   if (!entries.length) return
@@ -72,10 +74,12 @@ export function assertPathNotBlacklisted(targetPath: string, label = 'path'): vo
 
 export function assertPathInsideUserDirectory(targetPath: string, label = 'path'): string {
   const target = resolvePathAgainstUserDirectory(targetPath)
-  if (!isPathInsideAllowedDirectory(target)) {
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return target
+  const runtimeSkillAllowed = getActivePermissionMode() !== 'workspace' && isPathInsideRuntimeSkillsDirectory(target)
+  if (!isPathInsideUserDirectory(target) && !runtimeSkillAllowed) {
     throw new Error(`${label} must stay inside user directory: ${resolveUserDirectoryRoot()}`)
   }
-  if (isPathInsideRuntimeSkillsDirectory(target)) return target
+  if (runtimeSkillAllowed) return target
   assertPathNotBlacklisted(target, label)
   return target
 }

@@ -218,8 +218,6 @@ export function buildDisallowedTools(
     'CronCreate',
     'CronDelete',
     'AskUserQuestion',
-    // Hide definitions as well as denying execution in createWeWorkerToolPolicy.
-    // These SDK tools are not supported by WeWorker, even in full mode.
     'EnterWorktree',
     'ExitWorktree',
     'ListAgents',
@@ -249,7 +247,7 @@ export function buildDisallowedTools(
     return [...baseDisallowed, nativeCommandTool, ...restrictedBuiltInTools]
   }
   if (channelPermissionMode === 'no_bash') return [...baseDisallowed, nativeCommandTool]
-  return baseDisallowed
+  return []
 }
 
 export function ensureAgentWorkingDirectory(directory = getUserDirectory()): string {
@@ -314,7 +312,7 @@ export function buildSystemPrompt(opts?: {
   /** Browser whose extension serves Adapter calls; 'dedicated' is WeWorker 浏览器. */
   browserInstance?: ExtensionInstance
 }): string {
-  const channelPermissionMode = opts?.channelPermissionMode ?? 'full'
+  const channelPermissionMode = opts?.channelPermissionMode ?? 'workspace'
   const platform = opts?.platform ?? process.platform
   const nativeCommandTool = platform === 'win32' ? 'PowerShell' : 'Bash'
   const defaultShell = platform === 'win32' ? 'powershell' : 'bash'
@@ -325,10 +323,10 @@ export function buildSystemPrompt(opts?: {
 
   const allAdapters = parseAllAdapters()
   const userDirectory = opts?.workspaceDirectory || getUserDirectory()
-  const blacklistEntries = getUserDirectoryBlacklist()
-  const blacklistScope = channelPermissionMode === 'full'
-    ? '以下路径黑名单规则由系统对原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具强制校验；不适用于 `full` 模式的 Claude Code 内置 Bash：'
-    : '以下路径黑名单规则由系统在工具执行时强制校验：'
+  const blacklistEntries = channelPermissionMode === 'ask' || channelPermissionMode === 'full'
+    ? []
+    : getUserDirectoryBlacklist()
+  const blacklistScope = '以下路径黑名单规则由系统在工具执行时强制校验：'
   const blacklistNotice = blacklistEntries.length
     ? `
 ${blacklistScope}
@@ -342,31 +340,32 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
     : ''
 
   const adapterExecutionEnabled = allowsNativeCommands(channelPermissionMode)
-  const webcliInvokeDesc = `Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call <完整工具名> --参数名=参数值\``
-  const openBrowserDesc = `使用 Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
-  const webcliStep2 = `2. 使用 Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call <完整工具名> --参数名=参数值\``
-  const openBrowserRule = `用 Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call open_browser --url=... [--adapter=<adapter-id>]\``
+  const commandToolDescription = adapterExecutionEnabled ? '任一可用命令工具' : 'WeWorker Shell'
+  const webcliInvokeDesc = `${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
+  const openBrowserDesc = `使用${commandToolDescription}执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
+  const webcliStep2 = `2. 使用${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
+  const openBrowserRule = `用${commandToolDescription}执行 \`webcli call open_browser --url=... [--adapter=<adapter-id>]\``
   const bashCapabilityNotice = channelPermissionMode === 'full'
     ? `
 ## Skill、Adapter 与 ${nativeCommandTool}
 
-优先按已激活的标准 Skill 指令执行。执行 Extension Adapter 或 Toolkit Adapter 时，统一使用 Claude Code 内置 ${nativeCommandTool} 运行 \`webcli call\`，不得使用 \`weworker_powershell\`。
-Claude Code 内置 ${nativeCommandTool} 已开放，也可执行构建、测试、git、npm 和其他本地命令。
-内置 ${nativeCommandTool} 不受 WeWorker 用户目录白名单、黑名单、绝对路径或命令类型限制。
+优先按已激活的标准 Skill 指令执行。执行 Extension Adapter 或 Toolkit Adapter 时，可使用任一可用命令工具运行 \`webcli call\`。
+Claude Code 内置 ${nativeCommandTool}、WeWorker Shell 及其他可用工具均已开放，可执行构建、测试、git、npm 和其他本地命令。
+完全权限允许使用所有可用工具、任意命令和任意文件路径，不受工作区、站点或文件白名单/黑名单设置限制。
 WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
 `
-    : isGuardedDesktopMode(channelPermissionMode)
+    : channelPermissionMode === 'ask'
       ? `
-## ${channelPermissionMode === 'ask' ? '修改询问' : '工作区内修改'}：Skill、Adapter 与 ${nativeCommandTool}
+## 修改询问：全部工具操作逐次确认
 
-Claude Code 内置 ${nativeCommandTool} 已开放，可执行 Extension Adapter 或 Toolkit Adapter，以及构建、测试、git、npm 等本地命令；不需要切换到完全权限。
-执行 Adapter 时使用内置 ${nativeCommandTool} 运行 \`webcli call\`，不得使用 \`weworker_powershell\`。
-当前对话绑定的工作区是 ${userDirectory}，也是命令默认工作目录。文件读取、使用和修改必须留在该目录内，路径黑名单继续有效。
-${channelPermissionMode === 'ask'
-  ? '每次工具操作（包括读取文件、修改文件、执行命令、调用 Adapter）都由系统展示操作与参数，并等待用户确认。只有用户选择允许本次后才执行；拒绝、取消或超时都不执行。不要自行认为已经获得授权，也不要因为需要确认而声称工具不可用。'
-  : '范围内操作不需要逐次请求确认。'}
-站点访问仍受站点白名单限制（已授权 Adapter 站点和设置中额外允许的站点）；越界时说明具体限制，不要要求用户升级权限才能调用已授权 Adapter。
-WebCLI 按 Adapter 类型选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
+所有可用工具、命令及文件路径均可请求执行。每次工具调用都先展示操作和参数，等待用户明确批准；用户拒绝、取消或超时就停止该操作。允许后按用户批准的参数执行，不受工作区、站点或文件白名单/黑名单限制。
+`
+      : channelPermissionMode === 'workspace'
+        ? `
+## 工作区内修改：工作区与站点白名单
+
+所有可用工具均可直接执行，无需逐次询问。所有文件读取、写入、列出、上传、发送和命令引起的文件访问都必须限定在当前对话工作区 ${userDirectory}；文件黑名单继续生效。网站及网络访问只允许设置中启用的站点与 URL 白名单；不要通过搜索、抓取或其他工具绕过白名单。
+Claude Code 内置 ${nativeCommandTool} 与 WeWorker Shell 都可执行命令。Extension Adapter 与 Toolkit Adapter 可正常调用，仍须遵循同一文件范围及站点白名单。越界时说明限制，不要要求用户切换权限。
 `
     : `
 ## 原生命令工具限制
@@ -412,7 +411,7 @@ WeWorker Shell 的 stdout/stderr 会实时显示在右侧终端面板中，用�
 Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业务工具；宿主会自动选择、复用或创建匹配标签页，并处理 \`AUTH_REQUIRED\` 登录流程。调用前不要${openBrowserDesc}，也不要做登录预检。只有用户明确要求打开页面、通用浏览器／探索流程，或当前 Adapter Skill 明确要求手工页面准备时，才使用 \`open_browser\`。Toolkit 命令按其 Skill 的运行时说明执行。`
       : 'Skill 可用于阅读说明，但不要执行其中的 Adapter 命令。',
     new_adapter_guidance: adapterExecutionEnabled
-      ? `用户要求探索接口、封装查询或生成/修复 Adapter 时，读取共享 Skill：\`webcli skills read webcli-api-exploration\`，按需读取 \`webcli\` 和 \`webcli-browser\`。没有现成网站 Skill 也可探索；由当前聊天 Agent 理解、观察和编写，通过内置 ${nativeCommandTool} 调用 \`webcli call exploration.<command>\`，不启动另一套模型协调流程。
+      ? `用户要求探索接口、封装查询或生成/修复 Adapter 时，读取共享 Skill：\`webcli skills read webcli-api-exploration\`，按需读取 \`webcli\` 和 \`webcli-browser\`。没有现成网站 Skill 也可探索；由当前聊天 Agent 理解、观察和编写，通过${commandToolDescription}调用 \`webcli call exploration.<command>\`，不启动另一套模型协调流程。
 先用 \`exploration.help\`、\`exploration.capabilities\` 和 \`profile.list\` 核对实际契约与选定浏览器。使用 PATH 中的桌面内置 WebCLI，不安装全局 npm 版替换它。能力缺失时说明需要更新匹配的客户端/Bridge/扩展，不退回旧流程。旧聊天中的 start_api_exploration/start_adapter_generation 等入口已停用；历史任务在独立探索页面查看，不将旧 taskId 交给新流程。
 客户端模型凭据仅用于模型连接，不得读取环境变量或客户端配置来获取、打印或复用模型 Key 作为网站凭据，也不得为注入凭据而重启 Bridge。当前成员的查询先观察目标网站的登录态和真实请求，不凭品牌相同猜接口或账号口径；准备后无业务页允许首次观察与显式准备。
 按共享 Skill 完成证据、草稿、真实 cases、validate、review、授权内 install，再普通调用。collecting/validating 只是运行中，使用 get/events 有界等待；用户取消时调用 exploration.cancel，已派发请求不自动重放。不要让用户手写代码或计划 JSON；登录/明确账号上下文/超出授权的安装范围用 ask_user 询问。
@@ -428,17 +427,41 @@ Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业
     open_browser_wait_rule: adapterExecutionEnabled
       ? `${openBrowserRule} 仅在确实需要手工页面准备时使用；使用后必须等待至少 5 秒再执行依赖该页面的后续页面/DOM 操作。`
       : '当前权限模式不能调用 open_browser。',
-    user_directory: userDirectory,
-    directory_boundary_rule: channelPermissionMode === 'full'
-      ? `此目录边界不适用于 \`full\` 模式的 Claude Code 内置 ${nativeCommandTool}；内置 ${nativeCommandTool} 可以访问其他绝对路径，也不应用用户目录黑名单。`
-      : 'WeWorker Shell 命令（含 cat、type、python 等）与内置文件工具同样受用户目录边界约束，越界请求会被系统拦截。',
+    file_access_scope: channelPermissionMode === 'workspace'
+      ? `所有工具的文件读取、写入、列出、搜索、上传、解密和发送都只能访问当前绑定的工作区 \`${userDirectory}\` 及其子目录。`
+      : channelPermissionMode === 'ask'
+        ? '所有工具均可访问任意文件路径，但每次工具调用都必须先由用户确认；拒绝、取消或超时后不得执行。'
+        : channelPermissionMode === 'full'
+          ? '所有可用工具均可访问任意文件路径，不受工作区和文件权限设置限制。'
+          : `Claude Code 原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具只能访问用户目录 \`${userDirectory}\` 及其子目录中的文件。\n严禁读取、写入、列出、搜索、上传、解密或发送该目录之外的任何路径。`,
+    directory_boundary_rule: channelPermissionMode === 'workspace'
+      ? '所有工具的文件访问由系统限制在当前绑定的工作区内；文件黑名单同样有效。'
+      : channelPermissionMode === 'ask'
+        ? '文件访问范围由用户对每次工具调用的明确确认决定；不要自行拒绝工作区外的路径。'
+        : channelPermissionMode === 'full'
+          ? '完全权限不受白名单、黑名单或工作区目录限制。'
+          : 'WeWorker Shell 命令（含 cat、type、python 等）与内置文件工具同样受用户目录边界约束，越界请求会被系统拦截。',
+    skill_directory_rule: channelPermissionMode === 'workspace'
+      ? '`CLAUDE_CONFIG_DIR/skills` 下由 Adapter 管理的技能目录不属于当前工作区，不得直接编辑、删除、重命名或上传。新增或编辑 Skill 请使用 WeWorker 的「SKILLS与场景」功能。'
+      : channelPermissionMode === 'ask'
+        ? '技能目录也遵循逐次确认规则；用户明确批准后可以按请求访问或修改。'
+        : channelPermissionMode === 'full'
+          ? '完全权限模式下可按用户请求访问或修改任意技能目录。'
+          : '`CLAUDE_CONFIG_DIR/skills` 下的技能目录禁止在 WeWorker 会话里直接编辑、删除、重命名或上传。需要管理技能时，引导用户使用左侧「SKILLS与场景」功能。',
+    file_tools_scope: channelPermissionMode === 'workspace'
+      ? '`Read`、`Glob`、`Grep`、`Edit`、`Write`、`NotebookEdit` 和文件类 MCP 工具只能访问当前工作区内文件。'
+      : channelPermissionMode === 'ask'
+        ? '`Read`、`Glob`、`Grep`、`Edit`、`Write`、`NotebookEdit` 和文件类 MCP 工具可访问任意路径，但每次调用都要先由用户确认。'
+        : channelPermissionMode === 'full'
+          ? '`Read`、`Glob`、`Grep`、`Edit`、`Write`、`NotebookEdit` 和文件类 MCP 工具可访问任意路径。'
+          : '`Read`、`Glob`、`Grep`、`Edit`、`Write`、`NotebookEdit` 可用于用户目录内的文件读取、搜索和编辑；文件类 MCP 工具也仅接受用户目录内路径。',
     blacklist_notice: blacklistNotice,
     local_command_execution_rule: adapterExecutionEnabled
-      ? `执行 Extension Adapter 或 Toolkit Adapter 时必须使用 Claude Code 内置 ${nativeCommandTool} 运行 \`webcli call\`，不得使用 \`weworker_powershell\`；其他本地命令、构建、测试、git 或 npm 也可以使用内置 ${nativeCommandTool}。`
+      ? `可使用所有可用命令工具执行本地命令、构建、测试、git、npm 和 \`webcli call\`；权限边界由当前模式决定。`
       : '当需要执行本地命令、Shell 命令、构建、测试、git、npm 或查看命令输出时，必须调用 `weworker_powershell` 工具，不要调用 Claude Code 内置 Bash 或 PowerShell。',
     default_shell: defaultShell,
     adapter_shell_rule: adapterExecutionEnabled
-      ? '网站操作仍按 webcli 规则执行；不要为了调用网站工具而改用 `weworker_powershell`。'
+      ? '可通过任何可用命令工具调用 WebCLI；workspace 模式须遵守站点白名单。'
       : '当前权限模式不能执行 Adapter；严禁用 `weworker_powershell` 调用 webcli。',
     windows_encryption_rules: windowsEncryptionRules,
     login_detection_rules: loginDetectionRules,
@@ -1123,7 +1146,7 @@ async function* streamChatWithBaseUrl(
   await waitForAdapterRuntimeReload()
   phase.mark('adapter_reload_wait')
   const enabledAdapterIds = opts.enabledAdapterIds
-  const channelPermissionMode = opts.channelPermissionMode ?? 'full'
+  const channelPermissionMode = opts.channelPermissionMode ?? 'workspace'
   const workspaceDirectory = isGuardedDesktopMode(channelPermissionMode) && opts.workId
     ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
     : undefined
@@ -1219,7 +1242,8 @@ async function* streamChatWithBaseUrl(
     ...claudeTemp.env,
     CLAUDE_CODE_EXTRA_BODY: buildThinkingExtraBody(thinkingEffort, queryEnv.CLAUDE_CODE_EXTRA_BODY),
     PATH: `${pathPrefix}${path.delimiter}${queryEnv.PATH || process.env.PATH || ''}`,
-    WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
+    WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: channelPermissionMode === 'workspace' ? getOpenBrowserAllowedOrigins().join(',') : '',
+    WEWORKER_CHAT_PERMISSION_MODE: channelPermissionMode,
     WEWORKER_ADAPTERS_DIR: path.join(getUserDirectory(), '.claude', 'skills'),
     // Conversation id for the webcli call chain: CLI → Bridge → extension logs
     ...(opts.workId ? { WEWORKER_WORK_ID: opts.workId } : {}),
@@ -1262,7 +1286,8 @@ async function* streamChatWithBaseUrl(
         decision = await filesystemToolGuard(toolName, input as Record<string, unknown>)
       }
     }
-    if (channelPermissionMode !== 'ask' && decision.behavior !== 'deny' && opts.permissionMode === 'default' && (toolName === 'Edit' || toolName === 'Write')) {
+    if (channelPermissionMode !== 'ask' && channelPermissionMode !== 'workspace' && channelPermissionMode !== 'full'
+      && decision.behavior !== 'deny' && opts.permissionMode === 'default' && (toolName === 'Edit' || toolName === 'Write')) {
       const workId = turnBindings.workIdRef.current
       const onAskUser = turnBindings.onAskUser
       if (!workId || !onAskUser) {

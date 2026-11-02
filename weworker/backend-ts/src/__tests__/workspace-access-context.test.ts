@@ -97,7 +97,9 @@ describe('bound workspace access', () => {
       hook_event_name: 'PreToolUse', session_id: 'example-session', transcript_path: '', cwd: workspace,
       tool_name: 'Write', tool_input: { file_path: file, content: 'public example' }, tool_use_id: 'example-tool',
     }, 'example-tool', { signal: new AbortController().signal })
-    await expect(invoke(path.join(workspace, 'note.txt'))).resolves.toEqual({})
+    await expect(invoke(path.join(workspace, 'note.txt'))).resolves.toMatchObject({
+      hookSpecificOutput: { updatedInput: { file_path: path.join(workspace, 'note.txt') } },
+    })
     await expect(invoke(path.join(workspace, 'blocked.txt'))).resolves.toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } })
     await expect(invoke(path.join(otherWorkspace, 'note.txt'))).resolves.toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } })
   })
