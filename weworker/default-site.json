@@ -1,7 +1,7 @@
 [
   { "id": "ctrip.com", "enabled": true },
   { "id": "bilibili.com", "enabled": true },
-  { "id": "mail.qq.com", "enabled": false },
+  { "id": "mail.qq.com", "enabled": true },
   { "id": "mail.163.com", "enabled": true },
   { "id": "mail.google.com", "enabled": true },
   { "id": "jd.com", "enabled": true },

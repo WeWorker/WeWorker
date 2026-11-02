@@ -20,6 +20,9 @@ export default function Sidebar({ section, collapsed, width }) {
   const createTask = useScheduledTasksStore((s) => s.createTask)
   const loadTasks = useScheduledTasksStore((s) => s.loadTasks)
   const userDirectory = useSettingsStore((s) => s.userDirectory)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showSearch, setShowSearch] = useState(false)
+  const searchButtonRef = useRef(null)
   const [showProjectDialog, setShowProjectDialog] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectFolderPath, setProjectFolderPath] = useState('')
@@ -163,6 +166,25 @@ export default function Sidebar({ section, collapsed, width }) {
         }}>
           <span className="sidebar-workspaces-label">工作区</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
+            <Tooltip text="搜索对话">
+              <button
+                ref={searchButtonRef}
+                type="button"
+                className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
+                aria-label="搜索对话"
+                aria-expanded={showSearch}
+                aria-controls="sidebar-work-search"
+                onClick={() => {
+                  setShowSearch((value) => !value)
+                  if (showSearch) setSearchQuery('')
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
+            </Tooltip>
             {/* Label filter — only visible when there are labeled works or a filter is active */}
             {(hasLabeled || labelFilter) && (
               <div ref={labelFilterRef} style={{ position: 'relative' }}>
@@ -232,8 +254,40 @@ export default function Sidebar({ section, collapsed, width }) {
               </Tooltip>
           </div>
         </div>
+        {showSearch && (
+          <div style={{ padding: '0 8px 4px', WebkitAppRegion: 'no-drag' }}>
+            <input
+              id="sidebar-work-search"
+              type="search"
+              aria-label="搜索对话"
+              autoFocus
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索标题或 ID..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                color: 'var(--text-primary)',
+                fontSize: 12,
+                padding: '5px 8px',
+                outline: 'none',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return
+                event.preventDefault()
+                setShowSearch(false)
+                setSearchQuery('')
+                searchButtonRef.current?.focus({ preventScroll: true })
+              }}
+            />
+          </div>
+        )}
         <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
-          <WorksList />
+          <WorksList searchQuery={searchQuery} />
         </div>
       </div>
       )}

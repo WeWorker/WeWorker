@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSitesStore } from '../../store/sites.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { useCapabilitiesPanelStore } from '../../store/capabilities-panel.js'
@@ -17,7 +18,7 @@ import { buildPromptFromTemplate, hasPromptTemplateVars } from '../../utils/prom
 import { getSiteDragId, hasSiteDragData, setSiteDragData } from '../../utils/site-drag.js'
 import FeaturedSiteActions from './FeaturedSiteActions.jsx'
 import { ClosePanelIcon, EyeIcon, EyeOffIcon, FourSquaresIcon, ListIcon, RobotIcon, TrialChatIcon } from './WelcomeIcons.jsx'
-import { AppstoreAddOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   ADD_FEATURED_DROP_TARGET,
   CONVERSATION_EXAMPLE_VISIBLE_KEY,
@@ -28,6 +29,7 @@ import {
   assistantText,
   clampText,
   fallbackScenarios,
+  filterFeaturedSites,
   filterScenarios,
   getFeaturedSiteAvailability,
   getHiddenFeaturedSites,
@@ -137,6 +139,10 @@ function ScenarioPickerListItem({
         className={`scenario-picker-item-row${isHovered ? ' is-hovered' : ''}`}
         onMouseEnter={() => onHover(itemKey)}
         onMouseLeave={() => onHover(null)}
+        onClick={(event) => {
+          event.stopPropagation()
+          onToggleExpand()
+        }}
       >
         <span className="scenario-picker-item-fill-wrap">
           <Tooltip text="在对话中使用" light placement="top" delay={300}>
@@ -156,6 +162,7 @@ function ScenarioPickerListItem({
         <button
           type="button"
           className="scenario-picker-item-main"
+          aria-expanded={isExpanded}
           onFocus={() => onHover(itemKey)}
           onBlur={() => onHover(null)}
           onClick={(event) => {
@@ -205,10 +212,6 @@ function ScenarioPickerListItem({
             if (event.target?.closest?.('input, textarea, button, select, [contenteditable="true"]')) return
             onFill()
           }}
-          onFocus={() => onHover(itemKey)}
-          onBlur={() => onHover(null)}
-          onMouseEnter={() => onHover(itemKey)}
-          onMouseLeave={() => onHover(null)}
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
         >
@@ -248,6 +251,9 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
   const sectionRef = useRef(null)
   const welcomeScrollRef = useRef(null)
+  const composerSeatRef = useRef(null)
+  const featuredToolbarRef = useRef(null)
+  const featuredSearchRef = useRef(null)
   const featuredGridRef = useRef(null)
   const featuredLayoutRefs = useRef(new Map())
   const previousFeaturedLayoutRects = useRef(new Map())
@@ -271,6 +277,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const [hoveredAddSiteId, setHoveredAddSiteId] = useState(null)
   const [hoveredScenarioKey, setHoveredScenarioKey] = useState(null)
   const [addPickerQuery, setAddPickerQuery] = useState('')
+  const [featuredSearchQuery, setFeaturedSearchQuery] = useState('')
   const [scenarioPickerQuery, setScenarioPickerQuery] = useState('')
   const [expandedScenarioPickerKey, setExpandedScenarioPickerKey] = useState(null)
   const [scenarioPromptValues, setScenarioPromptValues] = useState({})
@@ -290,6 +297,32 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const bumpFeaturedGridLayout = useCallback(() => {
     setFeaturedGridLayoutEpoch((current) => current + 1)
   }, [])
+  const hasInlineComposer = Boolean(children)
+
+  useLayoutEffect(() => {
+    const scrollNode = welcomeScrollRef.current
+    if (!scrollNode || detailRow) return undefined
+    const composer = composerSeatRef.current
+    const toolbar = featuredToolbarRef.current
+    const updateStickyOffsets = () => {
+      scrollNode.style.setProperty('--welcome-viewport-height', `${scrollNode.clientHeight}px`)
+      scrollNode.style.setProperty('--welcome-composer-height', `${composer?.getBoundingClientRect().height || 0}px`)
+      scrollNode.style.setProperty('--welcome-toolbar-height', `${toolbar?.getBoundingClientRect().height || 0}px`)
+    }
+    updateStickyOffsets()
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateStickyOffsets) : null
+    observer?.observe(scrollNode)
+    if (composer) observer?.observe(composer)
+    if (toolbar) observer?.observe(toolbar)
+    window.addEventListener('resize', updateStickyOffsets)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', updateStickyOffsets)
+      scrollNode.style.removeProperty('--welcome-viewport-height')
+      scrollNode.style.removeProperty('--welcome-composer-height')
+      scrollNode.style.removeProperty('--welcome-toolbar-height')
+    }
+  }, [hasInlineComposer, detailRow])
 
   useEffect(() => {
     if (sites.length === 0) loadSites()
@@ -369,7 +402,22 @@ export default function WelcomeScreen({ onFillInput, children }) {
     maxVisibleFeaturedCount,
     orderedRows.length,
   )
-  const featuredSites = orderedRows.slice(0, visibleFeaturedCount)
+  const featuredSites = useMemo(() => orderedRows.slice(0, visibleFeaturedCount), [orderedRows, visibleFeaturedCount])
+  const filteredFeaturedSites = useMemo(
+    () => filterFeaturedSites(featuredSites, featuredSearchQuery, featuredSiteName),
+    [featuredSites, featuredSearchQuery],
+  )
+
+  useLayoutEffect(() => {
+    const scrollNode = welcomeScrollRef.current
+    const grid = featuredGridRef.current
+    const toolbar = featuredToolbarRef.current
+    if (!scrollNode || !grid || !toolbar) return
+    // Bring the first search result below the pinned toolbar without moving it.
+    const hiddenHeight = toolbar.getBoundingClientRect().bottom + 12 - grid.getBoundingClientRect().top
+    if (hiddenHeight > 0) scrollNode.scrollTop = Math.max(0, scrollNode.scrollTop - hiddenHeight)
+  }, [featuredSearchQuery])
+
   const hiddenFeaturedSites = getHiddenFeaturedSites({
     visibleSites: orderedRows,
     enabledSites: hiddenWelcomeSites,
@@ -386,7 +434,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const addFeaturedLimitTitle = featuredSiteLimitReached
     ? `已达上限 ${featuredSiteLimit} 个，可在设置 → 配置中调整「欢迎页常用场景网站上限」`
     : (allAvailableFeaturedSitesShown ? '已添加全部可用网站' : undefined)
-  const featuredLayoutSignature = `${featuredSquareCards ? 'grid' : 'list'}:${featuredSites.map(({ site }) => site.id).join('|')}:${canAddFeaturedSite ? 'add' : 'no-add'}`
+  const featuredLayoutSignature = `${featuredSquareCards ? 'grid' : 'list'}:${filteredFeaturedSites.map(({ site }) => site.id).join('|')}:${canAddFeaturedSite ? 'add' : 'no-add'}`
   const filteredHiddenFeaturedSites = useMemo(() => {
     const query = addPickerQuery.trim().toLowerCase()
     if (!query) return hiddenFeaturedSites
@@ -440,13 +488,19 @@ export default function WelcomeScreen({ onFillInput, children }) {
       setSelectedFeaturedSiteId(null)
       return
     }
-    if (!featuredSites.some(({ site }) => site.id === scenarioPickerSiteId)) {
+    if (!filteredFeaturedSites.some(({ site }) => site.id === scenarioPickerSiteId)) {
       setScenarioPickerSiteId(null)
       setScenarioPickerQuery('')
       setHoveredScenarioKey(null)
       setSelectedFeaturedSiteId(null)
     }
-  }, [featuredSites, scenarioPickerSiteId])
+  }, [filteredFeaturedSites, scenarioPickerSiteId])
+
+  useEffect(() => {
+    if (skillsScenariosPickerSiteId && !filteredFeaturedSites.some(({ site }) => site.id === skillsScenariosPickerSiteId)) {
+      setSkillsScenariosPickerSiteId(null)
+    }
+  }, [filteredFeaturedSites, skillsScenariosPickerSiteId])
 
   useLayoutEffect(() => {
     if (!activeFloatingPickerKey) return undefined
@@ -464,12 +518,15 @@ export default function WelcomeScreen({ onFillInput, children }) {
         FLOATING_PICKER_MARGIN,
         scrollRect?.top ?? sectionRect?.top ?? FLOATING_PICKER_MARGIN,
       )
-      const bottomLimit = chatDockRect
-        ? chatDockRect.top - FLOATING_PICKER_MARGIN
-        : Math.min(
-          window.innerHeight - FLOATING_PICKER_MARGIN,
-          sectionRect?.bottom ?? window.innerHeight - FLOATING_PICKER_MARGIN,
-        )
+      // The welcome composer sits above the cards; only a bottom chat dock
+      // limits the space below a picker.
+      const bottomLimit = Math.min(
+        window.innerHeight - FLOATING_PICKER_MARGIN,
+        scrollRect?.bottom ?? window.innerHeight - FLOATING_PICKER_MARGIN,
+        chatDockRect && chatDockRect.top >= anchorRect.bottom
+          ? chatDockRect.top - FLOATING_PICKER_MARGIN
+          : Infinity,
+      )
       const spaceAbove = Math.max(0, anchorRect.top - topLimit - FLOATING_PICKER_GAP)
       const spaceBelow = Math.max(0, bottomLimit - anchorRect.bottom - FLOATING_PICKER_GAP)
       const side = spaceBelow >= spaceAbove ? 'below' : 'above'
@@ -479,6 +536,8 @@ export default function WelcomeScreen({ onFillInput, children }) {
         available - FLOATING_PICKER_CHROME_HEIGHT,
       )
       const maxHeight = maxListHeight + FLOATING_PICKER_CHROME_HEIGHT
+      const pickerTop = side === 'below' ? anchorRect.bottom + FLOATING_PICKER_GAP : undefined
+      const pickerBottom = side === 'above' ? window.innerHeight - anchorRect.top + FLOATING_PICKER_GAP : undefined
 
       let pickerLeft = 0
       let pickerWidth = FEATURED_PICKER_MIN_WIDTH
@@ -490,7 +549,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
         const minLeft = horizontalBounds.left
         const maxLeft = horizontalBounds.right - pickerWidth
         absoluteLeft = Math.min(Math.max(absoluteLeft, minLeft), maxLeft)
-        pickerLeft = absoluteLeft - anchorRect.left
+        pickerLeft = absoluteLeft
       }
 
       setFloatingPickerPlacement((current) => (
@@ -499,8 +558,10 @@ export default function WelcomeScreen({ onFillInput, children }) {
           && current.maxListHeight === maxListHeight
           && current.pickerLeft === pickerLeft
           && current.pickerWidth === pickerWidth
+          && current.pickerTop === pickerTop
+          && current.pickerBottom === pickerBottom
           ? current
-          : { side, maxHeight, maxListHeight, pickerLeft, pickerWidth }
+          : { side, maxHeight, maxListHeight, pickerLeft, pickerWidth, pickerTop, pickerBottom }
       ))
     }
 
@@ -894,14 +955,30 @@ export default function WelcomeScreen({ onFillInput, children }) {
   }
 
   return (
-    <div ref={welcomeScrollRef} data-welcome-scroll style={welcomeScrollStyle}>
+    <div
+      ref={welcomeScrollRef}
+      data-welcome-scroll
+      className="welcome-home"
+      style={welcomeScrollStyle}
+      onScroll={(event) => {
+        if (event.target !== event.currentTarget) return
+        const anchorId = scenarioPickerSiteId || skillsScenariosPickerSiteId || (addPickerOpen ? ADD_FEATURED_DROP_TARGET : null)
+        const anchorRect = featuredLayoutRefs.current.get(anchorId)?.getBoundingClientRect()
+        const scrollRect = event.currentTarget.getBoundingClientRect()
+        const visibleTop = Math.max(scrollRect.top, featuredToolbarRef.current?.getBoundingClientRect().bottom ?? scrollRect.top) + 12
+        if (!anchorRect || (anchorRect.bottom > visibleTop && anchorRect.top < scrollRect.bottom)) return
+        setScenarioPickerSiteId(null)
+        setAddPickerOpen(false)
+        setSkillsScenariosPickerSiteId(null)
+      }}
+    >
       <section ref={sectionRef} className="welcome-workspace" style={welcomeSectionStyle}>
         <header className="welcome-introduction">
           <span className="welcome-wordmark">WeWorker <span>AI 网页助理</span></span>
           <h1>今天，我们一起完成什么？</h1>
           <p>查询信息、操作网页、整理文件，从一句话开始。</p>
         </header>
-        {children && <div className="welcome-composer-seat">{children}</div>}
+        {children && <div ref={composerSeatRef} className="welcome-composer-seat">{children}</div>}
 
         {showShowcase && (
         <div
@@ -964,8 +1041,8 @@ export default function WelcomeScreen({ onFillInput, children }) {
         </div>
         )}
 
-        <div className="welcome-featured-toolbar" style={featuredHeaderStyle}>
-          <div style={featuredHeaderTitleRowStyle}>
+        <div ref={featuredToolbarRef} className="welcome-featured-toolbar" style={featuredHeaderStyle}>
+          <div className="welcome-featured-title-row" style={featuredHeaderTitleRowStyle}>
             <span>常用网站</span>
             <button
               type="button"
@@ -978,6 +1055,39 @@ export default function WelcomeScreen({ onFillInput, children }) {
             >
               {featuredSquareCards ? <ListIcon size={14} /> : <FourSquaresIcon size={14} />}
             </button>
+            <div className="welcome-featured-search">
+              <SearchOutlined aria-hidden="true" />
+              <input
+                ref={featuredSearchRef}
+                type="search"
+                value={featuredSearchQuery}
+                onChange={(event) => setFeaturedSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setFeaturedSearchQuery('')
+                  }
+                }}
+                placeholder="搜索已添加站点"
+                aria-label="搜索已添加站点"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {featuredSearchQuery && (
+                <button
+                  type="button"
+                  aria-label="清空站点搜索"
+                  title="清空搜索"
+                  onClick={() => {
+                    setFeaturedSearchQuery('')
+                    featuredSearchRef.current?.focus({ preventScroll: true })
+                  }}
+                >
+                  <ClosePanelIcon size={12} />
+                </button>
+              )}
+            </div>
           </div>
           <div style={featuredHeaderActionsStyle}>
             <button type="button" onClick={handleOpenAllScenarios} className="welcome-all-scenarios" style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
@@ -1000,10 +1110,17 @@ export default function WelcomeScreen({ onFillInput, children }) {
         <div
           ref={featuredGridRef}
           data-featured-grid=""
+          data-site-search-active={featuredSearchQuery.trim() ? '' : undefined}
+          role="region"
+          aria-label="常用网站列表"
+          tabIndex={0}
           className={featuredSquareCards ? 'featured-websites-grid' : 'featured-websites-list'}
           style={featuredSquareCards ? featuredSquareGridStyle : featuredGridStyle}
         >
-          {featuredSites.map(({ site, scenarios }) => {
+          {featuredSearchQuery.trim() && filteredFeaturedSites.length === 0 && (
+            <div className="welcome-featured-search-empty" role="status">没有匹配的已添加站点</div>
+          )}
+          {filteredFeaturedSites.map(({ site, scenarios }) => {
             const isHovered = hoveredSiteId === site.id
             const isSelected = selectedFeaturedSiteId === site.id
             const isPicking = scenarioPickerSiteId === site.id
@@ -1182,7 +1299,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
                   <span style={featuredSquareCards ? dropInsertIndicatorCardStyle : dropInsertIndicatorStyle} />
                 )}
 
-                {isScenarioPickerMounted && (
+                {isScenarioPickerMounted && createPortal(
                   <div
                     data-welcome-picker
                     className={isScenarioPickerClosing ? 'motion-popover-exit' : 'motion-popover-enter'}
@@ -1252,7 +1369,8 @@ export default function WelcomeScreen({ onFillInput, children }) {
                       )}
                       </div>
                     </div>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
               </div>
             )
@@ -1331,7 +1449,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
                 </span>
               </button>
 
-              {mountedAddPickerOpen && (
+              {mountedAddPickerOpen && createPortal(
                 <div
                   data-welcome-picker
                   className={floatingPickerClosing ? 'motion-popover-exit' : 'motion-popover-enter'}
@@ -1390,7 +1508,8 @@ export default function WelcomeScreen({ onFillInput, children }) {
                     )}
                     </div>
                   </div>
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
           )}
@@ -1892,16 +2011,15 @@ const addFeaturedSummaryStyle = {
 }
 
 const floatingPickerStyle = (placement, { left = 0, right, minWidth = 0, width } = {}) => ({
-  position: 'absolute',
+  position: 'fixed',
   left,
   ...(right !== undefined ? { right } : null),
   ...(width !== undefined ? { width } : null),
   minWidth,
-  zIndex: 12,
+  zIndex: 1000,
   '--motion-origin': placement.side === 'below' ? '50% 0' : '50% 100%',
-  ...(placement.side === 'below'
-    ? { top: `calc(100% + ${FLOATING_PICKER_GAP}px)` }
-    : { bottom: `calc(100% + ${FLOATING_PICKER_GAP}px)` }),
+  top: placement.pickerTop,
+  bottom: placement.pickerBottom,
   border: '1px solid var(--border)',
   borderRadius: 12,
   background: 'var(--bg-secondary)',

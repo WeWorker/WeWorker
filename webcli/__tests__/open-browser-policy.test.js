@@ -51,4 +51,16 @@ describe('open_browser allowlist', () => {
     expect(assertAllowedOpenBrowserUrl('http://127.0.0.1:8765/logs', allowed)).toBe('http://127.0.0.1:8765/logs')
     expect(() => assertAllowedOpenBrowserUrl('http://127.0.0.1:9999/logs', allowed)).toThrow(/not allowed/i)
   })
+
+  it.each(['ask', 'full'])('%s mode bypasses the configured site whitelist after its mode gate', mode => {
+    const previous = process.env.WEWORKER_CHAT_PERMISSION_MODE
+    process.env.WEWORKER_CHAT_PERMISSION_MODE = mode
+    try {
+      const allowed = buildAllowedOpenBrowserOrigins([], 'https://example.com')
+      expect(assertAllowedOpenBrowserUrl('https://unlisted.example.org/path', allowed)).toBe('https://unlisted.example.org/path')
+    } finally {
+      if (previous === undefined) delete process.env.WEWORKER_CHAT_PERMISSION_MODE
+      else process.env.WEWORKER_CHAT_PERMISSION_MODE = previous
+    }
+  })
 })

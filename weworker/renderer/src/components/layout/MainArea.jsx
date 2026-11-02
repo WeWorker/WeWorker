@@ -5,6 +5,7 @@ import ChatView from '../chat/ChatView.jsx'
 import WelcomeScreen from '../welcome/WelcomeScreen.jsx'
 import ChatBottomDock from '../chat/ChatBottomDock.jsx'
 import MainWorkspaceShell from './MainWorkspaceShell.jsx'
+import DraftProjectNotice from './DraftProjectNotice.jsx'
 import TaskConfigView from '../scheduled/TaskConfigView.jsx'
 import ToolPackagePage from '../welcome/ToolPackagePage.jsx'
 import { useSettingsStore } from '../../store/settings.js'
@@ -202,7 +203,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
 
   return (
     <MainWorkspaceShell>
-      {draftProjectId && <div className="draft-project-notice">新对话 · {projects.find(project => project.id === draftProjectId)?.name || '工作区'}<span>发送第一条消息后保存</span></div>}
+      {draftProjectId && <DraftProjectNotice projectName={projects.find(project => project.id === draftProjectId)?.name || '工作区'} />}
       <WelcomeScreen onFillInput={handleFillInput}>
       <ChatBottomDock
         variant="welcome"

@@ -18,6 +18,8 @@ import {
   evaluateToolAccess,
   buildAgentFilesystemSettings,
 } from '../user-directory-access.js'
+import { runWithWorkspaceDirectory } from '../workspace-access-context.js'
+import { assertPathInsideUserDirectory } from '../user-directory-guard.js'
 
 describe('user directory access control', () => {
   const root = path.join(os.tmpdir(), 'weworker-access-test')
@@ -42,6 +44,16 @@ describe('user directory access control', () => {
     expect(evaluateToolAccess('mcp__weworker__send_file_to_user', { file_path: outside }).allowed).toBe(false)
 
     fs.rmSync(outside, { force: true })
+  })
+
+  it.each(['ask', 'full'] as const)('allows shell access outside configured paths in %s mode', () => {
+    vi.mocked(getUserDirectory).mockReturnValue(root)
+    vi.mocked(getUserDirectoryBlacklist).mockReturnValue([{ type: 'exact_path', pattern: 'outside.txt' }])
+    const outside = path.join(os.tmpdir(), 'outside.txt')
+
+    expect(runWithWorkspaceDirectory(undefined, () => checkShellCommand(`type "${outside}"`), 'ask').allowed).toBe(true)
+    expect(runWithWorkspaceDirectory(undefined, () => checkShellCommand(`type "${outside}"`), 'full').allowed).toBe(true)
+    expect(runWithWorkspaceDirectory(undefined, () => checkShellCommand(`type "${outside}"`), 'workspace').allowed).toBe(false)
   })
 
   it('allows MCP file tools inside user directory', () => {
@@ -131,8 +143,9 @@ describe('user directory access control', () => {
     expect(settings.permissions.defaultMode).toBe('default')
   })
 
-  it('allows full native command tools outside the user directory without weakening native file tools', async () => {
+  it('allows full mode tools and paths outside configured directory and blacklist', async () => {
     vi.mocked(getUserDirectory).mockReturnValue(root)
+    vi.mocked(getUserDirectoryBlacklist).mockReturnValue([{ type: 'exact_path', pattern: 'outside-full-access.txt' }])
     fs.mkdirSync(root, { recursive: true })
     const outside = path.join(os.tmpdir(), 'outside-full-access.txt')
     fs.writeFileSync(outside, 'secret')
@@ -144,15 +157,34 @@ describe('user directory access control', () => {
     await expect(guard('PowerShell', { command: `Get-Content "${outside}"` })).resolves.toMatchObject({
       behavior: 'allow',
     })
-    await expect(guard('Read', { file_path: outside })).resolves.toMatchObject({
-      behavior: 'deny',
-    })
+    await expect(guard('Read', { file_path: outside })).resolves.toMatchObject({ behavior: 'allow' })
 
     const settings = buildAgentFilesystemSettings(root, 'full')
     expect(settings.sandbox.enabled).toBe(false)
     expect(settings.permissions.allow.some((rule) => rule.startsWith('Bash('))).toBe(false)
 
+    const fullBlacklistDecision = await runWithWorkspaceDirectory(root, () => checkFilesystemPath(outside), 'full')
+    expect(fullBlacklistDecision).toEqual({ allowed: true })
+
     fs.rmSync(outside, { force: true })
+  })
+
+  it.each(['ask', 'full'] as const)('allows approved tools to access any path in %s mode', async mode => {
+    vi.mocked(getUserDirectory).mockReturnValue(root)
+    const outside = path.join(os.tmpdir(), 'outside-permission-fixture.txt')
+    vi.mocked(getUserDirectoryBlacklist).mockReturnValue([{ type: 'exact_path', pattern: path.basename(outside) }])
+    const guard = createUnifiedToolGuard(mode, root)
+    await expect(guard('Read', { file_path: outside })).resolves.toMatchObject({ behavior: 'allow' })
+    await expect(guard('mcp__weworker__send_file_to_user', { file_path: outside })).resolves.toMatchObject({ behavior: 'allow' })
+    await expect(guard('PowerShell', { command: `Get-Content "${outside}"` })).resolves.toMatchObject({ behavior: 'allow' })
+    expect(runWithWorkspaceDirectory(root, () => assertPathInsideUserDirectory(outside), mode)).toBe(outside)
+  })
+
+  it('does not treat runtime skills outside the workspace as workspace files', () => {
+    const outsideSkill = path.join(os.tmpdir(), 'weworker-access-config-test', 'claude-config', 'skills', 'example', 'SKILL.md')
+    vi.mocked(getUserDirectory).mockReturnValue(root)
+    expect(runWithWorkspaceDirectory(root, () => checkFilesystemPath(outsideSkill), 'workspace')).toMatchObject({ allowed: false })
+    expect(buildAgentFilesystemSettings(root, 'workspace').permissions.allow.some(rule => rule.includes('claude-config/skills'))).toBe(false)
   })
 
   it('returns updatedInput when allowing tool access for Agent SDK', async () => {

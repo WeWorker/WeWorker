@@ -46,6 +46,19 @@ interface NotificationPayload {
   workId: string
 }
 
+function enforceTaskHistoryLimit(projectId: string): void {
+  try {
+    const limit = getSettings().scheduled_task_history_limit
+    const removed = store.pruneScheduledTaskWorks(projectId, limit)
+    if (removed.length > 0) {
+      log.info('scheduled task history pruned', { removed_count: removed.length, history_limit: limit })
+    }
+  } catch (error) {
+    // Retention must not turn a completed task into a failed run.
+    log.warn('scheduled task history cleanup failed', { error_type: error instanceof Error ? error.name : 'UnknownError' })
+  }
+}
+
 /**
  * 安全调用通知器。notifier.ts 将在 task 5.1 中创建，
  * 在此之前动态导入会失败，静默忽略。
@@ -111,6 +124,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       error_message: '任务提示词为空，跳过执行',
       completed_at: new Date().toISOString(),
     })
+    enforceTaskHistoryLimit(taskProject.id)
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
@@ -132,6 +146,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
     const work = store.createWork(`[定时] ${task.title} · 已停用`, taskProject.id, taskWorkspace)
     const execution = store.createTaskExecution(task.id, work.id)
     store.updateTaskExecution(execution.id, { status: 'failed', error_message: '专属 Agent 不存在或已停用', completed_at: new Date().toISOString() })
+    enforceTaskHistoryLimit(taskProject.id)
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
@@ -359,6 +374,8 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       })
     }
 
+    // Prune before notifying: the renderer refreshes its list on this event.
+    enforceTaskHistoryLimit(taskProject.id)
     // 11. Send notification (notifier will be created in task 5.1)
     await safeNotify(
       {
@@ -412,6 +429,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       // A missing model configuration must not change the task failure result.
     }
 
+    enforceTaskHistoryLimit(taskProject.id)
     // Send failure notification
     await safeNotify(
       {

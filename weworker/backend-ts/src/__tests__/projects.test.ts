@@ -214,10 +214,10 @@ describe('project persistence', () => {
       title: 'Example schedule', cron_expression: '0 * * * *', prompt_template: 'Fixture prompt', enabled: true, notify_channels: [],
     })
     const oldest = store.createWork('old execution')
-    store.createTaskExecution(task.id, oldest.id)
+    store.updateTaskExecution(store.createTaskExecution(task.id, oldest.id).id, { status: 'completed' })
     store.appendMessage(oldest.id, 'user', [{ type: 'text', text: 'Old fixture prompt' }])
     const newest = store.createWork('new execution')
-    store.createTaskExecution(task.id, newest.id)
+    store.updateTaskExecution(store.createTaskExecution(task.id, newest.id).id, { status: 'completed' })
     store.appendMessage(newest.id, 'user', [{ type: 'text', text: 'New fixture prompt' }])
 
     const history = store.ensureScheduledTaskHistoryProject(1)
@@ -236,6 +236,52 @@ describe('project persistence', () => {
     expect(store.listTaskExecutions(task.id).map((execution) => execution.work_id)).toEqual([newest.id])
     expect(() => store.renameProject(project.id, 'Other')).toThrow('定时任务项目不能重命名')
     expect(() => store.deleteProject(project.id)).toThrow('定时任务项目不能删除')
+  })
+
+  it('retains running and pending conversations while pruning older completed history', () => {
+    const task = store.createScheduledTask({ title: 'Fixture schedule', cron_expression: '0 * * * *', prompt_template: 'Fixture prompt', enabled: true, notify_channels: [] })
+    const project = store.getProjectByName('定时任务')!
+    const running = store.createWork('Running fixture', project.id)
+    const runningExecution = store.createTaskExecution(task.id, running.id)
+    store.updateTaskExecution(runningExecution.id, { status: 'running' })
+    const pending = store.createWork('Pending fixture', project.id)
+    const pendingExecution = store.createTaskExecution(task.id, pending.id)
+    const finished = store.createWork('Finished fixture', project.id)
+    store.updateTaskExecution(store.createTaskExecution(task.id, finished.id).id, { status: 'completed' })
+
+    expect(store.pruneScheduledTaskWorks(project.id, 1)).toEqual([])
+    expect(store.getWork(running.id)).not.toBeNull()
+    expect(store.getWork(pending.id)).not.toBeNull()
+    store.updateTaskExecution(runningExecution.id, { status: 'completed' })
+    store.updateTaskExecution(pendingExecution.id, { status: 'completed' })
+    expect(store.pruneScheduledTaskWorks(project.id, 1)).toEqual([running.id, pending.id])
+    expect(store.getWork(finished.id)).not.toBeNull()
+  })
+
+  it('counts history from deleted schedules but excludes dedicated-agent context and other projects', () => {
+    const task = store.createScheduledTask({ title: 'Removed fixture', cron_expression: '0 * * * *', prompt_template: 'Fixture prompt', enabled: true, notify_channels: [] })
+    const project = store.getProjectByName('定时任务')!
+    const orphan = store.createWork('History of a removed schedule', project.id)
+    archiveState.ids.add(orphan.id)
+    const filePath = path.join(orphan.workspace_directory!, 'fixture-result.txt')
+    fs.writeFileSync(filePath, 'preserve task output')
+    store.appendMessage(orphan.id, 'user', [{ type: 'text', text: 'Fixture message' }])
+    store.createTaskExecution(task.id, orphan.id)
+    store.deleteScheduledTask(task.id)
+    const durable = store.createWork('Dedicated context', project.id)
+    const agentTask = store.createScheduledTask({ title: 'Agent fixture', cron_expression: '0 * * * *', prompt_template: 'Fixture prompt', enabled: true, notify_channels: [], agent_id: 'fixture-agent', context_work_id: durable.id })
+    store.updateTaskExecution(store.createTaskExecution(agentTask.id, durable.id).id, { status: 'completed' })
+    const newest = store.createWork('Newest schedule history', project.id)
+    const unrelated = store.createWork('Other workspace')
+
+    expect(store.pruneScheduledTaskWorks(project.id, 1)).toEqual([orphan.id])
+    expect(store.getWorkWithMessages(orphan.id)).toBeNull()
+    expect(archiveState.ids.has(orphan.id)).toBe(false)
+    expect(store._getTestDb().prepare('SELECT COUNT(*) AS count FROM messages WHERE work_id = ?').get(orphan.id)).toEqual({ count: 0 })
+    expect(fs.readFileSync(filePath, 'utf8')).toBe('preserve task output')
+    expect(store.getWork(durable.id)).not.toBeNull()
+    expect(store.getWork(newest.id)).not.toBeNull()
+    expect(store.getWork(unrelated.id)).not.toBeNull()
   })
 
   it('moves only legacy project workspaces under user-files/projects and rewrites attachment paths', () => {

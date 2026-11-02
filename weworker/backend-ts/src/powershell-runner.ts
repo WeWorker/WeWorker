@@ -1,11 +1,10 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getUserDirectory } from './config.js'
 import { redactSensitive } from './http-security.js'
 import { broadcastSSE } from './notifier.js'
 import { assertShellCommand } from './user-directory-access.js'
-import { assertPathInsideUserDirectory } from './user-directory-guard.js'
+import { assertPathInsideUserDirectory, resolveUserDirectoryRoot } from './user-directory-guard.js'
 import { resolveWebcliDir } from './webcli-path.js'
 
 export type TerminalSource = 'ai' | 'user'
@@ -60,7 +59,7 @@ function makeSessionId(): string {
 function resolveCwd(cwd?: string): string {
   const resolved = cwd?.trim()
     ? assertPathInsideUserDirectory(cwd, 'cwd')
-    : getUserDirectory()
+    : resolveUserDirectoryRoot()
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     throw new Error(`cwd must be an existing directory: ${resolved}`)
   }

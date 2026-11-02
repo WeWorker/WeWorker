@@ -34,6 +34,7 @@ export default function WorksList({ searchQuery = '' }) {
   const works = useWorksStore((s) => Array.isArray(s.works) ? s.works : [])
   const projects = useWorksStore((s) => Array.isArray(s.projects) ? s.projects : [])
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
+  const draftProjectId = useWorksStore((s) => s.draftProjectId)
   const streamingWorkIds = useWorksStore((s) => s.streamingWorkIds)
   const selectWork = useWorksStore((s) => s.selectWork)
   const deleteWork = useWorksStore((s) => s.deleteWork)
@@ -54,9 +55,14 @@ export default function WorksList({ searchQuery = '' }) {
     }
   })
   const [hoveredFolderKey, setHoveredFolderKey] = useState(null)
+  const [selectedFolderKey, setSelectedFolderKey] = useState(null)
   const [renamingProjectId, setRenamingProjectId] = useState(null)
   const [renameProjectValue, setRenameProjectValue] = useState('')
   const renameProjectInputRef = useRef(null)
+
+  useEffect(() => {
+    setSelectedFolderKey(null)
+  }, [activeWorkId, draftProjectId])
 
   useEffect(() => {
     if (renamingProjectId && renameProjectInputRef.current) {
@@ -94,8 +100,10 @@ export default function WorksList({ searchQuery = '' }) {
   }
 
   const folderGroups = groupWorksByFolder(works, projects)
+  const selectedFolderExists = folderGroups.some((group) => group.key === selectedFolderKey)
   const filteredIds = new Set(filtered.map((work) => work.id))
   const toggleFolder = (folderName) => {
+    setSelectedFolderKey(folderName)
     setCollapsedFolders((current) => {
       const next = { ...current, [folderName]: !current[folderName] }
       try {
@@ -136,6 +144,7 @@ export default function WorksList({ searchQuery = '' }) {
 
   const createProjectWork = async (projectId) => {
     if (!await leaveWebsiteExploration()) return
+    setSelectedFolderKey(null)
     closeExplorationPage()
     closeToolPackagePage()
     await createWork({ draftOnly: true, projectId })
@@ -155,7 +164,12 @@ export default function WorksList({ searchQuery = '' }) {
     <div className="work-folder-list">
       {folderGroups.map((group) => {
         const folderKey = group.key
-        const collapsed = Boolean(collapsedFolders[folderKey])
+        const collapsed = !searchQuery.trim() && Boolean(collapsedFolders[folderKey])
+        const isActive = selectedFolderExists
+          ? selectedFolderKey === folderKey
+          : activeWorkId
+            ? group.items.some((work) => work.id === activeWorkId)
+            : Boolean(draftProjectId) && group.id === draftProjectId
         const visibleItems = group.items.filter((work) => !work.archived && filteredIds.has(work.id))
         // The default workspace has no project id. Keep it in display mode
         // instead of treating the initial null state as an active rename.
@@ -168,13 +182,14 @@ export default function WorksList({ searchQuery = '' }) {
             onMouseLeave={() => setHoveredFolderKey(null)}
           >
             <div
-              className="work-folder-heading"
+              className={`work-folder-heading${isActive ? ' is-active' : ''}`}
               onClick={(event) => handleFolderHeadingClick(event, () => toggleFolder(folderKey))}
             >
               <button
                 type="button"
                 className="work-folder-heading__toggle"
                 aria-expanded={!collapsed}
+                aria-current={isActive ? 'true' : undefined}
                 onClick={() => toggleFolder(folderKey)}
               >
                 <ChevronIcon size={13} collapsed={collapsed} />
@@ -229,6 +244,7 @@ export default function WorksList({ searchQuery = '' }) {
                     active={w.id === activeWorkId}
                     onSelect={async () => {
                       if (!await leaveWebsiteExploration()) return
+                      setSelectedFolderKey(null)
                       closeExplorationPage()
                       closeToolPackagePage()
                       selectWork(w.id)
@@ -388,12 +404,8 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
-          padding: '7px 12px',
           cursor: isRenaming ? 'default' : 'pointer',
           background: active ? 'var(--bg-active)' : hovered ? 'var(--bg-hover)' : 'transparent',
-          borderRadius: 6,
-          margin: '1px 6px',
-          marginLeft: 22,
           display: 'flex',
           alignItems: 'center',
           gap: 6,

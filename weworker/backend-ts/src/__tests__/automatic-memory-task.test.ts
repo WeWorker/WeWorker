@@ -14,6 +14,7 @@ vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, warn() {}, er
 vi.mock('../notifier.js', () => ({ notify: async () => {} }))
 vi.mock('../works-store.js', () => ({
   getOrCreateScheduledTaskProject: () => ({ id: 'fixture-project', name: '定时任务', created_at: '', updated_at: '' }),
+  pruneScheduledTaskWorks: () => [],
   ensureScheduledTaskWorkspace: () => 'C:\\fixture\\projects\\scheduled-tasks',
   listTaskExecutions: () => [], createWork: () => ({ id: 'fixture-work' }),
   createTaskExecution: () => ({ id: 'fixture-execution' }),

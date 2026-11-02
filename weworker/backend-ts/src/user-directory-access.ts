@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { ChannelPermissionMode } from './channels/channel-permissions.js'
+import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { expandHomePath, getUserDirectoryBlacklist } from './config.js'
 import {
   assertPathInsideUserDirectory,
@@ -9,6 +9,8 @@ import {
   resolveRuntimeSkillsRoot,
 } from './user-directory-guard.js'
 import { extractShellCommandPathTokens, isShellCommandReferencingBlacklistedPath } from './user-directory-blacklist.js'
+import { getActivePermissionMode, runWithWorkspaceDirectory } from './workspace-access-context.js'
+import { checkWorkspaceCommandSites, checkWorkspaceToolSites } from './workspace-site-policy.js'
 
 const MCP_PREFIX = /^mcp__weworker__/
 const INTERACTIVE_TUI_COMMAND = /(^|[;&|]\s*)(?:env\s+)?(?:vim|vi|nvim|nano)(?:\s|$)/i
@@ -76,7 +78,7 @@ function checkShellPathToken(token: string, root = resolveUserDirectoryRoot()): 
   if (/^https?:\/\//i.test(value)) return { allowed: true }
 
   const resolved = resolveAgainstUserRoot(value, root)
-  if (isPathInsideRuntimeSkillsDirectory(resolved)) return { allowed: true }
+  if (getActivePermissionMode() !== 'workspace' && isPathInsideRuntimeSkillsDirectory(resolved)) return { allowed: true }
   if (!isInsideUserRoot(resolved, root)) {
     return {
       allowed: false,
@@ -95,6 +97,7 @@ function checkShellPathToken(token: string, root = resolveUserDirectoryRoot()): 
 export function checkShellCommand(command: string): AccessDecision {
   const trimmed = String(command || '').trim()
   if (!trimmed) return { allowed: false, reason: 'Shell command is empty' }
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return { allowed: true }
   if (INTERACTIVE_TUI_COMMAND.test(trimmed)) {
     return {
       allowed: false,
@@ -110,7 +113,9 @@ export function checkShellCommand(command: string): AccessDecision {
     }
   }
   for (const token of extractShellCommandPathTokens(trimmed)) {
-    const decision = checkShellPathToken(token, root)
+    // Adapter file parameters use --output=... / --file_path=..., not only bare paths.
+    const value = token.replace(/^--?[\w-]+=/, '').replace(/^["']|["']$/g, '')
+    const decision = checkShellPathToken(value, root)
     if (!decision.allowed) return decision
   }
   return { allowed: true }
@@ -158,12 +163,21 @@ export function evaluateToolAccess(toolName: string, input: Record<string, unkno
 }
 
 /** Agent SDK：所有工具执行前的统一拦截点 */
-export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash') {
+export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash', workspaceDirectory?: string) {
   return async (toolName: string, input: Record<string, unknown>) => {
-    if (mode === 'full' && (toolName === 'Bash' || toolName === 'PowerShell')) {
+    if (mode === 'ask' || mode === 'full') {
       return { behavior: 'allow' as const, updatedInput: input }
     }
-    const decision = evaluateToolAccess(toolName, input)
+    if (isGuardedDesktopMode(mode) && (toolName === 'Bash' || toolName === 'PowerShell' || normalizeToolName(toolName) === 'weworker_powershell')) {
+      const siteDecision = checkWorkspaceCommandSites(String(input.command ?? input.cmd ?? ''))
+      if (!siteDecision.allowed) return { behavior: 'deny' as const, message: siteDecision.reason }
+    }
+    if (mode === 'workspace' && (toolName === 'WebFetch' || toolName === 'WebSearch')) {
+      const siteDecision = checkWorkspaceToolSites(toolName, input)
+      if (!siteDecision.allowed) return { behavior: 'deny' as const, message: siteDecision.reason }
+      return { behavior: 'allow' as const, updatedInput: siteDecision.updatedInput ?? input }
+    }
+    const decision = runWithWorkspaceDirectory(workspaceDirectory, () => evaluateToolAccess(toolName, input), mode)
     if (!decision.allowed) return { behavior: 'deny' as const, message: decision.reason }
     return { behavior: 'allow' as const, updatedInput: input }
   }
@@ -175,24 +189,30 @@ export function buildAgentFilesystemSettings(
 ) {
   const normalized = userRoot.replace(/\\/g, '/')
   const runtimeSkillsRoot = resolveRuntimeSkillsRoot().replace(/\\/g, '/')
+  // Desktop workspace access is enforced by our per-call guards and PreToolUse
+  // hook. Requiring the SDK sandbox adds unrelated execution restrictions and
+  // blocks every native command on Windows when that sandbox is unavailable.
+  const requireSdkSandbox = !allowsNativeCommands(mode)
   return {
     permissions: {
       // Do not pre-approve native command tools — that skips canUseTool and bypasses blacklist checks.
-      allow: [
+      allow: mode === 'ask' || mode === 'full' ? [] : [
         `Read(${normalized}/**)`,
         `Edit(${normalized}/**)`,
         `Write(${normalized}/**)`,
-        `Read(${runtimeSkillsRoot}/**)`,
-        `Edit(${runtimeSkillsRoot}/**)`,
-        `Write(${runtimeSkillsRoot}/**)`,
+        ...(mode === 'workspace' ? [] : [
+          `Read(${runtimeSkillsRoot}/**)`,
+          `Edit(${runtimeSkillsRoot}/**)`,
+          `Write(${runtimeSkillsRoot}/**)`,
+        ]),
       ],
       defaultMode: 'default' as const,
     },
     sandbox: {
-      enabled: mode !== 'full',
+      enabled: requireSdkSandbox,
       // Sandbox auto-allow also skips canUseTool for native command tools.
       autoAllowBashIfSandboxed: false,
-      allowUnsandboxedCommands: false,
+      allowUnsandboxedCommands: !requireSdkSandbox,
     },
   }
 }

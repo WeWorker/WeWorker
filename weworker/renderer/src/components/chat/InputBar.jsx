@@ -629,7 +629,9 @@ export default function InputBar({
     const focus = () => {
       const textarea = textareaRef.current
       if (!textarea || textarea.disabled) return
-      textarea.focus()
+      // The welcome composer may be sticky; focusing must not reveal its
+      // original position by scrolling the surrounding page backwards.
+      textarea.focus({ preventScroll: true })
     }
     focus()
     requestAnimationFrame(focus)
@@ -742,6 +744,7 @@ export default function InputBar({
   const uploadBtn = (
     <button
       type="button"
+      className="chat-input-upload"
       onClick={handleUpload}
       disabled={inputDisabled}
       title="上传文件"
@@ -749,10 +752,7 @@ export default function InputBar({
       style={{
         width: 28,
         height: 28,
-        borderRadius: 7,
         border: 'none',
-        background: 'transparent',
-        color: 'var(--text-secondary)',
         cursor: inputDisabled ? 'not-allowed' : 'pointer',
         display: 'flex',
         alignItems: 'center',
@@ -853,7 +853,7 @@ export default function InputBar({
             className="chat-permission-picker"
           />
         </div>
-        <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />
+        {!isWelcome && <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />}
       </div>
       <div className="chat-input-toolbar-actions">
         <ModelSelector
