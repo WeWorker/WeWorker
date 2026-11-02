@@ -196,11 +196,11 @@ export default function WorksList({ searchQuery = '' }) {
       {folderGroups.map((group) => {
         const folderKey = group.key
         const collapsed = !searchQuery.trim() && Boolean(collapsedFolders[folderKey])
-        const isActive = selectedFolderExists
-          ? selectedFolderKey === folderKey
-          : activeWorkId
-            ? group.items.some((work) => work.id === activeWorkId)
-            : Boolean(draftProjectId) && group.id === draftProjectId
+        const isActive = activeWorkId
+          ? group.items.some((work) => work.id === activeWorkId)
+          : draftProjectId
+            ? group.id === draftProjectId
+            : selectedFolderExists && selectedFolderKey === folderKey
         const visibleItems = group.items.filter((work) => !work.archived && filteredIds.has(work.id))
         // The default workspace has no project id. Keep it in display mode
         // instead of treating the initial null state as an active rename.
