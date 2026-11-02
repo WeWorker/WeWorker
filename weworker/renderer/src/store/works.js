@@ -26,6 +26,7 @@ export const useWorksStore = create((set, get) => ({
   projects: [],
   activeWorkId: null,
   draftProjectId: null,
+  draftFolderKey: null,
   messages: {}, // workId -> Message[]
   contextSnapshots: {}, // workId -> latest local context composition
   contextTokenAnchors: {}, // workId -> provider total and calibrated non-conversation baseline
@@ -69,7 +70,11 @@ export const useWorksStore = create((set, get) => ({
       if (opts.draftOnly) {
         const tasks = await getScheduledTasksStore()
         tasks?.setState({ activeTaskId: null })
-        set({ activeWorkId: null, draftProjectId: opts.projectId ?? null })
+        set({
+          activeWorkId: null,
+          draftProjectId: opts.projectId ?? null,
+          draftFolderKey: opts.projectId ? `project:${opts.projectId}` : 'default',
+        })
         return null
       }
       const reuseEmptyWork = async (work) => {
