@@ -91,15 +91,12 @@ export default function AppRail({ activeSection, settingsOpen = false, extension
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen((current) => !current)}
             >
-              <DrawerHandleIcon open={moreOpen} />
+              <DrawerHandleIcon />
             </button>
           </Tooltip>
           <div className="app-rail__more-items" role="menu" aria-label="更多功能" aria-hidden={!moreOpen}>
             <RailMenuButton label="SKILLS与场景" active={activeKey === 'skills'} disabled={!moreOpen} onClick={() => openFeature(onOpenSkills)}>
               <SkillsIcon />
-            </RailMenuButton>
-            <RailMenuButton label="API 探索" active={activeKey === 'exploration'} disabled={!moreOpen} onClick={() => openFeature(onOpenExploration)}>
-              <ExploreIcon />
             </RailMenuButton>
             <RailMenuButton label="网站探索agent" active={activeKey === 'website'} disabled={!moreOpen} onClick={() => openFeature(onOpenWebsiteExploration)}>
               <GlobeIcon />
@@ -233,8 +230,8 @@ function ExtensionIcon({ warning = false }) {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M7 6.5h.01M10 6.5h.01" /></svg>
 }
 
-function DrawerHandleIcon({ open = false }) {
-  return <span className={`app-rail__drawer-line${open ? ' is-open' : ''}`} aria-hidden="true" />
+function DrawerHandleIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></g></svg>
 }
 
 function SettingsIcon() {
