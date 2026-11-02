@@ -145,7 +145,8 @@ def test_exploration_only_input_excludes_all_code_and_debug_evidence(
 
     assert payload["base_slot"] is None
     assert payload["debug_run_evidence"] is None
-    assert payload["source_exploration"]["exploration_id"] == "exp_1"
+    assert payload["source_exploration"]["instruction"] == "Search posts from the page"
+    assert "exploration_id" not in payload["source_exploration"]
     assert formal["code"] not in json.dumps(payload)
     assert "draft" not in json.dumps(payload)
 
@@ -1490,7 +1491,8 @@ def test_start_development_from_formal_isolated_model_spec(monkeypatch, tmp_path
     run_dir = development_runs.run_dir("blog_admin", run["development_run_id"])
     spec = json.loads((run_dir / "development_spec.json").read_text(encoding="utf-8"))
     evidence = json.loads((run_dir / "input.json").read_text(encoding="utf-8"))
-    assert evidence["base_slot"]["code_hash"] == formal["code_hash"]
+    assert evidence["base_slot"]["code"] == formal["code"]
+    assert "code_hash" not in evidence["base_slot"]
     assert spec["model"]["model_class"] == "zhipu"
     assert spec["model"]["zhipu_endpoint"] == "http://model.local/chat/completions"
     assert spec["model"]["process_log_path"] == str(run_dir / "process.log")
@@ -1575,3 +1577,33 @@ def test_development_timeout_lifecycle_is_logged(monkeypatch, tmp_path: Path) ->
     assert "worker_terminating" in lifecycle
     assert "worker_exited" in lifecycle
     assert "development_run_finished" in lifecycle
+
+
+def test_developer_sends_compact_json_without_mutating_pretty_input(monkeypatch, tmp_path: Path) -> None:
+    payload = {
+        "tool": {"tool_id": "search_blog"},
+        "base_slot": {"code": "async def search_blog(ctx):\n    return {}\n"},
+        "source_exploration": {
+            "snapshots": {"snapshot_1": "- heading: 示例\n  - button: Open\n"},
+            "steps": [{"step": 1, "execution_output": "first\nsecond\n", "status": "ok"}],
+            "followup_instructions": [{"content": "继续", "after_step": 1, "before_step": None}],
+        },
+    }
+    input_path = tmp_path / "input.json"
+    atomic_write_json(input_path, payload)
+    before = input_path.read_bytes()
+    model = FakeDeveloperModel()
+    monkeypatch.setattr(tool_development, "get_model", lambda _: model)
+    asyncio.run(tool_development.run_development({
+        "input_path": str(input_path), "result_path": str(tmp_path / "result.json"), "model": {},
+    }))
+    sent = model.payloads[0]["messages"][1]["content"]
+    assert sent == json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    assert json.loads(sent) == payload
+    assert "\n" not in sent
+    assert "示例" in sent
+    assert input_path.read_bytes() == before
+    assert b"\n" in before  # disk artifact remains pretty-printed
+    system = model.payloads[0]["messages"][0]["content"]
+    assert "stdout/stderr" in system
+    assert "status=succeeded can coexist with result.ok=false" in system

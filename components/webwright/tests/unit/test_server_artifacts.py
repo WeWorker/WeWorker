@@ -59,7 +59,7 @@ def test_read_steps_falls_back_to_step_file_when_debug_json_is_bad(tmp_path: Pat
     assert steps[0]["status"] == StepStatus.UNKNOWN.value
 
 
-def test_read_steps_prefers_executed_step_file_over_model_debug_code(tmp_path: Path) -> None:
+def test_read_steps_prefers_observed_executed_code_over_model_debug_code(tmp_path: Path) -> None:
     output_dir = tmp_path / "task"
     (output_dir / "debug" / "steps").mkdir(parents=True)
     (output_dir / "steps").mkdir(parents=True)
@@ -72,7 +72,7 @@ def test_read_steps_prefers_executed_step_file_over_model_debug_code(tmp_path: P
         json.dumps(
             {
                 "python_code": "print(page.url)",
-                "outputs": [{"returncode": 0, "observation": {}}],
+                "outputs": [{"returncode": 0, "observation": {"python_code": executed}}],
                 "done": False,
             }
         ),
@@ -175,3 +175,72 @@ def test_exit_status_reads_last_exit_message(tmp_path: Path) -> None:
     )
 
     assert artifacts.exit_status(output_dir) == (AgentExitStatus.PAUSED.value, "")
+
+
+def test_resumed_steps_keep_action_output_and_screenshot_together(tmp_path: Path) -> None:
+    (tmp_path / "steps").mkdir()
+    (tmp_path / "debug" / "steps").mkdir(parents=True)
+    (tmp_path / "screenshots").mkdir()
+    for index, code in ((1, "print('first')"), (2, "print('second')")):
+        (tmp_path / "steps" / f"step_{index:04d}.py").write_text(code, encoding="utf-8")
+        (tmp_path / "screenshots" / f"step_{index:04d}.png").write_bytes(b"placeholder")
+        # An interrupted response consumed model turn 1 before execution began.
+        payload = {
+            "python_code": code,
+            "outputs": [{"returncode": 0, "output": str(index), "observation": {
+                "python_code": code,
+                "python_output": str(index),
+                "screenshot_path": str(tmp_path / "screenshots" / f"step_{index:04d}.png"),
+            }}],
+        }
+        (tmp_path / "debug" / "steps" / f"step_{index + 1:04d}.json").write_text(
+            json.dumps(payload), encoding="utf-8",
+        )
+    steps = artifacts.read_steps("task_1", tmp_path)
+    assert [step["step"] for step in steps] == [2, 3]  # no phantom orphan step 1
+    assert [step["execution_step"] for step in steps] == [1, 2]
+    for index, step in enumerate(steps, 1):
+        assert step["code"] == step["observation"]["python_code"]
+        assert step["output"] == str(index)
+        assert step["screenshot_url"].endswith(f"/screenshots/step_{index:04d}.png")
+
+
+def test_no_same_number_file_fallback_without_execution_provenance(tmp_path: Path) -> None:
+    (tmp_path / "steps").mkdir()
+    (tmp_path / "debug" / "steps").mkdir(parents=True)
+    (tmp_path / "steps" / "step_0001.py").write_text("print('unrelated')", encoding="utf-8")
+    (tmp_path / "debug" / "steps" / "step_0001.json").write_text(json.dumps({
+        "python_code": "print('model action')", "outputs": [],
+    }), encoding="utf-8")
+    step = artifacts.read_steps("task_1", tmp_path)[0]
+    assert step["code"] == "print('model action')"
+    assert step["execution_step"] is None
+    assert step["status"] == StepStatus.UNKNOWN.value
+    assert step["screenshot_url"] == ""
+
+
+def test_explicit_execution_index_disambiguates_repeated_code(tmp_path: Path) -> None:
+    (tmp_path / "steps").mkdir()
+    (tmp_path / "debug" / "steps").mkdir(parents=True)
+    for index in (1, 2):
+        (tmp_path / "steps" / f"step_{index:04d}.py").write_text("print('repeat')", encoding="utf-8")
+        (tmp_path / "debug" / "steps" / f"step_{index + 2:04d}.json").write_text(json.dumps({
+            "python_code": "print('model')", "outputs": [{"returncode": 0, "observation": {
+                "execution_step": index, "python_code": "print('repeat')", "screenshot_path": "",
+            }}],
+        }), encoding="utf-8")
+    steps = artifacts.read_steps("task_1", tmp_path)
+    assert [step["step"] for step in steps] == [3, 4]
+    assert [step["execution_step"] for step in steps] == [1, 2]
+    assert all(step["code"] == "print('repeat')" for step in steps)
+
+
+def test_screenshot_outside_task_is_not_exposed(tmp_path: Path) -> None:
+    root = tmp_path / "task"
+    (root / "debug" / "steps").mkdir(parents=True)
+    outside = tmp_path / "outside.png"
+    outside.write_bytes(b"placeholder")
+    (root / "debug" / "steps" / "step_0001.json").write_text(json.dumps({
+        "outputs": [{"observation": {"execution_step": 1, "screenshot_path": str(outside)}}],
+    }), encoding="utf-8")
+    assert artifacts.read_steps("task_1", root)[0]["screenshot_url"] == ""
