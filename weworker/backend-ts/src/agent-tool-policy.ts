@@ -1,5 +1,5 @@
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk'
-import type { ChannelPermissionMode } from './channels/channel-permissions.js'
+import { allowsNativeCommands, type ChannelPermissionMode } from './channels/channel-permissions.js'
 
 
 const WEWORKER_ALLOWED_NATIVE_FILE_TOOLS = new Set([
@@ -35,18 +35,18 @@ export function createWeWorkerToolPolicy(mode: ChannelPermissionMode): CanUseToo
     }
 
     if (toolName === 'Bash' || toolName === 'PowerShell') {
-      if (mode === 'full' && isAllowedBashCommand(input.command)) {
+      if (allowsNativeCommands(mode) && isAllowedBashCommand(input.command)) {
         return { behavior: 'allow' }
       }
       return deny(
-        mode === 'full'
+        allowsNativeCommands(mode)
           ? `${toolName} command is empty.`
           : `Claude Code ${toolName} is disabled in this channel. Use WeWorker Shell (\`weworker_powershell\`) when local commands are allowed.`,
       )
     }
     if (toolName === 'mcp__weworker__weworker_powershell' && invokesWebcli(input.command)) {
       return deny(
-        mode === 'full'
+        allowsNativeCommands(mode)
           ? 'Adapter commands must run with the platform-native Claude Code command tool instead of WeWorker Shell.'
           : 'Adapter commands require full permission mode and the platform-native Claude Code command tool.',
       )

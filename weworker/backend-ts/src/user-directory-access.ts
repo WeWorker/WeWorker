@@ -9,6 +9,8 @@ import {
   resolveRuntimeSkillsRoot,
 } from './user-directory-guard.js'
 import { extractShellCommandPathTokens, isShellCommandReferencingBlacklistedPath } from './user-directory-blacklist.js'
+import { runWithWorkspaceDirectory } from './workspace-access-context.js'
+import { checkWorkspaceCommandSites } from './workspace-site-policy.js'
 
 const MCP_PREFIX = /^mcp__weworker__/
 const INTERACTIVE_TUI_COMMAND = /(^|[;&|]\s*)(?:env\s+)?(?:vim|vi|nvim|nano)(?:\s|$)/i
@@ -110,7 +112,9 @@ export function checkShellCommand(command: string): AccessDecision {
     }
   }
   for (const token of extractShellCommandPathTokens(trimmed)) {
-    const decision = checkShellPathToken(token, root)
+    // Adapter file parameters use --output=... / --file_path=..., not only bare paths.
+    const value = token.replace(/^--?[\w-]+=/, '').replace(/^["']|["']$/g, '')
+    const decision = checkShellPathToken(value, root)
     if (!decision.allowed) return decision
   }
   return { allowed: true }
@@ -158,12 +162,16 @@ export function evaluateToolAccess(toolName: string, input: Record<string, unkno
 }
 
 /** Agent SDK：所有工具执行前的统一拦截点 */
-export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash') {
+export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash', workspaceDirectory?: string) {
   return async (toolName: string, input: Record<string, unknown>) => {
     if (mode === 'full' && (toolName === 'Bash' || toolName === 'PowerShell')) {
       return { behavior: 'allow' as const, updatedInput: input }
     }
-    const decision = evaluateToolAccess(toolName, input)
+    if (mode === 'workspace' && (toolName === 'Bash' || toolName === 'PowerShell' || normalizeToolName(toolName) === 'weworker_powershell')) {
+      const siteDecision = checkWorkspaceCommandSites(String(input.command ?? input.cmd ?? ''))
+      if (!siteDecision.allowed) return { behavior: 'deny' as const, message: siteDecision.reason }
+    }
+    const decision = runWithWorkspaceDirectory(workspaceDirectory, () => evaluateToolAccess(toolName, input))
     if (!decision.allowed) return { behavior: 'deny' as const, message: decision.reason }
     return { behavior: 'allow' as const, updatedInput: input }
   }

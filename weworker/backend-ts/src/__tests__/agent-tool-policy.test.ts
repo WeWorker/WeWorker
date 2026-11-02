@@ -54,6 +54,7 @@ describe('agent tool policy', () => {
     const cases = [
       { mode: 'qa_only' as const, skill: 'deny', file: 'deny', bash: 'deny', mcp: 'deny' },
       { mode: 'no_bash' as const, skill: 'allow', file: 'allow', bash: 'deny', mcp: 'allow' },
+      { mode: 'workspace' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
       { mode: 'full' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
     ]
 
@@ -88,5 +89,19 @@ describe('agent tool policy', () => {
       { command: 'npm test' },
       {} as never,
     )).resolves.toMatchObject({ behavior: 'allow' })
+  })
+
+  it('allows both Adapter runtimes through guarded workspace native commands', async () => {
+    const policy = createWeWorkerToolPolicy('workspace')
+    for (const command of [
+      'webcli call example.com.read --url=https://example.com/public',
+      'webcli call example-toolkit.list --limit=5',
+    ]) {
+      await expect(policy('PowerShell', { command }, {} as never)).resolves.toMatchObject({ behavior: 'allow' })
+    }
+    await expect(policy('PowerShell', { command: ' ' }, {} as never)).resolves.toMatchObject({ behavior: 'deny' })
+    const result = await policy('mcp__weworker__weworker_powershell', { command: 'webcli call example.com.read' }, {} as never)
+    expect(result).toMatchObject({ behavior: 'deny' })
+    expect(result && 'message' in result ? result.message : '').not.toContain('require full')
   })
 })

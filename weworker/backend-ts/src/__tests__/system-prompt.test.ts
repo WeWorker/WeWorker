@@ -482,6 +482,23 @@ describe('System Prompt - channel permission modes', () => {
     expect(prompt).not.toContain(`不要调用 Claude Code 内置 ${nativeShell}`)
   })
 
+  it('workspace exposes native Adapter commands and describes workspace/site boundaries without requiring full mode', async () => {
+    const { buildSystemPrompt, buildDisallowedTools } = await import('../agent.js')
+    for (const platform of ['win32', 'linux'] as const) {
+      const nativeShell = platform === 'win32' ? 'PowerShell' : 'Bash'
+      const prompt = buildSystemPrompt({ channelPermissionMode: 'workspace', platform, workspaceDirectory: 'C:/example/workspace' })
+      expect(prompt).toContain(`Claude Code 内置 ${nativeShell} 已开放`)
+      expect(prompt).toContain('Extension Adapter 或 Toolkit Adapter')
+      expect(prompt).toContain('C:/example/workspace')
+      expect(prompt).toContain('站点白名单')
+      expect(prompt).toContain('黑名单')
+      expect(prompt).not.toContain('需要 full 权限')
+      expect(prompt).not.toContain('不能执行 Extension Adapter')
+      expect(prompt).not.toContain('不受 WeWorker 用户目录白名单')
+      expect(buildDisallowedTools('workspace', platform)).not.toContain(nativeShell)
+    }
+  })
+
   it('uses native PowerShell throughout the Windows full prompt', async () => {
     const { buildSystemPrompt } = await import('../agent.js')
     const prompt = buildSystemPrompt({ channelPermissionMode: 'full', platform: 'win32' })

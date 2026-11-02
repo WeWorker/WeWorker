@@ -12,7 +12,7 @@ export function resolveDesktopChatPermission(value: unknown): DesktopChatPermiss
   switch (value) {
     case 'workspace':
       return {
-        channelPermissionMode: 'no_bash',
+        channelPermissionMode: 'workspace',
         sdkPermissionMode: 'acceptEdits',
         allowDangerouslySkipPermissions: false,
       }
@@ -30,7 +30,7 @@ export function resolveDesktopChatPermission(value: unknown): DesktopChatPermiss
       }
     default:
       return {
-        channelPermissionMode: 'no_bash',
+        channelPermissionMode: 'workspace',
         sdkPermissionMode: 'acceptEdits',
         allowDangerouslySkipPermissions: false,
       }

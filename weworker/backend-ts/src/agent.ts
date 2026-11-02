@@ -19,8 +19,8 @@ import type { Settings } from './config.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
-import type { ChannelPermissionMode } from './channels/channel-permissions.js'
-import type { Message } from './works-store.js'
+import { allowsNativeCommands, type ChannelPermissionMode } from './channels/channel-permissions.js'
+import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
 import { parseAllAdapters } from './adapter-parser.js'
 import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
@@ -41,6 +41,7 @@ import {
 } from './chat-session.js'
 import type { UserMediaSink } from './user-media.js'
 import { buildAgentFilesystemSettings, createUnifiedToolGuard } from './user-directory-access.js'
+import { createWorkspacePreToolUseHook } from './workspace-tool-hook.js'
 import { createLogger } from './logger.js'
 import { resolveWebcliDir } from './webcli-path.js'
 import { syncBundledWebcliSkills } from './webcli-skills.js'
@@ -304,6 +305,7 @@ export interface UsageEvent {
 
 export function buildSystemPrompt(opts?: {
   channelPermissionMode?: ChannelPermissionMode
+  workspaceDirectory?: string
   platform?: NodeJS.Platform
   styleId?: string | null
   customStyles?: import('./style-settings.js').CustomStyle[]
@@ -321,7 +323,7 @@ export function buildSystemPrompt(opts?: {
   }
 
   const allAdapters = parseAllAdapters()
-  const userDirectory = getUserDirectory()
+  const userDirectory = opts?.workspaceDirectory || getUserDirectory()
   const blacklistEntries = getUserDirectoryBlacklist()
   const blacklistScope = channelPermissionMode === 'full'
     ? '以下路径黑名单规则由系统对原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具强制校验；不适用于 `full` 模式的 Claude Code 内置 Bash：'
@@ -338,7 +340,7 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
 `
     : ''
 
-  const adapterExecutionEnabled = channelPermissionMode === 'full'
+  const adapterExecutionEnabled = allowsNativeCommands(channelPermissionMode)
   const webcliInvokeDesc = `Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call <完整工具名> --参数名=参数值\``
   const openBrowserDesc = `使用 Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
   const webcliStep2 = `2. 使用 Claude Code 内置 ${nativeCommandTool} 执行 \`webcli call <完整工具名> --参数名=参数值\``
@@ -351,6 +353,16 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
 Claude Code 内置 ${nativeCommandTool} 已开放，也可执行构建、测试、git、npm 和其他本地命令。
 内置 ${nativeCommandTool} 不受 WeWorker 用户目录白名单、黑名单、绝对路径或命令类型限制。
 WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
+`
+    : channelPermissionMode === 'workspace'
+      ? `
+## 工作区内修改：Skill、Adapter 与 ${nativeCommandTool}
+
+Claude Code 内置 ${nativeCommandTool} 已开放，可执行 Extension Adapter 或 Toolkit Adapter，以及构建、测试、git、npm 等本地命令；不需要切换到完全权限。
+执行 Adapter 时使用内置 ${nativeCommandTool} 运行 \`webcli call\`，不得使用 \`weworker_powershell\`。
+当前对话绑定的工作区是 ${userDirectory}，也是命令默认工作目录。文件读取、使用和修改必须留在该目录内，路径黑名单继续有效；范围内操作不需要逐次请求确认。
+站点访问仍受站点白名单限制（已授权 Adapter 站点和设置中额外允许的站点）；越界时说明具体限制，不要要求用户升级权限才能调用已授权 Adapter。
+WebCLI 按 Adapter 类型选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
 `
     : `
 ## 原生命令工具限制
@@ -417,7 +429,7 @@ Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业
       ? `此目录边界不适用于 \`full\` 模式的 Claude Code 内置 ${nativeCommandTool}；内置 ${nativeCommandTool} 可以访问其他绝对路径，也不应用用户目录黑名单。`
       : 'WeWorker Shell 命令（含 cat、type、python 等）与内置文件工具同样受用户目录边界约束，越界请求会被系统拦截。',
     blacklist_notice: blacklistNotice,
-    local_command_execution_rule: channelPermissionMode === 'full'
+    local_command_execution_rule: adapterExecutionEnabled
       ? `执行 Extension Adapter 或 Toolkit Adapter 时必须使用 Claude Code 内置 ${nativeCommandTool} 运行 \`webcli call\`，不得使用 \`weworker_powershell\`；其他本地命令、构建、测试、git 或 npm 也可以使用内置 ${nativeCommandTool}。`
       : '当需要执行本地命令、Shell 命令、构建、测试、git、npm 或查看命令输出时，必须调用 `weworker_powershell` 工具，不要调用 Claude Code 内置 Bash 或 PowerShell。',
     default_shell: defaultShell,
@@ -1108,6 +1120,9 @@ async function* streamChatWithBaseUrl(
   phase.mark('adapter_reload_wait')
   const enabledAdapterIds = opts.enabledAdapterIds
   const channelPermissionMode = opts.channelPermissionMode ?? 'full'
+  const workspaceDirectory = channelPermissionMode === 'workspace' && opts.workId
+    ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
+    : undefined
   const internal = opts[STREAM_CHAT_INTERNAL]
   // Session reuse is limited to the plain desktop path: channel handlers, custom
   // prompts/tools and compaction-only runs keep the one-off query behavior.
@@ -1133,6 +1148,7 @@ async function* streamChatWithBaseUrl(
 
   const mcpServer = _buildMcpServer({
     channelPermissionMode,
+    workspaceDirectory,
     workId: opts.workId ?? null,
     askUserSSECallback: opts.onAskUser ?? null,
     channelAskUserHandler: opts.channelAskUserHandler ?? null,
@@ -1214,12 +1230,12 @@ async function* streamChatWithBaseUrl(
     ),
     ...(opts.extraDisallowedTools ?? []),
   ]
-  const agentCwd = ensureAgentWorkingDirectory()
+  const agentCwd = ensureAgentWorkingDirectory(workspaceDirectory)
   const filesystemSettings = buildAgentFilesystemSettings(agentCwd, channelPermissionMode)
   if (opts.permissionMode === 'default') {
     filesystemSettings.permissions.allow = filesystemSettings.permissions.allow.filter((rule) => !rule.startsWith('Edit(') && !rule.startsWith('Write('))
   }
-  const filesystemToolGuard = createUnifiedToolGuard(channelPermissionMode)
+  const filesystemToolGuard = createUnifiedToolGuard(channelPermissionMode, workspaceDirectory)
   const toolPolicy = createWeWorkerToolPolicy(channelPermissionMode)
   const canUseTool: typeof toolPolicy = async (toolName, input, context) => {
     // Read the guard at call time: a reused session rebinds it for each turn.
@@ -1296,7 +1312,7 @@ async function* streamChatWithBaseUrl(
   phase.mark('config_setup')
   let sharedWebcliSkillDigest = ''
   if (skillRoots.length && !isolatedSkills) {
-    if (channelPermissionMode === 'full') {
+    if (allowsNativeCommands(channelPermissionMode)) {
       try {
         sharedWebcliSkillDigest = syncBundledWebcliSkills(skillRoots[0])
       } catch (error) {
@@ -1351,6 +1367,7 @@ async function* streamChatWithBaseUrl(
     : ''
   const baseSystemPrompt = opts.systemPromptOverride ?? buildSystemPrompt({
     channelPermissionMode,
+    workspaceDirectory,
     styleId: opts.styleId,
     customStyles: settings.zcf_custom_roles,
     memoryProtocol,
@@ -1582,10 +1599,15 @@ async function* streamChatWithBaseUrl(
       pathToClaudeCodeExecutable: claudeSetup.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess,
       env: envWithWebcli,
-      hooks: memoryEnabled ? {
-        UserPromptSubmit: [{ hooks: [memoryUserPromptSubmitHook] }],
-        PostToolBatch: [{ hooks: [memoryPostToolBatchHook] }],
-      } : undefined,
+      hooks: {
+        ...(channelPermissionMode === 'workspace' ? {
+          PreToolUse: [{ hooks: [createWorkspacePreToolUseHook(agentCwd)] }],
+        } : {}),
+        ...(memoryEnabled ? {
+          UserPromptSubmit: [{ hooks: [memoryUserPromptSubmitHook] }],
+          PostToolBatch: [{ hooks: [memoryPostToolBatchHook] }],
+        } : {}),
+      },
     },
   })
 

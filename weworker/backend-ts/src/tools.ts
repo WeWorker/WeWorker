@@ -1,4 +1,4 @@
-import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+import { tool, createSdkMcpServer, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +8,8 @@ import { promisify } from 'node:util'
 import { getUserDirectory } from './config.js'
 import { listFiles } from './file-tools.js'
 import { assertPathInsideUserDirectory } from './user-directory-guard.js'
-import type { ChannelPermissionMode } from './channels/channel-permissions.js'
+import { allowsNativeCommands, type ChannelPermissionMode } from './channels/channel-permissions.js'
+import { runWithWorkspaceDirectory } from './workspace-access-context.js'
 import * as store from './works-store.js'
 import { scheduler, Scheduler } from './scheduler.js'
 import { channelManager } from './channels/channel-manager.js'
@@ -213,6 +214,7 @@ function buildExplorationChatTools(coordinator: ExplorationCoordinatorToolTarget
 }
 
 interface McpServerContext {
+  workspaceDirectory?: string
   platform?: NodeJS.Platform
   channelPermissionMode?: ChannelPermissionMode
   workId?: string | null
@@ -290,6 +292,7 @@ export function buildMcpServer(opts?: McpServerContext) {
     && (!dedicatedAgent.actorUserId || dedicatedAgent.actorUserId === dedicatedAgent.ownerUserId)
   const platform = opts?.platform ?? process.platform
   const nativeCommandTool = platform === 'win32' ? 'PowerShell' : 'Bash'
+  const toolDirectory = opts?.workspaceDirectory || getUserDirectory()
 
   if (opts?.channelPermissionMode === 'qa_only') {
     return createSdkMcpServer({
@@ -360,7 +363,7 @@ export function buildMcpServer(opts?: McpServerContext) {
     ),
     tool(
       'weworker_powershell',
-      channelPermissionMode === 'full'
+      allowsNativeCommands(channelPermissionMode)
         ? `Run a local command through WeWorker Shell with live output visible in the terminal panel. Do not use it for Adapter commands; webcli must use Claude Code native ${nativeCommandTool}.`
         : 'Run a local command through WeWorker Shell with live output visible in the terminal panel. Adapter commands are unavailable because Claude Code native command tools are disabled.',
       {
@@ -372,7 +375,7 @@ export function buildMcpServer(opts?: McpServerContext) {
       async ({ command, cwd, shell, outputEncoding }) => {
         try {
           if (invokesWebcli(command)) {
-            const error = channelPermissionMode === 'full'
+            const error = allowsNativeCommands(channelPermissionMode)
               ? `Adapter commands must run with Claude Code native ${nativeCommandTool} instead of WeWorker Shell.`
               : 'Adapter commands require full permission mode and the platform-native Claude Code command tool.'
             return { content: [{ type: 'text' as const, text: JSON.stringify({ error }) }] }
@@ -582,9 +585,9 @@ export function buildMcpServer(opts?: McpServerContext) {
 
     tool(
       'list_files',
-      `列出用户目录中的文件（仅限 ${getUserDirectory()} 及其子目录，按修改时间倒序排列）。`,
+      `列出工作目录中的文件（仅限 ${toolDirectory} 及其子目录，按修改时间倒序排列）。`,
       {
-        directory: z.string().optional().describe(`用户目录内的子目录路径（默认 ${getUserDirectory()}）`),
+        directory: z.string().optional().describe(`工作目录内的子目录路径（默认 ${toolDirectory}）`),
         keyword: z.string().optional().describe('按文件名关键词过滤'),
         limit: z.number().optional().describe('最大返回数量（默认 50）'),
       },
@@ -693,6 +696,9 @@ export function buildMcpServer(opts?: McpServerContext) {
   return createSdkMcpServer({
     name: 'weworker-tools',
     version: '1.0.0',
-    tools: systemTools,
+    tools: systemTools.map((definition: SdkMcpToolDefinition<any>) => ({
+      ...definition,
+      handler: (args, extra) => runWithWorkspaceDirectory(opts?.workspaceDirectory, () => definition.handler(args, extra)),
+    })),
   })
 }

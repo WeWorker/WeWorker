@@ -10,9 +10,9 @@ describe('desktop chat permission modes', () => {
     })
   })
 
-  it('auto-accepts edits within the configured workspace and disables shell tools', () => {
+  it('auto-accepts workspace edits while allowing guarded native commands and Adapters', () => {
     expect(resolveDesktopChatPermission('workspace')).toEqual({
-      channelPermissionMode: 'no_bash',
+      channelPermissionMode: 'workspace',
       sdkPermissionMode: 'acceptEdits',
       allowDangerouslySkipPermissions: false,
     })
