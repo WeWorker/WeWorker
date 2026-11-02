@@ -13,3 +13,9 @@ export function formatTimingDuration(ms) {
   if (minutes) return `${minutes}m${seconds}s`
   return `${seconds}s`
 }
+
+/** Sum displayed whole-second components so the visible total always matches them. */
+export function formatTimingTotal(thinkMs, execMs) {
+  if (!Number.isFinite(thinkMs) || !Number.isFinite(execMs)) return ''
+  return formatTimingDuration(Math.round(thinkMs / 1000) * 1000 + Math.round(execMs / 1000) * 1000)
+}
