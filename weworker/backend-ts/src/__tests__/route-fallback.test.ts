@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { executeRoutePlan, type RouteEngine } from '../api-query-router/index.js'
-import { dispatchOnce } from '../api-query-router/route-dispatch.js'
+import { dispatchOnce, isUnrenderableAnswer } from '../api-query-router/route-dispatch.js'
 import type { CascadePlan } from '../api-query-router/cascade.js'
 
 const tool = 'example.list'
@@ -65,14 +65,27 @@ describe('route dispatch fallback', () => {
     expect(input.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: expect.stringContaining('example') }))
   })
 
-  it('a valid empty result still counts as an answer', async () => {
-    const mocked = vi.fn(async () => '{"items":[]}')
+  it.each([
+    ['empty items', '{"items":[]}'],
+    ['empty data', '{"code":200,"data":[]}'],
+    ['bare empty array', '[]'],
+    ['wrapped empty result', '{"result":{"items":[]},"trace_id":"example-trace"}'],
+  ])('%s falls back to LLM without emitting an empty-result answer', async (_name, raw) => {
+    const mocked = vi.fn(async () => raw)
     const input = ctx()
+    const persistAssistantMessage = vi.fn()
     expect(await executeRoutePlan(plan, input, {
-      engine, dispatch: mocked, persistAssistantMessage: vi.fn(),
-    })).toBe(true)
+      engine, dispatch: mocked, persistAssistantMessage,
+    })).toBe(false)
     expect(mocked).toHaveBeenCalledTimes(1)
-    expect(input.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: '未查询到相关数据。' }))
+    expect(input.send).not.toHaveBeenCalled()
+    expect(persistAssistantMessage).not.toHaveBeenCalled()
+  })
+
+  it('falls back when a declarative renderer produces only an empty-result message', () => {
+    expect(isUnrenderableAnswer('### 查询结果\n\n未查询到相关数据。')).toBe(true)
+    expect(isUnrenderableAnswer('### 查询结果\n\n（无数据）')).toBe(true)
+    expect(isUnrenderableAnswer('### 查询结果\n\n未查询到相关数据。\n\n### 其它结果\n\n| 名称 |\n| --- |\n| 示例 |')).toBe(false)
   })
 
   it('categorizes a tool timeout before routing can render it', async () => {
