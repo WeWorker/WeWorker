@@ -43,14 +43,22 @@ describe('filterWorkLogLines', () => {
   it('keeps lines tagged with the short work marker or the full id, redacted', () => {
     const lines = [
       '[2026-10-31T08:00:01Z] [node] [work:2215049d] turn_start model=claude',
+      '[2026-10-31T08:00:01Z] [chat] [DEBUG] [work:2215049d][turn:turn-1] request_received messageChars=12',
+      '[2026-10-31T08:00:01Z] [chat] [INFO] [work:2215049d][turn:turn-1] handler_started',
+      '[2026-10-31T08:00:02Z] [chat] [WARN] [work:2215049d][turn:turn-1] retrying',
+      '[2026-10-31T08:00:03Z] [chat] [ERROR] [work:2215049d][turn:turn-1] failed',
       '[2026-10-31T08:00:02Z] [bridge] [Bridge] [work:2215049d] 收到调用: weoa.example.com.list',
       `[2026-10-31T08:00:03Z] [node] other work ${WORK_ID} inline`,
       '[2026-10-31T08:00:04Z] [bridge] [Bridge] [work:ffffffff] 收到调用: unrelated',
       '[2026-10-31T08:00:05Z] [node] [work:2215049d] token=superSecretValue',
     ]
     const kept = filterWorkLogLines(lines, WORK_ID)
-    expect(kept).toHaveLength(4)
+    expect(kept).toHaveLength(8)
     expect(kept[0]).toContain('turn_start')
+    expect(kept.some((l) => l.includes('[DEBUG]') && l.includes('request_received'))).toBe(true)
+    expect(kept.some((l) => l.includes('[INFO]') && l.includes('handler_started'))).toBe(true)
+    expect(kept.some((l) => l.includes('[WARN]') && l.includes('retrying'))).toBe(true)
+    expect(kept.some((l) => l.includes('[ERROR]') && l.includes('failed'))).toBe(true)
     expect(kept.some((l) => l.includes('unrelated'))).toBe(false)
     expect(kept.some((l) => l.includes('superSecretValue'))).toBe(false)
   })

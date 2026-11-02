@@ -8,6 +8,24 @@ test('all release defaults are enabled', () => {
   assert.ok(defaultSites.every((entry) => typeof entry === 'string' || entry.enabled !== false))
 })
 
+test('the bundled defaults keep enabled QQ Mail discoverable through the shared site API', async () => {
+  const previousFetch = globalThis.fetch
+  const previousWindow = globalThis.window
+  const qqMail = { id: 'mail.qq.com', name: 'QQ邮箱', enabled: true, visible: false, icon: 'mail' }
+  try {
+    globalThis.window = {}
+    globalThis.fetch = async (url) => {
+      assert.equal(url, 'http://127.0.0.1:8765/sites')
+      return Response.json([qqMail])
+    }
+    assert.deepEqual(await fetchSites(), [qqMail])
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+  }
+})
+
 test('explicitly disabled sites are hidden while omitted flags default to enabled', () => {
   const sites = [
     { id: 'disabled.example.com', enabled: true, visible: true },

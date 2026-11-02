@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { expandHomePath, getConfigDirectory, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { formatBlacklistEntry, isPathBlacklisted } from './user-directory-blacklist.js'
+import { getActivePermissionMode, getActiveWorkspaceDirectory } from './workspace-access-context.js'
 
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(String(value || '').trim()) || String(value || '').trim().startsWith('\\\\')
@@ -13,7 +14,7 @@ function resolvePortablePath(targetPath: string, root?: string): string {
 }
 
 export function resolveUserDirectoryRoot(): string {
-  return resolvePortablePath(getUserDirectory())
+  return resolvePortablePath(getActiveWorkspaceDirectory() || getUserDirectory())
 }
 
 export function resolveRuntimeSkillsRoot(): string {
@@ -48,18 +49,23 @@ export function isPathInsideAllowedDirectory(targetPath: string): boolean {
 }
 
 export function isPathBlockedByBlacklist(targetPath: string): boolean {
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return false
   const resolved = resolvePathAgainstUserDirectory(targetPath)
   if (isPathInsideRuntimeSkillsDirectory(resolved)) return false
-  return isPathBlacklisted(resolved, getUserDirectoryBlacklist(), resolveUserDirectoryRoot())
+  const entries = getUserDirectoryBlacklist()
+  return isPathBlacklisted(resolved, entries, resolveUserDirectoryRoot())
+    || isPathBlacklisted(resolved, entries, resolvePortablePath(getUserDirectory()))
 }
 
 export function assertPathNotBlacklisted(targetPath: string, label = 'path'): void {
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return
   const resolved = resolvePathAgainstUserDirectory(targetPath)
   const entries = getUserDirectoryBlacklist()
   if (!entries.length) return
-  if (isPathBlacklisted(resolved, entries, resolveUserDirectoryRoot())) {
+  if (isPathBlockedByBlacklist(resolved)) {
     const matched = entries.find((entry) =>
-      isPathBlacklisted(resolved, [entry], resolveUserDirectoryRoot()),
+      isPathBlacklisted(resolved, [entry], resolveUserDirectoryRoot())
+        || isPathBlacklisted(resolved, [entry], resolvePortablePath(getUserDirectory())),
     )
     const detail = matched ? formatBlacklistEntry(matched) : 'blocked by user directory blacklist'
     throw new Error(`${label} is blocked by user directory blacklist (${detail})`)
@@ -68,10 +74,12 @@ export function assertPathNotBlacklisted(targetPath: string, label = 'path'): vo
 
 export function assertPathInsideUserDirectory(targetPath: string, label = 'path'): string {
   const target = resolvePathAgainstUserDirectory(targetPath)
-  if (!isPathInsideAllowedDirectory(target)) {
+  if (getActivePermissionMode() === 'ask' || getActivePermissionMode() === 'full') return target
+  const runtimeSkillAllowed = getActivePermissionMode() !== 'workspace' && isPathInsideRuntimeSkillsDirectory(target)
+  if (!isPathInsideUserDirectory(target) && !runtimeSkillAllowed) {
     throw new Error(`${label} must stay inside user directory: ${resolveUserDirectoryRoot()}`)
   }
-  if (isPathInsideRuntimeSkillsDirectory(target)) return target
+  if (runtimeSkillAllowed) return target
   assertPathNotBlacklisted(target, label)
   return target
 }

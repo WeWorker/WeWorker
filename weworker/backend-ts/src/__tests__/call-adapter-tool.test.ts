@@ -42,8 +42,6 @@ vi.mock('../file-tools.js', () => ({
 }))
 
 describe('Adapter command boundary', () => {
-  const nativeShell = process.platform === 'win32' ? 'PowerShell' : 'Bash'
-
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.registeredTools.clear()
@@ -59,34 +57,30 @@ describe('Adapter command boundary', () => {
     expect(mocks.registeredTools.has('webcli_call')).toBe(false)
   })
 
-  it('does not register the removed webcli_call MCP in full mode', async () => {
+  it('does not register the removed webcli_call MCP and describes unrestricted commands in full mode', async () => {
     const { buildMcpServer } = await import('../tools.js')
 
     buildMcpServer({ channelPermissionMode: 'full' })
 
     expect(mocks.registeredTools.has('webcli_call')).toBe(false)
     expect(mocks.registeredTools.has('call_adapter_tool')).toBe(false)
-    expect(mocks.toolDescriptions.get('weworker_powershell')).toContain(`webcli must use Claude Code native ${nativeShell}`)
+    expect(mocks.toolDescriptions.get('weworker_powershell')).toContain('Commands are unrestricted')
   })
 
-  it('rejects webcli through WeWorker Shell in full mode', async () => {
+  it('allows webcli through WeWorker Shell in full mode', async () => {
     const { buildMcpServer } = await import('../tools.js')
 
-    buildMcpServer({ channelPermissionMode: 'full' })
-    const handler = mocks.registeredTools.get('weworker_powershell')
+    const server = buildMcpServer({ channelPermissionMode: 'full' }) as unknown as {
+      tools: Array<{ name: string; handler: (input: Record<string, unknown>) => Promise<unknown> }>
+    }
+    const handler = server.tools.find(tool => tool.name === 'weworker_powershell')?.handler
 
     const result = await handler!({
-      command: 'cd /tmp && webcli call blog-admin.search-blog --limit=5',
+      command: 'webcli call blog-admin.search-blog --limit=5',
     })
 
-    expect(result).toEqual({
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: `Adapter commands must run with Claude Code native ${nativeShell} instead of WeWorker Shell.`,
-        }),
-      }],
-    })
+    expect(JSON.stringify(result)).not.toContain('must stay inside user directory')
+    expect(JSON.stringify(result)).not.toContain('Adapter commands must run with')
   })
 
   it('does not expose webcli_call in no_bash mode', async () => {
@@ -96,17 +90,13 @@ describe('Adapter command boundary', () => {
     expect(mocks.registeredTools.has('webcli_call')).toBe(false)
   })
 
-  it('rejects webcli through WeWorker Shell in no_bash mode', async () => {
-    const { buildMcpServer } = await import('../tools.js')
-    buildMcpServer({ channelPermissionMode: 'no_bash' })
-    const handler = mocks.registeredTools.get('weworker_powershell')
-
-    const result = await handler!({ command: 'webcli call open_browser --url=https://expense.example.com/' })
-
-    expect(result).toEqual({
-      content: [{ type: 'text', text: JSON.stringify({
-        error: 'Adapter commands require full permission mode and the platform-native Claude Code command tool.',
-      }) }],
-    })
+  it('rejects webcli through WeWorker Shell in no_bash mode at the tool policy boundary', async () => {
+    const { createWeWorkerToolPolicy } = await import('../agent-tool-policy.js')
+    const result = await createWeWorkerToolPolicy('no_bash')(
+      'mcp__weworker__weworker_powershell',
+      { command: 'webcli call open_browser --url=https://example.com/' },
+      {} as never,
+    )
+    expect(result).toMatchObject({ behavior: 'deny' })
   })
 })

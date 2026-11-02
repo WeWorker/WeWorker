@@ -1165,7 +1165,10 @@ button.app-rail__issue-item:focus-visible {
   .chat-input-toolbar-actions > .context-usage-trigger {
     display: none;
   }
+}
 
+/* Keep the permission name visible until the composer itself becomes narrow. */
+@container chat-composer (max-width: 620px) {
   .chat-permission-picker .app-dropdown-select__trigger {
     width: 32px;
     min-width: 32px;

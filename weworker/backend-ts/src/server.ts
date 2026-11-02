@@ -132,6 +132,7 @@ import {
 } from './style-settings.js'
 import { processMemoryEvent } from './memory/memory-lifecycle.js'
 import { automaticMemoryEnabled } from './memory/automatic-memory.js'
+import { runWithTurnExecutionContext } from './memory/turn-execution-context.js'
 import { buildMemoryEventContext } from './memory/memory-event-context.js'
 import { planCompletedChatMemoryEvents, applyAdmissionToCandidate } from './memory/memory-event-planner.js'
 import { isMemoryProtocolFailure } from './memory/memory-protocol.js'
@@ -2535,14 +2536,14 @@ app.get('/events', (req, res) => {
 
 app.post('/works/:id/user-choice', (req, res) => {
   const workId = req.params.id
-  const { answer } = req.body as { answer: string }
+  const { answer, choiceId } = req.body as { answer: string; choiceId?: string }
 
   if (!answer?.trim()) {
     res.status(400).json({ detail: 'answer required' })
     return
   }
 
-  const resolved = resolvePendingAskUser(workId, answer)
+  const resolved = resolvePendingAskUser(workId, answer, typeof choiceId === 'string' ? choiceId : undefined)
   if (!resolved) {
     res.status(404).json({ detail: 'No pending choice for this work' })
     return
@@ -2948,23 +2949,40 @@ app.post('/works/:id/chat/stop', async (req, res) => {
 })
 
 app.post('/works/:id/chat', async (req, res) => {
-  const turn = chatTurns.start(req.params.id)
-  if (!turn) {
-    res.status(409).json({ detail: '当前对话仍在处理上一条消息，请稍后重试' })
-    return
-  }
-  const onDisconnect = () => { if (!res.writableEnded) turn.controller.abort() }
-  res.on('close', onDisconnect)
-  try {
-    await handleChatRequest(req, res, turn.controller)
-  } finally {
-    chatSteeringListeners.delete(req.params.id)
-    res.off('close', onDisconnect)
-    turn.finish()
-  }
+  const workId = req.params.id
+  const turnId = channelQrId()
+  const startedAt = Date.now()
+  await runWithTurnExecutionContext({ workId, turnId }, async () => {
+    const body = req.body ?? {}
+    const message = typeof body.message === 'string' ? body.message : ''
+    const modelMessage = typeof body.modelMessage === 'string' ? body.modelMessage : ''
+    const attachments = Array.isArray(body.attachments) ? body.attachments.length : 0
+    chatLog.info(`request_received messageChars=${message.length} modelMessageChars=${modelMessage.length} attachments=${attachments} retryCompaction=${body.retryCompaction === true}`)
+
+    const turn = chatTurns.start(workId)
+    if (!turn) {
+      chatLog.warn('request_rejected reason=turn_in_progress')
+      res.status(409).json({ detail: '当前对话仍在处理上一条消息，请稍后重试' })
+      return
+    }
+    const onDisconnect = () => { if (!res.writableEnded) turn.controller.abort() }
+    res.on('close', onDisconnect)
+    try {
+      chatLog.info('request_handler_started')
+      await handleChatRequest(req, res, turn.controller, turnId)
+    } catch (error) {
+      chatLog.error('request_handler_failed', error)
+      throw error
+    } finally {
+      chatLog.info(`request_completed status=${res.statusCode} durationMs=${Date.now() - startedAt}`)
+      chatSteeringListeners.delete(workId)
+      res.off('close', onDisconnect)
+      turn.finish()
+    }
+  })
 })
 
-async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController) {
+async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController, requestTurnId?: string) {
   const workId = req.params.id
   const { message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode } = req.body as {
     message: string;
@@ -3134,7 +3152,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   }
 
   const chatStartTime = Date.now()
-  const turnId = Math.random().toString(36).slice(2, 8)
+  const turnId = requestTurnId ?? Math.random().toString(36).slice(2, 8)
   let stepIndex = 0
   let lastToolName = ''
   // Per-turn timing accumulators. `llmMs` (all LLM generation segments) and
@@ -3149,8 +3167,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   // Optional product profiles may answer a query before the normal LLM route.
   // The public profile has no registered route and always falls through.
+  // Ask mode must use the model's per-tool confirmation path. Direct dispatch
+  // does not expose operation approvals, even for read-only queries.
   // Dedicated agents skip profile routes: those may answer with other websites.
-  if (!dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
+  if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
     finished = true
     res.off('close', onClose)
     broadcastSSE({ type: 'works_changed', workId })
@@ -3167,7 +3187,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // the model rather than replay the same routed answer.
   // `persist: true` keeps the router's own `store.appendMessage`, so desktop
   // persistence is byte-identical to the pre-shared-entry behaviour.
-  if (retryCompaction !== true && message?.trim()) {
+  if (desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
     const routed = await tryRoutedTurn({
       message,
       workId,
@@ -3260,7 +3280,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       coverage: collectSiteCoverage({ adapters: allAdapters.values(), toolkitSkills }),
       knownHosts: buildKnownHosts(allAdapters),
     })
-    if (exploration.dispatch && exploration.startUrl) {
+    if (desktopPermission.channelPermissionMode !== 'ask' && exploration.dispatch && exploration.startUrl) {
       const health = await checkWebwrightHealth()
       if (!health.ok) {
         chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)

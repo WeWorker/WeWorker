@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   streamChat: vi.fn(),
   getAgent: vi.fn(),
   workspaceRoot: '',
+  historyLimit: 50,
 }))
 
 // 路由引擎不在这里测（routed-turn.test.ts 覆盖），只桩掉 API 免得加载全部配置。
@@ -28,10 +29,19 @@ vi.mock('../routed-turn.js', async (importOriginal) => {
 })
 
 vi.mock('../agent.js', () => ({ streamChat: mocks.streamChat }))
+vi.mock('../conversation-archive.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../conversation-archive.js')>()
+  const archiveFile = () => path.join(mocks.workspaceRoot, 'archived-works.json')
+  return {
+    listArchivedWorkIds: () => actual.listArchivedWorkIds(archiveFile()),
+    removeArchivedWork: (id: string) => actual.removeArchivedWork(id, archiveFile()),
+    setWorkArchived: (id: string, archived: boolean) => actual.setWorkArchived(id, archived, archiveFile()),
+  }
+})
 vi.mock('../adapter-parser.js', () => ({ parseAllAdapters: () => new Map() }))
 vi.mock('../style-settings.js', () => ({ resolveStyleId: () => null }))
 vi.mock('../config.js', () => ({
-  getSettings: () => ({ memory_budgets: {}, api_query_llm_route: false }),
+  getSettings: () => ({ memory_budgets: {}, api_query_llm_route: false, scheduled_task_history_limit: mocks.historyLimit }),
   getSiteEnabled: () => true,
   getUserDirectory: () => mocks.workspaceRoot,
   getConfigDirectory: () => path.join(mocks.workspaceRoot, '.weworker'),
@@ -60,10 +70,17 @@ vi.mock('../memory/memory-event-planner.js', () => ({
 
 import {
   _initTestDb,
+  _getTestDb,
+  createWork,
+  createTaskExecution,
   createScheduledTask,
+  getProjectByName,
+  getWork,
   getScheduledTask,
   getWorkWithMessages,
+  listWorks,
   listTaskExecutions,
+  updateTaskExecution,
   type ScheduledTask,
 } from '../works-store.js'
 import { executeTask } from '../task-executor.js'
@@ -93,6 +110,7 @@ describe('executeTask 的路由接线', () => {
     vi.clearAllMocks()
     mocks.workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-task-routing-'))
     _initTestDb()
+    mocks.historyLimit = 50
     mocks.getAgent.mockReturnValue(null)
     mocks.streamChat.mockImplementation(async function* () {
       yield { type: 'text_delta', content: '模型回答' }
@@ -175,5 +193,44 @@ describe('executeTask 的路由接线', () => {
     expect(result.status).toBe('failed')
     expect(mocks.tryRoutedTurn).not.toHaveBeenCalled()
     expect(mocks.streamChat).not.toHaveBeenCalled()
+  })
+
+  it('cleans an accumulated 65-run history to the configured 50 without restarting or saving settings', async () => {
+    const task = makeTask()
+    const project = getProjectByName('定时任务')!
+    const previousIds: string[] = []
+    for (let index = 0; index < 65; index += 1) {
+      const work = createWork(`Fixture run ${index}`, project.id)
+      previousIds.push(work.id)
+      _getTestDb().prepare('UPDATE works SET created_at = ? WHERE id = ?').run(new Date(Date.UTC(2020, 0, 1, 0, index)).toISOString(), work.id)
+      const execution = createTaskExecution(task.id, work.id)
+      updateTaskExecution(execution.id, { status: 'completed' })
+    }
+    const unrelated = createWork('Unrelated conversation')
+
+    const result = await executeTask(task)
+
+    expect(result.status).toBe('completed')
+    expect(listWorks().filter(work => work.project_id === project.id)).toHaveLength(50)
+    for (const id of previousIds.slice(0, 16)) expect(getWork(id)).toBeNull()
+    for (const id of previousIds.slice(16)) expect(getWork(id)).not.toBeNull()
+    expect(getWork(result.workId)).not.toBeNull()
+    expect(getWork(unrelated.id)).not.toBeNull()
+    expect(listTaskExecutions(task.id)).toHaveLength(50)
+  })
+
+  it.each(['completed', 'failed', 'empty-prompt'] as const)('enforces a changed cap after a %s run', async outcome => {
+    const task = makeTask()
+    const previous = await executeTask(task)
+    mocks.historyLimit = 1
+    if (outcome === 'failed') mocks.streamChat.mockImplementation(async function* () { throw new Error('Fixture failure') })
+    if (outcome === 'empty-prompt') task.prompt_template = ''
+
+    const result = await executeTask(task)
+
+    expect(result.status).toBe(outcome === 'completed' ? 'completed' : 'failed')
+    expect(getWork(previous.workId)).toBeNull()
+    expect(getWork(result.workId)).not.toBeNull()
+    expect(listTaskExecutions(task.id).map(execution => execution.work_id)).toEqual([result.workId])
   })
 })

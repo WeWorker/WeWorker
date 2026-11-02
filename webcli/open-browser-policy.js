@@ -75,7 +75,7 @@ export function loadAdapterManifests(adaptersDir = resolveAdaptersDir()) {
   return manifests;
 }
 
-export function assertAllowedOpenBrowserUrl(rawUrl, allowedOrigins = buildAllowedOpenBrowserOrigins(loadAdapterManifests())) {
+export function assertAllowedOpenBrowserUrl(rawUrl, allowedOrigins) {
   let url;
   try {
     url = new URL(rawUrl);
@@ -85,7 +85,11 @@ export function assertAllowedOpenBrowserUrl(rawUrl, allowedOrigins = buildAllowe
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`不支持的URL协议 "${url.protocol}"，只允许 http/https`);
   }
-  if (!allowedOrigins.has(url.origin)) {
+  if (process.env.WEWORKER_CHAT_PERMISSION_MODE === "ask" || process.env.WEWORKER_CHAT_PERMISSION_MODE === "full") {
+    return url.toString();
+  }
+  const origins = allowedOrigins || buildAllowedOpenBrowserOrigins(loadAdapterManifests());
+  if (!origins.has(url.origin)) {
     throw new Error(`open_browser URL is not allowed: ${url.origin}`);
   }
   return url.toString();

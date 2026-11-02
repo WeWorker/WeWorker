@@ -121,7 +121,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const handleChoice = async (choiceId, answer) => {
     const cleanAnswer = cleanUserChoiceText(answer)
     try {
-      await submitUserChoice(workId, cleanAnswer)
+      await submitUserChoice(workId, cleanAnswer, choiceId)
       // Update the choice block status to 'answered'
       updateStreamMessage({ type: 'user_choice_answer', id: choiceId }, (msg) => ({
         ...msg,

@@ -1034,15 +1034,23 @@ html.dark {
   min-width: 0;
 }
 
+.scenario-picker-item-row,
+.scenario-picker-item-detail-panel {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
 .scenario-picker-item-row {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  border-radius: 8px;
   padding: 6px 4px;
-  transition: background 0.12s ease;
   overflow: visible;
+  cursor: pointer;
 }
 
 .scenario-picker-item-row.is-hovered {
@@ -1113,6 +1121,8 @@ html.dark {
 
 .scenario-picker-item-fill-wrap {
   position: relative;
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
   align-self: center;
 }
@@ -1230,21 +1240,27 @@ html.dark {
 }
 
 .scenario-picker-item-detail {
-  margin: 6px 0 6px 54px;
-  padding: 6px 10px 8px;
+  margin: 6px 0;
+  padding: 6px 10px 6px 64px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .scenario-picker-item-detail-panel {
   position: relative;
+  display: flex;
+  align-items: center;
   border: none;
-  border-radius: 8px;
   background: transparent;
-  transition: background 0.12s ease;
   outline: none;
   cursor: pointer;
+}
+
+.scenario-picker-item-detail-panel > span {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .scenario-picker-item-detail-panel:hover,

@@ -229,11 +229,13 @@ export async function getSites() {
   return res.json()
 }
 
-export async function submitUserChoice(workId, answer) {
+export async function submitUserChoice(workId, answer, choiceId) {
   const res = await backendFetch(`/works/${workId}/user-choice`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ answer }),
+    body: JSON.stringify({ answer, choiceId }),
   })
-  return res.json()
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.detail || '该确认请求已失效，请使用当前操作的确认按钮')
+  return result
 }

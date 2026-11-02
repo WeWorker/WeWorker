@@ -54,6 +54,8 @@ describe('agent tool policy', () => {
     const cases = [
       { mode: 'qa_only' as const, skill: 'deny', file: 'deny', bash: 'deny', mcp: 'deny' },
       { mode: 'no_bash' as const, skill: 'allow', file: 'allow', bash: 'deny', mcp: 'allow' },
+      { mode: 'workspace' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
+      { mode: 'ask' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
       { mode: 'full' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
     ]
 
@@ -72,21 +74,39 @@ describe('agent tool policy', () => {
     }
   })
 
-  it('forces every webcli Adapter command onto the platform-native command tool in full mode', async () => {
+  it.each(['ask', 'workspace', 'full'] as const)('allows the complete available Claude tool set in %s mode', async mode => {
+    const policy = createWeWorkerToolPolicy(mode)
+    for (const toolName of ['Agent', 'Task', 'WebFetch', 'WebSearch', 'CronCreate', 'AskUserQuestion', 'Read', 'Write', 'PowerShell', 'mcp__weworker__weworker_powershell']) {
+      await expect(policy(toolName, { command: 'npm test', url: 'https://example.com' }, {} as never))
+        .resolves.toMatchObject({ behavior: 'allow' })
+    }
+  })
+
+  it('allows Adapter commands through every command tool in full mode', async () => {
     const policy = createWeWorkerToolPolicy('full')
 
     await expect(policy(
       'mcp__weworker__weworker_powershell',
       { command: 'webcli call blog-admin.search-blog --limit=5' },
       {} as never,
-    )).resolves.toMatchObject({
-      behavior: 'deny',
-      message: expect.stringContaining('platform-native'),
-    })
+    )).resolves.toMatchObject({ behavior: 'allow' })
     await expect(policy(
       'mcp__weworker__weworker_powershell',
       { command: 'npm test' },
       {} as never,
     )).resolves.toMatchObject({ behavior: 'allow' })
+  })
+
+  it('allows both Adapter runtimes through guarded workspace native commands', async () => {
+    const policy = createWeWorkerToolPolicy('workspace')
+    for (const command of [
+      'webcli call example.com.read --url=https://example.com/public',
+      'webcli call example-toolkit.list --limit=5',
+    ]) {
+      await expect(policy('PowerShell', { command }, {} as never)).resolves.toMatchObject({ behavior: 'allow' })
+    }
+    await expect(policy('PowerShell', { command: ' ' }, {} as never)).resolves.toMatchObject({ behavior: 'allow' })
+    const result = await policy('mcp__weworker__weworker_powershell', { command: 'webcli call example.com.read' }, {} as never)
+    expect(result).toMatchObject({ behavior: 'allow' })
   })
 })

@@ -468,20 +468,32 @@ export function ensureScheduledTaskHistoryProject(limit: number, options: { crea
 }
 
 export function pruneScheduledTaskWorks(projectId: string, limit: number): string[] {
+  if (getProject(projectId)?.name !== SCHEDULED_TASK_PROJECT_NAME) return []
   const keep = Math.min(500, Math.max(1, Math.floor(Number(limit) || 50)))
   const rows = db().prepare(`
-    SELECT w.id
+    SELECT w.id, EXISTS (
+      SELECT 1 FROM task_executions active
+      WHERE active.work_id = w.id AND active.status IN ('pending', 'running')
+    ) AS active
     FROM works w
     WHERE w.project_id = ?
-      AND EXISTS (
+      AND NOT EXISTS (
         SELECT 1
         FROM task_executions te
         JOIN scheduled_tasks st ON st.id = te.task_id
-        WHERE te.work_id = w.id AND st.agent_id IS NULL
+        WHERE te.work_id = w.id AND st.agent_id IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM scheduled_tasks st
+        WHERE st.context_work_id = w.id AND st.agent_id IS NOT NULL
       )
     ORDER BY w.created_at ASC, w.rowid ASC
-  `).all(projectId) as Array<{ id: string }>
-  const removeIds = rows.slice(0, Math.max(0, rows.length - keep)).map((row) => row.id)
+  `).all(projectId) as Array<{ id: string; active: number }>
+  // The reserved project also contains runs whose schedule was deleted. Keep
+  // the newest conversations and defer pruning any older run still in flight.
+  const removeIds = rows.slice(0, Math.max(0, rows.length - keep))
+    .filter((row) => !row.active)
+    .map((row) => row.id)
   if (removeIds.length === 0) return []
 
   const database = db()
@@ -508,8 +520,15 @@ export function getProject(id: string): Project | null {
 function createProjectRecord(rawName: string, requestedFolderPath?: string): ProjectSummary {
   const name = normalizeProjectName(rawName)
   const folderPath = requestedFolderPath ? path.resolve(requestedFolderPath) : projectFolderPath(name)
+  let createdFolder = false
   if (requestedFolderPath) {
-    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) throw new Error('project folder must exist')
+    if (fs.existsSync(folderPath)) {
+      if (!fs.statSync(folderPath).isDirectory()) throw new Error('project folder must be a directory')
+    } else {
+      assertProjectFolderInsideUserDirectory(folderPath)
+      fs.mkdirSync(folderPath, { recursive: true })
+      createdFolder = true
+    }
   } else {
     assertProjectFolderInsideUserDirectory(folderPath)
     if (fs.existsSync(folderPath)) throw new Error('project folder already exists')
@@ -522,7 +541,7 @@ function createProjectRecord(rawName: string, requestedFolderPath?: string): Pro
       project.id, project.name, project.folder_path, project.created_at, project.updated_at,
     )
   } catch (error) {
-    if (!requestedFolderPath) fs.rmdirSync(folderPath)
+    if (createdFolder || !requestedFolderPath) fs.rmdirSync(folderPath)
     throw error
   }
   return toProjectSummary(project)

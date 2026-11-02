@@ -24,19 +24,27 @@ function createTempResourcesDir(): string {
 }
 
 describe('packaged Claude Code entrypoint', () => {
-  it('hides unsupported native tools in every permission mode while preserving supported tools', async () => {
+  it('exposes the complete native tool set in desktop modes and restricts legacy channel modes', async () => {
     const unsupported = [
       'EnterWorktree', 'ExitWorktree', 'ListAgents', 'ReportFindings',
       'ScheduleWakeup', 'SendMessage', 'TaskCreate', 'TaskGet', 'TaskList',
       'TaskStop', 'TaskUpdate', 'WebSearch', 'Workflow',
     ]
-    for (const mode of ['full', 'no_bash', 'qa_only'] as const) {
+    for (const mode of ['ask', 'workspace', 'full', 'no_bash', 'qa_only'] as const) {
       for (const platform of ['win32', 'darwin', 'linux'] as const) {
         const excluded = buildDisallowedTools(mode, platform)
-        expect(excluded).toEqual(expect.arrayContaining(unsupported))
-        for (const name of unsupported) {
-          await expect(createWeWorkerToolPolicy(mode)(name, {}, {} as never))
-            .resolves.toMatchObject({ behavior: 'deny' })
+        if (mode === 'ask' || mode === 'workspace' || mode === 'full') {
+          expect(excluded).toEqual([])
+          for (const name of unsupported) {
+            await expect(createWeWorkerToolPolicy(mode)(name, {}, {} as never))
+              .resolves.toMatchObject({ behavior: 'allow' })
+          }
+        } else {
+          expect(excluded).toEqual(expect.arrayContaining(unsupported))
+          for (const name of unsupported) {
+            await expect(createWeWorkerToolPolicy(mode)(name, {}, {} as never))
+              .resolves.toMatchObject({ behavior: 'deny' })
+          }
         }
         if (mode !== 'qa_only') {
           for (const name of ['Skill', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit']) {
@@ -73,7 +81,7 @@ describe('packaged Claude Code entrypoint', () => {
     expect(buildClaudeNativeShellEnv('darwin')).toEqual({})
   })
 
-  it('keeps the native shell authoritative and disallows the alternate shell', () => {
+  it('keeps every tool available in full mode and restricts tools only when requested', () => {
     const fullWindows = buildDisallowedTools('full', 'win32')
     const noBashWindows = buildDisallowedTools('no_bash', 'win32')
     const qaWindows = buildDisallowedTools('qa_only', 'win32')
@@ -81,12 +89,10 @@ describe('packaged Claude Code entrypoint', () => {
     const noBashRestricted = buildDisallowedTools('no_bash', 'win32', true)
     const fullRestricted = buildDisallowedTools('full', 'win32', true)
 
-    expect(fullWindows).toContain('Bash')
-    expect(fullWindows).not.toContain('PowerShell')
+    expect(fullWindows).toEqual([])
     expect(noBashWindows).toEqual(expect.arrayContaining(['Bash', 'PowerShell']))
     expect(qaWindows).toEqual(expect.arrayContaining(['Bash', 'PowerShell', 'Skill']))
-    expect(fullPosix).toContain('PowerShell')
-    expect(fullPosix).not.toContain('Bash')
+    expect(fullPosix).toEqual([])
     expect(noBashRestricted).toEqual(expect.arrayContaining([
       'Bash',
       'PowerShell',

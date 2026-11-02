@@ -20,7 +20,7 @@ vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, error() {}, w
 vi.mock('../adapter-parser.js', () => ({ parseAllAdapters: () => new Map() }))
 vi.mock('../webcli-path.js', () => ({ resolveWebcliDir: () => path.join(mocks.directory, 'webcli') }))
 vi.mock('../user-directory-access.js', () => ({
-  buildAgentFilesystemSettings: () => ({}),
+  buildAgentFilesystemSettings: () => ({ permissions: { allow: [] } }),
   createUnifiedToolGuard: () => async () => ({ behavior: 'deny' }),
 }))
 
@@ -93,10 +93,34 @@ describe('agent conversation compaction', () => {
       expect(mocks.query).toHaveBeenCalledOnce()
       const request = mocks.query.mock.calls[0][0]
       expect(request.options.systemPrompt.includes('<weworker_memory>')).toBe(enabled)
-      expect(Boolean(request.options.hooks)).toBe(enabled)
+      expect(Boolean(request.options.hooks?.UserPromptSubmit)).toBe(enabled)
+      expect(Boolean(request.options.hooks?.PostToolBatch)).toBe(enabled)
       expect(recall.mock.calls.length).toBe(enabled ? 1 : 0)
     },
   )
+  it('keeps workspace permission checks registered when automatic memory is disabled', async () => {
+    vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', '1')
+    await collect([message('only', 'Public fixture')], {
+      memoryEnabled: true, channelPermissionMode: 'workspace', workId: undefined,
+    })
+    const request = mocks.query.mock.calls[0][0]
+    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+    expect(request.options.hooks.PostToolBatch).toBeUndefined()
+    const hook = request.options.hooks.PreToolUse[0].hooks[0]
+    const result = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} })
+    expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  })
+  it('registers per-operation confirmation independently of automatic memory', async () => {
+    vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', '1')
+    await collect([message('only', 'Public fixture')], {
+      memoryEnabled: false, channelPermissionMode: 'ask', permissionMode: 'default', workId: undefined,
+    })
+    const request = mocks.query.mock.calls[0][0]
+    expect(request.options.disallowedTools).not.toContain(process.platform === 'win32' ? 'PowerShell' : 'Bash')
+    expect(request.options.hooks.PreToolUse[0].hooks).toHaveLength(1)
+    expect(request.options.hooks.PreToolUse[0].timeout).toBeGreaterThan(300)
+    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+  })
   it('streams visible text before block stop while preserving the hidden memory decision', async () => {
     mocks.query.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
