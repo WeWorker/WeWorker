@@ -558,6 +558,7 @@ class LocalBrowserEnvironment:
                         "screenshot_path": "",
                     }
                 )
+        observation["execution_step"] = self._step_index
         return {
             "output": self._step_python_output,
             "returncode": 0 if success else 1,

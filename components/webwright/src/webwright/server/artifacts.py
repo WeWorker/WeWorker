@@ -67,25 +67,70 @@ def _read_step_code(output_dir: Path, step: int) -> str:
         return ""
 
 
-def _step_from_debug(task_id: str, output_dir: Path, step: int, payload: dict[str, Any]) -> dict[str, Any]:
+def _execution_step(payload: dict[str, Any], step_codes: dict[int, str]) -> int | None:
+    outputs = payload.get("outputs") or []
+    first = outputs[0] if isinstance(outputs, list) and outputs else {}
+    observation = first.get("observation", {}) if isinstance(first, dict) else {}
+    if not isinstance(observation, dict):
+        return None
+    index = observation.get("execution_step")
+    if type(index) is int and index > 0:
+        return index
+    # Legacy runs have separate model/execution counters. Only infer a mapping
+    # from a unique match to the executed code, never from equal filenames.
+    code = observation.get("python_code")
+    if not isinstance(code, str) or not code.strip():
+        return None
+    matches = [index for index, value in step_codes.items() if value == code]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _observation_screenshot_url(
+    task_id: str, output_dir: Path, observation: dict[str, Any], execution_step: int | None,
+) -> str:
+    if "screenshot_path" in observation:
+        value = observation["screenshot_path"]
+        if not isinstance(value, str) or not value:
+            return ""
+        root = output_dir.resolve()
+        path = Path(value)
+        path = (path if path.is_absolute() else root / path).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return ""
+        return f"/api/tasks/{task_id}/files/{path.relative_to(root).as_posix()}"
+    return _screenshot_url(task_id, output_dir, execution_step) if execution_step is not None else ""
+
+
+def _step_from_debug(
+    task_id: str, output_dir: Path, step: int, payload: dict[str, Any],
+    execution_step: int | None = None,
+) -> dict[str, Any]:
     outputs = payload.get("outputs")
     first_output = outputs[0] if isinstance(outputs, list) and outputs else {}
     observation = first_output.get("observation", {}) if isinstance(first_output, dict) else {}
     if not isinstance(observation, dict):
         observation = {}
-    code = _read_step_code(output_dir, step) or str(payload.get("python_code") or "")
+    # Keep code and output from the same action. A same-numbered .py file can
+    # belong to the next action after an interrupted model response.
+    if isinstance(observation.get("python_code"), str):
+        code = observation["python_code"]
+    else:
+        code = (_read_step_code(output_dir, execution_step) if execution_step is not None else "")
+        code = code or str(payload.get("python_code") or "")
     returncode = first_output.get("returncode") if isinstance(first_output, dict) else None
     exception = ""
     if isinstance(first_output, dict):
         exception = str(first_output.get("exception_info") or "")
     exception = exception or str(observation.get("exception") or "")
-    status = StepStatus.OK.value
+    status = StepStatus.OK.value if outputs else StepStatus.UNKNOWN.value
     if returncode not in (None, 0):
         status = StepStatus.ERROR.value
     if payload.get("done"):
         status = StepStatus.DONE.value
     return {
         "step": step,
+        "model_turn": step,
+        "execution_step": execution_step,
         "thought": payload.get("thought", ""),
         "code_type": "python_code",
         "code": code,
@@ -98,7 +143,7 @@ def _step_from_debug(task_id: str, output_dir: Path, step: int, payload: dict[st
         "returncode": returncode,
         "exception": exception,
         "observation": observation,
-        "screenshot_url": _screenshot_url(task_id, output_dir, step),
+        "screenshot_url": _observation_screenshot_url(task_id, output_dir, observation, execution_step),
     }
 
 
@@ -117,19 +162,40 @@ def read_steps(task_id: str, output_dir: Path) -> list[dict[str, Any]]:
             if step is not None:
                 step_numbers.add(step)
 
+    step_codes = {
+        index: _read_step_code(output_dir, index)
+        for index in step_numbers
+        if (steps_dir / f"step_{index:04d}.py").is_file()
+    }
+    debug_payloads = {}
+    for index in sorted(step_numbers):
+        path = debug_steps / f"step_{index:04d}.json"
+        payload = try_read_json(path) if path.is_file() else None
+        if isinstance(payload, dict):
+            debug_payloads[index] = payload
+    execution_indices = {
+        index: _execution_step(payload, step_codes)
+        for index, payload in debug_payloads.items()
+    }
+    claimed_files = {index for index in execution_indices.values() if index is not None}
     steps: list[dict[str, Any]] = []
     for step in sorted(step_numbers):
-        debug_path = debug_steps / f"step_{step:04d}.json"
-        payload = try_read_json(debug_path) if debug_path.is_file() else None
-        if isinstance(payload, dict):
-            steps.append(_step_from_debug(task_id, output_dir, step, payload))
+        if step in debug_payloads:
+            steps.append(_step_from_debug(
+                task_id, output_dir, step, debug_payloads[step], execution_indices[step],
+            ))
+            continue
+        # A legacy execution file may already belong to a different model turn.
+        if step in claimed_files:
             continue
         steps.append(
             {
                 "step": step,
+                "model_turn": None,
+                "execution_step": step,
                 "thought": "",
                 "code_type": "python_code",
-                "code": _read_step_code(output_dir, step),
+                "code": step_codes.get(step, ""),
                 "status": StepStatus.UNKNOWN.value,
                 "done": False,
                 "final_response": "",

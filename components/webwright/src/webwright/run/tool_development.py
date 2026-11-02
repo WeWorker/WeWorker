@@ -15,6 +15,7 @@ from webwright.utils.logging import append_process_log, log_run_error
 
 
 _SYSTEM_PROMPT = """You are the Webwright Tool Developer Agent. Produce one minimal stable browser Tool from the supplied evidence.
+In source_exploration, instruction is the initial user request. followup_instructions holds user additions anchored after_step/before_step; null means unknown or no following recorded step. Keep step identifiers as recorded; gaps are valid. Step code is Python; execution_output is captured stdout/stderr, not a function return value or browser console log. status=ok means execution did not error, not business success; unknown proves neither execution nor success. status_conflict flags contradictory observation evidence. Step page contains only changes to known url/title; omitted fields inherit the last known value, and empty/failed reads do not clear it. Resolve observation aria_snapshot_ref through snapshots, and console_output_ref/recent_console_ref through console_logs; these tables preserve complete text. conclusions contains exploration-agent claims at after_step, not independent proof of success. In debug_run_evidence, execution status and business result are distinct; status=succeeded can coexist with result.ok=false.
 Return only one JSON object with exactly these fields: code, description, parameters_schema, result_schema, requires, ensures, side_effects, risk_notice. requires, ensures, and side_effects must each be a JSON array of strings, even when there is only one item; use an empty array when there are no items.
 parameters_schema and result_schema must each be a JSON-encoded object string; the runtime decodes and validates both strings before saving the Developer Slot.
 The code must contain only one top-level async function named exactly as tool.tool_id; put any imports or helpers inside that function. Do not use decorators, positional-only parameters, *args, or **kwargs. Its first parameter is ctx; all other parameters are business parameters. parameters_schema.properties must match those business parameters exactly, and parameters_schema.required must match the parameters without defaults. Never expose target_id or cdp_url. Use ctx.page for Playwright operations. Do not include markdown fences."""
@@ -58,8 +59,8 @@ def _developer_system_prompt(tool_id: str) -> str:
     example = {
         "code": f"async def {tool_id}(ctx):\n    return {{}}",
         "description": "Describe the Tool result.",
-        "parameters_schema": json.dumps(parameters_schema, ensure_ascii=False),
-        "result_schema": json.dumps(result_schema, ensure_ascii=False),
+        "parameters_schema": json.dumps(parameters_schema, ensure_ascii=False, separators=(",", ":")),
+        "result_schema": json.dumps(result_schema, ensure_ascii=False, separators=(",", ":")),
         "requires": [],
         "ensures": [],
         "side_effects": [],
@@ -67,7 +68,7 @@ def _developer_system_prompt(tool_id: str) -> str:
     }
     return (
         f"{_SYSTEM_PROMPT}\n\nEXAMPLE JSON OUTPUT:\n"
-        f"{json.dumps(example, ensure_ascii=False)}"
+        + json.dumps(example, ensure_ascii=False, separators=(",", ":"))
     )
 
 
@@ -236,7 +237,7 @@ async def run_development(spec: dict[str, Any]) -> dict[str, Any]:
     messages = [
         model.format_message(role="system", content=_developer_system_prompt(tool_id)),
         model.format_message(
-            role="user", content=json.dumps(input_payload, ensure_ascii=False, indent=2)
+            role="user", content=json.dumps(input_payload, ensure_ascii=False, separators=(",", ":"))
         ),
     ]
     request_messages = list(messages)

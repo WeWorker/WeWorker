@@ -461,8 +461,10 @@ def test_local_browser_first_step_executes_and_persists_start_navigation(
     monkeypatch.setattr(env, "_wait_for_observation_ready", fake_wait_for_observation_ready)
     monkeypatch.setattr(env, "_capture_observation", fake_capture_observation)
 
-    asyncio.run(env._execute_async({"python_code": "print(await page.title())"}))
-    asyncio.run(env._execute_async({"python_code": "print(page.url)"}))
+    first = asyncio.run(env._execute_async({"python_code": "print(await page.title())"}))
+    second = asyncio.run(env._execute_async({"python_code": "print(page.url)"}))
+    assert first["observation"]["execution_step"] == 1
+    assert second["observation"]["execution_step"] == 2
 
     navigation = (
         'await page.goto("https://example.com/path?x=1", '
@@ -491,6 +493,7 @@ def test_local_browser_marks_browser_disconnect_as_fatal(monkeypatch, tmp_path: 
     assert result["fatal_error_code"] == "browser_disconnected"
     assert result["fatal_error_stage"] == "browser_action"
     assert result["observation"]["success"] is False
+    assert result["observation"]["execution_step"] == 1
 
 
 def test_local_browser_does_not_duplicate_exact_first_navigation(tmp_path: Path) -> None:
