@@ -46,7 +46,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
         </span>
         <span className="tool-row-header__body">
           <span className="tool-exec-group__header-label">{label}</span>
-          <ToolTimingBadge thinkMs={groupThinkMs} execMs={groupExecMs} totalMs={groupThinkMs + groupExecMs} />
+          <ToolTimingBadge thinkMs={groupThinkMs} execMs={groupExecMs} showTotal />
           <span className="tool-row-header__chevron tool-exec-group__header-chevron" aria-hidden="true">
             <ToolRowChevron expanded={open} />
           </span>

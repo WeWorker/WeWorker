@@ -118,7 +118,7 @@ export function createTurnTimingLedger(options: TurnTimingOptions = {}): TurnTim
       // 这样它绝不会被算进 llmMs。
       chargeUntil(at)
       open.clear()
-      frozen = { totalMs: at - startedAt, llmMs, execMs }
+      frozen = { totalMs: llmMs + execMs, llmMs, execMs }
       return frozen
     },
   }

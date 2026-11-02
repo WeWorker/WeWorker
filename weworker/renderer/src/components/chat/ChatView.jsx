@@ -612,9 +612,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   }, [])
 
   const shortId = workId?.slice(0, 8) || ''
-  // Sum of all turn durations in this work (each assistant turn ends with a timing block)
+  // Derive the work total from the same thinking and execution components as each turn.
   const taskTotalMs = messages.reduce(
-    (s, m) => s + (m.content ?? []).filter((b) => b.type === 'timing').reduce((a, b) => a + (b.totalMs || 0), 0),
+    (s, m) => s + (m.content ?? []).filter((b) => b.type === 'timing').reduce((a, b) => a + (b.llmMs || 0) + (b.execMs || 0), 0),
     0,
   )
   const sites = useSitesStore((s) => s.sites)
