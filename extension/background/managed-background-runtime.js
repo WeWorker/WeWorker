@@ -115,7 +115,8 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
       if ((current.requires_confirmation ?? current.safety === 'write') && args.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
       const token = crypto.randomUUID();
       const url = api.runtime.getURL(MANAGED_RUNNER_PATH) + '?call=' + token;
-      const call = { token, url, accepting: true, pending: new Set(), context };
+      const call = { token, url, accepting: true, pending: new Set(), context,
+        credentialHosts: (selected.manifest.runtime_allowed_hosts || []).filter(host => typeof host === 'string' && !host.includes('*')) };
       const known = [api.runtime.getURL('offscreen/direct-runner.html'), api.runtime.getURL(MANAGED_RUNNER_PATH)];
       const contexts = await api.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
       if (contexts.some((entry) => !known.includes(entry.documentUrl?.split('?')[0]))) throw new Error('An unrelated offscreen document is active.');
@@ -186,7 +187,7 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
     execute, handleMessage,
     hostCookieContext(id) {
       if (!active?.accepting || !id || active.context.hostCallId !== id) return null;
-      return { routeDomain: active.context.routeDomain };
+      return { routeDomain: active.context.routeDomain, credentialHosts: [...active.credentialHosts] };
     },
   };
 }

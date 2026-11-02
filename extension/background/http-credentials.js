@@ -31,14 +31,17 @@ export async function readHttpCookies(chrome, payload) {
 }
 
 // Dedicated host CLI channel. The owning managed invocation supplies the exact
-// primary host; no names, store override or partition selector are accepted.
-export async function readHostCliCookies(chrome, payload, primaryHost) {
+// primary host and exact helper hosts from the installed manifest; no names,
+// store override or partition selector are accepted. Wildcards never grant cookies.
+export async function readHostCliCookies(chrome, payload, primaryHost, credentialHosts = []) {
   const fail = () => { throw new Error('Invalid host CLI credential request.'); };
   let url;
   try { url = new URL(payload?.url); } catch { fail(); }
   if (!payload || Object.keys(payload).length !== 1 || !Object.hasOwn(payload, 'url')
     || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash
-    || typeof primaryHost !== 'string' || url.hostname.toLowerCase() !== primaryHost.toLowerCase()) fail();
+    || typeof primaryHost !== 'string'
+    || (url.hostname.toLowerCase() !== primaryHost.toLowerCase()
+      && !credentialHosts.some(host => typeof host === 'string' && !host.includes('*') && host === url.hostname))) fail();
   // Omitting storeId selects the extension's default cookie store. Never return
   // partitioned cookies even if a browser returns them when no key was supplied.
   const candidates = await chrome.cookies.getAll({ url: url.href });

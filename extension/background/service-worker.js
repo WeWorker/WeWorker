@@ -3005,7 +3005,7 @@ async function handleNativeMessage(msg) {
     try {
       const context = getManagedBackgroundRuntime().hostCookieContext(msg.parentId);
       if (!context) throw new Error('Host invocation is unavailable.');
-      const result = await readHostCliCookies(chrome, msg.payload, context.routeDomain);
+      const result = await readHostCliCookies(chrome, msg.payload, context.routeDomain, context.credentialHosts);
       // Do not send credentials after the original invocation has ended.
       if (!getManagedBackgroundRuntime().hostCookieContext(msg.parentId)) throw new Error('Host invocation is unavailable.');
       sendToNative({ type: 'call_tool_result', id: msg.id, result }, true);
