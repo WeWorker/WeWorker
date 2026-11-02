@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "zhipin.com",
   "version": "0.1.1",
+  "enabled": true,
   "description": "BOSS直聘职位、候选人、聊天和招聘业务",
   "match": [
     "www.zhipin.com"

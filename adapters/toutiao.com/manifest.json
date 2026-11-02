@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "toutiao.com",
   "version": "0.1.1",
+  "enabled": true,
   "description": "今日头条：热榜、推荐流、创作者文章和登录检查",
   "match": [
     "toutiao.com",

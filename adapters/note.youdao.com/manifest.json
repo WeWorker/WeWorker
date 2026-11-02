@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "note.youdao.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "有道云笔记公开分享全文与摘要读取",
   "match": [
     "share.note.youdao.com",

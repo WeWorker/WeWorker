@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "tieba.baidu.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "百度贴吧：热议话题、帖子搜索、吧内帖子和主题阅读",
   "match": [
     "tieba.baidu.com"

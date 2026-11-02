@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "goofish.com",
   "version": "0.1.2",
+  "enabled": true,
   "description": "闲鱼：商品搜索/详情、私信会话、发布宝贝和登录检查",
   "homepage_url": "https://www.goofish.com/",
   "match": [

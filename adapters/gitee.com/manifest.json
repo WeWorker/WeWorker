@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "gitee.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "Gitee：仓库搜索、推荐项目、用户资料和登录检查",
   "homepage_url": "https://gitee.com/",
   "match": [

@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "ctrip.com",
   "version": "0.3.7",
+  "enabled": true,
   "description": "携程：目的地、酒店、交通、景点、邮轮、旅游产品及浏览器登录能力",
   "match": [
     "m.ctrip.com",
