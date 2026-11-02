@@ -183,6 +183,10 @@ export function buildAgentFilesystemSettings(
 ) {
   const normalized = userRoot.replace(/\\/g, '/')
   const runtimeSkillsRoot = resolveRuntimeSkillsRoot().replace(/\\/g, '/')
+  // Desktop workspace access is enforced by our per-call guards and PreToolUse
+  // hook. Requiring the SDK sandbox adds unrelated execution restrictions and
+  // blocks every native command on Windows when that sandbox is unavailable.
+  const requireSdkSandbox = mode !== 'workspace' && mode !== 'full'
   return {
     permissions: {
       // Do not pre-approve native command tools — that skips canUseTool and bypasses blacklist checks.
@@ -197,10 +201,10 @@ export function buildAgentFilesystemSettings(
       defaultMode: 'default' as const,
     },
     sandbox: {
-      enabled: mode !== 'full',
+      enabled: requireSdkSandbox,
       // Sandbox auto-allow also skips canUseTool for native command tools.
       autoAllowBashIfSandboxed: false,
-      allowUnsandboxedCommands: false,
+      allowUnsandboxedCommands: !requireSdkSandbox,
     },
   }
 }
