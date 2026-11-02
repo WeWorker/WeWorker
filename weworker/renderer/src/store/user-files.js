@@ -55,6 +55,12 @@ function isSameOrChildPath(filePath, targetPath) {
   return normalizedFilePath === normalizedTargetPath || normalizedFilePath.startsWith(normalizedTargetPath + '/')
 }
 
+function workspaceContextPayload(state) {
+  if (state.workspaceWorkId) return { work_id: state.workspaceWorkId }
+  if (state.workspaceProjectId) return { project_id: state.workspaceProjectId }
+  return {}
+}
+
 function removePathFromTree(items, targetPath) {
   let changed = false
   const nextItems = []
@@ -131,6 +137,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 export const useUserFilesStore = create((set, get) => ({
   open: false,
   workspaceWorkId: null,
+  workspaceProjectId: null,
   directory: INITIAL_DIRECTORY,
   files: [],
   expandedPaths: INITIAL_EXPANDED_PATHS || [],
@@ -189,9 +196,13 @@ export const useUserFilesStore = create((set, get) => ({
     set({ expandedPaths: next })
   },
   setWorkspaceWorkId: (workspaceWorkId) => {
-    const next = workspaceWorkId || null
-    if (next === get().workspaceWorkId) return
-    set({ workspaceWorkId: next, directory: '', files: [], error: null })
+    get().setWorkspaceContext(workspaceWorkId, null)
+  },
+  setWorkspaceContext: (workspaceWorkId, workspaceProjectId) => {
+    const nextWorkId = workspaceWorkId || null
+    const nextProjectId = nextWorkId ? null : (workspaceProjectId || null)
+    if (nextWorkId === get().workspaceWorkId && nextProjectId === get().workspaceProjectId) return
+    set({ workspaceWorkId: nextWorkId, workspaceProjectId: nextProjectId, directory: '', files: [], error: null })
     if (get().open) get().load()
   },
   openPanel: async () => {
@@ -204,14 +215,17 @@ export const useUserFilesStore = create((set, get) => ({
     set({ open: next })
     if (next) await get().load()
   },
-  load: async (workspaceWorkId = get().workspaceWorkId) => {
+  load: async (workspaceWorkId = get().workspaceWorkId, workspaceProjectId = get().workspaceProjectId) => {
     set({ loading: true, error: null })
     try {
-      const query = workspaceWorkId ? `?work_id=${encodeURIComponent(workspaceWorkId)}` : ''
+      const params = new URLSearchParams()
+      if (workspaceWorkId) params.set('work_id', workspaceWorkId)
+      else if (workspaceProjectId) params.set('project_id', workspaceProjectId)
+      const query = params.size ? `?${params.toString()}` : ''
       const res = await backendFetchWithRetry('/user-files' + query)
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u52a0\u8f7d\u7528\u6237\u76ee\u5f55\u5931\u8d25')
-      if (workspaceWorkId !== get().workspaceWorkId) return
+      if (workspaceWorkId !== get().workspaceWorkId || workspaceProjectId !== get().workspaceProjectId) return
       const directory = data.directory || ''
       const shouldInitializeExpanded = !get().expandedPathsInitialized && directory
       const expandedPaths = shouldInitializeExpanded ? [directory] : get().expandedPaths
@@ -219,7 +233,7 @@ export const useUserFilesStore = create((set, get) => ({
       saveCachedDirectory(directory)
       set({ directory, files: data.files || [], expandedPaths, expandedPathsInitialized: true, loading: false })
     } catch (e) {
-      if (workspaceWorkId !== get().workspaceWorkId) return
+      if (workspaceWorkId !== get().workspaceWorkId || workspaceProjectId !== get().workspaceProjectId) return
       set({ error: friendlyFileError(e, '\u52a0\u8f7d\u7528\u6237\u76ee\u5f55\u5931\u8d25'), loading: false })
     }
   },
@@ -231,7 +245,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/folder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parent_path: parentPath, name: folderName, work_id: get().workspaceWorkId || undefined }),
+        body: JSON.stringify({ parent_path: parentPath, name: folderName, ...workspaceContextPayload(get()) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u521b\u5efa\u6587\u4ef6\u5939\u5931\u8d25')
@@ -251,7 +265,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ parent_path: parentPath, name: fileName, work_id: get().workspaceWorkId || undefined }),
+        body: JSON.stringify({ parent_path: parentPath, name: fileName, ...workspaceContextPayload(get()) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u521b\u5efa\u6587\u4ef6\u5931\u8d25')
@@ -271,7 +285,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/rename', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_path: targetPath, name: nextName, work_id: get().workspaceWorkId || undefined }),
+        body: JSON.stringify({ target_path: targetPath, name: nextName, ...workspaceContextPayload(get()) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u91cd\u547d\u540d\u5931\u8d25')
@@ -292,7 +306,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetchWithRetry('/user-files/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_path: targetPath, work_id: get().workspaceWorkId || undefined }),
+        body: JSON.stringify({ target_path: targetPath, ...workspaceContextPayload(get()) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u5220\u9664\u5931\u8d25')
@@ -328,7 +342,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/paste', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_path: sourcePath, target_parent_path: targetParentPath, mode, work_id: get().workspaceWorkId || undefined }),
+        body: JSON.stringify({ source_path: sourcePath, target_parent_path: targetParentPath, mode, ...workspaceContextPayload(get()) }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u7c98\u8d34\u5931\u8d25')
@@ -362,7 +376,7 @@ export const useUserFilesStore = create((set, get) => ({
       const res = await backendFetch('/user-files/import-jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paths, target_parent_path: targetParentPath || undefined, work_id: get().workspaceWorkId || undefined }),
+        body: JSON.stringify({ paths, target_parent_path: targetParentPath || undefined, ...workspaceContextPayload(get()) }),
       })
       let job = await res.json()
       if (!res.ok) throw new Error(job.detail || '\u5bfc\u5165\u7528\u6237\u76ee\u5f55\u5931\u8d25')

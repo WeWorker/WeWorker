@@ -18,7 +18,7 @@ import { contentStyle, hintStyle, listColumnStyle, pageStyle, sectionStyle, titl
 const LIST_REFRESH_MS = 8000
 
 const listNameInputStyle = {
-  fontSize: 12,
+  fontSize: 'var(--font-size-body)',
   fontWeight: 500,
   color: 'var(--text-primary)',
   fontFamily: 'inherit',
@@ -55,11 +55,11 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
           onSave={agent.draft && agent.id.startsWith('draft-') ? async (name) => ({ ...agent, name }) : undefined}
           onSaved={onRenamed}
           iconSize={11}
-          textStyle={{ fontSize: 12, fontWeight: 400, lineHeight: '18px' }}
+          textStyle={{ fontSize: 'var(--font-size-body)', fontWeight: 400, lineHeight: '24px' }}
           inputStyle={listNameInputStyle}
           hideEditButton
         />
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, lineHeight: '15px', color: TONE_COLORS[status.tone] }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 'var(--font-size-caption)', lineHeight: '20px', color: TONE_COLORS[status.tone] }}>
           <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: TONE_COLORS[status.tone] }} />
           {status.label}
         </span>
@@ -110,7 +110,7 @@ function Intro({ onCreate, hasAgents }) {
   return (
     <div style={{ maxWidth: 720 }}>
       <h2 style={titleStyle}>专属 Agent</h2>
-      <div style={{ ...hintStyle, fontSize: 13, margin: '8px 0 20px' }}>
+      <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', margin: '8px 0 20px' }}>
         为某个网站打造一个小而专注的 Agent：它掌握你的专属知识，连接一个企业微信或微信机器人。你在手机上直接和它对话，它独立运行，不影响 WeWorker 的主对话。
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -121,7 +121,7 @@ function Intro({ onCreate, hasAgents }) {
           ['4. 发绑定码', '给机器人发一句话完成配对'],
         ].map(([title, text]) => (
           <div key={title} style={{ ...sectionStyle, marginBottom: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{title}</div>
+            <div style={{ fontSize: 'var(--font-size-label)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{title}</div>
             <div style={hintStyle}>{text}</div>
           </div>
         ))}
@@ -182,7 +182,7 @@ export default function DedicatedAgentsPage({ sidebarWidth, compactLayout = fals
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0 10px' }}>
           {loadError && <Alert type="error" showIcon message={loadError} style={{ margin: 4 }} />}
-          {loaded && !agents.length && !loadError && <div style={{ ...hintStyle, padding: '8px 12px' }}>还没有专属 Agent</div>}
+          {loaded && !agents.length && !loadError && <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', padding: '8px 12px' }}>还没有专属 Agent</div>}
           {agents.map((agent) => (
             <AgentListItem
               key={agent.id}

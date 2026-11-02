@@ -73,7 +73,7 @@ export const useWorksStore = create((set, get) => ({
         return null
       }
       const reuseEmptyWork = async (work) => {
-        set({ activeWorkId: work.id })
+        set({ activeWorkId: work.id, draftProjectId: null })
         getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
         // 风格沿用 work 上的 `zcf_role` 字段名（历史字段，改名需要数据迁移）。
         if (opts.styleId !== undefined && work.zcf_role !== opts.styleId) {
@@ -120,7 +120,7 @@ export const useWorksStore = create((set, get) => ({
         })
         if (!res.ok) throw new Error('Failed to create work')
         const work = await res.json()
-        set((s) => ({ works: [work, ...s.works], activeWorkId: work.id }))
+        set((s) => ({ works: [work, ...s.works], activeWorkId: work.id, draftProjectId: null }))
         getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
         return work
       } catch (e) {
@@ -176,7 +176,7 @@ export const useWorksStore = create((set, get) => ({
 
   selectWork: async (id) => {
     if (!await leaveWebsiteExploration()) return
-    set({ activeWorkId: id })
+    set({ activeWorkId: id, draftProjectId: null })
     try { getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })) } catch {}
     // If this work is currently streaming, don't overwrite in-memory messages with backend data
     // (assistant message hasn't been persisted yet)

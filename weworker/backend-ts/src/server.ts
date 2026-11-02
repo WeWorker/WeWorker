@@ -2257,79 +2257,89 @@ app.post('/settings/label-names', (req, res) => {
   res.json(names)
 })
 
-function workspaceDirectoryForWork(workId?: string): string | undefined {
-  if (!workId) return undefined
-  const work = store.getWork(workId)
-  if (!work) throw new Error('work not found')
-  return work.workspace_directory
+function workspaceDirectoryForContext(workId?: string, projectId?: string): string | undefined {
+  if (workId) {
+    const work = store.getWork(workId)
+    if (!work) throw new Error('work not found')
+    return work.workspace_directory
+  }
+  if (projectId) {
+    const project = store.getProject(projectId)
+    if (!project) throw new Error('project not found')
+    return project.folder_path
+  }
+  return undefined
 }
 
 app.get('/user-files', (req, res) => {
   try {
-    res.json(listUserFiles(workspaceDirectoryForWork(String(req.query.work_id || '') || undefined)))
+    res.json(listUserFiles(workspaceDirectoryForContext(
+      String(req.query.work_id || '') || undefined,
+      String(req.query.project_id || '') || undefined,
+    )))
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : 'failed to list user files' })
   }
 })
 
 app.post('/user-files/folder', (req, res) => {
-  const { parent_path, name, work_id } = req.body as { parent_path?: string; name?: string; work_id?: string }
+  const { parent_path, name, work_id, project_id } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string }
   try {
-    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForWork(work_id)))
+    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create folder' })
   }
 })
 
 app.post('/user-files/file', (req, res) => {
-  const { parent_path, name, work_id } = req.body as { parent_path?: string; name?: string; work_id?: string }
+  const { parent_path, name, work_id, project_id } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string }
   try {
-    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForWork(work_id)))
+    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create file' })
   }
 })
 
 app.post('/user-files/rename', (req, res) => {
-  const { target_path, name, work_id } = req.body as { target_path?: string; name?: string; work_id?: string }
+  const { target_path, name, work_id, project_id } = req.body as { target_path?: string; name?: string; work_id?: string; project_id?: string }
   try {
-    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForWork(work_id)))
+    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to rename item' })
   }
 })
 
 app.post('/user-files/delete', (req, res) => {
-  const { target_path, work_id } = req.body as { target_path?: string; work_id?: string }
+  const { target_path, work_id, project_id } = req.body as { target_path?: string; work_id?: string; project_id?: string }
   try {
-    res.json(deleteUserItem(target_path, workspaceDirectoryForWork(work_id)))
+    res.json(deleteUserItem(target_path, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to delete item' })
   }
 })
 
 app.post('/user-files/paste', (req, res) => {
-  const { source_path, target_parent_path, mode, work_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string }
+  const { source_path, target_parent_path, mode, work_id, project_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string; project_id?: string }
   try {
-    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForWork(work_id)))
+    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to paste item' })
   }
 })
 
 app.post('/user-files/import', (req, res) => {
-  const { paths, target_parent_path, work_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string }
+  const { paths, target_parent_path, work_id, project_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string }
   try {
-    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForWork(work_id)))
+    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to import files' })
   }
 })
 
 app.post('/user-files/import-jobs', (req, res) => {
-  const { paths, target_parent_path, work_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string }
+  const { paths, target_parent_path, work_id, project_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string }
   try {
-    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForWork(work_id)))
+    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to start import job' })
   }
