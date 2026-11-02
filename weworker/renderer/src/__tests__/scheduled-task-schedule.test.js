@@ -1,6 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { ALL_WEEKDAYS, buildCron, getNextRuns, parseCron } from '../utils/scheduled-task-schedule.js'
+import { ALL_WEEKDAYS, buildCron, getNextRuns, parseCron, selectWeekdayPreset, toggleWeekday, WORKDAYS } from '../utils/scheduled-task-schedule.js'
+
+test('weekday presets replace day selections and selecting a weekday clears the preset', () => {
+  const initial = { weekdays: ALL_WEEKDAYS, weekdayPreset: 'every_day' }
+  const workdays = selectWeekdayPreset(initial, 'workdays')
+  assert.deepEqual(workdays.weekdays, WORKDAYS)
+  assert.equal(workdays.weekdayPreset, 'workdays')
+
+  const everyDay = selectWeekdayPreset(workdays, 'every_day')
+  assert.deepEqual(everyDay.weekdays, ALL_WEEKDAYS)
+  assert.equal(everyDay.weekdayPreset, 'every_day')
+
+  const customDays = toggleWeekday(workdays, 5)
+  assert.deepEqual(customDays.weekdays, [5])
+  assert.equal(customDays.weekdayPreset, null)
+
+  const addedDay = toggleWeekday(customDays, 1)
+  assert.deepEqual(addedDay.weekdays, [1, 5])
+  assert.equal(addedDay.weekdayPreset, null)
+})
+
+test('weekday preset selection restores from saved cron expressions', () => {
+  assert.equal(parseCron('0 9 * * 1,2,3,4,5').weekdayPreset, 'workdays')
+  assert.equal(parseCron('0 9 * * *').weekdayPreset, 'every_day')
+  assert.equal(parseCron('0 9 * * 1,3,5').weekdayPreset, null)
+})
 
 test('weekday filters become a cron weekday list and survive editing', () => {
   const schedule = {
