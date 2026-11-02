@@ -1,4 +1,4 @@
-import { groupWorksByFolder } from '../../utils/work-folder-groups.js'
+import { groupWorksByFolder, isWorkFolderActive } from '../../utils/work-folder-groups.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
@@ -66,6 +66,7 @@ export default function WorksList({ searchQuery = '' }) {
   const projects = useWorksStore((s) => Array.isArray(s.projects) ? s.projects : [])
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
   const draftProjectId = useWorksStore((s) => s.draftProjectId)
+  const draftFolderKey = useWorksStore((s) => s.draftFolderKey)
   const streamingWorkIds = useWorksStore((s) => s.streamingWorkIds)
   const selectWork = useWorksStore((s) => s.selectWork)
   const deleteWork = useWorksStore((s) => s.deleteWork)
@@ -131,7 +132,6 @@ export default function WorksList({ searchQuery = '' }) {
   }
 
   const folderGroups = groupWorksByFolder(works, projects)
-  const selectedFolderExists = folderGroups.some((group) => group.key === selectedFolderKey)
   const filteredIds = new Set(filtered.map((work) => work.id))
   const toggleFolder = (folderName) => {
     setSelectedFolderKey(folderName)
@@ -196,11 +196,7 @@ export default function WorksList({ searchQuery = '' }) {
       {folderGroups.map((group) => {
         const folderKey = group.key
         const collapsed = !searchQuery.trim() && Boolean(collapsedFolders[folderKey])
-        const isActive = activeWorkId
-          ? group.items.some((work) => work.id === activeWorkId)
-          : draftProjectId
-            ? group.id === draftProjectId
-            : selectedFolderExists && selectedFolderKey === folderKey
+        const isActive = isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey })
         const visibleItems = group.items.filter((work) => !work.archived && filteredIds.has(work.id))
         // The default workspace has no project id. Keep it in display mode
         // instead of treating the initial null state as an active rename.

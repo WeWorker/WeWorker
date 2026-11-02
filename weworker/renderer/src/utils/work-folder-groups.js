@@ -36,3 +36,9 @@ export function groupWorksByFolder(works, projects = []) {
     ...(defaultGroup ? [defaultGroup] : []),
   ]
 }
+
+export function isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey }) {
+  if (activeWorkId) return group.items.some((work) => work.id === activeWorkId)
+  if (draftFolderKey) return group.key === draftFolderKey
+  return Boolean(selectedFolderKey) && group.key === selectedFolderKey
+}

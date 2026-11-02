@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { groupWorksByFolder } from '../utils/work-folder-groups.js'
+import { groupWorksByFolder, isWorkFolderActive } from '../utils/work-folder-groups.js'
 
 test('new empty project precedes older active projects and default workspace', () => {
   const projects = [
@@ -31,4 +31,15 @@ test('scheduled task projects retain managed protections after grouping', () => 
   assert.equal(group.systemManaged, true)
   assert.equal(group.items[0].id, 'task-work')
   assert.equal(groupWorksByFolder([], [{ id: 'ordinary', name: 'Example' }])[0].systemManaged, false)
+})
+
+test('folder focus follows the pending draft destination, including default workspace', () => {
+  const works = [{ id: 'default-work' }, { id: 'project-work', project_id: 'project-a' }]
+  const groups = groupWorksByFolder(works, [{ id: 'project-a', name: 'Project A' }])
+  const [project, defaultWorkspace] = groups
+
+  assert.equal(isWorkFolderActive(project, { activeWorkId: null, draftFolderKey: 'default', selectedFolderKey: null }), false)
+  assert.equal(isWorkFolderActive(defaultWorkspace, { activeWorkId: null, draftFolderKey: 'default', selectedFolderKey: null }), true)
+  assert.equal(isWorkFolderActive(project, { activeWorkId: null, draftFolderKey: 'project:project-a', selectedFolderKey: null }), true)
+  assert.equal(isWorkFolderActive(defaultWorkspace, { activeWorkId: null, draftFolderKey: 'project:project-a', selectedFolderKey: null }), false)
 })
