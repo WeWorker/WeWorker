@@ -2,12 +2,16 @@ import { getSettings } from '../config.js'
 
 export type ChannelName = 'qq' | 'weixin' | 'wecom' | 'feishu'
 export type OwnerPermissionLevel = 'qa_only' | 'no_bash' | 'full'
-// Desktop workspace mode permits native commands while retaining access guards.
+// Desktop modes permit native commands while retaining access guards.
 // Persisted channel owner levels keep their existing meaning.
-export type ChannelPermissionMode = OwnerPermissionLevel | 'workspace'
+export type ChannelPermissionMode = OwnerPermissionLevel | 'workspace' | 'ask'
 
 export function allowsNativeCommands(mode: ChannelPermissionMode): boolean {
-  return mode === 'full' || mode === 'workspace'
+  return mode === 'full' || mode === 'workspace' || mode === 'ask'
+}
+
+export function isGuardedDesktopMode(mode: ChannelPermissionMode): boolean {
+  return mode === 'workspace' || mode === 'ask'
 }
 
 export const CHANNEL_LABELS: Record<ChannelName, string> = {

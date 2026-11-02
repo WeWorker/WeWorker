@@ -19,7 +19,7 @@ import type { Settings } from './config.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
-import { allowsNativeCommands, type ChannelPermissionMode } from './channels/channel-permissions.js'
+import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
 import { parseAllAdapters } from './adapter-parser.js'
@@ -42,6 +42,7 @@ import {
 import type { UserMediaSink } from './user-media.js'
 import { buildAgentFilesystemSettings, createUnifiedToolGuard } from './user-directory-access.js'
 import { createWorkspacePreToolUseHook } from './workspace-tool-hook.js'
+import { createAskPreToolUseHook } from './tool-permission-approval.js'
 import { createLogger } from './logger.js'
 import { resolveWebcliDir } from './webcli-path.js'
 import { syncBundledWebcliSkills } from './webcli-skills.js'
@@ -84,7 +85,7 @@ import { renderPrompt } from './prompt-loader.js'
 import { buildLoadedSkillContext, createSkillContextCollector, type LoadedSkillContext } from './skill-context.js'
 import { buildThinkingExtraBody, resolveThinkingEffort, type ThinkingEffort } from './thinking-effort.js'
 import { StreamingVisibleText, stripThinkingTags } from './streaming-visible-text.js'
-import { resolvePendingAskUser, setPendingAskUser } from './ask-user-pending.js'
+import { requestUserChoice } from './ask-user-pending.js'
 
 const log = createLogger('agent')
 
@@ -354,13 +355,16 @@ Claude Code 内置 ${nativeCommandTool} 已开放，也可执行构建、测试�
 内置 ${nativeCommandTool} 不受 WeWorker 用户目录白名单、黑名单、绝对路径或命令类型限制。
 WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
 `
-    : channelPermissionMode === 'workspace'
+    : isGuardedDesktopMode(channelPermissionMode)
       ? `
-## 工作区内修改：Skill、Adapter 与 ${nativeCommandTool}
+## ${channelPermissionMode === 'ask' ? '修改询问' : '工作区内修改'}：Skill、Adapter 与 ${nativeCommandTool}
 
 Claude Code 内置 ${nativeCommandTool} 已开放，可执行 Extension Adapter 或 Toolkit Adapter，以及构建、测试、git、npm 等本地命令；不需要切换到完全权限。
 执行 Adapter 时使用内置 ${nativeCommandTool} 运行 \`webcli call\`，不得使用 \`weworker_powershell\`。
-当前对话绑定的工作区是 ${userDirectory}，也是命令默认工作目录。文件读取、使用和修改必须留在该目录内，路径黑名单继续有效；范围内操作不需要逐次请求确认。
+当前对话绑定的工作区是 ${userDirectory}，也是命令默认工作目录。文件读取、使用和修改必须留在该目录内，路径黑名单继续有效。
+${channelPermissionMode === 'ask'
+  ? '每次工具操作（包括读取文件、修改文件、执行命令、调用 Adapter）都由系统展示操作与参数，并等待用户确认。只有用户选择允许本次后才执行；拒绝、取消或超时都不执行。不要自行认为已经获得授权，也不要因为需要确认而声称工具不可用。'
+  : '范围内操作不需要逐次请求确认。'}
 站点访问仍受站点白名单限制（已授权 Adapter 站点和设置中额外允许的站点）；越界时说明具体限制，不要要求用户升级权限才能调用已授权 Adapter。
 WebCLI 按 Adapter 类型选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
 `
@@ -1120,7 +1124,7 @@ async function* streamChatWithBaseUrl(
   phase.mark('adapter_reload_wait')
   const enabledAdapterIds = opts.enabledAdapterIds
   const channelPermissionMode = opts.channelPermissionMode ?? 'full'
-  const workspaceDirectory = channelPermissionMode === 'workspace' && opts.workId
+  const workspaceDirectory = isGuardedDesktopMode(channelPermissionMode) && opts.workId
     ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
     : undefined
   const internal = opts[STREAM_CHAT_INTERNAL]
@@ -1152,6 +1156,7 @@ async function* streamChatWithBaseUrl(
     workId: opts.workId ?? null,
     askUserSSECallback: opts.onAskUser ?? null,
     channelAskUserHandler: opts.channelAskUserHandler ?? null,
+    abortSignal: abortController?.signal,
     userMedia: () => turnBindings.userMedia ?? null,
   })
   const activeMcpServer = opts.mcpServerOverride || mcpServer
@@ -1257,7 +1262,7 @@ async function* streamChatWithBaseUrl(
         decision = await filesystemToolGuard(toolName, input as Record<string, unknown>)
       }
     }
-    if (decision.behavior !== 'deny' && opts.permissionMode === 'default' && (toolName === 'Edit' || toolName === 'Write')) {
+    if (channelPermissionMode !== 'ask' && decision.behavior !== 'deny' && opts.permissionMode === 'default' && (toolName === 'Edit' || toolName === 'Write')) {
       const workId = turnBindings.workIdRef.current
       const onAskUser = turnBindings.onAskUser
       if (!workId || !onAskUser) {
@@ -1266,22 +1271,11 @@ async function* streamChatWithBaseUrl(
         const choiceId = `permission-${context.toolUseID}`
         const filePath = String(input.file_path || input.path || '所选文件')
         const question = `允许本次修改文件吗？\n${filePath}`
-        let timeout: ReturnType<typeof setTimeout>
-        const answer = await new Promise<string>((resolve) => {
-          setPendingAskUser(workId, {
-            toolCallId: choiceId,
-            question,
-            options: [{ label: '允许本次' }, { label: '拒绝' }],
-            resolve,
-          })
-          onAskUser({ type: 'user_choice', id: choiceId, question, options: [{ label: '允许本次' }, { label: '拒绝' }] })
-          timeout = setTimeout(() => resolvePendingAskUser(workId, '拒绝'), 5 * 60 * 1000)
-          context.signal.addEventListener('abort', () => {
-            clearTimeout(timeout)
-            resolvePendingAskUser(workId, '拒绝')
-          }, { once: true })
+        const answer = await requestUserChoice({
+          workId, toolCallId: choiceId, question,
+          options: [{ label: '允许本次' }, { label: '拒绝' }],
+          onChoice: onAskUser, signal: context.signal,
         })
-        clearTimeout(timeout!)
         if (answer !== '允许本次') decision = { behavior: 'deny', message: '用户拒绝了本次文件修改', interrupt: false }
       }
     }
@@ -1600,6 +1594,14 @@ async function* streamChatWithBaseUrl(
       spawnClaudeCodeProcess,
       env: envWithWebcli,
       hooks: {
+        ...(channelPermissionMode === 'ask' ? {
+          PreToolUse: [{ timeout: 330, hooks: [createAskPreToolUseHook({
+            workId: () => turnBindings.workIdRef.current,
+            onAskUser: () => turnBindings.onAskUser,
+            checkAccess: canUseTool,
+            signal: abortController?.signal,
+          })] }],
+        } : {}),
         ...(channelPermissionMode === 'workspace' ? {
           PreToolUse: [{ hooks: [createWorkspacePreToolUseHook(agentCwd)] }],
         } : {}),

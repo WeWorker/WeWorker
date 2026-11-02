@@ -18,7 +18,7 @@ export function resolveDesktopChatPermission(value: unknown): DesktopChatPermiss
       }
     case 'ask':
       return {
-        channelPermissionMode: 'no_bash',
+        channelPermissionMode: 'ask',
         sdkPermissionMode: 'default',
         allowDangerouslySkipPermissions: false,
       }

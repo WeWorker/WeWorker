@@ -2534,14 +2534,14 @@ app.get('/events', (req, res) => {
 
 app.post('/works/:id/user-choice', (req, res) => {
   const workId = req.params.id
-  const { answer } = req.body as { answer: string }
+  const { answer, choiceId } = req.body as { answer: string; choiceId?: string }
 
   if (!answer?.trim()) {
     res.status(400).json({ detail: 'answer required' })
     return
   }
 
-  const resolved = resolvePendingAskUser(workId, answer)
+  const resolved = resolvePendingAskUser(workId, answer, typeof choiceId === 'string' ? choiceId : undefined)
   if (!resolved) {
     res.status(404).json({ detail: 'No pending choice for this work' })
     return
@@ -3148,8 +3148,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   // Optional product profiles may answer a query before the normal LLM route.
   // The public profile has no registered route and always falls through.
+  // Ask mode must use the model's per-tool confirmation path. Direct dispatch
+  // does not expose operation approvals, even for read-only queries.
   // Dedicated agents skip profile routes: those may answer with other websites.
-  if (!dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
+  if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
     finished = true
     res.off('close', onClose)
     broadcastSSE({ type: 'works_changed', workId })
@@ -3166,7 +3168,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // the model rather than replay the same routed answer.
   // `persist: true` keeps the router's own `store.appendMessage`, so desktop
   // persistence is byte-identical to the pre-shared-entry behaviour.
-  if (retryCompaction !== true && message?.trim()) {
+  if (desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
     const routed = await tryRoutedTurn({
       message,
       workId,
@@ -3259,7 +3261,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       coverage: collectSiteCoverage({ adapters: allAdapters.values(), toolkitSkills }),
       knownHosts: buildKnownHosts(allAdapters),
     })
-    if (exploration.dispatch && exploration.startUrl) {
+    if (desktopPermission.channelPermissionMode !== 'ask' && exploration.dispatch && exploration.startUrl) {
       const health = await checkWebwrightHealth()
       if (!health.ok) {
         chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)

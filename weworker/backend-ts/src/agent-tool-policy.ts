@@ -51,7 +51,7 @@ export function createWeWorkerToolPolicy(mode: ChannelPermissionMode): CanUseToo
           : 'Adapter commands require full permission mode and the platform-native Claude Code command tool.',
       )
     }
-    if (toolName === 'Skill') return { behavior: 'allow' }
+    if (toolName === 'Skill' || toolName === 'TodoWrite' || toolName === 'ToolSearch') return { behavior: 'allow' }
     if (WEWORKER_ALLOWED_NATIVE_FILE_TOOLS.has(toolName)) return { behavior: 'allow' }
     if (toolName.startsWith('mcp__weworker__')) return { behavior: 'allow' }
     return deny(`Tool is not allowed by WeWorker policy: ${toolName}`)
@@ -75,6 +75,8 @@ export const WEWORKER_ALLOWED_TOOLS = [
   'Bash(*)',
   'PowerShell(*)',
   'Skill',
+  'TodoWrite',
+  'ToolSearch',
   ...WEWORKER_ALLOWED_NATIVE_FILE_TOOLS,
   'mcp__weworker__ask_user',
   'mcp__weworker__weworker_powershell',

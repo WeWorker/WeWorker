@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import { expect, it, vi } from 'vitest'
-import { query, type Query, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
+import { query, type CanUseTool, type Query, type SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
 
 const fixture = vi.hoisted(() => ({ directory: '' }))
 vi.mock('../config.js', () => ({
@@ -21,11 +21,13 @@ import { resolveDesktopChatPermission } from '../chat-permission-mode.js'
 import { buildAgentFilesystemSettings, createUnifiedToolGuard } from '../user-directory-access.js'
 import { createWeWorkerToolPolicy } from '../agent-tool-policy.js'
 import { createWorkspacePreToolUseHook } from '../workspace-tool-hook.js'
+import { createAskPreToolUseHook } from '../tool-permission-approval.js'
+import { resolvePendingAskUser } from '../ask-user-pending.js'
 import { spawnManagedClaudeCodeProcess } from '../claude-process.js'
 
 // Use the actual Windows CLI and PowerShell with a local model fixture. This
 // catches SDK-level sandbox rejection that unit tests of our guard cannot see.
-it.runIf(process.platform === 'win32')('runs workspace commands through the real SDK while retaining file and site guards', async () => {
+it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs %s commands through the real SDK while retaining access and approval guards', async mode => {
   fixture.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-workspace-sdk-'))
   const workspace = path.join(fixture.directory, 'workspace')
   fs.mkdirSync(workspace)
@@ -34,10 +36,14 @@ it.runIf(process.platform === 'win32')('runs workspace commands through the real
   const calls = [
     { name: 'PowerShell', input: { command: "Write-Output 'workspace-native-ok'" } },
     { name: 'PowerShell', input: { command: "Set-Content -LiteralPath './created.txt' -Value 'public fixture'" } },
+    { name: 'Read', input: { file_path: path.join(workspace, 'created.txt') } },
     { name: 'PowerShell', input: { command: "Get-Content -LiteralPath '../outside.txt'" } },
     { name: 'Read', input: { file_path: path.join(workspace, 'blocked.txt') } },
     { name: 'PowerShell', input: { command: 'Invoke-WebRequest https://unlisted.example.org' } },
   ]
+  if (mode === 'ask') calls.push({ name: 'PowerShell', input: { command: "Set-Content -LiteralPath './declined.txt' -Value 'must not run'" } })
+  const confirmations: Array<{ id: string; createdFileExists: boolean }> = []
+  const workId = `public-sdk-${mode}`
   const results = new Map<string, { is_error?: boolean; content: unknown }>()
   let nextCall = 0
   const server = http.createServer(async (req, res) => {
@@ -82,9 +88,14 @@ it.runIf(process.platform === 'win32')('runs workspace commands through the real
   try {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     const port = (server.address() as import('node:net').AddressInfo).port
-    const permission = resolveDesktopChatPermission('workspace')
+    const permission = resolveDesktopChatPermission(mode)
     const policy = createWeWorkerToolPolicy(permission.channelPermissionMode)
     const guard = createUnifiedToolGuard(permission.channelPermissionMode, workspace)
+    const canUseTool: CanUseTool = async (name, input, context) => {
+      const decision = await policy(name, input, context)
+      if (!decision) return { behavior: 'deny', message: 'Fixture tool policy did not resolve permission.' }
+      return decision.behavior === 'deny' ? decision : guard(name, input)
+    }
     const cli = path.resolve('node_modules/@anthropic-ai/claude-code/bin/claude.exe')
     expect(fs.existsSync(cli)).toBe(true)
     handle = query({ prompt: 'Run the fixture commands.', options: {
@@ -95,12 +106,14 @@ it.runIf(process.platform === 'win32')('runs workspace commands through the real
       permissionMode: permission.sdkPermissionMode,
       allowDangerouslySkipPermissions: permission.allowDangerouslySkipPermissions,
       settings: buildAgentFilesystemSettings(workspace, permission.channelPermissionMode),
-      canUseTool: async (name, input, context) => {
-        const decision = await policy(name, input, context)
-        if (!decision) return { behavior: 'deny', message: 'Fixture tool policy did not resolve permission.' }
-        return decision.behavior === 'deny' ? decision : guard(name, input)
-      },
-      hooks: { PreToolUse: [{ hooks: [createWorkspacePreToolUseHook(workspace)] }] },
+      canUseTool,
+      hooks: { PreToolUse: [{ timeout: 330, hooks: [mode === 'ask' ? createAskPreToolUseHook({
+        workId: () => workId, checkAccess: canUseTool, signal: abort.signal,
+        onAskUser: () => event => {
+          confirmations.push({ id: event.id, createdFileExists: fs.existsSync(path.join(workspace, 'created.txt')) })
+          queueMicrotask(() => resolvePendingAskUser(workId, event.id.includes('fixture-tool-6') ? '拒绝' : '允许本次', event.id))
+        },
+      }) : createWorkspacePreToolUseHook(workspace)] }] },
       cwd: workspace,
       env: { ...process.env, CLAUDE_CONFIG_DIR: path.join(fixture.directory, 'config'),
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, ANTHROPIC_API_KEY: 'test-placeholder-key',
@@ -120,10 +133,19 @@ it.runIf(process.platform === 'win32')('runs workspace commands through the real
     expect(results.get('fixture-tool-0')?.is_error).not.toBe(true)
     expect(results.get('fixture-tool-1')?.is_error).not.toBe(true)
     expect(fs.readFileSync(path.join(workspace, 'created.txt'), 'utf8').trim()).toBe('public fixture')
-    for (const index of [2, 3, 4]) expect(results.get(`fixture-tool-${index}`)?.is_error).toBe(true)
-    expect(resultText(2)).toMatch(/inside user directory/)
-    expect(resultText(3)).toMatch(/blacklist/)
-    expect(resultText(4)).toContain('白名单')
+    expect(resultText(2)).toContain('public fixture')
+    for (const index of [3, 4, 5]) expect(results.get(`fixture-tool-${index}`)?.is_error).toBe(true)
+    expect(resultText(3)).toMatch(/inside user directory/)
+    expect(resultText(4)).toMatch(/blacklist/)
+    expect(resultText(5)).toContain('白名单')
+    if (mode === 'ask') {
+      expect(confirmations).toHaveLength(4)
+      expect(confirmations.map(event => event.createdFileExists)).toEqual([false, false, true, true])
+      expect(results.get('fixture-tool-6')?.is_error).toBe(true)
+      expect(fs.existsSync(path.join(workspace, 'declined.txt'))).toBe(false)
+    } else {
+      expect(confirmations).toEqual([])
+    }
   } finally {
     clearTimeout(timeout)
     handle?.close()

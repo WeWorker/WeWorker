@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { resolveDesktopChatPermission } from '../chat-permission-mode.js'
+import { createWeWorkerToolPolicy } from '../agent-tool-policy.js'
 
 describe('desktop chat permission modes', () => {
-  it('asks before edits and disables shell tools', () => {
+  it('keeps native commands available for per-operation confirmation', async () => {
     expect(resolveDesktopChatPermission('ask')).toEqual({
-      channelPermissionMode: 'no_bash',
+      channelPermissionMode: 'ask',
       sdkPermissionMode: 'default',
       allowDangerouslySkipPermissions: false,
     })
+    const policy = createWeWorkerToolPolicy(resolveDesktopChatPermission('ask').channelPermissionMode)
+    for (const command of ['npm test', 'webcli call example.com.read', 'webcli call example-toolkit.list']) {
+      await expect(policy('PowerShell', { command }, {} as never)).resolves.toMatchObject({ behavior: 'allow' })
+    }
   })
 
   it('auto-accepts workspace edits while allowing guarded native commands and Adapters', () => {

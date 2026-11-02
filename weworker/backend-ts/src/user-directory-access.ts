@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { ChannelPermissionMode } from './channels/channel-permissions.js'
+import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { expandHomePath, getUserDirectoryBlacklist } from './config.js'
 import {
   assertPathInsideUserDirectory,
@@ -167,7 +167,7 @@ export function createUnifiedToolGuard(mode: ChannelPermissionMode = 'no_bash', 
     if (mode === 'full' && (toolName === 'Bash' || toolName === 'PowerShell')) {
       return { behavior: 'allow' as const, updatedInput: input }
     }
-    if (mode === 'workspace' && (toolName === 'Bash' || toolName === 'PowerShell' || normalizeToolName(toolName) === 'weworker_powershell')) {
+    if (isGuardedDesktopMode(mode) && (toolName === 'Bash' || toolName === 'PowerShell' || normalizeToolName(toolName) === 'weworker_powershell')) {
       const siteDecision = checkWorkspaceCommandSites(String(input.command ?? input.cmd ?? ''))
       if (!siteDecision.allowed) return { behavior: 'deny' as const, message: siteDecision.reason }
     }
@@ -186,7 +186,7 @@ export function buildAgentFilesystemSettings(
   // Desktop workspace access is enforced by our per-call guards and PreToolUse
   // hook. Requiring the SDK sandbox adds unrelated execution restrictions and
   // blocks every native command on Windows when that sandbox is unavailable.
-  const requireSdkSandbox = mode !== 'workspace' && mode !== 'full'
+  const requireSdkSandbox = !allowsNativeCommands(mode)
   return {
     permissions: {
       // Do not pre-approve native command tools — that skips canUseTool and bypasses blacklist checks.

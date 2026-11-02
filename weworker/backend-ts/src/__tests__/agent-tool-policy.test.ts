@@ -55,6 +55,7 @@ describe('agent tool policy', () => {
       { mode: 'qa_only' as const, skill: 'deny', file: 'deny', bash: 'deny', mcp: 'deny' },
       { mode: 'no_bash' as const, skill: 'allow', file: 'allow', bash: 'deny', mcp: 'allow' },
       { mode: 'workspace' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
+      { mode: 'ask' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
       { mode: 'full' as const, skill: 'allow', file: 'allow', bash: 'allow', mcp: 'allow' },
     ]
 

@@ -31,6 +31,7 @@ const log = createLogger('tools')
 
 // ── ask_user pending requests（实现见 ask-user-pending.ts，此处 re-export 保留既有导入路径）──
 import {
+  requestUserChoice,
   setPendingAskUser,
   resolvePendingAskUser,
   hasPendingAskUser,
@@ -436,17 +437,10 @@ export function buildMcpServer(opts?: McpServerContext) {
 
         const toolCallId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
-        if (askUserSSECallback) {
-          askUserSSECallback({ type: 'user_choice', id: toolCallId, question, options })
-        }
-
-        const answer = await new Promise<string>((resolve) => {
-          setPendingAskUser(workId, { toolCallId, question, options, resolve })
-          setTimeout(() => {
-            if (hasPendingAskUser(workId)) {
-              resolvePendingAskUser(workId, '用户未在规定时间内回答')
-            }
-          }, 5 * 60 * 1000)
+        if (!askUserSSECallback) return toolText({ error: '当前会话无法显示用户问题' })
+        const answer = await requestUserChoice({
+          workId, toolCallId, question, options,
+          onChoice: askUserSSECallback, signal: abortSignal ?? undefined,
         })
 
         return { content: [{ type: 'text' as const, text: JSON.stringify({ answer }) }] }
