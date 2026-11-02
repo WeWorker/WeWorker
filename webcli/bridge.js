@@ -1715,7 +1715,8 @@ export class WebSocketBridge extends EventEmitter {
           if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash
             || !adapterHelperPatterns(selected.adapter.manifest).some(pattern => hostMatchesPattern(url.hostname, pattern))
             || (named && (!Array.isArray(request.names) || !request.names.length || request.names.length > 32))
-            || (!named && url.hostname !== adapterPrimaryHost(selected.adapter.manifest))
+            || (!named && url.hostname !== adapterPrimaryHost(selected.adapter.manifest)
+              && !(selected.adapter.manifest.runtime_allowed_hosts || []).includes(url.hostname))
             || Object.keys(request).some(key => !['url', 'names'].includes(key))) throw new Error('Invalid credential scope.');
           if ((this._profiles ? this._currentConnection()?.ws : this._extensionWs) !== ws) throw new Error('The browser connection changed.');
           const response = named

@@ -49,7 +49,7 @@ describe('managed background execution lifecycle', () => {
       { adapterId: 'demo', routeDomain: 'example.com', hostCallId: 'host-call' });
     while (!finish) await new Promise(resolve => setImmediate(resolve));
     expect(f.runtime.hostCookieContext('wrong-call')).toBeNull();
-    expect(f.runtime.hostCookieContext('host-call')).toEqual({ routeDomain: 'example.com' });
+    expect(f.runtime.hostCookieContext('host-call')).toEqual({ routeDomain: 'example.com', credentialHosts: [] });
     finish({ ok: true });
     await running;
     expect(f.runtime.hostCookieContext('host-call')).toBeNull();

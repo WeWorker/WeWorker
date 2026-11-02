@@ -65,6 +65,34 @@ describe('host CLI bridge', () => {
     await pending;
   });
 
+  it('permits exact declared shared authentication hosts but rejects wildcard-only and unrelated hosts', async () => {
+    const bridge = Object.create(WebSocketBridge.prototype), sent = [], responses = [];
+    const ws = { readyState: 1, send: data => responses.push(JSON.parse(data)) };
+    bridge._profiles = null; bridge._extensionWs = ws; bridge._pendingRequests = new Map();
+    bridge._send = msg => { sent.push(msg); return true; };
+    const snapshot = { name: 'example.com', digest: 'b'.repeat(64), profile: 'public' };
+    vi.mocked(resolveAdapterCall).mockReturnValue({ snapshot, adapter: { source: 'builtin', manifest: { match: ['example.com'], runtime_allowed_hosts: ['auth.example.org', '*.wild.example.org'] } },
+      command: { id: 'list', safety: 'read', runtime: 'extension', execution: { type: 'api', runtime: 'background' } } });
+    vi.mocked(executeHostCli).mockImplementationOnce(async ({ credentials }) => {
+      await expect(credentials.cookies({ url: 'https://other.example.com/' })).rejects.toThrow();
+      await expect(credentials.cookies({ url: 'https://auth.wild.example.org/' })).rejects.toThrow();
+      const cookies = await credentials.cookies({ url: 'https://auth.example.org/api/action' });
+      expect(cookies).toEqual([{ name: 'session', value: 'synthetic-cookie' }]);
+      return { success: true };
+    });
+    const pending = bridge._requestNow({ type: 'call_tool', toolName: 'example.com.list', adapterSnapshot: snapshot }, 2000);
+    const parentId = sent[0].id;
+    bridge._request = vi.fn(async msg => {
+      expect(msg).toEqual({ type: 'host_cli_cookies', parentId, payload: { url: 'https://auth.example.org/api/action' } });
+      return { cookies: [{ name: 'session', value: 'synthetic-cookie' }] };
+    });
+    await bridge._handleHostCliRequest({ parentId, id: 'helper', payload: { args: {} } }, ws);
+    expect(responses.at(-1)).toEqual({ type: 'wecli_host_cli_result', id: 'helper', ok: true, result: { success: true } });
+    expect(JSON.stringify(responses)).not.toContain('synthetic-cookie');
+    bridge._handleExtensionMessage({ type: 'call_tool_result', id: parentId, result: { ok: true } }, ws);
+    await pending;
+  });
+
   it('preserves only approved generic error codes and never forwards provider exception text', async () => {
     const bridge = Object.create(WebSocketBridge.prototype), sent = [], responses = [];
     const ws = { readyState: 1, send: data => responses.push(JSON.parse(data)) };
