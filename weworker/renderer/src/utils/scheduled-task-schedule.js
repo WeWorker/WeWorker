@@ -1,4 +1,9 @@
 export const ALL_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6]
+export const WORKDAYS = [1, 2, 3, 4, 5]
+export const WEEKDAY_PRESETS = [
+  { value: 'workdays', label: '仅工作日', days: WORKDAYS },
+  { value: 'every_day', label: '每一天', days: ALL_WEEKDAYS },
+]
 
 export const WEEKDAY_FILTER_OPTIONS = [
   { value: 0, label: '日' },
@@ -33,6 +38,29 @@ function normalizeWeekdays(weekdays) {
   if (!Array.isArray(weekdays)) return ALL_WEEKDAYS
   return [...new Set(weekdays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
     .sort((a, b) => a - b)
+}
+
+export function selectWeekdayPreset(schedule, preset) {
+  const selected = WEEKDAY_PRESETS.find((option) => option.value === preset)
+  if (!selected) return schedule
+  return { ...schedule, weekdays: [...selected.days], weekdayPreset: selected.value }
+}
+
+export function toggleWeekday(schedule, day) {
+  if (schedule.weekdayPreset) return { ...schedule, weekdays: [day], weekdayPreset: null }
+  const weekdays = normalizeWeekdays(schedule.weekdays)
+  if (weekdays.includes(day)) {
+    if (weekdays.length === 1) return schedule
+    return { ...schedule, weekdays: weekdays.filter((value) => value !== day), weekdayPreset: null }
+  }
+  return { ...schedule, weekdays: [...weekdays, day].sort((a, b) => a - b), weekdayPreset: null }
+}
+
+function getWeekdayPreset(weekdays) {
+  const days = normalizeWeekdays(weekdays)
+  if (days.length === ALL_WEEKDAYS.length) return 'every_day'
+  if (days.length === WORKDAYS.length && WORKDAYS.every((day) => days.includes(day))) return 'workdays'
+  return null
 }
 
 function parseWeekdayField(field) {
@@ -80,7 +108,7 @@ export function buildCron({ frequency, hour, minute, weekday, weekdays, minuteIn
 }
 
 export function parseCron(expression) {
-  const fallback = { frequency: 'daily', hour: 9, minute: 0, weekday: '1', weekdays: ALL_WEEKDAYS, minuteInterval: 30 }
+  const fallback = { frequency: 'daily', hour: 9, minute: 0, weekday: '1', weekdays: ALL_WEEKDAYS, weekdayPreset: 'every_day', minuteInterval: 30 }
   if (!expression) return fallback
   const parts = expression.trim().split(/\s+/)
   if (parts.length !== 5) return fallback
@@ -92,11 +120,11 @@ export function parseCron(expression) {
 
   const everyN = min.match(/^\*\/(\d+)$/)
   if (everyN && hr === '*') {
-    return { ...fallback, frequency: 'every_n_minutes', minuteInterval: parseInt(everyN[1], 10), weekdays }
+    return { ...fallback, frequency: 'every_n_minutes', minuteInterval: parseInt(everyN[1], 10), weekdays, weekdayPreset: getWeekdayPreset(weekdays) }
   }
 
   if (/^\d+$/.test(min) && hr === '*') {
-    return { ...fallback, frequency: 'hourly', minute: parseInt(min, 10), weekdays }
+    return { ...fallback, frequency: 'hourly', minute: parseInt(min, 10), weekdays, weekdayPreset: getWeekdayPreset(weekdays) }
   }
 
   if (/^\d+$/.test(min) && /^\d+$/.test(hr) && /^\d$/.test(dow)) {
@@ -104,7 +132,7 @@ export function parseCron(expression) {
   }
 
   if (/^\d+$/.test(min) && /^\d+$/.test(hr)) {
-    return { ...fallback, frequency: 'daily', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekdays }
+    return { ...fallback, frequency: 'daily', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekdays, weekdayPreset: getWeekdayPreset(weekdays) }
   }
 
   return fallback
