@@ -1,6 +1,7 @@
 import { uiWriteRequest } from './ui-write.js';
+import { usesBackgroundExecution } from './conditional-execution.js';
 import { browserContextId } from './browser-profile.js';
-import { readHttpCookies } from './http-credentials.js';
+import { readHttpCookies, readHostCliCookies } from './http-credentials.js';
 import { executePageRequest, pageWriteRequest } from './page-write.js';
 import { scopedGenerationPreviewScripts } from './generation-preview-bundle.js';
 import { validateBackgroundPreview, backgroundPreviewRequest } from './generation-background-preview.js';
@@ -79,6 +80,7 @@ const WS_URL = "ws://localhost:3711";
 const EXTENSION_CAPABILITIES = [
   'adapter_catalog_v1',
   'adapter_background_v1',
+  'conditional_execution_v1',
   'background_preview_v1',
   'passive_exploration_v1',
   'safe_api_probe_v1',
@@ -92,6 +94,7 @@ const EXTENSION_CAPABILITIES = [
   'browser_profiles_v1',
   'http_credentials_v1',
   'http_credentials_v2',
+  'host_cli_cookies_v1',
   'browser_frames_v1',
   'browser_downloads_v1',
   'browser_frame_pointer_v1',
@@ -2670,8 +2673,9 @@ function connectToNativeHost() {
 // ─── 处理来自 Native Host 的消息 ───────────────────────────────────────────
 
 async function handleNativeMessage(msg) {
-  if (msg.type === 'http_credentials') {
-    console.log('[WebMCP] <- native: http_credentials', { id: msg.id });
+  if (msg.type === 'http_credentials' || msg.type === 'host_cli_cookies') {
+    console.log('[WebMCP] <- native: credential request', { id: msg.id });
+
   } else if (msg.type === 'validate_generation_preview') {
     console.log('[WebMCP] <- native: validate_generation_preview', {
       id: msg.id,
@@ -2704,6 +2708,7 @@ async function handleNativeMessage(msg) {
     || msg.type === "wecli_backend_file_read_result"
     || msg.type === "wecli_backend_xlsx_read_result"
     || msg.type === "wecli_backend_file_write_result"
+    || msg.type === "wecli_host_cli_result"
   ) {
     const pending = pendingWriteRequests.get(msg.id);
     if (pending) {
@@ -2775,8 +2780,8 @@ async function handleNativeMessage(msg) {
       if (selected.managed) {
         if (selected.command.runtime !== 'extension') throw new Error('This command requires the host Toolkit runtime.');
         if ((selected.command.pageWrite || selected.command.uiWrite || (selected.command.requires_confirmation ?? selected.command.safety === 'write')) && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
-        if (selected.command.execution?.runtime === 'background') {
-          const result = await callManagedBackgroundTool(selected.manifest, selected.command, args || {}, traceID);
+        if (usesBackgroundExecution(selected.command, args || {})) {
+          const result = await callManagedBackgroundTool(selected.manifest, selected.command, args || {}, traceID, msg.id);
           sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID });
           return;
         }
@@ -2961,6 +2966,7 @@ async function handleNativeMessage(msg) {
       sendToNative({
         type: "call_tool_error", id: msg.id, error: err.message,
         ...(typeof err?.code === 'string' && err.code ? { code: err.code } : {}),
+        ...(err?.code === 'HOST_CLI_REQUIRED_FIELDS' && safeHostCliRequiredFields(err.details) ? { details: safeHostCliRequiredFields(err.details) } : {}),
         ...(auth ? { auth } : {}),
         traceID,
       });
@@ -2993,6 +2999,18 @@ async function handleNativeMessage(msg) {
       sendToNative({ type: 'call_tool_result', id: msg.id, result: await prepareSiteQrLogin(msg) });
     } catch (err) {
       sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
+    }
+
+  } else if (msg.type === 'host_cli_cookies') {
+    try {
+      const context = getManagedBackgroundRuntime().hostCookieContext(msg.parentId);
+      if (!context) throw new Error('Host invocation is unavailable.');
+      const result = await readHostCliCookies(chrome, msg.payload, context.routeDomain, context.credentialHosts);
+      // Do not send credentials after the original invocation has ended.
+      if (!getManagedBackgroundRuntime().hostCookieContext(msg.parentId)) throw new Error('Host invocation is unavailable.');
+      sendToNative({ type: 'call_tool_result', id: msg.id, result }, true);
+    } catch {
+      sendToNative({ type: 'call_tool_error', id: msg.id, code: 'HOST_CLI_COOKIES_UNAVAILABLE', error: 'Host CLI credentials are unavailable.' });
     }
 
   } else if (msg.type === 'http_credentials') {
@@ -4468,10 +4486,10 @@ function createDirectWecliRuntime() {
     traceLog(traceID, `[DirectRuntime] ${action} request ${JSON.stringify(summarizeDirectPrivilegedPayload(action, payload))}`);
     try {
       const result = await handleDirectRuntimeRequest(action, payload);
-      traceLog(traceID, `[DirectRuntime] ${action} response ${JSON.stringify(summarizeDirectPrivilegedResult(action, result))}`);
+      traceLog(traceID, `[DirectRuntime] ${action} response ${JSON.stringify(summarizeDirectPrivilegedResult(action, result, payload))}`);
       return result;
     } catch (err) {
-      traceLog(traceID, `[DirectRuntime] ${action} error ${JSON.stringify(sanitizeDirectTraceValue({
+      traceLog(traceID, `[DirectRuntime] ${action} error ${payload.redactBodyInTrace === true ? '[redacted]' : JSON.stringify(sanitizeDirectTraceValue({
         code: err?.code,
         message: err?.message,
         details: err?.details,
@@ -4497,7 +4515,7 @@ function createDirectWecliRuntime() {
 
 function sanitizeDirectTraceValue(value, key = "") {
   if (value == null) return value;
-  if (/cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential|signature/i.test(String(key))) {
+  if (/api[_-]?key|cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential|signature/i.test(String(key))) {
     const text = typeof value === "string" ? value : JSON.stringify(value);
     return text ? `[redacted length=${text.length}]` : "";
   }
@@ -4536,7 +4554,7 @@ function summarizeDirectPrivilegedPayload(action, payload = {}) {
       url: payload.url,
       method: String(options?.method || "GET").toUpperCase(),
       headers: sanitizeDirectTraceValue(options?.headers || {}),
-      body: summarizeDirectTraceBody(options?.body),
+      body: payload.redactBodyInTrace === true ? '[redacted]' : summarizeDirectTraceBody(options?.body),
     };
   }
   if (action === "backend_file_read" || action === "backend_xlsx_read" || action === "backend_file_write") {
@@ -4545,13 +4563,13 @@ function summarizeDirectPrivilegedPayload(action, payload = {}) {
   return sanitizeDirectTraceValue(payload);
 }
 
-function summarizeDirectPrivilegedResult(action, result) {
+function summarizeDirectPrivilegedResult(action, result, payload = {}) {
   if (action === "backend_fetch" || action === "browser_fetch") {
     return {
       status: result?.status,
       ok: result?.ok,
       headers: sanitizeDirectTraceValue(result?.headers || {}),
-      body: summarizeDirectTraceBody(result?.body, 800),
+      body: payload.redactBodyInTrace === true ? '[redacted]' : summarizeDirectTraceBody(result?.body, 800),
     };
   }
   if (action === "cookies_get") {
@@ -4723,7 +4741,7 @@ async function runDirectBrowserFetch(payload = {}, traceID = null) {
 
 async function runDirectBackendFetch(payload = {}, traceID = null) {
   const response = await runRuntimeBridgeRequest("wecli_backend_fetch", payload, traceID);
-  if (payload.browserFallback === false || !isDirectAuthenticationResponse(response)) return response;
+  if (payload.singleAttempt === true || payload.browserFallback === false || !isDirectAuthenticationResponse(response)) return response;
   traceLog(traceID, `[ServiceWorkerRuntime] backend_fetch authentication response, retrying in browser context ${String(payload.url || "")}`);
   return runDirectBrowserFetch(payload, traceID);
 }
@@ -7221,6 +7239,31 @@ function getManagedBackgroundRuntime() {
         payload = backgroundPreviewRequest(action, payload);
       }
       assertManagedRuntimeRequest(action, payload, context);
+      if (action === 'host_cli_call') {
+        if (context.previewNoPage || !context.hostCallId) throw new Error('Host CLI requires an active Adapter invocation.');
+        const reply = await requestBridge({ type: 'wecli_host_cli', parentId: context.hostCallId, payload }, 60000, 'Host CLI helper timed out');
+        if (!reply?.ok) {
+          // Use only local, fixed messages; a reply may contain sensitive data.
+          const messages = {
+            HOST_CLI_AUTH_UNCERTAIN: 'Credential creation or storage could not be confirmed. Check the service before retrying; automatic retry is disabled.',
+            HOST_CLI_UNSUPPORTED_PLATFORM: 'Secure credential storage is unavailable on this platform.',
+            HOST_CLI_IDENTITY_UNVERIFIED: 'The current account or saved credential identity could not be verified.',
+            HOST_CLI_OUTCOME_UNKNOWN: 'The write outcome is unknown. Check the target before retrying.',
+            HOST_CLI_CONFIRMATION_REQUIRED: 'Confirmation is required before this operation.',
+            HOST_CLI_REQUIRED_FIELDS: 'Required fields are missing.',
+            HOST_CLI_UNAVAILABLE: 'Host CLI request failed.',
+            HOST_CLI_CONTEXT_INVALID: 'Host CLI request failed.',
+            HOST_CLI_ALREADY_CALLED: 'Host CLI request failed.',
+            HOST_CLI_INVALID_ARGUMENT: 'Host CLI request failed.',
+            HOST_CLI_CANCELLED: 'Host CLI request was cancelled.',
+            AUTH_REQUIRED: 'Sign in to the service before retrying.',
+          };
+          const code = typeof reply?.code === 'string' && Object.hasOwn(messages, reply.code) ? reply.code : 'HOST_CLI_FAILED';
+          const details = code === 'HOST_CLI_REQUIRED_FIELDS' ? safeHostCliRequiredFields(reply.details) : undefined;
+          throw Object.assign(new Error(messages[code] || 'Host CLI request failed.'), { code, ...(details ? { details } : {}) });
+        }
+        return reply.result;
+      }
       return handleDirectRuntimeRequest(action, payload);
     },
   });
@@ -7228,7 +7271,7 @@ function getManagedBackgroundRuntime() {
 
 function assertManagedRuntimeRequest(action, payload, context) {
   const allowed = ['cookies_get', 'download', 'backend_fetch', 'browser_fetch', 'backend_file_read',
-    'backend_xlsx_read', 'backend_file_write', 'main_world_eval', 'storage_get', 'navigate', 'set_file_input'];
+    'backend_xlsx_read', 'backend_file_write', 'main_world_eval', 'storage_get', 'navigate', 'set_file_input', 'host_cli_call'];
   if (!allowed.includes(action)) throw new Error('Unsupported Adapter runtime helper.');
   for (const value of [payload.url, payload.host, payload.hostname, payload.domain, payload.storageScope, ...(Array.isArray(payload.domains) ? payload.domains : [])]) {
     if (!value) continue;
@@ -7244,10 +7287,10 @@ function assertManagedRuntimeRequest(action, payload, context) {
   }
 }
 
-async function callManagedBackgroundTool(manifest, command, args, traceID) {
+async function callManagedBackgroundTool(manifest, command, args, traceID, hostCallId = null) {
   const routeDomain = adapterPrimaryHost(manifest);
   const declaredHosts = adapterHelperPatterns(manifest);
-  const context = { adapterId: manifest.name, routeDomain, tabDomain: routeDomain, traceID,
+  const context = { adapterId: manifest.name, routeDomain, tabDomain: routeDomain, traceID, hostCallId,
     declaredHosts,
     allowedHosts: declaredHosts.map(host => host.replace(/^\*\./, '')) };
   // The runtime owns the shared queue. Set global legacy helper context only
@@ -7266,7 +7309,7 @@ function assertNotOnLoginPage(manifest, url) {
   }
 }
 
-async function waitForManagedPageReady(tabId, manifest, resume, timeoutMs, traceID = null) {
+async function waitForManagedPageReady(tabId, manifest, resume, timeoutMs, traceID = null, options = {}) {
   const deadline = Date.now() + timeoutMs;
   // Fail fast: while the page is still loading, the URL may already prove that
   // the final host is not declared (e.g. jd.com → www.jd.com), in which case
@@ -7279,12 +7322,14 @@ async function waitForManagedPageReady(tabId, manifest, resume, timeoutMs, trace
     const tab = await chrome.tabs.get(tabId);
     if (!tab) throw new Error('Adapter tab was closed.');
     if (tab.status === 'complete' && stableUrl === tab.url) {
-      if (resume) assertNotOnLoginPage(manifest, tab.url);
+      // `options.loginPage` is the host login flow only: an Adapter-declared QR
+      // command runs on its own login page, which business commands must refuse.
+      if (resume && options.loginPage !== true) assertNotOnLoginPage(manifest, tab.url);
       return assertAdapterNavigationUrl(manifest, tab.url, resume);
     }
     stableUrl = tab.status === 'complete' ? tab.url : null;
     if (guard.observe(tab.url, Date.now()) === 'reject') {
-      if (resume) assertNotOnLoginPage(manifest, tab.url);
+      if (resume && options.loginPage !== true) assertNotOnLoginPage(manifest, tab.url);
       traceLog(traceID, `[ServiceWorker] 页面目标 host 不在白名单，提前结束等待: ${tab.url}`);
       return assertAdapterNavigationUrl(manifest, tab.url, resume);
     }
@@ -7303,7 +7348,7 @@ function getHostAdapterRuntime() {
       tabInjectedAdapters.delete(tabId);
     },
     inject: injectV2AdapterWithCode,
-    ready: (tabId, manifest, timeoutMs, traceID) => waitForManagedPageReady(tabId, manifest, true, timeoutMs, traceID),
+    ready: (tabId, manifest, timeoutMs, traceID, options) => waitForManagedPageReady(tabId, manifest, true, timeoutMs, traceID, options),
     recover: (tabId, manifest, url, timeoutMs) => waitForAdapterPageRecovery(chrome, tabId, manifest, url, timeoutMs),
     query: (tabId, payload, manifest, command) => {
       assertAdapterNavigationUrl(manifest, assertPageQueryRoute(payload, command));
@@ -7475,6 +7520,44 @@ async function checkSiteLogin(msg) {
 }
 
 /**
+ * Adapter-declared QR extraction (`auth.qr.command`): run the read command in the
+ * login tab this flow opened. Login pages are off limits to business commands by
+ * design; this host path opts in explicitly, and any failure or `found: false`
+ * falls back to the generic QR discovery instead of failing the login flow.
+ */
+async function runManagedQrCommand(manifest, tab, command, notes = null) {
+  try {
+    const url = loginTabUrl(manifest, tab);
+    const result = await getHostAdapterRuntime().execute(tab.id, manifest, url,
+      (remainingMs, continuation) => callToolInTab(tab.id, manifest.name + '.' + command.id, {}, null, false, remainingMs, continuation),
+      command, null, { loginPage: true });
+    if (!result || typeof result !== 'object' || result.found !== true) {
+      // Surface why the declared command gave up; the generic discovery below
+      // still runs and its own reason would otherwise hide this one.
+      if (notes) notes.commandReason = typeof result?.reason === 'string' && result.reason ? result.reason : 'COMMAND_FOUND_FALSE';
+      return null;
+    }
+    const image = typeof result.image_data_url === 'string' ? result.image_data_url : '';
+    // Cross-origin login iframes (e.g. Alibaba's havana login inside goofish.com)
+    // hide the QR image from the top frame; the command then answers with the
+    // element rect and the Bridge crops its screenshot to that panel instead.
+    const rect = result.rect;
+    const rectValid = rect && typeof rect === 'object'
+      && ['x', 'y', 'width', 'height'].every((key) => Number.isFinite(rect[key]) && rect[key] >= 0)
+      && rect.width >= 20 && rect.height >= 20 && rect.width <= 8000 && rect.height <= 8000;
+    return {
+      available: true, method: 'command',
+      ...(image && image.length <= 2_800_000 ? { imageDataUrl: image } : {}),
+      ...(rectValid ? { rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } } : {}),
+      ...(typeof result.expires_at === 'string' && result.expires_at ? { expiresAt: result.expires_at } : {}),
+    };
+  } catch (error) {
+    console.log(`[WebMCP] ${manifest.name} QR command failed, falling back to generic discovery: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Prepare a declared login page for QR display without filling or submitting
  * credentials. This deliberately only clicks an explicit login-method switch
  * such as “扫码登录”; all other login actions remain user-controlled.
@@ -7488,6 +7571,15 @@ async function prepareSiteQrLogin(msg) {
     : await findSiteLoginTab(manifest);
   if (!tab?.id || !isLoginPageUrl(manifest, loginTabUrl(manifest, tab), { root: true })) {
     return { available: false, reason: 'LOGIN_TAB_UNAVAILABLE' };
+  }
+  // Adapter-declared precise extraction first; the generic discovery below stays
+  // the fallback for Adapter packages without a qr.command.
+  const qrCommand = manifest.commands?.find((entry) => entry.id === manifest.auth?.qr?.command
+    && entry.runtime === 'extension' && entry.safety === 'read');
+  const commandNotes = qrCommand ? {} : null;
+  if (qrCommand) {
+    const declared = await runManagedQrCommand(manifest, tab, qrCommand, commandNotes);
+    if (declared) return declared;
   }
   const [{ result } = {}] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
@@ -7537,7 +7629,10 @@ async function prepareSiteQrLogin(msg) {
       return { available: false, clicked: true };
     },
   });
-  return result && typeof result === 'object' ? result : { available: false, reason: 'QR_PREPARE_FAILED' };
+  const heuristic = result && typeof result === 'object' ? result : { available: false, reason: 'QR_PREPARE_FAILED' };
+  // Keep the declared command's failure reason visible next to the heuristic's.
+  if (commandNotes?.commandReason && heuristic.available !== true) heuristic.commandReason = commandNotes.commandReason;
+  return heuristic;
 }
 
 // ─── 用户 adapter 目录访问（经 bridge 代理）─────────────────────────────────
@@ -8848,7 +8943,7 @@ async function runRuntimeBridgeRequest(type, payload, traceID = null) {
   traceLog(traceID, `[ServiceWorkerRuntime] ${label} -> bridge`);
   const result = await requestBridge({ type, payload, traceID }, 60000, `${type} helper timed out`);
   if (!result?.ok) {
-    traceLog(traceID, `[ServiceWorkerRuntime] ${label} error: ${result?.error || `${label} helper failed`}`);
+    traceLog(traceID, `[ServiceWorkerRuntime] ${label} error: ${payload?.redactBodyInTrace === true ? '[redacted]' : result?.error || `${label} helper failed`}`);
     throw createRuntimeHelperError('BACKEND_HELPER_ERROR', result?.error || `${type} helper failed`, { type });
   }
   if (type === 'wecli_backend_fetch') {
@@ -9369,6 +9464,13 @@ function createRuntimeHelperError(code, message, details = {}) {
   error.code = code;
   error.details = details;
   return error;
+}
+
+function safeHostCliRequiredFields(details) {
+  const fields = details?.missingFields;
+  if (!Array.isArray(fields) || !fields.length || fields.length > 50 ||
+      fields.some(value => typeof value !== 'string' || !value.length || value.length > 270 || /[\u0000-\u001f\u007f-\u009f]/.test(value) || /api[_-]?key|cookie|authorization|password|secret|token/i.test(value))) return undefined;
+  return { missingFields: [...fields] };
 }
 
 function toStructuredRuntimeError(err) {

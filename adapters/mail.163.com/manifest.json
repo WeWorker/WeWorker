@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "mail.163.com",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "enabled": true,
   "description": "网易163邮箱：读取邮件列表、搜索邮件、查看邮件详情、下载附件、写邮件",
   "match": [
@@ -14,6 +14,9 @@
     ],
     "check": {
       "command": "check-login-status"
+    },
+    "qr": {
+      "command": "get-login-qrcode"
     }
   },
   "requires_auth": true,
@@ -32,6 +35,18 @@
       "aliases": [
         "check_login_status"
       ]
+    },
+    {
+      "id": "get-login-qrcode",
+      "runtime": "extension",
+      "module": "extension/commands/get-login-qrcode.js",
+      "description": "提取163邮箱登录页的登录二维码图片（宿主登录流程专用，不作为业务工具调用）。",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     },
     {
       "id": "navigate-to-inbox",

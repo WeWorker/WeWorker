@@ -4,6 +4,8 @@ export const MANAGED_RUNNER_PATH = 'offscreen/managed-runner.html';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isMissingOffscreenDocument = (error) => /No current offscreen document/i.test(error?.message || '');
 
+import { usesBackgroundExecution } from './conditional-execution.js';
+
 // Executed by CDP in a fresh, extension-owned offscreen document. Package code is
 // installed executable code; this is lifecycle isolation, not a JavaScript sandbox.
 function initializeRuntime(token, context) {
@@ -107,13 +109,14 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
     return exclusive(async () => {
       const selected = previewBundle || await bundle(manifest);
       const current = selected.manifest.commands.find((entry) => entry.id === command.id);
-      if (current?.runtime !== 'extension' || current.execution?.type !== 'api' || current.execution?.runtime !== 'background') {
+      if (current?.runtime !== 'extension' || !usesBackgroundExecution(current, args)) {
         throw new Error('Adapter command does not support background execution.');
       }
       if ((current.requires_confirmation ?? current.safety === 'write') && args.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
       const token = crypto.randomUUID();
       const url = api.runtime.getURL(MANAGED_RUNNER_PATH) + '?call=' + token;
-      const call = { token, url, accepting: true, pending: new Set(), context };
+      const call = { token, url, accepting: true, pending: new Set(), context,
+        credentialHosts: (selected.manifest.runtime_allowed_hosts || []).filter(host => typeof host === 'string' && !host.includes('*')) };
       const known = [api.runtime.getURL('offscreen/direct-runner.html'), api.runtime.getURL(MANAGED_RUNNER_PATH)];
       const contexts = await api.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
       if (contexts.some((entry) => !known.includes(entry.documentUrl?.split('?')[0]))) throw new Error('An unrelated offscreen document is active.');
@@ -147,7 +150,9 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
         if (!target) throw new Error('Adapter background target is unavailable.');
         await api.debugger.attach(target, '1.3'); attached = true;
         active = call;
-        await evaluate('(' + initializeRuntime.toString() + ')(' + JSON.stringify(token) + ',' + JSON.stringify(context) + ')');
+        // The host invocation id belongs to the extension, not Adapter code.
+        const { hostCallId, ...adapterContext } = context;
+        await evaluate('(' + initializeRuntime.toString() + ')(' + JSON.stringify(token) + ',' + JSON.stringify(adapterContext) + ')');
         await evaluate(buildV2Bootstrap(selected.manifest));
         const { internal, commands } = v2InjectionFiles(selected.manifest, Object.keys(selected.files));
         for (const path of [...internal, ...commands]) {
@@ -178,5 +183,11 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
       }
     }, context);
   }
-  return { execute, handleMessage };
+  return {
+    execute, handleMessage,
+    hostCookieContext(id) {
+      if (!active?.accepting || !id || active.context.hostCallId !== id) return null;
+      return { routeDomain: active.context.routeDomain, credentialHosts: [...active.credentialHosts] };
+    },
+  };
 }

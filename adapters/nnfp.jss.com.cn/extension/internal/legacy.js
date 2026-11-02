@@ -641,7 +641,7 @@ async function closeAndReturnToQQMail() {
     }
 
     // 最后的备选：直接跳转（覆盖当前页面）
-    window.location.replace("https://mail.qq.com");
+    window.location.replace("https://wx.mail.qq.com/");
     return {
       status: "navigating",
       message: "正在返回QQ邮箱（replace当前页面）",

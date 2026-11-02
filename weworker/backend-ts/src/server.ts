@@ -3353,21 +3353,24 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           assistantContent.push({ type: 'tool_use', id: ev.id, name: cleanName, args: ev.args, status: 'running', ...(thinkMs !== undefined ? { thinkMs } : {}) })
         }
       } else if (ev.type === 'tool_call_result' && ev.id) {
-        const toolDuration = turnTiming.toolSettled(ev.id) ?? 0
-        chatLog.info(`${tag} ✅ step ${stepIndex}: ${lastToolName} done (exec=${(toolDuration / 1000).toFixed(2)}s)`)
-        send({ ...ev, execMs: toolDuration })
+        const settledDuration = turnTiming.toolSettled(ev.id)
         const idx = assistantContent.findIndex(b => b.type === 'tool_use' && (b as { id: string }).id === ev.id)
+        const previous = idx >= 0 ? assistantContent[idx] as Extract<store.ContentBlock, { type: 'tool_use' }> : undefined
+        // A tool can emit several result parts: only the first settles the timer.
+        const toolDuration = settledDuration ?? previous?.execMs
+        chatLog.info(`${tag} ✅ step ${stepIndex}: ${lastToolName} done (exec=${((toolDuration ?? 0) / 1000).toFixed(2)}s)`)
+        send({ ...ev, ...(toolDuration !== undefined ? { execMs: toolDuration } : {}) })
         if (idx >= 0) {
-          assistantContent[idx] = { ...(assistantContent[idx] as object), result: ev.result, status: ev.isError ? 'failed' : 'done', execMs: toolDuration } as store.ContentBlock
+          assistantContent[idx] = { ...previous, result: ev.result, status: ev.isError ? 'failed' : 'done', ...(toolDuration !== undefined ? { execMs: toolDuration } : {}) } as store.ContentBlock
           segments.refresh(idx)
         } else {
-          assistantContent.push({ type: 'tool_use', id: ev.id, name: '', args: {}, result: ev.result, status: ev.isError ? 'failed' : 'done', execMs: toolDuration })
+          assistantContent.push({ type: 'tool_use', id: ev.id, name: '', args: {}, result: ev.result, status: ev.isError ? 'failed' : 'done', ...(toolDuration !== undefined ? { execMs: toolDuration } : {}) })
         }
       } else if (ev.type === 'tool_call_image' && ev.id) {
         // 只回图片的工具（例如读图片的 Read）没有 tool_call_result 事件：
         // 按同一口径在这里结算它的执行时间，避免这段时间被算进 llmMs。
         const imageToolDuration = turnTiming.toolObserved(ev.id)
-        send(ev)
+        send({ ...ev, ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}) })
         const idx = assistantContent.findIndex(b => b.type === 'tool_use' && (b as { id: string }).id === ev.id)
         if (idx >= 0) {
           const currentStatus = (assistantContent[idx] as Extract<store.ContentBlock, { type: 'tool_use' }>).status
@@ -3430,6 +3433,18 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     // every tool interval; tools without a result event are settled here so
     // their time is never charged to llmMs.
     turnTimingResult = turnTiming.finish()
+    // Sync credited (non-overlapping) tool durations, including unfinished tools.
+    for (let index = 0; index < assistantContent.length; index++) {
+      const block = assistantContent[index]
+      if (block.type !== 'tool_use') continue
+      const execMs = turnTiming.toolExecutionMs(block.id)
+      if (execMs === undefined) continue
+      if (block.execMs !== execMs || block.status === 'running') {
+        assistantContent[index] = { ...block, execMs, status: block.status === 'running' ? (turnSucceeded ? 'done' : 'cancelled') : block.status }
+        segments.refresh(index)
+        send({ type: 'tool_timing_final', id: block.id, execMs })
+      }
+    }
     // Mark as finished so that the subsequent res.end() → close event
     // does not trigger abort on the already-completed query.
     chatLog.info(
@@ -3437,7 +3452,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
         `, llm=${(turnTimingResult.llmMs / 1000).toFixed(2)}s` +
         `, exec=${(turnTimingResult.execMs / 1000).toFixed(2)}s, steps=${stepIndex}`,
     )
-    send({ type: 'turn_end', turnId, workId, totalMs: turnTimingResult.totalMs, llmMs: turnTimingResult.llmMs, execMs: turnTimingResult.execMs, steps: stepIndex })
+    send({ type: 'turn_end', turnId, workId, totalMs: turnTimingResult.totalMs, llmMs: turnTimingResult.llmMs, execMs: turnTimingResult.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
     finished = true
     res.off('close', onClose)
   }
@@ -3456,7 +3471,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // Persist assistant message
   if (assistantContent.length > 0) {
     const timing = turnTimingResult ?? turnTiming.finish()
-    assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, steps: stepIndex })
+    assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
     segments.checkpoint()
   }
 

@@ -1,3 +1,4 @@
+import WorkingIndicator from './WorkingIndicator.jsx'
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
@@ -5,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
 import ImageLightbox from './ImageLightbox.jsx'
-import { formatDuration } from '../../utils/format-duration.js'
+import { formatTimingDuration } from '../../utils/format-timing-duration.js'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { partitionContentBlocks } from '../../utils/group-tool-blocks.js'
 import { isPlanManagementTool } from '../../utils/todowrite-state.js'
@@ -189,9 +190,9 @@ export default function MessageItem({ message, streaming, compacting = false, is
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start', gap: 4, minWidth: 0 }}>
         {showBubble && (
-          <div style={isUser ? BUBBLE_USER : BUBBLE_ASSISTANT}>
+          <div className={isUser ? 'message-bubble message-bubble--user' : 'message-bubble message-bubble--assistant'} style={isUser ? BUBBLE_USER : BUBBLE_ASSISTANT}>
             {isEmpty && showStreaming && isLast ? (
-              <span style={{ color: 'var(--text-muted)' }}><StreamingCursor /></span>
+              <WorkingIndicator />
             ) : (
               renderMessageContent(message.content ?? [], {
                 isUser,
@@ -210,7 +211,7 @@ export default function MessageItem({ message, streaming, compacting = false, is
                 onPlanStepDetailsChange: !isUser ? onPlanStepDetailsChange : undefined,
               })
             )}
-            {!isEmpty && showStreaming && isLast && !isUser && <StreamingCursor />}
+            {!isEmpty && showStreaming && isLast && !isUser && <WorkingIndicator />}
           </div>
         )}
       </div>
@@ -508,7 +509,7 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
       return (
         <div
           className="message-text-selectable"
-          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 14, lineHeight: 1.6 }}
+          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
         >
           {block.text || ''}
         </div>
@@ -525,7 +526,7 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
   }
   if (block.type === 'tool_use') {
     if (suppressPlanTools && isPlanManagementTool(block.name)) return null
-    if (block.image) return <div style={{ margin: '4px 0' }}><ZoomableImage src={`data:image/jpeg;base64,${block.image}`} /></div>
+    if (block.image) return <div style={{ margin: '4px 0' }}><ZoomableImage src={`data:image/jpeg;base64,${block.image}`} /><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{block.thinkMs != null && `思考/等待 ${formatTimingDuration(block.thinkMs)}`}{block.thinkMs != null && block.execMs != null && ' · '}{block.execMs != null && `执行 ${formatTimingDuration(block.execMs)}`}</div></div>
     return <ToolCallBlock block={block} streaming={streaming} />
   }
   if (block.type === 'image') return <ZoomableImage src={`data:image/jpeg;base64,${block.data}`} />
@@ -643,9 +644,10 @@ function ZoomableImage({ src }) {
 
 function TurnTimingFooter({ block }) {
   const segs = [
-    `⏱ 本轮 ${formatDuration(block.totalMs)}`,
-    `模型 ${formatDuration(block.llmMs)}`,
-    `执行 ${formatDuration(block.execMs)}`,
+    `⏱ 本轮 ${formatTimingDuration(block.totalMs)}`,
+    `思考/等待 ${formatTimingDuration(block.llmMs)}`,
+    `执行 ${formatTimingDuration(block.execMs)}`,
+    ...(block.remainingModelMs != null ? [`其中未归入工具前等待 ${formatTimingDuration(block.remainingModelMs)}`] : []),
     `${block.steps ?? 0} 步`,
   ]
   return (
@@ -655,14 +657,5 @@ function TurnTimingFooter({ block }) {
     }}>
       {segs.map((s, i) => <span key={i}>{s}</span>)}
     </div>
-  )
-}
-
-function StreamingCursor() {
-  return (
-    <span style={{ color: 'var(--text-muted)', fontSize: 12, marginLeft: 4, animation: 'working-fade 1.2s ease-in-out infinite' }}>
-      <style>{`@keyframes working-fade { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
-      working...
-    </span>
   )
 }

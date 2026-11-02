@@ -265,16 +265,15 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
             stepIndex++
             thinkMs = turnTiming.toolStarted(event.id)
           }
-          assistantContent.push({
-            type: 'tool_use',
-            id: event.id,
-            name: event.name ?? '',
-            args: event.args,
-            status: 'running',
-            ...(thinkMs !== undefined ? { thinkMs } : {}),
-          })
+          const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id)
+          if (existing?.type === 'tool_use') {
+            existing.name = event.name ?? existing.name
+            existing.args = event.args ?? existing.args
+          } else {
+            assistantContent.push({ type: 'tool_use', id: event.id, name: event.name ?? '', args: event.args, status: 'running', ...(thinkMs !== undefined ? { thinkMs } : {}) })
+          }
         } else if (event.type === 'tool_call_result' && event.id) {
-          const toolDuration = turnTiming.toolSettled(event.id) ?? 0
+          const toolDuration = turnTiming.toolSettled(event.id)
           const idx = assistantContent.findIndex(
             b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
           )
@@ -283,7 +282,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
               ...(assistantContent[idx] as object),
               result: event.result,
               status: event.isError ? 'failed' : 'done',
-              execMs: toolDuration,
+              ...(toolDuration !== undefined ? { execMs: toolDuration } : {}),
             } as ContentBlock
           }
         } else if (event.type === 'tool_call_image' && event.id) {
@@ -314,10 +313,16 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       // Account for trailing LLM text generation (and settle any tool that never
       // reported a result, so its time stays in execMs).
       const timing = turnTiming.finish()
+      for (const block of assistantContent) {
+        if (block.type === 'tool_use') {
+          block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
+          if (block.status === 'running') block.status = 'done'
+        }
+      }
 
       // 8. Persist assistant message
       if (assistantContent.length > 0) {
-        assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, steps: stepIndex })
+        assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
         store.appendMessage(work.id, 'assistant', assistantContent)
       }
     }

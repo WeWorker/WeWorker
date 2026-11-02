@@ -18,6 +18,12 @@ describe('route dispatch fallback', () => {
   it.each([
     ['API error envelope', async () => '{"error":"request failed"}'],
     ['HTTP-style failure envelope', async () => '{"ok":false,"message":"request failed"}'],
+    ['API authentication failure in HTTP 200', async () => '{"code":4001,"msg":"Authentication credentials were not provided.","data":null,"level":"error"}'],
+    ['wrapped API authentication failure', async () => '{"result":{"code":4001,"msg":"Authentication credentials were not provided.","data":null},"trace_id":"example-trace"}'],
+    ['CLI authentication failure', async () => '{"error":"Authentication credentials were not provided.","code":"FETCH_ERROR","trace_id":"example-trace"}'],
+    ['HTTP unauthorized status', async () => '{"status":401,"message":"login required"}'],
+    ['login failure without a code', async () => '{"level":"error","msg":"请先登录","data":null}'],
+    ['plain-text login failure', async () => '请先登录后重试'],
     ['empty payload', async () => '  '],
     ['CLI crash', async () => 'Error: process crashed'],
     ['rejected request', async () => { throw new Error('request failed') }],
@@ -48,6 +54,15 @@ describe('route dispatch fallback', () => {
     })).toBe(false)
     expect(mocked).toHaveBeenCalledTimes(1)
     expect(input.send).not.toHaveBeenCalled()
+  })
+
+  it('a successful API response with a numeric business code remains routable', async () => {
+    const mocked = vi.fn(async () => '{"code":200,"data":{"items":[{"id":"example"}]}}')
+    const input = ctx()
+    expect(await executeRoutePlan(plan, input, {
+      engine, dispatch: mocked, persistAssistantMessage: vi.fn(),
+    })).toBe(true)
+    expect(input.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: expect.stringContaining('example') }))
   })
 
   it('a valid empty result still counts as an answer', async () => {

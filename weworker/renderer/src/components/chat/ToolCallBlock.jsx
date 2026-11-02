@@ -5,7 +5,7 @@ import TodoWriteToolBlock from './TodoWriteToolBlock.jsx'
 import ToolRunningIndicator from './ToolRunningIndicator.jsx'
 import { ToolGenericIcon } from './ToolRowIcons.jsx'
 import { displayToolName } from '../../utils/tool-name.js'
-import { formatDuration } from '../../utils/format-duration.js'
+import { formatTimingDuration } from '../../utils/format-timing-duration.js'
 import { formatToolResultText, getToolCallSummary } from '../../utils/tool-display.js'
 import { isTodoWriteTool } from '../../utils/todowrite-state.js'
 
@@ -17,8 +17,8 @@ function GenericToolCallBlock({ block, streaming = false }) {
   const displayName = displayToolName(rawName)
   const summary = getToolCallSummary(block.args)
   const timingLabel = [
-    block.thinkMs != null ? `等待${formatDuration(block.thinkMs)}` : '',
-    block.execMs != null ? `执行${formatDuration(block.execMs)}` : '',
+    block.thinkMs != null ? `思考/等待${formatTimingDuration(block.thinkMs)}` : '',
+    block.execMs != null ? `执行${formatTimingDuration(block.execMs)}` : '',
   ].filter(Boolean).join(' · ')
 
   return (

@@ -4,9 +4,69 @@ import { join } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 import { createHostAdapterRuntime } from '../background/host-adapter-runtime.js';
+import { readHostCliCookies } from '../background/http-credentials.js';
+import { usesBackgroundExecution } from '../background/conditional-execution.js';
 import { runServiceWorkerInContext } from "./helpers/service-worker-test-loader.mjs";
 
 const ROOT = process.cwd();
+
+test('host CLI helpers forward the original invocation context and require an active invocation', async () => {
+  const worker = loadServiceWorker();
+  const manifest = { name: 'example.com', match: ['example.com'] };
+  let captured;
+  worker.context.requestBridge = async message => { captured = message; return { ok: true, result: { rows: [] } }; };
+  worker.context.createManagedBackgroundRuntime = ({ request }) => ({
+    execute: async (_manifest, _command, _args, context) => request('host_cli_call', { args: { page: 1 } }, context),
+  });
+  const result = await worker.context.callManagedBackgroundTool(manifest, {}, {}, null, 'host-invocation');
+  assert.deepEqual(plain(result), { rows: [] });
+  assert.deepEqual(plain(captured), { type: 'wecli_host_cli', parentId: 'host-invocation', payload: { args: { page: 1 } } });
+  await assert.rejects(worker.context.callManagedBackgroundTool(manifest, {}, {}, null), /active Adapter invocation/);
+});
+
+test('host CLI errors use fixed messages and only bounded required-field details', async () => {
+  const worker = loadServiceWorker();
+  const manifest = { name: 'example.com', match: ['example.com'] };
+  worker.context.createManagedBackgroundRuntime = ({ request }) => ({
+    execute: async (_manifest, _command, _args, context) => request('host_cli_call', { args: {} }, context),
+  });
+  for (const [reply, code, details] of [
+    [{ ok: false, code: 'HOST_CLI_AUTH_UNCERTAIN', error: 'synthetic-secret' }, 'HOST_CLI_AUTH_UNCERTAIN', undefined],
+    [{ ok: false, code: 'HOST_CLI_REQUIRED_FIELDS', details: { missingFields: ['owner'], extra: 'synthetic-secret' } }, 'HOST_CLI_REQUIRED_FIELDS', { missingFields: ['owner'] }],
+    [{ ok: false, code: 'HOST_CLI_REQUIRED_FIELDS', details: { missingFields: ['bad\nvalue'] } }, 'HOST_CLI_REQUIRED_FIELDS', undefined],
+    [{ ok: false, code: 'untrusted', error: 'synthetic-secret' }, 'HOST_CLI_FAILED', undefined],
+  ]) {
+    worker.context.requestBridge = async () => reply;
+    await assert.rejects(worker.context.callManagedBackgroundTool(manifest, {}, {}, null, 'owner'), error => {
+      assert.equal(error.code, code);
+      assert.deepEqual(error.details ? plain(error.details) : undefined, details);
+      assert.equal(error.message.includes('synthetic-secret'), false);
+      return true;
+    });
+  }
+});
+
+test('host CLI cookie RPC requires a live owner and excludes secrets from console logs', async () => {
+  const worker = loadServiceWorker({ cookies: [
+    { name: 'session', value: 'synthetic-secret', domain: 'example.com', path: '/' },
+    { name: 'partition', value: 'synthetic-partition', domain: 'example.com', path: '/', partitionKey: { topLevelSite: 'https://example.com' } },
+  ] });
+  const logs = [];
+  worker.context.console.log = (...args) => logs.push(JSON.stringify(args));
+  worker.context.readHostCliCookies = readHostCliCookies;
+  let active = true;
+  worker.context.getManagedBackgroundRuntime = () => ({ hostCookieContext: id => active && id === 'owned' ? { routeDomain: 'example.com' } : null });
+  const invalid = await worker.sendNative({ type: 'host_cli_cookies', id: 'one', parentId: 'other', payload: { url: 'https://example.com/' } });
+  assert.equal(invalid.type, 'call_tool_error');
+  const valid = await worker.sendNative({ type: 'host_cli_cookies', id: 'two', parentId: 'owned', payload: { url: 'https://example.com/' } });
+  assert.equal(valid.type, 'call_tool_result');
+  assert.equal(valid.result.cookies.length, 1);
+  assert.equal(valid.result.cookies[0].value, 'synthetic-secret');
+  assert.equal(logs.join('').includes('synthetic-secret'), false);
+  active = false;
+  const late = await worker.sendNative({ type: 'host_cli_cookies', id: 'three', parentId: 'owned', payload: { url: 'https://example.com/' } });
+  assert.equal(late.type, 'call_tool_error');
+});
 
 test('explicit structural analysis capture includes JSON telemetry without changing default filtering', () => {
   const worker = loadServiceWorker();
@@ -166,6 +226,7 @@ function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {},
     Map,
     Promise,
     Set,
+    usesBackgroundExecution,
     URL,
     WebSocket: FakeWebSocket,
     btoa: (value) => Buffer.from(value, "binary").toString("base64"),
@@ -516,6 +577,22 @@ test("managed background calls select the offscreen runner without opening a sit
   assert.equal(calls[0][1].id, 'read-item');
   assert.deepEqual(calls[0][2], {count:'007'});
   assert.deepEqual(calls[0][3].declaredHosts, ['example.com','api.example.org']);
+});
+
+test('conditional write selects exactly one path before execution and never replays a host error', async () => {
+  const manifest = { name: 'fixture', match: ['example.com'], _hostSnapshot: { name: 'fixture', profile: 'public', digest: 'fixture-digest' },
+    commands: [{ id: 'write', runtime: 'extension', safety: 'write', requires_confirmation: false,
+      execution: { type: 'api', runtime: 'background', pageWhenAbsent: 'productId' } }] };
+  const worker = loadServiceWorker({ tabs: [{ id: 1, url: 'https://example.com/' }], managedCatalog: { available: true, managedNames: ['fixture'], adapters: [manifest] } });
+  let calls = 0;
+  worker.context.getManagedBackgroundRuntime = () => ({ execute: async () => { calls++; throw new Error('host failed'); } });
+  await worker.callNativeTool('fixture.write', { submitForReview: true });
+  assert.equal(worker.sentToTabs.length, 1);
+  assert.equal(calls, 0);
+  const result = await worker.callNativeTool('fixture.write', { productId: '123' });
+  assert.match(result.error, /host failed/);
+  assert.equal(worker.sentToTabs.length, 1);
+  assert.equal(calls, 1);
 });
 
 test("managed write opt-out comes from the pinned package, not caller arguments", async () => {

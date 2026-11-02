@@ -1,10 +1,11 @@
 {
   "schema_version": 2,
   "name": "mail.qq.com",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "enabled": true,
   "description": "QQ邮箱：搜索邮件、读取未读、打开邮件、下载附件、按关键词/月份批量下载发票",
   "match": [
+    "wx.mail.qq.com",
     "mail.qq.com"
   ],
   "domains": [
@@ -12,7 +13,7 @@
     "wx.mail.qq.com"
   ],
   "auth": {
-    "login_url": "https://mail.qq.com/",
+    "login_url": "https://wx.mail.qq.com/",
     "check": {
       "command": "check-login-status"
     }
@@ -195,7 +196,7 @@
       "requires_confirmation": false
     }
   ],
-  "homepage_url": "https://mail.qq.com/",
+  "homepage_url": "https://wx.mail.qq.com/",
   "icon": "mail",
   "scenarios": [
     {
@@ -254,6 +255,6 @@
       "description": "QQ邮箱：读取邮件列表、搜索邮件、查看邮件详情、下载附件、自动下载发票"
     }
   },
-  "verified_on": "2026-03-31",
+  "verified_on": "2026-11-01",
   "auth_check_tool": "mail.qq.com.check-login-status"
 }

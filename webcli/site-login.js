@@ -422,13 +422,16 @@ export class SiteLoginCoordinator {
     // QR login or automatic probing is inappropriate.
     if (manifest.auth?.qr?.mode === 'off') return null;
     try {
-      const result = await this._extension('auth_prepare_qr', { site: manifest.name }, 10_000);
+      // Cold SPA login pages (e.g. goofish.com's embedded login iframe) can mount
+      // their QR well after the tab settles; the declared command waits it out.
+      const result = await this._extension('auth_prepare_qr', { site: manifest.name }, 30_000);
       if (!result || typeof result !== 'object') return { available: false, method: 'heuristic' };
-      this._log(`[login] ${manifest.name} QR preparation: available=${result.available === true} clicked=${result.clicked === true} image=${typeof result.imageDataUrl === 'string' && result.imageDataUrl.length > 0} reason=${result.reason || 'none'}`);
+      this._log(`[login] ${manifest.name} QR preparation: available=${result.available === true} clicked=${result.clicked === true} image=${typeof result.imageDataUrl === 'string' && result.imageDataUrl.length > 0} reason=${result.reason || 'none'}${result.commandReason ? ` command=${result.commandReason}` : ''}`);
       const qr = {
         available: result.available === true,
-        method: 'heuristic',
+        method: typeof result.method === 'string' && result.method ? result.method : 'heuristic',
         ...(result.clicked === true ? { clicked: true } : {}),
+        ...(typeof result.expiresAt === 'string' && result.expiresAt ? { expiresAt: result.expiresAt } : {}),
       };
       const image = decodeQrImage(result.imageDataUrl);
       if (image) {
@@ -437,6 +440,19 @@ export class SiteLoginCoordinator {
         this._fs.writeFileSync(file, image.bytes);
         qr.image = file;
         qr.imageVersion = (flow?.qr?.imageVersion || 0) + 1;
+      }
+      // Cross-origin login iframes hide the QR image from the page command
+      // (docs §5.1 rect protocol): crop the login tab screenshot to the rect
+      // the command reported, so the user still gets a close-up of the live code.
+      if (!qr.image && result.rect && flow?.url && this._browser.mode() === 'dedicated') {
+        const data = await this._browser.screenshot(flow.url, { clip: result.rect }).catch(() => null);
+        if (data) {
+          this._fs.mkdirSync(this._screenshotDir, { recursive: true });
+          const file = path.join(this._screenshotDir, `${manifest.name}.qr.jpg`);
+          this._fs.writeFileSync(file, Buffer.from(data, 'base64'));
+          qr.image = file;
+          qr.imageVersion = (flow?.qr?.imageVersion || 0) + 1;
+        }
       }
       return qr;
     } catch (error) {

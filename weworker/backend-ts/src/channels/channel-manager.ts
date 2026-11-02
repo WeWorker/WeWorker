@@ -168,33 +168,37 @@ export async function runChannelChat(
         thinkMs = turnTiming.toolStarted(event.id)
       }
       toolCallMap.set(event.id, {
+        ...toolCallMap.get(event.id),
         name: event.name ?? '',
         args: event.args,
         ...(thinkMs !== undefined ? { thinkMs } : {}),
       })
     } else if (event.type === 'tool_call_result' && event.id) {
       const started = toolCallMap.get(event.id)
-      const toolDuration = turnTiming.toolSettled(event.id) ?? 0
-      toolCalls.push({
-        type: 'tool_use',
-        id: event.id,
-        name: started?.name ?? '',
-        args: started?.args ?? {},
-        result: event.result ?? '',
-        status: event.isError ? 'failed' : 'done',
-        execMs: toolDuration,
+      const toolDuration = turnTiming.toolSettled(event.id)
+      const existing = toolCalls.find(block => block.type === 'tool_use' && block.id === event.id) as Extract<store.ContentBlock, { type: 'tool_use' }> | undefined
+      const updated: store.ContentBlock = {
+        ...existing,
+        type: 'tool_use', id: event.id,
+        name: started?.name ?? existing?.name ?? '', args: started?.args ?? existing?.args ?? {},
+        result: event.result ?? '', status: event.isError ? 'failed' : 'done',
+        ...(toolDuration !== undefined ? { execMs: toolDuration } : {}),
         ...(started?.thinkMs !== undefined ? { thinkMs: started.thinkMs } : {}),
-      })
+      }
+      if (existing) Object.assign(existing, updated)
+      else toolCalls.push(updated)
     } else if (event.type === 'tool_call_image' && event.data) {
       // 只回图片的工具没有 result 事件：同样结算，避免其耗时漏进 llm。
       const imageToolDuration = event.id ? turnTiming.toolObserved(event.id) : undefined
       images.push(event.data)
-      // Attach image to the most recent tool call if possible
-      if (toolCalls.length > 0) {
-        const last = toolCalls[toolCalls.length - 1]
-        if (last.type === 'tool_use') {
-          last.image = event.data
-          if (imageToolDuration !== undefined && last.execMs === undefined) last.execMs = imageToolDuration
+      if (event.id) {
+        const existing = toolCalls.find(block => block.type === 'tool_use' && block.id === event.id) as Extract<store.ContentBlock, { type: 'tool_use' }> | undefined
+        if (existing) {
+          existing.image = event.data
+          if (imageToolDuration !== undefined) existing.execMs = imageToolDuration
+        } else {
+          const started = toolCallMap.get(event.id)
+          toolCalls.push({ type: 'tool_use', id: event.id, name: started?.name ?? '', args: started?.args ?? {}, image: event.data, status: 'done', ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}), ...(started?.thinkMs !== undefined ? { thinkMs: started.thinkMs } : {}) })
         }
       }
     } else if (event.type === 'error' && event.content) {
@@ -208,7 +212,13 @@ export async function runChannelChat(
 
   // Close the turn: trailing LLM text plus any tool that never reported a result.
   const snapshot = turnTiming.finish()
-  const timing: store.ContentBlock = { type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, steps: stepIndex }
+  for (const block of toolCalls) {
+    if (block.type === 'tool_use') {
+      block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
+      if (block.status === 'running') block.status = 'done'
+    }
+  }
+  const timing: store.ContentBlock = { type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex }
   log.info(`runChannelChat turn — total=${(snapshot.totalMs / 1000).toFixed(2)}s llm=${(snapshot.llmMs / 1000).toFixed(2)}s exec=${(snapshot.execMs / 1000).toFixed(2)}s steps=${stepIndex}`)
 
   return { text, images, toolCalls, timing }

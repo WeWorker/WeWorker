@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "goofish.com",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "enabled": true,
   "description": "闲鱼：商品搜索/详情、私信会话、发布宝贝和登录检查",
   "homepage_url": "https://www.goofish.com/",
@@ -20,6 +20,9 @@
   ],
   "auth": {
     "login_url": "https://www.goofish.com/login",
+    "qr": {
+      "command": "get-login-qrcode"
+    },
     "check": {
       "command": "whoami"
     }
@@ -62,6 +65,19 @@
     }
   ],
   "commands": [
+    {
+      "id": "get-login-qrcode",
+      "runtime": "extension",
+      "module": "extension/commands/get-login-qrcode.js",
+      "description": "报告闲鱼登录面板（内嵌跨域 iframe）的页面位置，供宿主登录流程裁剪二维码特写（宿主专用，不作为业务工具调用）。",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    },
     {
       "id": "whoami",
       "runtime": "extension",
