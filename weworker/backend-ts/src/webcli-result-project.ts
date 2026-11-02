@@ -111,6 +111,7 @@ export function buildCompactSummary(input: any, cap = DEFAULT_COMPACT_SUMMARY_CA
     for (const section of obj.sections) {
       if (!section) continue
       if (section.title) lines.push(`\n【${section.title}】`)
+      if (typeof section.content === 'string') lines.push(section.content)
       const cols: string[] = Array.isArray(section.columns) ? section.columns.map(String) : []
       const rows: any[] = Array.isArray(section.rows) ? section.rows : []
       for (const row of rows) {

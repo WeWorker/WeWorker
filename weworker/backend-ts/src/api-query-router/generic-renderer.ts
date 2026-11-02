@@ -36,7 +36,7 @@ export type GenericRenderDeps = {
   rehydrate?: (pointerText: string) => string | null
 }
 
-function escapeCell(value: unknown): string {
+function escapeCell(value: unknown, maxChars = CELL_MAX_CHARS): string {
   let text: string
   if (value == null || value === '') text = ''
   else if (typeof value === 'object') {
@@ -46,10 +46,10 @@ function escapeCell(value: unknown): string {
       text = String(value)
     }
   } else text = String(value)
-  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').slice(0, CELL_MAX_CHARS)
+  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').slice(0, maxChars)
 }
 
-function renderTable(rows: readonly unknown[]): string {
+function renderTable(rows: readonly unknown[], columns?: string[], maxChars = CELL_MAX_CHARS): string {
   if (!rows.length) return '（无数据）'
   const cols: string[] = []
   for (const row of rows) {
@@ -60,15 +60,15 @@ function renderTable(rows: readonly unknown[]): string {
     }
   }
   if (!cols.length) {
-    return rows.map((row, index) => `${index + 1}. ${escapeCell(row)}`).join('\n')
+    return rows.map((row, index) => `${index + 1}. ${escapeCell(row, maxChars)}`).join('\n')
   }
-  const cap = cols.slice(0, TABLE_MAX_COLS)
+  const cap = columns?.length ? columns : cols.slice(0, TABLE_MAX_COLS)
   const shown = rows.slice(0, TABLE_MAX_ROWS)
   const lines = [
-    `| ${cap.join(' | ')} |`,
+    `| ${cap.map((col) => escapeCell(col, maxChars)).join(' | ')} |`,
     `| ${cap.map(() => '---').join(' | ')} |`,
     ...shown.map((row) =>
-      `| ${cap.map((col) => escapeCell((row as Record<string, unknown>)?.[col])).join(' | ')} |`,
+      `| ${cap.map((col) => escapeCell((row as Record<string, unknown>)?.[col], maxChars)).join(' | ')} |`,
     ),
   ]
   if (rows.length > TABLE_MAX_ROWS) {
@@ -168,6 +168,25 @@ function renderGenericBody(
   if (record && record.error) {
     const message = typeof record.error === 'string' ? record.error : JSON.stringify(record.error)
     return `⚠️ 查询失败：${message}`
+  }
+
+  if (Array.isArray(record?.sections)) {
+    const parts: string[] = []
+    for (const section of record.sections) {
+      if (!section || typeof section !== 'object' || Array.isArray(section)) continue
+      if (typeof section.title === 'string' && section.title) parts.push(`## ${section.title}`)
+      if (typeof section.content === 'string' && section.content.trim()) {
+        parts.push(section.content)
+      } else {
+        const rows = Array.isArray(section.rows) ? section.rows : []
+        const columns = Array.isArray(section.columns)
+          ? section.columns.filter((col: unknown): col is string => typeof col === 'string')
+          : undefined
+        // Rules must remain complete; ordinary list cell limits can remove required conditions.
+        parts.push(renderTable(rows, columns, Infinity))
+      }
+    }
+    return parts.join('\n\n') || renderEmptyResult()
   }
 
   // 声明式 schema 优先；不适用时静默回退通用渲染。
