@@ -278,6 +278,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const [hoveredScenarioKey, setHoveredScenarioKey] = useState(null)
   const [addPickerQuery, setAddPickerQuery] = useState('')
   const [featuredSearchQuery, setFeaturedSearchQuery] = useState('')
+  const [featuredSearchOpen, setFeaturedSearchOpen] = useState(false)
   const [scenarioPickerQuery, setScenarioPickerQuery] = useState('')
   const [expandedScenarioPickerKey, setExpandedScenarioPickerKey] = useState(null)
   const [scenarioPromptValues, setScenarioPromptValues] = useState({})
@@ -1055,39 +1056,52 @@ export default function WelcomeScreen({ onFillInput, children }) {
             >
               {featuredSquareCards ? <ListIcon size={14} /> : <FourSquaresIcon size={14} />}
             </button>
-            <div className="welcome-featured-search">
-              <SearchOutlined aria-hidden="true" />
-              <input
-                ref={featuredSearchRef}
-                type="search"
-                value={featuredSearchQuery}
-                onChange={(event) => setFeaturedSearchQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setFeaturedSearchQuery('')
-                  }
-                }}
-                placeholder="搜索已添加站点"
-                aria-label="搜索已添加站点"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {featuredSearchQuery && (
-                <button
-                  type="button"
-                  aria-label="清空站点搜索"
-                  title="清空搜索"
-                  onClick={() => {
-                    setFeaturedSearchQuery('')
-                    featuredSearchRef.current?.focus({ preventScroll: true })
+            {!featuredSearchOpen ? (
+              <button type="button" className="featured-view-toggle" style={featuredViewToggleStyle}
+                title="搜索已添加站点" aria-label="展开站点搜索" aria-expanded={false}
+                onClick={() => setFeaturedSearchOpen(true)}>
+                <SearchOutlined aria-hidden="true" />
+              </button>
+            ) : (
+              <div className="welcome-featured-search">
+                <SearchOutlined aria-hidden="true" />
+                <input
+                  ref={featuredSearchRef}
+                  autoFocus
+                  onBlur={() => {
+                    if (!featuredSearchQuery.trim()) setFeaturedSearchOpen(false)
                   }}
-                >
-                  <ClosePanelIcon size={12} />
-                </button>
-              )}
-            </div>
+                  type="search"
+                  value={featuredSearchQuery}
+                  onChange={(event) => setFeaturedSearchQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setFeaturedSearchQuery('')
+                      setFeaturedSearchOpen(false)
+                    }
+                  }}
+                  placeholder="搜索已添加站点"
+                  aria-label="搜索已添加站点"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {featuredSearchQuery && (
+                  <button
+                    type="button"
+                    aria-label="清空站点搜索"
+                    title="清空搜索"
+                    onClick={() => {
+                      setFeaturedSearchQuery('')
+                      featuredSearchRef.current?.focus({ preventScroll: true })
+                    }}
+                  >
+                    <ClosePanelIcon size={12} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <div style={featuredHeaderActionsStyle}>
             <button type="button" onClick={handleOpenAllScenarios} className="welcome-all-scenarios" style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
