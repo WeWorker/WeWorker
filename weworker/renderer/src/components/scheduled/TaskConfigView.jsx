@@ -12,10 +12,13 @@ import {
   MINUTE_INTERVAL_OPTIONS,
   WEEKDAY_FILTER_OPTIONS,
   WEEKDAY_OPTIONS,
+  WEEKDAY_PRESETS,
   buildCron,
   getNextRuns,
   nextRunsSummary,
   parseCron,
+  selectWeekdayPreset,
+  toggleWeekday,
 } from '../../utils/scheduled-task-schedule.js'
 
 // ---------------------------------------------------------------------------
@@ -73,7 +76,7 @@ export default function TaskConfigView({ taskId }) {
 
   // Form state
   const [title, setTitle] = useState('')
-  const [schedule, setSchedule] = useState({ frequency: 'daily', hour: 9, minute: 0, weekday: '1', weekdays: ALL_WEEKDAYS, minuteInterval: 30 })
+  const [schedule, setSchedule] = useState({ frequency: 'daily', hour: 9, minute: 0, weekday: '1', weekdays: ALL_WEEKDAYS, weekdayPreset: 'every_day', minuteInterval: 30 })
   const [promptTemplate, setPromptTemplate] = useState('')
   const [notifyChannels, setNotifyChannels] = useState([])
   const [saving, setSaving] = useState(false)
@@ -103,15 +106,10 @@ export default function TaskConfigView({ taskId }) {
   const updateSchedule = (patch) => setSchedule((s) => ({ ...s, ...patch }))
 
   const toggleWeekdayFilter = (day) => {
-    setSchedule((current) => {
-      const weekdays = current.weekdays || ALL_WEEKDAYS
-      if (weekdays.includes(day)) {
-        if (weekdays.length === 1) return current
-        return { ...current, weekdays: weekdays.filter((value) => value !== day) }
-      }
-      return { ...current, weekdays: [...weekdays, day].sort((a, b) => a - b) }
-    })
+    setSchedule((current) => toggleWeekday(current, day))
   }
+
+  const handleWeekdayPreset = (preset) => setSchedule((current) => selectWeekdayPreset(current, preset))
 
   const handleChannelToggle = (channelId) => {
     setNotifyChannels((prev) =>
@@ -251,9 +249,34 @@ export default function TaskConfigView({ taskId }) {
 
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>过滤日期</span>
-              <div role="group" aria-label="过滤日期" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div role="group" aria-label="过滤日期" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                {WEEKDAY_PRESETS.map((preset) => {
+                  const selected = schedule.weekdayPreset === preset.value
+                  return (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      data-app-button="action"
+                      aria-pressed={selected}
+                      onClick={() => handleWeekdayPreset(preset.value)}
+                      style={{
+                        height: 30,
+                        padding: '0 10px',
+                        border: `1px solid ${selected ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 15,
+                        background: selected ? 'var(--accent)' : 'var(--bg-secondary)',
+                        color: selected ? '#fff' : 'var(--text-secondary)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  )
+                })}
                 {WEEKDAY_FILTER_OPTIONS.map((option) => {
-                  const selected = (schedule.weekdays || ALL_WEEKDAYS).includes(option.value)
+                  const selected = !schedule.weekdayPreset && (schedule.weekdays || ALL_WEEKDAYS).includes(option.value)
                   return (
                     <button
                       key={option.value}

@@ -65,3 +65,13 @@ test('the conversation row exposes archive action and memory settings expose res
   assert.match(memory, /已归档对话/)
   assert.match(memory, /restoreArchivedWork\(work\.id\)/)
 })
+
+test('conversation context menu exposes management and copy actions', () => {
+  const sidebar = fs.readFileSync(new URL('../components/sidebar/WorksList.jsx', import.meta.url), 'utf8')
+  for (const label of ['删除对话', '归档对话', '复制 Session ID', '复制对话内容', '复制所有日志']) {
+    assert.ok(sidebar.includes(label), `missing context menu action: ${label}`)
+  }
+  for (const binding of ['onDelete={handleDelete}', 'onArchive={handleArchive}', 'onCopySessionId={copySessionId}', 'onCopyConversation={copyConversation}', 'onCopyAllLogs={copyAllLogs}']) {
+    assert.ok(sidebar.includes(binding), `missing context menu callback: ${binding}`)
+  }
+})

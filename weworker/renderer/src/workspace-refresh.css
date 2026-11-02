@@ -233,16 +233,22 @@ html.dark .workspace-sidebar {
   display: none;
 }
 .work-list-item:hover .sidebar-row-actions,
-.work-list-item:focus-within .sidebar-row-actions {
+.work-list-item:focus-visible .sidebar-row-actions,
+.work-list-item:has(.sidebar-row-actions :focus-visible) .sidebar-row-actions {
   display: inline-flex;
 }
+
+.work-list-item .work-list-item__title { padding-right: 0; }
+.work-list-item:hover .work-list-item__title,
+.work-list-item:focus-visible .work-list-item__title,
+.work-list-item:has(.sidebar-row-actions :focus-visible) .work-list-item__title { padding-right: 64px; }
 
 .workspace-sidebar .sidebar-new-chat { margin-bottom: 12px; }
 .sidebar-workspaces-label { font-size: 12px; font-weight: 400; color: var(--text-secondary); }
 .workspace-sidebar .sidebar-conversation-header { padding: 4px 12px 2px !important; }
 
 /* Chat reading rhythm and a compact composer toolbar. */
-.chat-view .message-bubble { font-size: 15px; line-height: 1.8; }
+.chat-view .message-bubble { font-size: 14px; line-height: 1.7; }
 .chat-view .message-bubble--user {
   border-radius: 18px 18px 6px 18px !important;
   padding: 11px 16px !important;

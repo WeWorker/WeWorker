@@ -1,10 +1,11 @@
-import { groupWorksByFolder } from '../../utils/work-folder-groups.js'
+import { groupWorksByFolder, isWorkFolderActive } from '../../utils/work-folder-groups.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useWorksStore } from '../../store/works.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
+import { backendFetch } from '../../api/http.js'
 import { TrashIcon } from '../icons/PanelIcons.jsx'
 import { InboxOutlined } from '@ant-design/icons'
 import MessageSquarePlusIcon from '../icons/MessageSquarePlusIcon.jsx'
@@ -30,11 +31,42 @@ const LABEL_OPTIONS = [
 
 export { LABEL_COLORS, LABEL_OPTIONS }
 
+const API = 'http://127.0.0.1:8765'
+
+function formatCopiedMessage(message) {
+  const blocks = Array.isArray(message?.content) ? message.content : []
+  const lines = blocks.map((block) => {
+    if (block?.type === 'text') return block.text || ''
+    if (block?.type === 'tool_use') {
+      const name = block.name || '工具调用'
+      const args = block.args == null ? '' : `\n${JSON.stringify(block.args, null, 2)}`
+      const result = block.result == null ? '' : `\n结果:\n${JSON.stringify(block.result, null, 2)}`
+      return `[${name}]${args}${result}`
+    }
+    if (block?.type === 'file_attachment') return `[文件] ${block.name || '未命名文件'}`
+    if (block?.type === 'image_url') return '[图片]'
+    return block?.type ? `[${block.type}]` : ''
+  }).filter(Boolean)
+  return lines.join('\n') || '(空消息)'
+}
+
+function formatCopiedConversation(work, messages) {
+  const title = work.title || '新任务'
+  const header = [`标题: ${title}`, `Session ID: ${work.id}`, '']
+  const body = (Array.isArray(messages) ? messages : []).map((message) => {
+    const role = message?.role === 'user' ? '用户' : message?.role === 'assistant' ? '助手' : (message?.role || '消息')
+    const time = message?.created_at ? ` [${message.created_at}]` : ''
+    return `[${role}]${time}\n${formatCopiedMessage(message)}`
+  })
+  return [...header, ...(body.length ? body : ['(暂无消息)'])].join('\n\n')
+}
+
 export default function WorksList({ searchQuery = '' }) {
   const works = useWorksStore((s) => Array.isArray(s.works) ? s.works : [])
   const projects = useWorksStore((s) => Array.isArray(s.projects) ? s.projects : [])
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
   const draftProjectId = useWorksStore((s) => s.draftProjectId)
+  const draftFolderKey = useWorksStore((s) => s.draftFolderKey)
   const streamingWorkIds = useWorksStore((s) => s.streamingWorkIds)
   const selectWork = useWorksStore((s) => s.selectWork)
   const deleteWork = useWorksStore((s) => s.deleteWork)
@@ -100,7 +132,6 @@ export default function WorksList({ searchQuery = '' }) {
   }
 
   const folderGroups = groupWorksByFolder(works, projects)
-  const selectedFolderExists = folderGroups.some((group) => group.key === selectedFolderKey)
   const filteredIds = new Set(filtered.map((work) => work.id))
   const toggleFolder = (folderName) => {
     setSelectedFolderKey(folderName)
@@ -165,11 +196,7 @@ export default function WorksList({ searchQuery = '' }) {
       {folderGroups.map((group) => {
         const folderKey = group.key
         const collapsed = !searchQuery.trim() && Boolean(collapsedFolders[folderKey])
-        const isActive = selectedFolderExists
-          ? selectedFolderKey === folderKey
-          : activeWorkId
-            ? group.items.some((work) => work.id === activeWorkId)
-            : Boolean(draftProjectId) && group.id === draftProjectId
+        const isActive = isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey })
         const visibleItems = group.items.filter((work) => !work.archived && filteredIds.has(work.id))
         // The default workspace has no project id. Keep it in display mode
         // instead of treating the initial null state as an active rename.
@@ -386,6 +413,41 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
     }
   }, [cancelRename, isSavingRename, renameValue, updateTitle, work.id, work.title])
 
+  const copySessionId = useCallback(async () => {
+    setMenuPos(null)
+    try {
+      await navigator.clipboard.writeText(work.id)
+    } catch (error) {
+      console.error('[works] copy session id failed:', error)
+      showAlert('复制 Session ID 失败，请稍后重试')
+    }
+  }, [work.id])
+
+  const copyConversation = useCallback(async () => {
+    setMenuPos(null)
+    try {
+      const res = await backendFetch(`${API}/works/${work.id}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      await navigator.clipboard.writeText(formatCopiedConversation(work, data.messages))
+    } catch (error) {
+      console.error('[works] copy conversation failed:', error)
+      showAlert('复制对话内容失败，请稍后重试')
+    }
+  }, [work])
+
+  const copyAllLogs = useCallback(async () => {
+    setMenuPos(null)
+    try {
+      const res = await backendFetch(`${API}/works/${work.id}/logs.txt`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await navigator.clipboard.writeText(await res.text())
+    } catch (error) {
+      console.error('[works] copy conversation logs failed:', error)
+      showAlert('复制对话日志失败，请稍后重试')
+    }
+  }, [work.id])
+
   return (
     <>
       <div
@@ -499,6 +561,12 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
           y={menuPos.y}
           currentLabel={work.label}
           onRename={startRename}
+          onDelete={handleDelete}
+          onArchive={handleArchive}
+          archiveDisabled={isStreaming || isArchiving}
+          onCopySessionId={copySessionId}
+          onCopyConversation={copyConversation}
+          onCopyAllLogs={copyAllLogs}
           onSelect={(label) => {
             updateLabel(work.id, label)
             setMenuPos(null)
@@ -510,7 +578,7 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
   )
 }
 
-const WorkContextMenu = React.forwardRef(({ x, y, currentLabel, onRename, onSelect, onClose }, ref) => {
+const WorkContextMenu = React.forwardRef(({ x, y, currentLabel, onRename, onDelete, onArchive, archiveDisabled, onCopySessionId, onCopyConversation, onCopyAllLogs, onSelect, onClose }, ref) => {
   const labelNames = useWorksStore((s) => s.labelNames)
   const saveLabelName = useWorksStore((s) => s.saveLabelName)
   const [editingColor, setEditingColor] = useState(null)
@@ -546,6 +614,69 @@ const WorkContextMenu = React.forwardRef(({ x, y, currentLabel, onRename, onSele
         onMouseLeave={(e) => e.target.style.background = 'none'}
       >
         重命名
+      </button>
+      <button
+        onClick={() => { onClose(); onDelete() }}
+        style={{
+          display: 'block', width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '5px 12px', fontSize: 12, color: 'var(--text-secondary)',
+        }}
+        onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover, #f3f4f6)'}
+        onMouseLeave={(e) => e.target.style.background = 'none'}
+      >
+        删除对话
+      </button>
+      <button
+        disabled={archiveDisabled}
+        onClick={() => { onClose(); onArchive() }}
+        style={{
+          display: 'block', width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', cursor: archiveDisabled ? 'not-allowed' : 'pointer',
+          padding: '5px 12px', fontSize: 12, color: 'var(--text-secondary)',
+          opacity: archiveDisabled ? 0.5 : 1,
+        }}
+        onMouseEnter={(e) => { if (!archiveDisabled) e.target.style.background = 'var(--bg-hover, #f3f4f6)' }}
+        onMouseLeave={(e) => { e.target.style.background = 'none' }}
+      >
+        归档对话
+      </button>
+      <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', margin: '4px 0' }} />
+      <button
+        onClick={onCopySessionId}
+        style={{
+          display: 'block', width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '5px 12px', fontSize: 12, color: 'var(--text-secondary)',
+        }}
+        onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover, #f3f4f6)'}
+        onMouseLeave={(e) => e.target.style.background = 'none'}
+      >
+        复制 Session ID
+      </button>
+      <button
+        onClick={onCopyConversation}
+        style={{
+          display: 'block', width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '5px 12px', fontSize: 12, color: 'var(--text-secondary)',
+        }}
+        onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover, #f3f4f6)'}
+        onMouseLeave={(e) => e.target.style.background = 'none'}
+      >
+        复制对话内容
+      </button>
+      <button
+        onClick={onCopyAllLogs}
+        style={{
+          display: 'block', width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '5px 12px', fontSize: 12, color: 'var(--text-secondary)',
+        }}
+        onMouseEnter={(e) => e.target.style.background = 'var(--bg-hover, #f3f4f6)'}
+        onMouseLeave={(e) => e.target.style.background = 'none'}
+      >
+        复制所有日志
       </button>
       <div style={{ borderTop: '1px solid var(--border, #e5e7eb)', margin: '4px 0' }} />
       <div style={{ padding: '4px 12px 6px', fontSize: 11, color: 'var(--text-muted)' }}>

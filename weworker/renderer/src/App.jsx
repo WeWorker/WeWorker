@@ -495,7 +495,7 @@ export default function App() {
             <div className="workspace-toolbar" aria-label="工作区工具栏">
               <div id="workspace-toolbar-context" className="workspace-toolbar__context" />
               <div className="workspace-toolbar__actions">
-                <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'}>
+                <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'} delay={800} placement="top">
                   <button
                     type="button"
                     onClick={handleToggleUserFilesPanel}
@@ -506,7 +506,7 @@ export default function App() {
                     <FolderIcon size={16} />
                   </button>
                 </Tooltip>
-                <Tooltip text={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}>
+                <Tooltip text={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'} delay={800} placement="top">
                   <button
                     type="button"
                     onClick={toggleTheme}

@@ -73,7 +73,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
                 >
                   <span className="tool-exec-group__status">{running ? '执行中' : '已执行'}</span>
                   <span className="tool-exec-group__line-body">
-                    <span className="tool-exec-group__command" title={command}>{command}</span>
+                    <span className="tool-exec-group__command">{command}</span>
                     <ToolTimingBadge thinkMs={block.thinkMs} execMs={block.execMs} />
                     {!running && (
                       <span className="tool-row-header__chevron tool-exec-group__line-chevron" aria-hidden="true">

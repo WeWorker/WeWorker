@@ -28,6 +28,11 @@ export function isDiscussionMessage(message: string): boolean {
   return DISCUSSION_MARKER_RE.test(text)
 }
 
+// shortcut: explicit sequence markers only; expand when implicit multi-step intents are supported.
+export function isSequentialRequest(message: string): boolean {
+  return /(?:先[\s\S]+?再|然后|接着|随后)\s*[，,：:]?\s*[\s\S]*?(?:查询|查看|获取|创建|新建|修改|更新|执行|启动|停止|提交|下载|导出|删除)/.test(message)
+}
+
 /**
  * 硬门①b（追问态）回指标记：
  * - 指代：这个/那个/这些/那些/其中/里面/上面/前面…/它（负向后顾排除「其它」的「它」）；

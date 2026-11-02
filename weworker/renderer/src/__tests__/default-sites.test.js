@@ -8,6 +8,10 @@ test('all release defaults are enabled', () => {
   assert.ok(defaultSites.every((entry) => typeof entry === 'string' || entry.enabled !== false))
 })
 
+test('all open-source sites opt into welcome prompt rotation', () => {
+  assert.ok(defaultSites.every((entry) => typeof entry === 'string' || entry.random_prompt_enabled === true))
+})
+
 test('the bundled defaults keep enabled QQ Mail discoverable through the shared site API', async () => {
   const previousFetch = globalThis.fetch
   const previousWindow = globalThis.window
