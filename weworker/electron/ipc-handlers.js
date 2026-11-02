@@ -7,6 +7,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import { pipeline } from 'stream/promises'
 import { saveAdapterStream } from './website-adapter-export.js'
+import { saveFormattedBody } from './formatted-body.js'
 
 const websiteDownloads = new Map()
 
@@ -495,6 +496,7 @@ export function registerIpcHandlers(bridgeManager, pythonManager, webwrightManag
   ipcMain.handle('save-clipboard-image', () => saveClipboardImage())
 
   ipcMain.handle('save-pasted-text', (_event, text) => savePastedText(text))
+  ipcMain.handle('save-formatted-body', (_event, body) => saveFormattedBody(body))
 
   ipcMain.handle('read-local-image-thumbnail', (_event, targetPath) => {
     try {
