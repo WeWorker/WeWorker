@@ -2,6 +2,8 @@ import WorkingIndicator from './WorkingIndicator.jsx'
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
+import { FormattedBody } from '../../utils/formatted-body.js'
+import './formatted-body.css'
 import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
@@ -508,10 +510,10 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
     if (isUser) {
       return (
         <div
-          className="message-text-selectable"
-          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
+          className="message-text-selectable formatted-body"
+          style={{ color: 'inherit', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
         >
-          {block.text || ''}
+          <FormattedBody markdown={block.text || ''} onLinkClick={handleChatLinkClick} />
         </div>
       )
     }

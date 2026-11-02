@@ -1,5 +1,7 @@
 # WeWorker Roadmap
 
+- 2026-11-02（格式化正文输入）：粘贴富文本转 Markdown，仅在草稿含格式时显示格式菜单，提供预览和可编辑正文卡片，用户消息支持 Markdown 显示；正文可保存为 HTML/Markdown 参数附件，支持无损移回输入框、修改取消及跨对话异步隔离，通过现有 args-file 原样传给兼容工具。输入、格式转换、快照存储及既有键盘/链接回归测试通过，浏览器交互回归、Renderer 构建和 Windows 开发客户端重启已验证；目标站点最终展示、完整安装包及 macOS 待验收，未发布。详见 docs/formatted-chat-input.md。
+
 - 2026-11-01（受限宿主 CLI）：内置 Adapter 可通过固定 provider 调用受审宿主命令；身份与参数绑定原始调用，凭据仅留在宿主，写入派发后超时/断连不重放。新增 Windows DPAPI/macOS Keychain 存储、账号锁、条件后台执行与离线资源核验。Windows 内部集成客户端由用户验证通过；macOS 原生、完整安装包和远端构建尚待验收。
 
 - 2026-10-28（关于页下载入口）：设置「关于」页的下载链接改为 GitHub 最新发布页面 `https://github.com/WeWorker/WeWorker/releases/latest`，自动更新配置保持独立。验证：Renderer 生产构建与差异检查通过。

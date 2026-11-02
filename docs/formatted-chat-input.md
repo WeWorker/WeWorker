@@ -1,0 +1,19 @@
+# Formatted chat input
+
+The public Renderer accepts HTML clipboard content as editable Markdown and uses one renderer for preview and HTML export. Supported structure includes paragraphs, line breaks, headings, lists, emphasis, links, quotes, code and GFM tables. Arbitrary styles, scripts, editor controls and remote images are not carried into submitted HTML. Plain Markdown retains its whitespace. A single code-editor `pre` paste keeps plain source.
+
+Ordinary chat keeps its existing Send behaviour. The **格式** menu appears only while the current draft contains structural or inline Markdown (whether pasted or typed); it disappears for empty/plain text and command input. It offers **预览消息排版** and **用作发布正文**; it does not open on paste. Explicitly choosing the latter creates a **发布正文** card and an immutable body-args JSON snapshot containing content (HTML) and markdown-content (Markdown). The source Markdown stays in the draft attachment metadata, while the main input is freed for destination instructions. Only one body card can be created per draft.
+
+Cards support **编辑正文**, **保存正文**, **取消修改** and **移回输入框**. Unsaved edits live in the conversation draft; Send is disabled until saved or cancelled. Moving a card back appends its latest text to existing instructions rather than overwriting them, and removes only the attachment reference. No file is deleted by this action. Success is represented by the card, not a persistent toast. Failures retain the source. Late saves after conversation switches are ignored; duplicate clicks cannot create two cards; the latest attachment list is used at commit. A body cannot silently disappear into a shell-command send.
+
+Draft metadata survives conversation switching in the running app, using the existing draft store; it does not introduce persistence across app restarts. The main process caps snapshots at the WebCLI args-file limit of 2 MiB, creates its own filename and never accepts a renderer-provided destination.
+
+A compatible Adapter takes the existing `--args-file` path plus separate target parameters. The model must not regenerate the HTML. Neither the snapshot nor the filename authorizes a write. Internal business fields and domains belong only in internal Adapter guidance. Unrelated tools may use different field names and must not blindly consume the snapshot.
+
+Regular Send still sends the Markdown message; exact body transport requires the explicit body-card action. User messages render Markdown, while their stored text and copy source remain unchanged. Preview and submitted HTML use the same renderer, though a destination may sanitize or style it differently. Main/preload changes require a desktop restart; frontend hot reload alone cannot expose the new save operation.
+
+Verification: `node --test weworker/renderer/src/__tests__/formatted-*.test.js weworker/electron/__tests__/formatted-body.test.mjs`, existing input/links regression tests, and `npm run build` in the renderer. Business writes should be simulated unless separately authorized.
+
+For the real browser fixture, start `npm run dev -- --host 127.0.0.1 --port 5187 --strictPort` in the renderer, then run `node weworker/renderer/src/__tests__/formatted-composer.browser.mjs` from the repository root with the parent desktop's Playwright dependency installed. The test uses headless Edge by default (`BROWSER_CHANNEL` overrides it), mocks backend calls, and checks preview/export equality without writing to a business site. `PLAYWRIGHT_MODULE` can point to an existing Playwright package; `FORMATTED_SCREENSHOT` optionally captures the preview.
+
+New dependencies: Turndown plus its GFM plugin convert clipboard HTML to Markdown; remark-breaks preserves visible line breaks in exported HTML; jsdom is only used by conversion/event tests. The existing react-markdown renderer is reused for preview and export.
