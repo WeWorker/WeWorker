@@ -11,6 +11,7 @@ import {
   isDeclaredRouteHost,
   pickRecentScopeTab,
   pickRouteTab,
+  sameDomainFamily,
   siteDomainProblem,
 } from '../background/host-scope.js';
 import { assertAdapterNavigationUrl } from '../background/host-adapter-runtime.js';
@@ -66,6 +67,15 @@ test('site domains must be registrable domains, never public suffixes or wildcar
     'https://example.com', 'example.com:443', '127.0.0.1', '', ' example.com', 'exa_mple.com', 'example.123']) {
     assert.notEqual(siteDomainProblem(value), null, value);
   }
+});
+
+test('domain family: a shared registrable domain, never a shared public suffix', () => {
+  assert.equal(sameDomainFamily('sso.example.com', 'passport.example.com'), true);
+  assert.equal(sameDomainFamily('example.com', 'example.com'), true);
+  assert.equal(sameDomainFamily('a.example.co.uk', 'login.example.co.uk'), true);
+  assert.equal(sameDomainFamily('foo.co.uk', 'bar.co.uk'), false);
+  assert.equal(sameDomainFamily('account.other.example.org', 'passport.example.com'), false);
+  assert.equal(sameDomainFamily('weixin.example.net', 'passport.example.com'), false);
 });
 
 test('route fields may name any host inside the scope', () => {

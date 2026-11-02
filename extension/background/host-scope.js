@@ -68,6 +68,25 @@ export function hostInDomain(host, domain) {
   return !!value && (target === value || target.endsWith('.' + value));
 }
 
+/** The longest domain suffix two hosts share, label by label ('' when only the TLD matches). */
+function sharedDomainSuffix(one, two) {
+  const a = normalizeHost(one).split('.');
+  const b = normalizeHost(two).split('.');
+  const shared = [];
+  while (a.length && b.length && a[a.length - 1] === b[b.length - 1]) {
+    shared.unshift(a.pop());
+    b.pop();
+  }
+  return shared.join('.');
+}
+
+/** Same registrable-domain family: sso.example.com and passport.example.com share example.com.
+ *  A shared public suffix alone (foo.co.uk and bar.co.uk share only co.uk) is not a family. */
+export function sameDomainFamily(one, two) {
+  const shared = sharedDomainSuffix(one, two);
+  return !!shared && shared.includes('.') && !PUBLIC_SUFFIXES.has(shared);
+}
+
 /** Patterns for the pages an Adapter may run on: `match` plus `*.<domain>` for each domain. */
 export function adapterPagePatterns(manifest) {
   const match = Array.isArray(manifest?.match) ? manifest.match : [];
