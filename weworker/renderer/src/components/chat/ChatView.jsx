@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { DownloadOutlined, TagOutlined } from '@ant-design/icons'
 import { useWorksStore } from '../../store/works.js'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useSitesStore } from '../../store/sites.js'
@@ -651,16 +652,18 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
               <span>累计用时：{formatDuration(taskTotalMs)}</span>
             </div>
           </details>
-          <LabelDot workId={workId} label={work?.label} />
-          <span style={{ opacity: 0.6, flexShrink: 0 }}>·</span>
-          <button
-            type="button"
-            onClick={() => { void handleExportLogs() }}
-            title="下载本次对话的诊断日志（对话时间线 + 调用链路日志），可发给开发者定位问题"
-            style={{ flexShrink: 0, border: 'none', background: 'transparent', color: 'inherit', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }}
-          >
-            导出日志
-          </button>
+          <span className="chat-heading__actions">
+            <LabelDot workId={workId} label={work?.label} />
+            <button
+              type="button"
+              className="workspace-toolbar__button"
+              onClick={() => { void handleExportLogs() }}
+              title="本次对话日志下载"
+              aria-label="导出本次对话日志"
+            >
+              <DownloadOutlined />
+            </button>
+          </span>
         </div>,
         toolbarContextTarget,
       )
@@ -778,17 +781,16 @@ function LabelDot({ workId, label }) {
   }, [open])
 
   return (
-    <div ref={ref} style={{ position: 'relative', marginLeft: 'auto', flexShrink: 0 }}>
+    <div ref={ref} className="chat-heading__label" style={{ position: 'relative', flexShrink: 0 }}>
       <button
+        type="button"
+        className={`workspace-toolbar__button${label || open ? ' is-active' : ''}`}
         onClick={() => setOpen(!open)}
         title={label ? (labelNames[label] || label) : '标记颜色'}
-        style={{
-          width: 16, height: 16, borderRadius: '50%', border: '1px dashed var(--border, #d1d5db)',
-          cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: label ? LABEL_COLORS[label] : 'transparent',
-        }}
+        aria-label={label ? `标记颜色：${labelNames[label] || label}` : '标记颜色'}
+        aria-expanded={open}
       >
-        {!label && <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1 }}>●</span>}
+        <TagOutlined />
       </button>
       {open && (
         <div style={{

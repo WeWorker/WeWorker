@@ -51,14 +51,21 @@
   width: 100%;
 }
 
-.workspace-toolbar__actions {
+.workspace-toolbar__actions,
+.chat-heading__actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   -webkit-app-region: no-drag;
 }
 
-.workspace-toolbar__actions .workspace-toolbar__button {
+.chat-heading__actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.workspace-toolbar__actions .workspace-toolbar__button,
+.chat-heading__actions .workspace-toolbar__button {
   box-sizing: border-box;
   width: 28px;
   height: 28px;
@@ -80,13 +87,18 @@
 .workspace-toolbar__actions .workspace-toolbar__button:hover,
 .workspace-toolbar__actions .workspace-toolbar__button:active,
 .workspace-toolbar__actions .workspace-toolbar__button:focus-visible,
-.workspace-toolbar__actions .workspace-toolbar__button.is-active {
+.workspace-toolbar__actions .workspace-toolbar__button.is-active,
+.chat-heading__actions .workspace-toolbar__button:hover,
+.chat-heading__actions .workspace-toolbar__button:active,
+.chat-heading__actions .workspace-toolbar__button:focus-visible,
+.chat-heading__actions .workspace-toolbar__button.is-active {
   background: var(--bg-hover);
   color: var(--text-primary);
   outline: none;
 }
 
-.workspace-toolbar__actions .workspace-toolbar__button.is-active {
+.workspace-toolbar__actions .workspace-toolbar__button.is-active,
+.chat-heading__actions .workspace-toolbar__button.is-active {
   color: var(--accent);
 }
 
