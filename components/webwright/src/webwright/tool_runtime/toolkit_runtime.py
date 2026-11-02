@@ -405,7 +405,13 @@ class RuntimeStore(Protocol):
     ) -> dict[str, Any]: ...
 
 
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+def _atomic_write_json(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    max_retries: int = 30,
+    retry_delay: float = 0.02,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
@@ -417,10 +423,23 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_path, path)
+        last_error: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                os.replace(temporary_path, path)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt + 1 < max_retries:
+                    time.sleep(retry_delay)
+        if last_error:
+            raise last_error
     finally:
         if temporary_path.exists():
-            temporary_path.unlink()
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
 
 
 class FileRuntimeStore:
