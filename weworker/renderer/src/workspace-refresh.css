@@ -248,7 +248,7 @@ html.dark .workspace-sidebar {
 .workspace-sidebar .sidebar-conversation-header { padding: 4px 12px 2px !important; }
 
 /* Chat reading rhythm and a compact composer toolbar. */
-.chat-view .message-bubble { font-size: 15px; line-height: 1.8; }
+.chat-view .message-bubble { font-size: 14px; line-height: 1.7; }
 .chat-view .message-bubble--user {
   border-radius: 18px 18px 6px 18px !important;
   padding: 11px 16px !important;
