@@ -86,6 +86,14 @@ describe('project persistence', () => {
     expect(fs.readdirSync(selectedDirectory)).toEqual([])
   })
 
+  it('creates a missing generated folder when it is inside the projects directory', () => {
+    const selectedDirectory = path.join(fixtureRoot, 'projects', 'workspace-fixture')
+    const project = store.createProject('Generated Project', selectedDirectory)
+
+    expect(store.getProject(project.id)?.folder_path).toBe(selectedDirectory)
+    expect(fs.existsSync(selectedDirectory)).toBe(true)
+  })
+
   it('creates one shared scheduled task project workspace on demand', () => {
     const work = store.createWork('Default workspace')
     expect(work.workspace_directory).toBe(path.join(fixtureRoot, 'projects', 'default'))

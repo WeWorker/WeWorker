@@ -11,6 +11,7 @@ import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { showAlert } from '../../store/dialog.js'
 import { useSettingsStore } from '../../store/settings.js'
+import { createDefaultProjectFolder } from '../../utils/project-folder.js'
 
 export default function Sidebar({ section, collapsed, width }) {
   const createWork = useWorksStore((s) => s.createWork)
@@ -74,8 +75,18 @@ export default function Sidebar({ section, collapsed, width }) {
     if (!await leaveWebsiteExploration()) return
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
+    let directory = userDirectory
+    if (!directory) {
+      await useSettingsStore.getState().load()
+      directory = useSettingsStore.getState().userDirectory
+    }
+    const defaultFolder = createDefaultProjectFolder(directory)
+    if (!defaultFolder) {
+      showAlert('无法读取用户工作区目录，请稍后重试')
+      return
+    }
     setProjectName('')
-    setProjectFolderPath('')
+    setProjectFolderPath(defaultFolder)
     setShowProjectDialog(true)
   }
 

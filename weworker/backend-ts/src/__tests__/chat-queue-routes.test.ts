@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { createChatTurnRegistry } from '../chat-turn-lifecycle.js'
+import { getTurnExecutionContext, runWithTurnExecutionContext } from '../memory/turn-execution-context.js'
 
 function fixture() {
   const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
@@ -19,10 +20,15 @@ function fixture() {
   const importAttachments = vi.fn((files: any[]) => files.map(file => ({ type: 'file_attachment', ...file })))
   let finish!: () => void
   const hold = new Promise<void>(resolve => { finish = resolve })
-  const run = vi.fn((_req: any, _res: any, _controller: AbortController) => hold)
+  let observedContext: ReturnType<typeof getTurnExecutionContext>
+  const run = vi.fn((_req: any, _res: any, _controller: AbortController, _turnId: string) => {
+    observedContext = getTurnExecutionContext()
+    return hold
+  })
+  const chatLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const context = vm.createContext({
     app: { post: (route: string, handler: any) => routes.set(route, handler) },
-    createChatTurnRegistry, getSteerableChatSession: lookup, notify, checkpoint,
+    createChatTurnRegistry, runWithTurnExecutionContext, getSteerableChatSession: lookup, notify, checkpoint, chatLog,
     store: { getWork: () => ({ id: 'fixture-work' }), getWorkspaceDirectoryForWork: () => undefined, appendMessage: append },
     importChatAttachments: importAttachments, messagePromptText: (message: any) => JSON.stringify(message.content),
     createHash, channelQrId: () => '11111111-1111-4111-8111-111111111111', handleChatRequest: run,
@@ -32,7 +38,7 @@ function fixture() {
   }).outputText, context)
   vm.runInContext("chatSteeringListeners.set('fixture-work', { checkpoint, notify })", context)
   const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn(), on: vi.fn(), off: vi.fn() })
-  return { routes, steer, lookup, notify, checkpoint, previousAssistant, append, importAttachments, finish, run, response }
+  return { routes, steer, lookup, notify, checkpoint, previousAssistant, append, importAttachments, finish, run, chatLog, response, get observedContext() { return observedContext } }
 }
 
 describe('chat queue endpoints', () => {
@@ -73,5 +79,17 @@ describe('chat queue endpoints', () => {
     expect(stop.json).not.toHaveBeenCalled()
     f.finish(); await running; await stopping
     expect(stop.json).toHaveBeenCalledWith({ status: 'stopped' })
+  })
+  it('logs a metadata-only request before entering the handler and reuses its turn context', async () => {
+    const f = fixture(); const req = { params: { id: 'fixture-work' }, body: { message: 'private prompt', attachments: [{ name: 'private.txt' }] } }
+    const running = f.routes.get('/works/:id/chat')!(req, f.response())
+
+    expect(f.chatLog.info).toHaveBeenCalledWith('request_received messageChars=14 modelMessageChars=0 attachments=1 retryCompaction=false')
+    expect(f.chatLog.info.mock.invocationCallOrder[0]).toBeLessThan(f.run.mock.invocationCallOrder[0])
+    expect(f.chatLog.info.mock.calls[0][0]).not.toContain('private prompt')
+    expect(f.run.mock.calls[0][3]).toEqual(expect.any(String))
+    expect(f.observedContext).toEqual({ workId: 'fixture-work', turnId: f.run.mock.calls[0][3] })
+
+    f.finish(); await running
   })
 })

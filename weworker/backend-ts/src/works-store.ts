@@ -508,8 +508,15 @@ export function getProject(id: string): Project | null {
 function createProjectRecord(rawName: string, requestedFolderPath?: string): ProjectSummary {
   const name = normalizeProjectName(rawName)
   const folderPath = requestedFolderPath ? path.resolve(requestedFolderPath) : projectFolderPath(name)
+  let createdFolder = false
   if (requestedFolderPath) {
-    if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) throw new Error('project folder must exist')
+    if (fs.existsSync(folderPath)) {
+      if (!fs.statSync(folderPath).isDirectory()) throw new Error('project folder must be a directory')
+    } else {
+      assertProjectFolderInsideUserDirectory(folderPath)
+      fs.mkdirSync(folderPath, { recursive: true })
+      createdFolder = true
+    }
   } else {
     assertProjectFolderInsideUserDirectory(folderPath)
     if (fs.existsSync(folderPath)) throw new Error('project folder already exists')
@@ -522,7 +529,7 @@ function createProjectRecord(rawName: string, requestedFolderPath?: string): Pro
       project.id, project.name, project.folder_path, project.created_at, project.updated_at,
     )
   } catch (error) {
-    if (!requestedFolderPath) fs.rmdirSync(folderPath)
+    if (createdFolder || !requestedFolderPath) fs.rmdirSync(folderPath)
     throw error
   }
   return toProjectSummary(project)
