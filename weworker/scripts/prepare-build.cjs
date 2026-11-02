@@ -80,10 +80,11 @@ async function main() {
     process.exit(1);
   }
 
-  prepareMetricsClientConfig({
+  const metricsClientConfig = prepareMetricsClientConfig({
     modelPath: path.resolve(WEWORKER_ROOT, profile.modelProviders),
     outputPath: path.resolve(WEWORKER_ROOT, 'build/metrics-client.json'),
   });
+  console.log(`[prepare-build] Metrics client config: ${metricsClientConfig.enabled ? 'enabled' : 'disabled'}`);
 
   console.log(
     `[prepare-build] Profile "${options.profileName}" validated` +
