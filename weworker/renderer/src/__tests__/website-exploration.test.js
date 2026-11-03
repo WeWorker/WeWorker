@@ -131,3 +131,41 @@ test('direct apply uses host review and install without local publish or debug c
     assert.deepEqual(JSON.parse(calls[1][1].body), { reviewId: 'review-test', acceptChanges: true })
   } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })
+
+test('URL exploration uses global endpoints without Adapter or Tool', async () => {
+  const { listExplorations, createSiteExploration } = await import('../api/website-exploration-api.js')
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  const calls = []
+  globalThis.window = { electronAPI: {} }
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, method: options.method || 'GET', body: options.body && JSON.parse(options.body) })
+    return Response.json(options.method === 'POST' ? { exploration_id: 'exp_site' } : { explorations: [{ exploration_id: 'exp_site', start_url: 'https://example.com' }] })
+  }
+  try {
+    const created = await createSiteExploration({ start_url: 'https://example.com', instruction: '' })
+    assert.equal(created.exploration_id, 'exp_site')
+    assert.equal((await listExplorations())[0].start_url, 'https://example.com')
+    assert.deepEqual(calls.map(call => [call.url, call.method]), [
+      ['http://127.0.0.1:8765/api/website-exploration/explorations', 'POST'],
+      ['http://127.0.0.1:8765/api/website-exploration/explorations', 'GET'],
+    ])
+    assert.deepEqual(calls[0].body, { start_url: 'https://example.com', instruction: '' })
+  } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
+})
+
+test('workspace tabs precede development-only Adapter tree and exploration needs no Tool', () => {
+  assert.ok(pageSource.indexOf('aria-label="网站探索工作区"') < pageSource.indexOf('aria-label="Adapter 目录"'))
+  assert.match(pageSource, /workspace === 'develop' && treeVisible && <aside/)
+  assert.match(pageSource, /workspace === 'explore' \? <div className="wx-workspace"><ExploreWorkspace disabled=/)
+  assert.doesNotMatch(pageSource, /<ExploreWorkspace[^>]+toolkitId=/)
+})
+
+test('module navigation retains selected exploration and development context', async () => {
+  store.setState({ codeDraft: null, leaveRequest: null, toolkitId: 'demo', toolId: 'search', selections: { 'site/exploration': 'exp_site' }, workspace: 'explore' })
+  await changeWebsiteContext({ workspace: 'develop' })
+  await changeWebsiteContext({ workspace: 'explore' })
+  assert.equal(store.getState().toolkitId, 'demo')
+  assert.equal(store.getState().toolId, 'search')
+  assert.equal(store.getState().selections['site/exploration'], 'exp_site')
+})

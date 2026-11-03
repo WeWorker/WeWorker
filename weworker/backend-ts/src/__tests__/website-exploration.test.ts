@@ -19,6 +19,8 @@ const health = () => Response.json({ ok: true, instance_id: 'owned' })
 
 describe('website exploration route boundary', () => {
   it.each([
+    ['GET', '/api/explorations', true], ['POST', '/api/explorations', true],
+    ['DELETE', '/api/explorations', false], ['GET', '/api/explorations?path=secret', false],
     ['GET', '/api/toolkits', true], ['GET', '/api/browser/match?url=https%3A%2F%2Fexample.com', true],
     ['GET', '/api/browser/match?toolkit_id=demo&tool_id=read_page', true],
     ['GET', '/api/browser/match?toolkit_id=demo&allowed_domains=other.example.org', false],

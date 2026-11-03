@@ -863,3 +863,26 @@ def test_spawn_does_not_inherit_parent_stdin(monkeypatch, tmp_path: Path) -> Non
     # stdout/stderr 仍按既有约定汇入同一个日志句柄。
     assert captured["stderr"] is subprocess.STDOUT
     assert getattr(captured["stdout"], "name", "") == str(log_path)
+
+
+@pytest.mark.parametrize("with_toolkit_store", [False, True])
+def test_url_exploration_has_no_tool_or_prepared_page(tmp_path, monkeypatch, with_toolkit_store):
+    manager, store, commands = _manager(tmp_path, monkeypatch,
+        toolkit_store=ToolkitStore(tmp_path / "toolkits") if with_toolkit_store else None)
+    record = manager.start_url_exploration(start_url="https://example.com/catalog")
+    assert record["activity_type"] == "exploration"
+    assert record["toolkit_id"] == record["tool_id"] == ""
+    assert record["instruction"]
+    assert commands
+    spec = json.loads(store.spec_path(record["task_id"]).read_text(encoding="utf-8"))
+    assert spec["start_url"] == "https://example.com/catalog"
+    assert spec["target_id"] == ""
+
+
+@pytest.mark.parametrize("url", ["", "file:///tmp/test", "javascript:alert(1)", "https://user:password@example.com", "https:///missing-host"])
+def test_url_exploration_rejects_invalid_urls(tmp_path, monkeypatch, url):
+    manager, store, commands = _manager(tmp_path, monkeypatch)
+    with pytest.raises(ValueError):
+        manager.start_url_exploration(start_url=url)
+    assert not commands
+    assert not store.list_tasks()

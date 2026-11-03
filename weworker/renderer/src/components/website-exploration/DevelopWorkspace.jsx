@@ -23,7 +23,13 @@ export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = ''
     const timer = setTimeout(() => setMessage(''), 5000)
     return () => clearTimeout(timer)
   }, [message])
-  const explorations = useSnapshot(() => api.listExplorations(toolkitId, tool.tool_id), [scope])
+  const explorations = useSnapshot(async () => {
+    const [all, kit] = await Promise.all([api.listExplorations(), api.request(`/api/toolkits/${encodeURIComponent(toolkitId)}`)])
+    return all.filter(item => {
+      if (item.toolkit_id || item.tool_id) return item.toolkit_id === toolkitId && item.tool_id === tool.tool_id
+      try { return kit.allowed_domains.includes(new URL(item.start_url).hostname.toLowerCase()) } catch { return false }
+    })
+  }, [scope])
   const runs = useSnapshot(() => api.listDebugRuns(toolkitId, tool.tool_id), [scope])
   const data = snapshot.data
   const dev = data?.development
@@ -42,6 +48,7 @@ export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = ''
   </div>
   return <div className="wx-development-workspace">
     <div className="wx-actions wx-development-toolbar">
+      <button data-app-button="action" className="wx-quiet" disabled={blocked || !modelReady} onClick={() => changeWebsiteContext({ workspace: 'explore', explorationContext: { toolkitId, tool } })}>补充探索</button>
       {!developing && !initial && (dev ? <>
         <button data-app-button="action" className="wx-quiet" disabled={blocked} onClick={() => setConfirm('discard')}>重新开始</button>
       </> : <>
@@ -59,7 +66,7 @@ export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = ''
         <div className="wx-code-pane">
           {initial ? <section className="wx-dev-card">
             <h3>首次开发</h3><p>来源探索：{effectiveSource || '尚未选择'}</p>
-            {!developing && (effectiveSource ? <p className="wx-muted">{rebuilding ? '本轮会完全基于所选探索重新实现此 Tool。点击「开始开发」后才清空当前开发中修改。' : source ? 'Developer Agent 将基于所选探索和下面的指令生成首个实现。' : '上次开发未完成，Developer Agent 将沿用其来源探索和下面的指令重新生成首个实现。'}</p> : <p>请先到探索工作区选择一次成功探索作为开发输入。<button data-app-button="action" className="wx-quiet" onClick={() => changeWebsiteContext({ workspace: 'explore' })}>前往探索</button></p>)}
+            {!developing && (effectiveSource ? <p className="wx-muted">{rebuilding ? '本轮会完全基于所选探索重新实现此 Tool。点击「开始开发」后才清空当前开发中修改。' : source ? 'Developer Agent 将基于所选探索和下面的指令生成首个实现。' : '上次开发未完成，Developer Agent 将沿用其来源探索和下面的指令重新生成首个实现。'}</p> : <p>请先到探索工作区选择一次成功探索作为开发输入。<button data-app-button="action" className="wx-quiet" onClick={() => changeWebsiteContext({ workspace: 'explore', explorationContext: { toolkitId, tool } })}>补充探索</button></p>)}
             {failure}
             <DevelopmentPrompt label="首次开发指令" value={initialInstruction} onChange={setInitialInstruction} placeholder="描述首个实现需要重点关注的内容" hint="必填。该指令会与所选探索一起提供给 Developer Agent。" submitLabel="开始开发" developing={developing} disabled={blocked || !modelReady || !effectiveSource || !initialInstruction.trim()} stopDisabled={disabled || action.busy} onStop={stopDevelopment} onSubmit={() => perform(async () => {
               if (rebuilding) await api.restartDevelopmentFromExploration(toolkitId, tool.tool_id, effectiveSource, initialInstruction)
@@ -84,7 +91,7 @@ export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = ''
       </div>
     </>}
     {confirm === 'discard' && <Modal title="重新开始开发" onClose={() => setConfirm(null)}><p>当前开发中的全部修改将被清空且不可恢复。</p><p>已应用版本不受影响。清空后，如需继续开发，请重新选择开发入口。</p><ErrorMessage>{action.error}</ErrorMessage><footer><button data-app-button="action" onClick={() => setConfirm(null)}>取消</button><button data-app-button="action" data-variant="danger" className="wx-danger" disabled={blocked} onClick={() => perform(async () => { await api.restartDevelopment(toolkitId, tool.tool_id); setSource(''); setRebuilding(false); setEvidence(null); setConfirm(null) }, '已清空本次开发的全部修改')}>确认清空</button></footer></Modal>}
-    {confirm === 'source' && <Modal title="从探索重新开发" onClose={() => setConfirm(null)}><p>选择当前 Tool 的一次成功探索，Developer Agent 将完全基于该探索重新实现此 Tool。</p><ErrorMessage>{explorations.error}</ErrorMessage>{successful.length ? <fieldset aria-label="探索记录"><legend>探索记录<RequiredMark /></legend>{successful.map(item => <label className="wx-exploration-choice" key={item.exploration_id}><input required type="radio" name="development-source" value={item.exploration_id} checked={pickedSource === item.exploration_id} onChange={() => setPickedSource(item.exploration_id)} /><span>{item.exploration_id}</span><Status value={item.status} /><span className="wx-muted">{item.created_at}</span></label>)}</fieldset> : <p>当前 Tool 没有成功的探索，请先到探索工作区完成一次探索。</p>}<p>已应用版本不受影响；选择后先填写开发指令，真正开始开发时才清空当前开发中修改。</p><footer><button data-app-button="action" onClick={() => setConfirm(null)}>取消</button><button data-app-button="action" className="wx-primary" disabled={blocked || !successful.some(item => item.exploration_id === pickedSource)} onClick={() => { setSource(pickedSource); setRebuilding(true); setEvidence(null); setConfirm(null); setMessage('已选择探索，请填写开发指令后开始重新开发') }}>选择并填写指令</button></footer></Modal>}
+    {confirm === 'source' && <Modal title="从探索重新开发" onClose={() => setConfirm(null)}><p>选择一次适用于当前 Adapter 的成功探索，Developer Agent 将完全基于该探索重新实现此 Tool。</p><ErrorMessage>{explorations.error}</ErrorMessage>{successful.length ? <fieldset aria-label="探索记录"><legend>探索记录<RequiredMark /></legend>{successful.map(item => <label className="wx-exploration-choice" key={item.exploration_id}><input required type="radio" name="development-source" value={item.exploration_id} checked={pickedSource === item.exploration_id} onChange={() => setPickedSource(item.exploration_id)} /><span>{item.exploration_id}</span><Status value={item.status} /><span className="wx-muted">{item.created_at}</span></label>)}</fieldset> : <p>当前 Tool 没有成功的探索，请先到探索工作区完成一次探索。</p>}<p>已应用版本不受影响；选择后先填写开发指令，真正开始开发时才清空当前开发中修改。</p><footer><button data-app-button="action" onClick={() => setConfirm(null)}>取消</button><button data-app-button="action" className="wx-primary" disabled={blocked || !successful.some(item => item.exploration_id === pickedSource)} onClick={() => { setSource(pickedSource); setRebuilding(true); setEvidence(null); setConfirm(null); setMessage('已选择探索，请填写开发指令后开始重新开发') }}>选择并填写指令</button></footer></Modal>}
   </div>
 }
 

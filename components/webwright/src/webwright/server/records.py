@@ -147,16 +147,16 @@ class TaskStore:
     def list_explorations(
         self,
         *,
-        toolkit_id: str,
-        tool_id: str,
+        toolkit_id: str | None = None,
+        tool_id: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         return [
             task
             for task in self.list_tasks(limit=max(limit, 1_000))
             if task.get("activity_type") == "exploration"
-            and task.get("toolkit_id") == toolkit_id
-            and task.get("tool_id") == tool_id
+            and (toolkit_id is None or task.get("toolkit_id") == toolkit_id)
+            and (tool_id is None or task.get("tool_id") == tool_id)
         ][:limit]
 
     def read_exploration(self, exploration_id: str) -> dict[str, Any]:

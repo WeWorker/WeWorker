@@ -122,7 +122,7 @@ export async function getSlots(toolkitId, toolId) {
 }
 
 export async function listExplorations(toolkitId, toolId) {
-  const payload = await request(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations`);
+  const payload = await request(toolkitId && toolId ? `/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations` : "/api/explorations");
   return payload.explorations.map((item) => normalizeExploration(item));
 }
 
@@ -184,6 +184,10 @@ export function deleteTool(toolkitId, toolId, expectedDigest) {
 
 export function deleteInstalledCommand(adapterName, commandId, expectedDigest) {
   return request(`/api/adapters/${encode(adapterName)}/commands/${encode(commandId)}`, { method: 'DELETE', body: { expectedDigest } });
+}
+
+export function createSiteExploration(body) {
+  return post("/api/explorations", body);
 }
 
 export function createExploration(toolkitId, toolId, instruction, targetId) {

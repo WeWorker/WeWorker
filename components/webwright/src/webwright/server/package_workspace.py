@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -67,24 +66,26 @@ def write_package(store, toolkit_id, files):
     name = json.loads(files["manifest.json"])["name"]
     _check_package_identity(name, digest)
     container = package_container(store, toolkit_id, digest)
-    container.parent.mkdir(parents=True, exist_ok=True)
     if container.exists():
-        read_package(store, toolkit_id, digest)
-        return digest
-    # Publish only complete directories. An interrupted write must not poison an
-    # immutable digest and prevent a later retry of the same development result.
-    with tempfile.TemporaryDirectory(prefix=".package-", dir=container.parent) as temporary:
-        staged = Path(temporary)
-        for relative, content in files.items():
-            target = staged / name / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
         try:
-            staged.rename(container)
-        except OSError:
-            if not container.exists():
-                raise
             read_package(store, toolkit_id, digest)
+            return digest
+        except ValueError:
+            # Only retry unfinished writes, never rewrite a referenced snapshot.
+            state = read_state(store, toolkit_id)
+            if digest in {state.get("candidate_digest"), state.get("last_applied_digest"),
+                          state.get("install_baseline_digest"),
+                          (state.get("retained_base") or {}).get("digest")}:
+                raise
+    # Development writes directly to its own content-addressed directory, not
+    # the installed Adapter. State pointers advance only after validation.
+    # Reject links before writing, including links left in an unfinished package.
+    if container.is_symlink() or any(path.is_symlink() for path in container.rglob("*")):
+        raise ValueError("Adapter package contains a symbolic link.")
+    for relative, content in files.items():
+        target = container / name / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
     read_package(store, toolkit_id, digest)
     return digest
 

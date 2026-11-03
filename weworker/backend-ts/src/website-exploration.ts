@@ -7,6 +7,7 @@ const UPSTREAM = 'http://127.0.0.1:8766'
 const id = '[A-Za-z0-9_-]+'
 const tool = `/api/toolkits/${id}/tools/${id}`
 const rules: [string, RegExp][] = [
+  ['GET POST', /^\/api\/explorations$/],
   ['GET', /^\/api\/(health|activity|browser\/(status|tabs|match)|toolkits)$/],
   ['POST', /^\/api\/(browser\/open|toolkits)$/],
   ['GET PUT DELETE', new RegExp(`^/api/toolkits/${id}$`)],

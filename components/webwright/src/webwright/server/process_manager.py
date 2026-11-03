@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any, Callable, Literal, Mapping
 
 from webwright.server.artifacts import (
@@ -23,7 +24,7 @@ from webwright.server.browser import (
 from webwright.tool_runtime.managed_browser import managed_browser_enabled
 from webwright.server.debug_store import DebugRunStore
 from webwright.server.adapter_v2 import current_package, read_base
-from webwright.server.development import build_development_input
+from webwright.server.development import build_development_input, validate_exploration_source
 from webwright.server.development_store import DevelopmentRunStore
 from webwright.server.weworker_model_config import ManagedModelConfig, load_managed_model_config
 from webwright.server.publisher import skill_name
@@ -344,6 +345,21 @@ class ProcessManager:
         )
         thread.start()
 
+    def start_url_exploration(
+        self, *, start_url: str, instruction: str = "", title: str = ""
+    ) -> dict[str, Any]:
+        url = str(start_url).strip()
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("start_url must be an HTTP(S) URL without credentials.")
+        return self.start_task(
+            start_url=url,
+            instruction=instruction.strip() or "探索网站的主要功能、接口与鉴权方式，整理可复用能力；不要执行有副作用的操作。",
+            title=title.strip() or f"探索 {parsed.hostname}",
+            requested_task_id="exp_site",
+            activity_type="exploration",
+        )
+
     def start_exploration(
         self,
         *,
@@ -548,13 +564,7 @@ class ProcessManager:
             raise ValueError("Exploration-only development requires a source Exploration.")
         if exploration_only:
             source = self.store.read_exploration(source_exploration_id)
-            if (
-                source.get("toolkit_id") != toolkit_id
-                or source.get("tool_id") != tool_id
-            ):
-                raise ValueError("Exploration does not belong to this Tool.")
-            if source.get("status") != "succeeded":
-                raise ValueError("Source Exploration must be succeeded.")
+            validate_exploration_source(source, self.toolkit_store.get_toolkit(toolkit_id), tool_id)
         current = self.toolkit_store.read_development_slot(toolkit_id, tool_id)
         formal = self.toolkit_store.read_formal_slot(toolkit_id, tool_id)
         if exploration_only:
@@ -587,13 +597,7 @@ class ProcessManager:
                 model, env_extra = self._resolve_developer_model()
                 if exploration_only:
                     source = self.store.read_exploration(source_exploration_id)
-                    if (
-                        source.get("toolkit_id") != toolkit_id
-                        or source.get("tool_id") != tool_id
-                    ):
-                        raise ValueError("Exploration does not belong to this Tool.")
-                    if source.get("status") != "succeeded":
-                        raise ValueError("Source Exploration must be succeeded.")
+                    validate_exploration_source(source, self.toolkit_store.get_toolkit(toolkit_id), tool_id)
                     self.toolkit_store.clear_development_slot(toolkit_id, tool_id)
                 development_input = build_development_input(
                     task_store=self.store,
@@ -778,7 +782,7 @@ class ProcessManager:
             self._ensure_not_busy_locked()
             allowed_domains = (
                 self.toolkit_store.get_toolkit(toolkit_id)["allowed_domains"]
-                if activity_type == "exploration" and self.toolkit_store is not None else None
+                if activity_type == "exploration" and toolkit_id and self.toolkit_store is not None else None
             )
             if target_id:
                 target = browser_target(self.cdp_url, target_id)

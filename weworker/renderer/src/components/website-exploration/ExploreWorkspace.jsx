@@ -1,27 +1,29 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import * as api from '../../api/website-exploration-api.js'
 import { changeWebsiteContext, useWebsiteExplorationStore as useStore } from '../../store/website-exploration.js'
 import { ActionMenu, Icon, ErrorMessage, JsonView, Modal, RequiredMark, ResourceImage, ScrollArea, Status, useAction, useDraft, useSnapshot } from './shared.jsx'
 
-export default function ExploreWorkspace({ toolkitId, tool, disabled, globalBusy, modelReady = true }) {
-  const key = toolkitId + '/' + tool.tool_id
+export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, onTransferred }) {
+  const key = 'site'
+  const context = useStore(s => s.explorationContext)
   const selected = useStore(s => s.selections[key + '/exploration'])
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(Boolean(context))
+  useEffect(() => { if (context) setCreating(true) }, [context])
   const [filter, setFilter] = useDraft(key + '/filter')
-  const list = useSnapshot(() => api.listExplorations(toolkitId, tool.tool_id), [key])
+  const list = useSnapshot(() => api.listExplorations(), [key])
   const currentId = selected && list.data?.some(item => item.exploration_id === selected) ? selected : list.data?.[0]?.exploration_id
   return <div className="wx-explore">
-    <aside className="wx-history"><header><h2>探索记录</h2><button className="wx-icon-button" title="新建探索" aria-label="新建探索" disabled={disabled || globalBusy || !modelReady} onClick={() => setCreating(true)}><Icon name="plus" /></button></header>
+    <aside className="wx-history"><header><h2>探索记录</h2><button className="wx-icon-button" title="新建探索" aria-label="新建探索" disabled={disabled || globalBusy || !modelReady} onClick={() => { useStore.setState({ explorationContext: null }); setCreating(true) }}><Icon name="plus" /></button></header>
       <input aria-label="搜索探索记录" placeholder="搜索记录或状态" value={filter} onChange={e => setFilter(e.target.value)} />
       <ErrorMessage>{list.error}</ErrorMessage>
       {list.loading && <p>正在加载…</p>}
-      {list.data?.filter(item => JSON.stringify([item.exploration_id, item.status, item.instruction]).includes(filter)).map(item => <button className={'wx-record ' + (currentId === item.exploration_id ? 'is-active' : '')} key={item.exploration_id} onClick={() => useStore.getState().selectRecord(key + '/exploration', item.exploration_id)}>
-        <strong>{item.instruction || item.created_at || '探索记录'}</strong><Status value={item.status} /><small>{item.created_at}</small>
+      {list.data?.filter(item => JSON.stringify([item.exploration_id, item.status, item.instruction, item.title, item.start_url]).includes(filter)).map(item => <button className={'wx-record ' + (currentId === item.exploration_id ? 'is-active' : '')} key={item.exploration_id} onClick={() => useStore.getState().selectRecord(key + '/exploration', item.exploration_id)}>
+        <strong>{item.title || item.instruction || item.created_at || '探索记录'}</strong><Status value={item.status} /><small>{item.start_url}</small><small>{item.created_at}</small>
       </button>)}
-      {!list.loading && !list.data?.length && <p className="wx-empty">先打开目标网站并登录，再开始第一次探索。</p>}
+      {!list.loading && !list.data?.length && <p className="wx-empty">输入起始网址即可探索，无需先创建 Adapter 或 Tool。</p>}
     </aside>
-    {currentId ? <ExplorationDetail key={currentId} id={currentId} scope={key} disabled={disabled} globalBusy={globalBusy} tool={tool} /> : <div className="wx-empty"><p>选择或新建探索，执行过程与结果将在这里显示。</p><button data-app-button="action" className="wx-primary" disabled={disabled || globalBusy || !modelReady} onClick={() => setCreating(true)}>开始第一次探索</button></div>}
-    {creating && <NewExploration toolkitId={toolkitId} tool={tool} disabled={disabled || globalBusy || !modelReady} onClose={() => setCreating(false)} onCreated={id => { useStore.getState().selectRecord(key + '/exploration', id); setCreating(false); void list.refresh() }} />}
+    {currentId ? <ExplorationDetail key={currentId} id={currentId} scope={key} disabled={disabled} globalBusy={globalBusy} onTransferred={onTransferred} /> : <div className="wx-empty"><p>选择或新建探索，执行过程与结果将在这里显示。</p><button data-app-button="action" className="wx-primary" disabled={disabled || globalBusy || !modelReady} onClick={() => { useStore.setState({ explorationContext: null }); setCreating(true) }}>开始第一次探索</button></div>}
+    {creating && (context ? <NewExploration toolkitId={context.toolkitId} tool={context.tool} disabled={disabled || globalBusy || !modelReady} onClose={() => { setCreating(false); useStore.setState({ explorationContext: null }) }} onCreated={id => { useStore.getState().selectRecord(key + '/exploration', id); setCreating(false); useStore.setState({ explorationContext: null }); void list.refresh() }} /> : <NewSiteExploration disabled={disabled || globalBusy || !modelReady} onClose={() => setCreating(false)} onCreated={id => { useStore.getState().selectRecord(key + '/exploration', id); setCreating(false); void list.refresh() }} />)}
   </div>
 }
 
@@ -56,9 +58,9 @@ function NewExploration({ toolkitId, tool, disabled, onClose, onCreated }) {
   </Modal>
 }
 
-function ExplorationDetail({ id, scope, disabled, globalBusy, tool }) {
+function ExplorationDetail({ id, disabled, globalBusy, onTransferred }) {
   const snapshot = useSnapshot(() => api.getExploration(id), [id], '/api/explorations/' + id + '/events')
-  const slots = useSnapshot(() => api.getSlots(scope.split('/')[0], tool.tool_id), [scope])
+  const [transferring, setTransferring] = useState(false)
   const action = useAction(snapshot.refresh)
   const [prompt, setPrompt] = useDraft(id + '/prompt')
   const [replayId, setReplayId] = useState('')
@@ -66,17 +68,18 @@ function ExplorationDetail({ id, scope, disabled, globalBusy, tool }) {
   if (!data) return <div className="wx-empty"><ErrorMessage>{snapshot.error}</ErrorMessage>{snapshot.loading && '正在加载探索…'}</div>
   const active = ['queued', 'running', 'pending', 'starting', 'waiting_for_user', 'pause_requested', 'cancel_requested'].includes(data.status)
   return <section className="wx-detail">
-    <header><div><h2>{tool.name}</h2><Status value={data.status} /></div><div className="wx-actions">
+    {transferring && <TransferExploration exploration={data} onClose={() => setTransferring(false)} onTransferred={onTransferred} />}
+    <header><div><h2>{data.title || '网站探索'}</h2><Status value={data.status} /></div><div className="wx-actions">
       {['running', 'waiting_for_user'].includes(data.status) && <button data-app-button="action" disabled={disabled || action.busy} onClick={() => action.run(() => api.pauseExploration(id))}>暂停</button>}
       {['paused', 'waiting_for_user'].includes(data.status) && <button data-app-button="action" disabled={disabled || action.busy} onClick={() => action.run(async () => { await api.resumeExploration(id, prompt); setPrompt('') })}>继续</button>}
       {(active || data.status === 'paused') && <button data-app-button="action" disabled={disabled || action.busy} onClick={() => action.run(() => api.cancelExploration(id))}>取消运行</button>}
       {!active && <ActionMenu compact label="探索记录操作"><button disabled={disabled || globalBusy || action.busy || !data.timeline?.some(item => item.type === 'agent_step')} onClick={() => action.run(async () => { const replay = await api.replayExploration(id); setReplayId(replay.replay_id) })}>回放</button></ActionMenu>}
-      {slots.data && !slots.data.development && !slots.data.formal && data.status === 'succeeded' && data.completed_goal && !data.used_by_development && <button data-app-button="action" className="wx-primary" disabled={disabled || globalBusy} onClick={() => { useStore.getState().setDraft(scope + '/source', id); useStore.getState().setDraft(scope + '/rebuilding', false); void changeWebsiteContext({ workspace: 'develop' }) }}>选为开发输入</button>}
+      {data.status === 'succeeded' && <button data-app-button="action" className="wx-primary" disabled={disabled || globalBusy} onClick={() => setTransferring(true)}>转为开发</button>}
     </div></header>
     <ErrorMessage>{snapshot.error || action.error}</ErrorMessage>
     {data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'}>{data.active_issue.message}</p>}
     <ScrollArea name={id} revision={JSON.stringify(data.timeline)}>
-      <p>{tool.goal}</p>
+      <p>{data.instruction}</p><p className="wx-url">{data.start_url}</p>
       {(data.timeline || []).map((item, index) => item.type === 'agent_step' ? <article className="wx-step" key={item.step ?? index}>
         <header><h3>步骤 {item.step}</h3><Status value={item.status} /></header>
         {item.thought && <p>{item.thought}</p>}
@@ -102,4 +105,77 @@ function ReplayStatus({ id }) {
   const snapshot = useSnapshot(() => api.request('/api/replays/' + id), [id], '/api/replays/' + id + '/events')
   const action = useAction(snapshot.refresh)
   return <section><h3>回放</h3><Status value={snapshot.data?.status} /><ErrorMessage>{snapshot.error || action.error}</ErrorMessage>{snapshot.data?.status === 'running' && <button data-app-button="action" disabled={action.busy} onClick={() => action.run(() => api.request('/api/replays/' + id + '/cancel', { method: 'POST' }))}>停止回放</button>}</section>
+}
+
+function NewSiteExploration({ disabled, onClose, onCreated }) {
+  const [url, setUrl] = useDraft('site/new/url')
+  const [instruction, setInstruction] = useDraft('site/new/instruction')
+  const action = useAction()
+  let valid = false
+  try { const parsed = new URL(url); valid = ['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password } catch {}
+  return <Modal title="新建探索" onClose={onClose}>
+    <form onSubmit={e => { e.preventDefault(); if (!valid) return; void action.run(async () => {
+      const created = await api.createSiteExploration({ start_url: url.trim(), instruction })
+      setInstruction(''); onCreated(created.exploration_id)
+    }) }}>
+      <label>起始网址<RequiredMark /><input type="url" required aria-label="起始网址" value={url} placeholder="https://example.com" onChange={e => setUrl(e.target.value)} /></label>
+      <label>探索目标（可选）<textarea value={instruction} onChange={e => setInstruction(e.target.value)} placeholder="留空则初步探索网站能力；也可以描述希望了解的功能。" /></label>
+      <p>无需先创建 Adapter 或 Tool。将使用受管浏览器探索；如网站需要登录，可先打开网址完成登录。</p>
+      <button type="button" data-app-button="action" disabled={!valid || disabled || action.busy} onClick={() => action.run(() => api.openBrowser(url.trim()))}>打开网址 / 登录</button>
+      <ErrorMessage>{action.error}</ErrorMessage>
+      <footer><button type="button" data-app-button="action" disabled={action.busy} onClick={onClose}>取消</button><button data-app-button="action" className="wx-primary" disabled={!valid || disabled || action.busy}>开始探索</button></footer>
+    </form>
+  </Modal>
+}
+
+function TransferExploration({ exploration, onClose, onTransferred }) {
+  const owned = Boolean(exploration.toolkit_id || exploration.tool_id)
+  const [kitId, setKitId] = useState(exploration.toolkit_id || '')
+  const [toolId, setToolId] = useState(exploration.tool_id || '')
+  const [kitName, setKitName] = useState('')
+  const [toolName, setToolName] = useState('')
+  const [goal, setGoal] = useState(exploration.instruction || '')
+  const action = useAction()
+  const host = (() => { try { return new URL(exploration.start_url).hostname.toLowerCase() } catch { return '' } })()
+  const catalog = useSnapshot(() => api.listToolkits(), [])
+  const tools = useSnapshot(() => kitId ? api.listTools(kitId) : Promise.resolve([]), [kitId])
+  const candidates = catalog.data?.filter(kit => owned ? kit.toolkit_id === exploration.toolkit_id : kit.allowed_domains?.includes(host)) || []
+  const availableTools = tools.data?.filter(tool => owned ? tool.tool_id === exploration.tool_id : true) || []
+  const incomplete = (!kitId && !kitName.trim()) || (!toolId && (!toolName.trim() || !goal.trim()))
+  return <Modal title="转为开发" onClose={onClose}>
+    <form onSubmit={e => { e.preventDefault(); if (incomplete) return; void action.run(async () => {
+      if (!await useStore.getState().guard()) return
+      let targetKit = kitId
+      let targetTool = toolId
+      if (!targetKit) {
+        const created = await api.createToolkit({ name: kitName, allowed_domains: host, description: '' })
+        targetKit = created.toolkit_id; setKitId(targetKit); await catalog.refresh()
+      }
+      if (!targetTool) {
+        const created = await api.createTool(targetKit, { name: toolName.trim(), goal: goal.trim(), start_url: exploration.start_url, expected_effect: '' })
+        targetTool = created.tool_id; setToolId(targetTool)
+      }
+      const slots = await api.getSlots(targetKit, targetTool)
+      const scope = targetKit + '/' + targetTool
+      useStore.getState().setDraft(scope + '/source', exploration.exploration_id)
+      useStore.getState().setDraft(scope + '/rebuilding', Boolean(slots.formal || slots.development))
+      await onTransferred?.()
+      await changeWebsiteContext({ toolkitId: targetKit, toolId: targetTool, workspace: 'develop' })
+    }) }}>
+      <p>选择目标 Adapter 和 Tool，随后填写开发指令。独立探索记录可以复用于多个 Tool。</p>
+      <label>目标 Adapter<RequiredMark /><select aria-label="目标 Adapter" disabled={owned || action.busy} value={kitId} onChange={e => { setKitId(e.target.value); setToolId('') }}>
+        {!owned && <option value="">新建 Adapter</option>}
+        {candidates.map(kit => <option key={kit.toolkit_id} value={kit.toolkit_id}>{kit.name}</option>)}
+      </select></label>
+      {!kitId && <label>Adapter 名称<RequiredMark /><input required value={kitName} onChange={e => setKitName(e.target.value)} placeholder="example_site" /><small>允许域名：{host}</small></label>}
+      <label>目标 Tool<RequiredMark /><select aria-label="目标 Tool" disabled={owned || action.busy} value={toolId} onChange={e => setToolId(e.target.value)}>
+        {!owned && <option value="">新建 Tool</option>}
+        {availableTools.map(tool => <option key={tool.tool_id} value={tool.tool_id}>{tool.name}</option>)}
+      </select></label>
+      {!toolId && <><label>Tool 名称<RequiredMark /><input required value={toolName} onChange={e => setToolName(e.target.value)} placeholder="search_items" /></label><label>功能目标<RequiredMark /><textarea required value={goal} onChange={e => setGoal(e.target.value)} /></label></>}
+      <p className="wx-muted">仅列出允许当前站点的 Adapter。选择已有实现的 Tool 将进入重新开发准备；此处不会修改代码，点击「开始开发」后才替换开发中内容，已应用版本不受影响。</p>
+      <ErrorMessage>{action.error || catalog.error || tools.error}</ErrorMessage>
+      <footer><button type="button" data-app-button="action" disabled={action.busy} onClick={onClose}>取消</button><button data-app-button="action" className="wx-primary" disabled={incomplete || action.busy || catalog.loading || tools.loading}>选择并进入开发</button></footer>
+    </form>
+  </Modal>
 }

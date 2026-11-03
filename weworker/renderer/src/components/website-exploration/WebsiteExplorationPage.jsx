@@ -88,17 +88,17 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
     if (!await useStore.getState().guard()) return
     const result = await api.extendAdapter(name)
     await catalog.refresh()
-    await changeWebsiteContext({ toolkitId: result.toolkit_id, toolId: '', workspace: 'explore' })
+    await changeWebsiteContext({ toolkitId: result.toolkit_id, toolId: '', workspace: 'develop' })
   })
   return <div className="website-exploration wx-page">
     {messageContextHolder}
-    <header className="wx-topbar"><div className="wx-actions"><button className="wx-icon-button" title="Adapter 列表" aria-label="Adapter 列表" aria-expanded={treeVisible} onClick={() => setTreeVisible(!treeVisible)}><Icon name="panel" /></button><h1>网站探索agent</h1></div>
+    <header className="wx-topbar"><div className="wx-actions">{workspace === 'develop' && <button className="wx-icon-button" title="Adapter 列表" aria-label="Adapter 列表" aria-expanded={treeVisible} onClick={() => setTreeVisible(!treeVisible)}><Icon name="panel" /></button>}<h1>网站探索agent</h1></div>
       <div className="wx-actions">
-        {globalBusy && <button data-app-button="action" className="wx-quiet" onClick={() => { const activity = status.data.activity; void changeWebsiteContext({ toolkitId: activity.toolkit_id || toolkitId, toolId: activity.tool_id || toolId, workspace: activity.kind === 'development' ? 'develop' : activity.kind === 'debug' ? 'develop' : 'explore' }) }}>查看当前活动</button>}
+        {globalBusy && <button data-app-button="action" className="wx-quiet" onClick={() => { const activity = status.data.activity; if (activity.kind === 'exploration' && activity.id) useStore.getState().selectRecord('site/exploration', activity.id); void changeWebsiteContext({ toolkitId: activity.toolkit_id || toolkitId, toolId: activity.tool_id || toolId, workspace: activity.kind === 'development' ? 'develop' : activity.kind === 'debug' ? 'develop' : 'explore' }) }}>查看当前活动</button>}
         <ActionMenu label={unavailable ? '服务未就绪' : status.data?.browser.running ? '浏览器已连接' : '浏览器未连接'}>
-          <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(tool?.start_url || ''))}>打开浏览器</button>
+          <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(workspace === 'develop' ? tool?.start_url || '' : ''))}>打开浏览器</button>
         </ActionMenu>
-        {!unavailable && !status.data?.browser.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(tool?.start_url || ''))} disabled={action.busy}>连接浏览器</button>}
+        {!unavailable && !status.data?.browser.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(workspace === 'develop' ? tool?.start_url || '' : ''))} disabled={action.busy}>连接浏览器</button>}
       </div>
     </header>
     <ErrorMessage>{pageError || deleteNotice}</ErrorMessage>
@@ -108,8 +108,9 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
       <button data-app-button="action" onClick={() => setModelRetry(value => value + 1)}>重试</button>
       <button data-app-button="action" onClick={onOpenSettings}>模型设置</button>
     </div>}
+    <nav className="wx-tabs" aria-label="网站探索工作区">{[['explore', '探索'], ['develop', '开发']].map(([id, label]) => <button key={id} aria-current={workspace === id ? 'page' : undefined} className={workspace === id ? 'is-active' : ''} onClick={() => changeWebsiteContext({ workspace: id })}>{label}</button>)}</nav>
     <div className="wx-layout">
-      {treeVisible && <aside className="wx-tree" aria-label="Adapter 目录">
+      {workspace === 'develop' && treeVisible && <aside className="wx-tree" aria-label="Adapter 目录">
         <header><h2>Adapters</h2><button className="wx-icon-button" aria-label="新建 Adapter" title="新建 Adapter" disabled={unavailable || globalBusy} onClick={() => setModal({ kind: 'kit', create: true })}><Icon name="plus" /></button></header>
         <input aria-label="搜索 Adapter 或 Tool" placeholder="搜索 Adapter 或 Tool" value={search} onChange={e => setSearch(e.target.value)} />
         {catalog.data?.filter(item => matches(item) || [...item.tools, ...(item.installedCommands || [])].some(t => (t.name + ' ' + (t.tool_id || t.id)).toLowerCase().includes(query))).map(item => {
@@ -139,10 +140,10 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
         {!catalog.loading && !catalog.data?.length && <p>还没有 Adapter，点击上方新增入口创建。</p>}
       </aside>}
       <main className="wx-main">
-        {kit ? <><header className="wx-context"><div><div className="wx-breadcrumb"><span>{kit.name}</span>{(tool || installedCommand) && <><span aria-hidden="true">/</span><strong>{tool?.name || installedCommand?.id}</strong></>}</div><p>{kit.description}{kit.installedVersion && ` · 已安装 ${kit.installedVersion}（${kit.installedSource}）`}</p></div></header>
-          {kit.installedOnly || installedCommand ? <div className="wx-workspace"><h2>{installedCommand?.id || kit.name}</h2><p>{installedCommand?.description || '选择此 Adapter，新增 Toolkit 命令。'}</p>{installedCommand && <p>运行方式：{installedCommand.runtime === 'wewright' ? 'Toolkit' : installedCommand.runtime === 'extension' ? 'Extension' : 'HTTP'}</p>}{installedCommand?.schema && <pre>{JSON.stringify(installedCommand.schema, null, 2)}</pre>}{kit.installedOnly && <button className="wx-primary" disabled={unavailable || globalBusy || action.busy} onClick={() => extend(kit.name)}>新增 Toolkit 命令</button>}</div> : <><nav className="wx-tabs" aria-label="网站探索工作区">{[['explore', '探索'], ['develop', '开发']].map(([id, label]) => <button key={id} aria-current={workspace === id ? 'page' : undefined} className={workspace === id ? 'is-active' : ''} onClick={() => changeWebsiteContext({ workspace: id })}>{label}</button>)}</nav>
-          <div className="wx-workspace">{tool ? workspace === 'develop' ? <DevelopWorkspace onInstalled={catalog.refresh} publishedDigest={kit.publishedDigest || ''} key={toolkitId + '/' + toolId} toolkitId={toolkitId} tool={tool} disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} /> : <ExploreWorkspace key={toolkitId + '/' + toolId} toolkitId={toolkitId} tool={tool} disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} /> : <div className="wx-empty">创建一个 Tool，说明目标、起始网址和预期效果。</div>}</div></>}
-        </> : <div className="wx-empty">{catalog.loading ? '正在加载 Adapter…' : '创建或选择 Adapter，开始探索网站能力。'}</div>}
+        {workspace === 'explore' ? <div className="wx-workspace"><ExploreWorkspace disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} onTransferred={catalog.refresh} /></div> : kit ? <><header className="wx-context"><div><div className="wx-breadcrumb"><span>{kit.name}</span>{(tool || installedCommand) && <><span aria-hidden="true">/</span><strong>{tool?.name || installedCommand?.id}</strong></>}</div><p>{kit.description}{kit.installedVersion && ` · 已安装 ${kit.installedVersion}（${kit.installedSource}）`}</p></div></header>
+          {kit.installedOnly || installedCommand ? <div className="wx-workspace"><h2>{installedCommand?.id || kit.name}</h2><p>{installedCommand?.description || '选择此 Adapter，新增 Toolkit 命令。'}</p>{installedCommand && <p>运行方式：{installedCommand.runtime === 'wewright' ? 'Toolkit' : installedCommand.runtime === 'extension' ? 'Extension' : 'HTTP'}</p>}{installedCommand?.schema && <pre>{JSON.stringify(installedCommand.schema, null, 2)}</pre>}{kit.installedOnly && <button className="wx-primary" disabled={unavailable || globalBusy || action.busy} onClick={() => extend(kit.name)}>新增 Toolkit 命令</button>}</div> : <>
+          <div className="wx-workspace">{tool ? <DevelopWorkspace onInstalled={catalog.refresh} publishedDigest={kit.publishedDigest || ''} key={toolkitId + '/' + toolId} toolkitId={toolkitId} tool={tool} disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} /> : <div className="wx-empty">创建一个 Tool，说明目标、起始网址和预期效果。</div>}</div></>}
+        </> : <div className="wx-empty">{catalog.loading ? '正在加载 Adapter…' : '创建或选择 Adapter，开发网站工具。'}</div>}
       </main>
     </div>
     {modal && (modal.kind === 'installed-command' ? <DeleteInstalledCommandModal config={modal} onClose={() => setModal(null)} onSaved={async result => { setModal(null); setDeleteNotice(result?.cleanupPending ? '命令已移除，但暂存数据清理待完成。' : result?.refreshed === false ? '命令已移除，但能力同步待完成。' : ''); await catalog.refresh() }} /> : <ManageModal config={modal} toolkitId={modal.toolkitId || toolkitId} onClose={() => setModal(null)} onSaved={async result => { setModal(null); setDeleteNotice(result?.cleanupPending ? 'Tool 已移除，但暂存数据清理待完成。' : result?.refreshed === false ? 'Tool 已移除，但能力同步待完成。' : ''); await catalog.refresh() }} />)}
