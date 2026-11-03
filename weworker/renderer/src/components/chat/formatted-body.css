@@ -10,7 +10,7 @@
 .formatted-body code { font-family: monospace; }
 .formatted-body table { border-collapse: collapse; max-width: 100%; }
 .formatted-body th, .formatted-body td { border: 1px solid var(--border); padding: .3em .6em; }
-.formatted-body-preview { padding: 14px 16px; max-height: 280px; overflow: auto; font-size: 14px; }
+.formatted-body-preview { padding: 14px 16px; max-height: 280px; overflow: auto; font-size: var(--font-size-body); }
 .formatted-body-notice { padding: 4px 16px; font-size: 12px; color: var(--text-secondary); }
 .chat-format-menu { position: relative; flex-shrink: 0; }
 .chat-format-menu summary { list-style: none; padding: 4px 6px; color: var(--text-secondary); cursor: pointer; border-radius: 5px; font-size: 13px; }

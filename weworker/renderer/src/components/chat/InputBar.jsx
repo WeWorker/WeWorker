@@ -822,7 +822,7 @@ export default function InputBar({
         border: 'none',
         outline: 'none',
         color: 'var(--text-primary)',
-        fontSize: 14,
+        fontSize: 'var(--font-size-body)',
         resize: 'none',
         maxHeight: maxTaHeight,
         overflowY: 'auto',

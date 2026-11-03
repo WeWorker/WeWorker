@@ -44,12 +44,17 @@ function cronToSummary(expr) {
   return expr
 }
 
-export default function ScheduledTasksList() {
+export default function ScheduledTasksList({ searchQuery = '' }) {
   const tasks = useScheduledTasksStore((s) => Array.isArray(s.tasks) ? s.tasks : [])
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
   const selectTask = useScheduledTasksStore((s) => s.selectTask)
   const closeToolPackagePage = useToolPackagePageStore((s) => s.closePage)
   const closeExplorationPage = useExplorationPageStore((s) => s.closePage)
+
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
+  const visibleTasks = normalizedQuery
+    ? tasks.filter((task) => `${task.title || ''} ${cronToSummary(task.cron_expression)}`.toLocaleLowerCase().includes(normalizedQuery))
+    : tasks
 
   if (!tasks.length) {
     return (
@@ -61,7 +66,11 @@ export default function ScheduledTasksList() {
 
   return (
     <div style={{ padding: '4px 0' }}>
-      {tasks.map((t) => (
+      {visibleTasks.length === 0 ? (
+        <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 'var(--font-size-caption)' }}>
+          没有匹配的定时任务
+        </div>
+      ) : visibleTasks.map((t) => (
         <ScheduledTaskItem
           key={t.id}
           task={t}

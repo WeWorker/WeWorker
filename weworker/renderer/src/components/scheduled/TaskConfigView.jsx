@@ -1,11 +1,14 @@
 import AppSwitch from '../common/AppSwitch.jsx'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
-import React, { useState, useEffect, useMemo } from 'react'
+import { EditOutlined } from '@ant-design/icons'
+import './scheduled-task-title.css'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useWorksStore } from '../../store/works.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { backendFetch } from '../../api/http.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
+import { getExecutionPage } from '../../utils/scheduled-task-executions.js'
 import {
   ALL_WEEKDAYS,
   FREQUENCY_OPTIONS,
@@ -76,6 +79,10 @@ export default function TaskConfigView({ taskId }) {
 
   // Form state
   const [title, setTitle] = useState('')
+  const [isTitleEditing, setIsTitleEditing] = useState(false)
+  const [titleError, setTitleError] = useState('')
+  const titleCommitInProgress = useRef(false)
+  const titleEditCancelled = useRef(false)
   const [schedule, setSchedule] = useState({ frequency: 'daily', hour: 9, minute: 0, weekday: '1', weekdays: ALL_WEEKDAYS, weekdayPreset: 'every_day', minuteInterval: 30 })
   const [promptTemplate, setPromptTemplate] = useState('')
   const [notifyChannels, setNotifyChannels] = useState([])
@@ -91,7 +98,11 @@ export default function TaskConfigView({ taskId }) {
   }, [task?.id])
 
   // A sidebar rename must update the title without resetting other unsaved fields.
-  useEffect(() => { setTitle(task?.title || '') }, [task?.id, task?.title])
+  useEffect(() => {
+    setTitle(task?.title || '')
+    setIsTitleEditing(false)
+    setTitleError('')
+  }, [task?.id, task?.title])
 
   const cronExpression = useMemo(() => buildCron(schedule), [schedule])
   const nextRunsHint = useMemo(() => nextRunsSummary(schedule), [schedule])
@@ -136,6 +147,30 @@ export default function TaskConfigView({ taskId }) {
     }
   }
 
+  const saveTitle = async () => {
+    if (titleCommitInProgress.current || titleEditCancelled.current) return
+    const nextTitle = title.trim()
+    if (!nextTitle) {
+      setTitleError('任务标题不能为空')
+      return
+    }
+    if (nextTitle === (task.title || '')) {
+      setIsTitleEditing(false)
+      setTitleError('')
+      return
+    }
+    titleCommitInProgress.current = true
+    setTitleError('')
+    try {
+      await updateTask(taskId, { title: nextTitle })
+      setIsTitleEditing(false)
+    } catch (error) {
+      setTitleError(error.message || '重命名失败，请重试')
+    } finally {
+      titleCommitInProgress.current = false
+    }
+  }
+
   const handleToggleEnabled = async () => {
     try { await updateTask(taskId, { enabled: !task.enabled }) }
     catch (error) { showAlert(error.message || '更新定时任务失败，请重试') }
@@ -177,7 +212,53 @@ export default function TaskConfigView({ taskId }) {
       <div style={scrollAreaStyle}>
         {/* Header */}
         <div style={headerStyle}>
-          <h2 style={titleStyle}>任务配置</h2>
+          <div style={titleGroupStyle}>
+            {isTitleEditing ? (
+              <>
+                <input
+                  aria-label="编辑任务标题"
+                  aria-invalid={!!titleError}
+                  autoFocus
+                  value={title}
+                  onChange={(e) => { setTitle(e.target.value); setTitleError('') }}
+                  onBlur={() => { void saveTitle() }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                      event.preventDefault()
+                      void saveTitle()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      titleEditCancelled.current = true
+                      setTitle(task.title || '')
+                      setIsTitleEditing(false)
+                      setTitleError('')
+                    }
+                  }}
+                  placeholder="未命名任务"
+                  className="scheduled-task-title-input"
+                />
+                {titleError && <span className="scheduled-task-title-error" role="alert">{titleError}</span>}
+              </>
+            ) : (
+              <>
+                <h2 style={titleTextStyle}>{title || '未命名任务'}</h2>
+                <button
+                  type="button"
+                  aria-label="编辑任务标题"
+                  title="编辑任务标题"
+                  onClick={() => {
+                    titleEditCancelled.current = false
+                    setTitleError('')
+                    setIsTitleEditing(true)
+                  }}
+                  style={editTitleButtonStyle}
+                >
+                  <EditOutlined aria-hidden="true" />
+                </button>
+              </>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={toggleLabelStyle}>
               <AppSwitch checked={task.enabled} onChange={handleToggleEnabled} />
@@ -188,12 +269,6 @@ export default function TaskConfigView({ taskId }) {
         </div>
 
         <div style={sectionStyle}>
-          {/* Title */}
-          <div style={fieldStyle}>
-            <label style={labelStyle}>任务标题</label>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="输入任务标题" style={inputStyle} />
-          </div>
-
           {/* Schedule — user-friendly */}
           <div style={fieldStyle}>
             <label style={labelStyle}>执行频率</label>
@@ -328,7 +403,11 @@ export default function TaskConfigView({ taskId }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {enabledChannels.map((ch) => (
                   <label key={ch.id} style={channelLabelStyle}>
-                    <input type="checkbox" checked={notifyChannels.includes(ch.id)} onChange={() => handleChannelToggle(ch.id)} style={checkboxStyle} />
+                    <AppSwitch
+                      checked={notifyChannels.includes(ch.id)}
+                      onChange={() => handleChannelToggle(ch.id)}
+                      aria-label={`通过${ch.label}发送通知`}
+                    />
                     {ch.label}
                   </label>
                 ))}
@@ -357,15 +436,54 @@ export default function TaskConfigView({ taskId }) {
               <div style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)' }}>{nextRunsHint}</div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {executions.map((exec) => (
-                <ExecutionRow key={exec.id} execution={exec} onClick={() => handleExecutionClick(exec)} />
-              ))}
-            </div>
+            <ExecutionHistory key={taskId} executions={executions} onExecutionClick={handleExecutionClick} />
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ExecutionHistory — pagination and scrolling stay within the records card.
+// ---------------------------------------------------------------------------
+
+function ExecutionHistory({ executions, onExecutionClick }) {
+  const [requestedPage, setRequestedPage] = useState(1)
+  const listRef = useRef(null)
+  const { items, page, pageCount, total, start, end } = getExecutionPage(executions, requestedPage)
+
+  useEffect(() => {
+    setRequestedPage(page)
+    if (listRef.current) listRef.current.scrollTop = 0
+  }, [page])
+
+  return (
+    <>
+      <div
+        ref={listRef}
+        role="region"
+        aria-label="执行记录列表"
+        tabIndex={0}
+        style={executionListStyle}
+      >
+        {items.map((execution) => (
+          <ExecutionRow key={execution.id} execution={execution} onClick={() => onExecutionClick(execution)} />
+        ))}
+      </div>
+      <nav aria-label="执行记录分页" style={executionPaginationStyle}>
+        <span style={{ color: 'var(--text-muted)', marginRight: 'auto' }}>
+          共 {total} 条 · 每页 10 条 · 当前 {start}–{end} 条
+        </span>
+        <button type="button" data-app-button="action" disabled={page === 1} onClick={() => setRequestedPage(page - 1)}>
+          上一页
+        </button>
+        <span aria-live="polite" style={{ color: 'var(--text-secondary)' }}>第 {page} / {pageCount} 页</span>
+        <button type="button" data-app-button="action" disabled={page === pageCount} onClick={() => setRequestedPage(page + 1)}>
+          下一页
+        </button>
+      </nav>
+    </>
   )
 }
 
@@ -383,7 +501,7 @@ function ExecutionRow({ execution, onClick }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6,
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0, gap: 10, padding: '8px 10px', borderRadius: 6,
         cursor: execution.work_id ? 'pointer' : 'default',
         background: hovered ? 'var(--bg-hover, rgba(255,255,255,0.05))' : 'transparent',
         transition: 'background 0.1s',
@@ -392,6 +510,14 @@ function ExecutionRow({ execution, onClick }) {
       <span style={{ fontSize: 'var(--font-size-caption)', fontWeight: 600, color: statusColor, background: `${statusColor}18`, padding: '2px 8px', borderRadius: 4, flexShrink: 0 }}>
         {STATUS_LABELS[execution.status] || execution.status}
       </span>
+      {execution.status === 'completed' && execution.error_message && (
+        <span
+          title={execution.error_message}
+          style={{ fontSize: 'var(--font-size-caption)', fontWeight: 600, color: '#ef4444', flexShrink: 0 }}
+        >
+          通知失败
+        </span>
+      )}
       <span style={{ fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)', flex: 1 }}>{formatTime(execution.started_at)}</span>
       <span style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)' }}>{execution.completed_at ? formatTime(execution.completed_at) : ''}</span>
     </div>
@@ -405,9 +531,13 @@ function ExecutionRow({ execution, onClick }) {
 const containerStyle = { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }
 const scrollAreaStyle = { flex: 1, overflowY: 'auto', padding: '24px 32px' }
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }
-const titleStyle = { margin: 0, fontSize: 'var(--font-size-title)', fontWeight: 600, color: 'var(--text-primary)' }
+const titleGroupStyle = { display: 'flex', minWidth: 0, flex: 1, alignItems: 'center', gap: 5 }
+const titleTextStyle = { minWidth: 0, overflow: 'hidden', margin: 0, color: 'var(--text-primary)', fontSize: 'var(--font-size-title)', fontWeight: 600, textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const editTitleButtonStyle = { display: 'inline-flex', width: 24, height: 28, flex: '0 0 24px', alignItems: 'center', justifyContent: 'center', padding: 0, border: 0, borderRadius: 4, background: 'transparent', color: 'var(--text-muted)', fontSize: 13, cursor: 'pointer' }
 const sectionStyle = { background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }
 const sectionTitleStyle = { margin: '0 0 12px 0', fontSize: 'var(--font-size-subtitle)', fontWeight: 600, color: 'var(--text-primary)' }
+const executionListStyle = { display: 'flex', flexDirection: 'column', gap: 2, height: 'min(360px, 45vh)', overflowY: 'auto', overscrollBehaviorY: 'contain', scrollbarGutter: 'stable' }
+const executionPaginationStyle = { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 12, marginTop: 12, borderTop: '1px solid var(--border)', fontSize: 'var(--font-size-caption)' }
 const fieldStyle = { marginBottom: 14 }
 const labelStyle = { display: 'block', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)', marginBottom: 5, fontWeight: 600 }
 const inputStyle = { width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 'var(--font-size-body)', padding: '7px 10px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }
@@ -415,7 +545,6 @@ const textareaStyle = { ...inputStyle, resize: 'vertical', minHeight: 80, lineHe
 const presetBtnStyle = { border: '1px solid var(--border)', borderRadius: 6, padding: '4px 12px', fontSize: 'var(--font-size-label)', cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }
 const inlineLabel = { display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)' }
 const toggleLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)' }
-const checkboxStyle = { accentColor: 'var(--accent)', width: 14, height: 14 }
 const channelLabelStyle = { display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)' }
 const saveBtnStyle = { border: 'none', borderRadius: 7, color: '#fff', padding: '8px 20px', fontSize: 'var(--font-size-body)', fontWeight: 600, background: 'var(--accent)', fontFamily: 'inherit' }
 const deleteBtnStyle = { border: '1px solid var(--error, #ef4444)', borderRadius: 7, color: 'var(--error, #ef4444)', background: 'transparent', padding: '5px 14px', fontSize: 'var(--font-size-label)', fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }

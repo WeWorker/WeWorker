@@ -52,7 +52,7 @@ const shellStyle = {
 
 const titleStyle = {
   margin: 0,
-  fontSize: 18,
+  fontSize: 'var(--font-size-title)',
 }
 
 const messageStyle = {

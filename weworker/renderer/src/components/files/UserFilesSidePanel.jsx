@@ -397,7 +397,7 @@ function DeleteConfirmDialog({ item, onConfirm, onCancel }) {
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ fontSize: 15, fontWeight: 760, marginBottom: 8 }}>{'\u5220\u9664' + label}</div>
+        <div style={{ fontSize: 'var(--font-size-subtitle)', fontWeight: 760, marginBottom: 8 }}>{'\u5220\u9664' + label}</div>
         <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-secondary)', wordBreak: 'break-word' }}>
           {'\u786e\u5b9a\u5220\u9664 "' + item.name + '"\uff1f'}
         </div>

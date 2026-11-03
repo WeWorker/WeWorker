@@ -59,16 +59,74 @@ function enforceTaskHistoryLimit(projectId: string): void {
   }
 }
 
-/**
- * 安全调用通知器。notifier.ts 将在 task 5.1 中创建，
- * 在此之前动态导入会失败，静默忽略。
- */
+function formatTaskResultForSummary(blocks: ContentBlock[]): string {
+  const parts = blocks.flatMap((block) => {
+    if (block.type === 'text') return [block.text]
+    if (block.type !== 'tool_use') return []
+    const result = block.result ? `\n结果: ${block.result}` : ''
+    return [`工具 ${block.name}（${block.status ?? 'done'}）${result}`]
+  })
+  return parts.join('\n\n').slice(-16_000)
+}
+
+async function summarizeTaskExecution(input: {
+  task: ScheduledTask
+  workId: string
+  status: 'completed' | 'failed'
+  blocks: ContentBlock[]
+  fullText?: string
+  error?: string
+}): Promise<string | undefined> {
+  const taskResult = formatTaskResultForSummary(input.blocks)
+  const source = [taskResult, input.error ? `执行错误：${input.error}` : ''].filter(Boolean).join('\n\n')
+  const fallback = (input.fullText || input.error || source || (input.status === 'completed' ? '任务执行完成，但没有文本结果。' : '任务执行失败。')).slice(0, 200)
+  let summary = ''
+
+  try {
+    store.appendMessage(input.workId, 'user', [{
+      type: 'text',
+      text: `【定时任务结果总结】\n任务：${input.task.title}\n原始要求：${input.task.prompt_template || '无'}\n执行状态：${input.status}\n请基于下面本轮执行结果，生成适合直接发送给用户的简洁总结。不要重新执行任务。\n\n${source || fallback}`,
+    }])
+    const summaryMessages = [...store.getWorkWithMessages(input.workId)!.messages]
+    for await (const event of streamChat(summaryMessages, getSettings(), undefined, {
+      streaming: false,
+      workId: input.workId,
+      notificationSummaryOnly: true,
+      memoryEnabled: false,
+    })) {
+      if (event.type === 'text_delta' && event.content) summary += event.content
+      else if (event.type === 'error') throw new Error(event.content ?? '任务结果总结失败')
+    }
+  } catch (error) {
+    log.warn(`task ${input.task.id} result summary failed; using execution text`, redactSensitive(error instanceof Error ? error.message : String(error)))
+  }
+
+  summary = summary.trim()
+  if (summary) {
+    try {
+      store.appendMessage(input.workId, 'assistant', [{ type: 'text', text: summary }])
+    } catch {
+      // The summary remains available for notification if the work cannot be updated.
+    }
+  }
+  return summary || fallback || undefined
+}
+
 async function safeNotify(payload: NotificationPayload, channels: string[]): Promise<void> {
   try {
     const mod = await import(/* webpackIgnore: true */ './notifier.js')
     await mod.notify(payload, channels)
-  } catch {
-    // Notifier module not yet available — silently skip
+  } catch (error) {
+    const detail = redactSensitive(error instanceof Error ? error.message : String(error))
+    log.error('task notification dispatch failed', { task_id: payload.taskId, detail })
+    try {
+      const existing = store.listTaskExecutions(payload.taskId).find(item => item.id === payload.executionId)?.error_message
+      store.updateTaskExecution(payload.executionId, {
+        error_message: [existing, `通知分发失败: ${detail}`].filter(Boolean).join(' | '),
+      })
+    } catch {
+      // Reporting a notification failure must not change task execution status.
+    }
   }
 }
 
@@ -125,10 +183,12 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       completed_at: new Date().toISOString(),
     })
     enforceTaskHistoryLimit(taskProject.id)
+    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: [], error: '任务提示词为空，跳过执行' })
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
       status: 'failed',
+      summary,
       error: '任务提示词为空，跳过执行',
       executionId: execution.id,
       workId: work.id,
@@ -147,10 +207,12 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
     const execution = store.createTaskExecution(task.id, work.id)
     store.updateTaskExecution(execution.id, { status: 'failed', error_message: '专属 Agent 不存在或已停用', completed_at: new Date().toISOString() })
     enforceTaskHistoryLimit(taskProject.id)
+    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: [], error: '专属 Agent 不存在或已停用' })
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
       status: 'failed',
+      summary,
       error: '专属 Agent 不存在或已停用',
       executionId: execution.id,
       workId: work.id,
@@ -347,7 +409,6 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       .filter(b => b.type === 'text')
       .map(b => (b as { text: string }).text)
       .join('')
-    const summary = fullText.slice(0, 200) || undefined
     const taskMemoryPlan = planTaskMemoryEvent({
       executionId: execution.id,
       trigger: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
@@ -363,6 +424,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       status: 'completed',
       completed_at: new Date().toISOString(),
     })
+    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'completed', blocks: assistantContent, fullText })
 
     if (memoryCandidate) {
       queueTaskMemoryProcessing({
@@ -408,12 +470,13 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
         .filter((block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
         .map((block) => ({ name: block.name, args: block.args, status: block.status })),
     })
-    // Mark execution as failed
+    // Mark execution terminal before requesting the one-shot notification summary.
     store.updateTaskExecution(execution.id, {
       status: 'failed',
       error_message: errorMessage,
       completed_at: new Date().toISOString(),
     })
+    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: assistantContent, fullText: assistantContent.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text').map(block => block.text).join(''), error: errorMessage })
 
     try {
       if (memoryCandidate) {
@@ -436,6 +499,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
         taskId: task.id,
         taskTitle: task.title,
         status: 'failed',
+        summary,
         error: errorMessage,
         executionId: execution.id,
         workId: work.id,

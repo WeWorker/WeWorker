@@ -1617,7 +1617,7 @@ const scenarioBadgeStyle = {
   border: '1px solid color-mix(in srgb, var(--border) 70%, var(--bg-secondary))',
   background: 'color-mix(in srgb, var(--bg-secondary) 92%, transparent)',
   boxShadow: 'none',
-  fontSize: 16,
+  fontSize: 'var(--font-size-body)',
   lineHeight: 1.2,
   color: 'var(--text-primary)',
   whiteSpace: 'nowrap',
@@ -1635,7 +1635,7 @@ const scenarioBadgeTitleStyle = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   color: 'var(--text-secondary)',
-  fontSize: 15,
+  fontSize: 'var(--font-size-body)',
   fontWeight: 680,
 }
 
@@ -1752,7 +1752,7 @@ const featuredHeaderStyle = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 12,
-  fontSize: 16,
+  fontSize: 'var(--font-size-subtitle)',
   fontWeight: 760,
   color: 'var(--text-primary)',
 }
@@ -2011,7 +2011,7 @@ const addFeaturedCopyStyle = {
 }
 
 const addFeaturedTitleStyle = {
-  fontSize: 14,
+  fontSize: 'var(--font-size-body)',
   fontWeight: 780,
   color: 'var(--text-primary)',
 }
@@ -2173,7 +2173,7 @@ const featuredTitleStyle = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  fontSize: 14,
+  fontSize: 'var(--font-size-body)',
   fontWeight: 780,
 }
 

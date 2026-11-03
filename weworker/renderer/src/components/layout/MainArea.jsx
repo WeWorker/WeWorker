@@ -23,7 +23,7 @@ import { requestChatWarmup } from '../../api/backend.js'
 import { buildOpenWarmupRequest } from '../../utils/chat-warmup.js'
 import { scheduledTasksPageState } from '../../utils/scheduled-tasks-view.js'
 
-export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSection, compactLayout = false }) {
+export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, activeSidebarSection, compactLayout = false }) {
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
   const createWork = useWorksStore((s) => s.createWork)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
@@ -115,7 +115,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
   if (dedicatedAgentsOpen) {
     return (
       <MainWorkspaceShell>
-        <DedicatedAgentsPage sidebarWidth={sidebarWidth} compactLayout={compactLayout} />
+        <DedicatedAgentsPage sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} compactLayout={compactLayout} />
       </MainWorkspaceShell>
     )
   }

@@ -181,16 +181,22 @@ export class WecomChannel implements Channel {
     if (target.chatType !== 1 && target.chatType !== 2) throw new Error('通知目标类型无效')
     if (!this._ws || this._ws.readyState !== WebSocket.OPEN) throw new Error('企业微信 WebSocket 未连接')
     for (const chunk of splitMessage(text)) {
-      this._send({
+      const reqId = randomUUID()
+      const response = await this._wsRequest({
         cmd: 'aibot_send_msg',
-        headers: { req_id: randomUUID() },
+        headers: { req_id: reqId },
         body: {
           chatid: chatId,
           chat_type: target.chatType,
           msgtype: 'markdown',
           markdown: { content: chunk },
         },
-      })
+      }, reqId)
+      if (!response) throw new Error('企业微信发送通知超时，未收到确认')
+      if (response.errcode !== 0) {
+        const detail = typeof response.errmsg === 'string' && response.errmsg ? `：${response.errmsg}` : ''
+        throw new Error(`企业微信发送通知失败（errcode=${String(response.errcode ?? 'unknown')}）${detail}`)
+      }
     }
     log.info(`notification sent to explicit target (${target.chatType})`)
   }

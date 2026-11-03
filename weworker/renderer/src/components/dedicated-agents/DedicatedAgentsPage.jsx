@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Checkbox, Popconfirm } from 'antd'
-import { PlusOutlined, RobotOutlined } from '@ant-design/icons'
+import { FormOutlined, PlusOutlined } from '@ant-design/icons'
 import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { useSitesStore } from '../../store/sites.js'
 import SiteIcon from '../icons/SiteIcon.jsx'
-import { TablerPlusIcon } from '../icons/TablerFolderPlusIcon.jsx'
 import Tooltip from '../Tooltip.jsx'
 import { agentStatusPresentation, TONE_COLORS } from '../../utils/dedicated-agents.js'
 import { deleteAgent } from '../../api/dedicated-agents-api.js'
@@ -132,7 +131,7 @@ function Intro({ onCreate, hasAgents }) {
   )
 }
 
-export default function DedicatedAgentsPage({ sidebarWidth, compactLayout = false }) {
+export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, compactLayout = false }) {
   const agents = useDedicatedAgentsStore((s) => s.agents)
   const view = useDedicatedAgentsStore((s) => s.view)
   const selectedId = useDedicatedAgentsStore((s) => s.selectedId)
@@ -145,6 +144,9 @@ export default function DedicatedAgentsPage({ sidebarWidth, compactLayout = fals
   const removeAgent = useDedicatedAgentsStore((s) => s.removeAgent)
   const sites = useSitesStore((s) => s.sites)
   const loadSites = useSitesStore((s) => s.load)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showSearch, setShowSearch] = useState(false)
+  const searchButtonRef = useRef(null)
 
   useEffect(() => {
     loadAgents()
@@ -165,25 +167,100 @@ export default function DedicatedAgentsPage({ sidebarWidth, compactLayout = fals
   }
   const showDetail = view === 'detail' && selectedId && agents.some((agent) => agent.id === selectedId)
   const activeDraft = agents.find((agent) => agent.draft && agent.id === selectedId)
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
+  const visibleAgents = normalizedQuery
+    ? agents.filter((agent) => `${agent.name || ''} ${siteById.get(agent.site_id)?.name || agent.site_id || ''}`.toLocaleLowerCase().includes(normalizedQuery))
+    : agents
 
   return (
     <div style={pageStyle}>
-      <div style={{ ...listColumnStyle, width: sidebarWidth, minWidth: sidebarWidth, display: compactLayout ? 'none' : listColumnStyle.display }}>
-        <div className="sidebar-section-header">
-          <div className="sidebar-section-label">
-            <RobotOutlined aria-hidden="true" />
-            <span>专属 Agent</span>
-          </div>
-          <Tooltip text="新建专属 Agent">
-            <button type="button" className="sidebar-icon-button" onClick={startCreate} aria-label="新建专属 Agent">
-              <TablerPlusIcon />
+      <div className="dedicated-agents-sidebar" style={{ ...listColumnStyle, width: sidebarWidth, minWidth: sidebarWidth, paddingTop: 8, background: 'var(--sidebar-surface)', display: compactLayout || sidebarCollapsed ? 'none' : listColumnStyle.display }}>
+        <button
+          type="button"
+          className="sidebar-new-chat sidebar-conversation-action"
+          onClick={startCreate}
+          style={{
+            width: 'calc(100% - 16px)',
+            margin: '4px 8px 12px',
+            height: 38,
+            minHeight: 38,
+            padding: '0 10px',
+            gap: 10,
+            borderRadius: 9,
+            fontSize: 'var(--font-size-label)',
+            fontWeight: 500,
+            color: 'var(--sidebar-title-color)',
+          }}
+        >
+          <FormOutlined aria-hidden="true" style={{ width: 16, height: 16, fontSize: 16 }} />
+          <span>新建专属 Agent</span>
+        </button>
+        <div className="sidebar-conversation-header" style={{
+          padding: '4px 12px 2px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          position: 'relative',
+          WebkitAppRegion: 'no-drag',
+        }}>
+          <span className="sidebar-workspaces-label">专属 Agent</span>
+          <Tooltip text="搜索专属 Agent">
+            <button
+              ref={searchButtonRef}
+              type="button"
+              className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
+              aria-label="搜索专属 Agent"
+              aria-expanded={showSearch}
+              aria-controls="sidebar-dedicated-agent-search"
+              onClick={() => {
+                setShowSearch((value) => !value)
+                if (showSearch) setSearchQuery('')
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
             </button>
           </Tooltip>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0 10px' }}>
+        {showSearch && (
+          <div style={{ padding: '0 8px 4px', WebkitAppRegion: 'no-drag' }}>
+            <input
+              id="sidebar-dedicated-agent-search"
+              type="search"
+              aria-label="搜索专属 Agent"
+              autoFocus
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索名称或网站..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                color: 'var(--text-primary)',
+                fontSize: 12,
+                padding: '5px 8px',
+                outline: 'none',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return
+                event.preventDefault()
+                setShowSearch(false)
+                setSearchQuery('')
+                searchButtonRef.current?.focus({ preventScroll: true })
+              }}
+            />
+          </div>
+        )}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
           {loadError && <Alert type="error" showIcon message={loadError} style={{ margin: 4 }} />}
           {loaded && !agents.length && !loadError && <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', padding: '8px 12px' }}>还没有专属 Agent</div>}
-          {agents.map((agent) => (
+          {agents.length > 0 && visibleAgents.length === 0 && <div style={{ ...hintStyle, fontSize: 'var(--font-size-caption)', padding: '8px 12px' }}>没有匹配的专属 Agent</div>}
+          {visibleAgents.map((agent) => (
             <AgentListItem
               key={agent.id}
               agent={agent}
@@ -196,6 +273,26 @@ export default function DedicatedAgentsPage({ sidebarWidth, compactLayout = fals
           ))}
         </div>
       </div>
+      {!compactLayout && !sidebarCollapsed && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整侧栏宽度"
+          onMouseDown={onSidebarResizeStart}
+          style={{
+            width: 4,
+            flexShrink: 0,
+            cursor: 'col-resize',
+            background: 'transparent',
+            position: 'relative',
+            zIndex: 10,
+            marginLeft: -2,
+            marginRight: -2,
+          }}
+          onMouseEnter={(event) => { event.currentTarget.style.background = 'var(--accent)' }}
+          onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent' }}
+        />
+      )}
       {showDetail ? (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <AgentDetail key={selectedId} agentId={selectedId} />
