@@ -111,7 +111,8 @@ export type ShortcutEntry = {
   enabled?: boolean
   /** 同类命中时数值大者优先；缺省视为 0 */
   priority?: number
-  patterns?: RouterPatternSpec
+  /** Parameterless shortcuts use enumerated complete utterances, never substrings. */
+  patterns?: RouterPatternSpec & { exact?: string[] }
   args?: Record<string, unknown>
   extract?: ShortcutExtractRule[]
   render?: RouterRenderSpec
@@ -123,7 +124,7 @@ export type ShortcutsFile = { shortcuts?: ShortcutEntry[] }
 
 // ── 层 -1：提示词配置（正则/关键词 + 负向 + 参数抽取器）──────────────────────
 export type PatternRule = {
-  type: 'regex' | 'keyword'
+  type: 'regex' | 'keyword' | 'template'
   expression?: string
   flags?: string
   keywords?: string[]
@@ -131,6 +132,8 @@ export type PatternRule = {
   match_mode?: 'any' | 'all' | 'phrase'
   weight?: number
   examples?: string[]
+  /** Optional full-slot regex validators (without anchors), keyed by template slot name. */
+  slot_validators?: Record<string, string>
   /** 预留：条件表达式；当前不消费 */
   condition?: string
   default_args?: Record<string, unknown>
