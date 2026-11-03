@@ -41,6 +41,8 @@ describe.each([
       siteGate: { reason: 'covered' }, abortController: new AbortController(),
       checkWebwrightHealth: async () => ({ ok: true }), tier4Task: null, tier4Source: null,
       openTier4Turn: async () => ({ ok: await dispatch(), taskId: 'fixture-task', run: null }),
+      recordWorkLogStream: vi.fn(async function* () {}),
+      modelMessages: [],
     })
     await vm.runInContext(dispatchBranch(condition), context)
     // Ask must fall through to the model's per-tool approval path. Automatic
