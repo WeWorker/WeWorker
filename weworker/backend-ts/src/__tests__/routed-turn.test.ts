@@ -9,6 +9,10 @@
  * - 任何异常都只能是「落回」，不能把定时任务或渠道回合打挂。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 
 const mocks = vi.hoisted(() => ({
   tryIntelligentQueryRoute: vi.fn(),
@@ -62,6 +66,25 @@ const baseInput = {
 }
 
 describe('tryRoutedTurn', () => {
+  it('records routed output immediately even when no model stream is used', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'routed-log-'))
+    configureWorkLogs(directory)
+    try {
+      mocks.tryIntelligentQueryRoute.mockImplementation(async (ctx: { send: (event: object) => void }) => {
+        emitRoutedAnswer(ctx)
+        return true
+      })
+      await tryRoutedTurn(baseInput)
+      const text = readWorkLog({ id: baseInput.workId, messages: [] })
+      expect(text).toContain('route_input')
+      expect(text).toContain('示例 仓库列表')
+      expect(text).toContain('| 示例 | 正常 |')
+      expect(text).toContain('example.com.list')
+    } finally {
+      configureWorkLogs(undefined)
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
   beforeEach(() => {
     vi.clearAllMocks()
   })

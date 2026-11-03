@@ -44,6 +44,7 @@ import { buildAgentFilesystemSettings, createUnifiedToolGuard } from './user-dir
 import { createWorkspacePreToolUseHook } from './workspace-tool-hook.js'
 import { createAskPreToolUseHook } from './tool-permission-approval.js'
 import { createLogger } from './logger.js'
+import { recordWorkLogStream } from './work-log-file.js'
 import { resolveWebcliDir } from './webcli-path.js'
 import { syncBundledWebcliSkills } from './webcli-skills.js'
 import { composeSystemPromptWithStyle } from './style-settings.js'
@@ -1036,6 +1037,12 @@ export function* mapSdkMessage(
 }
 
 export async function* streamChat(...args: Parameters<typeof streamChatWithBaseUrl>): AsyncGenerator<SSEEvent> {
+  const workId = args[3]?.workId ?? args[0].at(-1)?.work_id
+  if (args[3]?.warmupOnly) { yield* streamChatWithRuntime(...args); return }
+  yield* recordWorkLogStream(workId, streamChatWithRuntime(...args), { messages: args[0] }, args[2]?.signal)
+}
+
+async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithBaseUrl>): AsyncGenerator<SSEEvent> {
   let runtime: Awaited<ReturnType<typeof prepareModelRuntime>>
   try {
     runtime = await prepareModelRuntime(args[1])

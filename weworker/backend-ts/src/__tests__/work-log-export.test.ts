@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorkLogExport, filterWorkLogLines, summarizeMessage } from '../work-log-export.js'
+import { buildSavedMessagesLog, summarizeMessage } from '../work-log-export.js'
 import type { Message } from '../works-store.js'
 
 const WORK_ID = '2215049d-1234-5678-9abc-def012345678'
@@ -9,14 +9,14 @@ function message(content: Message['content'], role = 'user'): Message {
 }
 
 describe('summarizeMessage', () => {
-  it('summarizes text, tool_use and timing blocks without full payloads', () => {
+  it('preserves the full text, tool arguments, results and timing', () => {
     const lines = summarizeMessage(message([
       { type: 'text', text: 'x'.repeat(500) },
       { type: 'tool_use', id: 't1', name: 'weoa.example.com.list', status: 'success', execMs: 120,
         args: { mode: 'available' }, result: '{"ok":true}' },
       { type: 'timing', totalMs: 900, llmMs: 700, execMs: 200, steps: 2 },
     ]))
-    expect(lines[0]).toMatch(/^text: x{100}…$/)
+    expect(lines[0]).toBe(`text: ${'x'.repeat(500)}`)
     expect(lines[1]).toContain('tool_use: weoa.example.com.list')
     expect(lines[1]).toContain('status=success')
     expect(lines[1]).toContain('execMs=120')
@@ -37,58 +37,44 @@ describe('summarizeMessage', () => {
   it('emits a placeholder for empty messages', () => {
     expect(summarizeMessage(message([]))).toEqual(['(empty message)'])
   })
-})
 
-describe('filterWorkLogLines', () => {
-  it('keeps lines tagged with the short work marker or the full id, redacted', () => {
-    const lines = [
-      '[2026-10-31T08:00:01Z] [node] [work:2215049d] turn_start model=claude',
-      '[2026-10-31T08:00:01Z] [chat] [DEBUG] [work:2215049d][turn:turn-1] request_received messageChars=12',
-      '[2026-10-31T08:00:01Z] [chat] [INFO] [work:2215049d][turn:turn-1] handler_started',
-      '[2026-10-31T08:00:02Z] [chat] [WARN] [work:2215049d][turn:turn-1] retrying',
-      '[2026-10-31T08:00:03Z] [chat] [ERROR] [work:2215049d][turn:turn-1] failed',
-      '[2026-10-31T08:00:02Z] [bridge] [Bridge] [work:2215049d] 收到调用: weoa.example.com.list',
-      `[2026-10-31T08:00:03Z] [node] other work ${WORK_ID} inline`,
-      '[2026-10-31T08:00:04Z] [bridge] [Bridge] [work:ffffffff] 收到调用: unrelated',
-      '[2026-10-31T08:00:05Z] [node] [work:2215049d] token=superSecretValue',
-    ]
-    const kept = filterWorkLogLines(lines, WORK_ID)
-    expect(kept).toHaveLength(8)
-    expect(kept[0]).toContain('turn_start')
-    expect(kept.some((l) => l.includes('[DEBUG]') && l.includes('request_received'))).toBe(true)
-    expect(kept.some((l) => l.includes('[INFO]') && l.includes('handler_started'))).toBe(true)
-    expect(kept.some((l) => l.includes('[WARN]') && l.includes('retrying'))).toBe(true)
-    expect(kept.some((l) => l.includes('[ERROR]') && l.includes('failed'))).toBe(true)
-    expect(kept.some((l) => l.includes('unrelated'))).toBe(false)
-    expect(kept.some((l) => l.includes('superSecretValue'))).toBe(false)
+  it('keeps long multiline arguments, results, errors and loaded skill content', () => {
+    const command = 'webcli call example.com.list --query=' + 'q'.repeat(500)
+    const result = 'first line\n' + 'r'.repeat(4_000) + '\nRESULT-END'
+    const error = 'Error: fixture\n' + 'e'.repeat(500) + '\nERROR-END'
+    const skill = '# Fixture skill\n' + 's'.repeat(2_000) + '\nSKILL-END'
+    const output = summarizeMessage(message([
+      { type: 'tool_use', id: 'fixture-call', name: 'weworker_powershell', args: { command }, result, status: 'done' },
+      { type: 'error', text: error },
+      { type: 'skill_context', tool_use_id: 'fixture-call', name: 'fixture-skill', directory: '/fixture/skill', digest: 'fixture-digest', text: skill },
+    ])).join('\n')
+    expect(output).toContain(command)
+    expect(output).toContain(result)
+    expect(output).toContain(error)
+    expect(output).toContain(skill)
+    expect(output).toContain('fixture-call')
   })
 
-  it('does not match a different work sharing the 8-char prefix boundary', () => {
-    const lines = ['[work:2215049e] noise']
-    expect(filterWorkLogLines(lines, WORK_ID)).toEqual([])
+  it('redacts credentials in full messages, nested JSON results and command arguments without losing result tails', () => {
+    const output = summarizeMessage(message([
+      { type: 'text', text: 'Authorization: Bearer fixture-bearer-value\nCookie: session=fixture-cookie-value\nvisible tail' },
+      { type: 'tool_use', id: 'fixture-call', name: 'example.com.list', args: { api_key: 'fixture-api-value', command: 'webcli call example.com.list --password="fixture password value"' },
+        result: JSON.stringify({ secret: 'fixture-secret-value', nested: JSON.stringify({ token: 'fixture-nested-value', output: 'RESULT-END' }) }) },
+    ])).join('\n')
+    for (const secret of ['fixture-bearer-value', 'fixture-cookie-value', 'fixture-api-value', 'fixture password value', 'fixture-secret-value', 'fixture-nested-value']) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain('visible tail')
+    expect(output).toContain('RESULT-END')
   })
 })
 
-describe('buildWorkLogExport', () => {
-  it('renders header, timeline and tagged chain logs, with a fallback note when none match', () => {
-    const text = buildWorkLogExport({
-      work: { id: WORK_ID, title: '测试对话', created_at: '2026-10-31T07:59:00.000Z', updated_at: '2026-10-31T08:05:00.000Z' },
-      messages: [message([{ type: 'text', text: 'hi' }], 'user')],
-      logLines: ['[work:2215049d] tool_call Bash → allow cmd="webcli call x.y"'],
-      meta: { exportedAt: '2026-10-31T08:10:00.000Z', runtimeMode: 'managed', backendInstanceId: 'inst-1',
-        platform: 'win32', nodeVersion: 'v20.0.0', logFilePath: 'C:\\Users\\dev\\AppData\\userData\\logs\\main.log' },
-    })
-    expect(text).toContain('WeWorker 对话日志导出')
-    expect(text).toContain('对话 ID: ' + WORK_ID)
-    expect(text).toContain('[work:2215049d] tool_call Bash')
-    expect(text).toContain('共 1 行')
 
-    const empty = buildWorkLogExport({
-      work: { id: WORK_ID, title: '', created_at: '2026-10-31T07:59:00.000Z', updated_at: '2026-10-31T08:05:00.000Z' },
-      messages: [], logLines: ['unrelated'],
-      meta: { exportedAt: '2026-10-31T08:10:00.000Z', runtimeMode: 'standalone', backendInstanceId: '',
-        platform: 'win32', nodeVersion: 'v20.0.0', logFilePath: '' },
-    })
-    expect(empty).toContain('（空: 该对话期间没有带标记的日志')
+describe('saved message fallback', () => {
+  it('preserves legacy messages while explicitly identifying missing execution history', () => {
+    const text = buildSavedMessagesLog({ title: 'Fixture', messages: [message([{ type: 'text', text: 'x'.repeat(4_000) + 'END' }])] })
+    expect(text).toContain('旧版存量消息')
+    expect(text).toContain('无法恢复')
+    expect(text).toContain('x'.repeat(4_000) + 'END')
   })
 })

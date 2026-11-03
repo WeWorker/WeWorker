@@ -27,4 +27,29 @@ describe('logger turn context', () => {
     }
     expect(lines.find((line) => line.includes('outside'))).not.toContain('[work:')
   })
+
+  it('retains the complete stack when an Error is attached to a log entry', () => {
+    const output = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('fixture failure')
+    error.stack = 'Error: fixture failure\n    at fixtureOperation (example.js:42:5)\n    at fixtureCaller (example.js:8:2)'
+    runWithTurnExecutionContext({ workId: '12345678-work', turnId: 'fixture-turn' }, () => {
+      createLogger('fixture').error('tool failed', error)
+    })
+    const lines = String(output.mock.calls[0][0]).split('\n')
+    expect(lines).toHaveLength(3)
+    for (const [index, detail] of error.stack.split('\n').entries()) {
+      expect(lines[index]).toContain(detail)
+      expect(lines[index]).toContain('[work:12345678][turn:fixture-turn]')
+    }
+  })
+
+  it('tags continuation lines even when the caller already tagged the first line', () => {
+    const output = vi.spyOn(console, 'error').mockImplementation(() => {})
+    runWithTurnExecutionContext({ workId: '12345678-work', turnId: 'fixture-turn' }, () => {
+      createLogger('fixture').error('[work:12345678] first\nsecond\nlast')
+    })
+    const lines = String(output.mock.calls[0][0]).split('\n')
+    expect(lines).toHaveLength(3)
+    for (const line of lines) expect(line.match(/\[work:12345678\]/g)).toHaveLength(1)
+  })
 })

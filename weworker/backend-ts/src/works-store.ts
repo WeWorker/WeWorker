@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import type { LoadedSkillContext } from './skill-context.js'
 import { ensureProjectDirectory, ensureProjectsDirectory, expandHomePath, getConfigDirectory, getUserDirectory } from './config.js'
 import { listArchivedWorkIds, removeArchivedWork, setWorkArchived } from './conversation-archive.js'
+import { appendWorkLog } from './work-log-file.js'
 
 const DB_DIR = path.join(os.homedir(), '.weworker')
 const DB_FILE = path.join(DB_DIR, 'works.db')
@@ -715,7 +716,9 @@ export function appendMessage(workId: string, role: string, content: ContentBloc
     // Signal external write for polling
     db().prepare('UPDATE works SET updated_at = ? WHERE id = ?').run(now, workId)
   }
-  return { id, work_id: workId, role, content, created_at: now }
+  const message = { id, work_id: workId, role, content, created_at: now }
+  appendWorkLog(workId, 'message_saved', message)
+  return message
 }
 
 /** Update an owned assistant segment without changing its position in the conversation. */
@@ -723,7 +726,9 @@ export function updateAssistantMessageContent(workId: string, messageId: string,
   const result = db().prepare("UPDATE messages SET content = ? WHERE id = ? AND work_id = ? AND role = 'assistant'").run(
     JSON.stringify(content), messageId, workId,
   )
-  return Number(result.changes) > 0
+  const updated = Number(result.changes) > 0
+  if (updated) appendWorkLog(workId, 'message_updated', { id: messageId, role: 'assistant', content })
+  return updated
 }
 
 export function updateTitle(workId: string, title: string): void {
