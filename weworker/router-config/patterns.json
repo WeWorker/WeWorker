@@ -1,10 +1,10 @@
 /* ═══════════════════════════════════════════════════════════════════════════
- * patterns.json —— 第 8 层（Tier -1）：提示词配置层（正则/关键词 + 负向 + 抽参）
+ * patterns.json —— 第 8 层（Tier -1）：提示词配置层（全句模板 + 负向 + 抽参）
  *
  * 【本层负责什么】
- *   在**没有 adapter 关键词硬门**的情况下，仅凭正则/关键词本身收敛地认领消息，并抽出参数直连
- *   工具。因为少了硬门，本层的正则必须**自己把自己收窄**——写宽一条，就会越过所有层把别人的
- *   话术吃掉。命中后失败策略是 stop（不再往下猜）。
+ *   在**没有 adapter 关键词硬门**的情况下，使用全句字面模板认领消息，再抽出参数直连工具。
+ *   模板中的 `${query}` 等是唯一可变槽位；其他字符（包括空格、冒号、计量单位）按字面匹配。
+ *   普通 regex/keyword 只能用于不含槽位的全等枚举。命中后失败策略是 stop（不再往下猜）。
  *
  * 【怎么写：两层 key 定位】
  *   1. `configs` 的第一层 key 是 **adapter id**（`"wikipedia.org"`）——按站点分节，
@@ -15,9 +15,9 @@
  *   → 「工具名前缀 = 所属 adapter」这条关系由校验器强制：写进别的站的分节会被当场拦下。
  *
  * 【每条配置的字段】
- *   - `patterns[]`：正则或关键词规则，**每条规则都要有 `examples`**（必填）；
+ *   - `patterns[]`：全句字面模板规则，**每条规则都要有 `examples`**（必填）；
  *   - `negative_patterns`：整条配置的否决词（任一命中即放弃本条）；
- *   - `arg_extractors`：从消息里抽参，`arg` 必须是该工具 schema 里真实存在的属性名；
+ *   - `arg_extractors`：同名模板槽直接捕获参数并沿用 type/min/max；旧 regex 留作兼容；
  *   - `default_args`：本条默认参数，会被抽取结果覆盖。
  *
  * 【一条完整成功示例】
@@ -25,8 +25,8 @@
  *     "wikipedia.org": {
  *       "wikipedia.org.search": {
  *         "priority": 20,
- *         "patterns": [{ "type": "regex",
- *                        "expression": "(?:维基百科)[\\s\\S]{0,12}?(?:搜索|查找)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,60})$",
+ *         "patterns": [{ "type": "template",
+ *                        "expression": "维基百科搜索 ${query}",
  *                        "weight": 1,
  *                        "default_args": { "lang": "zh", "limit": 10 },
  *                        "examples": ["维基百科搜索 量子力学"] }],
@@ -44,18 +44,17 @@
  *   两种形态还可以逐条混写。但新增配置请用分节形态，便于回答「这个 adapter 配了什么」。
  *
  * 【常见的写坏方式（都会被当场拦下 / 被负例集打红）】
- *   ✗ 正则里 `(?:搜索|查找)` 后面不要求分隔符 → 把「搜索引擎」「搜索功能」的「引擎」「功能」
- *     当检索词抽走。**动作词后面必须跟空白/冒号**，这是本层最常见的误判来源。
- *   ✗ 漏写 `negative_patterns` → 讨论态问句（「…怎么用」「…有多少」）会被当成查询请求。
- *   ✗ 抽参正则忘写捕获组 / `arg` 名与工具 schema 不符。
- *   ✗ 缺 `examples`：本层每条规则都必须有——正则写对了没有，只有拿例子实跑才知道。
- *   ✗ 同一条关键词被两条不同工具的规则共用 → 校验器报「先命中者赢，另一条永远拿不到」。
+ *   ✗ 模板写成「维基百科搜索${query}」漏掉分隔空格 → 把「搜索引擎」当检索词。
+ *   ✗ 漏写 `negative_patterns` → 讨论态问句可能被当成查询请求。
+ *   ✗ 槽名与真实工具参数名不符，或把计量单位/固定语句写入槽位。
+ *   ✗ 缺 `examples`：本层每条规则都必须有——写对了没有，拿例子实跑才知道。
+ *   ✗ 同一条模板被两条不同工具共用 → 先命中者赢，另一条永远拿不到。
  *   ✗ 条目放进别的 adapter 的分节（或把分节写到了文件顶层，少了 `configs`）→ 报错并回退该层。
  *
  * 【本层不放什么】
  *   ✗ 消息里必然带站点名的话术 → 放 shortcuts.json（那边有 adapter 硬门，更安全更快）
  *   ✗ 写操作工具 → 只读准入会丢弃
- *   ✗ 「帮我查询 ${X} 的产品有哪些」这类带槽位的话术 → 那是第 2 层模板（manifest）
+ *   ✗ 未经明确指定固定句式的自由语言检索 → 落回 LLM，避免模板吞掉别的意图
  * ═══════════════════════════════════════════════════════════════════════════ */
 {
   "version": "1",
@@ -70,19 +69,27 @@
         "priority": 20,
         "patterns": [
           {
-            "type": "regex",
-            "expression": "(?:维基百科)[\\s\\S]{0,12}?(?:搜索|搜一下|搜|查找|查一下|检索)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,60})$",
+            "type": "template",
+            "expression": "维基百科搜索 ${query}",
             "weight": 1,
             "default_args": { "lang": "zh", "limit": 10 },
-            "examples": ["维基百科搜索 量子力学", "维基百科 搜一下 图灵机"]
+            "examples": ["维基百科搜索 量子力学"]
           },
           {
-            "type": "regex",
-            "expression": "(?:wikipedia|wiki)[\\s\\S]{0,12}?(?:(?:搜索|搜一下|搜|查找|查一下|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,60})$",
+            "type": "template", "expression": "维基百科 搜一下 ${query}", "weight": 1,
+            "default_args": { "lang": "zh", "limit": 10 }, "examples": ["维基百科 搜一下 图灵机"]
+          },
+          {
+            "type": "template",
+            "expression": "wikipedia search for ${query}",
             "flags": "i",
             "weight": 1,
             "default_args": { "lang": "en", "limit": 10 },
-            "examples": ["wikipedia search for quantum mechanics", "wiki 搜索 rust"]
+            "examples": ["wikipedia search for quantum mechanics"]
+          },
+          {
+            "type": "template", "expression": "wiki 搜索 ${query}", "weight": 1,
+            "default_args": { "lang": "en", "limit": 10 }, "examples": ["wiki 搜索 rust"]
           }
         ],
         // 否决词：这些词出现说明用户在聊「搜索功能/搜索记录」，不是在让我搜
@@ -100,15 +107,19 @@
         "priority": 10,
         "patterns": [
           {
-            "type": "regex",
-            "expression": "(?:维基百科)[\\s\\S]{0,6}?(?:词条|条目|简介|摘要|导语|概述)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,50})$",
+            "type": "template",
+            "expression": "维基百科词条 ${title}",
             "weight": 1,
             "default_args": { "lang": "zh" },
-            "examples": ["维基百科词条 量子力学", "维基百科条目：图灵机"]
+            "examples": ["维基百科词条 量子力学"]
           },
           {
-            "type": "regex",
-            "expression": "(?:wikipedia|wiki)[\\s\\S]{0,6}?(?:词条|条目|简介|摘要|导语|概述|summary)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,50})$",
+            "type": "template", "expression": "维基百科条目：${title}", "weight": 1,
+            "default_args": { "lang": "zh" }, "examples": ["维基百科条目：图灵机"]
+          },
+          {
+            "type": "template",
+            "expression": "wiki summary ${title}",
             "flags": "i",
             "weight": 1,
             "default_args": { "lang": "en" },
@@ -134,18 +145,22 @@
         "priority": 10,
         "patterns": [
           {
-            "type": "regex",
-            "expression": "(?:微信读书)[\\s\\S]{0,10}?(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])\\s*(\\S[\\s\\S]{0,40})$",
+            "type": "template",
+            "expression": "微信读书搜索 ${query}",
             "weight": 1,
             "default_args": { "limit": 20 },
             // 「微信读书搜索 原子习惯」这类含「习惯」的原文**会先被讨论态闸门拦掉**
             // （闸门为拦「这是我的归档习惯…」收了「习惯」一词），故不作正例——
             // 这是「宁漏勿误」的既定代价，代价是这类查询只能落回 LLM。
-            "examples": ["微信读书搜索 人类简史", "微信读书 搜一下 三体"]
+            "examples": ["微信读书搜索 人类简史"]
           },
           {
-            "type": "regex",
-            "expression": "(?:weread)[\\s\\S]{0,10}?(?:(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,40})$",
+            "type": "template", "expression": "微信读书 搜一下 ${query}", "weight": 1,
+            "default_args": { "limit": 20 }, "examples": ["微信读书 搜一下 三体"]
+          },
+          {
+            "type": "template",
+            "expression": "weread search for ${query}",
             "flags": "i",
             "weight": 1,
             "default_args": { "limit": 20 },
@@ -171,12 +186,16 @@
         "priority": 10,
         "patterns": [
           {
-            "type": "regex",
-            "expression": "(?:hacker\\s*news|hackernews|\\bhn\\b)[\\s\\S]{0,10}?(?:(?:搜索|搜一下|搜|查找|检索)(?:\\s+|[:：])|search\\s+for\\s+|search\\s*[:：])\\s*(\\S[\\s\\S]{0,60})$",
+            "type": "template",
+            "expression": "hacker news search for ${query}",
             "flags": "i",
             "weight": 1,
             "default_args": { "limit": 20, "sort": "relevance" },
-            "examples": ["hacker news search for rust", "hn 搜一下 playwright"]
+            "examples": ["hacker news search for rust"]
+          },
+          {
+            "type": "template", "expression": "hn 搜一下 ${query}", "weight": 1,
+            "default_args": { "limit": 20, "sort": "relevance" }, "examples": ["hn 搜一下 playwright"]
           }
         ],
         "arg_extractors": [
@@ -192,11 +211,16 @@
         "priority": 10,
         "patterns": [
           {
-            "type": "regex",
-            "expression": "(?:hacker\\s*news|hackernews|\\bhn\\b)[\\s\\S]{0,8}?(?:用户|会员|user)\\s*[:：]?\\s*@?([A-Za-z0-9_-]{1,30})(?:的)?(?:资料|信息|简介|主页)?$",
+            "type": "template",
+            "expression": "hacker news 用户 ${username}",
+            "slot_validators": { "username": "[A-Za-z0-9_-]{1,30}" },
             "flags": "i",
             "weight": 1,
-            "examples": ["hacker news 用户 pg", "hn user dang"]
+            "examples": ["hacker news 用户 pg"]
+          },
+          {
+            "type": "template", "expression": "hn user ${username}", "slot_validators": { "username": "[A-Za-z0-9_-]{1,30}" }, "flags": "i", "weight": 1,
+            "examples": ["hn user dang"]
           }
         ],
         "arg_extractors": [
@@ -212,13 +236,22 @@
         "priority": 10,
         "patterns": [
           {
-            "type": "regex",
+            "type": "template",
             // 必须有数字 id，故「hn 帖子」不会被认领（见负例集）
-            "expression": "(?:hacker\\s*news|hackernews|\\bhn\\b)[\\s\\S]{0,8}?(?:帖子|主题|话题|item|story)\\s*[:#/]?\\s*(\\d{1,9})(?:的)?(?:评论|回复)?$",
+            "expression": "hacker news 帖子 ${id}",
+            "slot_validators": { "id": "\\d{1,9}" },
             "flags": "i",
             "weight": 1,
             "default_args": { "limit": 20 },
-            "examples": ["hacker news 帖子 123456", "hn item 40000000", "hn 帖子 123456"]
+            "examples": ["hacker news 帖子 123456"]
+          },
+          {
+            "type": "template", "expression": "hn item ${id}", "slot_validators": { "id": "\\d{1,9}" }, "flags": "i", "weight": 1,
+            "default_args": { "limit": 20 }, "examples": ["hn item 40000000"]
+          },
+          {
+            "type": "template", "expression": "hn 帖子 ${id}", "slot_validators": { "id": "\\d{1,9}" }, "weight": 1,
+            "default_args": { "limit": 20 }, "examples": ["hn 帖子 123456"]
           }
         ],
         "arg_extractors": [

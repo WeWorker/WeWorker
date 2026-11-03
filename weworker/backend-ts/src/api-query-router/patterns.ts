@@ -1,45 +1,29 @@
-/**
- * Tier -1：提示词配置层（`router-config/patterns.json`，详见设计文档 §2 第 9 行）。
- *
- * 与其它层的分工：**这层是「宽泛正则」层**——用关键词/正则表达「这类话术该走哪个工具」，
- * 因此它排在卡片话术（第 0 层）之后，且被卡片 opt-out 抑制：卡片句与宽泛正则撞型时，
- * 宽泛正则常派发到错工具（跨 adapter、或把写操作派给只读工具）。顺序即精度。
- *
- * 能力边界（必须明确，超出即不支持，不做半吊子实现）：
- *   - 支持 `regex` / `keyword`（`match_mode`: any / all / phrase）两种模式；
- *   - **不支持** `semantic` / `hybrid`（配置里写了会被校验层拒绝或按不命中处理）；
- *   - **不支持** A/B 实验、模糊相似度打分；
- *   - 单条配置的置信度 = 命中模式的最大 `weight`（缺省 1），全局门槛取
- *     `global.min_confidence_for_match`（缺省 0.8）。
- */
-
-import type { PatternConfigEntry, PatternRule, PatternsFile, RouterRenderSpec } from '../router-config/types.js'
+import type { ArgExtractorRule, PatternConfigEntry, PatternRule, PatternsFile, RouterRenderSpec } from '../router-config/types.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('api-query-router')
-
-/** 缺省命中门槛：0.8（与既有行为一致；可由 `global.min_confidence_for_match` 覆盖）。 */
 export const DEFAULT_MIN_CONFIDENCE = 0.8
 
 export type PatternHit = {
-  /** 配置键，即工具全名 `<adapterId>.<tool>` */
   tool: string
   args: Record<string, unknown>
   confidence: number
-  /** 配置里声明的渲染方式；由级联层继续传给执行期渲染器。 */
   render?: RouterRenderSpec
-  /** 命中的模式描述，仅日志用 */
   matchedPatterns: string[]
-  /** 由 `arg_extractors` 从原句抽到的参数（覆盖 default_args） */
   extractedArgs: Record<string, unknown>
 }
 
+type CompiledRule = {
+  rule: PatternRule
+  template?: { re: RegExp; slots: string[] }
+  examples?: Set<string>
+}
 type CompiledEntry = {
   key: string
   entry: PatternConfigEntry
-  patterns: PatternRule[]
+  patterns: CompiledRule[]
   negative: RegExp[]
-  extractors: { re: RegExp; rule: NonNullable<PatternConfigEntry['arg_extractors']>[number] }[]
+  extractors: { re: RegExp; rule: ArgExtractorRule }[]
 }
 
 function compileRegex(source: string, flags: string | undefined, caseSensitive: boolean): RegExp | null {
@@ -51,22 +35,71 @@ function compileRegex(source: string, flags: string | undefined, caseSensitive: 
   }
 }
 
-/** 逐条编译配置。非法正则/项**只丢自己**，不让整层失效。 */
-export function compilePatternEntries(
-  config: PatternsFile | null | undefined,
-  caseSensitive = false,
-): CompiledEntry[] {
+const SLOT = /\$\{([a-zA-Z_][\w]*)\}/g
+const UNIT = /(?:小时|分钟|公里|公斤|天|个|条|页|楼|层|周|月|年|次|秒|米|元|件|张|位|人|岁|吨|克|只|辆)$/u
+function normalize(value: string, caseSensitive: boolean): string {
+  const compact = value.replace(/\s+/g, '')
+  return caseSensitive ? compact : compact.toLowerCase()
+}
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+function literalRegex(value: string): string {
+  // Whitespace explicitly present in a template is a required separator. Elsewhere,
+  // incidental whitespace between literal characters is harmless (Chinese card text).
+  return value.split(/(\s+)/).filter(Boolean).map((part) =>
+    /^\s+$/.test(part) ? '\\s+' : Array.from(part).map(escapeRegex).join('\\s*'),
+  ).join('')
+}
+
+/** Templates are literal text with named, nonempty slots; units are fixed literals outside slots. */
+function compileTemplate(expression: string, caseSensitive: boolean): CompiledRule['template'] {
+  const slots: string[] = []
+  let source = '^'
+  let end = 0
+  for (const match of expression.matchAll(SLOT)) {
+    const literal = expression.slice(end, match.index)
+    // Adjacent unconstrained slots have ambiguous boundaries: reject rather than guess.
+    if (slots.length && !literal) return undefined
+    source += literalRegex(literal)
+    slots.push(match[1])
+    source += `(?<slot${slots.length}>.+?)`
+    end = match.index + match[0].length
+  }
+  if (!slots.length || /\$\{/.test(expression.replace(SLOT, ''))) return undefined
+  const suffix = expression.slice(end)
+  source += literalRegex(suffix) + '$'
+  try {
+    return { re: new RegExp(source, caseSensitive ? 'u' : 'iu'), slots }
+  } catch {
+    return undefined
+  }
+}
+
+export function compilePatternEntries(config: PatternsFile | null | undefined, caseSensitive = false): CompiledEntry[] {
   const entries: CompiledEntry[] = []
   for (const [key, entry] of Object.entries(config?.configs ?? {})) {
-    if (!entry || typeof entry !== 'object') continue
-    if (entry.enabled === false) continue
-    const patterns = (entry.patterns ?? []).filter(
-      (pattern) =>
-        pattern &&
-        (pattern.type === 'regex' || pattern.type === 'keyword') &&
-        !(pattern.type === 'regex' && !pattern.expression) &&
-        !(pattern.type === 'keyword' && !(pattern.keywords ?? []).length),
-    )
+    if (!entry || typeof entry !== 'object' || entry.enabled === false) continue
+    const patterns: CompiledRule[] = []
+    for (const rule of entry.patterns ?? []) {
+      if (!rule) continue
+      if (rule.type === 'keyword') {
+        if (rule.keywords?.length) patterns.push({ rule })
+      } else if (rule.type === 'template' || (rule.type === 'regex' && rule.expression?.includes('${'))) {
+        const template = compileTemplate(rule.expression ?? '', caseSensitive)
+        if (template) patterns.push({ rule, template })
+      } else if (rule.type === 'regex' && rule.expression) {
+        // A free-form regex cannot authorize arbitrary substring matches. Only its explicitly
+        // reviewed examples are eligible, and those examples must satisfy the original regex.
+        const re = compileRegex(rule.expression, rule.flags, caseSensitive)
+        if (!re) continue
+        const examples = new Set((rule.examples ?? []).filter((example) => {
+          re.lastIndex = 0
+          return typeof example === 'string' && re.test(example)
+        }).map((example) => normalize(example, caseSensitive)))
+        if (examples.size) patterns.push({ rule, examples })
+      }
+    }
     const negative: RegExp[] = []
     for (const source of entry.negative_patterns ?? []) {
       if (typeof source !== 'string' || !source) continue
@@ -75,150 +108,129 @@ export function compilePatternEntries(
     }
     const extractors: CompiledEntry['extractors'] = []
     for (const rule of entry.arg_extractors ?? []) {
-      if (!rule || typeof rule.regex !== 'string' || !rule.regex || !rule.arg) continue
+      if (!rule || !rule.regex || !rule.arg) continue
       const re = compileRegex(rule.regex, rule.flags, caseSensitive)
       if (re) extractors.push({ re, rule })
     }
     entries.push({ key, entry, patterns, negative, extractors })
   }
-  // priority 大者先匹配；缺省视为 0，同分保持文件顺序（稳定）
   return entries.sort((a, b) => (b.entry.priority ?? 0) - (a.entry.priority ?? 0))
 }
 
-function keywordScore(input: string, pattern: PatternRule, caseSensitive: boolean): number {
-  const keywords = (pattern.keywords ?? []).map((keyword) => (caseSensitive ? keyword : keyword.toLowerCase())).filter(Boolean)
-  if (!keywords.length) return 0
-  const mode = pattern.match_mode ?? 'any'
-  if (mode === 'all') return keywords.every((keyword) => input.includes(keyword)) ? 1 : 0
-  if (mode === 'phrase') return input.includes(keywords.join('')) ? 1 : 0
-  return keywords.some((keyword) => input.includes(keyword)) ? 1 : 0
-}
-
-/** 单条模式是否命中 + 其置信度（`weight` 缺省 1，钳到 [0,1] 之外也接受，仅作相对排序）。 */
-function patternHit(
-  message: string,
-  pattern: PatternRule,
-  caseSensitive: boolean,
-): { hit: boolean; confidence: number; label: string } {
-  const confidence = typeof pattern.weight === 'number' ? pattern.weight : 1
-  if (pattern.type === 'regex') {
-    if (!pattern.expression) return { hit: false, confidence: 0, label: '' }
-    let re: RegExp | null = null
-    try {
-      re = new RegExp(pattern.expression, pattern.flags ?? (caseSensitive ? '' : 'i'))
-    } catch {
-      return { hit: false, confidence: 0, label: '' }
-    }
-    return { hit: re.test(message), confidence, label: `regex:${pattern.expression}` }
-  }
-  const matched = keywordScore(caseSensitive ? message : message.toLowerCase(), pattern, caseSensitive) > 0
-  return { hit: matched, confidence, label: `keyword:${(pattern.keywords ?? []).join(',')}` }
+function keywordMatches(message: string, rule: PatternRule, caseSensitive: boolean): boolean {
+  const keywords = (rule.keywords ?? []).map((keyword) => normalize(keyword, caseSensitive)).filter(Boolean)
+  if (!keywords.length) return false
+  const mode = rule.match_mode ?? 'any'
+  if (mode === 'phrase' || mode === 'all') return message === keywords.join('')
+  return keywords.some((keyword) => message === keyword)
 }
 
 function clampNumber(value: unknown, min?: number, max?: number): unknown {
-  let out = value
-  if (typeof min === 'number' || typeof max === 'number') {
-    const num = Number(value)
-    if (!Number.isFinite(num)) return undefined
-    out = Math.min(typeof max === 'number' ? max : num, Math.max(typeof min === 'number' ? min : num, num))
-  }
-  return out
+  if (typeof min !== 'number' && typeof max !== 'number') return value
+  const num = Number(value)
+  if (!Number.isFinite(num)) return undefined
+  return Math.min(typeof max === 'number' ? max : num, Math.max(typeof min === 'number' ? min : num, num))
 }
-
 function coerceExtracted(raw: string, type: string | undefined): unknown {
   switch (type) {
     case 'integer': {
+      if (!/^[+-]?\d+$/.test(raw)) return undefined
       const num = Number(raw)
-      return Number.isInteger(num) ? num : undefined
+      return Number.isSafeInteger(num) ? num : undefined
     }
     case 'number': {
+      if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(raw)) return undefined
       const num = Number(raw)
       return Number.isFinite(num) ? num : undefined
     }
-    case 'boolean':
-      return raw === 'true' ? true : raw === 'false' ? false : undefined
-    default:
-      return raw
+    case 'boolean': return raw === 'true' ? true : raw === 'false' ? false : undefined
+    default: return raw
   }
 }
 
-/** 抽参：捕获组 1 为值；类型转换或 `min`/`max` 钳制失败则该条不产出（不猜）。 */
 function extractArgs(entry: CompiledEntry, message: string): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const { re, rule } of entry.extractors) {
+    re.lastIndex = 0
     const match = re.exec(message)
     if (!match) continue
-    const raw = match[1] ?? match[0]
-    if (raw === undefined) continue
-    const value = coerceExtracted(raw, rule.type)
+    const value = coerceExtracted(match[1] ?? match[0], rule.type)
     if (value === undefined) continue
     const clamped = clampNumber(value, rule.min, rule.max)
-    if (clamped === undefined) continue
-    out[rule.arg] = clamped
+    if (clamped !== undefined) out[rule.arg] = clamped
   }
   return out
 }
 
-export type PatternMatcherDeps = {
-  /** 命中门槛；缺省取配置里的 `global.min_confidence_for_match`，再缺省 0.8 */
-  minConfidence?: number
-  /** 只在这些工具里匹配（当前 catalog 的工具全名集合）；缺省不过滤 */
-  allowedTools?: ReadonlySet<string>
+/** Captured template slots, not legacy substring extractors, are the sole source of dynamic args. */
+function templateArgs(entry: CompiledEntry, compiled: NonNullable<CompiledRule['template']>, message: string): Record<string, unknown> | null {
+  const match = compiled.re.exec(message)
+  if (!match?.groups) return null
+  const out: Record<string, unknown> = {}
+  for (let index = 0; index < compiled.slots.length; index++) {
+    const name = compiled.slots[index]
+    const raw = match.groups[`slot${index + 1}`]?.trim()
+    if (!raw) return null
+    const extractor = entry.extractors.find(({ rule }) => rule.arg === name)?.rule
+    // A template must explicitly spell out measurement units; no slot may absorb one.
+    if (UNIT.test(raw)) return null
+    const slotRule = entry.patterns.find(({ template }) => template === compiled)?.rule
+    const validator = slotRule?.slot_validators?.[name]
+    if (validator) {
+      const re = compileRegex(`^(?:${validator})$`, undefined, true)
+      if (!re || !re.test(raw)) return null
+    }
+    if (extractor?.type === 'string' && /\s*[。！？!?；;，,]$/.test(raw)) return null
+    const value = coerceExtracted(raw, extractor?.type)
+    if (value === undefined) return null
+    const clamped = clampNumber(value, extractor?.min, extractor?.max)
+    if (clamped === undefined || (name in out && out[name] !== clamped)) return null
+    out[name] = clamped
+  }
+  return out
 }
 
-/**
- * 构造匹配器：`(message) => PatternHit | null`。纯函数、无 IO。
- * 未过门槛 / 命中负向 / 工具不在作用域 → `null`（落回下游层，绝不硬派发）。
- */
-export function buildPatternMatcher(
-  config: PatternsFile | null | undefined,
-  deps: PatternMatcherDeps = {},
-): (message: string) => PatternHit | null {
-  const caseSensitive = config?.global?.case_sensitive === true
-  const threshold =
-    deps.minConfidence ??
-    (typeof config?.global?.min_confidence_for_match === 'number'
-      ? config.global.min_confidence_for_match
-      : DEFAULT_MIN_CONFIDENCE)
-  const compiled = compilePatternEntries(config, caseSensitive)
+export type PatternMatcherDeps = { minConfidence?: number; allowedTools?: ReadonlySet<string> }
 
+export function buildPatternMatcher(config: PatternsFile | null | undefined, deps: PatternMatcherDeps = {}): (message: string) => PatternHit | null {
+  const caseSensitive = config?.global?.case_sensitive === true
+  const threshold = deps.minConfidence ?? config?.global?.min_confidence_for_match ?? DEFAULT_MIN_CONFIDENCE
+  const compiled = compilePatternEntries(config, caseSensitive)
   return function matchPattern(message: string): PatternHit | null {
     const trimmed = message?.trim()
     if (!trimmed) return null
-
+    const normalized = normalize(trimmed, caseSensitive)
     for (const entry of compiled) {
       if (deps.allowedTools && !deps.allowedTools.has(entry.key)) continue
-      // 负向优先：命中任一条即整条配置不参与（防宽泛正则误伤）
-      if (entry.negative.some((re) => re.test(trimmed))) continue
-
+      if (entry.negative.some((re) => { re.lastIndex = 0; return re.test(trimmed) })) continue
       let best = 0
       const matchedPatterns: string[] = []
       let bestDefaultArgs: Record<string, unknown> | undefined
-      for (const pattern of entry.patterns) {
-        const { hit, confidence, label } = patternHit(trimmed, pattern, caseSensitive)
+      let bestArgs: Record<string, unknown> = {}
+      for (const { rule, template, examples } of entry.patterns) {
+        const args = template ? templateArgs(entry, template, trimmed) : extractArgs(entry, trimmed)
+        const hit = template ? args !== null : examples ? examples.has(normalized) : keywordMatches(normalized, rule, caseSensitive)
         if (!hit) continue
-        matchedPatterns.push(label)
+        const confidence = typeof rule.weight === 'number' ? rule.weight : 1
+        matchedPatterns.push(`${rule.type}:${rule.expression ?? (rule.keywords ?? []).join(',')}`)
         if (confidence > best) {
           best = confidence
-          bestDefaultArgs = pattern.default_args
-        } else if (confidence === best && pattern.default_args) {
-          // Several equally confident rules can describe independent refinements of the same
-          // intent. Merge only defaults that were explicitly declared; a later broad rule with
-          // no defaults must not erase values supplied by an equally weighted specific rule.
-          bestDefaultArgs = { ...(bestDefaultArgs ?? {}), ...pattern.default_args }
+          bestDefaultArgs = rule.default_args
+          bestArgs = args ?? {}
+        } else if (confidence === best) {
+          if (rule.default_args) bestDefaultArgs = { ...(bestDefaultArgs ?? {}), ...rule.default_args }
+          // The first equally ranked matching rule owns extraction. Mixing different
+          // rules' independent extractors can inject args unrelated to the chosen intent.
         }
       }
-      if (!matchedPatterns.length) continue
-      if (best < threshold) continue
-
-      const extractedArgs = extractArgs(entry, trimmed)
+      if (!matchedPatterns.length || best < threshold) continue
       return {
         tool: entry.key,
-        args: { ...(entry.entry.default_args ?? {}), ...(bestDefaultArgs ?? {}), ...extractedArgs },
+        args: { ...(entry.entry.default_args ?? {}), ...(bestDefaultArgs ?? {}), ...bestArgs },
         confidence: best,
         render: entry.entry.render,
         matchedPatterns,
-        extractedArgs,
+        extractedArgs: bestArgs,
       }
     }
     return null
