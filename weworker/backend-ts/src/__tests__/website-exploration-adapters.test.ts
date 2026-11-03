@@ -358,3 +358,53 @@ it('reconciles a lost acknowledgement before reviewing a newer candidate', async
   expect(applied.status).toBe(200)
   expect(await applied.json()).toMatchObject({ version: '1.0.1', digest: after.digest, acknowledged: true })
 })
+
+it('applies a CLI-reviewed candidate through the host registry and acknowledgement flow', async () => {
+  const { callDevelopment } = await import('../../../../webcli/development-client.js')
+  const { buildAdapterCatalog } = await import('../../../../webcli/adapter-catalog.js')
+  const { root, payload } = fixture()
+  const acknowledgements: object[] = []
+  const upstream = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+    if (url.endsWith('/installation-ack')) {
+      acknowledgements.push(JSON.parse(String(options?.body)))
+      return Response.json({ ok: true })
+    }
+    return Response.json({ ...payload, changed_tools: ['read_page'] })
+  }) as unknown as typeof fetch
+  const refresh = vi.fn(() => { refreshDesktopAdapterSkills(join(root, 'skills')) })
+  const { request } = await harness(payload, upstream, refresh)
+  const token = 'test-token-placeholder'
+  const env = { WEWORKER_EXPLORATION_INSTANCE_ID: 'owned', WEWORKER_BACKEND_INSTANCE_ID: 'backend-placeholder', WEWORKER_HTTP_TOKEN: token }
+  const clientFetch = vi.fn(async (url: string, options?: RequestInit) => {
+    expect((options?.headers as Record<string, string>)['X-WeWorker-Auth']).toBe(token)
+    if (url === 'http://127.0.0.1:8765/status') return Response.json({
+      service: 'weworker-backend', runtime_mode: 'managed', backend_instance_id: env.WEWORKER_BACKEND_INSTANCE_ID,
+    })
+    const prefix = 'http://127.0.0.1:8765/api/website-exploration'
+    expect(url.startsWith(prefix)).toBe(true)
+    return request(url.slice(prefix.length), options)
+  }) as unknown as typeof fetch
+  const args = { toolkit_id: 'demo', expected_digest: payload.digest }
+  const reviewed = await callDevelopment('review', args, { env, fetch: clientFetch })
+  expect(reviewed.ok).toBe(true)
+  if (!reviewed.ok) throw new Error(reviewed.error.message)
+  expect(refresh).not.toHaveBeenCalled()
+  expect(acknowledgements).toHaveLength(0)
+  const applied = await callDevelopment('apply', { ...args, review_id: reviewed.data.review_id, confirmed: true }, { env, fetch: clientFetch })
+  expect(applied).toMatchObject({ ok: true, data: { digest: payload.digest, installed: true, applied: true, refreshed: true, acknowledged: true } })
+  expect(refresh).toHaveBeenCalledTimes(1)
+  if (!applied.ok) throw new Error(applied.error.message)
+  expect(acknowledgements[0]).toMatchObject({ digest: payload.digest, operation_id: payload.operation_id, profile: 'public' })
+  const active = buildAdapterCatalog().effective.find(entry => entry.name === payload.name)
+  expect(active?.digest).toBe(payload.digest)
+  expect(active?.commands.find(command => command.id === 'read-page')?.runtime).toBe('wewright')
+  // A second explicit, freshly reviewed request recovers the same installation,
+  // not a second package version or a second host registry commit.
+  const again = await callDevelopment('review', args, { env, fetch: clientFetch })
+  if (!again.ok) throw new Error(again.error.message)
+  const recovered = await callDevelopment('apply', { ...args, review_id: again.data.review_id, confirmed: true }, { env, fetch: clientFetch })
+  if (!recovered.ok) throw new Error(recovered.error.message)
+  expect(recovered.data.revision).toBe(applied.data.revision)
+  expect(refresh).toHaveBeenCalledTimes(2)
+})

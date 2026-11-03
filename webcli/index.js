@@ -109,6 +109,7 @@ Login（网站登录由 WeWorker 自动处理：命令遇到未登录时打开�
   call ... --login-wait=<秒>     本次调用最多等待登录的时间（终端默认 300 秒；脚本/AI 默认不等待，立即返回登录提示与截图，登录流程后台继续）
 
 API exploration (standalone, no desktop/model key required):
+  call development.help                    Toolkit 开发、构建、调试、审查与应用
   call exploration.help                    探索、草稿编辑、验证与安装命令
   call browser.help                        浏览器会话、页面操作与网络检查
   call profile.help                        多浏览器连接、别名与默认选择
@@ -237,6 +238,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "completion", usage: "webcli completion bash|zsh|fish", description: "输出 shell 补全脚本" },
         { name: "skills", usage: "webcli skills list | read <skill[/path]>", description: "读取随包 Skill 和参考文件" },
         { name: "profile", usage: "webcli call profile.help", description: "浏览器连接、别名和默认选择" },
+        { name: "development", usage: "webcli call development.help", description: "Toolkit 代码校验、开发槽位、调试与正式应用" },
         { name: "exploration", usage: "webcli call exploration.help", description: "独立 API 探索、Agent 草稿编辑、验证与本地安装" },
         { name: "adapter", usage: "webcli adapter <command>", description: "管理网站适配器" },
         { name: "service", usage: "webcli service <start|stop|status|logs>", description: "管理 WebSocket bridge 服务" },
@@ -911,6 +913,17 @@ async function cmdCall(toolName, argsStr, options = {}) {
   // renderer as Adapter calls, without changing the transport envelope.
   const printManagement = value => console.log(formatCallOutput(value, options.outputFormat === undefined ? 'json' : outputFormat));
 
+  if (toolName.startsWith('development.')) {
+    const command = toolName.slice('development.'.length);
+    const { developmentHelp } = await import('./development-commands.js');
+    if (command === 'help') { printManagement(developmentHelp()); return; }
+    const { callDevelopment } = await import('./development-client.js');
+    const result = await callDevelopment(command, args);
+    printManagement(result);
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
   if (toolName.startsWith('profile.')) {
     const command = toolName.slice('profile.'.length);
     const { profileHelp } = await import('./browser-profiles.js');
@@ -968,8 +981,8 @@ async function cmdCall(toolName, argsStr, options = {}) {
   const { resolveAdapterCall } = await import("./adapter-host.js");
   const v2Match = resolveAdapterCall(toolName);
   if (v2Match) {
-    if ((v2Match.command.runtime === 'http' || v2Match.command.pageWrite || v2Match.command.uiWrite) && (v2Match.command.safety === 'write' || v2Match.command.requires_confirmation) && args.__confirmed !== true) {
-      console.log(formatCallOutput({ error: 'Explicit confirmation is required for this command.', code: (v2Match.command.pageWrite || v2Match.command.uiWrite) ? 'CONFIRMATION_REQUIRED' : 'HTTP_CONFIRMATION_REQUIRED', trace_id: null }, outputFormat));
+    if ((v2Match.command.runtime === 'http' || v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) && (v2Match.command.safety === 'write' || v2Match.command.requires_confirmation) && args.__confirmed !== true) {
+      console.log(formatCallOutput({ error: 'Explicit confirmation is required for this command.', code: (v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) ? 'CONFIRMATION_REQUIRED' : 'HTTP_CONFIRMATION_REQUIRED', trace_id: null }, outputFormat));
       process.exitCode = 1;
       return;
     }
@@ -1503,6 +1516,11 @@ async function main() {
     runSkillsCli(args.slice(1), { outputFormat }); return;
   }
   const invocation = resolveCliInvocation(args);
+
+  if (cmd === 'call' && sub?.startsWith('development.') && args.some(arg => ['--help', '-h'].includes(arg))) {
+    const { developmentHelp } = await import('./development-commands.js');
+    console.log(formatCallOutput(developmentHelp(), outputFormat ?? 'json')); return;
+  }
 
   if ((cmd === 'profile' && (sub === 'help' || args.some(arg => ['--help', '-h'].includes(arg))))
       || (cmd === 'call' && sub?.startsWith('profile.') && args.some(arg => ['--help', '-h'].includes(arg)))) {

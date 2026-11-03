@@ -1,3 +1,4 @@
+import { createDevelopmentChatHandoff } from './website-exploration-handoff.js'
 import { createSkillManagementRouter, sanitizeSkillDirectoryName } from './skill-management.js'
 import { officialSkillBuildTime } from './skill-build-time.js'
 import { randomUUID as channelQrId, createHash } from 'node:crypto'
@@ -329,6 +330,11 @@ app.get('/internal/webwright/model-config', (req, res) => {
 app.use(requireHttpAuth)
 app.use(express.json({ limit: '50mb' }))
 app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
+  onDevelopmentHandoff: input => {
+    const result = createDevelopmentChatHandoff(input)
+    broadcastSSE({ type: 'works_changed', workId: result.work.id })
+    return result
+  },
   onInstalled: ({ name, revision, profile }) => {
     clearAdapterCache()
     refreshDesktopAdapterSkills(SKILLS_DIR)

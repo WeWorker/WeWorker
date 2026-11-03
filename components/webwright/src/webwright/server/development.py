@@ -74,7 +74,7 @@ def build_development_input(
     debug_evidence: dict[str, Any] | None = None
     if debug_run_evidence_id and not exploration_only:
         run = debug_store.read(debug_run_evidence_id)
-        if run.get("tool_id") != tool_id:
+        if run.get("toolkit_id") != toolkit_id or run.get("tool_id") != tool_id:
             raise ValueError("Debug Run does not belong to this Tool.")
         debug_evidence = run
     return sanitize_evidence(

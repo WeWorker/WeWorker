@@ -154,11 +154,18 @@ test('URL exploration uses global endpoints without Adapter or Tool', async () =
   } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })
 
-test('workspace tabs precede development-only Adapter tree and exploration needs no Tool', () => {
-  assert.ok(pageSource.indexOf('aria-label="网站探索工作区"') < pageSource.indexOf('aria-label="Adapter 目录"'))
-  assert.match(pageSource, /workspace === 'develop' && treeVisible && <aside/)
-  assert.match(pageSource, /workspace === 'explore' \? <div className="wx-workspace"><ExploreWorkspace disabled=/)
+test('website exploration always renders exploration without workspace tabs or Adapter management', () => {
+  assert.match(pageSource, /<ExploreWorkspace disabled=/)
+  assert.doesNotMatch(pageSource, /<nav|wx-tabs|DevelopWorkspace|Adapter 目录|ManageModal|DeleteInstalledCommandModal/)
+  assert.doesNotMatch(pageSource, /s => s.workspace|workspace ===|changeWebsiteContext/)
+  assert.doesNotMatch(pageSource, /listToolkits|listInstalledAdapters|getExportStatus|listTools/)
   assert.doesNotMatch(pageSource, /<ExploreWorkspace[^>]+toolkitId=/)
+})
+
+test('current activity navigation is restricted to explorations, not development or debugging', () => {
+  assert.match(pageSource, /activity.kind === 'exploration'/)
+  assert.match(pageSource, /selectRecord\('site\/exploration', activeExploration\)/)
+  assert.doesNotMatch(pageSource, /activity.kind === 'development'|activity.kind === 'debug'/)
 })
 
 test('module navigation retains selected exploration and development context', async () => {

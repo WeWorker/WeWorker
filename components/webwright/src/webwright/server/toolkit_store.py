@@ -138,7 +138,10 @@ def validate_tool_slot(tool_id: str, slot: dict[str, Any]) -> dict[str, Any]:
         )
     if schema_properties & forbidden:
         raise ValueError("Tool parameter schema must not expose target_id or cdp_url.")
+    if "safety" in slot and slot["safety"] not in ("read", "write"):
+        raise ValueError("safety must be read or write.")
     return {
+        **({"safety": slot["safety"]} if "safety" in slot else {}),
         "code": code,
         "description": str(slot.get("description") or ""),
         "parameters_schema": slot["parameters_schema"],
@@ -421,6 +424,10 @@ class ToolkitStore:
     ) -> dict[str, Any]:
         with self._slot_lock:
             current = self.read_development_slot(toolkit_id, tool_id)
+            # An existing write classification must not disappear when another
+            # editor only replaces code/schema fields.
+            if current and "safety" in current and "safety" not in slot:
+                slot = {**slot, "safety": current["safety"]}
             payload = self._validate_slot(toolkit_id, tool_id, slot)
             if current and current.get("source_exploration_id") != payload.get(
                 "source_exploration_id"

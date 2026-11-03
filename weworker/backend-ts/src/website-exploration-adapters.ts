@@ -38,9 +38,11 @@ export function createWebsiteExplorationAdapterRouter({
   instanceId = process.env.WEWORKER_EXPLORATION_INSTANCE_ID,
   fetchAgent = fetch,
   onInstalled = () => {},
+  onDevelopmentHandoff,
 }: {
   instanceId?: string
   fetchAgent?: typeof fetch
+  onDevelopmentHandoff?: (input: unknown) => unknown | Promise<unknown>
   onInstalled?: (event: { name: string; revision: number; profile: string }) => void | Promise<void>
 } = {}) {
   const router = Router()
@@ -51,7 +53,7 @@ export function createWebsiteExplorationAdapterRouter({
     if (!health?.ok || health.instance_id !== instanceId) throw new Error('网站探索服务实例不匹配')
     const response = await fetchAgent(AGENT + path, {
       method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
-      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json', 'X-WeWorker-Exploration-Instance': instanceId }, body: JSON.stringify(body) }),
     })
     const result = await response.json()
     if (!response.ok) throw Object.assign(new Error(result?.error?.message || result?.detail || '网站探索操作失败'), { status: response.status })
@@ -61,6 +63,16 @@ export function createWebsiteExplorationAdapterRouter({
     try { res.json(await operation(req)) }
     catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : String(error) }) }
   }
+
+  router.post('/toolkits/:id/tools/:toolId/development/chat', handle(async req => {
+    if (!onDevelopmentHandoff) throw new Error('开发对话入口不可用')
+    if (!id.test(req.params.id) || !id.test(req.params.toolId)) throw new Error('无效的 Adapter 或 Tool')
+    const input = await agent(`/api/toolkits/${req.params.id}/tools/${req.params.toolId}/development/input`, req.body || {})
+    if (input?.toolkit?.toolkit_id !== req.params.id || input?.tool?.tool_id !== req.params.toolId) {
+      throw new Error('开发输入目标不匹配')
+    }
+    return onDevelopmentHandoff(input)
+  }))
 
   const deleting = new Set<string>()
   const applying = new Set<string>()

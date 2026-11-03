@@ -25,6 +25,7 @@ export const useWorksStore = create((set, get) => ({
   works: [],
   projects: [],
   activeWorkId: null,
+  manualStartWorkIds: new Set(), // Prepared drafts must never consume global auto-send state.
   draftProjectId: null,
   messages: {}, // workId -> Message[]
   contextSnapshots: {}, // workId -> latest local context composition
@@ -224,6 +225,7 @@ export const useWorksStore = create((set, get) => ({
         delete contextCompactionStatuses[id]
         return {
           works,
+          manualStartWorkIds: new Set([...s.manualStartWorkIds].filter(workId => workId !== id)),
           messages,
           contextSnapshots,
           contextTokenAnchors,

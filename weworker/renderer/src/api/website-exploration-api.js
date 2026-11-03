@@ -273,3 +273,7 @@ export function runDebugTool(toolkitId, toolId, channel, parameters, expectedDis
 export function cancelDebugRun(debugRunId) {
   return post(`/api/debug-runs/${encode(debugRunId)}/cancel`);
 }
+
+// Prepare a chat draft only; sending remains an explicit user action.
+export const prepareDevelopmentChat = (toolkitId, toolId, body) =>
+  post(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/development/chat`, body)

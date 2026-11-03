@@ -555,6 +555,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
         return
       }
       await selectWork(workId)
+      // Handoff opens an editable draft, not an auto-send or shell request.
+      if (useWorksStore.getState().manualStartWorkIds.has(workId)) return
       const pending = useWorksStore.getState().pendingMessage
       const pendingAttachments = useWorksStore.getState().pendingAttachments || []
       const pendingThinkingEffort = useWorksStore.getState().pendingThinkingEffort || 'off'

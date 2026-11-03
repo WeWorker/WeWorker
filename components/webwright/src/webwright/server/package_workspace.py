@@ -143,7 +143,7 @@ def build_candidate(store, toolkit_id, state, slots):
             "module": module, "code_start": start, "code_end": start + len(raw), "template_version": 1}
         manifest["commands"].append({"id": command_id, "runtime": "wewright", "module": module,
             "description": slot.get("description") or tool.get("goal") or command_id,
-            "schema": slot["parameters_schema"], "safety": "read"})
+            "schema": slot["parameters_schema"], "safety": slot.get("safety", "read")})
         existing.add(command_id)
     if not manifest["commands"]:
         state.update(candidate_digest=None, contexts={})
