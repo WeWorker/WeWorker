@@ -6,6 +6,7 @@ from webwright.server.artifacts import read_messages, read_steps
 from webwright.server.debug_store import DebugRunStore
 from webwright.server.records import TaskStore
 from webwright.server.toolkit_store import ToolkitStore
+from webwright.utils.local_cdp import page_in_allowed_domains
 
 
 _PRIVATE_KEYS = {"target_id", "active_target_id", "cdp_url", "api_key", "environment"}
@@ -21,6 +22,16 @@ def sanitize_evidence(value: Any) -> Any:
     if isinstance(value, list):
         return [sanitize_evidence(item) for item in value]
     return value
+
+
+def validate_exploration_source(record: dict[str, Any], toolkit: dict[str, Any], tool_id: str) -> None:
+    if record.get("toolkit_id") or record.get("tool_id"):
+        if record.get("toolkit_id") != toolkit["toolkit_id"] or record.get("tool_id") != tool_id:
+            raise ValueError("Exploration does not belong to this Tool.")
+    elif not page_in_allowed_domains(str(record.get("start_url") or ""), toolkit["allowed_domains"]):
+        raise ValueError("Exploration URL must be within Adapter allowed domains.")
+    if record.get("status") != "succeeded":
+        raise ValueError("Source Exploration must be succeeded.")
 
 
 def build_development_input(
@@ -52,10 +63,7 @@ def build_development_input(
     exploration: dict[str, Any] | None = None
     if source_exploration_id:
         record = task_store.read_exploration(source_exploration_id)
-        if record.get("toolkit_id") != toolkit_id or record.get("tool_id") != tool_id:
-            raise ValueError("Exploration does not belong to this Tool.")
-        if record.get("status") != "succeeded":
-            raise ValueError("Source Exploration must be succeeded.")
+        validate_exploration_source(record, toolkit, tool_id)
         output_dir = task_store.task_dir(source_exploration_id)
         exploration = {
             "exploration_id": source_exploration_id,

@@ -249,3 +249,75 @@ def test_host_tool_deletion_syncs_baseline_and_clears_removed_tools(tmp_path):
     assert state_after_uninstall["install_baseline_digest"] is None
     assert state_after_uninstall["candidate_digest"] is None
     assert state_after_uninstall["removed_tools"] == []
+
+
+def test_development_writes_directly_without_directory_rename(tmp_path, monkeypatch):
+    store = workspace(tmp_path)
+    def reject_rename(*args, **kwargs):
+        raise PermissionError("Directory rename is unavailable")
+    monkeypatch.setattr(Path, "rename", reject_rename)
+    expected = store.write_development_slot("example", "read_page", slot())
+    assert store.read_development_slot("example", "read_page") == expected
+    assert not list((store.toolkit_dir("example") / "packages").glob(".package-*"))
+
+
+def test_development_save_keeps_applied_package_until_acknowledged(tmp_path):
+    from webwright.server.package_workspace import read_package
+    store = workspace(tmp_path)
+    original = store.write_development_slot("example", "read_page", slot())
+    first = apply(store)
+    digest = first["candidate_digest"]
+    files_before = read_package(store, "example", digest)[0]
+    updated = store.write_development_slot("example", "read_page",
+        slot("async def read_page(ctx):\n    return {'new': True}\n"))
+    prepared = prepare_apply(store, "example")
+    assert prepared["candidate_digest"] != digest
+    assert read_state(store, "example")["last_applied_digest"] == digest
+    assert store.read_formal_slot("example", "read_page") == original
+    assert read_package(store, "example", digest)[0] == files_before
+    assert store.read_development_slot("example", "read_page") == updated
+    apply(store, 2)
+    assert store.read_formal_slot("example", "read_page") == updated
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_interrupted_direct_write_can_retry_without_changing_applied_package(tmp_path, monkeypatch, partial):
+    from webwright.server.package_workspace import read_package
+    store = workspace(tmp_path)
+    original = store.write_development_slot("example", "read_page", slot())
+    first = apply(store)
+    before = read_state(store, "example")
+    applied_files = read_package(store, "example", first["candidate_digest"])[0]
+    write_bytes = Path.write_bytes
+    def fail_manifest(path, content):
+        if path.name == "manifest.json":
+            if partial:
+                write_bytes(path, content[:10])
+            raise OSError("simulated interrupted write")
+        return write_bytes(path, content)
+    updated_slot = slot("async def read_page(ctx):\n    return {'new': True}\n")
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "write_bytes", fail_manifest)
+        with pytest.raises(OSError, match="interrupted write"):
+            store.write_development_slot("example", "read_page", updated_slot)
+    assert read_state(store, "example") == before
+    assert store.read_formal_slot("example", "read_page") == original
+    assert read_package(store, "example", first["candidate_digest"])[0] == applied_files
+    restarted = ToolkitStore(store.root)
+    updated = restarted.write_development_slot("example", "read_page", updated_slot)
+    assert restarted.read_development_slot("example", "read_page") == updated
+    assert restarted.read_formal_slot("example", "read_page") == original
+
+
+def test_referenced_package_is_not_rewritten_even_when_invalid(tmp_path, monkeypatch):
+    from webwright.server.package_workspace import read_package, write_package
+    store = workspace(tmp_path)
+    store.write_development_slot("example", "read_page", slot())
+    digest = apply(store)["candidate_digest"]
+    files, root = read_package(store, "example", digest)
+    (root / "manifest.json").write_bytes(b"corrupt")
+    def reject_write(*args, **kwargs):
+        pytest.fail("Referenced package must not be rewritten")
+    monkeypatch.setattr(Path, "write_bytes", reject_write)
+    with pytest.raises(ValueError, match="snapshot changed"):
+        write_package(store, "example", files)

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import * as api from '../api/website-exploration-api.js'
 
 export const useWebsiteExplorationStore = create((set, get) => ({
-  open: false, toolkitId: '', toolId: '', workspace: 'explore',
+  open: false, toolkitId: '', toolId: '', workspace: 'explore', explorationContext: null,
   drafts: {}, selections: {}, scrolls: {}, codeDraft: null, leaveRequest: null,
   activity: { running: false }, connection: 'starting',
   setContext: (patch) => set(patch),

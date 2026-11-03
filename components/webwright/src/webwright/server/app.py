@@ -136,6 +136,10 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/debug-runs/{debug_run_id}/cancel": {"post": op("Cancel a Debug Run")},
             "/api/debug-runs/{debug_run_id}/events": {"get": op("Stream Debug Run events")},
             "/api/debug-runs/{debug_run_id}/files/{path}": {"get": op("Read a Debug Run artifact")},
+            "/api/explorations": {
+                "get": op("List site explorations"),
+                "post": op("Start exploration from a URL without a Tool"),
+            },
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/explorations": {
                 "get": op("List Tool-owned Explorations"),
                 "post": op("Create and start a Tool-owned Exploration"),
@@ -248,7 +252,7 @@ It has no independent model configuration API or persistent model store.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/messages` - continue development with an instruction and optional selected Debug Run.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/cancel` - cancel active development.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/reset-from-formal` - overwrite development from formal.
-- `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/restart-from-exploration` - clear development and rebuild only from one succeeded Tool-owned Exploration.
+- `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/restart-from-exploration` - clear development and rebuild only from one succeeded compatible Exploration.
 - `DELETE /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development` - discard development.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/events` - latest Development Run SSE.
 - `GET /api/toolkits/{{toolkit_id}}/export-status` - get the saved candidate package digest and export eligibility.
@@ -263,6 +267,8 @@ It has no independent model configuration API or persistent model store.
 
 ## Explorations
 
+- `GET /api/explorations` - list independent and Tool-owned Explorations.
+- `POST /api/explorations` - start an independent Exploration with `start_url` and optional `instruction` / `title`; no Tool or prepared page is required.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/explorations` - list one Tool's Explorations.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/explorations` - create and start an Exploration.
   Body: `{{"instruction":"optional supplemental instruction"}}`
@@ -396,6 +402,8 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "exploration_id": exploration_id,
+        "start_url": view["start_url"],
+        "title": task.get("title", ""),
         "toolkit_id": view["toolkit_id"],
         "tool_id": view["tool_id"],
         "instruction": view["instruction"],
@@ -1177,6 +1185,20 @@ def create_app(
         run = debug_runs.read(debug_run_id)
         run_dir = debug_runs.run_dir(str(run["tool_id"]), debug_run_id)
         return send_file(resolve_task_file(run_dir, relative_path))
+
+    @app.get("/api/explorations")
+    def list_site_explorations():
+        return jsonify({"explorations": [_exploration_view(item) for item in task_store.list_explorations()]})
+
+    @app.post("/api/explorations")
+    def create_site_exploration():
+        payload = _request_json()
+        exploration = manager.start_url_exploration(
+            start_url=str(payload.get("start_url") or ""),
+            instruction=str(payload.get("instruction") or ""),
+            title=str(payload.get("title") or ""),
+        )
+        return jsonify(_exploration_view(exploration))
 
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/explorations")
     def list_explorations(toolkit_id: str, tool_id: str):
