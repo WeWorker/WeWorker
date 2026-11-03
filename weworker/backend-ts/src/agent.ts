@@ -582,6 +582,7 @@ function getPackagedClaudeSetup(): { pathToClaudeCodeExecutable: string; executa
 async function summarizeConversationOnly(input: {
   conversation: string
   settings: Settings
+  purpose?: 'compaction' | 'task_notification'
   abortController?: AbortController
   env: NodeJS.ProcessEnv
   claudeSetup: { pathToClaudeCodeExecutable?: string; executable?: string }
@@ -593,11 +594,16 @@ async function summarizeConversationOnly(input: {
       abortController: input.abortController,
       model: input.settings.model,
       systemPrompt: [
-        '你正在执行 WeWorker 的对话上下文压缩。',
-        '只根据用户与助手的对话内容生成简洁、可继续执行的事实摘要。',
-        '保留用户目标、已经确认的事实、已完成或失败的步骤、重要参数、待处理事项和恢复线索。',
+        input.purpose === 'task_notification'
+          ? '你正在整理 WeWorker 定时任务的执行结果，用于发送给用户。'
+          : '你正在执行 WeWorker 的对话上下文压缩。',
+        input.purpose === 'task_notification'
+          ? '只依据本轮定时任务的执行记录，写一段准确、简洁、可直接发送的中文结果摘要。保留关键数据、结论和失败情况；不要声称记录中没有的结果。'
+          : '只根据用户与助手的对话内容生成简洁、可继续执行的事实摘要。保留用户目标、已经确认的事实、已完成或失败的步骤、重要参数、待处理事项和恢复线索。',
         '不要加入系统规则、工具定义、Skills、长期记忆或对话之外的推断。',
-        '不要回答用户问题，不要输出标题、解释或元数据，只输出摘要正文。',
+        input.purpose === 'task_notification'
+          ? '不要执行任务或调用工具，不要输出标题、解释或元数据，只输出摘要正文。'
+          : '不要回答用户问题，不要输出标题、解释或元数据，只输出摘要正文。',
       ].join('\n'),
       tools: [],
       settingSources: [],
@@ -1114,6 +1120,7 @@ async function* streamChatWithBaseUrl(
     previousTaskFailed?: boolean;
     forceCompaction?: boolean;
     compactionOnly?: boolean;
+    notificationSummaryOnly?: boolean;
     thinkingEffort?: ThinkingEffort;
     /**
      * Run against a dedicated CLAUDE_CONFIG_DIR whose skills/ directory the caller
@@ -1249,6 +1256,28 @@ async function* streamChatWithBaseUrl(
     ...(opts.workId ? { WEWORKER_WORK_ID: opts.workId } : {}),
     // Ensure Electron binary can act as Node.js runtime for packaged webcli
     ...(process.env.WEWORKER_PACKAGED ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+  }
+
+  if (opts.notificationSummaryOnly) {
+    const conversation = messages.map((message) => {
+      const content = message.content
+        .filter((block): block is Extract<Message['content'][number], { type: 'text' }> => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+      return `${message.role}: ${content}`
+    }).filter(Boolean).join('\n\n')
+    const summary = await summarizeConversationOnly({
+      conversation,
+      settings,
+      purpose: 'task_notification',
+      abortController,
+      env: envWithWebcli,
+      claudeSetup,
+      spawnClaudeCodeProcess,
+    })
+    yield { type: 'text_delta', content: summary }
+    yield { type: 'done' }
+    return
   }
 
   const disallowedTools = [

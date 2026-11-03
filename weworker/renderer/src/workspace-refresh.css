@@ -62,7 +62,7 @@ body { -webkit-font-smoothing: antialiased; }
   background: transparent;
   border: 0;
   color: var(--sidebar-title-color);
-  font-size: 14px;
+  font-size: var(--font-size-label);
   font-weight: 500;
 }
 .workspace-sidebar .sidebar-new-chat:hover,
@@ -178,6 +178,18 @@ body { -webkit-font-smoothing: antialiased; }
   --bg-active: #ededed;
 }
 html.dark .workspace-sidebar {
+  --sidebar-title-color: #dedede;
+  --sidebar-surface: #181818;
+  --bg-hover: #303030;
+  --bg-active: #383838;
+}
+.dedicated-agents-sidebar {
+  --sidebar-title-color: #3f424a;
+  --sidebar-surface: #fafafa;
+  --bg-hover: #f0f0f0;
+  --bg-active: #ededed;
+}
+html.dark .dedicated-agents-sidebar {
   --sidebar-title-color: #dedede;
   --sidebar-surface: #181818;
   --bg-hover: #303030;

@@ -1,0 +1,25 @@
+.scheduled-task-title-input {
+  width: 180px;
+  max-width: 100%;
+  min-width: 0;
+  height: 28px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-title);
+  font-weight: 600;
+  outline: none;
+}
+
+.scheduled-task-title-input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
+.scheduled-task-title-error {
+  color: var(--error);
+  font-size: var(--font-size-caption);
+}

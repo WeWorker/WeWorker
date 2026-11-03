@@ -28,7 +28,7 @@
   border-radius: 10px;
   background: var(--text-primary);
   color: var(--bg-primary);
-  font-size: 18px;
+  font-size: var(--font-size-subtitle);
   font-weight: 750;
   letter-spacing: -0.04em;
 }

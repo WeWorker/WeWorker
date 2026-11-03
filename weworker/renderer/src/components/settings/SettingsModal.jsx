@@ -156,8 +156,20 @@ const SETTINGS_DESCRIPTIONS = {
   about: '查看版本信息与更新选项。',
 }
 
+const SETTINGS_SIDEBAR_MIN_WIDTH = 150
+const SETTINGS_SIDEBAR_MAX_WIDTH = 320
+const clampSettingsSidebarWidth = (width) => Math.min(SETTINGS_SIDEBAR_MAX_WIDTH, Math.max(SETTINGS_SIDEBAR_MIN_WIDTH, width))
+
 export default function SettingsPage({ onClose }) {
   const [tab, setTab] = useState('model')
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('settings_sidebar_width'))
+    return Number.isFinite(saved) && saved >= SETTINGS_SIDEBAR_MIN_WIDTH
+      ? clampSettingsSidebarWidth(saved)
+      : 180
+  })
+  const [resizingSidebar, setResizingSidebar] = useState(false)
+  const sidebarResizeRef = useRef(null)
   const [appVersion, setAppVersion] = useState('')
   // 个性化页的自定义风格草稿需要跨页签保留；首次进入后保持挂载，只隐藏而不卸载。
   const [personalizationMounted, setPersonalizationMounted] = useState(false)
@@ -169,9 +181,54 @@ export default function SettingsPage({ onClose }) {
 
   const commitHash = typeof __BUILD_COMMIT_HASH__ !== 'undefined' ? __BUILD_COMMIT_HASH__ : 'dev'
 
+  useEffect(() => {
+    if (!resizingSidebar) return undefined
+    const onMove = (event) => {
+      if (!sidebarResizeRef.current) return
+      setSidebarWidth(clampSettingsSidebarWidth(sidebarResizeRef.current.width + event.clientX - sidebarResizeRef.current.x))
+    }
+    const onUp = () => {
+      sidebarResizeRef.current = null
+      setResizingSidebar(false)
+      setSidebarWidth((width) => {
+        localStorage.setItem('settings_sidebar_width', String(width))
+        return width
+      })
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [resizingSidebar])
+
+  const startSidebarResize = (event) => {
+    event.preventDefault()
+    sidebarResizeRef.current = { x: event.clientX, width: sidebarWidth }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    setResizingSidebar(true)
+  }
+
+  const handleSidebarResizeKeyDown = (event) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const delta = event.key === 'ArrowLeft' ? -10 : 10
+    setSidebarWidth((current) => {
+      const next = clampSettingsSidebarWidth(current + delta)
+      localStorage.setItem('settings_sidebar_width', String(next))
+      return next
+    })
+  }
+
   return (
     <section className="settings-page" aria-label="设置">
-      <div className="settings-shell settings-shell--sidebar">
+      <div className="settings-shell settings-shell--sidebar" style={{ gridTemplateColumns: `${sidebarWidth}px 8px minmax(0, 1fr)` }}>
         <aside className="settings-sidebar">
           <div className="settings-sidebar__brand">
             <h2>设置</h2>
@@ -190,6 +247,18 @@ export default function SettingsPage({ onClose }) {
             ))}
           </nav>
         </aside>
+        <div
+          className={`settings-sidebar-resize-handle${resizingSidebar ? ' is-resizing' : ''}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整设置导航宽度"
+          aria-valuemin={SETTINGS_SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SETTINGS_SIDEBAR_MAX_WIDTH}
+          aria-valuenow={sidebarWidth}
+          tabIndex={0}
+          onMouseDown={startSidebarResize}
+          onKeyDown={handleSidebarResizeKeyDown}
+        />
         <div className="settings-panel-frame">
           <div className="settings-panel-top">
             <div>
@@ -250,37 +319,41 @@ function BackgroundSettingsGroup() {
   }
 
   return (
-    <div className="settings-group">
-      <SettingRow
-        title="后台运行"
-        description="专属 Agent 由 WeWorker 在本机提供服务，WeWorker 退出后它们会停止回复企业微信和微信消息"
-        stacked
-      >
-        <div className="settings-update-settings">
-          {settings.closeToTraySupported && (
-            <SwitchField
+    <div className="settings-background-section">
+      <h4 className="settings-background-section__title">后台运行</h4>
+      <div className="settings-group">
+        {settings.closeToTraySupported && (
+          <SettingRow
+            title="关闭窗口时最小化到系统托盘"
+            description="保持后台运行；关闭窗口后，专属 Agent 仍可回复企业微信和微信消息。"
+          >
+            <AppSwitch
               checked={settings.closeToTray}
-              onChange={(closeToTray) => update({ closeToTray })}
-              label="关闭窗口时最小化到系统托盘，保持后台运行"
+              onChange={(event) => update({ closeToTray: event.target.checked })}
+              aria-label="关闭窗口时最小化到系统托盘"
             />
-          )}
-          <SwitchField
+          </SettingRow>
+        )}
+        <SettingRow
+          title="开机自动启动 WeWorker"
+          description={settings.launchAtLoginSupported
+            ? '在后台启动，不弹出窗口。'
+            : '当前运行环境不可用；标准安装客户端首次启动默认开启。'}
+        >
+          <AppSwitch
             checked={settings.launchAtLogin}
             disabled={!settings.launchAtLoginSupported}
-            onChange={(launchAtLogin) => update({ launchAtLogin })}
-            label="开机自动启动 WeWorker（在后台启动，不弹出窗口）"
+            onChange={(event) => update({ launchAtLogin: event.target.checked })}
+            aria-label="开机自动启动 WeWorker"
           />
-          {!settings.launchAtLoginSupported && (
-            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>当前运行环境不可用；标准安装客户端首次启动默认开启。</div>
-          )}
-          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-            {settings.platform === 'darwin'
-              ? '关闭窗口后 WeWorker 仍在运行，可通过菜单栏图标或程序坞打开；按 ⌘Q 或在菜单栏图标中退出。'
-              : '真正退出请右键系统托盘中的 WeWorker 图标，选择「退出 WeWorker」。'}
-          </div>
-          {error && <div style={{ fontSize: 12, color: 'var(--error, #ef4444)' }}>{error}</div>}
-        </div>
-      </SettingRow>
+        </SettingRow>
+      </div>
+      <div className="settings-background-section__note">
+        {settings.platform === 'darwin'
+          ? '关闭窗口后 WeWorker 仍在运行，可通过菜单栏图标或程序坞打开；按 ⌘Q 或在菜单栏图标中退出。'
+          : '真正退出请右键系统托盘中的 WeWorker 图标，选择「退出 WeWorker」。'}
+      </div>
+      {error && <div className="settings-background-section__error" role="alert">{error}</div>}
     </div>
   )
 }

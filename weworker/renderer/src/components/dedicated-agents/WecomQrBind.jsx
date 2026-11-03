@@ -147,7 +147,7 @@ export default function WecomQrBind({ onBound, busy = false, autoStart = true, c
           {state === 'success' && <span style={{ color: '#16a34a', fontSize: 40 }} aria-label="扫码成功">✓</span>}
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
+          <div style={{ fontSize: 'var(--font-size-label)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
             {state === 'success' ? '扫码成功' : state === 'scanned' ? '已扫码，请在手机上确认' : copy.title}
           </div>
           <ol style={{ ...hintStyle, paddingLeft: 18, margin: '0 0 12px' }}>

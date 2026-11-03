@@ -98,7 +98,7 @@ html.dark {
   :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn).ant-btn-lg {
     min-height: 40px !important;
     padding: 9px 16px !important;
-    font-size: 14px !important;
+    font-size: var(--font-size-body) !important;
   }
 
   :is([data-app-button='action'], .ant-modal-footer .ant-btn, .ant-popconfirm-buttons .ant-btn):not(:disabled):not([aria-disabled='true']):not(.ant-btn-loading):is(:hover, :focus-visible) {

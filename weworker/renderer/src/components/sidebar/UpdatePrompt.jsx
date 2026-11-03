@@ -253,7 +253,7 @@ const modalHeaderStyle = {
 }
 
 const modalTitleStyle = {
-  fontSize: 16,
+  fontSize: 'var(--font-size-subtitle)',
   fontWeight: 700,
   lineHeight: 1.35,
 }

@@ -87,10 +87,10 @@ function sendSystemNotification(payload: NotificationPayload): void {
 function formatNotificationMessage(payload: NotificationPayload): string {
   const statusText = payload.status === 'completed' ? '✅ 执行完成' : '❌ 执行失败'
   let msg = `[定时任务] ${payload.taskTitle}\n${statusText}`
-  if (payload.fullText) {
-    msg += `\n\n${payload.fullText}`
-  } else if (payload.summary) {
+  if (payload.summary) {
     msg += `\n摘要: ${payload.summary}`
+  } else if (payload.fullText) {
+    msg += `\n\n${payload.fullText}`
   }
   if (payload.error) {
     msg += `\n错误: ${payload.error}`

@@ -83,7 +83,7 @@
 .wx-step p,.wx-message p { max-width:75ch; }
 .wx-message { padding:16px 0; }
 .wx-user { margin-left:24px; }
-.wx-agent_final { font-size:14px; }
+.wx-agent_final { font-size:var(--font-size-body); }
 .wx-prompt { padding:8px 18px 16px;border-top:1px solid var(--border); }
 .wx-prompt textarea { max-height:180px; }
 .wx-prompt button { float:right; }

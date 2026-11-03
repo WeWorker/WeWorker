@@ -408,7 +408,7 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
           data-conversation-compaction-status={compactionStatus}
           style={{
             padding: '12px 20px',
-            fontSize: 14,
+            fontSize: 'var(--font-size-body)',
             color: compactionStatus === 'failed' ? 'var(--error)' : compactionStatus === 'compacting' ? 'var(--accent)' : 'var(--text-secondary)',
           }}
         >
