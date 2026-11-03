@@ -31,6 +31,8 @@ const MAX_VALIDATE_LEN = 80
 
 /** manifest pattern 中的槽位语法：`${...}`。 */
 const SLOT_RE = /\$\{([^}]*)\}/g
+/** 数量式自由槽的单位是固定话术后缀，validate 仅校验数量捕获值。 */
+const QUANTITY_UNIT_RE = /^(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百千万亿]+)(小时|分钟|公里|公斤|天|个|条|页|楼|层|周|月|年|次|秒|米|元|件|张|位|人|岁|吨|克|只|辆)$/
 
 /** 编译后的槽位（name = 正则命名捕获组名，与 m.groups 对应）。 */
 export type CompiledGroup =
@@ -232,7 +234,9 @@ function compileTemplate(
     const name = `g${i}`
     const free = freeSpecs.get(i)
     if (free) {
+      const unit = QUANTITY_UNIT_RE.exec(token)?.[1]
       parts.push(`(?<${name}>${free.validate})`)
+      if (unit) parts.push(escapeRegExp(unit))
       groups.push({ kind: 'free', name, slot: free.name, arg: free.arg, validateRe: free.validateRe })
     } else {
       const tokens = token
