@@ -130,4 +130,3 @@ export function getToolExecTooltipText(block) {
   }
   return getToolExecLineText(block)
 }
-
