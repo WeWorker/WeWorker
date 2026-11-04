@@ -3,7 +3,19 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
-afterEach(() => { vi.doUnmock('../provider-config.js'); vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules() })
+// Register the fixture before any config imports so cached dependency transforms
+// also see it when provider-registry initializes its provider list.
+vi.mock('../provider-config.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../provider-config.js')>()
+  const template = actual.configuredProvider('anthropic')!
+  const providers = [...actual.CONFIGURED_PROVIDERS, { ...template, id: 'bank_coding', name: 'Fixture coding provider',
+    authType: 'auth_token' as const, allowMultiple: false, baseUrlEnv: 'WEWORKER_BANK_CODING_BASE_URL',
+    weworker: { ...template.weworker, baseUrl: 'https://example.com/public' } }]
+  return { ...actual, CONFIGURED_PROVIDERS: providers,
+    configuredProvider: (id: string | undefined) => providers.find(provider => provider.id === id) }
+})
+
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules() })
 
 it('keeps deployment keys out of settings during activation, unrelated saves and reload', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-fixture-'))
@@ -43,15 +55,6 @@ it('encrypts the user coding key and restores it across reload and provider swit
   vi.stubEnv('WEWORKER_BANK_CODING_BASE_URL', 'https://example.com/public')
   vi.stubEnv('WEWORKER_TEST_MASTER_KEY', '0123456789abcdef0123456789abcdef')
   vi.resetModules()
-  vi.doMock('../provider-config.js', async importOriginal => {
-    const actual = await importOriginal<typeof import('../provider-config.js')>()
-    const template = actual.configuredProvider('anthropic')!
-    const providers = [...actual.CONFIGURED_PROVIDERS, { ...template, id: 'bank_coding', name: 'Fixture coding provider',
-      authType: 'auth_token' as const, allowMultiple: false, baseUrlEnv: 'WEWORKER_BANK_CODING_BASE_URL',
-      weworker: { ...template.weworker, baseUrl: 'https://example.com/public' } }]
-    return { ...actual, CONFIGURED_PROVIDERS: providers,
-      configuredProvider: (id: string | undefined) => providers.find(provider => provider.id === id) }
-  })
   const config = await import('../config.js')
   await config.initSettings()
   const { activateBuiltinProvider, BUILTIN_PROVIDER } = await import('../builtin-provider.js')

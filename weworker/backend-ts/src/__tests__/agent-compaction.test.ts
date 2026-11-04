@@ -25,6 +25,7 @@ vi.mock('../user-directory-access.js', () => ({
 }))
 
 import { clearStoredConversationCompaction, streamChat } from '../agent.js'
+import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 
 function message(id: string, text: string, role: Message['role'] = 'user'): Message {
   return { id, work_id: 'compaction-test', role, content: [{ type: 'text', text }], created_at: '' }
@@ -78,6 +79,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  configureWorkLogs(undefined)
   clearStoredConversationCompaction(options.workId)
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -85,6 +87,33 @@ afterEach(() => {
 })
 
 describe('agent conversation compaction', () => {
+  it('writes complete model input and tool result parts during execution, without model credentials', async () => {
+    configureWorkLogs(path.join(mocks.directory, 'logs'))
+    const first = 'FIRST-RESULT-' + 'a'.repeat(5_000)
+    const second = 'SECOND-RESULT-' + 'b'.repeat(5_000)
+    mocks.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'fixture-call', name: 'Read', input: { query: 'QUERY-END' } }] } }
+        yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'fixture-call', content: [{ type: 'text', text: first }, { type: 'text', text: second }] }] } }
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'ANSWER-END' }] } }
+        yield { type: 'result', subtype: 'success', is_error: false, result: 'ANSWER-END' }
+      },
+      close() {},
+    }))
+    const messages = [message('current', 'INPUT-' + 'x'.repeat(2_000) + '-END')]
+    for await (const event of streamChat(messages, settings, undefined, { ...options, streaming: false })) {
+      if (event.type === 'tool_call_result') {
+        expect(fs.readFileSync(path.join(mocks.directory, 'logs', options.workId + '.log'), 'utf8')).toContain(event.result)
+      }
+    }
+    const text = readWorkLog({ id: options.workId, messages })
+    expect(text).toContain('INPUT-' + 'x'.repeat(2_000) + '-END')
+    expect(text).toContain(first)
+    expect(text).toContain(second)
+    expect(text).toContain('ANSWER-END')
+    expect(text).toContain('"status":"completed"')
+    expect(text).not.toContain(settings.api_key)
+  })
   it.each([{ disabled: '1', enabled: false }, { disabled: '0', enabled: true }])(
     'applies the process memory switch to a real agent turn: disabled=$disabled', async ({ disabled, enabled }) => {
       vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', disabled)

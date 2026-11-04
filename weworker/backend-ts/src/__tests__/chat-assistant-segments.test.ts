@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatSession, PromptQueue } from '../chat-session.js'
 import type * as Store from '../works-store.js'
@@ -14,6 +18,29 @@ const entry = (message: Store.Message) => ({ id: message.id, role: message.role,
 
 describe('assistant segments around steering', () => {
   beforeEach(() => { store._initTestDb() })
+  it('appends steering inputs and late tool updates to the same file without replacing earlier entries', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'steering-log-'))
+    configureWorkLogs(directory)
+    try {
+      const work = store.createWork('Fixture')
+      store.appendMessage(work.id, 'user', [{ type: 'text', text: 'ORIGINAL' }])
+      const content: Store.ContentBlock[] = [{ type: 'tool_use', id: 'tool', name: 'Read', args: {}, status: 'running' }]
+      const segments = createAssistantSegments(work.id, content)
+      segments.checkpoint()
+      const first = fs.readFileSync(path.join(directory, work.id + '.log'), 'utf8')
+      store.appendMessage(work.id, 'user', [{ type: 'text', text: 'STEERING-' + 'x'.repeat(3_000) + '-END' }])
+      content[0] = { ...content[0] as Extract<Store.ContentBlock, { type: 'tool_use' }>, status: 'done', result: 'TOOL-' + 'r'.repeat(3_000) + '-END' }
+      segments.refresh(0)
+      const output = readWorkLog({ id: work.id, messages: [] })
+      expect(output.startsWith(first)).toBe(true)
+      expect(output).toContain('STEERING-' + 'x'.repeat(3_000) + '-END')
+      expect(output).toContain('TOOL-' + 'r'.repeat(3_000) + '-END')
+      expect(output).toContain('message_updated')
+    } finally {
+      configureWorkLogs(undefined)
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
 
   it('reloads chronological segments and updates late tools in their original message', () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))

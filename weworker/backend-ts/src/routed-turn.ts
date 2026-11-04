@@ -26,6 +26,7 @@ import { randomUUID } from 'node:crypto'
 import { tryIntelligentQueryRoute } from './api-query-router/index.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import type { ContentBlock, Message } from './works-store.js'
+import { appendWorkLog } from './work-log-file.js'
 
 /** 路由命中后回落的耗时与自描述字段（供 timing 块落库与 UI 识别）。 */
 export interface RoutedTiming {
@@ -117,8 +118,11 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
   let timing: RoutedTiming | null = null
   /** 是否已经把可见输出推给调用方（正文或 turn_end）。推过之后就不许再落回，否则同一条消息答两遍。 */
   let visible = false
+  const turnId = input.turnId ?? randomUUID().slice(0, 8)
+  appendWorkLog(input.workId, 'route_input', { message: input.message, history: input.history }, turnId)
 
   const send = (event: object): void => {
+    appendWorkLog(input.workId, 'route_event', event, turnId)
     const record = event as Record<string, unknown>
     if (record.type === 'text_delta' && typeof record.content === 'string') text += record.content
     else if (record.type === 'turn_end') timing = toRoutedTiming(record)
@@ -132,7 +136,7 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
       {
         message: input.message,
         workId: input.workId,
-        turnId: input.turnId ?? randomUUID().slice(0, 8),
+        turnId,
         chatStartTime: input.chatStartTime,
         send,
         log: input.log,
@@ -144,6 +148,7 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
+    appendWorkLog(input.workId, 'route_error', { error: error instanceof Error ? error.stack || reason : reason, visible }, turnId)
     // 已经推流之后再抛错（典型：落库写失败）不能落回——调用方再跑一次 `streamChat`
     // 会让用户看到两条答案。这里保留已产出的正文，由调用方照常收尾。
     if (visible) {
@@ -155,9 +160,11 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
   }
 
   if (!handled) {
+    appendWorkLog(input.workId, 'route_end', { handled: false }, turnId)
     // 落回时清掉半成品，避免调用方误以为有答案（级联某些层可能已推过流）。
     return miss
   }
+  appendWorkLog(input.workId, 'route_end', { handled: true }, turnId)
   return { handled: true, text, timing }
 }
 
