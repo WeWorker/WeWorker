@@ -300,6 +300,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       if (assistantContent.length > 0) store.appendMessage(work.id, 'assistant', assistantContent)
     } else {
       for await (const event of streamChat(workWithMessages.messages, settings, undefined, {
+        directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
         streaming: false,
         enabledAdapterIds,
         workId: workWithMessages.id,

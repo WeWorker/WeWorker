@@ -45,7 +45,7 @@ describe('runChannelChat 的路由接线', () => {
     mocks.streamChat.mockImplementation(async function* () {
       yield { type: 'text_delta', content: '模型回答' }
     })
-    mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null })
+    mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null, directRoute: { status: 'miss' } })
   })
 
   it('命中路由时跳过模型回合，并交回带 routeTool 的 timing', async () => {
@@ -96,6 +96,7 @@ describe('runChannelChat 的路由接线', () => {
 
     expect(result.text).toBe('模型回答')
     expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.streamChat.mock.calls[0][3].directRoute).toEqual({ status: 'miss' })
   })
 
   it('专属 Agent 的渠道回合不接入路由', async () => {
@@ -105,6 +106,7 @@ describe('runChannelChat 的路由接线', () => {
 
     expect(mocks.tryRoutedTurn).not.toHaveBeenCalled()
     expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.streamChat.mock.calls[0][3].directRoute).toEqual({ status: 'skipped', reason: 'dedicated_agent' })
   })
 
   it('本轮没有用户正文时不路由', async () => {

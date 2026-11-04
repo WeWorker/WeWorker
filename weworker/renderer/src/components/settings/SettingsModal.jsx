@@ -143,6 +143,7 @@ const LOGOS = {
 const SETTINGS_GROUPS = [
   { label: '常用设置', items: [['model', '模型'], ['config', '应用偏好'], ['memory', '记忆']] },
   { label: '高级设置', items: [['channels', '通道'], ['permissions', '权限与安全'], ['browser', '浏览器'], ['logs', '运行日志']] },
+  { label: '扩展', items: [['webcli-route', 'WebCLI 路由']] },
   { label: '应用信息', items: [['about', '关于']] },
 ]
 const SETTINGS_DESCRIPTIONS = {
@@ -153,6 +154,7 @@ const SETTINGS_DESCRIPTIONS = {
   permissions: '管理网站访问与操作权限。',
   browser: '管理网站操作浏览器与连接设置。',
   logs: '查看运行记录，帮助排查问题。',
+  'webcli-route': '默认开启。在直接路由未命中时，为 Agent 提供命令推荐。',
   about: '查看版本信息与更新选项。',
 }
 
@@ -270,6 +272,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'channels' && <ChannelsTab />}
             {tab === 'permissions' && <PermissionsTab />}
             {tab === 'browser' && <BrowserTab />}
+            {tab === 'webcli-route' && <WebcliRouteTab />}
             {personalizationMounted && <ConfigTab active={tab === 'config'} showStyle showOther={false} />}
             {tab === 'memory' && <MemoryTab />}
             {tab === 'skills' && <SkillsTab />}
@@ -284,6 +287,36 @@ export default function SettingsPage({ onClose }) {
         </div>
       </div>
     </section>
+  )
+}
+
+function WebcliRouteTab() {
+  const enabled = useSettingsStore(state => state.webcliRouteEnabled)
+  const loaded = useSettingsStore(state => state.loaded)
+  const loadError = useSettingsStore(state => state.loadError)
+  const load = useSettingsStore(state => state.load)
+  const save = useSettingsStore(state => state.saveWebcliRouteEnabled)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const pending = useRef(false)
+  useEffect(() => { if (!loaded) void load() }, [loaded, load])
+  const change = async (value) => {
+    if (pending.current) return
+    pending.current = true
+    setSaving(true)
+    setError('')
+    try { await save(value) }
+    catch (err) { setError(err?.message || '保存失败') }
+    finally { pending.current = false; setSaving(false) }
+  }
+  return (
+    <div className="settings-group">
+      <SettingRow title="启用 WebCLI 路由" description="默认开启。直接路由未命中时，先推荐可用命令，再由 Agent 继续处理；发生路由错误时会将诊断信息交给 Agent 后继续执行。关闭后按原流程执行。">
+        <AppSwitch checked={enabled} disabled={!loaded || saving}
+          onChange={event => change(event.target.checked)} aria-label="启用 WebCLI 路由" />
+      </SettingRow>
+      {(error || loadError) && <div className="settings-background-section__error" role="alert">{error || loadError}</div>}
+    </div>
   )
 }
 

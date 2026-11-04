@@ -94,6 +94,7 @@ export function getToolExecLineText(block) {
   const args = block?.args && typeof block.args === 'object' ? block.args : {}
 
   if (name === 'Bash' || name === 'PowerShell') return getBashCommandText(block)
+  if (name === 'webcli_route') return 'webcli route'
 
   const path = args.file_path || args.path || args.target_file || args.file || ''
   if (name === 'Read') return path ? `Read ${path}` : 'Read'
@@ -118,7 +119,7 @@ export function getToolExecLineText(block) {
 export function getToolExecGroupLabel(blocks) {
   const count = blocks?.length ?? 0
   if (count <= 0) return ''
-  const allCommands = blocks.every((block) => ['Bash', 'PowerShell'].includes(getBaseToolName(block.name)))
+  const allCommands = blocks.every((block) => ['Bash', 'PowerShell', 'webcli_route'].includes(getBaseToolName(block.name)))
   if (allCommands) return count === 1 ? '执行了 1 个命令' : `执行了 ${count} 个命令`
   return count === 1 ? '执行了 1 个操作' : `执行了 ${count} 个操作`
 }
@@ -129,4 +130,20 @@ export function getToolExecTooltipText(block) {
     return getBashCommandText(block)
   }
   return getToolExecLineText(block)
+}
+
+export function getToolExecStatusText(block, streaming = false) {
+  if (streaming && block.status === 'running') return '执行中'
+  if (getBaseToolName(block.name) === 'webcli_route') {
+    try {
+      const result = typeof block.result === 'string' ? JSON.parse(block.result) : block.result
+      if (result?.status === 'cancelled') return '已取消'
+      if (result?.status === 'failed') return '已失败'
+    } catch {
+      // Historical records may contain non-JSON results; fall back to stored status.
+    }
+    if (block.status === 'failed') return '已失败'
+    if (block.status === 'cancelled') return '已取消'
+  }
+  return '已执行'
 }

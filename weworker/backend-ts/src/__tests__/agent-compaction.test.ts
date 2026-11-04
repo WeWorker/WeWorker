@@ -6,7 +6,7 @@ import type { Settings } from '../config.js'
 import type { Message } from '../works-store.js'
 import * as contextAssembly from '../context-assembly.js'
 
-const mocks = vi.hoisted(() => ({ query: vi.fn(), directory: '' }))
+const mocks = vi.hoisted(() => ({ query: vi.fn(), directory: '', prompts: [] as string[] }))
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: mocks.query }))
 vi.mock('../config.js', () => ({
   getConfigDirectory: () => mocks.directory,
@@ -18,7 +18,10 @@ vi.mock('../config.js', () => ({
 vi.mock('../tools.js', () => ({ buildMcpServer: () => ({}), getMcpToolDefinitionSummary: () => '' }))
 vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, error() {}, warn() {}, debug() {} }) }))
 vi.mock('../adapter-parser.js', () => ({ parseAllAdapters: () => new Map() }))
-vi.mock('../webcli-path.js', () => ({ resolveWebcliDir: () => path.join(mocks.directory, 'webcli') }))
+vi.mock('../webcli-path.js', () => ({
+  resolveWebcliDir: () => path.join(mocks.directory, 'webcli'),
+  resolveWebcliEntry: () => path.join(mocks.directory, 'route.cjs'),
+}))
 vi.mock('../user-directory-access.js', () => ({
   buildAgentFilesystemSettings: () => ({ permissions: { allow: [] } }),
   createUnifiedToolGuard: () => async () => ({ behavior: 'deny' }),
@@ -26,6 +29,7 @@ vi.mock('../user-directory-access.js', () => ({
 
 import { clearStoredConversationCompaction, streamChat } from '../agent.js'
 import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
+import { disposeAllChatSessions } from '../chat-session.js'
 
 function message(id: string, text: string, role: Message['role'] = 'user'): Message {
   return { id, work_id: 'compaction-test', role, content: [{ type: 'text', text }], created_at: '' }
@@ -46,7 +50,9 @@ async function collect(messages: Message[], overrides = {}, turnSettings = setti
 }
 
 beforeEach(() => {
+  mocks.prompts = []
   mocks.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-compaction-test-'))
+  fs.writeFileSync(path.join(mocks.directory, 'route.cjs'), `console.log(JSON.stringify({ kind: 'routed', site: { adapterId: 'example.com' }, command: { name: 'search' }, callCommand: 'webcli call example.com.search', request: process.argv.at(-1) }))`)
   for (const name of ['webcli', 'webcli-browser', 'webcli-api-exploration']) {
     const skillDir = path.join(mocks.directory, 'webcli/skills', name)
     fs.mkdirSync(skillDir, { recursive: true })
@@ -65,11 +71,12 @@ beforeEach(() => {
   mocks.query.mockImplementation((request) => ({
     async *[Symbol.asyncIterator]() {
       const result = { type: 'result', subtype: 'success', is_error: false, result: request.options.tools ? '已确认订单号A123，等待检查。' : '继续处理', usage: { input_tokens: 400, output_tokens: 8 } }
-      if (typeof request.prompt === 'string') yield result
+      if (typeof request.prompt === 'string') { mocks.prompts.push(request.prompt); yield result }
       else {
         const input = request.prompt
         for await (const message of input) {
           request.prompt = message.message.content
+          mocks.prompts.push(request.prompt)
           yield result
         }
       }
@@ -80,10 +87,108 @@ beforeEach(() => {
 
 afterEach(() => {
   configureWorkLogs(undefined)
+  disposeAllChatSessions('test')
   clearStoredConversationCompaction(options.workId)
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   fs.rmSync(mocks.directory, { recursive: true, force: true })
+})
+
+it('delivers routing context in the current prompt without rewriting saved user messages', async () => {
+  const messages = [message('current', '原始问题')]
+  await collect(messages, { directRoute: { status: 'failed', reason: 'timeout' } }, { ...settings, webcli_route_enabled: false })
+  const request = mocks.query.mock.calls[0][0]
+  expect(request.prompt).toContain('<turn_routing>')
+  expect(request.prompt).toContain('timeout')
+  expect(request.prompt).toContain('disabled')
+  expect(request.prompt).toContain('原始问题')
+  expect(request.options.systemPrompt).not.toContain('<turn_routing>')
+  expect(messages[0].content).toEqual([{ type: 'text', text: '原始问题' }])
+})
+
+it('refreshes route context on a reused Agent session without restarting it', async () => {
+  const turnOptions = { reuseSession: true, channelPermissionMode: 'full', directRoute: { status: 'miss' }, enabledAdapterIds: new Set(['example.com']) }
+  const turnSettings = { ...settings, webcli_route_enabled: true }
+  const messages = [message('first', 'first question')]
+  await collect(messages, turnOptions, turnSettings)
+  expect(mocks.prompts[0]).toContain('"status":"recommended"')
+  expect(mocks.prompts[0]).toContain('"request":"first question"')
+  await collect([...messages, message('answer', 'first answer', 'assistant'), message('second', 'second question')], turnOptions, turnSettings)
+  expect(mocks.query).toHaveBeenCalledTimes(1)
+  expect(mocks.prompts).toHaveLength(2)
+  expect(mocks.prompts[1]).toContain('"request":"second question"')
+  expect(mocks.prompts[1]).not.toContain('first question')
+  expect(mocks.query.mock.calls[0][0].options.systemPrompt).not.toContain('<turn_routing>')
+})
+
+it('excludes route preprocessing from no-tool notification summaries', async () => {
+  await collect([message('summary', 'summarize')], { notificationSummaryOnly: true, directRoute: { status: 'miss' } }, { ...settings, webcli_route_enabled: true })
+  expect(mocks.prompts.join('')).not.toContain('<turn_routing>')
+})
+
+it('streams a visible WebCLI route command before starting the Agent', async () => {
+  const events = streamChat([message('route', 'search public projects')], { ...settings, webcli_route_enabled: true }, undefined, {
+    ...options, channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },
+  })
+  const start = await events.next()
+  expect(start.value).toMatchObject({ type: 'tool_call_start', name: 'webcli_route', args: { command: 'webcli route' } })
+  expect(mocks.query).not.toHaveBeenCalled()
+  const end = await events.next()
+  expect(end.value).toMatchObject({ type: 'tool_call_result', id: start.value?.id, isError: false })
+  expect(JSON.parse(end.value!.result!)).toMatchObject({ status: 'recommended', result: { callCommand: 'webcli call example.com.search' } })
+  expect(mocks.query).not.toHaveBeenCalled()
+  const remaining = []
+  for await (const event of events) remaining.push(event)
+  expect(remaining.some(event => event.type === 'tool_call_start' && event.name === 'webcli_route')).toBe(false)
+  expect(mocks.query).toHaveBeenCalledOnce()
+})
+
+it('injects a safe WebCLI error into the Agent context and continues the normal Agent turn', async () => {
+  fs.writeFileSync(path.join(mocks.directory, 'route.cjs'), `console.error('Decision service is not configured: set WEBCLI_D3_URL. Authorization: Bearer fixture-secret-must-not-leak'); process.exitCode = 1`)
+  const events = await collect([message('route', 'search')], {
+    channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },
+  }, { ...settings, webcli_route_enabled: true })
+  const start = events.find(event => event.type === 'tool_call_start')
+  const end = events.find(event => event.type === 'tool_call_result')
+  expect(start?.name).toBe('webcli_route')
+  expect(end).toMatchObject({ id: start?.id, isError: true })
+  expect(JSON.parse(end!.result!)).toMatchObject({ status: 'failed', reason: 'not_configured', error: 'WEBCLI_D3_URL 未配置。' })
+  expect(mocks.query).toHaveBeenCalledOnce()
+  expect(mocks.prompts.at(-1)).toContain('WEBCLI_D3_URL 未配置。')
+  expect(mocks.prompts.at(-1)).toContain('search')
+  expect(mocks.prompts.at(-1)).not.toContain('fixture-secret-must-not-leak')
+})
+
+it('settles a cancelled route record without starting the Agent', async () => {
+  fs.writeFileSync(path.join(mocks.directory, 'route.cjs'), 'setTimeout(() => {}, 10000)')
+  const controller = new AbortController()
+  const events = streamChat([message('route', 'search')], { ...settings, webcli_route_enabled: true }, controller, {
+    ...options, channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },
+  })
+  const start = await events.next()
+  expect(start.value?.type).toBe('tool_call_start')
+  const pending = events.next()
+  controller.abort()
+  const end = await pending
+  expect(end.value).toMatchObject({ type: 'tool_call_result', id: start.value?.id, isError: true })
+  expect(JSON.parse(end.value!.result!).status).toBe('cancelled')
+  expect((await events.next()).done).toBe(true)
+  expect(mocks.query).not.toHaveBeenCalled()
+})
+
+it.each([
+  { webcli_route_enabled: false, directRoute: { status: 'miss' } },
+  { webcli_route_enabled: true, directRoute: { status: 'skipped', reason: 'dedicated_agent' } },
+])('emits no route command when routing is disabled or skipped: %j', async ({ webcli_route_enabled, directRoute }) => {
+  const events = await collect([message('route', 'search')], { channelPermissionMode: 'full', directRoute }, { ...settings, webcli_route_enabled })
+  expect(events.some(event => event.name === 'webcli_route')).toBe(false)
+})
+
+it('enables WebCLI routing by default when the setting is absent', async () => {
+  const events = await collect([message('route', 'search')], {
+    channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },
+  }, settings)
+  expect(events.some(event => event.type === 'tool_call_start' && event.name === 'webcli_route')).toBe(true)
 })
 
 describe('agent conversation compaction', () => {

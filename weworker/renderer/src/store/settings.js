@@ -30,6 +30,7 @@ function settingsPatch(data, fallback = {}) {
   return {
     activeProvider: data.active_provider,
     onboardingCompleted: data.onboarding_completed ?? fallback.onboardingCompleted ?? false,
+    webcliRouteEnabled: data.webcli_route_enabled ?? fallback.webcliRouteEnabled ?? true,
     baseUrl: data.base_url,
     model: data.model,
     contextLimit: data.context_limit || fallback.contextLimit || 1000000,
@@ -65,6 +66,7 @@ export const PROVIDERS = BUILD_PROVIDERS.map(p => ({ ...p, ...(p.presentation ||
 export const useSettingsStore = create((set, get) => ({
   activeProvider: BUILD_DEFAULT_PROVIDER,
   onboardingCompleted: false,
+  webcliRouteEnabled: true,
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
   contextLimit: 1000000,
@@ -246,6 +248,17 @@ export const useSettingsStore = create((set, get) => ({
     if (!res.ok) throw new Error(data.detail || '淇濆瓨澶辫触')
     set(settingsPatch(data, get()))
     return data.paste_text_attachment_threshold || DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD
+  },
+
+  saveWebcliRouteEnabled: async (enabled) => {
+    const response = await backendFetch(`${API}/settings/extensions/webcli-route`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webcli_route_enabled: enabled }),
+    })
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.detail || '保存 WebCLI 路由设置失败')
+    set({ webcliRouteEnabled: (data.webcli_route_enabled ?? enabled) !== false })
   },
 
   saveWelcomeFeaturedSiteLimit: async (welcomeFeaturedSiteLimit) => {

@@ -15,6 +15,13 @@ const plan: CascadePlan = {
 }
 
 describe('route dispatch fallback', () => {
+  it('reports sanitized failure context to the Agent without forwarding a raw tool error', async () => {
+    const onFallback = vi.fn()
+    const input = { ...ctx(), onFallback }
+    expect(await executeRoutePlan(plan, input, { engine, dispatch: async () => '{"error":"fixture-private-response"}' })).toBe(false)
+    expect(onFallback).toHaveBeenCalledWith({ status: 'failed', reason: 'error_payload' })
+    expect(JSON.stringify(onFallback.mock.calls)).not.toContain('fixture-private-response')
+  })
   it.each([
     ['API error envelope', async () => '{"error":"request failed"}'],
     ['HTTP-style failure envelope', async () => '{"ok":false,"message":"request failed"}'],

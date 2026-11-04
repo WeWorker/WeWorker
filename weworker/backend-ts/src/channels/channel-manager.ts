@@ -149,6 +149,7 @@ export async function runChannelChat(
 
   for await (const event of streamChat(messages, settings, opts?.abortController, {
     ...(opts?.profileOptions ?? {}),
+    directRoute: routed?.directRoute ?? { status: 'skipped', reason: opts?.dedicatedAgent ? 'dedicated_agent' : 'no_text' },
     streaming: false,
     channelPermissionMode: opts?.channelPermissionMode ?? 'full',
     memoryScope: opts?.memoryScope,

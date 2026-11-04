@@ -27,10 +27,13 @@ describe.each([
   ['deterministic query', 'message?.trim()'],
   ['website exploration', 'exploration.dispatch'],
 ])('desktop %s dispatch', (_name, condition) => {
-  it.each(['ask', 'workspace', 'full'] as const)('respects %s confirmation mode before dispatch', async mode => {
+  it.each((['ask', 'workspace', 'full'] as const).flatMap(mode =>
+    [false, true].map(webcliRouteEnabled => ({ mode, webcliRouteEnabled })),
+  ))('respects $mode confirmation mode with WebCLI routing=$webcliRouteEnabled', async ({ mode, webcliRouteEnabled }) => {
     const dispatch = vi.fn(async () => true)
     const context = vm.createContext({
       desktopPermission: resolveDesktopChatPermission(mode), dedicatedAgent: null,
+      settings: { webcli_route_enabled: webcliRouteEnabled },
       message: 'Public fixture request', workId: 'fixture-work', turnId: 'fixture-turn', chatStartTime: 0,
       send: vi.fn(), appendWorkLog: vi.fn(), chatLog: { info: vi.fn() }, tag: 'fixture', getSettings: () => ({}),
       finished: false, res: { off: vi.fn(), end: vi.fn() }, onClose: vi.fn(), broadcastSSE: vi.fn(),
@@ -47,6 +50,7 @@ describe.each([
     await vm.runInContext(dispatchBranch(condition), context)
     // Ask must fall through to the model's per-tool approval path. Automatic
     // query/exploration dispatch has no operation confirmation callback.
-    expect(dispatch).toHaveBeenCalledTimes(mode === 'ask' ? 0 : 1)
+    const skip = mode === 'ask' || (condition === 'exploration.dispatch' && webcliRouteEnabled)
+    expect(dispatch).toHaveBeenCalledTimes(skip ? 0 : 1)
   })
 })

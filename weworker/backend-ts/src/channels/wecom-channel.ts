@@ -874,6 +874,7 @@ export class WecomChannel implements Channel {
       const profileOptions = this._profile.chatOptions(userId)
       for await (const event of routed?.handled ? noModelEvents() : streamChat(wm.messages, settings, turn.abortController, {
         ...profileOptions,
+        directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
         // send_image_to_user / send_file_to_user answer this chat, not the last bot user.
         userMedia: createChannelUserMedia(images, assistantContent, async (file) => {
           const sent = await this._sendFileToChat(file.path, chatType === 'single' ? userId : (chatId ?? userId), chatType === 'single' ? 1 : 2)

@@ -130,7 +130,7 @@ describe('executeTask 的路由接线', () => {
       }
       yield { type: 'text_delta', content: '模型回答' }
     })
-    mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null })
+    mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null, directRoute: { status: 'miss' } })
   })
 
   afterEach(() => {
@@ -180,6 +180,7 @@ describe('executeTask 的路由接线', () => {
     expect(timing).toBeTruthy()
     expect(timing!.routeTool).toBeUndefined()
     expect(result.summary).toBe('总结：模型回答')
+    expect(mocks.streamChat.mock.calls[0][3].directRoute).toEqual({ status: 'miss' })
   })
 
   it('任务执行完成后单独生成总结，并将总结交给通知通道', async () => {
@@ -196,11 +197,35 @@ describe('executeTask 的路由接线', () => {
     expect(mocks.streamChat).toHaveBeenCalledTimes(2)
     expect(mocks.streamChat.mock.calls[1][0].at(-1).content[0].text).toContain('模型回答')
     expect(mocks.streamChat.mock.calls[1][3]).toMatchObject({ notificationSummaryOnly: true })
+    expect(mocks.streamChat.mock.calls[1][3].directRoute).toBeUndefined()
     expect(statusAtSummary).toEqual(['completed'])
     expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
       summary: '总结：模型回答',
       fullText: '模型回答',
     }), ['wecom'])
+  })
+
+  it.each([false, true])('persists the route command, result and execution timing; failed=%s', async (failed) => {
+    const routeResult = JSON.stringify(failed
+      ? { status: 'failed', reason: 'not_configured' }
+      : { status: 'recommended', result: { callCommand: 'webcli call example.com.search' } })
+    mocks.streamChat.mockImplementationOnce(async function* () {
+      yield { type: 'tool_call_start', id: 'route-record', name: 'webcli_route', args: { command: 'webcli route' } }
+      await new Promise(resolve => setTimeout(resolve, 10))
+      yield { type: 'tool_call_result', id: 'route-record', result: routeResult, isError: failed }
+      yield { type: 'text_delta', content: '模型回答' }
+    })
+    const result = await executeTask(makeTask())
+    expect(result.status).toBe('completed')
+    const blocks = getWorkWithMessages(result.workId)!.messages
+      .filter(message => message.role === 'assistant').flatMap(message => message.content)
+    const commands = blocks.filter(block => block.type === 'tool_use')
+    expect(commands).toHaveLength(1)
+    expect(commands[0]).toMatchObject({ id: 'route-record', name: 'webcli_route', args: { command: 'webcli route' },
+      status: failed ? 'failed' : 'done', result: routeResult, execMs: expect.any(Number) })
+    expect(commands[0].execMs).toBeGreaterThan(0)
+    expect(assistantTiming(result.workId)).toMatchObject({ steps: 1, execMs: commands[0].execMs })
+    expect(result.summary).toBe('总结：模型回答')
   })
 
   it('执行失败进入失败终态后也只总结一次，再发送失败通知', async () => {
