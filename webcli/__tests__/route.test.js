@@ -16,7 +16,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'webcli-route-'));
   for (const [name, value] of Object.entries({ WEWORKER_BUILD_PROFILE: 'public',
     WEWORKER_BUILTIN_ADAPTERS_DIR: join(root, 'builtin'), WEWORKER_USER_ADAPTERS_DIR: join(root, 'user'),
-    WEBCLI_ADAPTERS_DIR: join(root, 'user'), WEWORKER_ADAPTER_DATA_DIR: join(root, 'data'), WEBCLI_D3_URL: '' })) vi.stubEnv(name, value);
+    WEBCLI_ADAPTERS_DIR: join(root, 'user'), WEWORKER_ADAPTER_DATA_DIR: join(root, 'data'), WEBCLI_D3_URL: '', DECISION_API_KEY: 'fixture-route-key', WEBCLI_D3_MODEL: 'vllm-sr/d3-flash' })) vi.stubEnv(name, value);
 });
 afterEach(async () => {
   vi.useRealTimers();
@@ -172,11 +172,11 @@ describe('routing decisions', () => {
 });
 
 describe('decision transport', () => {
-  it('uses the configured System One protocol without authentication', async () => {
+  it('uses the configured System One protocol and Bearer credential', async () => {
     const requests = await service();
     await d3Predict('request', { q: { type: 'choice', criteria: { a: 'A', b: 'B' } } });
     expect(requests[0].url).toBe('/v1/systemone');
-    expect(requests[0].headers.authorization).toBeUndefined();
+    expect(requests[0].headers.authorization).toBe('Bearer fixture-route-key');
     expect(requests[0].body.model).toBe('vllm-sr/d3-flash');
     expect(requests[0].body.state).toBe('request');
   });

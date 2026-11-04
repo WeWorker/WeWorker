@@ -18,7 +18,9 @@ Options:
   --            Treat the remaining words as request text
 
 Environment:
-  WEBCLI_D3_URL  Decision service base URL (no default)
+  WEBCLI_D3_URL     Decision service base URL (overrides packaged configuration)
+  DECISION_API_KEY  Bearer credential override
+  WEBCLI_D3_MODEL   Model override; empty omits the model field
 
 Examples:
   webcli route "Search for browser automation projects"

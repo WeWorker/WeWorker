@@ -14,6 +14,7 @@ esbuild.buildSync({
   format: 'cjs',
   outfile: path.resolve(__dirname, '../build/bridge-dist/bridge.cjs'),
   define: {
+    '__WEBCLI_RUNTIME_CONFIG__': JSON.stringify(require('./webcli-runtime-config.cjs').loadWebcliRuntimeConfig()),
     'import.meta.url': '__importMetaUrl',
     'import.meta.dirname': '__dirname',
   },
