@@ -32,7 +32,7 @@ describe.each([
     const context = vm.createContext({
       desktopPermission: resolveDesktopChatPermission(mode), dedicatedAgent: null,
       message: 'Public fixture request', workId: 'fixture-work', turnId: 'fixture-turn', chatStartTime: 0,
-      send: vi.fn(), chatLog: { info: vi.fn() }, tag: 'fixture', getSettings: () => ({}),
+      send: vi.fn(), appendWorkLog: vi.fn(), chatLog: { info: vi.fn() }, tag: 'fixture', getSettings: () => ({}),
       finished: false, res: { off: vi.fn(), end: vi.fn() }, onClose: vi.fn(), broadcastSSE: vi.fn(),
       retryCompaction: false, workWithMessages: { messages: [] }, savedUserMessage: undefined,
       tryBackendProfileQueryRoute: dispatch,
