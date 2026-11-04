@@ -3222,7 +3222,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       res.end()
       return
     }
-  } else if (message?.trim()) {
+  } else {
     const reason = desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
       : retryCompaction === true ? 'compaction_retry' : 'empty_message'
     appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
