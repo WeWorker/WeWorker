@@ -1,3 +1,4 @@
+import { useWorkActivityStore } from './work-activity.js'
 import { create } from 'zustand'
 import { mapMessagesAfterStop } from '../utils/chat-generation-stop.js'
 import { applyTerminalEventToMessages } from '../utils/terminal-chat-output.js'
@@ -214,6 +215,7 @@ export const useWorksStore = create((set, get) => ({
     try {
       const res = await backendFetch(`${API}/works/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete work')
+      useWorkActivityStore.getState().discard(id)
       discardMessageQueue(id)
       useChatDraftStore.getState().discard(`work:${id}`)
       get().abortControllers[id]?.abort()
@@ -469,6 +471,7 @@ export const useWorksStore = create((set, get) => ({
   },
 
   stopGeneration: (workId) => {
+    useWorkActivityStore.getState().discard(workId)
     set((s) => {
       const nextStreaming = new Set(s.streamingWorkIds)
       nextStreaming.delete(workId)
