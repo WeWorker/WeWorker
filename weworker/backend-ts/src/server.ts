@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
-import { configureWorkLogs, readWorkLog, recordWorkLogStream } from './work-log-file.js'
+import { appendWorkLog, configureWorkLogs, readWorkLog, recordWorkLogStream } from './work-log-file.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
 import { createAdapterStateRefreshHandler } from './adapter-state-refresh.js'
@@ -3185,6 +3185,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // does not expose operation approvals, even for read-only queries.
   // Dedicated agents skip profile routes: those may answer with other websites.
   if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'legacy_profile_handled', reason: 'profile_route_before_intelligent_engine' }, turnId)
     finished = true
     res.off('close', onClose)
     broadcastSSE({ type: 'works_changed', workId })
@@ -3221,6 +3222,11 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       res.end()
       return
     }
+  } else if (message?.trim()) {
+    const reason = desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
+      : retryCompaction === true ? 'compaction_retry' : 'empty_message'
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
+    chatLog.info(`${tag} route diagnostic route_skipped reason=${reason}`)
   }
 
   const unsubscribeTerminalEvents = onTerminalEvent((event) => {

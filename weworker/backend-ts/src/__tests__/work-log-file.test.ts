@@ -78,9 +78,10 @@ describe('append-only conversation log files', () => {
     const text = logs.readWorkLog(legacy)
     expect(text).toContain('旧版存量消息')
     expect(text).toContain('无法恢复')
-    expect(text).toContain('LEGACY-END')
+    expect(text).not.toContain('LEGACY-END')
+    expect(text).toContain('text: [content omitted]')
     logs.appendWorkLog(workId, 'done', {})
-    expect(logs.readWorkLog(legacy).match(/LEGACY-END/g)).toHaveLength(1)
+    expect(logs.readWorkLog(legacy)).not.toContain('LEGACY-END')
     expect(logs.readWorkLog(legacy)).toContain('done')
   })
 

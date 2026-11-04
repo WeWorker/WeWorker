@@ -11,7 +11,9 @@
  *   3. **热重载**：所有配置与 manifest 改动在下一次决策即生效（按签名重建 matcher），无需重启进程。
  */
 
+import { createHash } from 'node:crypto'
 import { loadRouterConfig } from '../router-config/loader.js'
+import { appendWorkLog } from '../work-log-file.js'
 import { applyRouterConfigScope } from '../router-config/validate.js'
 import { emptyRouterConfigBundle, type CompiledScenarioRoute, type RouterConfigBundle } from '../router-config/types.js'
 import { runWebcliCall } from '../webcli-runner.js'
@@ -285,6 +287,38 @@ function safeSettings(): { api_query_llm_route?: boolean } | null {
 
 // ── 执行 ────────────────────────────────────────────────────────────────────
 
+/** Route diagnostics are metadata-only: never persist user text, argument values or response bodies. */
+function routeDiagnostic(ctx: RouteExecutionContext, phase: string, fields: Record<string, unknown> = {}): void {
+  appendWorkLog(ctx.workId, 'route_diagnostic', { phase, ...fields }, ctx.turnId)
+  ctx.log?.(`route diagnostic ${phase}${fields.reason ? ` reason=${fields.reason}` : ''}${fields.layer ? ` layer=${fields.layer}` : ''}${fields.tool ? ` tool=${fields.tool}` : ''}${fields.category ? ` category=${fields.category}` : ''}${fields.fallback ? ` fallback=${fields.fallback}` : ''}`)
+}
+
+function argumentShape(args: Record<string, unknown>): Record<string, number> {
+  const types: Record<string, number> = {}
+  for (const value of Object.values(args)) {
+    const kind = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+    types[kind] = (types[kind] ?? 0) + 1
+  }
+  return types
+}
+
+function resultShape(raw: string): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (Array.isArray(value)) return { type: 'array', count: value.length }
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      const arrays = Object.values(record).filter(Array.isArray)
+      const nested = record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+        ? Object.values(record.data as Record<string, unknown>).filter(Array.isArray) : []
+      return { type: 'object', fieldCount: Object.keys(record).length, arrayCounts: [...arrays, ...nested].map(item => item.length) }
+    }
+    return { type: typeof value, bytes: Buffer.byteLength(raw) }
+  } catch {
+    return { type: 'text', bytes: Buffer.byteLength(raw) }
+  }
+}
+
 export type RouteExecutionContext = {
   message: string
   workId: string
@@ -323,8 +357,16 @@ export async function executeRoutePlan(
   const pruned = new Set<CascadeLayer>()
 
   for (const step of plan.steps) {
-    if (isLayerSkipped(step.layer, plan, pruned)) continue
+    if (isLayerSkipped(step.layer, plan, pruned)) {
+      routeDiagnostic(ctx, 'candidate_skipped', { layer: step.layer, reason: 'layer_pruned' })
+      continue
+    }
+    routeDiagnostic(ctx, 'candidate_selected', { layer: step.layer, kind: step.decision.kind,
+      tool: step.decision.kind === 'tool' ? step.decision.tool : undefined,
+      rule: step.decision.kind === 'tool' ? step.decision.label : step.decision.hit.scenarioId,
+      argsTypes: step.decision.kind === 'tool' ? argumentShape(step.decision.args) : undefined })
     const outcome = await runStep(step, ctx, deps, engine)
+    routeDiagnostic(ctx, 'candidate_outcome', { layer: step.layer, outcome })
     if (outcome === 'handled') return true
     // Once a tool was actually dispatched, a failed request or unusable rendering must go
     // straight to the model, not retry a different (possibly broader) routing layer.
@@ -367,11 +409,13 @@ async function dispatchAndRender(args: {
   const { ctx, deps, engine, tool, source } = args
   // 准入复核：规划期已过一遍，执行期再确认一次（规划到执行之间配置可能已变）。
   if (!engine.routableTools.has(tool)) {
+    routeDiagnostic(ctx, 'dispatch_skipped', { tool, reason: 'tool_not_routable' })
     ctx.log?.(`route execution skipped non-routable tool: ${tool}`)
     return 'skip'
   }
 
   const dispatch = deps.dispatch ?? runWebcliCall
+  routeDiagnostic(ctx, 'dispatch_start', { tool, argsTypes: argumentShape(args.args ?? {}) })
   const started = deps.now?.() ?? Date.now()
   // 页面准备（第17行）：仅对「目录里声明了 navigate_before 的直调工具」动手，其余工具零行为变化。
   // 失败/无声明都不阻断主调用——页面准备只是把「必有的一次鉴权失败重试」提前成一次确定性开页。
@@ -385,16 +429,22 @@ async function dispatchAndRender(args: {
   try {
     raw = await guardDispatch(deps)(tool, JSON.stringify(args.args ?? {}), ctx.workId)
   } catch (error) {
-    if (error instanceof RouteDispatchError) return 'fallback'
+    if (error instanceof RouteDispatchError) {
+      routeDiagnostic(ctx, 'dispatch_failed', { tool, category: error.kind, fallback: 'llm' })
+      return 'fallback'
+    }
     throw error
   }
   const execMs = (deps.now?.() ?? Date.now()) - started
+  routeDiagnostic(ctx, 'dispatch_result', { tool, durationMs: execMs, ...resultShape(raw) })
 
   if (looksLikeAuthFailure(raw)) {
+    routeDiagnostic(ctx, 'dispatch_failed', { tool, category: 'authentication', fallback: 'llm' })
     ctx.log?.(`route auth fallback: ${tool}`)
     return 'fallback'
   }
   if (looksLikeMissingArg(raw)) {
+    routeDiagnostic(ctx, 'dispatch_failed', { tool, category: 'missing_argument', fallback: 'llm' })
     ctx.log?.(`route missing-arg fallback: ${tool}`)
     return 'fallback'
   }
@@ -411,9 +461,13 @@ async function dispatchAndRender(args: {
   if (payload && typeof payload === 'object' && !Array.isArray(payload) && (payload as Record<string, unknown>).type === 'large_output') {
     try {
       const hydrated = (deps.rehydrate ?? rehydratePointer)(raw)
-      if (!hydrated || classifyDispatchPayload(hydrated)) return 'fallback'
+      if (!hydrated || classifyDispatchPayload(hydrated)) {
+        routeDiagnostic(ctx, 'render_failed', { tool, category: 'unavailable_cached_result', fallback: 'llm' })
+        return 'fallback'
+      }
       renderRaw = hydrated
     } catch {
+      routeDiagnostic(ctx, 'render_failed', { tool, category: 'cache_read_failed', fallback: 'llm' })
       return 'fallback'
     }
   }
@@ -425,13 +479,16 @@ async function dispatchAndRender(args: {
       now: new Date(),
     })
   } catch {
+    routeDiagnostic(ctx, 'render_failed', { tool, category: 'renderer_exception', fallback: 'llm' })
     return 'fallback'
   }
   // 渲染不出可展示内容（渲染器吞掉异常或投影为空）→ 同为「没答出来」，落回 LLM。
   if (isUnrenderableAnswer(text)) {
+    routeDiagnostic(ctx, 'render_failed', { tool, category: 'no_renderable_data', fallback: 'llm' })
     ctx.log?.(`route render produced no answer: ${tool} → fall back to LLM`)
     return 'fallback'
   }
+  routeDiagnostic(ctx, 'render_succeeded', { tool, source, responseChars: text.length })
   emitRoutedAnswer(ctx, deps, { tool, args: args.args, text, source, execMs, renderMs: 0 })
   ctx.log?.(`route hit [${source}]: ${tool} ${args.label} (exec ${execMs}ms, payload ${briefPayload(raw, 120).length}B)`)
   return 'handled'
@@ -457,12 +514,14 @@ async function runPlanDecision(
 ): Promise<RouteStepOutcome> {
   const terminalTool = resolvePlanTerminal(engine, hit)
   if (!terminalTool) {
+    routeDiagnostic(ctx, 'plan_skipped', { reason: 'terminal_unavailable' })
     ctx.log?.(`plan terminal not resolvable: ${hit.adapter}:${hit.terminalKey}`)
     return 'skip'
   }
 
   const compiled = planOf(engine, hit)
   if (!compiled) {
+    routeDiagnostic(ctx, 'plan_skipped', { reason: 'plan_not_compiled' })
     ctx.log?.(`plan not compiled: ${hit.scenarioId} → fall back to LLM`)
     return 'skip'
   }
@@ -485,9 +544,11 @@ async function runPlanDecision(
       { schemaId: render.schemaId },
     )
     if (isUnrenderableAnswer(out.md)) {
+      routeDiagnostic(ctx, 'render_failed', { tool: out.terminalTool, category: 'no_renderable_data', fallback: 'llm' })
       ctx.log?.(`plan render produced no answer: ${out.terminalTool} → fall back to LLM`)
       return 'fallback'
     }
+    routeDiagnostic(ctx, 'render_succeeded', { tool: out.terminalTool, source: 'plan', responseChars: out.md.length, steps: out.steps })
     emitRoutedAnswer(ctx, deps, {
       tool: out.terminalTool,
       args: hit.input,
@@ -501,6 +562,7 @@ async function runPlanDecision(
     return 'handled'
   } catch (error) {
     if (error instanceof PlanFallback) {
+      routeDiagnostic(ctx, 'plan_failed', { category: error.reason, fallback: 'llm' })
       // 'error' 也承载派发失败（接口报错 / 超时 / 空结果），把原因带进日志，排查时不用猜。
       const detail = error.reason === 'error' && error.message ? `: ${error.message}` : ''
       ctx.log?.(`plan fallback (${error.reason}) at ${hit.adapter}:${hit.scenarioId}${detail} → fall back to LLM`)
@@ -572,23 +634,44 @@ export async function tryIntelligentQueryRoute(
   ctx: RouteExecutionContext,
   deps: RouteExecutionDeps = {},
 ): Promise<boolean> {
-  if (process.env[ROUTE_ENV] === '0') return false
+  if (process.env[ROUTE_ENV] === '0') {
+    routeDiagnostic(ctx, 'route_disabled', { reason: 'environment_switch' })
+    return false
+  }
   try {
+    const engine = deps.engine ?? getRouteEngine()
+    routeDiagnostic(ctx, 'route_config', { fingerprint: createHash('sha256').update(engine.signature).digest('hex').slice(0, 16),
+      configuredLayers: {
+        routes: engine.bundle.routes?.routes?.length ?? 0,
+        patterns: Object.keys(engine.bundle.patterns?.configs ?? {}).length,
+        plans: engine.plans.length,
+      }, routableTools: engine.routableTools.size,
+      sources: engine.bundle.sources?.map(source => ({ layer: source.layer, origin: source.origin,
+        rejected: !!source.rejected, overridden: source.overriddenIds?.length ?? 0 })) ?? [] })
     const { plan } = planRouteDecision({
       message: ctx.message,
       scenario: ctx.scenario,
       workId: ctx.workId,
       history: ctx.history,
       log: ctx.log,
-      engine: deps.engine,
+      engine,
     })
+    routeDiagnostic(ctx, 'route_plan', { candidateCount: plan.steps.length,
+      layers: plan.steps.map(step => step.layer), suppressed: plan.suppressed })
     if (plan.blocked) {
+      routeDiagnostic(ctx, 'route_unmatched', { reason: 'gate_blocked', gate: plan.blocked.gate, fallback: 'llm' })
       ctx.log?.(`cascade blocked at ${plan.blocked.gate} → fall back to LLM`)
       return false
     }
-    if (!plan.steps.length) return false
-    return await executeRoutePlan(plan, ctx, deps)
+    if (!plan.steps.length) {
+      routeDiagnostic(ctx, 'route_unmatched', { reason: 'no_eligible_candidate', fallback: 'llm' })
+      return false
+    }
+    const handled = await executeRoutePlan(plan, ctx, { ...deps, engine })
+    routeDiagnostic(ctx, 'route_finished', { handled, fallback: handled ? 'none' : 'llm' })
+    return handled
   } catch (error) {
+    routeDiagnostic(ctx, 'route_failed', { category: 'unexpected_exception', fallback: 'llm' })
     ctx.log?.(`intelligent route failed: ${error instanceof Error ? error.message : String(error)} → fall back to LLM`)
     return false
   }
