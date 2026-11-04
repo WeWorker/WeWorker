@@ -1,7 +1,7 @@
 // Feature: adapter-metrics, 实时上报 + 远程聚合
 // 覆盖 metrics.js（classifyTool / sanitizeErr / buildRecord / whoami / buildUploadConfig）与 stats.js（aggregate / parseDuration / percentile）
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { classifyTool, sanitizeErr, buildRecord, whoami, buildUploadConfig } from '../metrics.js'
 import { aggregate, parseDuration, percentile, renderRouteTable } from '../stats.js'
 
@@ -176,5 +176,18 @@ describe('renderRouteTable（by=route 视图）', () => {
     expect(out).toContain('p50(ms)')
     expect(out).toContain('route_hit.override')
     expect(out).toContain('route_miss')
+  })
+})
+
+describe('whoami 失败降级', () => {
+  it('whoami 不可用时 user 降级为 client- 前缀并标记 userSource', async () => {
+    vi.resetModules()
+    vi.doMock('node:child_process', () => ({ execSync: () => { throw new Error('spawn whoami ENOENT') } }))
+    const mod = await import('../metrics.js')
+    const cfg = await mod.buildUploadConfig({ webcliVersion: '1.0.5' })
+    expect(cfg.meta.user).toMatch(/^client-[0-9a-f]{8}/)
+    expect(cfg.meta.userSource).toBe('client-id-fallback')
+    expect(typeof cfg.meta.clientId).toBe('string')
+    vi.doUnmock('node:child_process')
   })
 })
