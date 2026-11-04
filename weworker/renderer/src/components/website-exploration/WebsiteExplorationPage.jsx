@@ -61,7 +61,7 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
       <button data-app-button="action" onClick={onOpenSettings}>模型设置</button>
     </div>}
     <div className="wx-layout"><main className="wx-main"><div className="wx-workspace">
-      <ExploreWorkspace disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} activeExplorationId={activeExploration || ''} />
+      <ExploreWorkspace disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} activeExplorationId={activeExploration || ''} activityReady={Boolean(status.data || status.error)} />
     </div></main></div>
   </div>
 }
