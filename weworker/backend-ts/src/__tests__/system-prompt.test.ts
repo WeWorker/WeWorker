@@ -477,7 +477,7 @@ describe('System Prompt - channel permission modes', () => {
     expect(prompt).toContain('Extension Adapter 或 Toolkit Adapter')
     expect(prompt).toContain('Chrome 扩展 Bridge 或内嵌 Toolkit Runtime')
     expect(prompt).toContain('WeWorker Shell')
-    expect(prompt).toContain('可使用任一可用命令工具运行 `webcli call`')
+    expect(prompt).toContain('可以使用所有可用命令工具运行 `webcli call`')
     expect(prompt).toContain(`Claude Code 内置 ${nativeShell}、WeWorker Shell 及其他可用工具均已开放`)
     expect(prompt).not.toContain('不得使用 `weworker_powershell`')
     expect(prompt).not.toContain(`不要调用 Claude Code 内置 ${nativeShell}`)
@@ -501,6 +501,21 @@ describe('System Prompt - channel permission modes', () => {
     }
   })
 
+  it.each([
+    ['win32', 'PowerShell'],
+    ['linux', 'Bash'],
+  ] as const)('prefers the native %s command tool and keeps WeWorker Shell as a fallback', async (platform, nativeShell) => {
+    const { buildSystemPrompt } = await import('../agent.js')
+    for (const channelPermissionMode of ['ask', 'workspace', 'full'] as const) {
+      const prompt = buildSystemPrompt({ channelPermissionMode, platform })
+
+      expect(prompt).toContain(`默认优先使用 Claude Code 内置 ${nativeShell}`)
+      expect(prompt).toContain('只有原生命令工具不可用或当前权限模式不开放时，才使用 WeWorker Shell')
+      expect(prompt).toContain('不得因原生命令被拒绝或用户拒绝授权而改用 WeWorker Shell')
+      expect(prompt).toContain('weworker_powershell')
+    }
+  })
+
   it('distinguishes ask and full prompts from workspace access boundaries', async () => {
     const { buildSystemPrompt, buildDisallowedTools } = await import('../agent.js')
     const ask = buildSystemPrompt({ channelPermissionMode: 'ask', platform: 'win32', workspaceDirectory: 'C:/example/workspace' })
@@ -519,7 +534,7 @@ describe('System Prompt - channel permission modes', () => {
     const prompt = buildSystemPrompt({ channelPermissionMode: 'full', platform: 'win32' })
 
     expect(prompt).toContain('Claude Code 内置 PowerShell、WeWorker Shell 及其他可用工具均已开放')
-    expect(prompt).toContain('可使用所有可用命令工具')
+    expect(prompt).toContain('默认优先使用 Claude Code 内置 PowerShell')
     expect(prompt).toContain('当前平台默认 Shell（powershell）')
     expect(prompt).not.toContain('Claude Code 内置 Bash 已开放')
   })
