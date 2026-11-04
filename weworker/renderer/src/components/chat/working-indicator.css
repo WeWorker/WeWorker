@@ -36,7 +36,7 @@ html.dark .working-indicator { --working-highlight: #ffffff; }
   78%, 100% { background-position: 0% 0; }
 }
 
-@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+@media (forced-colors: active) {
   .working-indicator__label {
     animation: none;
     background: none;

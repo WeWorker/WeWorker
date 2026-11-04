@@ -1,4 +1,5 @@
 import { useWorkActivityStore } from './work-activity.js'
+import { projectErrorMessage } from '../utils/project-error.js'
 import { create } from 'zustand'
 import { mapMessagesAfterStop } from '../utils/chat-generation-stop.js'
 import { applyTerminalEventToMessages } from '../utils/terminal-chat-output.js'
@@ -149,7 +150,7 @@ export const useWorksStore = create((set, get) => ({
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.detail || 'Failed to create project')
+      throw new Error(projectErrorMessage(data.detail, '创建工作区失败，请稍后重试。'))
     }
     const project = await res.json()
     set((s) => ({ projects: [project, ...s.projects] }))
@@ -164,7 +165,7 @@ export const useWorksStore = create((set, get) => ({
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      throw new Error(data.detail || 'Failed to rename project')
+      throw new Error(projectErrorMessage(data.detail, '重命名工作区失败，请稍后重试。'))
     }
     const project = await res.json()
     set((s) => ({ projects: s.projects.map((item) => (item.id === id ? { ...item, ...project } : item)) }))

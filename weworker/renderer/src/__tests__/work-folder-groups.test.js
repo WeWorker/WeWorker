@@ -53,3 +53,14 @@ test('folder focus follows the pending draft destination, including default work
   assert.equal(isWorkFolderActive(project, { activeWorkId: null, draftFolderKey: 'project:project-a', selectedFolderKey: null }), true)
   assert.equal(isWorkFolderActive(defaultWorkspace, { activeWorkId: null, draftFolderKey: 'project:project-a', selectedFolderKey: null }), false)
 })
+
+test('empty scheduled workspace disappears without tasks but preserves ordinary empty projects', () => {
+  const projects = [{ id: 'scheduled', name: '定时任务' }, { id: 'example', name: 'Example' }]
+  const options = { hasScheduledTasks: false }
+  assert.deepEqual(groupWorksByFolder([], projects, options).map(g => g.id), ['example'])
+  assert.equal(groupWorksByFolder([], projects, { hasScheduledTasks: true }).length, 2)
+  assert.equal(groupWorksByFolder([], projects).length, 2)
+  const history = { id: 'history', project_id: 'scheduled' }
+  assert.equal(groupWorksByFolder([history], projects, options).length, 2)
+  assert.equal(groupWorksByFolder([{ ...history, archived: true }], projects, options).length, 1)
+})
