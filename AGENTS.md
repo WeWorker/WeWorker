@@ -71,3 +71,8 @@ WeWorker 是桌面端 AI 工作助手项目，包含 Electron 桌面端、TypeSc
 - 网站探索agent除持久数据根外，只允许按 Electron 注入的 `weworker_USER_FILES_DIR` 读写 `<user_directory>/.claude/skills/`；embedded 模式可通过独立临时 token 调用固定 loopback 接口读取当前模型配置快照，但不得读取设置文件、数据库或修改其他 WeWorker 数据。
 - 修改 CI/CD、发布、数据库 schema、`.env`、密钥、删除文件和 Git 回滚前必须获得用户单独确认。
 - UI、公开文档和用户可见文案中，严禁出现「webwright」文案，统一使用「网站探索agent」。
+
+## WebCLI 维护边界
+
+- WebCLI 通用运行时代码统一维护在 WeWorker 公共仓库的 `webcli/`，内部仓库不得新增同路径运行时代码覆盖。
+- 内部仓库仅维护 WebCLI 的部署配置、Adapter 及其站点实现资产；运行时差异通过公共配置入口接入，禁止复制或分叉 WebCLI 实现。

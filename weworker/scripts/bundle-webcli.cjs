@@ -53,6 +53,7 @@ esbuild.buildSync({
   format: 'cjs',
   outfile: path.join(outDir, 'webcli.cjs'),
   define: {
+    '__WEBCLI_RUNTIME_CONFIG__': JSON.stringify(require('./webcli-runtime-config.cjs').loadWebcliRuntimeConfig()),
     '__WEBCLI_VERSION__': JSON.stringify(JSON.parse(fs.readFileSync(path.join(projectRoot, 'webcli/package.json'), 'utf8')).version),
     'import.meta.url': '__importMetaUrl',
     'import.meta.dirname': '__dirname',

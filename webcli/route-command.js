@@ -19,7 +19,9 @@ Options:
   --            Treat the remaining words as request text
 
 Environment:
-  WEBCLI_D3_URL       Decision service base URL (no default)
+  WEBCLI_D3_URL       Decision service base URL (overrides packaged configuration)
+  DECISION_API_KEY    Bearer credential override
+  WEBCLI_D3_MODEL     Model override; empty omits the model field
   WEBCLI_LOCAL_ROUTE  Set to 0 to skip the bundled local regex rules
 
 Routing tries the bundled local regex rules first (aligned with WeWorker's

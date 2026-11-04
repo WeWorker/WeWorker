@@ -137,7 +137,10 @@
     "adapterhub-profile.json",
     "host-account-lock.js",
     "host-keychain-store.js",
-    "scripts/verify-host-keychain.mjs"
+    "scripts/verify-host-keychain.mjs",
+    "runtime-config.js",
+    "runtime-config.json",
+    "decision-api-key.js"
   ],
   "scripts": {
     "start": "node index.js",
