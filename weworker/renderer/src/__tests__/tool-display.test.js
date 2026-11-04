@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { formatToolResultText, getToolCallSummary, getToolExecGroupLabel, getToolExecLineText } from '../utils/tool-display.js'
+import { formatToolResultText, getToolCallSummary, getToolExecGroupLabel, getToolExecLineText, getToolExecTooltipText } from '../utils/tool-display.js'
 
 describe('tool-display summaries', () => {
+  it('keeps the complete shell command in tooltips, including multiline tails', () => {
+    const command = 'webcli call example.com.list --keyword=' + 'x'.repeat(180) + '\nWrite-Output "done"'
+    for (const name of ['Bash', 'PowerShell', 'weworker_powershell', 'mcp__weworker__weworker_powershell']) {
+      assert.equal(getToolExecTooltipText({ name, args: { command } }), command)
+    }
+    assert.equal(getToolExecTooltipText({ name: 'weworker_powershell', args: {} }), '(无命令)')
+    assert.equal(getToolExecTooltipText({ name: 'Read', args: { path: '/example.txt' } }), 'Read /example.txt')
+  })
+
   it('formats TodoWrite todos as readable text', () => {
     const summary = getToolCallSummary({
       merge: true,
