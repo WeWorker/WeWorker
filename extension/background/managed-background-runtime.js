@@ -3,6 +3,17 @@ import { buildV2Bootstrap, v2InjectionFiles } from './v2-loader.js';
 export const MANAGED_RUNNER_PATH = 'offscreen/managed-runner.html';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isMissingOffscreenDocument = (error) => /No current offscreen document/i.test(error?.message || '');
+// A helper request that never settles (for example a host fetch whose response cannot
+// be delivered) must not hold the shared execution queue forever.
+const PENDING_DRAIN_TIMEOUT_MS = 5_000;
+const settleWithin = async (promise, ms) => {
+  let timer;
+  try {
+    await Promise.race([promise, new Promise((resolve) => { timer = setTimeout(resolve, ms); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 import { usesBackgroundExecution } from './conditional-execution.js';
 
@@ -92,7 +103,7 @@ function initializeRuntime(token, context) {
 }
 
 /** Calls and privileged helpers share one queue with the legacy offscreen runner. */
-export function createManagedBackgroundRuntime({ bundle, request, exclusive, api = globalThis.chrome, timeoutMs = 120000 }) {
+export function createManagedBackgroundRuntime({ bundle, request, exclusive, api = globalThis.chrome, timeoutMs = 120000, pendingDrainMs = PENDING_DRAIN_TIMEOUT_MS }) {
   let active = null;
   async function handleMessage(message, sender) {
     const call = active;
@@ -176,9 +187,11 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
           }
         }
         finally {
-          // A late helper must finish under its original context before releasing
-          // the shared queue. Closing the document prevents new helper requests.
-          await Promise.allSettled([...call.pending]);
+          // Give a late helper a bounded chance to finish under its original context
+          // before releasing the shared queue. Waiting without a bound deadlocks the
+          // whole adapter: one helper that never settles keeps every later call queued
+          // until the host gives up, so the failure surfaces as a tool-call timeout.
+          await settleWithin(Promise.allSettled([...call.pending]), pendingDrainMs);
         }
       }
     }, context);
