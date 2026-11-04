@@ -58,6 +58,8 @@ function normalizeTime(value) {
 function normalizeExploration(item, timeline = []) {
   return {
     ...item,
+    // Sort by the displayed creation time without reparsing a localized date.
+    created_at_timestamp: item.created_at ? new Date(item.created_at).valueOf() : NaN,
     created_at: normalizeTime(item.created_at),
     updated_at: normalizeTime(item.updated_at),
     timeline,
@@ -273,3 +275,7 @@ export function runDebugTool(toolkitId, toolId, channel, parameters, expectedDis
 export function cancelDebugRun(debugRunId) {
   return post(`/api/debug-runs/${encode(debugRunId)}/cancel`);
 }
+
+// Prepare the work and attachment; the confirmed handoff queues its initial turn in Renderer.
+export const prepareDevelopmentChat = (explorationId, body = {}) =>
+  post(`/api/explorations/${encode(explorationId)}/development/chat`, body)

@@ -1,3 +1,4 @@
+import { developmentHelp } from './development-commands.js';
 import { browserHelp } from './browser-commands.js';
 import { explorationHelp } from './exploration-commands.js';
 import { profileHelp } from './browser-profiles.js';
@@ -13,7 +14,7 @@ export async function completionCandidates(words, cursor, { loadViews = async ()
   const prefix = words[cursor - 1] || '';
   if (cursor > 2) return [];
   if (cursor === 2 && top.includes(words[0]) && !['call', 'browser', 'exploration', 'profile'].includes(words[0])) return [];
-  const management = ['profile.help', ...[browserHelp(), explorationHelp(), profileHelp()].flatMap(help => help.commands.map(command => command.name))];
+  const management = ['profile.help', ...[browserHelp(), explorationHelp(), profileHelp(), developmentHelp()].flatMap(help => help.commands.map(command => command.name))];
   let adapters = [];
   // Catalog errors do not invent fallback adapter commands. Built-in completion
   // remains available, and normal adapter help reports the actual diagnostics.

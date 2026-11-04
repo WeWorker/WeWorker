@@ -13,6 +13,8 @@ allowed-tools: Bash(webcli *), Bash(npm install *), Bash(npm view *)
 
 通过 HTTP、Chrome 扩展或 Toolkit Adapter 调用网站能力；每个命令使用其声明的运行时。先查看 Adapter 信息，再决定是否需要浏览器、登录准备或业务页面。
 
+基于网站探索agent的 `input.json` 开发 Toolkit 槽位时，读取 `webcli skills read adapter-development`，再运行 `webcli call development.help`。该链路直接接收对象参数，由当前 Agent 开发代码；需要当前桌面宿主的探索服务和实例身份，不要求中间结果文件。
+
 需要探索新网站 API 或生成 Adapter 时，使用随包提供的 `webcli-api-exploration` Skill，并先运行 `webcli call exploration.help`。该链路由当前 Agent 分析和编写代码；HTTP 模式只需 WebCLI，浏览器模式另需插件，不依赖桌面客户端或额外模型 Key。
 
 需要直接操作或检查页面时，使用随包提供的 `webcli-browser` Skill，先运行 `webcli call browser.help`。命名 session 在多个 CLI 进程之间共享绑定，浏览器命令与探索任务共用同一 Bridge。

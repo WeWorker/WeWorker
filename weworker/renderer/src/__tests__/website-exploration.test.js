@@ -154,11 +154,19 @@ test('URL exploration uses global endpoints without Adapter or Tool', async () =
   } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })
 
-test('workspace tabs precede development-only Adapter tree and exploration needs no Tool', () => {
-  assert.ok(pageSource.indexOf('aria-label="网站探索工作区"') < pageSource.indexOf('aria-label="Adapter 目录"'))
-  assert.match(pageSource, /workspace === 'develop' && treeVisible && <aside/)
-  assert.match(pageSource, /workspace === 'explore' \? <div className="wx-workspace"><ExploreWorkspace disabled=/)
+test('website exploration always renders exploration without workspace tabs or Adapter management', () => {
+  assert.match(pageSource, /<ExploreWorkspace disabled=/)
+  assert.doesNotMatch(pageSource, /<nav|wx-tabs|DevelopWorkspace|Adapter 目录|ManageModal|DeleteInstalledCommandModal/)
+  assert.doesNotMatch(pageSource, /s => s.workspace|workspace ===|changeWebsiteContext/)
+  assert.doesNotMatch(pageSource, /listToolkits|listInstalledAdapters|getExportStatus|listTools/)
   assert.doesNotMatch(pageSource, /<ExploreWorkspace[^>]+toolkitId=/)
+})
+
+test('current exploration is supplied to list ordering without a redundant navigation button', () => {
+  assert.match(pageSource, /activity.kind === 'exploration'/)
+  assert.match(pageSource, /activeExplorationId=\{activeExploration \|\| ''\}/)
+  assert.doesNotMatch(pageSource, /查看当前探索|selectRecord\('site\/exploration'/)
+  assert.doesNotMatch(pageSource, /activity.kind === 'development'|activity.kind === 'debug'/)
 })
 
 test('module navigation retains selected exploration and development context', async () => {
@@ -168,4 +176,26 @@ test('module navigation retains selected exploration and development context', a
   assert.equal(store.getState().toolkitId, 'demo')
   assert.equal(store.getState().toolId, 'search')
   assert.equal(store.getState().selections['site/exploration'], 'exp_site')
+})
+
+
+test('exploration list retains a raw creation timestamp alongside its displayed time', async () => {
+  const { listExplorations } = await import('../api/website-exploration-api.js')
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  globalThis.window = { electronAPI: {} }
+  globalThis.fetch = async () => Response.json({ explorations: [
+    { exploration_id: 'earlier', created_at: '2026-11-03T09:00:00+08:00', updated_at: '2026-11-03T18:00:00+08:00' },
+    { exploration_id: 'later', created_at: '2026-11-03T02:00:00Z' },
+    { exploration_id: 'missing', created_at: '' },
+    { exploration_id: 'invalid', created_at: 'invalid-date' },
+  ] })
+  try {
+    const records = await listExplorations()
+    assert.equal(records[0].created_at_timestamp, Date.parse('2026-11-03T01:00:00Z'))
+    assert.ok(records[1].created_at_timestamp > records[0].created_at_timestamp)
+    assert.equal(records[0].created_at, new Date('2026-11-03T01:00:00Z').toLocaleString('zh-CN', { hour12: false }))
+    assert.ok(Number.isNaN(records[2].created_at_timestamp))
+    assert.ok(Number.isNaN(records[3].created_at_timestamp))
+  } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })

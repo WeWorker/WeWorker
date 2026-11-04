@@ -82,6 +82,8 @@ def _openapi_spec() -> dict[str, Any]:
         "servers": [{"url": "http://127.0.0.1:8765"}],
         "paths": {
             "/api/health": {"get": op("Server health")},
+            "/api/explorations/{exploration_id}/development/input": {"post": op("Prepare development input without launching a model; host instance identity required")},
+            "/api/development/commands/{command}": {"post": op("Agent-authored Toolkit development; host instance identity required")},
             "/api/docs": {"get": op("Markdown API documentation")},
             "/api/openapi.json": {"get": op("OpenAPI document")},
             "/api/browser/status": {"get": op("Check local CDP browser availability")},
@@ -402,6 +404,7 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "exploration_id": exploration_id,
+        "last_run_id": task.get("last_run_id"),
         "start_url": view["start_url"],
         "title": task.get("title", ""),
         "toolkit_id": view["toolkit_id"],
@@ -626,6 +629,37 @@ def create_app(
     else:
         app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] = None
 
+    from webwright.server.development_commands import DevelopmentCommands, DevelopmentCommandError
+    development_commands = DevelopmentCommands(toolkits, manager, debug_runs)
+
+    @app.post("/api/development/commands/<command>")
+    def development_command(command: str):
+        envelope = {"schemaVersion": 1, "command": f"development.{command}"}
+        expected = app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]
+        if not expected or request.headers.get("X-WeWorker-Exploration-Instance") != expected:
+            return jsonify({**envelope, "ok": False, "error": {
+                "code": "HOST_IDENTITY_MISMATCH", "message": "Expected host instance identity is required."}}), 403
+        if request.content_length is not None and request.content_length > 2 * 1024 * 1024:
+            return jsonify({**envelope, "ok": False, "error": {
+                "code": "INPUT_TOO_LARGE", "message": "Development arguments exceed 2 MiB."}}), 413
+        try:
+            raw = request.stream.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise DevelopmentCommandError("INPUT_TOO_LARGE", "Development arguments exceed 2 MiB.")
+            try:
+                arguments = json.loads(raw)
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError("Development arguments must be a UTF-8 JSON object.") from exc
+            data = development_commands.execute(command, arguments)
+            return jsonify({**envelope, "ok": True, "data": data})
+        except (ValueError, FileNotFoundError, BusyError, InvalidStateError) as exc:
+            code = (exc.code if isinstance(exc, DevelopmentCommandError) else
+                    "NOT_FOUND" if isinstance(exc, FileNotFoundError) else
+                    "BUSY" if isinstance(exc, BusyError) else
+                    "INVALID_STATE" if isinstance(exc, InvalidStateError) else "INVALID_ARGUMENT")
+            status = 404 if code == "NOT_FOUND" else 409 if code in {"STALE_REVISION", "STALE_PACKAGE", "TOOL_EXISTS", "BUSY", "INVALID_STATE"} else 400
+            return jsonify({**envelope, "ok": False, "error": {"code": code, "message": str(exc)}}), status
+
     @app.before_request
     def enforce_local_http_boundary():
         allowed_hosts = {"127.0.0.1", "localhost"}
@@ -695,6 +729,7 @@ def create_app(
                 "port": str(configured_port if configured_port is not None else request_port or ""),
                 "capabilities": {
                     "adapter_v2_package": app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None,
+                    "development_commands": bool(app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]),
                 },
             }
         )
@@ -935,6 +970,23 @@ def create_app(
                 "publish_eligible": True,
             }
         )
+
+    @app.post("/api/explorations/<exploration_id>/development/input")
+    def prepare_development_input(exploration_id: str):
+        from webwright.server.development import build_exploration_development_input
+
+        expected = app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]
+        if not expected or request.headers.get("X-WeWorker-Exploration-Instance") != expected:
+            return jsonify({"detail": "Expected host instance identity is required."}), 403
+        payload = _request_json()
+        if set(payload) - {"instruction", "target"}:
+            raise ValueError("Unknown exploration input fields.")
+        if "target" in payload and payload["target"] is None:
+            raise ValueError("Omit target when no destination is selected.")
+        return jsonify(build_exploration_development_input(
+            task_store=task_store, exploration_id=exploration_id,
+            instruction=payload.get("instruction", ""), target=payload.get("target"),
+        ))
 
     def _start_development(
         toolkit_id: str,

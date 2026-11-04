@@ -38,9 +38,11 @@ export function createWebsiteExplorationAdapterRouter({
   instanceId = process.env.WEWORKER_EXPLORATION_INSTANCE_ID,
   fetchAgent = fetch,
   onInstalled = () => {},
+  onDevelopmentHandoff,
 }: {
   instanceId?: string
   fetchAgent?: typeof fetch
+  onDevelopmentHandoff?: (input: unknown) => unknown | Promise<unknown>
   onInstalled?: (event: { name: string; revision: number; profile: string }) => void | Promise<void>
 } = {}) {
   const router = Router()
@@ -51,7 +53,7 @@ export function createWebsiteExplorationAdapterRouter({
     if (!health?.ok || health.instance_id !== instanceId) throw new Error('网站探索服务实例不匹配')
     const response = await fetchAgent(AGENT + path, {
       method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
-      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json', 'X-WeWorker-Exploration-Instance': instanceId }, body: JSON.stringify(body) }),
     })
     const result = await response.json()
     if (!response.ok) throw Object.assign(new Error(result?.error?.message || result?.detail || '网站探索操作失败'), { status: response.status })
@@ -61,6 +63,16 @@ export function createWebsiteExplorationAdapterRouter({
     try { res.json(await operation(req)) }
     catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : String(error) }) }
   }
+
+  router.post('/explorations/:id/development/chat', handle(async req => {
+    if (!onDevelopmentHandoff) throw new Error('开发对话入口不可用')
+    if (!id.test(req.params.id)) throw new Error('无效的探索记录')
+    const input = await agent(`/api/explorations/${req.params.id}/development/input`, req.body || {})
+    if (input?.source_exploration?.exploration_id !== req.params.id) {
+      throw new Error('开发输入目标不匹配')
+    }
+    return onDevelopmentHandoff(input)
+  }))
 
   const deleting = new Set<string>()
   const applying = new Set<string>()
@@ -177,14 +189,13 @@ export function createWebsiteExplorationAdapterRouter({
     return deleteCommand({ name: req.params.name, commandId: req.params.commandId, expectedDigest: req.body.expectedDigest })
   }))
 
-  router.post('/adapters/:name/extend', handle(async req => {
-    const name = req.params.name
+  const extendAdapter = async (name: string, expectedDigest?: string) => {
     if (!namePattern.test(name)) throw new Error('Invalid Adapter name.')
     const catalog = buildAdapterCatalog()
     const active = catalog.effective.find((entry: any) => entry.name === name)
     if (!active) throw new Error('Adapter is unavailable. Refresh the catalog.')
     const pkg = readPackageDirectory(active.root)
-    if (pkg.digest !== active.digest) throw new Error('Adapter changed during import.')
+    if (pkg.digest !== active.digest || (expectedDigest && pkg.digest !== expectedDigest)) throw new Error('Adapter changed during import.')
     const toolkitId = 'adapter_' + createHash('sha256').update(catalog.profile + ':' + name).digest('hex').slice(0, 16)
     let toolkit
     try { toolkit = await agent('/api/toolkits/' + toolkitId) }
@@ -208,6 +219,46 @@ export function createWebsiteExplorationAdapterRouter({
       if (bound.profile !== catalog.profile) throw new Error('Adapter workspace belongs to another build profile.')
     }
     return { toolkit_id: toolkitId, adapter_name: name }
+  }
+  router.post('/adapters/:name/extend', handle(async req => extendAdapter(req.params.name)))
+
+  router.post('/adapters/:name/development-prepare', handle(async req => {
+    const name = req.params.name
+    const { expectedDigest, toolkitId } = req.body || {}
+    if (!namePattern.test(name) || typeof expectedDigest !== 'string' || !/^[a-f0-9]{64}$/.test(expectedDigest)
+        || (toolkitId !== undefined && (typeof toolkitId !== 'string' || !id.test(toolkitId)))
+        || Object.keys(req.body || {}).some(key => !['expectedDigest', 'toolkitId'].includes(key))) throw new Error('无效的 Adapter 准备参数')
+    const catalog = buildAdapterCatalog()
+    const active = catalog.effective.find((entry: any) => entry.name === name)
+    if (!active || active.digest !== expectedDigest) throw new Error('Adapter 已变化，请重新读取目录')
+    const readWorkspaces = async () => {
+      const response = await agent('/api/development/commands/list', {})
+      if (response.ok !== true || !Array.isArray(response.data?.workspaces)) throw new Error('无法读取开发工作区')
+      return response.data.workspaces as Array<any>
+    }
+    let workspaces = await readWorkspaces()
+    const matches = workspaces.filter(item => item.adapter_id === name && (!item.profile || item.profile === catalog.profile))
+    let workspace = toolkitId ? matches.find(item => item.toolkit_id === toolkitId) : matches.length === 1 ? matches[0] : undefined
+    if (toolkitId && !workspace) throw new Error('指定工作区不属于当前 Adapter 或 profile')
+    if (!toolkitId && matches.length > 1) throw new Error('存在多个工作区，请根据 development.list 指定 toolkit_id，不能自动覆盖')
+    if (!workspace) {
+      const created = await extendAdapter(name, expectedDigest)
+      workspaces = await readWorkspaces()
+      workspace = workspaces.find(item => item.toolkit_id === created.toolkit_id && item.adapter_id === name)
+    }
+    if (!workspace || workspace.install_baseline_digest !== expectedDigest) throw new Error('工作区基线与已安装 Adapter 不一致，请先处理版本冲突；未覆盖现有内容')
+    const current = buildAdapterCatalog()
+    if (current.profile !== catalog.profile || current.effective.find((entry: any) => entry.name === name)?.digest !== expectedDigest) throw new Error('准备期间 Adapter 已变化，请重新读取目录')
+    const retainedIds = new Set((workspace.retained_commands || []).map((command: any) => command.id))
+    const editable = workspace.tools.filter((tool: any) => {
+      const command = active.manifest.commands.find((command: any) => command.id === tool.command_id)
+      return !retainedIds.has(tool.command_id) && (!command || (command.runtime === 'wewright' && (tool.has_formal || tool.has_development)))
+    })
+    const editableIds = new Set(editable.map((tool: any) => tool.command_id))
+    return { toolkit_id: workspace.toolkit_id, adapter_id: name, digest: expectedDigest, profile: catalog.profile,
+      revision: workspace.revision, allowed_domains: workspace.allowed_domains, editable_tools: editable,
+      retained_commands: active.manifest.commands.filter((command: any) => !editableIds.has(command.id)),
+      installation_changed: false, mode: editable.length ? 'edit_and_extend' : 'extend_only' }
   }))
 
   const packageFor = async (toolkitId: string) => {
