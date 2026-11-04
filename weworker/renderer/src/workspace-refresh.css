@@ -206,6 +206,42 @@ html.dark .dedicated-agents-sidebar {
   line-height: 22px;
   color: var(--sidebar-title-color);
 }
+.work-title-viewport {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+.work-title-viewport.is-overflowing {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+.work-title-viewport.is-at-end {
+  mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 100%);
+}
+.work-title-text { display: inline-block; }
+.work-activity { display: inline-flex; width: 14px; height: 14px; flex: 0 0 14px; align-items: center; justify-content: center; }
+.work-activity > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.work-activity--running { color: var(--text-muted); }
+.work-activity--running svg { width: 14px; height: 14px; animation: work-activity-spin 1s linear infinite; }
+.work-activity--running circle { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-dasharray: 25 10; }
+.work-activity--waiting { color: #f59e0b; }
+.work-activity--completed { color: #3b82f6; }
+.work-activity--failed { color: #dc2626; }
+@keyframes work-activity-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .work-activity--running svg { animation: none; }
+}
+.work-title-viewport.is-scrolling { text-overflow: clip; }
+.work-title-viewport.is-scrolling .work-title-text {
+  animation: work-title-reveal var(--title-scroll-duration) linear 650ms forwards;
+}
+@keyframes work-title-reveal {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--title-scroll-distance)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-title-viewport.is-scrolling .work-title-text { animation: none; }
+}
 .work-list-item.is-active .work-list-item__title {
   color: var(--text-primary);
   font-weight: 500;
@@ -250,7 +286,13 @@ html.dark .dedicated-agents-sidebar {
   display: inline-flex;
 }
 
-.work-list-item .work-list-item__title { padding-right: 0; }
+.work-list-item .work-list-item__title,
+.work-list-item:focus-within .work-list-item__title {
+  padding-right: 0;
+  /* Match action visibility, including mouse focus retained after selection.
+     Avoid resizing the scrolling viewport throughout a padding transition. */
+  transition: none;
+}
 .work-list-item:hover .work-list-item__title,
 .work-list-item:focus-visible .work-list-item__title,
 .work-list-item:has(.sidebar-row-actions :focus-visible) .work-list-item__title { padding-right: 64px; }

@@ -33,6 +33,16 @@ test('scheduled task projects retain managed protections after grouping', () => 
   assert.equal(groupWorksByFolder([], [{ id: 'ordinary', name: 'Example' }])[0].systemManaged, false)
 })
 
+test('selected conversation highlights its folder only while collapsed', () => {
+  for (const key of ['project:example', 'default']) {
+    const group = { key, items: [{ id: 'selected' }] }
+    for (const collapsed of [false, true]) {
+      assert.equal(isWorkFolderActive(group, { activeWorkId: 'selected', selectedFolderKey: key, collapsed }), collapsed)
+      assert.equal(isWorkFolderActive(group, { activeWorkId: 'elsewhere', selectedFolderKey: key, collapsed }), false)
+    }
+  }
+})
+
 test('folder focus follows the pending draft destination, including default workspace', () => {
   const works = [{ id: 'default-work' }, { id: 'project-work', project_id: 'project-a' }]
   const groups = groupWorksByFolder(works, [{ id: 'project-a', name: 'Project A' }])

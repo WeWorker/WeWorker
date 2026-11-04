@@ -960,7 +960,7 @@ export default function InputBar({
             onChange={handlePermissionModeChange}
             renderOptionPrefix={option => option?.icon ? React.createElement(option.icon) : null}
             disabled={!!disabled}
-            minMenuWidth={156}
+            minMenuWidth={180}
             placement="top"
             className="chat-permission-picker"
           />

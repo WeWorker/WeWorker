@@ -37,8 +37,8 @@ export function groupWorksByFolder(works, projects = []) {
   ]
 }
 
-export function isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey }) {
-  if (activeWorkId) return group.items.some((work) => work.id === activeWorkId)
+export function isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey, collapsed = false }) {
+  if (activeWorkId) return collapsed && group.items.some((work) => work.id === activeWorkId)
   if (draftFolderKey) return group.key === draftFolderKey
   return Boolean(selectedFolderKey) && group.key === selectedFolderKey
 }

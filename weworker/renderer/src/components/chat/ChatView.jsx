@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DownloadOutlined, TagOutlined } from '@ant-design/icons'
+import { useWorkActivityStore } from '../../store/work-activity.js'
 import { useWorksStore } from '../../store/works.js'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useSitesStore } from '../../store/sites.js'
@@ -46,6 +47,10 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const healthCheckMeta = useWorksStore((s) => s.healthCheckMeta)
   // Streaming state from store — survives component remount on work switch
   const streaming = useWorksStore((s) => s.streamingWorkIds.has(workId))
+  useEffect(() => {
+    useWorkActivityStore.getState().view(workId)
+    return () => useWorkActivityStore.getState().leave(workId)
+  }, [workId])
   const [error, setError] = useState(null)
   const handleSendRef = useRef(null)
   const { inputText, setInputText, attachments, setAttachments } = useChatDraft(`work:${workId}`)
@@ -123,6 +128,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     const cleanAnswer = cleanUserChoiceText(answer)
     try {
       await submitUserChoice(workId, cleanAnswer, choiceId)
+      useWorkActivityStore.getState().answer(workId, choiceId)
       // Update the choice block status to 'answered'
       updateStreamMessage({ type: 'user_choice_answer', id: choiceId }, (msg) => ({
         ...msg,
@@ -149,6 +155,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     useWorksStore.getState().clearMemoryStatus(workId)
 
     const controller = new AbortController()
+    useWorkActivityStore.getState().start(workId, controller)
     const currentPlan = buildTodoWriteState(useWorksStore.getState().messages[workId] ?? [], { streaming: false })?.plan ?? null
     const modelText = (() => {
       const plan = currentPlan
@@ -192,6 +199,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     try {
       await streamChat(workId, text, (event) => {
         if (event.type === 'error') failed = true
+        if (event.type === 'user_choice') useWorkActivityStore.getState().wait(workId, controller, event.id)
+        // A choice can also resolve by timeout; only clear its matching request.
+        if (event.type === 'tool_call_result') useWorkActivityStore.getState().answer(workId, event.id)
         if (event.type === 'steering_message_saved') {
           steered = true
           insertSteeringMessage(event.message, event.previousAssistant)
@@ -420,6 +430,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       if (steered && accepted && !failed && !controller.signal.aborted) {
         await useWorksStore.getState().refreshWorkMessages(workId)
       }
+      useWorkActivityStore.getState().finish(workId, controller, controller.signal.aborted || !accepted ? 'stopped' : failed ? 'failed' : 'completed')
       onTurnFinished?.()
     }
     return { status: controller.signal.aborted ? 'stopped' : failed ? 'failed' : 'completed', accepted }
@@ -471,6 +482,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     const userMessageId = `${startedAt}-u`
     const assistantMessageId = `${startedAt}-shell`
     const toolId = `chat-bang-${startedAt.toString(36)}`
+    useWorkActivityStore.getState().start(workId, toolId)
 
     useWorksStore.setState((s) => ({
       streamingWorkIds: new Set([...s.streamingWorkIds, workId]),
@@ -565,6 +577,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
         return { streamingWorkIds: next }
       })
     }
+    useWorkActivityStore.getState().finish(workId, toolId, shellFailed ? 'failed' : 'completed')
     return { status: shellFailed ? 'failed' : 'completed', accepted: true }
   }
   const enqueueShell = (command, originalText) => {

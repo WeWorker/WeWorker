@@ -279,7 +279,7 @@ export default function Sidebar({ section, collapsed, width }) {
             />
           </div>
         )}
-        <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
+        <div className="scrollbar-hover-only" style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
           <WorksList searchQuery={searchQuery} />
         </div>
       </div>
@@ -356,7 +356,7 @@ export default function Sidebar({ section, collapsed, width }) {
             />
           </div>
         )}
-      <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
+      <div className="scrollbar-hover-only" style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
           <ScheduledTasksList searchQuery={taskSearchQuery} />
         </div>
       </div>

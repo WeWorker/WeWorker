@@ -1,3 +1,5 @@
+import { useWorkActivityStore, workActivityStatus, folderActivityStatus } from '../../store/work-activity.js'
+import WorkActivityIndicator from './WorkActivityIndicator.jsx'
 import { groupWorksByFolder, isWorkFolderActive } from '../../utils/work-folder-groups.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
@@ -9,6 +11,7 @@ import { backendFetch } from '../../api/http.js'
 import { TrashIcon } from '../icons/PanelIcons.jsx'
 import { InboxOutlined } from '@ant-design/icons'
 import MessageSquarePlusIcon from '../icons/MessageSquarePlusIcon.jsx'
+import HoverScrollTitle from './HoverScrollTitle.jsx'
 import { handleFolderHeadingClick } from '../../utils/work-folder-interaction.js'
 
 const LABEL_COLORS = {
@@ -62,6 +65,8 @@ function formatCopiedConversation(work, messages) {
 }
 
 export default function WorksList({ searchQuery = '' }) {
+  const activities = useWorkActivityStore(s => s.activities)
+  const visibleWorkId = useWorkActivityStore(s => s.visibleWorkId)
   const works = useWorksStore((s) => Array.isArray(s.works) ? s.works : [])
   const projects = useWorksStore((s) => Array.isArray(s.projects) ? s.projects : [])
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
@@ -196,7 +201,7 @@ export default function WorksList({ searchQuery = '' }) {
       {folderGroups.map((group) => {
         const folderKey = group.key
         const collapsed = !searchQuery.trim() && Boolean(collapsedFolders[folderKey])
-        const isActive = isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey })
+        const isActive = isWorkFolderActive(group, { activeWorkId, draftFolderKey, selectedFolderKey, collapsed })
         const visibleItems = group.items.filter((work) => !work.archived && filteredIds.has(work.id))
         // The default workspace has no project id. Keep it in display mode
         // instead of treating the initial null state as an active rename.
@@ -221,6 +226,7 @@ export default function WorksList({ searchQuery = '' }) {
               >
                 <ChevronIcon size={13} collapsed={collapsed} />
                 <FolderIcon size={15} />
+                {collapsed && <WorkActivityIndicator status={folderActivityStatus(group.items.filter(w => !w.archived).map(w => workActivityStatus(activities[w.id], streamingWorkIds.has(w.id), visibleWorkId === w.id)))} />}
                 {renaming ? (
                   <input
                     ref={renameProjectInputRef}
@@ -279,6 +285,7 @@ export default function WorksList({ searchQuery = '' }) {
                     onDelete={() => deleteWork(w.id)}
                     onArchive={() => setWorkArchived(w.id, true)}
                     isStreaming={streamingWorkIds.has(w.id)}
+                    activityStatus={workActivityStatus(activities[w.id], streamingWorkIds.has(w.id), visibleWorkId === w.id)}
                   />
                 ))}
               </div>
@@ -315,7 +322,7 @@ function ChevronIcon({ size = 13, collapsed }) {
   )
 }
 
-function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) {
+function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming, activityStatus }) {
   const [hovered, setHovered] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
@@ -474,6 +481,7 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
           transition: 'background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, color 0.16s ease',
         }}
       >
+        <WorkActivityIndicator status={activityStatus} />
         {work.label && (
           <span style={{
             width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
@@ -514,7 +522,7 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming }) 
               }}
             />
           ) : (
-            work.title || '新任务'
+            <HoverScrollTitle active={hovered}>{work.title || '新任务'}</HoverScrollTitle>
           )}
         </span>
         {!isRenaming && (
