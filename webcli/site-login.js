@@ -347,6 +347,11 @@ export class SiteLoginCoordinator {
     const autologin = await this._tryAutologin(manifest, flow);
     if (autologin === 'logged_in') return finish('logged_in', { autologin: true });
 
+    // Preparing the QR code can take many seconds on a cold login page (page load plus
+    // heuristic discovery). Announce the login page first so the desktop shows the card
+    // immediately, then update that same card once the code is ready.
+    this._emit(manifest, flow, 'waiting_user');
+
     flow.qr = await this._prepareQrLogin(manifest, flow);
 
     // Keep the prepared login page in the background. The user can open the
