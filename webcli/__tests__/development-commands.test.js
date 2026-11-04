@@ -111,3 +111,11 @@ it('requires confirmation before spawning a Toolkit write runtime', () => {
   expect(output.status, output.stderr).toBe(1);
   expect(JSON.parse(output.stdout).code).toBe('CONFIRMATION_REQUIRED');
 });
+it('discovers target-resolution commands and lists workspaces without a preselected target', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(health()).mockResolvedValueOnce(Response.json({ schemaVersion: 1, command: 'development.list', ok: true, data: { workspaces: [] } }));
+  expect(await callDevelopment('list', {}, { fetch, env })).toMatchObject({ ok: true, data: { workspaces: [] } });
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({});
+  expect(developmentHelp().commands.map(command => command.name)).toEqual(expect.arrayContaining(['development.list', 'development.prepare']));
+  const values = await completionCandidates(['call', 'development.'], 2, { loadViews: async () => [] });
+  expect(values).toEqual(expect.arrayContaining(['development.list', 'development.prepare']));
+});

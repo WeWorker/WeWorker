@@ -15,7 +15,7 @@ afterEach(() => {
   for (const server of servers.splice(0)) server.close()
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true })
 })
-const input = { toolkit: { toolkit_id: 'demo', allowed_domains: ['example.com'] }, tool: { tool_id: 'read_title' }, instruction: 'Read title', base_slot: null }
+const input = { schema_version: 1, site: { start_url: 'https://example.com/', allowed_domains: ['example.com'] }, source_exploration: { exploration_id: 'exp_example' }, instruction: 'Read title' }
 function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'development-handoff-'))
   roots.push(root)
@@ -49,7 +49,7 @@ async function harness(fetchAgent: typeof fetch, callback: (value: unknown) => u
   app.use(createWebsiteExplorationAdapterRouter({ instanceId: 'instance-placeholder', fetchAgent, onDevelopmentHandoff: callback }))
   const server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)) })
   servers.push(server)
-  return (body: object = {}) => fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/toolkits/demo/tools/read_title/development/chat`, {
+  return (body: object = {}) => fetch(`http://127.0.0.1:${(server.address() as { port: number }).port}/explorations/exp_example/development/chat`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
 }
@@ -57,7 +57,7 @@ it('verifies service identity, forwards context with identity header and returns
   const callback = vi.fn(value => createDevelopmentChatHandoff(value, fixture()))
   const fetchAgent = vi.fn(async (url: string, options: RequestInit) => {
     if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'instance-placeholder' })
-    expect(url).toBe('http://127.0.0.1:8766/api/toolkits/demo/tools/read_title/development/input')
+    expect(url).toBe('http://127.0.0.1:8766/api/explorations/exp_example/development/input')
     expect(options.redirect).toBe('error')
     expect(options.headers).toMatchObject({ 'X-WeWorker-Exploration-Instance': 'instance-placeholder' })
     expect(JSON.parse(options.body as string)).toEqual({ instruction: 'Read title' })
@@ -69,12 +69,12 @@ it('verifies service identity, forwards context with identity header and returns
   expect((await response.json()).attachment.name).toBe('input.json')
   expect(callback).toHaveBeenCalledExactlyOnceWith(input)
 })
-it.each(['foreign-instance', 'wrong-tool', 'input-error'])('rejects %s before creating a chat', async failure => {
+it.each(['foreign-instance', 'wrong-exploration', 'input-error'])('rejects %s before creating a chat', async failure => {
   const callback = vi.fn()
   const fetchAgent = vi.fn(async (url: string) => url.endsWith('/api/health')
     ? Response.json({ ok: true, instance_id: failure === 'foreign-instance' ? 'other' : 'instance-placeholder' })
     : failure === 'input-error' ? Response.json({ detail: 'No source' }, { status: 400 })
-      : Response.json({ ...input, tool: { tool_id: 'other' } })) as unknown as typeof fetch
+      : Response.json({ ...input, source_exploration: { exploration_id: 'other' } })) as unknown as typeof fetch
   const request = await harness(fetchAgent, callback)
   expect((await request()).status).toBe(409)
   expect(callback).not.toHaveBeenCalled()

@@ -253,7 +253,7 @@ def test_host_ack_promotes_exact_cli_candidate_without_losing_newer_work(tmp_pat
         assert inspected["development"] is None
     assert read_state(app.config["WEBWRIGHT_TOOLKIT_STORE"], "demo")["last_applied_digest"] == prepared["digest"]
 
-INPUT_ROUTE = '/api/toolkits/demo/tools/read_title/development/input'
+INPUT_ROUTE = '/api/explorations/exp_input/development/input'
 INPUT_HEADERS = {'X-WeWorker-Exploration-Instance': 'test-instance-placeholder'}
 
 
@@ -262,68 +262,140 @@ def input_exploration(app, **changes):
     store.create_task_record(task_id='exp_input', title='Example', instruction='Read title',
                             start_url='https://example.com/', output_dir=store.task_dir('exp_input'),
                             run_id='run-placeholder', activity_type='exploration',
-                            toolkit_id='demo', tool_id='read_title')
+                            toolkit_id='', tool_id='')
     store.update_task('exp_input', status='succeeded', **changes)
     return 'exp_input'
 
 
-def test_prepare_input_requires_host_and_source_without_changing_slots(api, monkeypatch):
+def test_prepare_input_without_any_target_or_workspace(api, monkeypatch):
     app, client, call = api
-    create(call)
-    monkeypatch.setattr(app.config['WEBWRIGHT_PROCESS_MANAGER'], 'start_development',
-                        lambda **kwargs: pytest.fail('handoff must not launch a model'))
+    manager = app.config['WEBWRIGHT_PROCESS_MANAGER']
+    monkeypatch.setattr(manager, 'start_development', lambda **kwargs: pytest.fail('must not launch a model'))
     assert client.post(INPUT_ROUTE, json={}).status_code == 403
-    assert client.post(INPUT_ROUTE, json={}, headers=INPUT_HEADERS).status_code == 400
-    source = input_exploration(app)
-    before = call('inspect', {'toolkit_id': 'demo', 'tool_id': 'read_title'})[1]
-    response = client.post(INPUT_ROUTE, json={'source_exploration_id': source, 'instruction': 'Return title'}, headers=INPUT_HEADERS)
+    assert client.post(INPUT_ROUTE, json={}, headers=INPUT_HEADERS).status_code == 404
+    input_exploration(app)
+    response = client.post(INPUT_ROUTE, json={}, headers=INPUT_HEADERS)
     assert response.status_code == 200, response.get_json()
     result = response.get_json()
-    assert result['instruction'] == 'Return title'
-    assert result['source_exploration']['exploration_id'] == source
-    assert result['base_slot'] is None
-    assert before == call('inspect', {'toolkit_id': 'demo', 'tool_id': 'read_title'})[1]
+    assert result == {
+        'schema_version': 1, 'instruction': 'Read title',
+        'site': {'start_url': 'https://example.com/', 'allowed_domains': ['example.com']},
+        'source_exploration': {'exploration_id': 'exp_input', 'instruction': 'Read title', 'steps': [], 'messages': []},
+    }
+    assert call('list', {})[1]['data']['workspaces'] == []
 
 
 @pytest.mark.parametrize('payload', [
-    {'instruction': {}}, {'exploration_only': 'true'}, {'destination': 'input.json'},
-    {'source_exploration_id': 'missing'}, {'exploration_only': True},
+    {'instruction': {}}, {'destination': 'input.json'}, {'toolkit_id': 'demo'}, {'source_exploration_id': 'other'},
+    {'target': {}}, {'target': None}, {'target': {'tool_id': 'read'}},
+    {'target': {'adapter_id': '../other'}}, {'target': {'adapter_id': 'example.com', 'tool_id': []}},
+    {'target': {'adapter_id': 'example.com', 'extra': 'ignored'}},
 ])
 def test_prepare_input_rejects_invalid_payload(api, payload):
     app, client, call = api
-    create(call)
-    assert client.post(INPUT_ROUTE, json=payload, headers=INPUT_HEADERS).status_code in (400, 404)
+    input_exploration(app)
+    assert client.post(INPUT_ROUTE, json=payload, headers=INPUT_HEADERS).status_code == 400
 
 
-@pytest.mark.parametrize('changes', [
-    {'toolkit_id': 'other'}, {'tool_id': 'other'},
-    {'toolkit_id': '', 'tool_id': '', 'start_url': 'https://example.org/'},
-])
-def test_prepare_input_rejects_foreign_exploration(api, changes):
+def test_input_provenance_is_not_a_destination_and_does_not_require_old_workspace(api):
     app, client, call = api
-    create(call)
-    source = input_exploration(app, **changes)
-    assert client.post(INPUT_ROUTE, json={'source_exploration_id': source}, headers=INPUT_HEADERS).status_code == 400
-
-
-def test_prepare_input_uses_current_slot_and_rejects_foreign_debug(api, monkeypatch):
-    app, client, call = api
-    create(call)
-    call('save', submission())
-    response = client.post(INPUT_ROUTE, json={}, headers=INPUT_HEADERS)
+    input_exploration(app, toolkit_id='previous', tool_id='old_tool')
+    target = {'adapter_id': 'example.com', 'tool_id': 'read-title'}
+    response = client.post(INPUT_ROUTE, json={'target': target, 'instruction': 'Improve title'}, headers=INPUT_HEADERS)
     assert response.status_code == 200
-    assert response.get_json()['base_slot']['code'] == submission()['code']
-    monkeypatch.setattr(app.config['WEBWRIGHT_DEBUG_STORE'], 'read', lambda _: {'toolkit_id': 'other', 'tool_id': 'read_title'})
-    assert client.post(INPUT_ROUTE, json={'debug_run_evidence_id': 'debug_placeholder'}, headers=INPUT_HEADERS).status_code == 400
-    source = input_exploration(app)
-    response = client.post(INPUT_ROUTE, json={'source_exploration_id': source, 'exploration_only': True}, headers=INPUT_HEADERS)
-    assert response.status_code == 200
-    assert response.get_json()['base_slot'] is None
+    result = response.get_json()
+    assert result['target'] == target
+    assert result['instruction'] == 'Improve title'
+    assert result['source_exploration']['provenance'] == {'toolkit_id': 'previous', 'tool_id': 'old_tool'}
+    assert 'toolkit' not in result and 'tool' not in result and 'base_slot' not in result
+    assert call('list', {})[1]['data']['workspaces'] == []
+
 
 @pytest.mark.parametrize('status', ['running', 'failed'])
 def test_prepare_input_rejects_unfinished_source(api, status):
     app, client, call = api
+    input_exploration(app)
+    app.config['WEBWRIGHT_TASK_STORE'].update_task('exp_input', status=status)
+    assert client.post(INPUT_ROUTE, json={}, headers=INPUT_HEADERS).status_code == 400
+
+
+@pytest.mark.parametrize('url', ['file:///tmp/example', 'https://user:placeholder@example.com/', 'not-a-url'])
+def test_prepare_input_rejects_invalid_site(api, url):
+    app, client, call = api
+    input_exploration(app, start_url=url)
+    assert client.post(INPUT_ROUTE, json={}, headers=INPUT_HEADERS).status_code == 400
+
+
+def test_list_discovers_drafts_without_changing_revision_or_runtime(api):
+    app, client, call = api
     create(call)
-    source = input_exploration(app)
-    app.config['WEBWRIGHT_TASK_STORE'].update_task(source, status=status)
-    assert client.post(INPUT_ROUTE, json={'source_exploration_id': source}, headers=INPUT_HEADERS).status_code == 400
+    call('save', submission())
+    before = call('inspect', {'toolkit_id': 'demo', 'tool_id': 'read_title'})[1]
+    status, listed = call('list', {})
+    assert status == 200
+    workspace = listed['data']['workspaces'][0]
+    assert workspace['adapter_id'] == 'demo'
+    assert workspace['toolkit_id'] == 'demo'
+    assert workspace['revision'] == before['data']['revision']
+    assert workspace['tools'][0]['command_id'] == 'read-title'
+    assert workspace['tools'][0]['runtime'] == 'wewright'
+    assert workspace['tools'][0]['has_development'] is True
+    assert workspace['retained_commands'] == []
+    assert call('inspect', {'toolkit_id': 'demo', 'tool_id': 'read_title'})[1] == before
+    assert call('list', {'unknown': True})[0] == 400
+
+def test_list_bound_adapter_retains_original_runtime_and_bytes_when_adding_tool(tmp_path, monkeypatch):
+    import base64
+    from webwright.server.adapter_v2 import package_digest
+    monkeypatch.setenv("WEWORKER_EXPLORATION_INSTANCE_ID", "test-instance-placeholder")
+    app = create_app(paths=WebwrightPaths.resolve(home=tmp_path), weworker_user_files_dir=tmp_path / "user-files")
+    client = app.test_client()
+    def call(command, args):
+        response = client.post(f'/api/development/commands/{command}', json=args, headers=INPUT_HEADERS)
+        return response.status_code, response.get_json()
+    assert client.post('/api/toolkits', json={'name': 'bound', 'allowed_domains': ['example.com']}).status_code in (200, 201)
+    files = {
+        'manifest.json': json.dumps({'schema_version': 2, 'name': 'example.com', 'version': '1.0.0',
+            'description': 'Example', 'match': ['example.com'], 'commands': [{
+                'id': 'existing', 'runtime': 'extension', 'module': 'extension/commands/existing.js',
+                'description': 'Existing', 'schema': {'type': 'object', 'properties': {}},
+            }]}).encode(),
+        'extension/commands/existing.js': b'const original = true;',
+    }
+    digest = package_digest(files)
+    response = client.post('/api/toolkits/bound/bind-adapter', json={
+        'profile': 'public', 'digest': digest,
+        'files': {name: base64.b64encode(data).decode() for name, data in files.items()},
+    })
+    assert response.status_code == 200, response.get_json()
+    workspace = call('list', {})[1]['data']['workspaces'][0]
+    assert workspace['adapter_id'] == 'example.com'
+    assert workspace['install_baseline_digest'] == digest
+    assert workspace['retained_commands'] == [{'id': 'existing', 'runtime': 'extension'}]
+    assert workspace['tools'] == []
+    status, conflict = call('create', {'toolkit_id': 'bound', 'tool_id': 'existing', 'allowed_domains': ['example.com'],
+                                       'goal': 'Do not replace', 'start_url': 'https://example.com/'})
+    assert status == 400
+    assert conflict['error']['code'] == 'RETAINED_COMMAND'
+    assert call('list', {})[1]['data']['workspaces'][0]['tools'] == []
+    assert call('create', {'toolkit_id': 'bound', 'tool_id': 'read_title', 'allowed_domains': ['example.com'],
+                          'goal': 'Read title', 'start_url': 'https://example.com/'})[0] == 200
+    revision = call('inspect', {'toolkit_id': 'bound', 'tool_id': 'read_title'})[1]['data']['revision']
+    status, saved = call('save', submission(revision, toolkit_id='bound'))
+    assert status == 200, saved
+    package = client.get('/api/toolkits/bound/v2-package').get_json()
+    assert package['files']['extension/commands/existing.js'] == base64.b64encode(files['extension/commands/existing.js']).decode()
+    manifest = json.loads(base64.b64decode(package['files']['manifest.json']))
+    assert [command['runtime'] for command in manifest['commands']] == ['extension', 'wewright']
+
+
+def test_exploration_view_exposes_run_identity_not_unrelated_updates(api):
+    app, client, _ = api
+    input_exploration(app)
+    store = app.config['WEBWRIGHT_TASK_STORE']
+    route = '/api/explorations/exp_input'
+    assert client.get(route).get_json()['last_run_id'] == 'run-placeholder'
+    store.update_task('exp_input', title='Renamed example')
+    assert client.get(route).get_json()['last_run_id'] == 'run-placeholder'
+    store.update_task('exp_input', last_run_id='run-followup-placeholder', status='running')
+    assert client.get(route).get_json()['last_run_id'] == 'run-followup-placeholder'

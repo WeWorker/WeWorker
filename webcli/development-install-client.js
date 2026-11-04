@@ -1,4 +1,4 @@
-/** Use the desktop host's installation transaction, never write its registry directly. */
+/** Use the desktop host's workspace preparation and installation transactions; never write its registry directly. */
 const HOST = 'http://127.0.0.1:8765';
 const ID = /^[a-z][a-z0-9_]*$/;
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -6,8 +6,14 @@ const DIGEST = /^[a-f0-9]{64}$/;
 export async function callDevelopmentInstall(command, args, { fetch: fetcher = globalThis.fetch, env = process.env } = {}) {
   const envelope = { schemaVersion: 1, command: `development.${command}` };
   const fail = (code, message, data) => ({ ...envelope, ok: false, error: { code, message }, ...(data ? { data } : {}) });
-  if (!['review', 'apply'].includes(command)) return fail('UNKNOWN_COMMAND', 'Unknown installation command.');
-  if (typeof args.toolkit_id !== 'string' || !ID.test(args.toolkit_id)
+  if (!['prepare', 'review', 'apply'].includes(command)) return fail('UNKNOWN_COMMAND', 'Unknown installation command.');
+  if (command === 'prepare') {
+    if (typeof args.adapter_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(args.adapter_id)
+        || typeof args.expected_digest !== 'string' || !DIGEST.test(args.expected_digest)
+        || (args.toolkit_id !== undefined && (typeof args.toolkit_id !== 'string' || !ID.test(args.toolkit_id)))) {
+      return fail('INVALID_ARGUMENT', 'Use adapter_id and the exact installed catalog digest; toolkit_id is optional for disambiguation.');
+    }
+  } else if (typeof args.toolkit_id !== 'string' || !ID.test(args.toolkit_id)
       || typeof args.expected_digest !== 'string' || !DIGEST.test(args.expected_digest)) {
     return fail('INVALID_ARGUMENT', 'toolkit_id and the exact expected_digest from build are required.');
   }
@@ -21,7 +27,7 @@ export async function callDevelopmentInstall(command, args, { fetch: fetcher = g
   const token = env.WEWORKER_HTTP_TOKEN;
   const backendId = env.WEWORKER_BACKEND_INSTANCE_ID;
   if (typeof token !== 'string' || !token || typeof backendId !== 'string' || !backendId) {
-    return fail('HOST_AUTH_REQUIRED', 'Installation requires WEWORKER_HTTP_TOKEN and WEWORKER_BACKEND_INSTANCE_ID from the desktop host environment. Do not read settings or credential files.');
+    return fail('HOST_AUTH_REQUIRED', 'Host operations require WEWORKER_HTTP_TOKEN and WEWORKER_BACKEND_INSTANCE_ID from the desktop host environment. Do not read settings or credential files.');
   }
   const headers = { 'X-WeWorker-Auth': token, 'Content-Type': 'application/json' };
   let submitted = false;
@@ -36,6 +42,19 @@ export async function callDevelopmentInstall(command, args, { fetch: fetcher = g
     const status = await statusResponse.json();
     if (status.service !== 'weworker-backend' || status.runtime_mode !== 'managed' || status.backend_instance_id !== backendId) {
       return fail('HOST_IDENTITY_MISMATCH', 'Listener is not the expected desktop backend. No installation was submitted.');
+    }
+    if (command === 'prepare') {
+      submitted = true;
+      const response = await request(`/api/website-exploration/adapters/${encodeURIComponent(args.adapter_id)}/development-prepare`, {
+        expectedDigest: args.expected_digest, ...(args.toolkit_id ? { toolkitId: args.toolkit_id } : {}),
+      });
+      const data = await response.json();
+      if (!response.ok) return fail('PREPARE_FAILED', typeof data.detail === 'string' ? data.detail : 'Cannot prepare the selected Adapter.');
+      if (data.adapter_id !== args.adapter_id || data.digest !== args.expected_digest || typeof data.toolkit_id !== 'string' || !ID.test(data.toolkit_id)
+          || !Array.isArray(data.editable_tools) || !Array.isArray(data.retained_commands) || !Array.isArray(data.allowed_domains)) {
+        return fail('OUTCOME_UNKNOWN', 'Unexpected workspace receipt. List workspaces before retrying.');
+      }
+      return { ...envelope, ok: true, data };
     }
     const base = `/api/website-exploration/toolkits/${args.toolkit_id}`;
     const reviewResponse = await request(`${base}/install-review`);
@@ -71,7 +90,7 @@ export async function callDevelopmentInstall(command, args, { fetch: fetcher = g
     return { ...envelope, ok: true, data: receipt };
   } catch {
     return fail(submitted ? 'OUTCOME_UNKNOWN' : 'HOST_UNAVAILABLE', submitted
-      ? 'Connection interrupted after apply submission. Inspect the installed catalog and current review before retrying.'
+      ? 'Connection interrupted after submission. List workspaces and inspect the installed catalog before retrying.'
       : 'Cannot reach the expected desktop host. No installation was submitted.');
   }
 }

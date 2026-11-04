@@ -90,3 +90,32 @@ it('does not report success for a mismatched receipt', async () => {
   const fetch = mock().mockResolvedValueOnce(Response.json({ ...receipt, digest: 'c'.repeat(64) }));
   expect((await callDevelopment('apply', apply, { fetch, env })).error.code).toBe('OUTCOME_UNKNOWN');
 });
+
+it('prepares an installed Adapter through the authenticated host with its exact digest', async () => {
+  const data = { adapter_id: 'example.com', digest, toolkit_id: 'adapter_example', allowed_domains: ['example.com'],
+    editable_tools: [], retained_commands: [{ id: 'existing', runtime: 'extension' }], mode: 'extend_only' };
+  const fetch = mock(data);
+  const result = await callDevelopment('prepare', { adapter_id: 'example.com', expected_digest: digest }, { fetch, env });
+  expect(result).toMatchObject({ ok: true, command: 'development.prepare', data });
+  expect(fetch.mock.calls[1][0]).toBe('http://127.0.0.1:8765/api/website-exploration/adapters/example.com/development-prepare');
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ expectedDigest: digest });
+  expect(fetch.mock.calls[1][1].headers['X-WeWorker-Auth']).toBe(env.WEWORKER_HTTP_TOKEN);
+});
+it('prepare rejects invalid destinations before I/O and never retries ambiguous outcomes', async () => {
+  const fetch = vi.fn();
+  for (const args of [{ adapter_id: '../other', expected_digest: digest }, { adapter_id: 'example.com', expected_digest: 'bad' },
+    { adapter_id: 'example.com', expected_digest: digest, toolkit_id: [] }]) {
+    expect((await callDevelopment('prepare', args, { fetch, env })).error.code).toBe('INVALID_ARGUMENT');
+  }
+  expect(fetch).not.toHaveBeenCalled();
+  const interrupted = vi.fn().mockResolvedValueOnce(status()).mockRejectedValueOnce(new Error('placeholder'));
+  expect((await callDevelopment('prepare', { adapter_id: 'example.com', expected_digest: digest }, { fetch: interrupted, env })).error.code).toBe('OUTCOME_UNKNOWN');
+  expect(interrupted).toHaveBeenCalledTimes(2);
+});
+it('prepare reports conflicts and passes explicit workspace selection without installing', async () => {
+  const fetch = vi.fn().mockResolvedValueOnce(status()).mockResolvedValueOnce(Response.json({ detail: 'Ambiguous workspace' }, { status: 409 }));
+  const result = await callDevelopment('prepare', { adapter_id: 'example.com', expected_digest: digest, toolkit_id: 'selected' }, { fetch, env });
+  expect(result.error.code).toBe('PREPARE_FAILED');
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ expectedDigest: digest, toolkitId: 'selected' });
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

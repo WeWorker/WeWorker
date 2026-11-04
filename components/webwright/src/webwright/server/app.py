@@ -82,7 +82,7 @@ def _openapi_spec() -> dict[str, Any]:
         "servers": [{"url": "http://127.0.0.1:8765"}],
         "paths": {
             "/api/health": {"get": op("Server health")},
-            "/api/toolkits/{toolkit_id}/tools/{tool_id}/development/input": {"post": op("Prepare development input without launching a model; host instance identity required")},
+            "/api/explorations/{exploration_id}/development/input": {"post": op("Prepare development input without launching a model; host instance identity required")},
             "/api/development/commands/{command}": {"post": op("Agent-authored Toolkit development; host instance identity required")},
             "/api/docs": {"get": op("Markdown API documentation")},
             "/api/openapi.json": {"get": op("OpenAPI document")},
@@ -404,6 +404,7 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "exploration_id": exploration_id,
+        "last_run_id": task.get("last_run_id"),
         "start_url": view["start_url"],
         "title": task.get("title", ""),
         "toolkit_id": view["toolkit_id"],
@@ -970,33 +971,22 @@ def create_app(
             }
         )
 
-    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/development/input")
-    def prepare_development_input(toolkit_id: str, tool_id: str):
-        # This endpoint only snapshots evidence; it never launches a model or changes slots.
-        from webwright.server.development import build_development_input
+    @app.post("/api/explorations/<exploration_id>/development/input")
+    def prepare_development_input(exploration_id: str):
+        from webwright.server.development import build_exploration_development_input
 
         expected = app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]
         if not expected or request.headers.get("X-WeWorker-Exploration-Instance") != expected:
             return jsonify({"detail": "Expected host instance identity is required."}), 403
         payload = _request_json()
-        fields = {"instruction", "source_exploration_id", "debug_run_evidence_id", "exploration_only"}
-        if set(payload) - fields:
-            raise ValueError("Unknown development input fields.")
-        for field in fields - {"exploration_only"}:
-            if field in payload and not isinstance(payload[field], str):
-                raise ValueError(f"{field} must be a string.")
-        if "exploration_only" in payload and not isinstance(payload["exploration_only"], bool):
-            raise ValueError("exploration_only must be a boolean.")
-        prepared = build_development_input(
-            task_store=task_store, toolkit_store=toolkits, debug_store=debug_runs,
-            toolkit_id=toolkit_id, tool_id=tool_id, instruction=payload.get("instruction", ""),
-            source_exploration_id=payload.get("source_exploration_id", ""),
-            debug_run_evidence_id=payload.get("debug_run_evidence_id", ""),
-            exploration_only=payload.get("exploration_only", False),
-        )
-        if not prepared["base_slot"] and not prepared["source_exploration"]:
-            raise ValueError("Select a successful Exploration before development.")
-        return jsonify(prepared)
+        if set(payload) - {"instruction", "target"}:
+            raise ValueError("Unknown exploration input fields.")
+        if "target" in payload and payload["target"] is None:
+            raise ValueError("Omit target when no destination is selected.")
+        return jsonify(build_exploration_development_input(
+            task_store=task_store, exploration_id=exploration_id,
+            instruction=payload.get("instruction", ""), target=payload.get("target"),
+        ))
 
     def _start_development(
         toolkit_id: str,

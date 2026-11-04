@@ -1,11 +1,37 @@
 ---
 name: adapter-development
-description: 基于网站探索agent的 input.json，通过 WebCLI 直接提交代码及对象 Schema，校验、保存开发槽位、生成标准 Toolkit Adapter v2、调试修复并经确认应用到 WeWorker。
+description: 基于网站探索agent的 input.json 和实时 Adapter 目录，判断复用、新建、修改或新增 Tool，通过 WebCLI 开发调试 Toolkit Adapter，并经确认应用到 WeWorker。
 ---
 
 # Adapter 开发
 
-读取 input.json 的 toolkit、tool、base_slot、source_exploration、debug_run_evidence、instruction，提取业务目标、参数、域名和验收条件。你负责编写实现和工具参数；CLI 不调用模型。以工具成功保存的结果为产物，而不是聊天中的代码块。不要创建候选 JSON 或代码中间文件让工具读取；示例直接传递内存中的 JSON 参数。
+读取 input.json 的 instruction、site、source_exploration 和可选 target，提取业务目标与验收条件。输入不要求 toolkit/tool；目标由你结合实时目录确定。代码及对象 Schema 直接作为 CLI 参数提交，不生成候选 JSON 或代码中间文件供工具读取。
+
+## 先发现，再确定目标
+
+1. 运行 `webcli adapter list --json` 查询已安装 Adapter，`webcli call development.list` 查询开发工作区；对候选使用 `webcli adapter info <id> --json`、`webcli adapter skill <id>` 了解能力。目录读取失败时先处理错误，不能当作“没有 Adapter”。输入不固化目录快照。
+2. 按域名、业务语义、参数、runtime、execution 和鉴权来源匹配，不只比较名字。`source_exploration.provenance` 仅表示探索来源；可选 `target` 才是用户明确指定的目标。多个合理候选或目标不明确时询问，不凭空指定一个 ID。
+3. 已有 Tool 足够则复用，报告调用方式，不开发重复能力。已有 Tool 不足则修改；已有 Adapter 缺少能力则新增 Tool；没有合适 Adapter 或开发工作区才新建。先说明判断理由。破坏性参数变更、覆盖其他功能或新增权限先确认。
+4. 修改/扩展已安装 Adapter 前运行 `development.prepare`，传 `adapter_id` 和最新目录的 `digest`。多个匹配工作区时结合 `development.list` 明确 `toolkit_id`，不自动挑第一个。prepare 不安装、不覆盖；版本冲突需先处理，不新建同名 Adapter 绕过。
+5. prepare 返回 `toolkit_id`、`allowed_domains`、`editable_tools`、`retained_commands`。修改仅限 editable_tools 内的 Tool；先 inspect 读取最新槽位/版本，再 save。新增 Tool 使用返回的 toolkit_id 和完整原 allowed_domains 调用 create；不得碰撞 retained_commands 的 ID。tool_id 与对外 command_id 不能混淆，以返回字段为准，不猜测名称转换。
+6. `retained_commands` 必须保留原文件和契约。Extension/HTTP 命令、缺少可编辑槽位的外部 Toolkit 命令不能用这套 Toolkit 工具重写；明确报告不支持，或使用已有对应运行时的开发流程，不能改写为页面操作或偷偷创建替代 Tool。给混合 Adapter 新增独立 Toolkit Tool 可以走 prepare/create，原命令保持不变。
+7. 尚未安装的目标从 development.list 选择已有工作区后 inspect；确无匹配时自行确定唯一、合规的 toolkit_id/tool_id，再 create。site.allowed_domains 是本次探索范围，不包含探索中偶然发现的其他域名；没有授权不扩大范围。prepare 返回更广的已有域名不等于本次任务可访问所有站点。
+
+```powershell
+# 先发现；按本次任务判断候选，不按第一项盲选。
+$installed = webcli adapter list --json | ConvertFrom-Json
+$workspaces = webcli call development.list | ConvertFrom-Json
+if (-not $workspaces.ok) { throw '工作区查询失败，不能当作空目录' }
+# 以下示例假定已判断目标是 example.com；digest 必须来自当前目录。
+$selected = @($installed | Where-Object { $_.id -eq 'example.com' })
+if ($selected.Count -ne 1) { throw '目标不唯一或不存在，重新判断' }
+$prepared = webcli call development.prepare --args (@{
+  adapter_id=$selected[0].id; expected_digest=$selected[0].digest
+} | ConvertTo-Json -Compress) | ConvertFrom-Json
+if (-not $prepared.ok) { throw '准备失败，先处理歧义或版本冲突' }
+# 修改时使用 $prepared.data.editable_tools 中的 tool_id；新增时使用
+# $prepared.data.toolkit_id 与 $prepared.data.allowed_domains，不自行另建同名包。
+```
 
 ## 范围与环境
 
@@ -23,9 +49,9 @@ description: 基于网站探索agent的 input.json，通过 WebCLI 直接提交�
 
 ## 调用示例
 
-下面为合成只读示例；替换为本次工具标识和业务内容。在 PowerShell 中用 ConvertTo-Json 生成一个参数，不写中间文件；其他 shell 按其安全的参数传递方式处理引号和换行，不能把业务代码当作 shell 执行。
+下面为新建 Adapter 的合成只读示例；替换为本次判断出的工具标识和业务内容。若扩展已有 Adapter，使用 prepare 返回的工作区和域名，而不是照抄新 ID。在 PowerShell 中用 ConvertTo-Json 生成一个参数，不写中间文件；其他 shell 按其安全的参数传递方式处理引号和换行，不能把业务代码当作 shell 执行。
 
-已有 Tool 先 inspect；仅在不存在时，根据 input.json 的定义 create。create 不覆盖已有 Tool，不扩大现有 Toolkit 域名。不要自动导入或覆盖 input.json 中的旧 base_slot；先 inspect，再据当前版本决定如何修改。
+已有 Tool 先 inspect；仅在完成目标判断且 Tool 不存在时，根据探索目标构造定义并 create。create 不覆盖已有 Tool，不扩大现有 Toolkit 域名。探索输入不携带旧 base_slot；先 inspect，再据当前槽位决定如何修改。
 
 ```powershell
 webcli call development.create --args (@{
@@ -85,7 +111,7 @@ webcli call development.debug-get --args (@{
 
 ## 应用到 WeWorker，成为正式 Adapter
 
-开发、调试、安装授权分开：只有用户要求应用并确认当前审查内容后才调用 apply。review/apply 复用桌面宿主安装事务，不手工复制包到宿主目录、不修改注册表、不让 Python 直接安装。除探索服务身份外，还需要宿主环境中的 WEWORKER_HTTP_TOKEN 和 WEWORKER_BACKEND_INSTANCE_ID；不要从设置文件读取、输出到日志或作为命令参数传递凭据。
+开发、调试、安装授权分开：只有用户要求应用并确认当前审查内容后才调用 apply。prepare 使用同一可信宿主准备工作区；review/apply 复用桌面宿主安装事务，不手工复制包到宿主目录、不修改注册表、不让 Python 直接安装。除探索服务身份外，还需要宿主环境中的 WEWORKER_HTTP_TOKEN 和 WEWORKER_BACKEND_INSTANCE_ID；不要从设置文件读取、输出到日志或作为命令参数传递凭据。
 
 1. 对最终候选包完成业务验证，再用 build 返回的精确 digest 请求 review。
 2. 将 name、version、profile、permissions、addedPermissions、sourceChange、downgrade、overwritesNewerBase、changedTools 和当前来源/版本展示给用户。review 可能回补之前已完成安装的状态，但不会安装新包。

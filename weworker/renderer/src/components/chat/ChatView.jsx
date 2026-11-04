@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useWorksStore } from '../../store/works.js'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
@@ -33,6 +33,7 @@ import { hideBrowserForNewTurn } from '../../utils/dedicated-browser.js'
  * @param {() => void} [props.onTurnFinished] Called after each send completes.
  */
 export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished }) {
+  const isHandoffChat = useWorksStore(s => s.handoffWorkIds.has(workId))
   const queue = useMemo(() => getMessageQueue(workId), [workId])
   const queueState = useMessageQueueStore(s => s.queues[workId] ?? EMPTY_MESSAGE_QUEUE)
   const messages = useWorksStore((s) => s.messages[workId] ?? [])
@@ -425,6 +426,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       useWorksStore.getState().stopGeneration(workId)
     },
   })
+  // A handoff already owns a queued first turn: wake before paint instead of
+  // showing an editable draft and waiting for the history request.
+  useLayoutEffect(() => { if (isHandoffChat) queue.wake() }, [queue, isHandoffChat])
   useEffect(() => { queue.wake() }, [queue, streaming, contextCompactionStatus])
   const handleSend = (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => {
     const id = queue.enqueue({ text, files, thinkingEffort, permissionMode })
@@ -554,9 +558,13 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
         await useWorksStore.getState().refreshWorkMessages(workId)
         return
       }
+      // A freshly prepared handoff is already selected with empty history.
+      // Fetching here could overwrite its optimistic first turn with stale data.
+      const queued = queue.snapshot()
+      if (useWorksStore.getState().handoffWorkIds.has(workId) && (queued.running || queued.items.length)) return
       await selectWork(workId)
-      // Handoff opens an editable draft, not an auto-send or shell request.
-      if (useWorksStore.getState().manualStartWorkIds.has(workId)) return
+      // Never consume another workflow's global pending text or shell command.
+      if (useWorksStore.getState().handoffWorkIds.has(workId)) return
       const pending = useWorksStore.getState().pendingMessage
       const pendingAttachments = useWorksStore.getState().pendingAttachments || []
       const pendingThinkingEffort = useWorksStore.getState().pendingThinkingEffort || 'off'
@@ -643,7 +651,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   return (
     <>
     {toolbarContext}
-    <div className="chat-view motion-view-enter" style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', minWidth: 0 }}>
+    <div className={`chat-view${isHandoffChat ? '' : ' motion-view-enter'}`} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', minWidth: 0 }}>
       {/* Health check banner OR normal info bar */}
       {isHealthCheck ? (
         <div style={{
@@ -660,7 +668,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
         null
       ) : null}
 
-      {messages.length === 0 && !contextCompactionStatus ? (renderEmpty ? renderEmpty(handleFillInput) : <WelcomeScreen onFillInput={handleFillInput} />) : <MessageList messages={messages} streaming={isStreamingHere} compactionStatus={contextCompactionStatus} workId={workId} onChoice={handleChoice} onSelectModeChange={setMessageSelectMode} onShellCommand={handleShellCommand} />}
+      {messages.length === 0 && !contextCompactionStatus && !queueState.running && !queueState.items.length ? (renderEmpty ? renderEmpty(handleFillInput) : <WelcomeScreen onFillInput={handleFillInput} />) : <MessageList messages={messages} streaming={isStreamingHere} compactionStatus={contextCompactionStatus} workId={workId} onChoice={handleChoice} onSelectModeChange={setMessageSelectMode} onShellCommand={handleShellCommand} />}
 
       {/* Health check panel — between messages and input */}
       {isHealthCheck && messages.length > 0 && (

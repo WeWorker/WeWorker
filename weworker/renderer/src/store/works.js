@@ -25,7 +25,7 @@ export const useWorksStore = create((set, get) => ({
   works: [],
   projects: [],
   activeWorkId: null,
-  manualStartWorkIds: new Set(), // Prepared drafts must never consume global auto-send state.
+  handoffWorkIds: new Set(), // Handoff chats own their queue and must never consume global pending messages/shell commands.
   draftProjectId: null,
   messages: {}, // workId -> Message[]
   contextSnapshots: {}, // workId -> latest local context composition
@@ -225,7 +225,7 @@ export const useWorksStore = create((set, get) => ({
         delete contextCompactionStatuses[id]
         return {
           works,
-          manualStartWorkIds: new Set([...s.manualStartWorkIds].filter(workId => workId !== id)),
+          handoffWorkIds: new Set([...s.handoffWorkIds].filter(workId => workId !== id)),
           messages,
           contextSnapshots,
           contextTokenAnchors,

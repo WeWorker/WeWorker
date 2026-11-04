@@ -68,8 +68,9 @@
 .wx-workspace { flex:1;min-height:0;overflow:auto; }
 .wx-empty { padding:32px 24px;color:var(--wx-muted); }
 .wx-explore { display:flex;height:100%;min-height:0; }
-.wx-history { width:210px;flex:none;padding:16px 12px;overflow:auto;border-right:1px solid var(--border); }
-.wx-history input { margin:12px 0; }
+.wx-history { width:210px;flex:none;padding:8px 0 12px;overflow:hidden;display:flex;flex-direction:column;border-right:1px solid var(--border); }
+.wx-history-records { min-height:0;flex:1;overflow:auto;padding:0 8px; }
+.wx-history>header { flex-shrink:0; }
 .website-exploration .wx-record { display:flex;width:100%;flex-direction:column;align-items:flex-start;gap:5px;text-align:left;margin:4px 0;border:0; }
 .wx-record strong { font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
 .wx-status { display:inline-block;font-size:12px;color:var(--wx-muted); }
@@ -127,3 +128,60 @@
 .wx-delete { margin-top:20px;border-top:1px solid var(--border);padding-top:12px; }
 @container (max-width:1099px) { .wx-history { width:170px; }.wx-development { grid-template-columns:1fr; }.wx-tree { width:180px; } }
 @container (max-width:799px) { .wx-layout { position:relative; }.wx-tree { position:absolute;inset:0 auto 0 0;z-index:5;width:220px;box-shadow:none; }.wx-explore { flex-direction:column;height:auto; }.wx-history { width:auto;max-height:210px;border-right:0;border-bottom:1px solid var(--border); }.wx-detail { min-height:540px; }.wx-topbar,.wx-context { padding:12px; }.wx-scroll { max-height:60vh; }.wx-verify { padding:12px; } }
+
+/* Exploration uses the same conversation surface and composer primitives as chat. */
+.wx-explore .wx-history { width:224px;background:var(--bg-secondary); }
+.wx-chat-detail { overflow:hidden; }
+.wx-chat-detail>header { flex-shrink:0;padding:12px 24px; }
+.wx-chat-detail>header h2 { margin:0; }
+.wx-chat-detail>.wx-scroll { padding:24px max(24px,calc((100% - 1056px)/2)); }
+.wx-chat-message { margin:0 0 28px;min-width:0;font-size:14px; }
+.wx-chat-user { display:flex;flex-direction:column;align-items:flex-end; }
+.wx-user-bubble { max-width:85%;padding:10px 16px;border-radius:16px;background:var(--bg-secondary);overflow-wrap:anywhere; }
+.wx-user-bubble p { margin:2px 0; }
+.wx-chat-detail .wx-step { padding:0;border:0; }
+.wx-chat-detail .wx-step>header { justify-content:flex-start;gap:8px; }
+.wx-chat-detail .wx-step h3 { color:var(--text-secondary);font-weight:400;margin:0; }
+.wx-chat-detail .wx-step details { border:0; }
+.wx-chat-detail .wx-image img { max-height:360px;object-fit:contain;object-position:left; }
+.wx-url-question { max-width:680px;margin:20px 0; }
+.wx-url-question .user-choice-block__question { font-size:15px;color:var(--text-primary);font-weight:500; }
+.website-exploration .wx-url-answer { border:1px solid var(--border);border-radius:10px;padding:14px;margin:4px 0 12px;background:var(--bg-secondary); }
+.wx-url-answer .user-choice-block__option-desc { line-height:1.6; }
+.website-exploration .wx-url-answer input { background:var(--bg-primary); }
+.wx-chat-composer { flex-shrink:0;width:100%;max-width:1184px;box-sizing:border-box;margin:0 auto;padding:12px 24px 20px; }
+.wx-chat-input { display:flex;flex-direction:column;min-height:104px;overflow:hidden; }
+.website-exploration .wx-chat-input textarea { display:block;box-sizing:border-box;min-height:76px;max-height:180px;resize:none;border:0;border-radius:0;background:transparent;box-shadow:none;outline:none; }
+.wx-chat-toolbar { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap; }
+.wx-composer-hint { font-size:11px; }
+.wx-chat-controls { display:flex;align-items:center;gap:4px;margin-left:auto; }
+.website-exploration .wx-chat-control { font-size:12px;border-radius:8px;white-space:nowrap; }
+.website-exploration .wx-chat-control:disabled { color:var(--text-muted);opacity:.45; }
+.website-exploration .wx-chat-send { flex:none;width:30px;height:30px;border-radius:8px;border:0;padding:0;position:relative;display:flex;align-items:center;justify-content:center;font-size:0;color:var(--bg-secondary);background:var(--text-primary); }
+.website-exploration .wx-chat-send:hover:not(:disabled) { background:var(--text-primary); }
+.website-exploration .wx-chat-send.chat-input-action-stop,.website-exploration .wx-chat-send.chat-input-action-stop:hover:not(:disabled) { background:#8f8f93;color:#fff; }
+.website-exploration .wx-chat-send:disabled { background:#8f8f93;opacity:.9; }
+.wx-replay-status { display:flex;align-items:center;gap:8px;color:var(--text-secondary); }
+@container (max-width:1099px) { .wx-explore .wx-history { width:180px; } }
+@container (max-width:799px) {
+  .wx-explore { flex-direction:row;height:100%; }
+  .wx-explore .wx-history { width:148px;max-height:none;border-right:1px solid var(--border);border-bottom:0;padding:8px 0 12px; }
+  .wx-chat-detail { min-height:0; }
+  .wx-chat-detail>.wx-scroll { max-height:none;padding:16px; }
+  .wx-chat-detail>header { padding:12px 16px; }
+  .wx-chat-composer { padding:8px 12px 12px; }
+  .wx-composer-hint { display:none; }
+  .wx-user-bubble { max-width:95%; }
+}
+@container (max-width:479px) {
+  .wx-explore .wx-history { width:112px; }
+  .wx-chat-detail>.wx-scroll { padding:12px; }
+  .website-exploration .wx-chat-control { padding:6px; }
+}
+
+.wx-completion-question { max-width:680px;margin:20px 0; }
+.website-exploration .wx-completion-question .user-choice-block__option { display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:2px;width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-primary); }
+.website-exploration .wx-completion-question .user-choice-block__option:hover:not(:disabled) { background:var(--bg-hover); }
+.website-exploration .wx-transfer-inline { max-width:680px;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--bg-secondary); }
+.wx-transfer-inline fieldset { padding:0;margin:0; }
+.website-exploration .wx-transfer-inline footer { justify-content:flex-end;margin-top:16px; }

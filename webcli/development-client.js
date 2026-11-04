@@ -16,7 +16,7 @@ export async function callDevelopment(command, args, { fetch: fetcher = globalTh
   }
   const identity = env.WEWORKER_EXPLORATION_INSTANCE_ID;
   if (typeof identity !== 'string' || !identity.trim()) return failure('HOST_IDENTITY_REQUIRED', 'Run in the desktop host environment with WEWORKER_EXPLORATION_INSTANCE_ID. No service was started or adopted.');
-  if (['review', 'apply'].includes(command)) return callDevelopmentInstall(command, args, { fetch: fetcher, env });
+  if (['prepare', 'review', 'apply'].includes(command)) return callDevelopmentInstall(command, args, { fetch: fetcher, env });
   const body = JSON.stringify(args);
   if (Buffer.byteLength(body) > MAX_BYTES) return failure('INPUT_TOO_LARGE', 'Development arguments exceed 2 MiB.');
   let submitted = false;

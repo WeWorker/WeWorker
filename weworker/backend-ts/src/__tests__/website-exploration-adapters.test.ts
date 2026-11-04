@@ -408,3 +408,93 @@ it('applies a CLI-reviewed candidate through the host registry and acknowledgeme
   expect(recovered.data.revision).toBe(applied.data.revision)
   expect(refresh).toHaveBeenCalledTimes(2)
 })
+
+describe('development workspace preparation', () => {
+  const post = (body: object): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  function installed() {
+    const fixtureData = fixture()
+    installAdapter({ files: fixtureData.files, origin: { kind: 'generated' }, activate: true })
+    const workspace = { toolkit_id: 'existing', adapter_id: fixtureData.payload.name, profile: 'public', revision: 4,
+      install_baseline_digest: fixtureData.payload.digest, allowed_domains: ['example.com'], retained_commands: [],
+      tools: [{ tool_id: 'read_page', command_id: 'read-page', has_formal: true, runtime: 'wewright' }] }
+    return { ...fixtureData, workspace }
+  }
+  it('reuses the editable workspace at the exact installed baseline without binding or installing', async () => {
+    const { payload, workspace } = installed()
+    const fetchAgent = vi.fn(async (url: string) => url.endsWith('/api/health')
+      ? Response.json({ ok: true, instance_id: 'owned' })
+      : Response.json({ ok: true, data: { workspaces: [workspace] } })) as unknown as typeof fetch
+    const { request } = await harness({}, fetchAgent)
+    const response = await request(`/adapters/${payload.name}/development-prepare`, post({ expectedDigest: payload.digest }))
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data).toMatchObject({ toolkit_id: 'existing', adapter_id: payload.name, digest: payload.digest, mode: 'edit_and_extend', installation_changed: false })
+    expect(data.editable_tools).toEqual(workspace.tools)
+    expect(data.retained_commands).toEqual([])
+    expect((fetchAgent as any).mock.calls.map(([url]: [string]) => url)).toEqual([
+      'http://127.0.0.1:8766/api/health', 'http://127.0.0.1:8766/api/development/commands/list',
+    ])
+  })
+  it.each(['stale', 'ambiguous', 'foreign-profile', 'wrong-toolkit'])('rejects %s without replacing a workspace', async failure => {
+    const { payload, workspace } = installed()
+    const workspaces = failure === 'ambiguous' ? [workspace, { ...workspace, toolkit_id: 'second' }]
+      : [{ ...workspace, ...(failure === 'stale' ? { install_baseline_digest: 'b'.repeat(64) } : {}), ...(failure === 'foreign-profile' ? { profile: 'other' } : {}) }]
+    const fetchAgent = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+      expect(url.endsWith('/api/development/commands/list')).toBe(true)
+      return Response.json({ ok: true, data: { workspaces } })
+    }) as unknown as typeof fetch
+    const { request } = await harness({}, fetchAgent)
+    const response = await request(`/adapters/${payload.name}/development-prepare`, post({ expectedDigest: payload.digest,
+      ...(failure === 'foreign-profile' ? { toolkitId: 'existing' } : failure === 'wrong-toolkit' ? { toolkitId: 'other' } : {}) }))
+    expect(response.status).toBe(409)
+  })
+  it('requires explicit disambiguation and never makes retained commands editable', async () => {
+    const { payload, workspace } = installed()
+    const selected = { ...workspace, toolkit_id: 'selected', retained_commands: [{ id: 'read-page', runtime: 'wewright' }] }
+    const fetchAgent = vi.fn(async (url: string) => url.endsWith('/api/health')
+      ? Response.json({ ok: true, instance_id: 'owned' })
+      : Response.json({ ok: true, data: { workspaces: [workspace, selected] } })) as unknown as typeof fetch
+    const { request } = await harness({}, fetchAgent)
+    const response = await request(`/adapters/${payload.name}/development-prepare`, post({ expectedDigest: payload.digest, toolkitId: 'selected' }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ toolkit_id: 'selected', mode: 'extend_only', editable_tools: [], retained_commands: [{ id: 'read-page' }] })
+  })
+  it('binds an installed package only when no matching workspace exists and preserves every package byte', async () => {
+    const { payload } = installed()
+    let toolkitId = '', bound = false
+    const fetchAgent = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+      if (url.endsWith('/api/development/commands/list')) return Response.json({ ok: true, data: { workspaces: bound ? [{
+        toolkit_id: toolkitId, adapter_id: payload.name, profile: 'public', revision: 1, allowed_domains: ['example.com'],
+        install_baseline_digest: payload.digest, retained_commands: [{ id: 'read-page', runtime: 'wewright' }], tools: [],
+      }] : [] } })
+      if (url.endsWith('/api/toolkits')) {
+        toolkitId = JSON.parse(options?.body as string).name
+        return Response.json({ toolkit_id: toolkitId, name: toolkitId })
+      }
+      if (url.endsWith('/bind-adapter')) {
+        const body = JSON.parse(options?.body as string)
+        expect(body.files).toEqual(payload.files)
+        expect(body.digest).toBe(payload.digest)
+        expect(body.profile).toBe('public')
+        bound = true
+        return Response.json({})
+      }
+      return Response.json({ detail: 'Not found' }, { status: 404 })
+    }) as unknown as typeof fetch
+    const { request } = await harness({}, fetchAgent)
+    const response = await request(`/adapters/${payload.name}/development-prepare`, post({ expectedDigest: payload.digest }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ mode: 'extend_only', installation_changed: false, editable_tools: [] })
+    expect(bound).toBe(true)
+    expect((fetchAgent as any).mock.calls.some(([url]: [string]) => url.includes('install-apply'))).toBe(false)
+  })
+  it('rejects a changed installed digest before any exploration requests', async () => {
+    const { payload } = installed()
+    const fetchAgent = vi.fn() as unknown as typeof fetch
+    const { request } = await harness({}, fetchAgent)
+    expect((await request(`/adapters/${payload.name}/development-prepare`, post({ expectedDigest: 'c'.repeat(64) }))).status).toBe(409)
+    expect(fetchAgent).not.toHaveBeenCalled()
+  })
+})

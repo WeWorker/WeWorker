@@ -47,7 +47,6 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
     {messageContextHolder}
     <header className="wx-topbar"><h1>网站探索agent</h1>
       <div className="wx-actions">
-        {activeExploration && <button data-app-button="action" className="wx-quiet" onClick={() => useStore.getState().selectRecord('site/exploration', activeExploration)}>查看当前探索</button>}
         <ActionMenu label={unavailable ? '服务未就绪' : status.data?.browser.running ? '浏览器已连接' : '浏览器未连接'}>
           <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(''))}>打开浏览器</button>
         </ActionMenu>
@@ -62,7 +61,7 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
       <button data-app-button="action" onClick={onOpenSettings}>模型设置</button>
     </div>}
     <div className="wx-layout"><main className="wx-main"><div className="wx-workspace">
-      <ExploreWorkspace disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} />
+      <ExploreWorkspace disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} activeExplorationId={activeExploration || ''} />
     </div></main></div>
   </div>
 }

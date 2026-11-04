@@ -20,6 +20,7 @@ class DevelopmentCommandError(ValueError):
 _FIELDS = {"code", "description", "parameters_schema", "result_schema", "risk_notice", "safety"}
 _COMMON = {"toolkit_id", "tool_id"}
 COMMAND_FIELDS = {
+    "list": (set(), set()),
     "create": (_COMMON | {"allowed_domains", "goal", "start_url"}, {"expected_effect"}),
     "inspect": (_COMMON, set()),
     "validate": ({"tool_id"} | _FIELDS, set()),
@@ -72,6 +73,9 @@ class DevelopmentCommands:
             return self.manager.cancel_debug_run(args["debug_run_id"])
         if command == "debug":
             return self._debug(args)
+        if command == "list":
+            with self.store._slot_lock:
+                return self._list()
         # Follow the manager -> store lock ordering used by the existing UI.
         with self.manager.lock, self.store._slot_lock:
             if command in {"save", "create"}:
@@ -99,6 +103,31 @@ class DevelopmentCommands:
                     slot["based_on_formal_hash"] = formal["code_hash"]
                 self.store.write_development_slot(toolkit_id, tool_id, slot)
             return self._inspect(toolkit_id, tool_id)
+
+    def _list(self):
+        from webwright.server.adapter_v2 import adapter_name
+        from webwright.server.package_workspace import read_package
+        workspaces = []
+        for toolkit in self.store.list_toolkits():
+            toolkit_id = toolkit["toolkit_id"]
+            state = read_state(self.store, toolkit_id)
+            base = state.get("retained_base")
+            retained = []
+            if base:
+                files, _ = read_package(self.store, toolkit_id, base["digest"])
+                retained = [{"id": command["id"], "runtime": command["runtime"]}
+                            for command in json.loads(files["manifest.json"])["commands"]]
+            tools = [{**{key: tool.get(key) for key in ("tool_id", "name", "goal", "start_url", "expected_effect", "has_formal", "has_development")},
+                      "command_id": tool["tool_id"].replace("_", "-"), "runtime": "wewright"}
+                     for tool in self.store.list_tools(toolkit_id)]
+            workspaces.append({
+                "toolkit_id": toolkit_id, "adapter_id": adapter_name(self.store, toolkit_id),
+                "allowed_domains": toolkit["allowed_domains"], "revision": state["revision"],
+                "profile": state.get("profile"), "candidate_digest": state.get("candidate_digest"),
+                "install_baseline_digest": state.get("install_baseline_digest") or state.get("last_applied_digest"),
+                "retained_commands": retained, "tools": tools,
+            })
+        return {"workspaces": workspaces}
 
     @staticmethod
     def _check_revision(state, args):
@@ -129,6 +158,16 @@ class DevelopmentCommands:
             toolkit = self.store.create_toolkit(name=toolkit_id, allowed_domains=domains)
         if set(toolkit["allowed_domains"]) != set(domains):
             raise ValueError("Existing Toolkit allowed_domains differ; no permissions were changed.")
+        # Imported commands are retained, not editable Toolkit slots. Reject the
+        # collision before creating metadata, not only during package generation.
+        state = read_state(self.store, toolkit_id)
+        base = state.get("retained_base")
+        if base:
+            from webwright.server.package_workspace import read_package
+            files, _ = read_package(self.store, toolkit_id, base["digest"])
+            retained_ids = {item["id"] for item in json.loads(files["manifest.json"])["commands"]}
+            if tool_id.replace("_", "-") in retained_ids:
+                raise DevelopmentCommandError("RETAINED_COMMAND", "This command belongs to the retained Adapter package and cannot be recreated as a Toolkit Tool.")
         self.store.create_tool(toolkit_id, name=tool_id, goal=args["goal"], start_url=args["start_url"],
                                expected_effect=args.get("expected_effect", ""))
         return self._inspect(toolkit_id, tool_id)
