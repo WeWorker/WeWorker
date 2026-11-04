@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
-import { explorationComposerMode, explorationControls, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../utils/exploration-chat.js'
+import { explorationComposerMode, explorationControls, explorationEntryId, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../utils/exploration-chat.js'
 
 const timeline = [{ type: 'agent_step', step: 1 }]
 const controls = (status, extra = {}) => explorationControls({ status, timeline, ...extra })
@@ -80,8 +80,8 @@ test('new exploration is an inline URL question and supports existing exploratio
   assert.match(creation, /api\.createSiteExploration/)
   assert.match(creation, /api\.createExploration/)
   assert.match(creation, /api\.matchBrowser/)
-  assert.match(source, /const currentId = selected \|\|/)
-  assert.match(source, /state\.selections !== previous\.selections/)
+  assert.ok(source.includes("const [currentId, setCurrentId] = useState(context ? '' : null)"))
+  assert.ok(source.includes("selected !== previous.selections[key + '/exploration']"))
 })
 
 test('exploration messages have no visible role labels, matching the main conversation', () => {
@@ -215,4 +215,32 @@ test('submitted exploration shows the final handoff notice with no action button
   assert.match(html, /探索结束已转开发，请在开发对话中完成开发。如需继续探索，请继续补充探索目标或要求。/)
   assert.doesNotMatch(html, /<button|是，开始开发|是否基于本次探索结果开始开发/)
   assert.match(html, /role="status"/)
+})
+
+
+test('entry opens new exploration when there are no actively running records, regardless of history', () => {
+  assert.equal(explorationEntryId(), '')
+  assert.equal(explorationEntryId(null), '')
+  const records = ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user'].map((status, index) => ({ exploration_id: 'exp_' + index, status, created_at_timestamp: index }))
+  assert.equal(explorationEntryId(records), '')
+})
+
+test('entry prefers the managed active exploration, then a running record rather than newer history', () => {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+    const records = [{ exploration_id: 'history', status: 'succeeded', created_at_timestamp: 200 }, { exploration_id: 'ongoing', status, created_at_timestamp: 100 }]
+    assert.equal(explorationEntryId(records), 'ongoing')
+    assert.equal(explorationEntryId(records, 'managed-active'), 'managed-active')
+  }
+  assert.equal(explorationEntryId([], 'not-yet-in-list'), 'not-yet-in-list')
+})
+
+test('entry resolution waits for fresh snapshots and does not restore historical selection or steal manual navigation', () => {
+  const source = readFileSync(new URL('../components/website-exploration/ExploreWorkspace.jsx', import.meta.url), 'utf8')
+  assert.ok(source.includes("useState(context ? '' : null)"))
+  assert.ok(source.includes('currentId === null && activityReady && !list.loading'))
+  assert.ok(source.includes("setCurrentId(item.exploration_id)"))
+  assert.ok(source.includes("setCurrentId('')"))
+  assert.doesNotMatch(source, /selected \|\| records\[0\]/)
+  const page = readFileSync(new URL('../components/website-exploration/WebsiteExplorationPage.jsx', import.meta.url), 'utf8')
+  assert.ok(page.includes('activityReady={Boolean(status.data || status.error)}'))
 })

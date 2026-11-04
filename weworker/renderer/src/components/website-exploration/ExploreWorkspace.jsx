@@ -3,44 +3,47 @@ import { FormOutlined } from '@ant-design/icons'
 import * as api from '../../api/website-exploration-api.js'
 import { continueWebsiteExploration, finishExplorationTransfer, useWebsiteExplorationStore as useStore } from '../../store/website-exploration.js'
 import { isDevelopmentSubmitted, useExplorationDevelopmentHandoffsStore } from '../../store/exploration-development-handoffs.js'
-import { explorationComposerMode, explorationControls, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../../utils/exploration-chat.js'
+import { explorationComposerMode, explorationControls, explorationEntryId, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../../utils/exploration-chat.js'
 import { ErrorMessage, JsonView, RequiredMark, ResourceImage, ScrollArea, Status, useAction, useDraft, useSnapshot } from './shared.jsx'
 
-export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, activeExplorationId = '' }) {
+export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, activeExplorationId = '', activityReady = true }) {
   const key = 'site'
   const context = useStore(s => s.explorationContext)
-  const selected = useStore(s => s.selections[key + '/exploration'])
-  const [creating, setCreating] = useState(Boolean(context))
+  // null: resolve entry from fresh activity; '': new exploration; ID: explicit record.
+  // Do not restore the previous visit's historical selection as the landing page.
+  const [currentId, setCurrentId] = useState(context ? '' : null)
   const [submitting, setSubmitting] = useState(false)
-  useEffect(() => { if (context) setCreating(true) }, [context])
-  // Keep explicit record selection separate from draft creation and list ordering.
+  useEffect(() => { if (context) setCurrentId('') }, [context])
   useEffect(() => useStore.subscribe((state, previous) => {
-    if (state.selections !== previous.selections) setCreating(false)
+    const selected = state.selections[key + '/exploration']
+    if (selected !== previous.selections[key + '/exploration']) setCurrentId(selected || '')
   }), [])
   const list = useSnapshot(() => api.listExplorations(), [key])
   const records = sortExplorations(list.data, activeExplorationId)
-  const currentId = selected || records[0]?.exploration_id
-  // Reordering the list must not replace the conversation the user is reading.
   useEffect(() => {
-    if (!selected && !creating && currentId) useStore.getState().selectRecord(key + '/exploration', currentId)
-  }, [selected, creating, currentId])
-  const showNew = creating || (!currentId && !list.loading && !list.error)
+    // Wait for both snapshots so a slower activity response cannot redirect a
+    // user who has already started typing or explicitly opened a history item.
+    if (currentId === null && activityReady && !list.loading) {
+      setCurrentId(explorationEntryId(list.data, activeExplorationId))
+    }
+  }, [currentId, activityReady, list.loading, list.data, activeExplorationId])
+  const showNew = currentId === ''
   const onCreated = id => {
     useStore.getState().selectRecord(key + '/exploration', id)
-    setCreating(false)
+    setCurrentId(id)
     useStore.setState({ explorationContext: null })
     void list.refresh()
   }
   return <div className="wx-explore">
     <aside className="wx-history workspace-sidebar">
-      <button type="button" className="sidebar-new-chat sidebar-conversation-action" title="新探索" aria-label="新探索" disabled={submitting} onClick={() => { useStore.setState({ explorationContext: null }); setCreating(true) }}>
+      <button type="button" className="sidebar-new-chat sidebar-conversation-action" title="新探索" aria-label="新探索" disabled={submitting} onClick={() => { useStore.setState({ explorationContext: null }); setCurrentId('') }}>
         <FormOutlined aria-hidden="true" /><span>新探索</span>
       </button>
       <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">探索列表</span></header>
       <div className="wx-history-records">
       <ErrorMessage>{list.error}</ErrorMessage>
       {list.loading && <p>正在加载…</p>}
-      {records.map(item => <button className={'wx-record ' + (!showNew && currentId === item.exploration_id ? 'is-active' : '')} key={item.exploration_id} disabled={submitting} onClick={() => { useStore.getState().selectRecord(key + '/exploration', item.exploration_id); useStore.setState({ explorationContext: null }); setCreating(false) }}>
+      {records.map(item => <button className={'wx-record ' + (!showNew && currentId === item.exploration_id ? 'is-active' : '')} key={item.exploration_id} disabled={submitting} onClick={() => { useStore.getState().selectRecord(key + '/exploration', item.exploration_id); useStore.setState({ explorationContext: null }); setCurrentId(item.exploration_id) }}>
         <strong>{item.title || item.instruction || item.created_at || '探索'}</strong><Status value={item.status} /><small>{item.start_url}</small><small>{item.created_at}</small>
       </button>)}
       {!list.loading && !list.error && !list.data?.length && <p className="wx-empty">从一个网址开始，探索会保存在这里。</p>}
@@ -48,7 +51,7 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
     </aside>
     {showNew ? <NewExploration key={context ? context.toolkitId + '/' + context.tool.tool_id : 'site'} context={context} disabled={disabled || globalBusy || !modelReady} onCreated={onCreated} onBusyChange={setSubmitting} />
       : currentId ? <ExplorationDetail key={currentId} id={currentId} disabled={disabled} globalBusy={globalBusy} modelReady={modelReady} onBusyChange={setSubmitting} />
-        : <div className="wx-empty">{list.loading ? '正在加载探索…' : '暂时无法加载探索记录，请重试或新建探索。'}</div>}
+        : <div className="wx-empty">{list.loading || !activityReady || currentId === null ? '正在加载探索…' : '暂时无法加载探索记录，请重试或新建探索。'}</div>}
   </div>
 }
 

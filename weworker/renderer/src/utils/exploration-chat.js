@@ -45,3 +45,9 @@ export function sortExplorations(records = [], activeExplorationId = '') {
     return aTime === bTime ? 0 : bTime - aTime
   })
 }
+
+// Resolve the entry view once per visit. Historical selections must not become
+// the landing page; paused/waiting records remain available in the sidebar.
+export function explorationEntryId(records = [], activeExplorationId = '') {
+  return activeExplorationId || sortExplorations(records).find(item => runningStatuses.includes(item.status))?.exploration_id || ''
+}
