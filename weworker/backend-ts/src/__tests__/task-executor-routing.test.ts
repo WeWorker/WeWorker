@@ -5,7 +5,7 @@
  * 这里用**真实 works-store（内存库）**加少量桩，断言真正会发生的事：
  * - 命中时不再为这一轮付模型成本，且落库的 timing 带 `routeTool`；
  * - 未命中时行为与接线前完全一致（照常跑模型、照常落一条带耗时的 timing）；
- * - 专属 Agent 任务不接入路由（它有自己的站点/技能边界）。
+ * - WeWorker Bot 任务不接入路由（它有自己的站点/技能边界）。
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -256,7 +256,7 @@ describe('executeTask 的路由接线', () => {
     }), ['wecom'])
   })
 
-  it('专属 Agent 任务不接入路由', async () => {
+  it('WeWorker Bot 任务不接入路由', async () => {
     mocks.getAgent.mockReturnValue({
       id: 'agent-1',
       name: '巡检助手',

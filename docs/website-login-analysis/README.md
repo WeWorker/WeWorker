@@ -342,7 +342,7 @@ Bridge 会校验 Adapter 当前可用、URL 确实属于该 Adapter 的 `homepag
 
 - 主 Agent：`weworker/backend-ts/src/agent.ts` 与 `prompts/agent.md`；
 - WebCLI Skill：`webcli/skills/webcli/SKILL.md`；
-- 专属 Agent：`weworker/backend-ts/src/dedicated-agents/agent-runtime.ts`；
+- WeWorker Bot：`weworker/backend-ts/src/dedicated-agents/agent-runtime.ts`；
 - 桌面命令模板：`weworker/renderer/src/utils/chat-slash-commands.js`。
 
 这些入口统一遵循：常规 Host-managed Adapter 业务命令仍直接调用，不机械地先开页面；只有用户明确要求显示网站、通用浏览器/探索流程或 Skill 明确要求页面准备时才使用 `open_browser`。已知 Adapter 必须传 `--adapter=<id>`；探索未知网页时省略。

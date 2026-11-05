@@ -107,7 +107,7 @@ export default function App() {
 
   const explorationOpen = useExplorationPageStore((s) => s.open)
   const websiteOpen = useWebsiteExplorationStore((s) => s.open)
-  // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
+  // The WeWorker Bot page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
   const minimalWorkspaceToolbar = dedicatedAgentsOpen || activeSidebarSection === 'tasks'
@@ -133,7 +133,7 @@ export default function App() {
     useWebsiteExplorationStore.setState({ open: true })
   }), [])
 
-  // Tray menu → 专属 Agent
+  // Tray menu → WeWorker Bot
   useEffect(() => window.electronAPI?.onOpenDedicatedAgents?.(() => { void handleOpenDedicatedAgentsRef.current() }), [])
 
 
@@ -260,7 +260,7 @@ export default function App() {
     useExplorationPageStore.getState().closePage()
     useDedicatedAgentsStore.getState().closePage()
     setActiveSidebarSection('conversation')
-    // 专属 Agent 创建的项目/会话可能刚刚由后端写入，切回主对话时刷新列表。
+    // WeWorker Bot 创建的项目/会话可能刚刚由后端写入，切回主对话时刷新列表。
     await loadWorks()
     useToolPackagePageStore.getState().closePage()
     useScheduledTasksStore.setState({ activeTaskId: null })

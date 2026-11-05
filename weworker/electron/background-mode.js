@@ -150,8 +150,8 @@ export function buildQuitDialog(summary) {
   return {
     type: 'warning',
     title: '退出 WeWorker',
-    message: `你已绑定 ${summary.total} 个专属 Agent，退出后它们将停止回复企业微信和微信消息。`,
-    detail: `${listed}${more}\n\n保持 WeWorker 在后台运行，专属 Agent 才能随时为你工作。`,
+    message: `你已绑定 ${summary.total} 个WeWorker Bot，退出后它们将停止回复企业微信和微信消息。`,
+    detail: `${listed}${more}\n\n保持 WeWorker 在后台运行，WeWorker Bot 才能随时为你工作。`,
     buttons: ['留在后台运行', '仍然退出', '取消'],
     defaultId: 0,
     cancelId: 2,
@@ -162,8 +162,8 @@ export function buildQuitDialog(summary) {
 export function trayTooltip(summary) {
   if (!summary || summary.total === 0) return 'WeWorker'
   return summary.source === 'backend'
-    ? `WeWorker · 专属 Agent ${summary.online}/${summary.total} 在线`
-    : `WeWorker · ${summary.total} 个专属 Agent`
+    ? `WeWorker · WeWorker Bot ${summary.online}/${summary.total} 在线`
+    : `WeWorker · ${summary.total} 个WeWorker Bot`
 }
 
 // ── Close / quit controller ─────────────────────────────────────────────────

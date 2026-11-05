@@ -6,7 +6,7 @@
  *
  * - 所有入口只能调用共享入口 `tryRoutedTurn`，不允许再直接调用 `tryIntelligentQueryRoute`
  *   （本次改动就是把接线收敛成一份，散落的第二次接线正是「定时任务/渠道不走路由」的成因）；
- * - 专属 Agent 的回合必须显式跳过路由（桌面、定时、企微、微信四条路径都要有）；
+ * - WeWorker Bot 的回合必须显式跳过路由（桌面、定时、企微、微信四条路径都要有）；
  * - 桌面端保持 `persist: true`（路由层自己落库），其它入口自己落库。
  *
  * 行为级覆盖在 routed-turn / channel-routed-turn / task-executor-routing 三个测试里。
@@ -48,16 +48,16 @@ describe('智能路由接线', () => {
     expect(sources.wecom).toContain('persist: false')
   })
 
-  it('专属 Agent 的四条路径都跳过路由', () => {
-    // 桌面：profile 路由与确定性级联都不接专属 Agent。
+  it('WeWorker Bot 的四条路径都跳过路由', () => {
+    // 桌面：profile 路由与确定性级联都不接WeWorker Bot。
     expect(sources.server).toMatch(/if \([^\n]*!dedicatedAgent && await tryBackendProfileQueryRoute\(/)
     // 定时任务：agent 任务不进路由。
     expect(sources.taskExecutor).toContain('const routed = agent')
-    // 企微 / 微信：由 profile 上的专属 Agent 标记决定。
+    // 企微 / 微信：由 profile 上的WeWorker Bot 标记决定。
     expect(sources.wecom).toContain('this._profile.dedicatedAgentId')
     expect(sources.weixin).toContain('dedicatedAgent: !!this._profile.dedicatedAgentId')
     expect(sources.channelManager).toContain('opts?.dedicatedAgent')
-    // 专属 Agent 的渠道 profile 必须带上这个标记，否则上面的判断恒为假。
+    // WeWorker Bot 的渠道 profile 必须带上这个标记，否则上面的判断恒为假。
     expect(sources.agentChannel).toContain('dedicatedAgentId: agentId')
     expect(sources.channelProfile).toContain('dedicatedAgentId?: string')
   })

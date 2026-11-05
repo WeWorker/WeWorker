@@ -217,7 +217,7 @@ export default function MemoryTab() {
                 />
                 <span className="settings-pill-chevron">条</span>
               </div>
-              <div className="settings-action-hint">默认 50 条；超出时自动删除最早创建的定时任务对话，专属 Agent 的上下文对话不受此上限影响</div>
+              <div className="settings-action-hint">默认 50 条；超出时自动删除最早创建的定时任务对话，WeWorker Bot 的上下文对话不受此上限影响</div>
             </div>
           </div>
           <div className="settings-row-footer">

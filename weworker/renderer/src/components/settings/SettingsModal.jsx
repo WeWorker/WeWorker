@@ -358,7 +358,7 @@ function BackgroundSettingsGroup() {
         {settings.closeToTraySupported && (
           <SettingRow
             title="关闭窗口时最小化到系统托盘"
-            description="保持后台运行；关闭窗口后，专属 Agent 仍可回复企业微信和微信消息。"
+            description="保持后台运行；关闭窗口后，WeWorker Bot 仍可回复企业微信和微信消息。"
           >
             <AppSwitch
               checked={settings.closeToTray}

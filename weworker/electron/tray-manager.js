@@ -20,10 +20,10 @@ export function resolveTrayIconPath(platform = process.platform) {
 /** Menu template, kept separate from Electron so it can be tested. */
 export function buildTrayMenuTemplate({ summary, launchAtLogin, onOpen, onOpenAgents, onToggleLaunchAtLogin, onQuit, browser = null }) {
   const agentLine = !summary || summary.total === 0
-    ? '暂无专属 Agent'
+    ? '暂无WeWorker Bot'
     : summary.source === 'backend'
-      ? `专属 Agent：${summary.online}/${summary.total} 在线`
-      : `专属 Agent：${summary.total} 个`
+      ? `WeWorker Bot：${summary.online}/${summary.total} 在线`
+      : `WeWorker Bot：${summary.total} 个`
   const template = [
     { label: '打开 WeWorker', click: onOpen },
     { label: agentLine, click: onOpenAgents },

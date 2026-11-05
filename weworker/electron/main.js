@@ -258,7 +258,7 @@ const background = createBackgroundController({
   onHidden: () => {
     if (process.platform !== 'win32' || preferences.get().backgroundHintShown) return
     preferences.update({ backgroundHintShown: true })
-    trayManager.notify('WeWorker 仍在后台运行', '专属 Agent 会继续工作。点击托盘图标打开，右键可退出。')
+    trayManager.notify('WeWorker 仍在后台运行', 'WeWorker Bot 会继续工作。点击托盘图标打开，右键可退出。')
   },
   log,
 })

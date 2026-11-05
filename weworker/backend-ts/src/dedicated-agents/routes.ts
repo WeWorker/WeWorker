@@ -1,5 +1,5 @@
 /**
- * HTTP API for dedicated agents (专属 Agent).
+ * HTTP API for dedicated agents (WeWorker Bot).
  * All routes sit behind the backend's existing local auth middleware.
  */
 import type express from 'express'
@@ -137,7 +137,7 @@ function workspaceConflict(error: unknown): boolean {
  * the Agent: it is created from the Agent name and can only change through it.
  */
 export function agentProjectName(agentName: string): string {
-  return `专属 Agent - ${String(agentName || '未命名 Agent').trim()}`
+  return `WeWorker Bot - ${String(agentName || '未命名 Agent').trim()}`
 }
 
 /** `base`, then `base (2)`, `base (3)` … so two Agents never share one folder. */
@@ -172,7 +172,7 @@ function createAgentWorkspace(agentName: string): { project: works.ProjectSummar
       throw error
     }
   }
-  throw new DedicatedAgentError('无法创建专属 Agent 工作区，请先清理同名项目')
+  throw new DedicatedAgentError('无法创建WeWorker Bot 工作区，请先清理同名项目')
 }
 
 function agentProjectId(agent: DedicatedAgentRecord): string | null {
@@ -242,7 +242,7 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
   }
   const requireAgent = (id: string) => {
     const agent = getAgent(id)
-    if (!agent) throw new DedicatedAgentError('专属 Agent 不存在', 404)
+    if (!agent) throw new DedicatedAgentError('WeWorker Bot 不存在', 404)
     return agent
   }
 

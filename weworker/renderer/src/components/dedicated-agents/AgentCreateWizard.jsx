@@ -208,7 +208,7 @@ export default function AgentCreateWizard({ draftKey }) {
 
   const selectSite = (next) => {
     const patch = ((current) => {
-      const autoName = !current.name || current.name === '新建专属 Agent' || current.name === defaultAgentName(site)
+      const autoName = !current.name || current.name === '新建WeWorker Bot' || current.name === defaultAgentName(site)
       return {
         ...current,
         siteId: next.id,
@@ -280,9 +280,9 @@ export default function AgentCreateWizard({ draftKey }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <h2 style={titleStyle}>
-            {createdAgent ? (draft.name.trim() || '新建专属 Agent') : (
+            {createdAgent ? (draft.name.trim() || '新建WeWorker Bot') : (
               <AgentNameEditor
-                name={draft.name.trim() || '新建专属 Agent'}
+                name={draft.name.trim() || '新建WeWorker Bot'}
                 onSave={async (name) => {
                   update({ name })
                   return { ...existingDraft, name }
@@ -296,7 +296,7 @@ export default function AgentCreateWizard({ draftKey }) {
         </div>
         {!createdAgent && <Button data-app-button="action" onClick={cancelCreate}>保存并返回</Button>}
       </div>
-      <div style={{ ...hintStyle, marginBottom: 18 }}>一个专属 Agent = 一个网站的能力 + 你的专属知识 + 一个企业微信或微信机器人。大约 5 分钟完成。</div>
+      <div style={{ ...hintStyle, marginBottom: 18 }}>一个WeWorker Bot = 一个网站的能力 + 你的专属知识 + 一个企业微信或微信机器人。大约 5 分钟完成。</div>
       <Steps size="small" current={step} items={WIZARD_STEPS.map((item) => ({ title: item.title }))} style={{ marginBottom: 20 }} />
 
       <div className="agent-create-wizard__section" style={sectionStyle}>
