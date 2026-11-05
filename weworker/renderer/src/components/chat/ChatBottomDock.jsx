@@ -29,7 +29,7 @@ export default function ChatBottomDock({ showInput = true, ...inputProps }) {
       background: 'linear-gradient(to bottom, transparent 0, var(--bg-secondary) 42px, var(--bg-secondary) 100%)',
       pointerEvents: 'none',
     }}>
-      <InputBar {...inputProps} />
+      <InputBar key={inputProps.attachmentTarget || 'welcome'} {...inputProps} />
     </div>
   )
 }

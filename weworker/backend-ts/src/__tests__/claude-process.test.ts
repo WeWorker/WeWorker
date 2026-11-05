@@ -31,7 +31,8 @@ describe('managed Claude process', () => {
     child.kill('SIGTERM')
     await once(child, 'exit')
 
-    expect(() => process.kill(-pid!, 0)).toThrow()
+    // The shell's exit event can arrive before all group members are reaped.
+    await expectProcessGone(-pid!)
   })
 
   it.runIf(process.platform !== 'win32')('terminates descendants that create their own process group', async () => {

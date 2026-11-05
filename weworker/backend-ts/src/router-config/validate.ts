@@ -183,7 +183,7 @@ function checkExamples(value: unknown, label: string, errors: string[]): void {
   })
 }
 
-/** 词归一化：与层 P 的包含匹配同口径（去全部空白 + 小写） */
+/** 词归一化：与层 P 的全等匹配同口径（去全部空白 + 小写） */
 function normalizeTerm(term: string): string {
   return term.replace(/\s+/g, '').toLowerCase()
 }
@@ -346,14 +346,13 @@ export function validateRoutesFile(raw: unknown): string[] {
         ids.push({ label, id: entry.id })
         const tool = typeof entry.tool === 'string' ? entry.tool : ''
         if (isPlainObject(entry.match)) {
-          // keywords 走包含匹配 → 参与子串遮蔽检测；aliases 走全等 → 只判重复
+          // keywords 和 aliases 均走归一化全等，只需检查不同工具的重复词。
           for (const term of stringsOf(entry.match.keywords)) keywords.push({ label: `${label}.match.keywords`, tool, term })
           for (const term of stringsOf(entry.match.aliases)) aliases.push({ label: `${label}.match.aliases`, tool, term })
         }
       })
       checkUniqueIds(ids, errors)
-      checkTermConflicts(keywords, errors)
-      checkExactDuplicates(aliases, errors)
+      checkExactDuplicates([...keywords, ...aliases], errors)
     }
   }
   return errors
@@ -417,6 +416,24 @@ export function validateShortcutsFile(raw: unknown): string[] {
         checkFiniteNumber(entry.priority, `${label}.priority`, errors)
         checkObject(entry.args, `${label}.args`, errors)
         checkPatternSpec(entry.patterns, `${label}.patterns`, errors)
+        if (isPlainObject(entry.patterns)) {
+          checkStringArray(entry.patterns.exact, `${label}.patterns.exact`, errors)
+          if (entry.patterns.exact !== undefined && (!Array.isArray(entry.patterns.exact) || entry.patterns.exact.some((phrase) => typeof phrase !== 'string' || !phrase.trim()))) {
+            errors.push(`${label}.patterns.exact must contain nonempty full utterances`)
+          }
+          if (entry.patterns.exact !== undefined && entry.patterns.positive !== undefined) {
+            errors.push(`${label}.patterns.exact and .positive cannot be combined`)
+          }
+          if (entry.extract !== undefined && entry.patterns.exact !== undefined) {
+            errors.push(`${label}.extract requires anchored .positive templates, not .exact`)
+          }
+          if (entry.extract === undefined && entry.patterns.positive !== undefined) {
+            errors.push(`${label}.patterns.positive requires extract; parameterless shortcuts use .exact`)
+          }
+          if (Array.isArray(entry.patterns.positive) && entry.patterns.positive.some((source) => typeof source === 'string' && (!source.startsWith('^') || !source.endsWith('$') || /\.\*|\.\+|\[\\s\\S\]|\[\^\]/.test(source)))) {
+            errors.push(`${label}.patterns.positive must use bounded ^...$ templates without wildcard spans`)
+          }
+        }
         checkExtractRules(entry.extract, `${label}.extract`, errors)
         checkRenderSpec(entry.render, `${label}.render`, errors)
         checkExamples(entry.examples, `${label}.examples`, errors)
@@ -453,7 +470,7 @@ export function validatePatternsFile(raw: unknown): string[] {
 
   // 走到这里的 `configs` 已被 loader 归一化成「工具名为 key」的扁平记录（文件里是按
   // adapter 分节的 `{ "<adapterId>": { "<工具名>": … } }`，分节归属另有校验）；
-  // keywords 型规则参与跨工具遮蔽检测
+  // keywords 型规则仅检查跨工具全等重复，不把子串视作遮蔽。
   const keywords: TermOwner[] = []
 
   for (const [tool, config] of Object.entries(raw.configs)) {
@@ -477,20 +494,26 @@ export function validatePatternsFile(raw: unknown): string[] {
             errors.push(`${ruleLabel} must be an object`)
             return
           }
-          if (rule.type !== 'regex' && rule.type !== 'keyword') {
-            errors.push(`${ruleLabel}.type must be "regex" or "keyword"`)
+          if (rule.type !== 'regex' && rule.type !== 'keyword' && rule.type !== 'template') {
+            errors.push(`${ruleLabel}.type must be "regex", "keyword" or "template"`)
             return
           }
-          if (rule.type === 'regex') {
+          if (rule.type === 'regex' || rule.type === 'template') {
             if (typeof rule.expression !== 'string') {
               errors.push(`${ruleLabel}.expression must be a string`)
             } else {
-              try {
-                new RegExp(rule.expression, typeof rule.flags === 'string' ? rule.flags : undefined)
-              } catch (error) {
-                errors.push(
-                  `${ruleLabel}.expression is not a valid regex: ${error instanceof Error ? error.message : String(error)}`,
-                )
+              if (rule.type === 'template') {
+                if (!/\$\{[a-zA-Z_][\w]*\}/.test(rule.expression) || /\$\{[^}]*\}/.test(rule.expression.replace(/\$\{[a-zA-Z_][\w]*\}/g, ''))) {
+                  errors.push(`${ruleLabel}.expression must contain valid \${name} slots`)
+                }
+              } else {
+                try {
+                  new RegExp(rule.expression, typeof rule.flags === 'string' ? rule.flags : undefined)
+                } catch (error) {
+                  errors.push(
+                    `${ruleLabel}.expression is not a valid regex: ${error instanceof Error ? error.message : String(error)}`,
+                  )
+                }
               }
             }
           } else {
@@ -505,6 +528,22 @@ export function validatePatternsFile(raw: unknown): string[] {
               errors.push(`${ruleLabel}.match_mode must be one of "any" / "all" / "phrase"`)
             }
           }
+          if (rule.slot_validators !== undefined) {
+            if (rule.type !== 'template' || !isPlainObject(rule.slot_validators)) {
+              errors.push(`${ruleLabel}.slot_validators must be a template slot map`)
+            } else {
+              const slots = new Set([...(typeof rule.expression === 'string' ? rule.expression : '').matchAll(/\$\{([a-zA-Z_][\w]*)\}/g)].map((match) => match[1]))
+              for (const [name, source] of Object.entries(rule.slot_validators)) {
+                if (!slots.has(name) || typeof source !== 'string' || !source) {
+                  errors.push(`${ruleLabel}.slot_validators.${name} must declare a slot regex`)
+                  continue
+                }
+                try { new RegExp(`^(?:${source})$`, 'u') } catch {
+                  errors.push(`${ruleLabel}.slot_validators.${name} must be a valid regex`)
+                }
+              }
+            }
+          }
           checkFiniteNumber(rule.weight, `${ruleLabel}.weight`, errors)
           // 逐条规则都要有成功示例：本层是正则/关键词层，示例是**唯一**能证明规则写对了的东西
           checkExamples(rule.examples, `${ruleLabel}.examples`, errors)
@@ -514,7 +553,7 @@ export function validatePatternsFile(raw: unknown): string[] {
     }
     checkExtractRules(config.arg_extractors, `${label}.arg_extractors`, errors)
   }
-  checkTermConflicts(keywords, errors)
+  checkExactDuplicates(keywords, errors)
   return errors
 }
 

@@ -510,7 +510,7 @@ export default function ExplorationPage({ onClose }) {
         background: 'var(--bg-primary)',
       }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>网站 API 探索</div>
+          <div style={{ fontSize: 'var(--font-size-subtitle)', fontWeight: 700, color: 'var(--text-primary)' }}>网站 API 探索</div>
           <div style={{ marginTop: 3, fontSize: 11, color: 'var(--text-muted)' }}>客户端分析页面 API，Chrome 插件只执行被动网络捕获</div>
         </div>
         <button type="button" onClick={onClose} style={{ border: 0, background: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>✕</button>

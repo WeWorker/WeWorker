@@ -1,7 +1,8 @@
 {
   "schema_version": 2,
   "name": "jd.com",
-  "version": "1.0.11",
+  "version": "1.0.12",
+  "enabled": true,
   "description": "京东：导航主页、查看购物车、查看订单、购买商品、支付",
   "match": [
     "www.jd.com"
@@ -18,6 +19,9 @@
     ],
     "check": {
       "command": "check-login-status"
+    },
+    "qr": {
+      "command": "get-login-qrcode"
     }
   },
   "requires_auth": true,
@@ -37,6 +41,18 @@
         "check_login_status"
       ],
       "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
+    },
+    {
+      "id": "get-login-qrcode",
+      "runtime": "extension",
+      "module": "extension/commands/get-login-qrcode.js",
+      "description": "提取京东登录页的二维码图片（宿主登录流程专用，不作为业务工具调用）。",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     },
     {
       "id": "search-products",

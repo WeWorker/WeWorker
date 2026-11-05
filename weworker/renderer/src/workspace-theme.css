@@ -51,14 +51,21 @@
   width: 100%;
 }
 
-.workspace-toolbar__actions {
+.workspace-toolbar__actions,
+.chat-heading__actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
   -webkit-app-region: no-drag;
 }
 
-.workspace-toolbar__actions .workspace-toolbar__button {
+.chat-heading__actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.workspace-toolbar__actions .workspace-toolbar__button,
+.chat-heading__actions .workspace-toolbar__button {
   box-sizing: border-box;
   width: 28px;
   height: 28px;
@@ -80,13 +87,18 @@
 .workspace-toolbar__actions .workspace-toolbar__button:hover,
 .workspace-toolbar__actions .workspace-toolbar__button:active,
 .workspace-toolbar__actions .workspace-toolbar__button:focus-visible,
-.workspace-toolbar__actions .workspace-toolbar__button.is-active {
+.workspace-toolbar__actions .workspace-toolbar__button.is-active,
+.chat-heading__actions .workspace-toolbar__button:hover,
+.chat-heading__actions .workspace-toolbar__button:active,
+.chat-heading__actions .workspace-toolbar__button:focus-visible,
+.chat-heading__actions .workspace-toolbar__button.is-active {
   background: var(--bg-hover);
   color: var(--text-primary);
   outline: none;
 }
 
-.workspace-toolbar__actions .workspace-toolbar__button.is-active {
+.workspace-toolbar__actions .workspace-toolbar__button.is-active,
+.chat-heading__actions .workspace-toolbar__button.is-active {
   color: var(--accent);
 }
 
@@ -188,7 +200,7 @@
 
 .project-create-dialog__header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-title);
   font-weight: 650;
   line-height: 1.3;
 }
@@ -246,7 +258,7 @@
   background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-size-body);
 }
 
 .project-create-name-field:focus-within {
@@ -297,7 +309,7 @@
   align-items: center;
   gap: 12px;
   color: var(--accent);
-  font-size: 18px;
+  font-size: var(--font-size-subtitle);
 }
 
 .project-create-selected-folder__path {
@@ -783,7 +795,7 @@ button.app-rail__issue-item:focus-visible {
   font-family: inherit;
   line-height: 1.5;
   color: var(--text-muted) !important;
-  font-size: 12px !important;
+  font-size: var(--font-size-label) !important;
   font-weight: 560 !important;
 }
 
@@ -817,7 +829,7 @@ button.app-rail__issue-item:focus-visible {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 560;
   text-align: left;
   -webkit-app-region: no-drag;
@@ -966,9 +978,9 @@ button.app-rail__issue-item:focus-visible {
   background: transparent;
   color: var(--text-secondary);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   font-weight: 400;
-  line-height: 18px;
+  line-height: 24px;
   text-align: left;
   cursor: pointer;
   transition: background 0.1s;
@@ -1165,7 +1177,10 @@ button.app-rail__issue-item:focus-visible {
   .chat-input-toolbar-actions > .context-usage-trigger {
     display: none;
   }
+}
 
+/* Keep the permission name visible until the composer itself becomes narrow. */
+@container chat-composer (max-width: 620px) {
   .chat-permission-picker .app-dropdown-select__trigger {
     width: 32px;
     min-width: 32px;
@@ -1196,12 +1211,12 @@ button.app-rail__issue-item:focus-visible {
 }
 
 [data-welcome-scroll] h1 {
-  font-size: 24px;
-  letter-spacing: -0.02em;
+  font-size: var(--font-size-display);
+  letter-spacing: 0;
 }
 
 [data-welcome-scroll] header p {
-  font-size: 14px;
+  font-size: var(--font-size-body);
 }
 
 .featured-site-card {
@@ -1232,13 +1247,34 @@ button.app-rail__issue-item:focus-visible {
   border-right: 1px solid var(--border);
 }
 
+.settings-sidebar-resize-handle {
+  position: relative;
+  z-index: 2;
+  width: 8px;
+  margin-left: -4px;
+  margin-right: -4px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.settings-sidebar-resize-handle:hover,
+.settings-sidebar-resize-handle:focus-visible,
+.settings-sidebar-resize-handle.is-resizing {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.settings-sidebar-resize-handle:focus-visible {
+  box-shadow: inset 1px 0 var(--accent), inset -1px 0 var(--accent);
+}
+
 .settings-sidebar__brand {
   padding: 0 8px 16px;
 }
 
 .settings-sidebar__brand h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--font-size-subtitle);
   font-weight: 650;
   color: var(--text-primary);
 }
@@ -1310,7 +1346,7 @@ button.app-rail__issue-item:focus-visible {
 
 .settings-panel-top h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-subtitle);
   font-weight: 650;
   color: var(--text-primary);
 }

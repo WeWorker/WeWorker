@@ -1,4 +1,4 @@
-import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
+import { tool, createSdkMcpServer, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -9,6 +9,7 @@ import { getUserDirectory } from './config.js'
 import { listFiles } from './file-tools.js'
 import { assertPathInsideUserDirectory } from './user-directory-guard.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
+import { runWithWorkspaceDirectory } from './workspace-access-context.js'
 import * as store from './works-store.js'
 import { scheduler, Scheduler } from './scheduler.js'
 import { channelManager } from './channels/channel-manager.js'
@@ -24,12 +25,12 @@ import { projectResult } from './webcli-result-project.js'
 import { checkFileEncryptionCached } from './encryption-check-cache.js'
 import { createLogger } from './logger.js'
 import { runWeWorkerPowerShell } from './powershell-runner.js'
-import { invokesWebcli } from './agent-tool-policy.js'
 
 const log = createLogger('tools')
 
 // ── ask_user pending requests（实现见 ask-user-pending.ts，此处 re-export 保留既有导入路径）──
 import {
+  requestUserChoice,
   setPendingAskUser,
   resolvePendingAskUser,
   hasPendingAskUser,
@@ -213,6 +214,7 @@ function buildExplorationChatTools(coordinator: ExplorationCoordinatorToolTarget
 }
 
 interface McpServerContext {
+  workspaceDirectory?: string
   platform?: NodeJS.Platform
   channelPermissionMode?: ChannelPermissionMode
   workId?: string | null
@@ -289,7 +291,35 @@ export function buildMcpServer(opts?: McpServerContext) {
   const isDedicatedOwner = !!dedicatedAgent?.ownerUserId
     && (!dedicatedAgent.actorUserId || dedicatedAgent.actorUserId === dedicatedAgent.ownerUserId)
   const platform = opts?.platform ?? process.platform
-  const nativeCommandTool = platform === 'win32' ? 'PowerShell' : 'Bash'
+  const toolDirectory = opts?.workspaceDirectory || getUserDirectory()
+  const fileToolDescription = channelPermissionMode === 'workspace'
+    ? `文件操作限制在工作区 ${toolDirectory} 内，并遵循文件黑名单。`
+    : channelPermissionMode === 'ask'
+      ? '每次文件操作都需要用户确认；确认后可访问任意路径。'
+      : channelPermissionMode === 'full'
+        ? '文件操作不受工作区、白名单或黑名单限制。'
+        : '文件操作范围由当前权限模式决定。'
+  const shellToolDescription = channelPermissionMode === 'workspace'
+    ? 'Commands must follow workspace path, blacklist, and site allowlist rules.'
+    : channelPermissionMode === 'ask'
+      ? 'Every command requires user confirmation; after approval it may access any path or site.'
+      : channelPermissionMode === 'full'
+        ? 'Commands are unrestricted by workspace, allowlist, or blacklist settings.'
+        : 'Commands follow the active permission mode.'
+  const shellPathDescription = channelPermissionMode === 'workspace'
+    ? 'Commands must comply with the bound workspace and file blacklist.'
+    : channelPermissionMode === 'ask'
+      ? 'Commands require user confirmation before execution and may access any path after approval.'
+      : channelPermissionMode === 'full'
+        ? 'Commands may access any path without workspace, allowlist, or blacklist restrictions.'
+        : 'Commands must comply with WeWorker user-directory restrictions.'
+  const shellCwdDescription = channelPermissionMode === 'workspace'
+    ? 'Defaults to the bound workspace and must remain inside it.'
+    : channelPermissionMode === 'ask'
+      ? 'Defaults to the configured user directory; any working directory requires user confirmation.'
+      : channelPermissionMode === 'full'
+        ? 'Defaults to the configured user directory; any working directory is allowed.'
+        : 'Defaults to the configured user directory and must stay inside it.'
 
   if (opts?.channelPermissionMode === 'qa_only') {
     return createSdkMcpServer({
@@ -360,23 +390,15 @@ export function buildMcpServer(opts?: McpServerContext) {
     ),
     tool(
       'weworker_powershell',
-      channelPermissionMode === 'full'
-        ? `Run a local command through WeWorker Shell with live output visible in the terminal panel. Do not use it for Adapter commands; webcli must use Claude Code native ${nativeCommandTool}.`
-        : 'Run a local command through WeWorker Shell with live output visible in the terminal panel. Adapter commands are unavailable because Claude Code native command tools are disabled.',
+      `Run a local command through WeWorker Shell with live output visible in the terminal panel. ${shellToolDescription}`,
       {
-        command: z.string().describe('Shell command to run. It must comply with WeWorker user-directory restrictions.'),
-        cwd: z.string().optional().describe('Working directory. Defaults to the configured user directory and must stay inside it.'),
+        command: z.string().describe(`Shell command to run. ${shellPathDescription}`),
+        cwd: z.string().optional().describe(`Working directory. ${shellCwdDescription}`),
         shell: z.enum(['bash', 'powershell']).optional().describe('Shell to use. Defaults to PowerShell on Windows and bash elsewhere.'),
         outputEncoding: z.string().optional().describe('Terminal stdout/stderr decoding label. Defaults to utf-8, and Windows native commands such as xcopy/copy/dir are auto-decoded as gbk unless explicitly set.'),
       },
       async ({ command, cwd, shell, outputEncoding }) => {
         try {
-          if (invokesWebcli(command)) {
-            const error = channelPermissionMode === 'full'
-              ? `Adapter commands must run with Claude Code native ${nativeCommandTool} instead of WeWorker Shell.`
-              : 'Adapter commands require full permission mode and the platform-native Claude Code command tool.'
-            return { content: [{ type: 'text' as const, text: JSON.stringify({ error }) }] }
-          }
           const result = await runWeWorkerPowerShell({
             command,
             cwd,
@@ -433,17 +455,10 @@ export function buildMcpServer(opts?: McpServerContext) {
 
         const toolCallId = `ask-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
-        if (askUserSSECallback) {
-          askUserSSECallback({ type: 'user_choice', id: toolCallId, question, options })
-        }
-
-        const answer = await new Promise<string>((resolve) => {
-          setPendingAskUser(workId, { toolCallId, question, options, resolve })
-          setTimeout(() => {
-            if (hasPendingAskUser(workId)) {
-              resolvePendingAskUser(workId, '用户未在规定时间内回答')
-            }
-          }, 5 * 60 * 1000)
+        if (!askUserSSECallback) return toolText({ error: '当前会话无法显示用户问题' })
+        const answer = await requestUserChoice({
+          workId, toolCallId, question, options,
+          onChoice: askUserSSECallback, signal: abortSignal ?? undefined,
         })
 
         return { content: [{ type: 'text' as const, text: JSON.stringify({ answer }) }] }
@@ -582,9 +597,9 @@ export function buildMcpServer(opts?: McpServerContext) {
 
     tool(
       'list_files',
-      `列出用户目录中的文件（仅限 ${getUserDirectory()} 及其子目录，按修改时间倒序排列）。`,
+      `列出文件。${fileToolDescription}按修改时间倒序排列。`,
       {
-        directory: z.string().optional().describe(`用户目录内的子目录路径（默认 ${getUserDirectory()}）`),
+        directory: z.string().optional().describe(`目录路径（默认 ${toolDirectory}）`),
         keyword: z.string().optional().describe('按文件名关键词过滤'),
         limit: z.number().optional().describe('最大返回数量（默认 50）'),
       },
@@ -693,6 +708,9 @@ export function buildMcpServer(opts?: McpServerContext) {
   return createSdkMcpServer({
     name: 'weworker-tools',
     version: '1.0.0',
-    tools: systemTools,
+    tools: systemTools.map((definition: SdkMcpToolDefinition<any>) => ({
+      ...definition,
+      handler: (args, extra) => runWithWorkspaceDirectory(opts?.workspaceDirectory, () => definition.handler(args, extra), channelPermissionMode),
+    })),
   })
 }

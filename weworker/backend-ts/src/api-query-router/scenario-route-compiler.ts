@@ -68,6 +68,9 @@ export type CompileResult = {
 export const SAMPLE_VALUES: readonly (string | null)[] = [null, 'Example_Project', '示例项目', '98765']
 
 const PLACEHOLDER_RE = /\$\{([^}]+)\}/g
+/** 数量式槽名的计量单位属于模板字面量，不属于捕获值。长单位须排在短单位前。 */
+const QUANTITY_UNIT_RE = /^(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百千万亿]+)(小时|分钟|公里|公斤|天|个|条|页|楼|层|周|月|年|次|秒|米|元|件|张|位|人|岁|吨|克|只|辆)$/
+const QUANTITY_TEXT_RE = '(?:\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百千万亿]+)'
 
 export function escapeRegExp(text: string): string {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -120,8 +123,11 @@ export function compilePatternRegex(template: string, slotIndex: SlotIndex): { r
     const group = `s${slotIndex[match[1]]}`
     const param = slotIndex.__params?.[match[1]]
     const typed = slotRegexFor(param)
+    const unit = QUANTITY_UNIT_RE.exec(match[1])?.[1]
     const isTail = (match.index ?? 0) + match[0].length >= normalized.length
-    const body = typed ?? (isTail ? '.+' : '.+?')
+    const body = unit
+      ? (typed ? `(?:(?=${QUANTITY_TEXT_RE}${escapeRegExp(unit)})${typed})` : QUANTITY_TEXT_RE)
+      : (typed ?? (isTail ? '.+' : '.+?'))
     // 同名占位符重复出现只保留首次捕获，后续用非捕获组：重复命名组会让正则非法，
     // 而重复出现本就各有各的文本，不应强求取值相同。
     if (captured.has(group)) {
@@ -130,6 +136,7 @@ export function compilePatternRegex(template: string, slotIndex: SlotIndex): { r
       captured.add(group)
       parts.push(`(?<${group}>${body})`)
     }
+    if (unit) parts.push(escapeRegExp(unit))
     cursor = (match.index ?? 0) + match[0].length
   }
   parts.push(escapeRegExp(normalized.slice(cursor)), '$')

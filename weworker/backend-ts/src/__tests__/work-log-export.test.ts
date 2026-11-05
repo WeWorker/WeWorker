@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorkLogExport, filterWorkLogLines, summarizeMessage } from '../work-log-export.js'
+import { buildSavedMessagesLog, summarizeMessage } from '../work-log-export.js'
 import type { Message } from '../works-store.js'
 
 const WORK_ID = '2215049d-1234-5678-9abc-def012345678'
@@ -8,30 +8,52 @@ function message(content: Message['content'], role = 'user'): Message {
   return { id: 'm1', work_id: WORK_ID, role, content, created_at: '2026-10-31T08:00:00.000Z' } as Message
 }
 
-describe('summarizeMessage', () => {
-  it('summarizes text, tool_use and timing blocks without full payloads', () => {
+describe('summarizeMessage legacy fallback', () => {
+  it('preserves safe routing timings and IDs without exposing tool arguments or results', () => {
     const lines = summarizeMessage(message([
-      { type: 'text', text: 'x'.repeat(500) },
-      { type: 'tool_use', id: 't1', name: 'weoa.example.com.list', status: 'success', execMs: 120,
-        args: { mode: 'available' }, result: '{"ok":true}' },
-      { type: 'timing', totalMs: 900, llmMs: 700, execMs: 200, steps: 2 },
+      { type: 'text', text: 'PRIVATE BODY IN TEXT' },
+      { type: 'tool_use', id: 't1', name: 'private.example.com.lookup', status: 'success', execMs: 120,
+        args: { token: 'PLACEHOLDER_TOKEN', command: 'PRIVATE ARGS' }, result: 'PRIVATE RESULT' },
+      { type: 'timing', totalMs: 900, llmMs: 700, execMs: 200, steps: 2,
+        routeTool: 'private.example.com.lookup', routeSource: 'pattern', routeArgs: 'PRIVATE ROUTE ARGS' },
     ]))
-    expect(lines[0]).toMatch(/^text: x{100}…$/)
-    expect(lines[1]).toContain('tool_use: weoa.example.com.list')
-    expect(lines[1]).toContain('status=success')
-    expect(lines[1]).toContain('execMs=120')
-    expect(lines[1]).toContain('args={"mode":"available"}')
-    expect(lines[1]).toContain('result={"ok":true}')
-    expect(lines[2]).toContain('timing: totalMs=900 llmMs=700 execMs=200 steps=2')
+    expect(lines[0]).toBe('text: [content omitted]')
+    expect(lines[1]).toContain('id=t1 status=success execMs=120 args=[omitted] result=[omitted]')
+    expect(lines[2]).toContain('totalMs=900 llmMs=700 execMs=200 steps=2 route=tool_selected source=pattern args=[omitted]')
+    for (const sensitive of ['PRIVATE BODY', 'private.example.com', 'PLACEHOLDER_TOKEN', 'PRIVATE ARGS', 'PRIVATE RESULT', 'PRIVATE ROUTE ARGS']) {
+      expect(lines.join('\n')).not.toContain(sensitive)
+    }
   })
 
-  it('keeps file attachments by name only and omits image payloads', () => {
+  it('omits attachment names and paths, skill content, errors and unknown blocks', () => {
     const lines = summarizeMessage(message([
-      { type: 'file_attachment', name: 'report.pdf', path: 'C:\\Users\\dev\\report.pdf', size: 12345 },
-      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAABBBB' } },
+      { type: 'file_attachment', name: 'PRIVATE_REPORT.pdf', path: 'C:\\Users\\private\\report.pdf', size: 12345 },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,PRIVATE_IMAGE' } },
+      { type: 'skill_context', tool_use_id: 't1', name: 'PRIVATE_SKILL', directory: '/home/private/skills', digest: 'PRIVATE_DIGEST', text: 'PRIVATE SKILL BODY' },
+      { type: 'error', text: 'TimeoutError: /home/private/file?token=PLACEHOLDER_TOKEN' },
+      { type: 'unknown', payload: 'PRIVATE UNKNOWN' } as unknown as Message['content'][number],
     ]))
-    expect(lines).toContain('file_attachment: report.pdf (12345B)')
-    expect(lines).toContain('image_attachment: [image omitted]')
+    const output = lines.join('\n')
+    expect(output).toContain('file_attachment: [name and path omitted] sizeBytes=12345')
+    expect(output).toContain('image_attachment: [image omitted]')
+    expect(output).toContain('skill_context: [content omitted] tool_use_id=t1')
+    expect(output).toContain('error: category=TimeoutError')
+    expect(output).toContain('block: [unsupported content omitted]')
+    for (const sensitive of ['PRIVATE_REPORT', 'C:\\Users', 'PRIVATE_IMAGE', 'PRIVATE_SKILL', 'PRIVATE_DIGEST', 'PRIVATE SKILL BODY', '/home/private', 'PLACEHOLDER_TOKEN', 'PRIVATE UNKNOWN']) {
+      expect(output).not.toContain(sensitive)
+    }
+  })
+
+  it('does not echo untrusted metadata disguised as status, tool ID, route source or error class', () => {
+    const output = summarizeMessage(message([
+      { type: 'tool_use', id: 'C:\\Users\\private\\key', name: 'tool', args: null, status: 'PRIVATE_STATUS', execMs: -3 },
+      { type: 'timing', totalMs: -5, llmMs: 0, execMs: 0, steps: 1, routeSource: 'PRIVATE_SOURCE' },
+      { type: 'error', text: 'PrivateError: PRIVATE BODY' },
+    ])).join('\n')
+    for (const sensitive of ['C:\\Users', 'PRIVATE_STATUS', 'PRIVATE_SOURCE', 'PrivateError', 'PRIVATE BODY', 'execMs=-3', 'totalMs=-5']) {
+      expect(output).not.toContain(sensitive)
+    }
+    expect(output).toContain('error: category=error')
   })
 
   it('emits a placeholder for empty messages', () => {
@@ -39,48 +61,16 @@ describe('summarizeMessage', () => {
   })
 })
 
-describe('filterWorkLogLines', () => {
-  it('keeps lines tagged with the short work marker or the full id, redacted', () => {
-    const lines = [
-      '[2026-10-31T08:00:01Z] [node] [work:2215049d] turn_start model=claude',
-      '[2026-10-31T08:00:02Z] [bridge] [Bridge] [work:2215049d] 收到调用: weoa.example.com.list',
-      `[2026-10-31T08:00:03Z] [node] other work ${WORK_ID} inline`,
-      '[2026-10-31T08:00:04Z] [bridge] [Bridge] [work:ffffffff] 收到调用: unrelated',
-      '[2026-10-31T08:00:05Z] [node] [work:2215049d] token=superSecretValue',
-    ]
-    const kept = filterWorkLogLines(lines, WORK_ID)
-    expect(kept).toHaveLength(4)
-    expect(kept[0]).toContain('turn_start')
-    expect(kept.some((l) => l.includes('unrelated'))).toBe(false)
-    expect(kept.some((l) => l.includes('superSecretValue'))).toBe(false)
-  })
-
-  it('does not match a different work sharing the 8-char prefix boundary', () => {
-    const lines = ['[work:2215049e] noise']
-    expect(filterWorkLogLines(lines, WORK_ID)).toEqual([])
-  })
-})
-
-describe('buildWorkLogExport', () => {
-  it('renders header, timeline and tagged chain logs, with a fallback note when none match', () => {
-    const text = buildWorkLogExport({
-      work: { id: WORK_ID, title: '测试对话', created_at: '2026-10-31T07:59:00.000Z', updated_at: '2026-10-31T08:05:00.000Z' },
-      messages: [message([{ type: 'text', text: 'hi' }], 'user')],
-      logLines: ['[work:2215049d] tool_call Bash → allow cmd="webcli call x.y"'],
-      meta: { exportedAt: '2026-10-31T08:10:00.000Z', runtimeMode: 'managed', backendInstanceId: 'inst-1',
-        platform: 'win32', nodeVersion: 'v20.0.0', logFilePath: 'C:\\Users\\dev\\AppData\\userData\\logs\\main.log' },
-    })
-    expect(text).toContain('WeWorker 对话日志导出')
+describe('saved message fallback', () => {
+  it('explains missing execution history and retains work/message identifiers without private title or content', () => {
+    const text = buildSavedMessagesLog({ id: WORK_ID, title: 'PRIVATE TITLE /home/private', messages: [message([{ type: 'text', text: 'PRIVATE USER CONTENT' }])] })
+    expect(text).toContain('旧版存量消息')
+    expect(text).toContain('无法恢复')
     expect(text).toContain('对话 ID: ' + WORK_ID)
-    expect(text).toContain('[work:2215049d] tool_call Bash')
-    expect(text).toContain('共 1 行')
-
-    const empty = buildWorkLogExport({
-      work: { id: WORK_ID, title: '', created_at: '2026-10-31T07:59:00.000Z', updated_at: '2026-10-31T08:05:00.000Z' },
-      messages: [], logLines: ['unrelated'],
-      meta: { exportedAt: '2026-10-31T08:10:00.000Z', runtimeMode: 'standalone', backendInstanceId: '',
-        platform: 'win32', nodeVersion: 'v20.0.0', logFilePath: '' },
-    })
-    expect(empty).toContain('（空: 该对话期间没有带标记的日志')
+    expect(text).toContain('message_id=m1')
+    expect(text).toContain('标题: [omitted]')
+    expect(text).not.toContain('PRIVATE TITLE')
+    expect(text).not.toContain('/home/private')
+    expect(text).not.toContain('PRIVATE USER CONTENT')
   })
 })

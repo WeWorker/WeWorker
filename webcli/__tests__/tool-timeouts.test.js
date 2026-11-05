@@ -4,6 +4,7 @@ import {
   QQ_MAIL_TOOL_CALL_TIMEOUT_MS,
   QQ_MAIL_BATCH_DOWNLOAD_TIMEOUT_MS,
   DEFAULT_TOOL_CALL_TIMEOUT_MS,
+  interruptedCallResult,
 } from '../tool-timeouts.js'
 
 describe('resolveToolCallTimeout', () => {
@@ -22,5 +23,14 @@ describe('resolveToolCallTimeout', () => {
   it('uses default timeout for other tools', () => {
     expect(resolveToolCallTimeout('workflow.example.com.search_flow')).toBe(DEFAULT_TOOL_CALL_TIMEOUT_MS)
     expect(resolveToolCallTimeout('open_browser')).toBe(DEFAULT_TOOL_CALL_TIMEOUT_MS)
+  })
+})
+
+describe('interrupted calls', () => {
+  it('reports an unknown write outcome only after a request was sent', () => {
+    expect(interruptedCallResult({ safety: 'write' }, true, true).code).toBe('WRITE_OUTCOME_UNKNOWN')
+    expect(interruptedCallResult({ safety: 'write' }, true, false).code).toBe('WRITE_OUTCOME_UNKNOWN')
+    expect(interruptedCallResult({ safety: 'write' }, false, true).code).toBeUndefined()
+    expect(interruptedCallResult({ safety: 'read' }, true, true).code).toBeUndefined()
   })
 })

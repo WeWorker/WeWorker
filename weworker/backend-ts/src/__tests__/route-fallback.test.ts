@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { executeRoutePlan, type RouteEngine } from '../api-query-router/index.js'
-import { dispatchOnce } from '../api-query-router/route-dispatch.js'
+import { dispatchOnce, isUnrenderableAnswer } from '../api-query-router/route-dispatch.js'
 import type { CascadePlan } from '../api-query-router/cascade.js'
 
 const tool = 'example.list'
@@ -18,6 +18,12 @@ describe('route dispatch fallback', () => {
   it.each([
     ['API error envelope', async () => '{"error":"request failed"}'],
     ['HTTP-style failure envelope', async () => '{"ok":false,"message":"request failed"}'],
+    ['API authentication failure in HTTP 200', async () => '{"code":4001,"msg":"Authentication credentials were not provided.","data":null,"level":"error"}'],
+    ['wrapped API authentication failure', async () => '{"result":{"code":4001,"msg":"Authentication credentials were not provided.","data":null},"trace_id":"example-trace"}'],
+    ['CLI authentication failure', async () => '{"error":"Authentication credentials were not provided.","code":"FETCH_ERROR","trace_id":"example-trace"}'],
+    ['HTTP unauthorized status', async () => '{"status":401,"message":"login required"}'],
+    ['login failure without a code', async () => '{"level":"error","msg":"请先登录","data":null}'],
+    ['plain-text login failure', async () => '请先登录后重试'],
     ['empty payload', async () => '  '],
     ['CLI crash', async () => 'Error: process crashed'],
     ['rejected request', async () => { throw new Error('request failed') }],
@@ -50,14 +56,36 @@ describe('route dispatch fallback', () => {
     expect(input.send).not.toHaveBeenCalled()
   })
 
-  it('a valid empty result still counts as an answer', async () => {
-    const mocked = vi.fn(async () => '{"items":[]}')
+  it('a successful API response with a numeric business code remains routable', async () => {
+    const mocked = vi.fn(async () => '{"code":200,"data":{"items":[{"id":"example"}]}}')
     const input = ctx()
     expect(await executeRoutePlan(plan, input, {
       engine, dispatch: mocked, persistAssistantMessage: vi.fn(),
     })).toBe(true)
+    expect(input.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: expect.stringContaining('example') }))
+  })
+
+  it.each([
+    ['empty items', '{"items":[]}'],
+    ['empty data', '{"code":200,"data":[]}'],
+    ['bare empty array', '[]'],
+    ['wrapped empty result', '{"result":{"items":[]},"trace_id":"example-trace"}'],
+  ])('%s falls back to LLM without emitting an empty-result answer', async (_name, raw) => {
+    const mocked = vi.fn(async () => raw)
+    const input = ctx()
+    const persistAssistantMessage = vi.fn()
+    expect(await executeRoutePlan(plan, input, {
+      engine, dispatch: mocked, persistAssistantMessage,
+    })).toBe(false)
     expect(mocked).toHaveBeenCalledTimes(1)
-    expect(input.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: '未查询到相关数据。' }))
+    expect(input.send).not.toHaveBeenCalled()
+    expect(persistAssistantMessage).not.toHaveBeenCalled()
+  })
+
+  it('falls back when a declarative renderer produces only an empty-result message', () => {
+    expect(isUnrenderableAnswer('### 查询结果\n\n未查询到相关数据。')).toBe(true)
+    expect(isUnrenderableAnswer('### 查询结果\n\n（无数据）')).toBe(true)
+    expect(isUnrenderableAnswer('### 查询结果\n\n未查询到相关数据。\n\n### 其它结果\n\n| 名称 |\n| --- |\n| 示例 |')).toBe(false)
   })
 
   it('categorizes a tool timeout before routing can render it', async () => {

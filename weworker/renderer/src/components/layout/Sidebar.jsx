@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { CloseOutlined, FormOutlined, FolderOpenOutlined, FolderOutlined } from '@ant-design/icons'
-import TablerFolderPlusIcon, { TablerPlusIcon } from '../icons/TablerFolderPlusIcon.jsx'
+import TablerFolderPlusIcon from '../icons/TablerFolderPlusIcon.jsx'
 import WorksList, { LABEL_COLORS, LABEL_OPTIONS } from '../sidebar/WorksList.jsx'
 import ScheduledTasksList from '../sidebar/ScheduledTasksList.jsx'
 import Tooltip from '../Tooltip.jsx'
@@ -11,6 +11,7 @@ import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { showAlert } from '../../store/dialog.js'
 import { useSettingsStore } from '../../store/settings.js'
+import { createDefaultProjectFolder } from '../../utils/project-folder.js'
 
 export default function Sidebar({ section, collapsed, width }) {
   const createWork = useWorksStore((s) => s.createWork)
@@ -19,6 +20,12 @@ export default function Sidebar({ section, collapsed, width }) {
   const createTask = useScheduledTasksStore((s) => s.createTask)
   const loadTasks = useScheduledTasksStore((s) => s.loadTasks)
   const userDirectory = useSettingsStore((s) => s.userDirectory)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showSearch, setShowSearch] = useState(false)
+  const searchButtonRef = useRef(null)
+  const [taskSearchQuery, setTaskSearchQuery] = useState('')
+  const [showTaskSearch, setShowTaskSearch] = useState(false)
+  const taskSearchButtonRef = useRef(null)
   const [showProjectDialog, setShowProjectDialog] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectFolderPath, setProjectFolderPath] = useState('')
@@ -74,8 +81,18 @@ export default function Sidebar({ section, collapsed, width }) {
     if (!await leaveWebsiteExploration()) return
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
+    let directory = userDirectory
+    if (!directory) {
+      await useSettingsStore.getState().load()
+      directory = useSettingsStore.getState().userDirectory
+    }
+    const defaultFolder = createDefaultProjectFolder(directory)
+    if (!defaultFolder) {
+      showAlert('无法读取用户工作区目录，请稍后重试')
+      return
+    }
     setProjectName('')
-    setProjectFolderPath('')
+    setProjectFolderPath(defaultFolder)
     setShowProjectDialog(true)
   }
 
@@ -104,16 +121,6 @@ export default function Sidebar({ section, collapsed, width }) {
     // 从专属 Agent 或其他入口返回时，确保主对话侧栏包含最新项目/会话。
     await loadWorks()
   }
-
-  const handleOpenTasksSection = async () => {
-    if (!await leaveWebsiteExploration()) return
-    useExplorationPageStore.getState().closePage()
-    useToolPackagePageStore.getState().closePage()
-    useWorksStore.setState({ activeWorkId: null })
-    const state = useScheduledTasksStore.getState()
-    if (!state.activeTaskId && state.tasks[0]?.id) state.selectTask(state.tasks[0].id)
-  }
-
 
   return (
     <>
@@ -152,6 +159,25 @@ export default function Sidebar({ section, collapsed, width }) {
         }}>
           <span className="sidebar-workspaces-label">工作区</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
+            <Tooltip text="搜索对话">
+              <button
+                ref={searchButtonRef}
+                type="button"
+                className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
+                aria-label="搜索对话"
+                aria-expanded={showSearch}
+                aria-controls="sidebar-work-search"
+                onClick={() => {
+                  setShowSearch((value) => !value)
+                  if (showSearch) setSearchQuery('')
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </button>
+            </Tooltip>
             {/* Label filter — only visible when there are labeled works or a filter is active */}
             {(hasLabeled || labelFilter) && (
               <div ref={labelFilterRef} style={{ position: 'relative' }}>
@@ -221,36 +247,117 @@ export default function Sidebar({ section, collapsed, width }) {
               </Tooltip>
           </div>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
-          <WorksList />
+        {showSearch && (
+          <div style={{ padding: '0 8px 4px', WebkitAppRegion: 'no-drag' }}>
+            <input
+              id="sidebar-work-search"
+              type="search"
+              aria-label="搜索对话"
+              autoFocus
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索标题或 ID..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                color: 'var(--text-primary)',
+                fontSize: 12,
+                padding: '5px 8px',
+                outline: 'none',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return
+                event.preventDefault()
+                setShowSearch(false)
+                setSearchQuery('')
+                searchButtonRef.current?.focus({ preventScroll: true })
+              }}
+            />
+          </div>
+        )}
+        <div className="scrollbar-hover-only" style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
+          <WorksList searchQuery={searchQuery} />
         </div>
       </div>
       )}
 
       {section === 'tasks' && (
       <div className="sidebar-scheduled-section" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        <div className="sidebar-section-header">
-          <button
-            type="button"
-            onClick={handleOpenTasksSection}
-            className="sidebar-section-heading sidebar-section-label"
-          >
-            <ScheduledNavIcon size={13} />
-            <span>定时任务</span>
-          </button>
-          <Tooltip text="新定时任务">
+        <button
+          type="button"
+          className="sidebar-new-chat sidebar-conversation-action"
+          onClick={handleCreateTask}
+        >
+          <FormOutlined aria-hidden="true" />
+          <span>新建定时任务</span>
+        </button>
+        <div className="sidebar-conversation-header" style={{
+          padding: '10px 12px 4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          position: 'relative',
+          WebkitAppRegion: 'no-drag',
+        }}>
+          <span className="sidebar-workspaces-label">定时任务</span>
+          <Tooltip text="搜索定时任务">
             <button
+              ref={taskSearchButtonRef}
               type="button"
-              className="sidebar-icon-button"
-              aria-label="新定时任务"
-              onClick={handleCreateTask}
-          >
-            <TablerPlusIcon />
-          </button>
+              className={`sidebar-icon-button${showTaskSearch ? ' is-active' : ''}`}
+              aria-label="搜索定时任务"
+              aria-expanded={showTaskSearch}
+              aria-controls="sidebar-scheduled-task-search"
+              onClick={() => {
+                setShowTaskSearch((value) => !value)
+                if (showTaskSearch) setTaskSearchQuery('')
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </button>
           </Tooltip>
         </div>
-      <div style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
-          <ScheduledTasksList />
+        {showTaskSearch && (
+          <div style={{ padding: '0 8px 4px', WebkitAppRegion: 'no-drag' }}>
+            <input
+              id="sidebar-scheduled-task-search"
+              type="search"
+              aria-label="搜索定时任务"
+              autoFocus
+              value={taskSearchQuery}
+              onChange={(event) => setTaskSearchQuery(event.target.value)}
+              placeholder="搜索任务名称..."
+              style={{
+                width: '100%',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                color: 'var(--text-primary)',
+                fontSize: 12,
+                padding: '5px 8px',
+                outline: 'none',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return
+                event.preventDefault()
+                setShowTaskSearch(false)
+                setTaskSearchQuery('')
+                taskSearchButtonRef.current?.focus({ preventScroll: true })
+              }}
+            />
+          </div>
+        )}
+      <div className="scrollbar-hover-only" style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' }}>
+          <ScheduledTasksList searchQuery={taskSearchQuery} />
         </div>
       </div>
       )}
@@ -333,15 +440,6 @@ function WorksNavIcon({ size = 15 }) {
       <path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       <path d="M8 8h8" />
       <path d="M8 12h5" />
-    </svg>
-  )
-}
-
-function ScheduledNavIcon({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
     </svg>
   )
 }

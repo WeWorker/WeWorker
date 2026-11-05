@@ -15,6 +15,7 @@ jobs:
   build:
     name: Build and verify desktop packages
     uses: ./.github/workflows/common-build.yml
+    secrets: inherit
     with:
       release_tag: ${{ inputs.tag }}
       artifact_prefix: release

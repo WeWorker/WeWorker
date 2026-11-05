@@ -228,13 +228,14 @@ function queryByUser(db, { since = "30d", kind = null, top = null } = {}) {
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
 
+  // 空 user（whoami 失败等）归入 (unknown) 组而不是静默消失：
+  // 调用次数与用户维度的总量必须一致，缺失可见才能被发现。
   const rows = db
     .prepare(
-      `SELECT user, domain, COUNT(*) AS calls
+      `SELECT COALESCE(NULLIF(user, ''), '(unknown)') AS user, domain, COUNT(*) AS calls
        FROM metrics
        WHERE ts >= ? ${kindClause}
-         AND user IS NOT NULL AND user != ''
-       GROUP BY user, domain
+       GROUP BY COALESCE(NULLIF(user, ''), '(unknown)'), domain
        ORDER BY user, calls DESC`
     )
     .all(...params);

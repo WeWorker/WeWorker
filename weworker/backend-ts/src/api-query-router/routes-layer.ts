@@ -2,11 +2,10 @@
  * 层 P：配置路由（`router-config/routes.json`，详见设计文档 §2 第 1 行）。
  *
  * 这是**级联的第一层**：显式点名的话术优先于任何推测。匹配语义与既有
- * `query-router/configurable-query-route.ts` 完全一致（别名归一化全等 / 关键词包含），
- * 避免同仓出现两套口径：
+ * 对显式配置采用归一化全等，避免关键词在自由问句中误派发：
  *
  * - `match.aliases`：去掉空白并小写后**全等**——「这句话就是这条路由的点名」；
- * - `match.keywords`：归一化后**包含**——「这句话里出现了这个关键词」。
+ * - `match.keywords`：归一化后**全等**——不允许作为任意子串命中。
  *
  * 本模块只做匹配（纯函数）；是否可直调、是否只读、以及派发与渲染由调用方裁决，
  * 保证「配置写了但工具不可用」时是**静默落回**而不是硬派发。
@@ -30,7 +29,7 @@ export function normalizeRouteText(value: string): string {
   return String(value ?? '').replace(/\s+/g, '').toLowerCase()
 }
 
-/** 单条路由是否命中。别名全等优先，其次关键词包含。 */
+/** 单条路由是否命中。别名和关键词均全等。 */
 export function routeMatches(entry: RouteEntry, message: string): boolean {
   const normalized = normalizeRouteText(message)
   if (!normalized) return false
@@ -39,7 +38,7 @@ export function routeMatches(entry: RouteEntry, message: string): boolean {
   }
   for (const keyword of entry.match?.keywords ?? []) {
     const key = normalizeRouteText(keyword)
-    if (key && normalized.includes(key)) return true
+    if (key && normalized === key) return true
   }
   return false
 }

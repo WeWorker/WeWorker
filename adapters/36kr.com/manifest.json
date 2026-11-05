@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "36kr.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "36氪：热榜（人气/综合/收藏/热门资讯）、最新资讯 RSS、文章搜索与文章正文读取",
   "match": [
     "www.36kr.com"

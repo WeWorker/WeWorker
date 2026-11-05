@@ -122,3 +122,11 @@ export function getToolExecGroupLabel(blocks) {
   if (allCommands) return count === 1 ? '执行了 1 个命令' : `执行了 ${count} 个命令`
   return count === 1 ? '执行了 1 个操作' : `执行了 ${count} 个操作`
 }
+
+export function getToolExecTooltipText(block) {
+  const name = getBaseToolName(block?.name)
+  if (name === 'Bash' || name === 'PowerShell' || isWeWorkerShellToolName(block?.name)) {
+    return getBashCommandText(block)
+  }
+  return getToolExecLineText(block)
+}

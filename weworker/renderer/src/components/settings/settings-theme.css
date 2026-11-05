@@ -53,7 +53,7 @@
 
 .settings-title {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--font-size-title);
   font-weight: 600;
   line-height: 1.2;
   color: var(--text-primary);
@@ -61,7 +61,7 @@
 
 .settings-subtitle {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -102,7 +102,7 @@
   border: none;
   cursor: pointer;
   padding: 10px 14px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-label);
   font-weight: 500;
   color: var(--text-muted);
   border-bottom: 2px solid transparent;
@@ -171,6 +171,27 @@
   contain-intrinsic-size: auto 260px;
 }
 
+.settings-background-section__title {
+  margin: 0 0 10px;
+  padding: 0 16px;
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.settings-background-section__note,
+.settings-background-section__error {
+  margin: 8px 16px 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.settings-background-section__error {
+  color: var(--error, #ef4444);
+}
+
 .settings-row {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-inner);
@@ -208,7 +229,7 @@
 }
 
 .settings-row-title {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
@@ -216,7 +237,7 @@
 
 .settings-row-desc {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   line-height: 1.45;
   color: var(--text-muted);
 }
@@ -265,7 +286,7 @@
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-family: inherit;
   outline: none;
   padding: 4px 0;
@@ -285,7 +306,7 @@
   border-radius: 999px;
   background: #fff;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-label);
   font-weight: 600;
   font-family: inherit;
   padding: 5px 12px;
@@ -512,7 +533,7 @@
 }
 
 .settings-about-name {
-  font-size: 22px;
+  font-size: var(--font-size-title);
   line-height: 1.25;
   font-weight: 750;
   color: var(--text-primary);
@@ -1193,7 +1214,7 @@
 
 .settings-field-label {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   color: var(--text-secondary);
   margin-bottom: 4px;
   font-weight: 600;
@@ -1201,6 +1222,7 @@
 
 .settings-field-hint {
   color: var(--text-muted);
+  font-size: var(--font-size-caption);
   font-weight: 400;
   margin-left: 6px;
 }
@@ -1214,7 +1236,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-label);
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -1227,12 +1249,12 @@
 .settings-input,
 .settings-select {
   width: 100%;
-  height: 32px;
+  height: 38px;
   background: var(--bg-primary);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   padding: 7px 10px;
   outline: none;
   font-family: inherit;
@@ -1387,7 +1409,7 @@
 .wecom-qr-connect p.is-success { color: var(--success); }
 .channel-settings-empty { padding: 70px 12px; color: var(--text-muted); text-align: center; }
 .channel-settings-empty > .anticon { font-size: 28px; }
-.channel-settings-empty h4 { color: var(--text-secondary); font-size: 14px; margin: 16px 0 8px; }
+.channel-settings-empty h4 { color: var(--text-secondary); font-size: var(--font-size-label); margin: 16px 0 8px; }
 .channel-settings-empty p { font-size: 12px; line-height: 1.6; }
 @container (max-width: 540px) {
   .channel-settings-field { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -2202,7 +2224,7 @@
 
 .settings-interface-section__title {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-label);
   font-weight: 650;
 }
 

@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "x.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "Twitter/X：搜索、时间线、推文/资料、书签/列表、互动发布和登录检查",
   "homepage_url": "https://x.com/",
   "match": [

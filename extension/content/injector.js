@@ -35,7 +35,7 @@ const safeApiProbeCandidates = new Map();
 let activeTraceID = null;
 const TRACE_PREVIEW_LIMIT = 3000;
 const TRACE_RESPONSE_PREVIEW_LIMIT = 800;
-const SENSITIVE_TRACE_FIELD = /cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential/i;
+const SENSITIVE_TRACE_FIELD = /api[_-]?key|cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential/i;
 
 /** 已注册工具的元数据列表（不含 handler） */
 const toolDefs = [];
@@ -94,7 +94,7 @@ function summarizePrivilegedPayload(action, payload = {}) {
       url: payload.url,
       method: String(options?.method || 'GET').toUpperCase(),
       headers: sanitizeTraceValue(options?.headers || {}),
-      body: summarizeTraceBody(options?.body, options?.bodyEncoding),
+      body: payload.redactBodyInTrace === true ? '[redacted]' : summarizeTraceBody(options?.body, options?.bodyEncoding),
     };
   }
   if (action === 'backend_file_read' || action === 'backend_file_write') {
@@ -103,13 +103,13 @@ function summarizePrivilegedPayload(action, payload = {}) {
   return sanitizeTraceValue(payload);
 }
 
-function summarizePrivilegedResult(action, result) {
+function summarizePrivilegedResult(action, result, payload = {}) {
   if (action === 'backend_fetch') {
     return {
       status: result?.status,
       ok: result?.ok,
       headers: sanitizeTraceValue(result?.headers || {}),
-      body: summarizeTraceBody(result?.body, undefined, TRACE_RESPONSE_PREVIEW_LIMIT),
+      body: payload.redactBodyInTrace === true ? '[redacted]' : summarizeTraceBody(result?.body, undefined, TRACE_RESPONSE_PREVIEW_LIMIT),
     };
   }
   if (action === 'cookies_get') {
@@ -292,11 +292,11 @@ function createWecliRuntime() {
     if (traceID) message.traceID = traceID;
     const response = await chrome.runtime.sendMessage(message);
     if (!response?.ok) {
-      traceLog(traceID, `[Runtime] ${action} error ${JSON.stringify(sanitizeTraceValue(response?.error || response))}`);
+      traceLog(traceID, `[Runtime] ${action} error ${payload.redactBodyInTrace === true ? '[redacted]' : JSON.stringify(sanitizeTraceValue(response?.error || response))}`);
       const error = createRuntimeError(response?.error?.code || 'RUNTIME_HELPER_ERROR', response?.error?.message || response?.error || 'Runtime helper failed', response?.error?.details || {});
       throw error;
     }
-    traceLog(traceID, `[Runtime] ${action} response ${JSON.stringify(summarizePrivilegedResult(action, response.result))}`);
+    traceLog(traceID, `[Runtime] ${action} response ${JSON.stringify(summarizePrivilegedResult(action, response.result, payload))}`);
     return response.result;
   }
 

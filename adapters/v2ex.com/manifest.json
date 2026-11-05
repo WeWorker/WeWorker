@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "v2ex.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "V2EX：热门/最新话题、节点、主题回复、用户资料和签到提醒",
   "homepage_url": "https://www.v2ex.com/",
   "match": [

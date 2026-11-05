@@ -17,7 +17,7 @@ export default function CapabilitiesToggleButton({ variant = 'default' }) {
   }
 
   return (
-    <Tooltip text={open ? '收起场景总览' : '查看支持的应用场景'}>
+    <Tooltip text={open ? '收起场景总览' : '查看支持的应用场景'} delay={800} placement="top">
       <button
         type="button"
         onClick={handleToggle}

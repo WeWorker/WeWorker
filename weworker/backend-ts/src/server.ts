@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
-import { buildWorkLogExport } from './work-log-export.js'
+import { appendWorkLog, configureWorkLogs, readWorkLog, recordWorkLogStream } from './work-log-file.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
 import { createAdapterStateRefreshHandler } from './adapter-state-refresh.js'
@@ -134,6 +134,7 @@ import {
 } from './style-settings.js'
 import { processMemoryEvent } from './memory/memory-lifecycle.js'
 import { automaticMemoryEnabled } from './memory/automatic-memory.js'
+import { runWithTurnExecutionContext } from './memory/turn-execution-context.js'
 import { buildMemoryEventContext } from './memory/memory-event-context.js'
 import { planCompletedChatMemoryEvents, applyAdmissionToCandidate } from './memory/memory-event-planner.js'
 import { isMemoryProtocolFailure } from './memory/memory-protocol.js'
@@ -178,6 +179,10 @@ import {
   renameUserItem,
   startUserFileImportJob,
 } from './user-files.js'
+
+configureWorkLogs(path.join(process.env.WEWORK_LOG_FILE
+  ? path.dirname(process.env.WEWORK_LOG_FILE)
+  : path.join(os.homedir(), '.weworker', 'logs'), 'conversations'))
 
 const log = createLogger('server')
 const chatLog = createLogger('chat')
@@ -1464,6 +1469,7 @@ app.get('/sites', (_req, res) => {
     customSkillCount: customSkills.length,
     scenarioCount: scenarios.length,
     enabled,
+    clientEnabled: a.clientEnabled,
     visible: enabled && visible,
     hidden: a.hidden,
     managed: a.managed,
@@ -2271,79 +2277,89 @@ app.post('/settings/label-names', (req, res) => {
   res.json(names)
 })
 
-function workspaceDirectoryForWork(workId?: string): string | undefined {
-  if (!workId) return undefined
-  const work = store.getWork(workId)
-  if (!work) throw new Error('work not found')
-  return work.workspace_directory
+function workspaceDirectoryForContext(workId?: string, projectId?: string): string | undefined {
+  if (workId) {
+    const work = store.getWork(workId)
+    if (!work) throw new Error('work not found')
+    return work.workspace_directory
+  }
+  if (projectId) {
+    const project = store.getProject(projectId)
+    if (!project) throw new Error('project not found')
+    return project.folder_path
+  }
+  return undefined
 }
 
 app.get('/user-files', (req, res) => {
   try {
-    res.json(listUserFiles(workspaceDirectoryForWork(String(req.query.work_id || '') || undefined)))
+    res.json(listUserFiles(workspaceDirectoryForContext(
+      String(req.query.work_id || '') || undefined,
+      String(req.query.project_id || '') || undefined,
+    )))
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : 'failed to list user files' })
   }
 })
 
 app.post('/user-files/folder', (req, res) => {
-  const { parent_path, name, work_id } = req.body as { parent_path?: string; name?: string; work_id?: string }
+  const { parent_path, name, work_id, project_id } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string }
   try {
-    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForWork(work_id)))
+    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create folder' })
   }
 })
 
 app.post('/user-files/file', (req, res) => {
-  const { parent_path, name, work_id } = req.body as { parent_path?: string; name?: string; work_id?: string }
+  const { parent_path, name, work_id, project_id } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string }
   try {
-    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForWork(work_id)))
+    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create file' })
   }
 })
 
 app.post('/user-files/rename', (req, res) => {
-  const { target_path, name, work_id } = req.body as { target_path?: string; name?: string; work_id?: string }
+  const { target_path, name, work_id, project_id } = req.body as { target_path?: string; name?: string; work_id?: string; project_id?: string }
   try {
-    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForWork(work_id)))
+    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to rename item' })
   }
 })
 
 app.post('/user-files/delete', (req, res) => {
-  const { target_path, work_id } = req.body as { target_path?: string; work_id?: string }
+  const { target_path, work_id, project_id } = req.body as { target_path?: string; work_id?: string; project_id?: string }
   try {
-    res.json(deleteUserItem(target_path, workspaceDirectoryForWork(work_id)))
+    res.json(deleteUserItem(target_path, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to delete item' })
   }
 })
 
 app.post('/user-files/paste', (req, res) => {
-  const { source_path, target_parent_path, mode, work_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string }
+  const { source_path, target_parent_path, mode, work_id, project_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string; project_id?: string }
   try {
-    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForWork(work_id)))
+    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to paste item' })
   }
 })
 
 app.post('/user-files/import', (req, res) => {
-  const { paths, target_parent_path, work_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string }
+  const { paths, target_parent_path, work_id, project_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string }
   try {
-    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForWork(work_id)))
+    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to import files' })
   }
 })
 
 app.post('/user-files/import-jobs', (req, res) => {
-  const { paths, target_parent_path, work_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string }
+  const { paths, target_parent_path, work_id, project_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string }
   try {
-    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForWork(work_id)))
+    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to start import job' })
   }
@@ -2550,14 +2566,14 @@ app.get('/events', (req, res) => {
 
 app.post('/works/:id/user-choice', (req, res) => {
   const workId = req.params.id
-  const { answer } = req.body as { answer: string }
+  const { answer, choiceId } = req.body as { answer: string; choiceId?: string }
 
   if (!answer?.trim()) {
     res.status(400).json({ detail: 'answer required' })
     return
   }
 
-  const resolved = resolvePendingAskUser(workId, answer)
+  const resolved = resolvePendingAskUser(workId, answer, typeof choiceId === 'string' ? choiceId : undefined)
   if (!resolved) {
     res.status(404).json({ detail: 'No pending choice for this work' })
     return
@@ -2963,23 +2979,40 @@ app.post('/works/:id/chat/stop', async (req, res) => {
 })
 
 app.post('/works/:id/chat', async (req, res) => {
-  const turn = chatTurns.start(req.params.id)
-  if (!turn) {
-    res.status(409).json({ detail: '当前对话仍在处理上一条消息，请稍后重试' })
-    return
-  }
-  const onDisconnect = () => { if (!res.writableEnded) turn.controller.abort() }
-  res.on('close', onDisconnect)
-  try {
-    await handleChatRequest(req, res, turn.controller)
-  } finally {
-    chatSteeringListeners.delete(req.params.id)
-    res.off('close', onDisconnect)
-    turn.finish()
-  }
+  const workId = req.params.id
+  const turnId = channelQrId()
+  const startedAt = Date.now()
+  await runWithTurnExecutionContext({ workId, turnId }, async () => {
+    const body = req.body ?? {}
+    const message = typeof body.message === 'string' ? body.message : ''
+    const modelMessage = typeof body.modelMessage === 'string' ? body.modelMessage : ''
+    const attachments = Array.isArray(body.attachments) ? body.attachments.length : 0
+    chatLog.info(`request_received messageChars=${message.length} modelMessageChars=${modelMessage.length} attachments=${attachments} retryCompaction=${body.retryCompaction === true}`)
+
+    const turn = chatTurns.start(workId)
+    if (!turn) {
+      chatLog.warn('request_rejected reason=turn_in_progress')
+      res.status(409).json({ detail: '当前对话仍在处理上一条消息，请稍后重试' })
+      return
+    }
+    const onDisconnect = () => { if (!res.writableEnded) turn.controller.abort() }
+    res.on('close', onDisconnect)
+    try {
+      chatLog.info('request_handler_started')
+      await handleChatRequest(req, res, turn.controller, turnId)
+    } catch (error) {
+      chatLog.error('request_handler_failed', error)
+      throw error
+    } finally {
+      chatLog.info(`request_completed status=${res.statusCode} durationMs=${Date.now() - startedAt}`)
+      chatSteeringListeners.delete(workId)
+      res.off('close', onDisconnect)
+      turn.finish()
+    }
+  })
 })
 
-async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController) {
+async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController, requestTurnId?: string) {
   const workId = req.params.id
   const { message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode } = req.body as {
     message: string;
@@ -3149,7 +3182,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   }
 
   const chatStartTime = Date.now()
-  const turnId = Math.random().toString(36).slice(2, 8)
+  const turnId = requestTurnId ?? Math.random().toString(36).slice(2, 8)
   let stepIndex = 0
   let lastToolName = ''
   // Per-turn timing accumulators. `llmMs` (all LLM generation segments) and
@@ -3164,8 +3197,11 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   // Optional product profiles may answer a query before the normal LLM route.
   // The public profile has no registered route and always falls through.
+  // Ask mode must use the model's per-tool confirmation path. Direct dispatch
+  // does not expose operation approvals, even for read-only queries.
   // Dedicated agents skip profile routes: those may answer with other websites.
-  if (!dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
+  if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'legacy_profile_handled', reason: 'profile_route_before_intelligent_engine' }, turnId)
     finished = true
     res.off('close', onClose)
     broadcastSSE({ type: 'works_changed', workId })
@@ -3182,7 +3218,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // the model rather than replay the same routed answer.
   // `persist: true` keeps the router's own `store.appendMessage`, so desktop
   // persistence is byte-identical to the pre-shared-entry behaviour.
-  if (retryCompaction !== true && message?.trim()) {
+  if (desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
     const routed = await tryRoutedTurn({
       message,
       workId,
@@ -3202,6 +3238,11 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       res.end()
       return
     }
+  } else {
+    const reason = desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
+      : retryCompaction === true ? 'compaction_retry' : 'empty_message'
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
+    chatLog.info(`${tag} route diagnostic route_skipped reason=${reason}`)
   }
 
   const unsubscribeTerminalEvents = onTerminalEvent((event) => {
@@ -3275,7 +3316,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       coverage: collectSiteCoverage({ adapters: allAdapters.values(), toolkitSkills }),
       knownHosts: buildKnownHosts(allAdapters),
     })
-    if (exploration.dispatch && exploration.startUrl) {
+    if (desktopPermission.channelPermissionMode !== 'ask' && exploration.dispatch && exploration.startUrl) {
       const health = await checkWebwrightHealth()
       if (!health.ok) {
         chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)
@@ -3288,7 +3329,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
         })
         if (opened.ok) {
           tier4Task = { taskId: opened.taskId, startUrl: exploration.startUrl, startedAt: Date.now() }
-          tier4Source = opened.run
+          tier4Source = recordWorkLogStream(workId, opened.run, { messages: modelMessages, source: 'exploration' }, abortController.signal)
           chatLog.info(
             `${tag} tier4: task=${opened.taskId} provider=${exploration.providerId} url=${exploration.startUrl} reason=${exploration.reason}`,
           )
@@ -3368,21 +3409,24 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           assistantContent.push({ type: 'tool_use', id: ev.id, name: cleanName, args: ev.args, status: 'running', ...(thinkMs !== undefined ? { thinkMs } : {}) })
         }
       } else if (ev.type === 'tool_call_result' && ev.id) {
-        const toolDuration = turnTiming.toolSettled(ev.id) ?? 0
-        chatLog.info(`${tag} ✅ step ${stepIndex}: ${lastToolName} done (exec=${(toolDuration / 1000).toFixed(2)}s)`)
-        send({ ...ev, execMs: toolDuration })
+        const settledDuration = turnTiming.toolSettled(ev.id)
         const idx = assistantContent.findIndex(b => b.type === 'tool_use' && (b as { id: string }).id === ev.id)
+        const previous = idx >= 0 ? assistantContent[idx] as Extract<store.ContentBlock, { type: 'tool_use' }> : undefined
+        // A tool can emit several result parts: only the first settles the timer.
+        const toolDuration = settledDuration ?? previous?.execMs
+        chatLog.info(`${tag} ✅ step ${stepIndex}: ${lastToolName} done (exec=${((toolDuration ?? 0) / 1000).toFixed(2)}s)`)
+        send({ ...ev, ...(toolDuration !== undefined ? { execMs: toolDuration } : {}) })
         if (idx >= 0) {
-          assistantContent[idx] = { ...(assistantContent[idx] as object), result: ev.result, status: ev.isError ? 'failed' : 'done', execMs: toolDuration } as store.ContentBlock
+          assistantContent[idx] = { ...previous, result: ev.result, status: ev.isError ? 'failed' : 'done', ...(toolDuration !== undefined ? { execMs: toolDuration } : {}) } as store.ContentBlock
           segments.refresh(idx)
         } else {
-          assistantContent.push({ type: 'tool_use', id: ev.id, name: '', args: {}, result: ev.result, status: ev.isError ? 'failed' : 'done', execMs: toolDuration })
+          assistantContent.push({ type: 'tool_use', id: ev.id, name: '', args: {}, result: ev.result, status: ev.isError ? 'failed' : 'done', ...(toolDuration !== undefined ? { execMs: toolDuration } : {}) })
         }
       } else if (ev.type === 'tool_call_image' && ev.id) {
         // 只回图片的工具（例如读图片的 Read）没有 tool_call_result 事件：
         // 按同一口径在这里结算它的执行时间，避免这段时间被算进 llmMs。
         const imageToolDuration = turnTiming.toolObserved(ev.id)
-        send(ev)
+        send({ ...ev, ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}) })
         const idx = assistantContent.findIndex(b => b.type === 'tool_use' && (b as { id: string }).id === ev.id)
         if (idx >= 0) {
           const currentStatus = (assistantContent[idx] as Extract<store.ContentBlock, { type: 'tool_use' }>).status
@@ -3445,6 +3489,18 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     // every tool interval; tools without a result event are settled here so
     // their time is never charged to llmMs.
     turnTimingResult = turnTiming.finish()
+    // Sync credited (non-overlapping) tool durations, including unfinished tools.
+    for (let index = 0; index < assistantContent.length; index++) {
+      const block = assistantContent[index]
+      if (block.type !== 'tool_use') continue
+      const execMs = turnTiming.toolExecutionMs(block.id)
+      if (execMs === undefined) continue
+      if (block.execMs !== execMs || block.status === 'running') {
+        assistantContent[index] = { ...block, execMs, status: block.status === 'running' ? (turnSucceeded ? 'done' : 'cancelled') : block.status }
+        segments.refresh(index)
+        send({ type: 'tool_timing_final', id: block.id, execMs })
+      }
+    }
     // Mark as finished so that the subsequent res.end() → close event
     // does not trigger abort on the already-completed query.
     chatLog.info(
@@ -3452,7 +3508,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
         `, llm=${(turnTimingResult.llmMs / 1000).toFixed(2)}s` +
         `, exec=${(turnTimingResult.execMs / 1000).toFixed(2)}s, steps=${stepIndex}`,
     )
-    send({ type: 'turn_end', turnId, workId, totalMs: turnTimingResult.totalMs, llmMs: turnTimingResult.llmMs, execMs: turnTimingResult.execMs, steps: stepIndex })
+    send({ type: 'turn_end', turnId, workId, totalMs: turnTimingResult.totalMs, llmMs: turnTimingResult.llmMs, execMs: turnTimingResult.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
     finished = true
     res.off('close', onClose)
   }
@@ -3471,7 +3527,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // Persist assistant message
   if (assistantContent.length > 0) {
     const timing = turnTimingResult ?? turnTiming.finish()
-    assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, steps: stepIndex })
+    assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
     segments.checkpoint()
   }
 
@@ -3768,39 +3824,18 @@ app.get('/logs', (req, res) => {
   }
 })
 
-function readLogLines(): { lines: string[]; note: string } {
-  try {
-    if (!fs.existsSync(LOG_FILE)) return { lines: [], note: `说明: 日志文件不存在（${LOG_FILE}）。` }
-    const content = fs.readFileSync(LOG_FILE, 'utf8')
-    return { lines: content.split('\n').filter((l) => l.trim()), note: '说明: 主日志文件在应用每次启动时重建；以下链路日志仅含标记了本对话的行。' }
-  } catch (e) {
-    return { lines: [], note: `说明: 日志文件读取失败: ${e instanceof Error ? e.message : String(e)}` }
-  }
-}
-
-// One-click support bundle for a conversation: header + message timeline
-// (summaries only) + every log line tagged with this work's id.
+// Both copy and download use the same full conversation diagnostic export.
 app.get('/works/:id/logs.txt', (req, res) => {
   const work = store.getWorkWithMessages(req.params.id)
   if (!work) { res.status(404).json({ detail: 'Not found' }); return }
-  const { lines, note } = readLogLines()
-  const text = buildWorkLogExport({
-    work: { id: work.id, title: work.title, created_at: work.created_at, updated_at: work.updated_at },
-    messages: work.messages,
-    logLines: lines,
-    logNote: note,
-    meta: {
-      exportedAt: new Date().toISOString(),
-      runtimeMode: BACKEND_INSTANCE_ID ? 'managed' : 'standalone',
-      backendInstanceId: BACKEND_INSTANCE_ID,
-      platform: process.platform,
-      nodeVersion: process.version,
-      logFilePath: LOG_FILE,
-    },
-  })
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-  res.setHeader('Content-Disposition', `attachment; filename="weworker-work-${work.id.slice(0, 8)}-logs.txt"`)
-  res.send(text)
+  try {
+    const text = readWorkLog(work)
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="weworker-work-${work.id.slice(0, 8)}-logs.txt"`)
+    res.send(text)
+  } catch {
+    res.status(500).json({ detail: '对话日志文件读取失败，请检查日志目录权限和磁盘空间。' })
+  }
 })
 
 // 鈹€鈹€ Start 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€

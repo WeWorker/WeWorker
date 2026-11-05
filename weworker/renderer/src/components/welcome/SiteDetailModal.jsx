@@ -270,7 +270,7 @@ const detailHeaderCopyStyle = {
 
 const detailTitleStyle = {
   margin: 0,
-  fontSize: 28,
+  fontSize: 'var(--font-size-display)',
   lineHeight: 1.15,
   fontWeight: 820,
 }
@@ -278,7 +278,7 @@ const detailTitleStyle = {
 const detailSubtitleStyle = {
   margin: 0,
   color: 'var(--text-secondary)',
-  fontSize: 15,
+  fontSize: 'var(--font-size-body)',
   lineHeight: 1.5,
 }
 
@@ -315,7 +315,7 @@ const detailHeroUserBubbleStyle = {
   border: '1px solid var(--border)',
   background: 'color-mix(in srgb, var(--bg-secondary) 94%, transparent)',
   boxShadow: 'none',
-  fontSize: 14,
+  fontSize: 'var(--font-size-body)',
   lineHeight: 1.55,
   boxSizing: 'border-box',
   overflowWrap: 'break-word',
@@ -331,7 +331,7 @@ const detailHeroAssistantBubbleStyle = {
   border: '1px solid color-mix(in srgb, var(--accent) 26%, var(--border))',
   background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 8%)',
   boxShadow: 'none',
-  fontSize: 14,
+  fontSize: 'var(--font-size-body)',
   lineHeight: 1.62,
   whiteSpace: 'pre-wrap',
   boxSizing: 'border-box',
@@ -341,7 +341,7 @@ const detailHeroAssistantBubbleStyle = {
 const detailDescriptionStyle = {
   margin: 0,
   color: 'var(--text-primary)',
-  fontSize: 15,
+  fontSize: 'var(--font-size-body)',
   lineHeight: 1.75,
 }
 
@@ -352,7 +352,7 @@ const detailSectionStyle = {
 
 const detailSectionTitleStyle = {
   margin: 0,
-  fontSize: 16,
+  fontSize: 'var(--font-size-subtitle)',
   lineHeight: 1.3,
   fontWeight: 780,
 }
@@ -379,7 +379,7 @@ const detailScenarioCardStyle = {
 }
 
 const detailScenarioTitleStyle = {
-  fontSize: 14,
+  fontSize: 'var(--font-size-body)',
   fontWeight: 780,
   overflow: 'hidden',
   textOverflow: 'ellipsis',

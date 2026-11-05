@@ -20,7 +20,7 @@ function manifest(auth, extra = {}) {
 }
 
 describe('manifest auth declaration', () => {
-  it('accepts login pages, SSO hosts, cookie and command checks, and auto-login selectors', () => {
+  it('accepts login pages, SSO hosts, cookie and command checks, auto-login selectors, and QR commands', () => {
     expect(() => validateV2Manifest(manifest({
       login_url: 'https://sso.example.com/login', login_hosts: ['sso.example.com', '*.passport.example.com'], display_name: '示例',
       check: { cookies: { url: 'https://www.example.com/', all: ['sid'], not: { guest: 'T' } }, command: 'whoami' },
@@ -28,10 +28,12 @@ describe('manifest auth declaration', () => {
         "mode": "auto",
         "switch": "#tab-password",
         "submit": "button[type=submit]"
-      }
+      },
+      qr: { command: 'whoami' }
     }), 'fixture.example.com')).not.toThrow()
     expect(() => validateV2Manifest(manifest({ login_url: 'http://www.example.com/signin', autologin: { mode: 'off' } }), 'fixture.example.com')).not.toThrow()
     expect(() => validateV2Manifest(manifest({ login_url: 'https://www.example.com/signin' }), 'fixture.example.com')).not.toThrow()
+    expect(() => validateV2Manifest(manifest({ login_url: 'https://www.example.com/signin', qr: { mode: 'auto' } }), 'fixture.example.com')).not.toThrow()
   })
 
   it.each([
@@ -47,6 +49,11 @@ describe('manifest auth declaration', () => {
     [{ login_url: 'https://www.example.com/', check: { command: 'missing' } }, /read Extension command/],
     [{ login_url: 'https://www.example.com/', check: { cookies: { url: 'https://tracker.example.net/', all: ['sid'] } } }, /check.cookies.url host/],
     [{ login_url: 'https://www.example.com/', check: { cookies: { url: 'https://www.example.com/' } } }, /at least one cookie/],
+    [{ login_url: 'https://www.example.com/', qr: { command: 'post' } }, /auth\.qr\.command must name a read Extension command/],
+    [{ login_url: 'https://www.example.com/', qr: { command: 'missing' } }, /auth\.qr\.command must name a read Extension command/],
+    [{ login_url: 'https://www.example.com/', qr: { mode: 'off', command: 'whoami' } }, /mode is off/],
+    [{ login_url: 'https://www.example.com/', qr: { mode: 'wechat' } }, /may only declare mode/],
+    [{ login_url: 'https://www.example.com/', qr: { command: 'whoami', extra: 1 } }, /may only declare mode/],
   ])('rejects %j', (auth, message) => {
     expect(() => validateV2Manifest(manifest(auth), 'fixture.example.com')).toThrow(message)
   })

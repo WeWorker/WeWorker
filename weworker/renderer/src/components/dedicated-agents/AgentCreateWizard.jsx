@@ -132,7 +132,7 @@ function PairingStep({ agent, draftKey, onDone }) {
   const connection = current?.connection?.status
   return (
     <div>
-      <div style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 12 }}>
+      <div style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-primary)', marginBottom: 12 }}>
         最后一步：在<strong>{im}</strong>里找到刚才的机器人，给它发送下面这句话：
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>

@@ -54,6 +54,15 @@ describe('public built-in Adapter v2 packages', () => {
     }
   });
 
+  it('opens QQ mail on wx.mail.qq.com and still accepts the classic host', () => {
+    const { pkg } = loadPackage('mail.qq.com');
+    expect(pkg.manifest.homepage_url).toBe('https://wx.mail.qq.com/');
+    expect(pkg.manifest.auth.login_url).toBe('https://wx.mail.qq.com/');
+    expect(pkg.manifest.match[0]).toBe('wx.mail.qq.com');
+    expect(pkg.manifest.match).toContain('mail.qq.com');
+    expect(pkg.manifest.domains).toEqual(expect.arrayContaining(['mail.qq.com', 'wx.mail.qq.com']));
+  });
+
   it('preserves JD command-specific settlement routing and old command aliases', () => {
     const { pkg } = loadPackage('jd.com');
     const checkout = v2CommandDef(pkg.manifest, pkg.manifest.commands.find((command) => command.id === 'pay-now'));

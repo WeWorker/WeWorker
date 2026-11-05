@@ -120,14 +120,14 @@ test("queryStats by=user：返回 user×domain 二维分布", () => {
     user: "alice",
     batch: [rec({ ts: now, traceID: "u3" })],
   });
-  // user 缺失（null）→ by=user 应过滤掉
+  // user 缺失（null）→ 归入 (unknown) 组，缺失可见而非静默消失
   insertBatch(db, {
     clientId: "c3",
     batch: [rec({ ts: now, traceID: "u4" })],
   });
 
   const { rows, totalCalls } = queryStats(db, { by: "user", since: "1d" });
-  assert.equal(totalCalls, 3); // 只算有 user 的 3 条
+  assert.equal(totalCalls, 4); // 全部 4 条（含 unknown 组）
   // rickhuang: itsm(1) + mail(1) = 2；alice: itsm(1) = 1
   const rick = rows.filter((r) => r.user === "rickhuang");
   const alice = rows.filter((r) => r.user === "alice");
@@ -212,4 +212,22 @@ test("checkAuth：配置 token 时校验 Bearer", () => {
   assert.equal(checkAuth({ headers: { authorization: "Bearer s3cr3t" } }, "s3cr3t"), true);
   assert.equal(checkAuth({ headers: { authorization: "Bearer wrong" } }, "s3cr3t"), false);
   assert.equal(checkAuth({ headers: {} }, "s3cr3t"), false);
+});
+
+test("queryStats by=user：空 user 归入 (unknown) 组，缺失可见", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c9",
+    batch: [
+      rec({ ts: now, traceID: "k1", tool: "dpms.example.com.list_items", domain: "dpms.example.com" }),
+      rec({ ts: now, traceID: "k2", tool: "dpms.example.com.list_items", domain: "dpms.example.com" }),
+    ],
+  });
+  const { rows, totalCalls } = queryStats(db, { by: "user", since: "1d" });
+  const unknown = rows.find((r) => r.user === "(unknown)");
+  assert.ok(unknown, "(unknown) 组应出现在结果中");
+  assert.equal(unknown.domain, "dpms.example.com");
+  assert.equal(unknown.calls, 2);
+  assert.equal(totalCalls, 2);
 });

@@ -1,0 +1,32 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { prepareHostCliAssets } = require('../prepare-host-cli-assets.cjs');
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+test('public builds have no host dependencies to install', () => {
+  assert.deepEqual(prepareHostCliAssets(path.join(__dirname, 'missing-assets')), []);
+});
+test('desktop preparation verifies offline tree and rejects missing, changed or extra files', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'host-assets-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dir = path.join(root, 'example'); fs.mkdirSync(dir);
+  const dependencies = { 'example-cli': '1.2.3' };
+  const lock = JSON.stringify({ packages: { '': { dependencies } } });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies }));
+  fs.writeFileSync(path.join(dir, 'package-lock.json'), lock);
+  const pin = {schemaVersion:1,lockSha256:hash(lock),fileCount:1,treeSha256:hash(JSON.stringify([{name:'example.js',sha256:hash('original')}]))};
+  fs.writeFileSync(path.join(dir,'offline-dependencies.json'),JSON.stringify(pin));
+  assert.throws(() => prepareHostCliAssets(root), /Restore/);
+  fs.mkdirSync(path.join(dir,'node_modules'));
+  const entry=path.join(dir,'node_modules/example.js'); fs.writeFileSync(entry,'original');
+  assert.deepEqual(prepareHostCliAssets(root),['example']);
+  fs.writeFileSync(entry,'changed'); assert.throws(() => prepareHostCliAssets(root), /content mismatch/);
+  fs.writeFileSync(entry,'original'); fs.writeFileSync(path.join(dir,'node_modules/extra.js'),'extra');
+  assert.throws(() => prepareHostCliAssets(root), /content mismatch/);
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ dependencies: { 'example-cli': '^1.2.3' } }));
+  assert.throws(() => prepareHostCliAssets(root), /exact versions/);
+});

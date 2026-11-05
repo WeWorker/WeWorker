@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "juejin.cn",
   "version": "1.0.9",
+  "enabled": true,
   "description": "掘金：登录检查、当前内容点赞/收藏和详情候选读取",
   "match": [
     "juejin.cn"

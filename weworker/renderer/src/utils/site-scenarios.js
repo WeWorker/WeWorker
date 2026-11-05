@@ -33,3 +33,14 @@ export function getScenarioPromptText(site, scenario) {
   }
   return scenario.summary?.trim() || scenario.title?.trim() || ''
 }
+
+/** Filter capability sites without assuming optional display fields are strings. */
+export function filterCapabilitySites(sites, query) {
+  const q = query.trim().toLowerCase()
+  if (!q) return sites
+  const matches = (value) => typeof value === 'string' && value.toLowerCase().includes(q)
+  return sites.filter((site) =>
+    matches(site.name) || matches(site.description) ||
+    normalizeSiteScenarios(site).some((scenario) => matches(scenario.title) || matches(scenario.summary)),
+  )
+}

@@ -26,11 +26,13 @@ export function managedAdapterViews(options = {}) {
     adapters: catalog.adapters.map((manifest) => {
       const { _hostGuidance, ...metadata } = manifest;
       const runtimes = [...new Set(manifest.commands.map((command) => command.runtime))];
+      // auth.qr.command is host-only: the login flow runs it, the model never sees it.
+      const hostOnly = manifest.auth?.qr?.command;
       const adapter = {
         ...metadata, id: manifest.name, source: manifest._hostSnapshot.source,
         digest: manifest._hostSnapshot.digest, profile: manifest._hostSnapshot.profile,
         adapter_type: runtimes.length > 1 ? 'mixed' : runtimes[0] === 'wewright' ? 'toolkit' : runtimes[0],
-        tools: manifest.commands.map((command) => toolView(manifest, command)),
+        tools: manifest.commands.filter((command) => command.id !== hostOnly).map((command) => toolView(manifest, command)),
       };
       return Object.defineProperty(adapter, 'guidance', { value: _hostGuidance || '', enumerable: false });
     }),

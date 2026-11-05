@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "nnfp.jss.com.cn",
   "version": "1.0.9",
+  "enabled": true,
   "description": "诺诺网发票平台：获取发票信息、下载 PDF/OFD/XML、自动下载并返回 QQ 邮箱",
   "match": [
     "nnfp.jss.com.cn"

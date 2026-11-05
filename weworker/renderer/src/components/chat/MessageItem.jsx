@@ -2,11 +2,13 @@ import WorkingIndicator from './WorkingIndicator.jsx'
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
+import { FormattedBody } from '../../utils/formatted-body.js'
+import './formatted-body.css'
 import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
 import ImageLightbox from './ImageLightbox.jsx'
-import { formatDuration } from '../../utils/format-duration.js'
+import { formatTimingDuration, formatTimingTotal } from '../../utils/format-timing-duration.js'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { partitionContentBlocks } from '../../utils/group-tool-blocks.js'
 import { isPlanManagementTool } from '../../utils/todowrite-state.js'
@@ -508,10 +510,10 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
     if (isUser) {
       return (
         <div
-          className="message-text-selectable"
-          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
+          className="message-text-selectable formatted-body"
+          style={{ color: 'inherit', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
         >
-          {block.text || ''}
+          <FormattedBody markdown={block.text || ''} onLinkClick={handleChatLinkClick} />
         </div>
       )
     }
@@ -526,7 +528,7 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
   }
   if (block.type === 'tool_use') {
     if (suppressPlanTools && isPlanManagementTool(block.name)) return null
-    if (block.image) return <div style={{ margin: '4px 0' }}><ZoomableImage src={`data:image/jpeg;base64,${block.image}`} /></div>
+    if (block.image) return <div style={{ margin: '4px 0' }}><ZoomableImage src={`data:image/jpeg;base64,${block.image}`} /><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{block.thinkMs != null && `模型思考 ${formatTimingDuration(block.thinkMs)}`}{block.thinkMs != null && block.execMs != null && ' · '}{block.execMs != null && `执行 ${formatTimingDuration(block.execMs)}`}</div></div>
     return <ToolCallBlock block={block} streaming={streaming} />
   }
   if (block.type === 'image') return <ZoomableImage src={`data:image/jpeg;base64,${block.data}`} />
@@ -644,9 +646,9 @@ function ZoomableImage({ src }) {
 
 function TurnTimingFooter({ block }) {
   const segs = [
-    `⏱ 本轮 ${formatDuration(block.totalMs)}`,
-    `模型 ${formatDuration(block.llmMs)}`,
-    `执行 ${formatDuration(block.execMs)}`,
+    `⏱ 本轮 ${formatTimingTotal(block.llmMs, block.execMs)}`,
+    `模型思考 ${formatTimingDuration(block.llmMs)}`,
+    `执行 ${formatTimingDuration(block.execMs)}`,
     `${block.steps ?? 0} 步`,
   ]
   return (

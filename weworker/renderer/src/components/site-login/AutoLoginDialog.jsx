@@ -57,7 +57,7 @@ export default function AutoLoginDialog({ site, name, autologinMode = 'auto', co
         onSubmit={save}
         style={{ width: 'min(440px, calc(100vw - 32px))', background: 'var(--bg-primary)', border: '1px solid var(--border-strong, var(--border))', borderRadius: 10, padding: 20, boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}
       >
-        <h2 id="autologin-dialog-title" style={{ margin: 0, fontSize: 15, color: 'var(--text-primary)' }}>为 {name || site} 开启自动登录</h2>
+        <h2 id="autologin-dialog-title" style={{ margin: 0, fontSize: 'var(--font-size-subtitle)', color: 'var(--text-primary)' }}>为 {name || site} 开启自动登录</h2>
         <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
           {AUTOLOGIN_NOTICE_LINES.map((line) => <li key={line}>{line}</li>)}
         </ul>

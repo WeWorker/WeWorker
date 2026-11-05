@@ -55,6 +55,7 @@ function copyTreeSync(src, dest) {
 }
 
 async function main() {
+  require('./prepare-host-cli-assets.cjs').prepareHostCliAssets(path.join(WEWORKER_ROOT, 'host-cli-assets'));
   const { selectBuiltinAdapters, validateBuiltinOutput, writeBuiltinAdapters, writeExtensionPageScripts } = await import(BUILTIN_BUILD_MODULE);
 
   // ── Task 2.1: 读取、合并并校验 profile ──
@@ -79,10 +80,11 @@ async function main() {
     process.exit(1);
   }
 
-  prepareMetricsClientConfig({
+  const metricsClientConfig = prepareMetricsClientConfig({
     modelPath: path.resolve(WEWORKER_ROOT, profile.modelProviders),
     outputPath: path.resolve(WEWORKER_ROOT, 'build/metrics-client.json'),
   });
+  console.log(`[prepare-build] Metrics client config: ${metricsClientConfig.enabled ? 'enabled' : 'disabled'}`);
 
   console.log(
     `[prepare-build] Profile "${options.profileName}" validated` +

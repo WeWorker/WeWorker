@@ -12,7 +12,7 @@ import { hintStyle } from './styles.js'
 function AgentChatIntro({ agent, siteName, fill }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, textAlign: 'center' }}>
-      <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{agent.name}</div>
+      <div style={{ fontSize: 'var(--font-size-subtitle)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>{agent.name}</div>
       <div style={{ ...hintStyle, maxWidth: 480, marginBottom: 18 }}>
         {agent.description || `专门处理「${siteName}」上的工作。`}
         <br />

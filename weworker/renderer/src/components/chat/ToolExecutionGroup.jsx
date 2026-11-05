@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { formatToolResultText, getToolExecLineText, getToolExecGroupLabel } from '../../utils/tool-display.js'
+import { Tooltip } from 'antd'
+import { formatToolResultText, getToolExecLineText, getToolExecTooltipText, getToolExecGroupLabel } from '../../utils/tool-display.js'
 import ToolRunningIndicator from './ToolRunningIndicator.jsx'
 import ToolTimingBadge from './ToolTimingBadge.jsx'
 import { ToolExecIcon, ToolRowChevron } from './ToolRowIcons.jsx'
@@ -20,7 +21,8 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
 
   const label = getToolExecGroupLabel(blocks)
   const showRunning = streaming && blocks.some((block) => block.status === 'running')
-  // Total execution time across all commands in the group (sum of per-step execMs)
+  // Credited execution shares are disjoint, so this subtotal matches the turn ledger.
+  const groupThinkMs = blocks.reduce((sum, block) => sum + (block.thinkMs || 0), 0)
   const groupExecMs = blocks.reduce((sum, block) => sum + (block.execMs || 0), 0)
 
   const toggleDetail = (key) => {
@@ -45,7 +47,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
         </span>
         <span className="tool-row-header__body">
           <span className="tool-exec-group__header-label">{label}</span>
-          <ToolTimingBadge execMs={groupExecMs} />
+          <ToolTimingBadge thinkMs={groupThinkMs} execMs={groupExecMs} showTotal />
           <span className="tool-row-header__chevron tool-exec-group__header-chevron" aria-hidden="true">
             <ToolRowChevron expanded={open} />
           </span>
@@ -64,15 +66,24 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
 
             return (
               <div key={blockKey} className="tool-exec-group__entry">
+                <Tooltip
+                  trigger={['hover', 'focus']}
+                  color="#fff"
+                  styles={{ body: { color: '#333', border: '1px solid #e5e7eb', boxShadow: '0 8px 18px rgba(0, 0, 0, 0.12)' } }}
+                  overlayStyle={{ maxWidth: 'min(720px, calc(100vw - 32px))' }}
+                  title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '50vh', overflowY: 'auto', font: 'inherit', userSelect: 'text' }}>{getToolExecTooltipText(block)}</pre>}
+                >
+
                 <button
                   type="button"
+                  data-custom-tooltip-zone="true"
                   className={`tool-exec-group__line${detailOpen ? ' tool-exec-group__line--open' : ''}`}
                   onClick={() => toggleDetail(blockKey)}
                   aria-expanded={detailOpen}
                 >
                   <span className="tool-exec-group__status">{running ? '执行中' : '已执行'}</span>
                   <span className="tool-exec-group__line-body">
-                    <span className="tool-exec-group__command" title={command}>{command}</span>
+                    <span className="tool-exec-group__command">{command}</span>
                     <ToolTimingBadge thinkMs={block.thinkMs} execMs={block.execMs} />
                     {!running && (
                       <span className="tool-row-header__chevron tool-exec-group__line-chevron" aria-hidden="true">
@@ -81,6 +92,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
                     )}
                   </span>
                 </button>
+                </Tooltip>
 
                 {detailOpen && (
                   <div className="tool-exec-group__detail">

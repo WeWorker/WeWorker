@@ -50,7 +50,7 @@ describe('智能路由接线', () => {
 
   it('专属 Agent 的四条路径都跳过路由', () => {
     // 桌面：profile 路由与确定性级联都不接专属 Agent。
-    expect(sources.server).toContain('if (!dedicatedAgent && await tryBackendProfileQueryRoute(')
+    expect(sources.server).toMatch(/if \([^\n]*!dedicatedAgent && await tryBackendProfileQueryRoute\(/)
     // 定时任务：agent 任务不进路由。
     expect(sources.taskExecutor).toContain('const routed = agent')
     // 企微 / 微信：由 profile 上的专属 Agent 标记决定。

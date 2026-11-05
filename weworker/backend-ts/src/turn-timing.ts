@@ -32,10 +32,14 @@ export interface TurnTimingLedger {
    * 同一个 id 的重复事件（流式模式会重发）不改变记账，返回 `undefined`。
    */
   toolStarted(id: string, at?: number): number | undefined
-  /** 工具返回文本结果：按 id 闭合区间并返回该工具自身的耗时。 */
+  /** 工具返回文本结果：按 id 闭合区间并返回该工具分摊的非重叠执行时间。 */
   toolSettled(id: string, at?: number): number | undefined
   /** 工具只留下中间产物（图片等）：同样闭合区间，避免其耗时漏进 llmMs。 */
   toolObserved(id: string, at?: number): number | undefined
+  /** 已分配给该工具的独占执行时间（回合结束后也可读取）。 */
+  toolExecutionMs(id: string): number | undefined
+  /** 未归入任何工具开始前 think 的非执行时间（含回合收尾）。 */
+  remainingModelMs(): number
   /** 回合结束：结算仍在运行的工具并冻结本次快照（可重复调用，结果相同）。 */
   finish(at?: number): TurnTimingSnapshot
 }
@@ -52,41 +56,47 @@ export function createTurnTimingLedger(options: TurnTimingOptions = {}): TurnTim
   /** 已记账区间的末端：任何区间都只从它往后计，保证不重叠。 */
   let coveredUntil = startedAt
   let llmMs = 0
+  let assignedThinkMs = 0
   let execMs = 0
   /** 已开始、尚未结算的工具：id -> 开始时间。 */
   const open = new Map<string, number>()
+  const allocated = new Map<string, number>()
+  const seen = new Set<string>()
   /** 回合结束快照：第一次 finish() 之后冻结，重复调用结果一致。 */
   let frozen: TurnTimingSnapshot | null = null
 
-  /** 把 [coveredUntil, at) 记为模型时间（若有）。 */
-  function chargeLlmUntil(at: number): number {
+  /** 按事件发生前仍在运行的工具，把尚未记账的时间归入执行或非执行。 */
+  function chargeUntil(at: number): number {
     if (at <= coveredUntil) return 0
     const gap = at - coveredUntil
-    llmMs += gap
+    if (open.size) {
+      execMs += gap
+      // Attribute each wall-clock millisecond to one tool only. The first
+      // still-open tool owns overlap, so step totals equal the turn's execMs.
+      const owner = open.keys().next().value as string
+      allocated.set(owner, (allocated.get(owner) ?? 0) + gap)
+    } else llmMs += gap
     coveredUntil = at
     return gap
   }
 
-  /** 结算一个工具区间：只把尚未记账的部分计入 exec。 */
   function settle(id: string, at: number): number | undefined {
-    const startedAtTool = open.get(id)
-    if (startedAtTool === undefined) return undefined
+    if (!open.has(id)) return undefined
+    chargeUntil(at)
     open.delete(id)
-    const duration = Math.max(0, at - startedAtTool)
-    const from = Math.max(coveredUntil, startedAtTool)
-    if (at > from) {
-      execMs += at - from
-      coveredUntil = at
-    }
-    return duration
+    return allocated.get(id) ?? 0
   }
 
   return {
     startedAt,
     get coveredUntil() { return coveredUntil },
     toolStarted(id, at = now()) {
-      if (open.has(id)) return undefined
-      const thinkMs = chargeLlmUntil(at)
+      if (frozen || seen.has(id)) return undefined
+      seen.add(id)
+      const wasExecuting = open.size > 0
+      const gap = chargeUntil(at)
+      const thinkMs = wasExecuting ? 0 : gap
+      assignedThinkMs += thinkMs
       open.set(id, at)
       return thinkMs
     },
@@ -96,13 +106,19 @@ export function createTurnTimingLedger(options: TurnTimingOptions = {}): TurnTim
     toolObserved(id, at = now()) {
       return settle(id, at)
     },
+    toolExecutionMs(id) {
+      return allocated.get(id)
+    },
+    remainingModelMs() {
+      return llmMs - assignedThinkMs
+    },
     finish(at = now()) {
       if (frozen) return frozen
       // 没有结果事件的工具确实执行过：按到回合结束为止计入 exec（上界），
       // 这样它绝不会被算进 llmMs。
-      for (const id of [...open.keys()]) settle(id, at)
-      chargeLlmUntil(at)
-      frozen = { totalMs: at - startedAt, llmMs, execMs }
+      chargeUntil(at)
+      open.clear()
+      frozen = { totalMs: llmMs + execMs, llmMs, execMs }
       return frozen
     },
   }

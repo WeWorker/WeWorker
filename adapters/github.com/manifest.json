@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "github.com",
   "version": "1.0.1",
+  "enabled": true,
   "description": "GitHub：Trending 仓库读取、登录检查、仓库搜索、仓库详情、Issue/PR 详情和 Star 仓库",
   "match": [
     "github.com"
