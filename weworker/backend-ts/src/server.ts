@@ -117,6 +117,7 @@ import { graduationHint, recordTier4HostUsage, shouldSuggestGraduation } from '.
 import { computeRoutableSitesFromConfig, getScopedRouterConfig } from './router-config/index.js'
 import { listAliasTexts } from './api-query-router/aliases.js'
 import { tryRoutedTurn } from './routed-turn.js'
+import type { DirectRouteOutcome } from './webcli-route.js'
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
 import { ensureRuntimeSkillsDir } from './runtime-skills-dir.js'
 import { importSkillZip, importSkillZipFile } from './skill-zip-import.js'
@@ -403,6 +404,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     download_subdirectory: getDownloadSubdirectory(),
     download_directory: getDownloadDirectory(),
     max_chat_attachments: s.max_chat_attachments,
+    webcli_route_enabled: s.webcli_route_enabled !== false,
     paste_text_attachment_threshold: getPasteTextAttachmentThreshold(),
     welcome_featured_site_limit: getWelcomeFeaturedSiteLimit(),
     resource_preview_extensions: getResourcePreviewExtensions(),
@@ -570,6 +572,15 @@ app.post('/settings/user-directory-blacklist', (req, res) => {
     user_directory_blacklist: sanitized,
   }))
   res.json({ ...response, blacklist_dropped: dropped })
+})
+
+app.post('/settings/extensions/webcli-route', (req, res) => {
+  const enabled = req.body?.webcli_route_enabled
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ detail: 'webcli_route_enabled must be a boolean' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ webcli_route_enabled: enabled })))
 })
 
 app.post('/settings/permissions', (req, res) => {
@@ -3202,7 +3213,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // the model rather than replay the same routed answer.
   // `persist: true` keeps the router's own `store.appendMessage`, so desktop
   // persistence is byte-identical to the pre-shared-entry behaviour.
-  if (desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
+  let directRoute: DirectRouteOutcome = { status: 'skipped', reason: dedicatedAgent ? 'dedicated_agent'
+    : retryCompaction === true ? 'retry_compaction'
+    : desktopPermission.channelPermissionMode === 'ask' ? 'ask_permission' : 'no_text' }
+  if (!dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
     const routed = await tryRoutedTurn({
       message,
       workId,
@@ -3215,6 +3229,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       // tell "那第二个呢" apart from a fresh query.
       history: workWithMessages.messages.filter((msg) => msg.id !== savedUserMessage?.id),
     })
+    directRoute = routed.directRoute ?? { status: 'miss' }
     if (routed.handled) {
       finished = true
       res.off('close', onClose)
@@ -3300,7 +3315,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       coverage: collectSiteCoverage({ adapters: allAdapters.values(), toolkitSkills }),
       knownHosts: buildKnownHosts(allAdapters),
     })
-    if (desktopPermission.channelPermissionMode !== 'ask' && exploration.dispatch && exploration.startUrl) {
+    // With WebCLI routing enabled, every direct miss must reach the Agent with
+    // its recommendation. The Agent can still request website exploration.
+    if (settings.webcli_route_enabled === false && !dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && exploration.dispatch && exploration.startUrl) {
       const health = await checkWebwrightHealth()
       if (!health.ok) {
         chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)
@@ -3323,9 +3340,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       }
     } else if (siteGate.reason === 'miss') {
       // miss 时 siteGate 无日志行，这里补观测：为什么没走第4层。
-      chatLog.info(`${tag} tier4: skip reason=${exploration.reason}`)
+      chatLog.info(`${tag} tier4: skip reason=${settings.webcli_route_enabled !== false ? 'webcli_route_to_agent' : exploration.reason}`)
     }
     for await (const ev of tier4Source ?? streamChat(modelMessages, settings, abortController, {
+      directRoute,
       enabledAdapterIds,
       workId,
       styleId,

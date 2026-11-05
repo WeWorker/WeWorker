@@ -356,6 +356,9 @@ export interface Settings {
   /** P2 API 查询路由的 LLM 分类层开关（默认开；env WEWORKER_LLM_ROUTE=1|0 可覆盖）。 */
   api_query_llm_route: boolean
 
+  /** WebCLI recommendation before the Agent (default disabled until routing quality is validated); independent of direct routing. */
+  webcli_route_enabled: boolean
+
   /**
    * 当前生效的风格 id（默认 / 预定义内置风格 / 自定义风格）。
    * 键名沿用历史字段以避免数据迁移；与 ZCF 已无关系。
@@ -440,6 +443,8 @@ const DEFAULTS: Settings = {
   base_url_is_full_custom: false,
 
   api_query_llm_route: true,
+  // 默认关闭：先由开发和测试同学验证路由质量，确认无问题后再改为默认开启。
+  webcli_route_enabled: false,
 
   openai_base_url_custom: '',
   openai_base_url_is_full_custom: false,
@@ -652,6 +657,8 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   )
 
   merged.channels = normalizeChannelsConfig(merged.channels)
+  // 非布尔或缺失一律按关闭处理，避免历史配置把「未设置」误读成开启。
+  merged.webcli_route_enabled = merged.webcli_route_enabled === true
 
   merged.user_directory_blacklist = normalizeUserDirectoryBlacklist(merged.user_directory_blacklist)
   merged.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(merged.open_browser_allowed_origins)
@@ -835,6 +842,7 @@ export function updateSettings(updates: Partial<Settings>): Settings {
   }
 
   _settings.max_chat_attachments = normalizeMaxChatAttachments(_settings.max_chat_attachments)
+  _settings.webcli_route_enabled = _settings.webcli_route_enabled === true
   _settings.context_limit = normalizeContextLimit(_settings.context_limit)
   _settings.context_limit_anthropic = normalizeContextLimit(_settings.context_limit_anthropic)
   _settings.context_limit_glm = normalizeContextLimit(_settings.context_limit_glm)

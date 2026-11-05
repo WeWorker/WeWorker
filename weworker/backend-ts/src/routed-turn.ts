@@ -27,6 +27,7 @@ import { tryIntelligentQueryRoute } from './api-query-router/index.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import type { ContentBlock, Message } from './works-store.js'
 import { appendWorkLog } from './work-log-file.js'
+import type { DirectRouteOutcome } from './webcli-route.js'
 
 /** 路由命中后回落的耗时与自描述字段（供 timing 块落库与 UI 识别）。 */
 export interface RoutedTiming {
@@ -41,6 +42,8 @@ export interface RoutedTiming {
 }
 
 export interface RoutedTurnResult {
+  /** Per-turn handoff to the Agent when direct routing does not answer. */
+  directRoute?: DirectRouteOutcome
   /** true = 已被确定性层接走，调用方**不得**再调用 `streamChat`。 */
   handled: boolean
   /** 命中时渲染出的 markdown 正文；未命中恒为空串。 */
@@ -106,12 +109,12 @@ function toRoutedTiming(event: Record<string, unknown>): RoutedTiming | null {
  * 保证任何路由故障都不会让定时任务或渠道回合直接失败。
  */
 export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnResult> {
-  const miss: RoutedTurnResult = { handled: false, text: '', timing: null }
+  const miss: RoutedTurnResult = { handled: false, text: '', timing: null, directRoute: { status: 'miss' } }
 
-  if (!input.message?.trim()) return miss
+  if (!input.message?.trim()) return { ...miss, directRoute: { status: 'skipped', reason: 'no_text' } }
   if (isQaOnly(input.channelPermissionMode)) {
     input.log?.('routed turn skipped: qa_only channel cannot dispatch tools')
-    return miss
+    return { ...miss, directRoute: { status: 'skipped', reason: 'qa_only' } }
   }
 
   let text = ''
@@ -141,6 +144,7 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
         send,
         log: input.log,
         history: input.history,
+        onFallback: outcome => { miss.directRoute = outcome },
       },
       // 非持久化调用方：给一个空实现顶掉默认落库，由调用方写自己那份（带各自的
       // timing 口径与 external-write 标记），否则同一条回复会被写两次。
@@ -156,6 +160,7 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
       return { handled: true, text, timing }
     }
     input.log?.(`routed turn failed: ${reason} → fall back to LLM`)
+    miss.directRoute = { status: 'failed', reason: 'direct_route_error' }
     return miss
   }
 

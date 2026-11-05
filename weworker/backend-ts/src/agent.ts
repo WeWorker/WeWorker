@@ -46,6 +46,7 @@ import { createAskPreToolUseHook } from './tool-permission-approval.js'
 import { createLogger } from './logger.js'
 import { recordWorkLogStream } from './work-log-file.js'
 import { resolveWebcliDir } from './webcli-path.js'
+import { prepareAgentRouting, withRoutingContext, type AgentRoutingContext, type DirectRouteOutcome } from './webcli-route.js'
 import { syncBundledWebcliSkills } from './webcli-skills.js'
 import { composeSystemPromptWithStyle } from './style-settings.js'
 import { computeUsageMetrics, createContextUsageTracker, createApiDurationTracker, resolveTurnApiDuration, type ApiDurationTracker } from './usage-metrics.js'
@@ -1051,6 +1052,34 @@ export async function* streamChat(...args: Parameters<typeof streamChatWithBaseU
 }
 
 async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithBaseUrl>): AsyncGenerator<SSEEvent> {
+  if (args[2]?.signal.aborted) return
+  const opts = args[3]
+  let routingContext: AgentRoutingContext | undefined
+  // Only real turns whose entry point tried/skipped the direct router opt in.
+  // Warmup, compaction and notification summaries must never call WebCLI route.
+  if (opts?.directRoute && !opts.warmupOnly && !opts.compactionOnly && !opts.notificationSummaryOnly) {
+    // 默认关闭：只有显式开启才调用 WebCLI 路由，缺省或字段缺失一律视为关闭。
+    const enabled = args[1].webcli_route_enabled === true
+    const skipReason = opts.isolatedClaudeConfigDir ? 'dedicated_agent'
+      : opts.channelPermissionMode === 'qa_only' ? 'qa_only' : undefined
+    if (enabled && !skipReason) await waitForAdapterRuntimeReload()
+    const latest = args[0].at(-1)
+    const message = latest?.role === 'user'
+      ? latest.content.filter(block => block.type === 'text').map(block => block.text).join('') : ''
+    routingContext = yield* prepareAgentRouting({
+      message,
+      direct: opts.directRoute,
+      enabled,
+      signal: args[2]?.signal,
+      skipReason,
+      enabledAdapterIds: enabled && !skipReason ? (opts.enabledAdapterIds ?? new Set(
+        [...parseAllAdapters()].filter(([id, a]) => getSiteEnabled(id, a.defaultEnabled, a.managed?.enabled)).map(([id]) => id),
+      )) : undefined,
+    })
+    log.info('agent_pre_routing', { direct: routingContext.direct.status, webcli: routingContext.webcli.status,
+      ...('reason' in routingContext.webcli ? { reason: routingContext.webcli.reason } : {}) })
+    if (args[2]?.signal.aborted || routingContext.webcli.status === 'cancelled') return
+  }
   let runtime: Awaited<ReturnType<typeof prepareModelRuntime>>
   try {
     runtime = await prepareModelRuntime(args[1])
@@ -1062,6 +1091,7 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
   // so it takes ownership of the relay and closes it together with the CLI.
   let adopted = false
   const internal: StreamChatInternalOptions = {
+    routingContext,
     sessionBaseUrl: args[1].base_url,
     adoptModelRuntime: () => {
       adopted = true
@@ -1077,6 +1107,7 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
 
 const STREAM_CHAT_INTERNAL = Symbol('streamChatInternal')
 interface StreamChatInternalOptions {
+  routingContext?: AgentRoutingContext
   /** Configured base URL before any per-turn relay rewrite; part of the session fingerprint. */
   sessionBaseUrl: string
   /** Transfer the per-turn model runtime to a new persistent session. */
@@ -1112,6 +1143,8 @@ async function* streamChatWithBaseUrl(
   settings: Settings,
   abortController?: AbortController,
   opts: {
+    /** Status from the direct router. Absent for internal non-user requests. */
+    directRoute?: DirectRouteOutcome;
     streaming?: boolean;
     enabledAdapterIds?: Set<string>;
     workId?: string;
@@ -1447,7 +1480,7 @@ async function* streamChatWithBaseUrl(
   const buildAssembly = (conversationPrompt: string, compaction?: ConversationCompactionSnapshot) => buildContextAssembly({
     systemPrompt,
     identityPrompt,
-    prompt: conversationPrompt,
+    prompt: withRoutingContext(conversationPrompt, internal?.routingContext),
     toolDefinitions: [
       `Claude Code 原生 ${nativeCommandTool}`,
       'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Skill', 'TodoWrite',
@@ -1780,7 +1813,7 @@ async function* streamChatWithBaseUrl(
       // A live CLI already holds the conversation and loaded Skills: send only the new message.
       firstPrompt = prewarmed
         ? fullFirstPrompt
-        : `${siteToolkitPrompt ? `${siteToolkitPrompt}\n\n` : ''}${recalledMemoryBlock}${messagePromptText(messages[messages.length - 1])}`
+        : withRoutingContext(`${siteToolkitPrompt ? `${siteToolkitPrompt}\n\n` : ''}${recalledMemoryBlock}${messagePromptText(messages[messages.length - 1])}`, internal?.routingContext)
     } else {
       const created = startSession()
       registerChatSession(created)
