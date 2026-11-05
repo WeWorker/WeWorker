@@ -184,3 +184,66 @@ describe('Bridge managed calls before the browser runs', () => {
     expect(bridge._ensureBrowser).not.toHaveBeenCalled()
   })
 })
+
+describe('login watchdog', () => {
+  const settle = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  function watchdogBridge(checkResult) {
+    const bridge = createBridge()
+    // A call that never settles: this is exactly the case where waiting for a
+    // failure would leave the user without any login card.
+    bridge._callToolInner = vi.fn(() => new Promise(() => {}))
+    const coordinator = {
+      login: vi.fn(async () => ({ status: 'waiting_user' })),
+      check: vi.fn(async () => {
+        if (checkResult instanceof Error) throw checkResult
+        return checkResult
+      }),
+      hasWaitingFlow: () => false,
+    }
+    bridge._siteLogin = () => coordinator
+    return { bridge, coordinator }
+  }
+
+  const start = (bridge) => {
+    bridge.callTool('fixture.example.com.list', {}, null, null, { loginWatchdogDelayMs: 5 }).catch(() => {})
+  }
+
+  it('opens the login page while the command is still running when the service says logged out', async () => {
+    const { bridge, coordinator } = watchdogBridge({ logged_in: false, method: 'http' })
+    start(bridge)
+    await settle()
+    expect(coordinator.check).toHaveBeenCalledTimes(1)
+    expect(coordinator.login).toHaveBeenCalledTimes(1)
+    expect(coordinator.login).toHaveBeenCalledWith('fixture.example.com', { waitMs: 0, skipCheck: true })
+  })
+
+  it('stays silent when the service says the session is valid', async () => {
+    const { bridge, coordinator } = watchdogBridge({ logged_in: true, method: 'http' })
+    start(bridge)
+    await settle()
+    expect(coordinator.check).toHaveBeenCalledTimes(1)
+    expect(coordinator.login).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when the check cannot decide', async () => {
+    const unknown = watchdogBridge({ logged_in: null, method: 'http' })
+    start(unknown.bridge)
+    await settle()
+    expect(unknown.coordinator.login).not.toHaveBeenCalled()
+
+    const failing = watchdogBridge(new Error('network down'))
+    start(failing.bridge)
+    await settle()
+    expect(failing.coordinator.login).not.toHaveBeenCalled()
+  })
+
+  it('does not prompt twice inside the cooldown window', async () => {
+    const { bridge, coordinator } = watchdogBridge({ logged_in: false, method: 'http' })
+    start(bridge)
+    await settle()
+    start(bridge)
+    await settle()
+    expect(coordinator.login).toHaveBeenCalledTimes(1)
+  })
+})

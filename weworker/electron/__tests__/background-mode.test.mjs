@@ -161,12 +161,12 @@ test('agent summary counts enabled agents and falls back to the records file', a
 
 test('quit dialog and tray text describe bound agents', () => {
   const dialog = buildQuitDialog({ total: 7, names: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] })
-  assert.match(dialog.message, /7 个专属 Agent/)
+  assert.match(dialog.message, /7 个WeWorker Bot/)
   assert.match(dialog.detail, /等 7 个/)
   assert.deepEqual(dialog.buttons, ['留在后台运行', '仍然退出', '取消'])
   assert.equal(trayTooltip(null), 'WeWorker')
-  assert.equal(trayTooltip({ total: 2, online: 1, source: 'backend' }), 'WeWorker · 专属 Agent 1/2 在线')
-  assert.equal(trayTooltip({ total: 2, online: 0, source: 'file' }), 'WeWorker · 2 个专属 Agent')
+  assert.equal(trayTooltip({ total: 2, online: 1, source: 'backend' }), 'WeWorker · WeWorker Bot 1/2 在线')
+  assert.equal(trayTooltip({ total: 2, online: 0, source: 'file' }), 'WeWorker · 2 个WeWorker Bot')
 })
 
 test('closing the window hides it on Windows by default and on macOS always', () => {
@@ -254,9 +254,9 @@ test('tray menu lists agents, launch-at-login toggle and quit', () => {
   const handlers = { onOpen() {}, onOpenAgents() {}, onToggleLaunchAtLogin() {}, onQuit() {} }
   const template = buildTrayMenuTemplate({ summary: { total: 2, online: 1, source: 'backend' }, launchAtLogin: { supported: true, enabled: true }, ...handlers })
   const labels = template.filter((item) => item.label).map((item) => item.label)
-  assert.deepEqual(labels, ['打开 WeWorker', '专属 Agent：1/2 在线', '开机自动启动', '退出 WeWorker'])
+  assert.deepEqual(labels, ['打开 WeWorker', 'WeWorker Bot：1/2 在线', '开机自动启动', '退出 WeWorker'])
   assert.equal(template.find((item) => item.label === '开机自动启动').checked, true)
 
   const dev = buildTrayMenuTemplate({ summary: null, launchAtLogin: { supported: false, enabled: false }, ...handlers })
-  assert.deepEqual(dev.filter((item) => item.label).map((item) => item.label), ['打开 WeWorker', '暂无专属 Agent', '退出 WeWorker'])
+  assert.deepEqual(dev.filter((item) => item.label).map((item) => item.label), ['打开 WeWorker', '暂无WeWorker Bot', '退出 WeWorker'])
 })

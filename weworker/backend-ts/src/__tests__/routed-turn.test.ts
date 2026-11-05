@@ -89,12 +89,22 @@ describe('tryRoutedTurn', () => {
     vi.clearAllMocks()
   })
 
+  it('distinguishes direct misses from failures for the Agent handoff', async () => {
+    mocks.tryIntelligentQueryRoute.mockResolvedValue(false)
+    expect((await tryRoutedTurn(baseInput)).directRoute).toEqual({ status: 'miss' })
+    mocks.tryIntelligentQueryRoute.mockImplementation(async (ctx) => {
+      ctx.onFallback?.({ status: 'failed', reason: 'timeout' })
+      return false
+    })
+    expect((await tryRoutedTurn(baseInput)).directRoute).toEqual({ status: 'failed', reason: 'timeout' })
+  })
+
   it('未命中时原样落回，不留半成品', async () => {
     mocks.tryIntelligentQueryRoute.mockResolvedValue(false)
 
     const result = await tryRoutedTurn({ ...baseInput })
 
-    expect(result).toEqual({ handled: false, text: '', timing: null })
+    expect(result).toEqual({ handled: false, text: '', timing: null, directRoute: { status: 'miss' } })
   })
 
   it('命中时交出正文与带 routeTool 的 timing', async () => {
@@ -153,7 +163,7 @@ describe('tryRoutedTurn', () => {
 
     const result = await tryRoutedTurn({ ...baseInput, channelPermissionMode: 'qa_only', log })
 
-    expect(result).toEqual({ handled: false, text: '', timing: null })
+    expect(result).toEqual({ handled: false, text: '', timing: null, directRoute: { status: 'skipped', reason: 'qa_only' } })
     expect(mocks.tryIntelligentQueryRoute).not.toHaveBeenCalled()
     expect(log).toHaveBeenCalledWith(expect.stringContaining('qa_only'))
   })
@@ -167,7 +177,7 @@ describe('tryRoutedTurn', () => {
   })
 
   it('空消息不进入路由', async () => {
-    expect(await tryRoutedTurn({ ...baseInput, message: '   ' })).toEqual({ handled: false, text: '', timing: null })
+    expect(await tryRoutedTurn({ ...baseInput, message: '   ' })).toEqual({ handled: false, text: '', timing: null, directRoute: { status: 'skipped', reason: 'no_text' } })
     expect(mocks.tryIntelligentQueryRoute).not.toHaveBeenCalled()
   })
 
@@ -177,7 +187,7 @@ describe('tryRoutedTurn', () => {
 
     const result = await tryRoutedTurn({ ...baseInput, log })
 
-    expect(result).toEqual({ handled: false, text: '', timing: null })
+    expect(result).toEqual({ handled: false, text: '', timing: null, directRoute: { status: 'failed', reason: 'direct_route_error' } })
     expect(log).toHaveBeenCalledWith(expect.stringContaining('engine boom'))
   })
 

@@ -467,11 +467,11 @@ export function buildMcpServer(opts?: McpServerContext) {
 
     tool(
       'list_agent_notification_targets',
-      '列出当前专属 Agent 已观察到、可由主人授权给定时任务的企业微信单聊或群聊目标。只能选择此列表中的 target_id，不能猜测或填写其他群/用户。',
+      '列出当前WeWorker Bot 已观察到、可由主人授权给定时任务的企业微信单聊或群聊目标。只能选择此列表中的 target_id，不能猜测或填写其他群/用户。',
       {},
       async () => {
-        if (!dedicatedAgent) return toolText({ error: '此工具仅供专属 Agent 使用' })
-        if (!isDedicatedOwner) return toolText({ error: '只有专属 Agent 的主人可以查看或配置通知目标' })
+        if (!dedicatedAgent) return toolText({ error: '此工具仅供WeWorker Bot 使用' })
+        if (!isDedicatedOwner) return toolText({ error: '只有WeWorker Bot 的主人可以查看或配置通知目标' })
         const targets = store.listChannelNotifyTargets(dedicatedChannelKey).flatMap((entry) => {
           const chatType = Number(entry.extra.chat_type)
           if (chatType !== 1 && chatType !== 2) return []
@@ -482,7 +482,7 @@ export function buildMcpServer(opts?: McpServerContext) {
     ),
     tool(
       'create_agent_scheduled_task',
-      '创建当前专属 Agent 的定时任务。仅在主人已通过对话明确确认任务内容、执行频率和通知目标后调用。任务运行时由 Agent 自行决定是否调用 send_agent_message；未调用就不会发送消息。',
+      '创建当前WeWorker Bot 的定时任务。仅在主人已通过对话明确确认任务内容、执行频率和通知目标后调用。任务运行时由 Agent 自行决定是否调用 send_agent_message；未调用就不会发送消息。',
       {
         title: z.string().min(1).max(80),
         cron_expression: z.string().min(1).max(100),
@@ -491,15 +491,15 @@ export function buildMcpServer(opts?: McpServerContext) {
         confirmed: z.literal(true).describe('仅在主人已明确确认后传 true'),
       },
       async ({ title, cron_expression, prompt_template, target_ids }) => {
-        if (!dedicatedAgent) return toolText({ error: '此工具仅供专属 Agent 使用' })
-        if (!isDedicatedOwner) return toolText({ error: '只有专属 Agent 的主人可以创建定时任务' })
+        if (!dedicatedAgent) return toolText({ error: '此工具仅供WeWorker Bot 使用' })
+        if (!isDedicatedOwner) return toolText({ error: '只有WeWorker Bot 的主人可以创建定时任务' })
         const validation = Scheduler.validateCron(cron_expression)
         if (!validation.valid) return toolText({ error: `无效的 cron 表达式: ${validation.error}` })
         const agent = getAgent(dedicatedAgent.agentId)
-        if (!agent || !agent.enabled) return toolText({ error: '专属 Agent 不存在或已停用' })
+        if (!agent || !agent.enabled) return toolText({ error: 'WeWorker Bot 不存在或已停用' })
         const observed = store.listChannelNotifyTargets(dedicatedChannelKey)
         const selected = [...new Set(target_ids)].map((id) => observed.find((entry) => entry.user_id === id)).filter(Boolean)
-        if (selected.length !== new Set(target_ids).size) return toolText({ error: '通知目标不在该专属 Agent 已观察到的企业微信会话中' })
+        if (selected.length !== new Set(target_ids).size) return toolText({ error: '通知目标不在该WeWorker Bot 已观察到的企业微信会话中' })
         const targets = selected.map((entry) => ({
           id: entry!.user_id,
           chat_type: Number(entry!.extra.chat_type) as 1 | 2,
@@ -526,7 +526,7 @@ export function buildMcpServer(opts?: McpServerContext) {
         message: z.string().min(1).max(6000),
       },
       async ({ target_id, message }) => {
-        if (!dedicatedAgent?.taskId) return toolText({ success: false, error: '主动消息仅能在专属 Agent 定时任务运行中发送' })
+        if (!dedicatedAgent?.taskId) return toolText({ success: false, error: '主动消息仅能在WeWorker Bot 定时任务运行中发送' })
         const task = store.getScheduledTask(dedicatedAgent.taskId)
         if (!task || task.agent_id !== dedicatedAgent.agentId || !task.enabled) return toolText({ success: false, error: '定时任务不存在、未授权或已停用' })
         const target = (task.notification_targets ?? []).find((entry) => entry.id === target_id)

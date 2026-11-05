@@ -114,7 +114,7 @@ describe('dedicated agent runtime and skill library', () => {
 
   it('builds a focused system prompt', () => {
     const prompt = buildAgentSystemPrompt({ agent: agent(), siteName: 'Example', privateSkillAvailable: true })
-    expect(prompt).toContain('专属 Agent')
+    expect(prompt).toContain('WeWorker Bot')
     expect(prompt).toContain('example.com')
     expect(prompt).toContain('inventory-helper')
     expect(prompt).toContain('webcli call example.com.<工具名>')

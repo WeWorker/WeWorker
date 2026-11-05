@@ -205,19 +205,19 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
   if (task.agent_id && (!agent || !agent.enabled)) {
     const work = store.createWork(`[定时] ${task.title} · 已停用`, taskProject.id, taskWorkspace)
     const execution = store.createTaskExecution(task.id, work.id)
-    store.updateTaskExecution(execution.id, { status: 'failed', error_message: '专属 Agent 不存在或已停用', completed_at: new Date().toISOString() })
+    store.updateTaskExecution(execution.id, { status: 'failed', error_message: 'WeWorker Bot 不存在或已停用', completed_at: new Date().toISOString() })
     enforceTaskHistoryLimit(taskProject.id)
-    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: [], error: '专属 Agent 不存在或已停用' })
+    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: [], error: 'WeWorker Bot 不存在或已停用' })
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
       status: 'failed',
       summary,
-      error: '专属 Agent 不存在或已停用',
+      error: 'WeWorker Bot 不存在或已停用',
       executionId: execution.id,
       workId: work.id,
     }, task.notify_channels)
-    return { workId: work.id, executionId: execution.id, status: 'failed', error: '专属 Agent 不存在或已停用' }
+    return { workId: work.id, executionId: execution.id, status: 'failed', error: 'WeWorker Bot 不存在或已停用' }
   }
   const work = agent && task.context_work_id
     ? (store.getWork(task.context_work_id) ?? store.createWork(`【定时】${task.title}`, agent.project_id ?? taskProject.id))
@@ -276,7 +276,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
 
     const styleId = resolveStyleId(workWithMessages, settings)
 
-    // 定时任务接入确定性路由（共享入口见 routed-turn.ts）。专属 Agent 任务显式跳过：
+    // 定时任务接入确定性路由（共享入口见 routed-turn.ts）。WeWorker Bot 任务显式跳过：
     // 它有自己的站点/技能边界，路由可能换成别的站点作答。命中则整轮跳过模型。
     const routed = agent
       ? null
@@ -300,6 +300,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       if (assistantContent.length > 0) store.appendMessage(work.id, 'assistant', assistantContent)
     } else {
       for await (const event of streamChat(workWithMessages.messages, settings, undefined, {
+        directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
         streaming: false,
         enabledAdapterIds,
         workId: workWithMessages.id,

@@ -244,13 +244,13 @@ export default function WorksList({ searchQuery = '' }) {
                     aria-label="项目名称"
                   />
                 ) : (
-                  <span className="work-folder-heading__name" title={group.dedicatedAgent ? '由专属 Agent 自动维护，改名请直接修改 Agent 名称' : undefined}>{group.name}</span>
+                  <span className="work-folder-heading__name" title={group.dedicatedAgent ? '由WeWorker Bot 自动维护，改名请直接修改 Agent 名称' : undefined}>{group.name}</span>
                 )}
                 <span className="work-folder-heading__count">{visibleItems.length}</span>
               </button>
               {!renaming && !group.systemManaged && hoveredFolderKey === folderKey && (
                 <span className="work-folder-heading__actions">
-                  {/* 专属 Agent 的对话只在 Agent 页里创建，侧栏不提供入口。 */}
+                  {/* WeWorker Bot 的对话只在 Agent 页里创建，侧栏不提供入口。 */}
                   {!group.dedicatedAgent && (
                     <button type="button" title={group.id ? '项目中创建新对话' : '默认工作区中创建新对话'} aria-label={`在${group.name}中创建新对话`} onClick={() => createProjectWork(group.id)}>
                       <MessageSquarePlusIcon />
@@ -261,7 +261,7 @@ export default function WorksList({ searchQuery = '' }) {
                       <ProjectTrashIcon />
                     </button>
                   )}
-                  {/* 专属 Agent 文件夹名由 Agent 名称生成，只能改名 Agent 来同步。 */}
+                  {/* WeWorker Bot 文件夹名由 Agent 名称生成，只能改名 Agent 来同步。 */}
                   {group.id && !group.dedicatedAgent && (
                     <button type="button" title="重命名项目" aria-label={`重命名项目${group.name}`} onClick={() => startProjectRename(group)}>
                       <RenameIcon size={12} />

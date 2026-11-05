@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Tooltip } from 'antd'
-import { formatToolResultText, getToolExecLineText, getToolExecTooltipText, getToolExecGroupLabel } from '../../utils/tool-display.js'
+import { formatToolResultText, getToolExecLineText, getToolExecTooltipText, getToolExecGroupLabel, getToolExecStatusText } from '../../utils/tool-display.js'
 import ToolRunningIndicator from './ToolRunningIndicator.jsx'
 import ToolTimingBadge from './ToolTimingBadge.jsx'
 import { ToolExecIcon, ToolRowChevron } from './ToolRowIcons.jsx'
@@ -81,7 +81,7 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
                   onClick={() => toggleDetail(blockKey)}
                   aria-expanded={detailOpen}
                 >
-                  <span className="tool-exec-group__status">{running ? '执行中' : '已执行'}</span>
+                  <span className="tool-exec-group__status">{getToolExecStatusText(block, streaming)}</span>
                   <span className="tool-exec-group__line-body">
                     <span className="tool-exec-group__command">{command}</span>
                     <ToolTimingBadge thinkMs={block.thinkMs} execMs={block.execMs} />

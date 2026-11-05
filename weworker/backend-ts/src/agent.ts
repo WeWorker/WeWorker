@@ -46,6 +46,7 @@ import { createAskPreToolUseHook } from './tool-permission-approval.js'
 import { createLogger } from './logger.js'
 import { recordWorkLogStream } from './work-log-file.js'
 import { resolveWebcliDir } from './webcli-path.js'
+import { prepareAgentRouting, withRoutingContext, type AgentRoutingContext, type DirectRouteOutcome } from './webcli-route.js'
 import { syncBundledWebcliSkills } from './webcli-skills.js'
 import { composeSystemPromptWithStyle } from './style-settings.js'
 import { computeUsageMetrics, createContextUsageTracker, createApiDurationTracker, resolveTurnApiDuration, type ApiDurationTracker } from './usage-metrics.js'
@@ -342,10 +343,10 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
 
   const adapterExecutionEnabled = allowsNativeCommands(channelPermissionMode)
   const commandToolDescription = adapterExecutionEnabled
-    ? `Claude Code 内置 ${nativeCommandTool}（优先；不可用时使用 WeWorker Shell）`
+    ? `Claude Code 内置 ${nativeCommandTool}（必须使用；仅在其不可用时用 WeWorker Shell 兜底）`
     : 'WeWorker Shell'
   const nativeCommandPreference = adapterExecutionEnabled
-    ? `默认优先使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call；只有原生命令工具不可用或当前权限模式不开放时，才使用 WeWorker Shell（weworker_powershell）。不得因原生命令被拒绝或用户拒绝授权而改用 WeWorker Shell。`
+    ? `必须使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。`
     : ''
   const webcliInvokeDesc = `${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
   const openBrowserDesc = `使用${commandToolDescription}执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
@@ -1051,6 +1052,34 @@ export async function* streamChat(...args: Parameters<typeof streamChatWithBaseU
 }
 
 async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithBaseUrl>): AsyncGenerator<SSEEvent> {
+  if (args[2]?.signal.aborted) return
+  const opts = args[3]
+  let routingContext: AgentRoutingContext | undefined
+  // Only real turns whose entry point tried/skipped the direct router opt in.
+  // Warmup, compaction and notification summaries must never call WebCLI route.
+  if (opts?.directRoute && !opts.warmupOnly && !opts.compactionOnly && !opts.notificationSummaryOnly) {
+    // 默认关闭：只有显式开启才调用 WebCLI 路由，缺省或字段缺失一律视为关闭。
+    const enabled = args[1].webcli_route_enabled === true
+    const skipReason = opts.isolatedClaudeConfigDir ? 'dedicated_agent'
+      : opts.channelPermissionMode === 'qa_only' ? 'qa_only' : undefined
+    if (enabled && !skipReason) await waitForAdapterRuntimeReload()
+    const latest = args[0].at(-1)
+    const message = latest?.role === 'user'
+      ? latest.content.filter(block => block.type === 'text').map(block => block.text).join('') : ''
+    routingContext = yield* prepareAgentRouting({
+      message,
+      direct: opts.directRoute,
+      enabled,
+      signal: args[2]?.signal,
+      skipReason,
+      enabledAdapterIds: enabled && !skipReason ? (opts.enabledAdapterIds ?? new Set(
+        [...parseAllAdapters()].filter(([id, a]) => getSiteEnabled(id, a.defaultEnabled, a.managed?.enabled)).map(([id]) => id),
+      )) : undefined,
+    })
+    log.info('agent_pre_routing', { direct: routingContext.direct.status, webcli: routingContext.webcli.status,
+      ...('reason' in routingContext.webcli ? { reason: routingContext.webcli.reason } : {}) })
+    if (args[2]?.signal.aborted || routingContext.webcli.status === 'cancelled') return
+  }
   let runtime: Awaited<ReturnType<typeof prepareModelRuntime>>
   try {
     runtime = await prepareModelRuntime(args[1])
@@ -1062,6 +1091,7 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
   // so it takes ownership of the relay and closes it together with the CLI.
   let adopted = false
   const internal: StreamChatInternalOptions = {
+    routingContext,
     sessionBaseUrl: args[1].base_url,
     adoptModelRuntime: () => {
       adopted = true
@@ -1077,6 +1107,7 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
 
 const STREAM_CHAT_INTERNAL = Symbol('streamChatInternal')
 interface StreamChatInternalOptions {
+  routingContext?: AgentRoutingContext
   /** Configured base URL before any per-turn relay rewrite; part of the session fingerprint. */
   sessionBaseUrl: string
   /** Transfer the per-turn model runtime to a new persistent session. */
@@ -1112,6 +1143,8 @@ async function* streamChatWithBaseUrl(
   settings: Settings,
   abortController?: AbortController,
   opts: {
+    /** Status from the direct router. Absent for internal non-user requests. */
+    directRoute?: DirectRouteOutcome;
     streaming?: boolean;
     enabledAdapterIds?: Set<string>;
     workId?: string;
@@ -1447,7 +1480,7 @@ async function* streamChatWithBaseUrl(
   const buildAssembly = (conversationPrompt: string, compaction?: ConversationCompactionSnapshot) => buildContextAssembly({
     systemPrompt,
     identityPrompt,
-    prompt: conversationPrompt,
+    prompt: withRoutingContext(conversationPrompt, internal?.routingContext),
     toolDefinitions: [
       `Claude Code 原生 ${nativeCommandTool}`,
       'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Skill', 'TodoWrite',
@@ -1780,7 +1813,7 @@ async function* streamChatWithBaseUrl(
       // A live CLI already holds the conversation and loaded Skills: send only the new message.
       firstPrompt = prewarmed
         ? fullFirstPrompt
-        : `${siteToolkitPrompt ? `${siteToolkitPrompt}\n\n` : ''}${recalledMemoryBlock}${messagePromptText(messages[messages.length - 1])}`
+        : withRoutingContext(`${siteToolkitPrompt ? `${siteToolkitPrompt}\n\n` : ''}${recalledMemoryBlock}${messagePromptText(messages[messages.length - 1])}`, internal?.routingContext)
     } else {
       const created = startSession()
       registerChatSession(created)
