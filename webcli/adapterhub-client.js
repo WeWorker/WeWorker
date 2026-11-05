@@ -5,6 +5,7 @@ import profile from './adapterhub-profile.json' with { type: 'json' };
  * 端点配置：
  * - 默认官方地址 Profile 配置的地址
  * - 仅开发/自建时覆盖：WEBCLI_ADAPTERHUB_ENDPOINT 环境变量
+ * - 端点与重定向均支持 HTTP 和 HTTPS，无需 Profile 单独放行 HTTP
  * - 上传/发布需访问令牌：ADAPTERHUB_TOKEN 环境变量（AdapterHub 网页「令牌」处创建）
  */
 
@@ -19,24 +20,13 @@ export const DEFAULT_ENDPOINT = profile.endpoint;
 
 export class UsageError extends Error {}
 
-function isProfileHttp(url, allowChild) {
-  if (!profile.allowHttp || !profile.endpoint || url.protocol !== 'http:') return false;
-  const base = new URL(profile.endpoint);
-  const prefix = base.pathname.replace(/\/+$/, '');
-  const candidate = url.pathname.replace(/\/+$/, '');
-  return url.origin === base.origin && (candidate === prefix || (allowChild && candidate.startsWith(prefix + '/')));
-}
-
 export function resolveEndpoint() {
   const raw = String(process.env.WEBCLI_ADAPTERHUB_ENDPOINT || DEFAULT_ENDPOINT).trim();
   if (!raw) throw new UsageError("AdapterHub 端点为空。请检查 WEBCLI_ADAPTERHUB_ENDPOINT。");
   let url;
   try { url = new URL(raw); } catch { throw new UsageError(`AdapterHub 端点不是合法 URL: ${raw}`); }
-  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const loopback = ["127.0.0.1", "localhost", "::1"].includes(hostname);
-  const officialHttp = isProfileHttp(url, false);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || officialHttp))) {
-    throw new UsageError("AdapterHub 远程端点必须使用 HTTPS；仅当前 Profile 明确允许的地址及 loopback 可使用 HTTP。");
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new UsageError("AdapterHub 端点必须使用 HTTP 或 HTTPS。");
   }
   return String(raw).replace(/\/+$/, "");
 }
@@ -71,11 +61,8 @@ async function request(url, options = {}, redirectCount = 0) {
       const location = resp.headers.get("location");
       if (!location) throw new Error(`AdapterHub 返回无目标地址的重定向: ${url}`);
       const next = new URL(location, url);
-      const nextHost = next.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-      const nextLoopback = ["127.0.0.1", "localhost", "::1"].includes(nextHost);
-      const nextOfficialHttp = isProfileHttp(next, true);
-      if (next.protocol !== "https:" && !(next.protocol === "http:" && (nextLoopback || nextOfficialHttp))) {
-        throw new Error(`拒绝不安全的 AdapterHub 重定向: ${next.href}`);
+      if (!["http:", "https:"].includes(next.protocol)) {
+        throw new Error(`AdapterHub 重定向必须使用 HTTP 或 HTTPS: ${next.href}`);
       }
       return request(next.href, { ...options, signal: undefined }, redirectCount + 1);
     }
