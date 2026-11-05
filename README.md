@@ -14,7 +14,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/issues)
 
-[官网](https://www.weworker.cc) · [下载](https://www.weworker.cc/download) · [快速开始](https://www.weworker.cc/docs/quick-start) · [33 个 Adapter](docs/ADAPTERS.md) · [社区讨论](https://github.com/WeWorker/WeWorker/discussions)
+[官网](https://www.weworker.cc) · [下载](https://www.weworker.cc/download) · [快速开始](https://www.weworker.cc/docs/quick-start) · [安装 FAQ](https://github.com/WeWorker/WeWorker/discussions/224) · [33 个 Adapter](docs/ADAPTERS.md) · [社区讨论](https://github.com/WeWorker/WeWorker/discussions)
 
 ![WeWorker：让 AI 真正操作网站](officialWeb/public/social-preview.png)
 
@@ -80,6 +80,8 @@ WeWorker 当前内置 33 个常用网站 Adapter。部分示例：
 - macOS Apple 芯片：arm64 `.dmg`
 
 正式发布地址和签名状态以具体 Release 说明为准。
+
+首次安装、macOS 未公证构建的打开方式、扩展连接与 Adapter 排查见 [安装与首次使用 FAQ](https://github.com/WeWorker/WeWorker/discussions/224)。
 
 ### 从源码启动
 

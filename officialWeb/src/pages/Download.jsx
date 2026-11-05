@@ -6,6 +6,7 @@ import {
 } from '../lib/downloadConfig.js'
 import { CHANGELOG } from '../lib/changelog.js'
 import { reportDownload, triggerFileDownload } from '../lib/downloadActions.js'
+import { GITHUB_FAQ } from '../lib/siteConfig.js'
 import disclaimer from '../../../weworker/disclaimer.json'
 
 const URL_RE = /(https?:\/\/[^\s）)]+)/
@@ -110,6 +111,17 @@ export default function Download() {
             当前最新版本{' '}
             <span className="font-semibold tabular-nums text-[rgb(var(--color-text))]">v{APP_VERSION}</span>
             <span className="text-muted"> — 欢迎体验</span>
+          </p>
+          <p>
+            安装或首次使用遇到问题？查看{' '}
+            <a
+              href={GITHUB_FAQ}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-accent hover:underline"
+            >
+              安装与首次使用 FAQ
+            </a>
           </p>
         </div>
       </header>
