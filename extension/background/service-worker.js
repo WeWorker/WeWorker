@@ -2693,7 +2693,6 @@ async function claimSharedPage(tabId, profileOperation = false, commandLease = n
 }
 
 async function handleNativeMessage(msg) {
-<<<<<<< HEAD
   // Profile-level exploration operations already own their Bridge tab lock.
   const coordinated = Number.isInteger(msg.tabId) && (msg.type.startsWith('exploration_')
     || ['browser_state', 'browser_network', 'browser_eval', 'browser_analyze', 'browser_explore_workflow', 'browser_action_capture_workflow'].includes(msg.type));
