@@ -587,12 +587,7 @@ export function deleteProject(id: string): void {
     const defaultDirectory = ensureProjectDirectory('default')
     db().prepare('UPDATE works SET project_id = NULL, workspace_directory = ? WHERE project_id = ?').run(defaultDirectory, id)
   }
-  const projectInsideRoot = path.resolve(project.folder_path).startsWith(`${path.resolve(ensureProjectsDirectory())}${path.sep}`)
-  if (projectInsideRoot && fs.existsSync(project.folder_path)) {
-    const entries = fs.readdirSync(project.folder_path)
-    if (entries.length > 0) throw new Error('project folder must be empty before deletion')
-    fs.rmdirSync(project.folder_path)
-  }
+  // 只删除项目记录，保留下面的文件夹：目录里可能有用户自己的文件，删项目不等于删目录。
   db().prepare('DELETE FROM projects WHERE id = ?').run(id)
 }
 
@@ -656,7 +651,7 @@ export function archiveWork(workId: string, archived: boolean): Work | null {
   return getWork(workId)
 }
 
-/** Remove an empty user project from the sidebar while preserving any files in its folder. */
+/** Remove an empty user project from the sidebar. The folder on disk is always preserved. */
 export function cleanupProjectIfNoVisibleWorks(projectId: string): boolean {
   const project = getProject(projectId)
   if (!project || project.name === SCHEDULED_TASK_PROJECT_NAME) return false
@@ -669,15 +664,7 @@ export function cleanupProjectIfNoVisibleWorks(projectId: string): boolean {
     db().prepare('UPDATE works SET project_id = NULL, workspace_directory = ? WHERE project_id = ?').run(defaultDirectory, projectId)
   }
 
-  const root = path.resolve(ensureProjectsDirectory())
-  const folder = path.resolve(project.folder_path)
-  if (folder.startsWith(`${root}${path.sep}`) && fs.existsSync(folder)) {
-    try {
-      if (fs.readdirSync(folder).length === 0) fs.rmdirSync(folder)
-    } catch {
-      // Keep the folder and its contents if it cannot be removed safely.
-    }
-  }
+  // 只移除项目记录；目录可能承载用户自己的文件，不在这里删除。
   db().prepare('DELETE FROM projects WHERE id = ?').run(projectId)
   return true
 }
