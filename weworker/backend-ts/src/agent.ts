@@ -341,7 +341,12 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
     : ''
 
   const adapterExecutionEnabled = allowsNativeCommands(channelPermissionMode)
-  const commandToolDescription = adapterExecutionEnabled ? '任一可用命令工具' : 'WeWorker Shell'
+  const commandToolDescription = adapterExecutionEnabled
+    ? `Claude Code 内置 ${nativeCommandTool}（优先；不可用时使用 WeWorker Shell）`
+    : 'WeWorker Shell'
+  const nativeCommandPreference = adapterExecutionEnabled
+    ? `默认优先使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call；只有原生命令工具不可用或当前权限模式不开放时，才使用 WeWorker Shell（weworker_powershell）。不得因原生命令被拒绝或用户拒绝授权而改用 WeWorker Shell。`
+    : ''
   const webcliInvokeDesc = `${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
   const openBrowserDesc = `使用${commandToolDescription}执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
   const webcliStep2 = `2. 使用${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
@@ -350,7 +355,8 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
     ? `
 ## Skill、Adapter 与 ${nativeCommandTool}
 
-优先按已激活的标准 Skill 指令执行。执行 Extension Adapter 或 Toolkit Adapter 时，可使用任一可用命令工具运行 \`webcli call\`。
+优先按已激活的标准 Skill 指令执行。执行 Extension Adapter 或 Toolkit Adapter 时，可以使用所有可用命令工具运行 \`webcli call\`。
+${nativeCommandPreference}
 Claude Code 内置 ${nativeCommandTool}、WeWorker Shell 及其他可用工具均已开放，可执行构建、测试、git、npm 和其他本地命令。
 完全权限允许使用所有可用工具、任意命令和任意文件路径，不受工作区、站点或文件白名单/黑名单设置限制。
 WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
@@ -360,6 +366,7 @@ WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit 
 ## 修改询问：全部工具操作逐次确认
 
 所有可用工具、命令及文件路径均可请求执行。每次工具调用都先展示操作和参数，等待用户明确批准；用户拒绝、取消或超时就停止该操作。允许后按用户批准的参数执行，不受工作区、站点或文件白名单/黑名单限制。
+${nativeCommandPreference}
 `
       : channelPermissionMode === 'workspace'
         ? `
@@ -367,6 +374,7 @@ WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit 
 
 所有可用工具均可直接执行，无需逐次询问。所有文件读取、写入、列出、上传、发送和命令引起的文件访问都必须限定在当前对话工作区 ${userDirectory}；文件黑名单继续生效。网站及网络访问只允许设置中启用的站点与 URL 白名单；不要通过搜索、抓取或其他工具绕过白名单。
 Claude Code 内置 ${nativeCommandTool} 与 WeWorker Shell 都可执行命令。Extension Adapter 与 Toolkit Adapter 可正常调用，仍须遵循同一文件范围及站点白名单。越界时说明限制，不要要求用户切换权限。
+${nativeCommandPreference}
 `
     : `
 ## 原生命令工具限制
@@ -458,11 +466,11 @@ Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业
           : '`Read`、`Glob`、`Grep`、`Edit`、`Write`、`NotebookEdit` 可用于用户目录内的文件读取、搜索和编辑；文件类 MCP 工具也仅接受用户目录内路径。',
     blacklist_notice: blacklistNotice,
     local_command_execution_rule: adapterExecutionEnabled
-      ? `可使用所有可用命令工具执行本地命令、构建、测试、git、npm 和 \`webcli call\`；权限边界由当前模式决定。`
+      ? `${nativeCommandPreference} 权限边界由当前模式决定。`
       : '当需要执行本地命令、Shell 命令、构建、测试、git、npm 或查看命令输出时，必须调用 `weworker_powershell` 工具，不要调用 Claude Code 内置 Bash 或 PowerShell。',
     default_shell: defaultShell,
     adapter_shell_rule: adapterExecutionEnabled
-      ? '可通过任何可用命令工具调用 WebCLI；workspace 模式须遵守站点白名单。'
+      ? `优先通过 Claude Code 内置 ${nativeCommandTool} 调用 WebCLI；只有原生工具不可用时，才使用 WeWorker Shell。workspace 模式须遵守站点白名单。`
       : '当前权限模式不能执行 Adapter；严禁用 `weworker_powershell` 调用 webcli。',
     windows_encryption_rules: windowsEncryptionRules,
     login_detection_rules: loginDetectionRules,
