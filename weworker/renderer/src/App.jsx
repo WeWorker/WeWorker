@@ -106,13 +106,14 @@ export default function App() {
 
   const explorationOpen = useExplorationPageStore((s) => s.open)
   const websiteOpen = useWebsiteExplorationStore((s) => s.open)
+  const developmentWorkId = useWebsiteExplorationStore((s) => s.activeDevelopmentWorkId)
   // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
 
   useEffect(() => {
-    setWorkspaceWorkId(activeWorkId)
-  }, [activeWorkId, setWorkspaceWorkId])
+    setWorkspaceWorkId(websiteOpen ? developmentWorkId : activeWorkId)
+  }, [activeWorkId, websiteOpen, developmentWorkId, setWorkspaceWorkId])
 
   useEffect(() => {
     if (!websiteOpen) return

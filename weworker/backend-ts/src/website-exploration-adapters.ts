@@ -39,9 +39,11 @@ export function createWebsiteExplorationAdapterRouter({
   fetchAgent = fetch,
   onInstalled = () => {},
   onDevelopmentHandoff,
+  onListDevelopmentChats,
 }: {
   instanceId?: string
   fetchAgent?: typeof fetch
+  onListDevelopmentChats?: () => unknown | Promise<unknown>
   onDevelopmentHandoff?: (input: unknown) => unknown | Promise<unknown>
   onInstalled?: (event: { name: string; revision: number; profile: string }) => void | Promise<void>
 } = {}) {
@@ -64,12 +66,22 @@ export function createWebsiteExplorationAdapterRouter({
     catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : String(error) }) }
   }
 
+  router.get('/development/chats', handle(async () => {
+    if (!onListDevelopmentChats) throw new Error('网站适配器生成入口不可用')
+    return onListDevelopmentChats()
+  }))
+
   router.post('/explorations/:id/development/chat', handle(async req => {
-    if (!onDevelopmentHandoff) throw new Error('开发对话入口不可用')
+    if (!onDevelopmentHandoff) throw new Error('网站适配器生成入口不可用')
     if (!id.test(req.params.id)) throw new Error('无效的探索记录')
-    const input = await agent(`/api/explorations/${req.params.id}/development/input`, req.body || {})
+    // run_id is a host-side concurrency token, not a Python input field.
+    const { run_id: expectedRunId, ...payload } = req.body || {}
+    const input = await agent(`/api/explorations/${req.params.id}/development/input`, payload)
     if (input?.source_exploration?.exploration_id !== req.params.id) {
-      throw new Error('开发输入目标不匹配')
+      throw new Error('网站适配器生成输入目标不匹配')
+    }
+    if (expectedRunId !== undefined && expectedRunId !== (input.source_exploration.run_id ?? null)) {
+      throw new Error('探索轮次已变化，请刷新后重试')
     }
     return onDevelopmentHandoff(input)
   }))

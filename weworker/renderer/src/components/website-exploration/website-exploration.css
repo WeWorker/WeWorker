@@ -1,30 +1,30 @@
 .website-exploration { color:var(--text-primary);font-size:13px;line-height:1.6;min-width:0;--wx-muted:var(--text-secondary); }
 .wx-page { display:flex;flex-direction:column;height:100%;min-height:0;container-type:inline-size;background:var(--bg-primary); }
-.website-exploration h1 { font-size:17px;font-weight:600;white-space:nowrap; }
-.website-exploration h2 { font-size:15px;font-weight:600; }
-.website-exploration h3 { font-size:13px;font-weight:600; }
-.website-exploration p { margin:8px 0;overflow-wrap:anywhere;white-space:pre-wrap; }
-.website-exploration small,.wx-muted { color:var(--wx-muted); }
+.website-exploration h1:not(.chat-view *) { font-size:17px;font-weight:600;white-space:nowrap; }
+.website-exploration h2:not(.chat-view *) { font-size:15px;font-weight:600; }
+.website-exploration h3:not(.chat-view *) { font-size:13px;font-weight:600; }
+.website-exploration p:not(.chat-view *) { margin:8px 0;overflow-wrap:anywhere;white-space:pre-wrap; }
+.website-exploration small:not(.chat-view *),.wx-muted { color:var(--wx-muted); }
 .website-exploration .wx-required { color:var(--error); }
-.website-exploration button { font:inherit;line-height:1.4;background:transparent;border:1px solid transparent;border-radius:5px;padding:6px 9px;color:var(--text-primary);cursor:pointer; }
-.website-exploration button:hover:not(:disabled) { background:var(--bg-hover); }
-.website-exploration button:disabled { opacity:.5;cursor:not-allowed; }
-.website-exploration :is(button,input,textarea,select,summary):focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
+.website-exploration button:not(.chat-view *) { font:inherit;line-height:1.4;background:transparent;border:1px solid transparent;border-radius:5px;padding:6px 9px;color:var(--text-primary);cursor:pointer; }
+.website-exploration button:not(.chat-view *):hover:not(:disabled) { background:var(--bg-hover); }
+.website-exploration button:not(.chat-view *):disabled { opacity:.5;cursor:not-allowed; }
+.website-exploration :is(button,input,textarea,select,summary):not(.chat-view *):focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
 .website-exploration .wx-primary { color:#fff;background:#1675d1;border-color:transparent; }
 .website-exploration .wx-primary:hover:not(:disabled) { background:#1266b9; }
 .website-exploration .wx-danger,.wx-error { color:var(--error); }
 .wx-error { padding:8px 12px;border:1px solid var(--error);border-radius:6px; }
-.website-exploration label { display:flex;flex-direction:column;gap:6px;margin:12px 0; }
-.website-exploration fieldset { border:0;min-width:0; }
+.website-exploration label:not(.chat-view *) { display:flex;flex-direction:column;gap:6px;margin:12px 0; }
+.website-exploration fieldset:not(.chat-view *) { border:0;min-width:0; }
 .website-exploration .app-dropdown-select__validation { width:1px;height:1px;padding:0;border:0; }
 .website-exploration .wx-dropdown .app-dropdown-select__trigger { border:1px solid var(--border);border-radius:8px; }
-.website-exploration :is(input,textarea,select) { color:var(--text-primary);background:var(--bg-secondary);font:inherit;border:1px solid var(--border);border-radius:6px;padding:8px 10px;width:100%;min-width:0; }
-.website-exploration textarea { min-height:90px;resize:vertical; }
-.website-exploration :is(input,textarea)::placeholder { color:var(--wx-muted); }
-.website-exploration pre { white-space:pre;overflow:auto;max-width:100%;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font:12px/1.7 ui-monospace,monospace; }
-.website-exploration details { padding:10px 0;border-bottom:1px solid var(--border); }
-.website-exploration summary { cursor:pointer;overflow-wrap:anywhere; }
-.wx-topbar,.wx-context,.website-exploration header,.website-exploration footer { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+.website-exploration :is(input,textarea,select):not(.chat-view *) { color:var(--text-primary);background:var(--bg-secondary);font:inherit;border:1px solid var(--border);border-radius:6px;padding:8px 10px;width:100%;min-width:0; }
+.website-exploration textarea:not(.chat-view *) { min-height:90px;resize:vertical; }
+.website-exploration :is(input,textarea):not(.chat-view *)::placeholder { color:var(--wx-muted); }
+.website-exploration pre:not(.chat-view *) { white-space:pre;overflow:auto;max-width:100%;padding:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font:12px/1.7 ui-monospace,monospace; }
+.website-exploration details:not(.chat-view *) { padding:10px 0;border-bottom:1px solid var(--border); }
+.website-exploration summary:not(.chat-view *) { cursor:pointer;overflow-wrap:anywhere; }
+.wx-topbar,.wx-context,.website-exploration header:not(.chat-view *),.website-exploration footer:not(.chat-view *) { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
 .wx-topbar { padding:16px 20px;border-bottom:1px solid var(--border);flex:none; }
 .wx-actions { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
 .wx-layout { flex:1;display:flex;min-height:0;min-width:0; }
@@ -185,3 +185,26 @@
 .website-exploration .wx-transfer-inline { max-width:680px;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--bg-secondary); }
 .wx-transfer-inline fieldset { padding:0;margin:0; }
 .website-exploration .wx-transfer-inline footer { justify-content:flex-end;margin-top:16px; }
+
+/* Embedded development uses the real chat scroll region and bottom dock. */
+.website-exploration .wx-chat-detail > .chat-view { flex: 1; min-height: 0; height: auto !important; }
+.website-exploration .wx-development-context { padding: 8px 0 20px; }
+.website-exploration .wx-development-transition { margin: 24px 0 12px; color: var(--text-secondary); font-size: 13px; border-top: 1px solid var(--border); padding-top: 16px; }
+.website-exploration .wx-development-rounds { margin: 12px 0; color: var(--text-secondary); font-size: 12px; }
+.website-exploration .wx-development-rounds summary { cursor: pointer; }
+.wx-development-context .wx-step > header { display:flex; align-items:center; }
+
+/* Only selection gets the main conversation gray background. Activity has its own indicator. */
+.website-exploration .wx-record.is-active:not(.chat-view *) {
+  background:var(--bg-active);
+  border-radius:6px;
+  transition:background 0.16s ease;
+}
+.website-exploration .wx-record.is-active:not(.chat-view *):hover:not(:disabled) {
+  background:var(--bg-active);
+}
+
+.wx-record-progress { display:inline-flex;align-items:center;gap:5px;color:var(--accent); }
+.wx-record-progress-gear { display:inline-flex;animation:wx-record-gear-turn 1.8s linear infinite; }
+@keyframes wx-record-gear-turn { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .wx-record-progress-gear { animation:none; } }

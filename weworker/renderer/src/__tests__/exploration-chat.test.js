@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
-import { explorationComposerMode, explorationControls, explorationEntryId, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../utils/exploration-chat.js'
+import { explorationComposerMode, explorationControls, explorationEntryId, isExplorationInProgress, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../utils/exploration-chat.js'
 
 const timeline = [{ type: 'agent_step', step: 1 }]
 const controls = (status, extra = {}) => explorationControls({ status, timeline, ...extra })
@@ -158,9 +158,9 @@ test('queued and transitioning runs remain pinned; idle records, ties and missin
 test('completed exploration asks a main-chat-style inline question with develop and continue choices', () => {
   const html = renderToStaticMarkup(React.createElement(components.CompletionQuestion, { onDevelop() {}, onContinue() {} }))
   assert.match(html, /user-choice-block__question/)
-  assert.match(html, /探索已完成，是否基于本次探索结果开始开发/)
-  assert.match(html, /是，开始开发/)
-  assert.match(html, /继续探索/)
+  assert.match(html, /探索任务已完成，本次探索结果可生成可复用的网站适配器，以便下次直接操作网站。是否分析探索结果并生成网站适配器？/)
+  assert.match(html, /是，生成网站适配器/)
+  assert.match(html, /否，还需要进一步探索/)
   assert.equal((html.match(/<button/g) || []).length, 2)
   assert.equal((html.match(/class="user-choice-block__option"/g) || []).length, 2)
   assert.doesNotMatch(html, /role="dialog"|wx-overlay|到WeWorker中开发|wx-chat-author/)
@@ -210,10 +210,10 @@ test('start page keeps only the URL question and concise goal placeholder', () =
 })
 
 
-test('submitted exploration shows the final handoff notice with no action buttons', () => {
+test('submitted exploration keeps the answered inline question with no action buttons', () => {
   const html = renderToStaticMarkup(React.createElement(components.CompletionQuestion, { submitted: true }))
-  assert.match(html, /探索结束已转开发，请在开发对话中完成开发。如需继续探索，请继续补充探索目标或要求。/)
-  assert.doesNotMatch(html, /<button|是，开始开发|是否基于本次探索结果开始开发/)
+  assert.match(html, /user-choice-block__answered/); assert.match(html, /是，生成网站适配器/)
+  assert.doesNotMatch(html, /<button|请在开发对话中/)
   assert.match(html, /role="status"/)
 })
 
@@ -240,7 +240,70 @@ test('entry resolution waits for fresh snapshots and does not restore historical
   assert.ok(source.includes('currentId === null && activityReady && !list.loading'))
   assert.ok(source.includes("setCurrentId(item.exploration_id)"))
   assert.ok(source.includes("setCurrentId('')"))
-  assert.doesNotMatch(source, /selected \|\| records\[0\]/)
+  assert.doesNotMatch(source, /selected \|\| records\[0\]|const restored|\|\| restored/)
+  assert.ok(source.includes("setCurrentId(explorationEntryId(list.data, activeExplorationId) || [...developingIds][0] || '')"))
   const page = readFileSync(new URL('../components/website-exploration/WebsiteExplorationPage.jsx', import.meta.url), 'utf8')
   assert.ok(page.includes('activityReady={Boolean(status.data || status.error)}'))
+})
+
+test('active development is pinned ahead of idle explorations without changing time order', () => {
+ const records = [{ exploration_id: 'new', created_at_timestamp: 3 }, { exploration_id: 'dev', created_at_timestamp: 1 }, { exploration_id: 'middle', created_at_timestamp: 2 }]
+ assert.deepEqual(sortExplorations(records, '', new Set(['dev'])).map(r => r.exploration_id), ['dev', 'new', 'middle'])
+})
+
+
+test('adapter generation uses non-development wording in every completion state', () => {
+  for (const props of [{}, { developing: true }, { submitted: true }]) {
+    const html = renderToStaticMarkup(React.createElement(components.CompletionQuestion, props))
+    assert.match(html, /探索任务已完成，本次探索结果可生成可复用的网站适配器，以便下次直接操作网站。是否分析探索结果并生成网站适配器？/)
+    assert.match(html, /是，生成网站适配器/)
+    assert.doesNotMatch(html, /开发|Claude Code/)
+  }
+  const source = readFileSync(new URL('../components/website-exploration/ExploreWorkspace.jsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /开发对话|开发中|次开发|开始开发/)
+  assert.match(source, /否，还需要进一步探索/)
+})
+
+
+test('in-progress indicator follows the same activity signals as list pinning', () => {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+    assert.equal(isExplorationInProgress({ exploration_id: 'exp', status }), true)
+  }
+  for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {
+    assert.equal(isExplorationInProgress({ exploration_id: 'exp', status }), false)
+  }
+  assert.equal(isExplorationInProgress({ exploration_id: 'exp', status: 'succeeded' }, 'exp'), true)
+  assert.equal(isExplorationInProgress({ exploration_id: 'exp', status: 'succeeded' }, '', new Set(['exp'])), true)
+})
+
+test('running records use a gear and label independently of selected background', () => {
+  for (const selected of [true, false]) {
+    const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'running' }, selected, inProgress: true }))
+    assert.match(html, /is-in-progress/)
+    assert.match(html, /进行中/)
+    assert.match(html, /anticon-setting/)
+    assert.match(html, /wx-record-progress-gear/)
+    assert.equal(html.includes('is-active'), selected)
+    assert.equal(html.includes('aria-current="true"'), selected)
+    assert.doesNotMatch(html, /disabled=/)
+  }
+  const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'succeeded' } }))
+  assert.doesNotMatch(html, /is-in-progress|is-active|wx-record-progress-gear|进行中/)
+})
+
+test('only selected rows receive a persistent background and gear respects reduced motion', () => {
+ const css = readFileSync(new URL('../components/website-exploration/website-exploration.css', import.meta.url), 'utf8')
+ assert.match(css, /\.wx-record\.is-active:not\(\.chat-view \*\)/)
+ assert.doesNotMatch(css, /is-in-progress/)
+ assert.match(css, /wx-record-gear-turn 1.8s linear infinite/)
+ assert.match(css, /prefers-reduced-motion:reduce/)
+})
+
+test('idle conversations show no lifecycle badge because they can always continue', () => {
+ for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {
+  const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status } }))
+  assert.doesNotMatch(html, /wx-status|已完成|进行中|wx-record-progress/)
+ }
+ const css = readFileSync(new URL('../components/website-exploration/website-exploration.css', import.meta.url), 'utf8')
+ assert.match(css, /\.wx-record-progress \{[^}]*color:var\(--accent\)/)
 })

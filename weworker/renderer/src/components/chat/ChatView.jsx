@@ -22,6 +22,7 @@ import { applyAssistantStreamEvent, insertSteeringIntoMessages, updateAssistantM
 import { applyTerminalEventToMessages } from '../../utils/terminal-chat-output.js'
 import { buildTodoWriteContextPrompt, buildTodoWriteState } from '../../utils/todowrite-state.js'
 import { cleanUserChoiceText, normalizeUserChoiceOptions } from '../../utils/user-choice.js'
+import { readChatPermissionMode } from '../../utils/chat-permission-preferences.js'
 import { hideBrowserForNewTurn } from '../../utils/dedicated-browser.js'
 
 /**
@@ -32,7 +33,7 @@ import { hideBrowserForNewTurn } from '../../utils/dedicated-browser.js'
  * @param {(fill: (text: string) => void) => React.ReactNode} [props.renderEmpty] Empty-state override.
  * @param {() => void} [props.onTurnFinished] Called after each send completes.
  */
-export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished }) {
+export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished, historyPrefix, permissionScope, defaultPermissionMode = 'workspace' }) {
   const isHandoffChat = useWorksStore(s => s.handoffWorkIds.has(workId))
   const queue = useMemo(() => getMessageQueue(workId), [workId])
   const queueState = useMessageQueueStore(s => s.queues[workId] ?? EMPTY_MESSAGE_QUEUE)
@@ -55,7 +56,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const [messageSelectMode, setMessageSelectMode] = useState(false)
   const [toolbarContextTarget, setToolbarContextTarget] = useState(null)
   const maxChatAttachments = useSettingsStore((s) => s.maxChatAttachments)
-  const work = useWorksStore((s) => s.works.find((item) => item.id === workId))
+  const work = useWorksStore((s) => s.embeddedWorks[workId] ?? s.works.find((item) => item.id === workId))
   const [slowWarning, setSlowWarning] = useState(false)
   const slowTimerRef = useRef(null)
   const gotFirstEventRef = useRef(false)
@@ -86,7 +87,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   useEffect(() => {
     if (fillSeq <= 0 || fillSeq <= handledFillSeqRef.current) return
     handledFillSeqRef.current = fillSeq
-    if (streaming) return
+    if (streaming || embedded) return
     const nextText = String(fillText || '').trim()
     if (!nextText) return
     setInputText(nextText)
@@ -118,7 +119,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     }
   }
 
-  const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => {
+  const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode })) => {
     if ((!text.trim() && !files.length) || useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting') return { status: 'failed', accepted: false }
     if (files.length > maxChatAttachments) {
       setError(`已选 ${files.length}/${maxChatAttachments} 个文件，请删减后再发送`)
@@ -430,7 +431,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   // showing an editable draft and waiting for the history request.
   useLayoutEffect(() => { if (isHandoffChat) queue.wake() }, [queue, isHandoffChat])
   useEffect(() => { queue.wake() }, [queue, streaming, contextCompactionStatus])
-  const handleSend = (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => {
+  const handleSend = (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode })) => {
     const id = queue.enqueue({ text, files, thinkingEffort, permissionMode })
     if (id) { setInputText(''); setAttachments([]) }
   }
@@ -555,6 +556,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     const init = async () => {
       setMessageSelectMode(false)
       if (embedded) {
+        const pending = queue.snapshot()
+        if (pending.running || pending.items.length) return
         await useWorksStore.getState().refreshWorkMessages(workId)
         return
       }
@@ -651,7 +654,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   return (
     <>
     {toolbarContext}
-    <div className={`chat-view${isHandoffChat ? '' : ' motion-view-enter'}`} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', minWidth: 0 }}>
+    <div data-chat-work-id={workId} className={`chat-view${isHandoffChat ? '' : ' motion-view-enter'}`} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', minWidth: 0 }}>
       {/* Health check banner OR normal info bar */}
       {isHealthCheck ? (
         <div style={{
@@ -668,7 +671,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
         null
       ) : null}
 
-      {messages.length === 0 && !contextCompactionStatus && !queueState.running && !queueState.items.length ? (renderEmpty ? renderEmpty(handleFillInput) : <WelcomeScreen onFillInput={handleFillInput} />) : <MessageList messages={messages} streaming={isStreamingHere} compactionStatus={contextCompactionStatus} workId={workId} onChoice={handleChoice} onSelectModeChange={setMessageSelectMode} onShellCommand={handleShellCommand} />}
+      {!historyPrefix && messages.length === 0 && !contextCompactionStatus && !queueState.running && !queueState.items.length ? (renderEmpty ? renderEmpty(handleFillInput) : <WelcomeScreen onFillInput={handleFillInput} />) : <MessageList historyPrefix={historyPrefix} messages={messages} streaming={isStreamingHere} compactionStatus={contextCompactionStatus} workId={workId} onChoice={handleChoice} onSelectModeChange={setMessageSelectMode} onShellCommand={handleShellCommand} />}
 
       {/* Health check panel — between messages and input */}
       {isHealthCheck && messages.length > 0 && (
@@ -702,7 +705,11 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       )}
       {isHealthCheck && !isStreamingHere ? null : (
         <ChatBottomDock
+          key={permissionScope || 'main'}
           showInput
+          ignoreGlobalFill={embedded}
+          permissionScope={permissionScope}
+          defaultPermissionMode={defaultPermissionMode}
           onSend={handleSend}
           onShellCommand={enqueueShell}
           onStop={handleStop}

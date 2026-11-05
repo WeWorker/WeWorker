@@ -280,7 +280,7 @@ def test_prepare_input_without_any_target_or_workspace(api, monkeypatch):
     assert result == {
         'schema_version': 1, 'instruction': 'Read title',
         'site': {'start_url': 'https://example.com/', 'allowed_domains': ['example.com']},
-        'source_exploration': {'exploration_id': 'exp_input', 'instruction': 'Read title', 'steps': [], 'messages': []},
+        'source_exploration': {'exploration_id': 'exp_input', 'run_id': 'run-placeholder', 'instruction': 'Read title', 'steps': [], 'messages': []},
     }
     assert call('list', {})[1]['data']['workspaces'] == []
 

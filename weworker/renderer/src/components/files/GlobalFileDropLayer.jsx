@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useCapabilitiesPanelStore } from '../../store/capabilities-panel.js'
 import { useUserFilesStore } from '../../store/user-files.js'
+import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 import { useWorksStore } from '../../store/works.js'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { FilePlusIcon, TrashIcon } from '../icons/PanelIcons.jsx'
@@ -26,6 +27,10 @@ function basename(filePath) {
 }
 
 function getChatAttachmentTarget() {
+  // Resolve the visible composer, not the background main-chat selection.
+  const visibleComposer = [...document.querySelectorAll('[data-chat-attachment-target]')].find(el => el.getClientRects().length)
+  if (visibleComposer) return visibleComposer.dataset.chatAttachmentTarget
+  if (useWebsiteExplorationStore.getState().open) return null
   const activeWorkId = useWorksStore.getState().activeWorkId
   if (activeWorkId) return `work:${activeWorkId}`
   const activeTaskId = useScheduledTasksStore.getState().activeTaskId

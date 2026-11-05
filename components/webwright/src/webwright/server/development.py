@@ -116,7 +116,8 @@ def build_exploration_development_input(*, task_store: TaskStore, exploration_id
         raise ValueError("Exploration requires a valid website URL without credentials.")
     output_dir = task_store.task_dir(exploration_id)
     source = {
-        "exploration_id": exploration_id, "instruction": record.get("instruction", ""),
+        "exploration_id": exploration_id, "run_id": record.get("last_run_id"),
+        "instruction": record.get("instruction", ""),
         "steps": read_steps(exploration_id, output_dir), "messages": read_messages(output_dir),
     }
     if record.get("toolkit_id") or record.get("tool_id"):

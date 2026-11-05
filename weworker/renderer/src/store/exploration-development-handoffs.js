@@ -12,6 +12,8 @@ export function isDevelopmentSubmitted(handoff, runId = null) {
 }
 export const createExplorationDevelopmentHandoffsStore = (storage = defaultStorage) => create(persist((set) => ({
   handoffs: {},
+  sessions: {}, // Backend-owned development sessions; refreshed on every visit.
+  remember: session => set(state => ({ sessions: { ...state.sessions, [session.work.id]: session } })),
   record: (explorationId, workId, runId = null) => set(state => ({
     handoffs: { ...state.handoffs, [explorationId]: { workId, runId } },
   })),
