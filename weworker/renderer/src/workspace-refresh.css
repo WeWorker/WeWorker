@@ -1,5 +1,8 @@
 /* WeWorker workspace: quiet surfaces, readable hierarchy, one shared accent. */
 :root, html.light {
+  color-scheme: light;
+  --switch-track-off: #e7e7e9;
+  --success-text: #168442;
   --bg-primary: #ffffff;
   --bg-secondary: #ffffff;
   --bg-tertiary: #f0f1f4;
@@ -16,6 +19,8 @@
 }
 html.dark {
   color-scheme: dark;
+  --switch-track-off: #515151;
+  --success-text: #4ade80;
   --bg-primary: #212121;
   --bg-secondary: #292929;
   --bg-tertiary: #303030;
@@ -435,7 +440,8 @@ html.dark .settings-side-nav.is-active { background: #383838; }
 .settings-field-hint { line-height: 1.7; }
 
 /* Settings define their own palette; keep it aligned with the workspace. */
-html.dark .settings-shell.settings-shell--sidebar {
+html.dark .settings-shell.settings-shell--sidebar,
+html.dark .settings-style-dialog-overlay {
   --bg-primary: #212121;
   --bg-secondary: #212121;
   --bg-tertiary: #303030;

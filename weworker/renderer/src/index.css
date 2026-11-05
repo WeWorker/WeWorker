@@ -2161,7 +2161,7 @@ html.dark {
   position: relative;
   border: none;
   border-radius: 8px;
-  background: #f4f4f5;
+  background: var(--bg-tertiary);
   overflow: hidden;
   box-shadow: none;
 }
@@ -2179,7 +2179,7 @@ html.dark {
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  color: #5f6368;
+  color: var(--text-secondary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 11px;
   font-weight: 400;
@@ -2195,8 +2195,8 @@ html.dark {
   padding: 0 7px;
   border-radius: 6px;
   border: 1px solid transparent;
-  background: #fff;
-  color: #5f6775;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 20px;
   font-family: inherit;
@@ -2205,8 +2205,8 @@ html.dark {
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .chat-shell-command-action:hover {
-  border-color: #d7dce5;
-  color: #1f2937;
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 .chat-shell-command-action--primary {
   background: #2f8dfb;
@@ -2226,7 +2226,7 @@ html.dark {
   margin: 0;
   padding: 7px 10px 10px;
   background: transparent;
-  color: #111827;
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-all;
   font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
@@ -4498,7 +4498,7 @@ html.dark .complex-task-plan__row-detail {
 
 .complex-task-plan__row-detail--cancelled {
   color: var(--text-muted);
-  background: color-mix(in srgb, var(--text-muted) 10%, #ffffff);
+  background: color-mix(in srgb, var(--text-muted) 10%, var(--bg-primary));
 }
 
 .weworker-terminal-panel {

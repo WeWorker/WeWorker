@@ -6,7 +6,7 @@
 .message-queue__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; color: var(--text-muted); }
 .message-queue__header > span { font-size: 11px; }
 .message-queue__list { list-style: none; padding: 0 6px 6px; margin: 0; max-height: min(220px, 30vh); overflow-y: auto; overscroll-behavior: contain; }
-.message-queue__item { display: flex; align-items: flex-start; gap: 6px; padding: 6px; border-radius: 7px; background: #fff; }
+.message-queue__item { display: flex; align-items: flex-start; gap: 6px; padding: 6px; border-radius: 7px; background: var(--bg-primary); }
 .message-queue__item + .message-queue__item { margin-top: 4px; }
 .message-queue__index { padding-top: 5px; color: var(--text-muted); font-size: 10px; min-width: 12px; }
 .message-queue__body { flex: 1; min-width: 0; }
