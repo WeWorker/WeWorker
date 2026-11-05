@@ -2,6 +2,8 @@
 
 # WeWorker
 
+[中文](README.md) | [English](README_EN.md)
+
 **让 AI 真正操作网站的开源桌面 Agent**
 
 自然语言任务 → Adapter → 真实浏览器执行。内置 33 个网站 Adapter，支持 Windows 与 macOS。
@@ -16,7 +18,7 @@
 
 [官网](https://www.weworker.cc) · [下载](https://www.weworker.cc/download) · [快速开始](https://www.weworker.cc/docs/quick-start) · [安装 FAQ](https://github.com/WeWorker/WeWorker/discussions/224) · [33 个 Adapter](docs/ADAPTERS.md) · [社区讨论](https://github.com/WeWorker/WeWorker/discussions)
 
-![WeWorker：让 AI 真正操作网站](officialWeb/public/social-preview.png)
+![WeWorker 调用 GitHub 与 Hacker News Adapter 并整理公开结果](docs/assets/weworker-public-demo.gif)
 
 </div>
 
@@ -31,8 +33,6 @@ WeWorker 将自然语言任务交给 AI Agent，通过浏览器扩展或内置 T
 ```
 
 WeWorker 会选择对应 Adapter、读取网站信息并返回整理结果，而不是只给出操作建议。[在官网查看跨站任务演示](https://www.weworker.cc/#demo)。
-
-![WeWorker 调用 GitHub 与 Hacker News Adapter 并整理公开结果](docs/assets/weworker-public-demo.gif)
 
 适合这些场景：
 
@@ -242,6 +242,12 @@ npm run build:win
 
 欢迎提交 Bug、文档、测试、新功能和新网站 Adapter。请先阅读 [贡献指南](CONTRIBUTING.md)、[社区行为准则](CODE_OF_CONDUCT.md)、[支持说明](SUPPORT.md) 和 [Git 工作流](docs/GIT_WORKFLOW.md)。新增或完成 Adapter 时，需要在同一个 PR 中更新 [Adapter 清单](docs/ADAPTERS.md)。
 
+### Adapter 贡献挑战
+
+你常用的网站还不在支持列表中？欢迎提交一个公开网站 Adapter PR。合并后，我们会在社区和版本更新中展示并感谢贡献者。
+
+[查看 Adapter 清单](docs/ADAPTERS.md) · [阅读贡献指南](CONTRIBUTING.md) · [提出 Adapter 建议](https://github.com/WeWorker/WeWorker/issues/new/choose)
+
 ## 版本
 
 当前版本为 `1.0.1`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
@@ -271,6 +277,10 @@ git push origin v1.0.1
 注意：`webcli/` 走 npm 独立发布节奏，版本与桌面端解耦，不随分支号更新。
 
 桌面端打包（electron-builder）与安装后显示的版本均取自 `weworker/package.json`；若分支号与版本号不对应，打包产物名称和安装后的版本显示都会与预期不符。WebCLI 版本一致性由 `webcli/version.json`、`webcli/.claude-plugin/plugin.json` 和 `webcli/skills/webcli/SKILL.md` 的独立账本约束。
+
+---
+
+如果 WeWorker 帮到了你，点个 Star 是对独立开发最大的支持 ⭐
 
 ## 许可证
 
