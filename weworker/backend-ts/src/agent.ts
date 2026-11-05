@@ -21,6 +21,7 @@ import { redactSensitive } from './http-security.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
 import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
+import { markCompactionFinished, markCompactionProgress, markCompactionStarted } from './compaction-status.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
 import { parseAllAdapters } from './adapter-parser.js'
 import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
@@ -593,7 +594,7 @@ function getPackagedClaudeSetup(): { pathToClaudeCodeExecutable: string; executa
 // 只要还在产出消息就续期，连续一段时间完全没有输出才算卡死；另设一个足够宽松的
 // 总时长上限，避免无限缓慢地跑下去。
 const DEFAULT_COMPACTION_IDLE_TIMEOUT_MS = 120_000
-const DEFAULT_COMPACTION_TOTAL_TIMEOUT_MS = 30 * 60_000
+const DEFAULT_COMPACTION_TOTAL_TIMEOUT_MS = 10 * 60_000
 const DEFAULT_COMPACTION_PROBE_IDLE_TIMEOUT_MS = 60_000
 const DEFAULT_COMPACTION_PROBE_TOTAL_TIMEOUT_MS = 5 * 60_000
 
@@ -1607,13 +1608,17 @@ async function* streamChatWithBaseUrl(
         .filter((text) => text.trim())
         .join('\n\n')
       compactionEventEmitted = true
+      markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
       yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
       try {
         const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
           conversation: summarySource,
           settings,
           abortController: summaryAbort,
-          onProgress,
+          onProgress: () => {
+            markCompactionProgress(opts.workId)
+            onProgress()
+          },
           env: envWithWebcli,
           claudeSetup,
           spawnClaudeCodeProcess,
@@ -1659,6 +1664,8 @@ async function* streamChatWithBaseUrl(
             error: error instanceof Error ? error.message : String(error),
           },
         }
+      } finally {
+        markCompactionFinished(opts.workId)
       }
     } else {
       compactionEventEmitted = true

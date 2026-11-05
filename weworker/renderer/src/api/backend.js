@@ -45,6 +45,13 @@ function notifyContextCompactionLifecycle(workId, status) {
   contextCompactionLifecycleHandler?.(workId, status)
 }
 
+/** 压缩心跳：status='running' 时 idle_ms 表示距离上一次产出的毫秒数。 */
+export async function getCompactionStatus(workId) {
+  const res = await backendFetch(`/works/${workId}/compaction`)
+  if (!res.ok) return { status: 'unknown' }
+  return res.json().catch(() => ({ status: 'unknown' }))
+}
+
 function normalizeBackendError(message, maxChatAttachments = 60) {
   if (String(message || '').includes('too many attachments')) {
     return `一次最多发送 ${maxChatAttachments} 个附件`
