@@ -509,9 +509,9 @@ describe('System Prompt - channel permission modes', () => {
     for (const channelPermissionMode of ['ask', 'workspace', 'full'] as const) {
       const prompt = buildSystemPrompt({ channelPermissionMode, platform })
 
-      expect(prompt).toContain(`默认优先使用 Claude Code 内置 ${nativeShell}`)
-      expect(prompt).toContain('只有原生命令工具不可用或当前权限模式不开放时，才使用 WeWorker Shell')
-      expect(prompt).toContain('不得因原生命令被拒绝或用户拒绝授权而改用 WeWorker Shell')
+      expect(prompt).toContain(`必须使用 Claude Code 内置 ${nativeShell}`)
+      expect(prompt).toContain('WeWorker Shell（weworker_powershell）只是兜底')
+      expect(prompt).toContain('不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell')
       expect(prompt).toContain('weworker_powershell')
     }
   })
@@ -534,7 +534,7 @@ describe('System Prompt - channel permission modes', () => {
     const prompt = buildSystemPrompt({ channelPermissionMode: 'full', platform: 'win32' })
 
     expect(prompt).toContain('Claude Code 内置 PowerShell、WeWorker Shell 及其他可用工具均已开放')
-    expect(prompt).toContain('默认优先使用 Claude Code 内置 PowerShell')
+    expect(prompt).toContain('必须使用 Claude Code 内置 PowerShell')
     expect(prompt).toContain('当前平台默认 Shell（powershell）')
     expect(prompt).not.toContain('Claude Code 内置 Bash 已开放')
   })

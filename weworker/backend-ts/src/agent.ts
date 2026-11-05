@@ -342,10 +342,10 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
 
   const adapterExecutionEnabled = allowsNativeCommands(channelPermissionMode)
   const commandToolDescription = adapterExecutionEnabled
-    ? `Claude Code 内置 ${nativeCommandTool}（优先；不可用时使用 WeWorker Shell）`
+    ? `Claude Code 内置 ${nativeCommandTool}（必须使用；仅在其不可用时用 WeWorker Shell 兜底）`
     : 'WeWorker Shell'
   const nativeCommandPreference = adapterExecutionEnabled
-    ? `默认优先使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call；只有原生命令工具不可用或当前权限模式不开放时，才使用 WeWorker Shell（weworker_powershell）。不得因原生命令被拒绝或用户拒绝授权而改用 WeWorker Shell。`
+    ? `必须使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。`
     : ''
   const webcliInvokeDesc = `${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
   const openBrowserDesc = `使用${commandToolDescription}执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
