@@ -75,6 +75,12 @@ const WS_PORT = DEFAULT_INSTANCE.port;
 
 const SAFE_ADAPTER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const SAFE_ADAPTER_WRITE_FILE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
+
+// 登录看门狗：命令可能在很长一段时间里既不成功也不失败（例如特权 fetch 的 Promise
+// 不 settle），此时「失败后再提示登录」的路径永远走不到。看门狗在调用开始后短暂延迟
+// 做一次声明式登录检查，只有服务端明确返回未登录时才提前打开登录页。
+const LOGIN_WATCHDOG_DELAY_MS = 2_500;
+const LOGIN_WATCHDOG_COOLDOWN_MS = 10 * 60_000;
 const ADAPTER_ROOT_WRITABLE_FILES = new Set([
   'index.js',
   'manifest.json',
@@ -1839,6 +1845,7 @@ export class WebSocketBridge extends EventEmitter {
    */
   async _callToolWithLogin(toolName, args, traceID, adapterSnapshot, options = {}) {
     if (toolName === 'open_browser') return this._openBrowserWithLogin(args);
+    this._scheduleLoginWatchdog(toolName, options);
     const workId = options.workId || null;
     const pinnedRoute = this._route?.getStore() || null;
     const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot, workId);
@@ -1872,6 +1879,41 @@ export class WebSocketBridge extends EventEmitter {
       }
       return retried;
     }
+  }
+
+  /**
+   * 只在适配器声明了 auth.check 时启用；判据完全来自该检查：
+   * 只有明确 logged_in === false 才提前打开登录页，true / null / 抛错一律沉默。
+   * 不取消、不阻塞正在执行的调用，短延迟 + 冷却避免重复打扰。
+   */
+  _scheduleLoginWatchdog(toolName, options = {}) {
+    if (options.loginWatchdog === false) return;
+    let selected = null;
+    try { selected = resolveAdapterCall(toolName); } catch { return; }
+    const adapter = selected?.adapter;
+    const auth = adapter?.auth || adapter?.manifest?.auth;
+    if (!auth?.check) return;
+    if (selected.command?.runtime !== 'extension') return;
+    const site = adapter.name;
+    const now = Date.now();
+    if (!this._loginWatchdogCooldown) this._loginWatchdogCooldown = new Map();
+    if ((this._loginWatchdogCooldown.get(site) || 0) > now) return;
+    const delay = Number.isFinite(Number(options.loginWatchdogDelayMs))
+      ? Math.max(0, Number(options.loginWatchdogDelayMs))
+      : LOGIN_WATCHDOG_DELAY_MS;
+    const timer = setTimeout(async () => {
+      try {
+        const coordinator = this._siteLogin();
+        if (coordinator.hasWaitingFlow()) return;
+        const state = await coordinator.check(site);
+        if (state?.logged_in !== false || coordinator.hasWaitingFlow()) return;
+        this._loginWatchdogCooldown.set(site, Date.now() + LOGIN_WATCHDOG_COOLDOWN_MS);
+        await coordinator.login(site, { waitMs: 0, skipCheck: true });
+      } catch {
+        // 看门狗只是提前量；检查失败时必须沉默，绝不能影响调用本身。
+      }
+    }, delay);
+    timer.unref?.();
   }
 
   _siteManifest(site) {
@@ -1993,6 +2035,9 @@ export class WebSocketBridge extends EventEmitter {
         result = await login.show(site);
       } else if (action === 'cancel') {
         result = { cancelled: login.cancel(site) };
+      } else if (action === 'refresh_qr') {
+        requireSite();
+        result = await login.refreshQr(site);
       } else if (action === 'set_autologin') {
         if (msg.enabled === true) requireAutologin(); else requireSite();
         const vault = login.vault;

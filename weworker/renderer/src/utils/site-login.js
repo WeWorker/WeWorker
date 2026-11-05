@@ -33,7 +33,7 @@ export function describeLoginEvent(event) {
           : autologinAllowed
             ? '已在 WeWorker 浏览器中打开登录页。可以扫码、输入短信验证码或账号密码，完成后任务会自动继续。'
             : '该网站不支持自动登录。请在 WeWorker 浏览器中使用动态密码或网站提供的其他方式完成登录。',
-        actions: ['show', 'cancel'], autoDismissMs: 0,
+        actions: qrReady ? ['refresh_qr', 'show', 'cancel'] : ['show', 'cancel'], autoDismissMs: 0,
       }
     }
     case 'autologin_failed':
@@ -66,6 +66,7 @@ export function describeLoginEvent(event) {
 export const LOGIN_ACTION_LABELS = {
   show: '显示浏览器',
   cancel: '取消登录',
+  refresh_qr: '刷新二维码',
   update_password: '更新密码',
   disable_autologin: '关闭自动登录',
   enable_autologin: '开启自动登录',

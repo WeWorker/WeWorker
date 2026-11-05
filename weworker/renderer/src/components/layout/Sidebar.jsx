@@ -118,7 +118,7 @@ export default function Sidebar({ section, collapsed, width }) {
     useExplorationPageStore.getState().closePage()
     useToolPackagePageStore.getState().closePage()
     useScheduledTasksStore.setState({ activeTaskId: null })
-    // 从专属 Agent 或其他入口返回时，确保主对话侧栏包含最新项目/会话。
+    // 从WeWorker Bot 或其他入口返回时，确保主对话侧栏包含最新项目/会话。
     await loadWorks()
   }
 

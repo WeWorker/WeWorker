@@ -81,6 +81,27 @@ describe('login flow for a failed command', () => {
     ])
   })
 
+  it('refreshes the QR on demand without opening a second flow', async () => {
+    const { coordinator, events } = setup({
+      script: [{ cookies: false }],
+      prepareQr: async () => ({ available: true, method: 'heuristic', imageDataUrl: 'data:image/png;base64,AAAA' }),
+    })
+    coordinator.handleFailure(authError(), {
+      site: manifest.name, command: { id: 'list', safety: 'read' }, retry: vi.fn(), loginWaitMs: 30,
+    }).catch(() => {})
+    for (let i = 0; i < 200 && !events.some((event) => event.status === 'waiting_user'); i += 1) await tick()
+    const before = events.length
+    await expect(coordinator.refreshQr(manifest.name)).resolves.toMatchObject({ site: manifest.name, refreshed: true })
+    const refreshed = events.slice(before).filter((event) => event.status === 'waiting_user')
+    expect(refreshed.length).toBeGreaterThanOrEqual(1)
+    expect(refreshed.at(-1).qr).toMatchObject({ available: true })
+  })
+
+  it('reports that a refresh is pointless when no login is waiting', async () => {
+    const { coordinator } = setup()
+    await expect(coordinator.refreshQr(manifest.name)).resolves.toMatchObject({ refreshed: false, reason: 'NO_WAITING_LOGIN' })
+  })
+
   it('announces the login page before the QR code is ready and updates the same card afterwards', async () => {
     const { coordinator, events } = setup({
       script: [{ cookies: false }],

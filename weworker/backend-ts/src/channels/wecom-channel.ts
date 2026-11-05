@@ -678,7 +678,7 @@ export class WecomChannel implements Channel {
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: `${targetLabel} ID：${targetId}\n可在 WeWorker「专属 Agent → 任务」中将它授权为定时消息通知目标。` } },
+        body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: `${targetLabel} ID：${targetId}\n可在 WeWorker「WeWorker Bot → 任务」中将它授权为定时消息通知目标。` } },
       })
       return
     }
@@ -847,7 +847,7 @@ export class WecomChannel implements Channel {
     let chatFailure: unknown = null
 
     // 确定性路由（共享入口见 routed-turn.ts）：纯查询直接由只读工具作答，省掉整轮模型。
-    // `qa_only` 回合在共享入口内被跳过（那些回合不注册任何工具）；专属 Agent 回合也跳过
+    // `qa_only` 回合在共享入口内被跳过（那些回合不注册任何工具）；WeWorker Bot 回合也跳过
     // ——它有自己的站点/技能边界，路由可能换成别的站点作答。
     const routed = this._profile.dedicatedAgentId
       ? null
@@ -874,6 +874,7 @@ export class WecomChannel implements Channel {
       const profileOptions = this._profile.chatOptions(userId)
       for await (const event of routed?.handled ? noModelEvents() : streamChat(wm.messages, settings, turn.abortController, {
         ...profileOptions,
+        directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
         // send_image_to_user / send_file_to_user answer this chat, not the last bot user.
         userMedia: createChannelUserMedia(images, assistantContent, async (file) => {
           const sent = await this._sendFileToChat(file.path, chatType === 'single' ? userId : (chatId ?? userId), chatType === 'single' ? 1 : 2)

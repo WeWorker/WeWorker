@@ -107,7 +107,7 @@ export function decideAgentAccess(input: {
       const paired = input.onPair(userId)
       return {
         kind: 'reply',
-        text: `✅ 绑定成功！我是你的专属 Agent「${paired.name}」，专门帮你处理「${site.name}」上的工作。现在可以直接给我发消息了。${examplesText(paired)}`,
+        text: `✅ 绑定成功！我是你的WeWorker Bot「${paired.name}」，专门帮你处理「${site.name}」上的工作。现在可以直接给我发消息了。${examplesText(paired)}`,
       }
     }
     if (code) {
@@ -116,17 +116,17 @@ export function decideAgentAccess(input: {
         failures: failures >= MAX_PAIRING_ATTEMPTS ? 0 : failures,
         lockedUntil: failures >= MAX_PAIRING_ATTEMPTS ? now + PAIRING_LOCK_MS : 0,
       })
-      return { kind: 'reply', text: '绑定码不正确，请核对 WeWorker 桌面端「专属 Agent」页面上显示的绑定码。' }
+      return { kind: 'reply', text: '绑定码不正确，请核对 WeWorker 桌面端「WeWorker Bot」页面上显示的绑定码。' }
     }
     return {
       kind: 'reply',
-      text: `「${agent.name}」还没有完成绑定。请打开 WeWorker 桌面端「专属 Agent」页面，把显示的绑定码发给我，例如：绑定 123456`,
+      text: `「${agent.name}」还没有完成绑定。请打开 WeWorker 桌面端「WeWorker Bot」页面，把显示的绑定码发给我，例如：绑定 123456`,
     }
   }
   const hasAccess = userId === agent.owner_user_id
     || (agentChannel(agent) === 'wecom' && agent.access_mode === 'wecom_authorized')
   if (!hasAccess) {
-    return { kind: 'reply', text: `这是「${agent.name}」的专属 Agent，目前仅允许它的主人使用。` }
+    return { kind: 'reply', text: `这是「${agent.name}」的WeWorker Bot，目前仅允许它的主人使用。` }
   }
   if (!site.exists || !site.enabled) {
     return { kind: 'reply', text: `「${site.name}」的网站能力当前未启用，请在 WeWorker 桌面端启用后再试。` }
@@ -139,7 +139,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
   const now = options.now ?? Date.now
   const current = (): DedicatedAgentRecord => {
     const agent = getAgent(agentId)
-    if (!agent) throw new Error('专属 Agent 已被删除')
+    if (!agent) throw new Error('WeWorker Bot 已被删除')
     return agent
   }
   return {
@@ -172,7 +172,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
     },
     authorize: (userId, text) => {
       const agent = getAgent(agentId)
-      if (!agent) return { kind: 'reply', text: '这个专属 Agent 已被删除。' }
+      if (!agent) return { kind: 'reply', text: '这个WeWorker Bot 已被删除。' }
       return decideAgentAccess({
         agent,
         userId,

@@ -66,7 +66,7 @@ export function describeAdapterForSkill(adapter: SkillAuthorAdapter): string {
 }
 
 const SYSTEM_PROMPT = `你是 WeWorker 的 Skill 作者。WeWorker 通过 Adapter 操作网站，AI Agent 用 \`webcli call <工具名> --参数=值\` 调用 Adapter 工具。
-你的任务：根据用户提供的目标和专属知识，为一个"专属 Agent"写一份高质量的 SKILL.md，让 Agent 拿到它之后就能稳定、正确地完成用户的网站工作。
+你的任务：根据用户提供的目标和专属知识，为一个"WeWorker Bot"写一份高质量的 SKILL.md，让 Agent 拿到它之后就能稳定、正确地完成用户的网站工作。
 
 写作要求：
 1. 只使用"可用工具"中真实存在的工具名和参数，不要编造工具。
@@ -179,7 +179,7 @@ export async function generateAgentSkill(
   }
   const user = [
     `skill 名称：${input.skillName}`,
-    `专属 Agent 名称：${input.agentName || input.adapter.name}`,
+    `WeWorker Bot 名称：${input.agentName || input.adapter.name}`,
     '',
     '【可用工具】',
     describeAdapterForSkill(input.adapter),

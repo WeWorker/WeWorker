@@ -30,6 +30,7 @@ export default function SiteLoginNotice() {
   const [notices, setNotices] = useState([])
   const [dialog, setDialog] = useState(null)
   const [showing, setShowing] = useState('')
+  const [refreshing, setRefreshing] = useState('')
   const timers = useRef(new Map())
   const requestFill = useChatInputFillStore((state) => state.requestFill)
 
@@ -66,6 +67,12 @@ export default function SiteLoginNotice() {
       try { await control('show_login', scoped) } finally { setShowing((current) => current === notice.key ? '' : current) }
     }
     if (action === 'cancel') { void control('cancel', scoped); dismiss(notice.key) }
+    if (action === 'refresh_qr') {
+      setRefreshing(notice.key)
+      try { await control('refresh_qr', scoped) } finally {
+        setRefreshing((current) => (current === notice.key ? '' : current))
+      }
+    }
     if ((action === 'update_password' || action === 'enable_autologin') && event.autologinMode !== 'off') {
       setDialog({ site, name, contextId: event.contextId, autologinMode: event.autologinMode })
     }
@@ -105,10 +112,11 @@ export default function SiteLoginNotice() {
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                   {notice.view.actions.map((action) => {
                     const opening = action === 'show' && showing === notice.key
+                    const refreshingNow = action === 'refresh_qr' && refreshing === notice.key
                     return (
-                      <button data-app-button="action" key={action} type="button" style={buttonStyle} disabled={opening}
+                      <button data-app-button="action" key={action} type="button" style={buttonStyle} disabled={opening || refreshingNow}
                         onClick={() => { void run(notice, action) }}>
-                        {opening ? '正在打开…' : LOGIN_ACTION_LABELS[action]}
+                        {opening ? '正在打开…' : refreshingNow ? '刷新中…' : LOGIN_ACTION_LABELS[action]}
                       </button>
                     )
                   })}

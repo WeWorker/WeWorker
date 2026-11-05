@@ -156,14 +156,14 @@ export function createFocusedToolGuard(allowedSiteIds: string[], knownSiteIds: s
       if (check.ok) return { behavior: 'allow' }
       return {
         behavior: 'deny',
-        message: `专属 Agent 只能执行本网站的单条 webcli 命令：${check.reason}。需要过滤或处理输出时，把内容放进 webcli 参数的单引号里。`,
+        message: `WeWorker Bot 只能执行本网站的单条 webcli 命令：${check.reason}。需要过滤或处理输出时，把内容放进 webcli 参数的单引号里。`,
       }
     }
     if (WRITE_TOOLS.has(toolName)) {
-      return { behavior: 'deny', message: '专属 Agent 不修改本地文件。' }
+      return { behavior: 'deny', message: 'WeWorker Bot 不修改本地文件。' }
     }
     if (toolName.startsWith('mcp__') && !permittedMcpTools.has(toolName)) {
-      return { behavior: 'deny', message: `专属 Agent 不能使用 ${toolName}。` }
+      return { behavior: 'deny', message: `WeWorker Bot 不能使用 ${toolName}。` }
     }
     return { behavior: 'allow' }
   }

@@ -198,7 +198,7 @@ export default function SkillComposer({ draft, onChange, site }) {
       await reloadSkills()
       onChange({ existingSkill: imported.name, skillMode: SKILL_MODES.existing })
       setPreview(imported.markdown)
-      setImportMessage(`已从「${skillImportLabel(sourcePath)}」导入「${imported.name}」${imported.resource_count ? `，包含 ${imported.resource_count} 个资料文件` : ''}。默认仅专属 Agent 使用。`)
+      setImportMessage(`已从「${skillImportLabel(sourcePath)}」导入「${imported.name}」${imported.resource_count ? `，包含 ${imported.resource_count} 个资料文件` : ''}。默认仅WeWorker Bot 使用。`)
     } catch (err) {
       setError(err.message || '导入失败')
     } finally {
@@ -256,7 +256,7 @@ export default function SkillComposer({ draft, onChange, site }) {
               >
                 也用于 WeWorker 主对话（会出现在「SKILLS与场景」中）
               </Checkbox>
-              <div style={{ ...hintStyle, marginLeft: 24 }}>默认不勾选：这份知识只给专属 Agent 用，不影响主对话。之后也可以在 Agent 设置里切换。</div>
+              <div style={{ ...hintStyle, marginLeft: 24 }}>默认不勾选：这份知识只给WeWorker Bot 用，不影响主对话。之后也可以在 Agent 设置里切换。</div>
             </div>
           )}
         </div>
@@ -285,7 +285,7 @@ export default function SkillComposer({ draft, onChange, site }) {
             </div>
             <Button data-app-button="action" onClick={importExistingSkill} loading={importing} icon={<UploadOutlined />}>导入 .md / .zip</Button>
           </div>
-          <div style={hintStyle}>可以从本机导入单个 Markdown，或导入含有 `SKILL.md` 的 ZIP 包。导入的 Skill 默认仅专属 Agent 使用，不影响主对话。</div>
+          <div style={hintStyle}>可以从本机导入单个 Markdown，或导入含有 `SKILL.md` 的 ZIP 包。导入的 Skill 默认仅WeWorker Bot 使用，不影响主对话。</div>
           {importMessage && <Alert type="success" showIcon style={{ marginTop: 10 }} message={importMessage} />}
           {error && <Alert type="error" showIcon style={{ marginTop: 10 }} message={error} />}
           {preview && (

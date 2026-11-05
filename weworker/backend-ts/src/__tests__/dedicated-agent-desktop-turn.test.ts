@@ -4,7 +4,7 @@ import type { DedicatedAgentRecord } from '../dedicated-agents/agent-store.js'
 vi.mock('../dedicated-agents/agent-runtime.js', () => ({
   buildAgentChatOptions: () => ({
     isolatedClaudeConfigDir: 'C:/weworker-fixtures/agent0001/claude-config',
-    appendSystemPrompt: '## 专属 Agent',
+    appendSystemPrompt: '## WeWorker Bot',
     extraDisallowedTools: ['Write'],
   }),
 }))

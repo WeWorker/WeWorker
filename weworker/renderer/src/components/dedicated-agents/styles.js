@@ -1,4 +1,4 @@
-// Inline style objects shared by the 专属 Agent page (follows TaskConfigView conventions).
+// Inline style objects shared by the WeWorker Bot page (follows TaskConfigView conventions).
 
 export const pageStyle = { display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--bg-primary)' }
 export const listColumnStyle = {

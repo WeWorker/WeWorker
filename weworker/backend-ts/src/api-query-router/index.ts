@@ -320,6 +320,8 @@ function resultShape(raw: string): Record<string, unknown> {
 }
 
 export type RouteExecutionContext = {
+  /** Sanitized diagnostics for this turn's Agent input, independent of human-readable logs. */
+  onFallback?: (outcome: import('../webcli-route.js').DirectRouteOutcome) => void
   message: string
   workId: string
   turnId: string
@@ -431,6 +433,7 @@ async function dispatchAndRender(args: {
   } catch (error) {
     if (error instanceof RouteDispatchError) {
       routeDiagnostic(ctx, 'dispatch_failed', { tool, category: error.kind, fallback: 'llm' })
+      ctx.onFallback?.({ status: 'failed', reason: error.kind })
       return 'fallback'
     }
     throw error
@@ -441,11 +444,13 @@ async function dispatchAndRender(args: {
   if (looksLikeAuthFailure(raw)) {
     routeDiagnostic(ctx, 'dispatch_failed', { tool, category: 'authentication', fallback: 'llm' })
     ctx.log?.(`route auth fallback: ${tool}`)
+    ctx.onFallback?.({ status: 'failed', reason: 'authentication_required' })
     return 'fallback'
   }
   if (looksLikeMissingArg(raw)) {
     routeDiagnostic(ctx, 'dispatch_failed', { tool, category: 'missing_argument', fallback: 'llm' })
     ctx.log?.(`route missing-arg fallback: ${tool}`)
+    ctx.onFallback?.({ status: 'failed', reason: 'missing_arguments' })
     return 'fallback'
   }
 
@@ -463,11 +468,13 @@ async function dispatchAndRender(args: {
       const hydrated = (deps.rehydrate ?? rehydratePointer)(raw)
       if (!hydrated || classifyDispatchPayload(hydrated)) {
         routeDiagnostic(ctx, 'render_failed', { tool, category: 'unavailable_cached_result', fallback: 'llm' })
+        ctx.onFallback?.({ status: 'failed', reason: 'unusable_result' })
         return 'fallback'
       }
       renderRaw = hydrated
     } catch {
       routeDiagnostic(ctx, 'render_failed', { tool, category: 'cache_read_failed', fallback: 'llm' })
+      ctx.onFallback?.({ status: 'failed', reason: 'unusable_result' })
       return 'fallback'
     }
   }
@@ -480,12 +487,14 @@ async function dispatchAndRender(args: {
     })
   } catch {
     routeDiagnostic(ctx, 'render_failed', { tool, category: 'renderer_exception', fallback: 'llm' })
+    ctx.onFallback?.({ status: 'failed', reason: 'render_failed' })
     return 'fallback'
   }
   // 渲染不出可展示内容（渲染器吞掉异常或投影为空）→ 同为「没答出来」，落回 LLM。
   if (isUnrenderableAnswer(text)) {
     routeDiagnostic(ctx, 'render_failed', { tool, category: 'no_renderable_data', fallback: 'llm' })
     ctx.log?.(`route render produced no answer: ${tool} → fall back to LLM`)
+    ctx.onFallback?.({ status: 'failed', reason: 'empty_answer' })
     return 'fallback'
   }
   routeDiagnostic(ctx, 'render_succeeded', { tool, source, responseChars: text.length })
@@ -546,6 +555,7 @@ async function runPlanDecision(
     if (isUnrenderableAnswer(out.md)) {
       routeDiagnostic(ctx, 'render_failed', { tool: out.terminalTool, category: 'no_renderable_data', fallback: 'llm' })
       ctx.log?.(`plan render produced no answer: ${out.terminalTool} → fall back to LLM`)
+      ctx.onFallback?.({ status: 'failed', reason: 'empty_answer' })
       return 'fallback'
     }
     routeDiagnostic(ctx, 'render_succeeded', { tool: out.terminalTool, source: 'plan', responseChars: out.md.length, steps: out.steps })
@@ -563,6 +573,7 @@ async function runPlanDecision(
   } catch (error) {
     if (error instanceof PlanFallback) {
       routeDiagnostic(ctx, 'plan_failed', { category: error.reason, fallback: 'llm' })
+      ctx.onFallback?.({ status: 'failed', reason: `plan_${error.reason}` })
       // 'error' 也承载派发失败（接口报错 / 超时 / 空结果），把原因带进日志，排查时不用猜。
       const detail = error.reason === 'error' && error.message ? `: ${error.message}` : ''
       ctx.log?.(`plan fallback (${error.reason}) at ${hit.adapter}:${hit.scenarioId}${detail} → fall back to LLM`)
@@ -636,6 +647,7 @@ export async function tryIntelligentQueryRoute(
 ): Promise<boolean> {
   if (process.env[ROUTE_ENV] === '0') {
     routeDiagnostic(ctx, 'route_disabled', { reason: 'environment_switch' })
+    ctx.onFallback?.({ status: 'skipped', reason: 'direct_route_disabled' })
     return false
   }
   try {
@@ -661,6 +673,7 @@ export async function tryIntelligentQueryRoute(
     if (plan.blocked) {
       routeDiagnostic(ctx, 'route_unmatched', { reason: 'gate_blocked', gate: plan.blocked.gate, fallback: 'llm' })
       ctx.log?.(`cascade blocked at ${plan.blocked.gate} → fall back to LLM`)
+      ctx.onFallback?.({ status: 'skipped', reason: `gate_${plan.blocked.gate}` })
       return false
     }
     if (!plan.steps.length) {
@@ -673,6 +686,7 @@ export async function tryIntelligentQueryRoute(
   } catch (error) {
     routeDiagnostic(ctx, 'route_failed', { category: 'unexpected_exception', fallback: 'llm' })
     ctx.log?.(`intelligent route failed: ${error instanceof Error ? error.message : String(error)} → fall back to LLM`)
+    ctx.onFallback?.({ status: 'failed', reason: 'direct_route_error' })
     return false
   }
 }

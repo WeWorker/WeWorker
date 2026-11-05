@@ -35,10 +35,10 @@ Adapter manifest / catalog
 | 运行时强制 | Bridge、扩展、Backend 工具策略、manifest 校验 | 权限、路由、登录、确认、数据边界 | 代码与测试；提示词不能覆盖 |
 | 全局系统提示词 | `weworker/backend-ts/src/agent.ts` 的 `buildSystemPrompt()` | Agent 通用行为、`webcli call` 规则、登录解释、文件/Shell 边界 | 修改运行时语义时必须审查 |
 | 提示词模板 | `weworker/backend-ts/prompts/agent.md` | 系统提示词稳定正文与占位符 | 仅维护模板结构；动态规则通常在 `agent.ts` 注入 |
-| 专属 Agent 提示词 | `weworker/backend-ts/src/dedicated-agents/agent-runtime.ts` | 单站点、单命令、渠道和专属 Skill 约束 | 与普通 Agent 的关键安全/登录语义同步 |
+| WeWorker Bot 提示词 | `weworker/backend-ts/src/dedicated-agents/agent-runtime.ts` | 单站点、单命令、渠道和专属 Skill 约束 | 与普通 Agent 的关键安全/登录语义同步 |
 | 共享 WebCLI Skill | `webcli/skills/webcli/`、`webcli/skills/webcli-browser/`、`webcli/skills/webcli-api-exploration/` | WebCLI 操作手册、浏览器/探索流程 | 独立 Markdown 源，随桌面端打包并同步 |
 | 托管 Adapter Skill | `webcli/adapter-views.js` 与 `webcli/adapter-skill-sync.js` 生成 | 当前 Adapter 的命令、参数、运行时、确认和站点说明 | 从已验证 catalog 派生，不手工编辑运行时副本 |
-| 用户/专属 Skill | 用户目录或专属 Agent 配置 | 用户明确提供的工作知识 | 不得突破上层运行时安全边界 |
+| 用户/专属 Skill | 用户目录或WeWorker Bot 配置 | 用户明确提供的工作知识 | 不得突破上层运行时安全边界 |
 
 全局系统提示词与完整 Skill 文本不是同一份内容：系统提示词每轮构造；Skill 只有在被发现并加载后才会作为上下文进入当前和后续对话。两者对同一状态给出矛盾指导时，产品行为会变得不可预测，因此应保持语义一致。
 
@@ -113,7 +113,7 @@ Host-managed 页面命令
   → 才使用 open_browser
 ```
 
-系统提示词、共享 WebCLI Skill、专属 Agent 提示词和生成的 Adapter Skill 都不得要求模型在每个网站工具之前先调用 `open_browser` 或 `check-login-status`。这样会绕开宿主的 Tab 路由、造成重复业务 Tab，并可能破坏共享 SSO 的登录体验。
+系统提示词、共享 WebCLI Skill、WeWorker Bot 提示词和生成的 Adapter Skill 都不得要求模型在每个网站工具之前先调用 `open_browser` 或 `check-login-status`。这样会绕开宿主的 Tab 路由、造成重复业务 Tab，并可能破坏共享 SSO 的登录体验。
 
 关于 Profile、managed foreground/background、`pageRoute`、`routeDomain`、`tabDomain` 与 `open_browser --adapter` 的精确规则，以 [WebCLI 调用路由与 Tab 选择](../webcli-call-routing/README.md) 为准。若路由实现、manifest 字段或 CLI 结果发生变化，必须审查本节相关提示词是否仍然正确。
 
@@ -153,11 +153,11 @@ Host-managed 页面命令
 
 | 运行时改动 | 必须检查的指令来源 |
 | --- | --- |
-| 新增/删除/重命名工具结果状态、错误码、认证字段 | `agent.ts`、共享 WebCLI Skill、专属 Agent 提示词、CLI 文案、Renderer 文案 |
-| 改变 `open_browser`、登录 flow、自动登录、二维码、重试或登录 Tab 绑定 | `agent.ts`、`webcli/skills/webcli/SKILL.md`、专属 Agent 提示词、登录设计文档 |
+| 新增/删除/重命名工具结果状态、错误码、认证字段 | `agent.ts`、共享 WebCLI Skill、WeWorker Bot 提示词、CLI 文案、Renderer 文案 |
+| 改变 `open_browser`、登录 flow、自动登录、二维码、重试或登录 Tab 绑定 | `agent.ts`、`webcli/skills/webcli/SKILL.md`、WeWorker Bot 提示词、登录设计文档 |
 | 改变 Profile/Tab 路由、页面创建、`pageRoute` 或 manifest 路由字段 | `agent.ts` 的开页/调用规则、共享 Skill、调用路由文档、Adapter 开发文档 |
 | 改变 Adapter manifest schema、runtime、background/page 执行边界 | 生成 Adapter Skill、共享 Skill、Adapter 开发文档、相关系统提示词 |
-| 改变确认、写操作、文件访问、凭据或安全策略 | 全局系统提示词、专属 Agent 提示词、Skill、用户可见文案与安全文档 |
+| 改变确认、写操作、文件访问、凭据或安全策略 | 全局系统提示词、WeWorker Bot 提示词、Skill、用户可见文案与安全文档 |
 | 改变 Browser/Bridge 生命周期或状态事件 | 系统提示词中的恢复动作、浏览器设计文档、Renderer/CLI 状态文案 |
 | 改变 site-gate 信号、`gate_aliases` schema、站点目录注入或 Skill 清单注入方式 | `agent.ts` 动态规则、共享 WebCLI Skill、Adapter manifest 文档与本文第 4 节 |
 
@@ -173,7 +173,7 @@ Host-managed 页面命令
 提示词或 Skill 变更不是纯文案变更。至少应覆盖：
 
 1. **提示词构造测试：** 断言普通 Agent 在 full/restricted/qa 模式获得预期的动态规则。
-2. **专属 Agent 测试：** 断言其补充提示词不与普通登录、开页、确认规则冲突。
+2. **WeWorker Bot 测试：** 断言其补充提示词不与普通登录、开页、确认规则冲突。
 3. **Skill 同步测试：** 验证桌面内置共享 Skill 被复制到运行时 Skill 根，禁用状态不被意外恢复，旧文件可更新。
 4. **运行时结果测试：** 每个受影响状态/错误码都由 Bridge/CLI 测试产生，不能只测试 Markdown 文案。
 5. **行为回归：** 对登录、页面/后台命令、Profile 路由、写操作确认和异常恢复执行对应聚焦测试。
@@ -188,7 +188,7 @@ Host-managed 页面命令
 | --- | --- | --- |
 | 普通 Agent 系统提示词 | `weworker/backend-ts/src/agent.ts` | 本文、登录与调用路由文档 |
 | 提示词模板 | `weworker/backend-ts/prompts/agent.md` | 动态占位符与稳定正文 |
-| 专属 Agent 提示词 | `weworker/backend-ts/src/dedicated-agents/agent-runtime.ts` | 单站点和渠道约束 |
+| WeWorker Bot 提示词 | `weworker/backend-ts/src/dedicated-agents/agent-runtime.ts` | 单站点和渠道约束 |
 | 共享 WebCLI Skill | `webcli/skills/` | WebCLI 使用和浏览器准备 |
 | 托管 Adapter Skill | `webcli/adapter-views.js`、`webcli/adapter-skill-sync.js` | 当前 catalog 和 manifest |
 | 共享 Skill 同步 | `weworker/backend-ts/src/webcli-skills.ts` | 桌面内置 WebCLI 资源 |

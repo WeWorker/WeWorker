@@ -78,7 +78,7 @@ export default function AppRail({ activeSection, settingsOpen = false, extension
         <RailButton label="定时任务" active={activeKey === 'tasks'} onClick={onOpenTasks}>
           <ClockIcon />
         </RailButton>
-        <RailButton label="专属 Agent" active={activeKey === 'dedicated-agents'} onClick={onOpenDedicatedAgents}>
+        <RailButton label="WeWorker Bot" active={activeKey === 'dedicated-agents'} onClick={onOpenDedicatedAgents}>
           <DedicatedAgentIcon />
         </RailButton>
         <div className={`app-rail__more-wrap app-rail__more-wrap--top${moreOpen ? ' is-open' : ''}`}>

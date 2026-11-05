@@ -4,7 +4,7 @@
  * 覆盖三件必须成立的事：
  * 1. 命中确定性路由时**不再**跑模型回合，且把带 `routeTool` 的 timing 交回调用方落库
  *    （各渠道都是「返回 text/timing，由自己 appendMessage」，所以来源必须经这里传出去）；
- * 2. 专属 Agent 的渠道回合不接入路由（它绑定单一站点，路由可能换成别站作答）；
+ * 2. WeWorker Bot 的渠道回合不接入路由（它绑定单一站点，路由可能换成别站作答）；
  * 3. 拿不到本轮用户正文时不路由（漏判免费）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,7 +45,7 @@ describe('runChannelChat 的路由接线', () => {
     mocks.streamChat.mockImplementation(async function* () {
       yield { type: 'text_delta', content: '模型回答' }
     })
-    mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null })
+    mocks.tryRoutedTurn.mockResolvedValue({ handled: false, text: '', timing: null, directRoute: { status: 'miss' } })
   })
 
   it('命中路由时跳过模型回合，并交回带 routeTool 的 timing', async () => {
@@ -96,15 +96,17 @@ describe('runChannelChat 的路由接线', () => {
 
     expect(result.text).toBe('模型回答')
     expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.streamChat.mock.calls[0][3].directRoute).toEqual({ status: 'miss' })
   })
 
-  it('专属 Agent 的渠道回合不接入路由', async () => {
+  it('WeWorker Bot 的渠道回合不接入路由', async () => {
     const messages = [message('user', '示例 仓库列表')]
 
     await runChannelChat(messages, settings, { channelPermissionMode: 'full', dedicatedAgent: true })
 
     expect(mocks.tryRoutedTurn).not.toHaveBeenCalled()
     expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.streamChat.mock.calls[0][3].directRoute).toEqual({ status: 'skipped', reason: 'dedicated_agent' })
   })
 
   it('本轮没有用户正文时不路由', async () => {

@@ -327,10 +327,10 @@ git diff --name-only LAST_DEV_SHA origin/dev-1.1.0
 
 ### 2026-10-17：建立分支与设计
 
-- 7 文件冲突：CHANGELOG.md/ROADMAP.md 保留双方记录；Python 进程管理最初手工整合，用户随后明确排除该模块；最终该冲突文件保留 dev-1.1.0 原文件，不保留本次手工修改；官网 lockfile 的名称/版本对齐 package.json；WebCLI 保留独立 1.0.4；探索页保留 auto 入口，去除依赖已不存在 agentMode 状态的旧开关；状态栏保留告警浮层和专属 Agent 汇总，去除旧入口的失效变量。
-- 自动合并保留 dev 聊天、记忆、模型、专属 Agent 能力及 develop 的 #91/#106。未另行修改 workflow、发布脚本或 schema。
+- 7 文件冲突：CHANGELOG.md/ROADMAP.md 保留双方记录；Python 进程管理最初手工整合，用户随后明确排除该模块；最终该冲突文件保留 dev-1.1.0 原文件，不保留本次手工修改；官网 lockfile 的名称/版本对齐 package.json；WebCLI 保留独立 1.0.4；探索页保留 auto 入口，去除依赖已不存在 agentMode 状态的旧开关；状态栏保留告警浮层和WeWorker Bot 汇总，去除旧入口的失效变量。
+- 自动合并保留 dev 聊天、记忆、模型、WeWorker Bot 能力及 develop 的 #91/#106。未另行修改 workflow、发布脚本或 schema。
 - renderer/backend 按 lockfile 执行 npm ci --ignore-scripts，未新增依赖、未改变 lockfile。
-- 通过：公开配置检查；Renderer 探索/告警 11 项、专属 Agent 9 项；Extension 路由 23 项、导航守卫 17 项；Electron 生命周期/关闭守卫 11 项；Backend 探索/聊天 23 项，共 94 项。Renderer 构建通过，有 chunk/动态导入提示；Bridge/扩展 JS 与 Python AST 语法通过。
+- 通过：公开配置检查；Renderer 探索/告警 11 项、WeWorker Bot 9 项；Extension 路由 23 项、导航守卫 17 项；Electron 生命周期/关闭守卫 11 项；Backend 探索/聊天 23 项，共 94 项。Renderer 构建通过，有 chunk/动态导入提示；Bridge/扩展 JS 与 Python AST 语法通过。
 - 未通过：Backend typecheck 缺 yauzl 声明及相关隐式 any；相关源码、package.json/lockfile 与 dev 无差异，未顺手修改他人模块。Python 测试因缺 uv 未运行。未跑全量、真实浏览器/模型或安装包。合并差异检查有 dev 原有 settings-theme.css 末尾空行提示。
 - 首轮 Renderer 缺 vite、Backend 依赖不齐，安装后重跑；初次 Backend 测试命令重复 --run，修正后 23 项通过。
 - OpenCLI 参考为本机 1.8.6 help 与本地 usage/adapter-author 技能；未操作真实浏览器或执行站点命令，不表示核实远端最新源码。

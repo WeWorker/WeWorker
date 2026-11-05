@@ -39,7 +39,7 @@ export const createDedicatedAgentsStore = ({ storage = defaultStorage(), fetchAg
       id,
       draftKey: id,
       draft: true,
-      name: '新建专属 Agent',
+      name: '新建WeWorker Bot',
       description: '',
       site_id: '',
       skill_name: '',
@@ -130,7 +130,7 @@ export const createDedicatedAgentsStore = ({ storage = defaultStorage(), fetchAg
 
 export const useDedicatedAgentsStore = createDedicatedAgentsStore()
 
-/** Close every other main view and show the 专属 Agent page. */
+/** Close every other main view and show the WeWorker Bot page. */
 export async function showDedicatedAgentsPage() {
   if (!await leaveWebsiteExploration()) return false
   useToolPackagePageStore.getState().closePage()
@@ -141,7 +141,7 @@ export async function showDedicatedAgentsPage() {
   return true
 }
 
-// Opening any other main view closes the 专属 Agent page, so existing
+// Opening any other main view closes the WeWorker Bot page, so existing
 // navigation handlers do not need to know about it.
 const closeWhen = (opened) => {
   if (opened && useDedicatedAgentsStore.getState().open) useDedicatedAgentsStore.getState().closePage()

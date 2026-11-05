@@ -245,7 +245,7 @@ function SkillScopeSwitch({ skill, onChanged }) {
   const isPublic = skill.scope === 'public'
   const others = (skill.used_by || []).length
   const toggle = async (nextPublic) => {
-    if (!nextPublic && !await showConfirm(`关闭后，主对话和「SKILLS与场景」将不再看到「${skill.name}」，只有专属 Agent 使用它。继续？`)) return
+    if (!nextPublic && !await showConfirm(`关闭后，主对话和「SKILLS与场景」将不再看到「${skill.name}」，只有WeWorker Bot 使用它。继续？`)) return
     setBusy(true)
     setError('')
     try {
@@ -267,8 +267,8 @@ function SkillScopeSwitch({ skill, onChanged }) {
       <div style={{ ...hintStyle, marginTop: 4 }}>
         {isPublic
           ? '已共享：WeWorker 主对话也会使用这份知识，并在「SKILLS与场景」中显示。'
-          : '默认仅专属 Agent 使用，不影响 WeWorker 主对话。'}
-        {others > 1 && ` 共有 ${others} 个专属 Agent 使用这个 Skill。`}
+          : '默认仅WeWorker Bot 使用，不影响 WeWorker 主对话。'}
+        {others > 1 && ` 共有 ${others} 个WeWorker Bot 使用这个 Skill。`}
       </div>
       {error && <Alert type="error" showIcon style={{ marginTop: 8 }} message={error} />}
     </div>
@@ -406,7 +406,7 @@ export default function AgentDetail({ agentId }) {
         </div>
         <Space>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            <AppSwitch checked={agent.enabled} onChange={(event) => toggleEnabled(event.target.checked)} aria-label="启用专属 Agent" />
+            <AppSwitch checked={agent.enabled} onChange={(event) => toggleEnabled(event.target.checked)} aria-label="启用WeWorker Bot" />
             {agent.enabled ? '已启用' : '已停用'}
           </label>
           <Popconfirm

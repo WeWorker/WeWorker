@@ -239,7 +239,7 @@ function assertBotUnused(agents: DedicatedAgentRecord[], bot: ValidBot, exceptId
       throw new DedicatedAgentError('该机器人已在「设置 → 通道 → 企业微信」中使用。一个机器人只能连接一个 Agent，请换一个机器人', 409)
     }
     const owner = others.find((agent) => agent.wecom.bot_id === bot.bot_id)
-    if (owner) throw new DedicatedAgentError(`该机器人已被专属 Agent「${owner.name}」使用。一个机器人只能连接一个 Agent`, 409)
+    if (owner) throw new DedicatedAgentError(`该机器人已被WeWorker Bot「${owner.name}」使用。一个机器人只能连接一个 Agent`, 409)
     return
   }
   if ((reserved.reservedWeixinTokens ?? []).includes(bot.token)) {
@@ -248,7 +248,7 @@ function assertBotUnused(agents: DedicatedAgentRecord[], bot: ValidBot, exceptId
   const owner = others.find((agent) => (bot.bot_id && agent.weixin?.bot_id === bot.bot_id)
     || decryptOrEmpty(agent.weixin?.token_enc) === bot.token)
   if (owner) {
-    throw new DedicatedAgentError(`这个微信号的机器人已被专属 Agent「${owner.name}」使用。一个机器人只能连接一个 Agent，请换一个微信号扫码`, 409)
+    throw new DedicatedAgentError(`这个微信号的机器人已被WeWorker Bot「${owner.name}」使用。一个机器人只能连接一个 Agent，请换一个微信号扫码`, 409)
   }
 }
 
@@ -324,7 +324,7 @@ export function createAgent(input: DedicatedAgentInput, options: ReservedBots = 
 function mutate(id: string, apply: (agent: DedicatedAgentRecord, all: DedicatedAgentRecord[]) => void): DedicatedAgentRecord {
   const data = readFile()
   const agent = data.agents.find((entry) => entry.id === id)
-  if (!agent) throw new DedicatedAgentError('专属 Agent 不存在', 404)
+  if (!agent) throw new DedicatedAgentError('WeWorker Bot 不存在', 404)
   apply(agent, data.agents)
   agent.updated_at = new Date().toISOString()
   writeFile(data)
