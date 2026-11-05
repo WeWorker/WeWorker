@@ -50,6 +50,20 @@ WeWorker 会选择对应 Adapter、读取网站信息并返回整理结果，而
 - **消息通知**：支持将任务结果发送到已配置的通知渠道。
 - **多模型配置**：支持 Anthropic、智谱、DeepSeek 和兼容接口的自定义模型配置。
 
+## 命令行与 AI Agent
+
+不安装桌面应用，也可以通过 WebCLI 把网站 Adapter 接入 Claude Code、Codex、Cursor 等 AI Agent，或直接在终端调用。独立 CLI 使用自己的本地 Bridge 和浏览器 Profile，不会复用 WeWorker 桌面端的浏览器登录态。
+
+下面的示例读取公开的 GitHub Trending，不需要 GitHub 登录：
+
+```bash
+npm install -g weworker-webcli@latest
+webcli browser start
+webcli call github.com.repos --since=daily --language=python --limit=5
+```
+
+更多命令、浏览器模式和首次使用说明见 [WebCLI 文档](webcli/README.md)。
+
 ## Adapter 支持
 
 WeWorker 当前内置 33 个常用网站 Adapter。部分示例：
