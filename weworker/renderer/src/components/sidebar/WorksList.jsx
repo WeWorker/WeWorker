@@ -5,6 +5,7 @@ import { leaveWebsiteExploration } from '../../store/website-exploration.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useWorksStore } from '../../store/works.js'
+import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
 import { backendFetch } from '../../api/http.js'
@@ -65,6 +66,7 @@ function formatCopiedConversation(work, messages) {
 }
 
 export default function WorksList({ searchQuery = '' }) {
+  const hasScheduledTasks = useScheduledTasksStore(s => s.tasksStatus !== 'ready' || s.tasks.length > 0)
   const activities = useWorkActivityStore(s => s.activities)
   const visibleWorkId = useWorkActivityStore(s => s.visibleWorkId)
   const works = useWorksStore((s) => Array.isArray(s.works) ? s.works : [])
@@ -136,7 +138,7 @@ export default function WorksList({ searchQuery = '' }) {
     )
   }
 
-  const folderGroups = groupWorksByFolder(works, projects)
+  const folderGroups = groupWorksByFolder(works, projects, { hasScheduledTasks })
   const filteredIds = new Set(filtered.map((work) => work.id))
   const toggleFolder = (folderName) => {
     setSelectedFolderKey(folderName)
@@ -246,7 +248,7 @@ export default function WorksList({ searchQuery = '' }) {
                 )}
                 <span className="work-folder-heading__count">{visibleItems.length}</span>
               </button>
-              {!renaming && !group.systemManaged && (hoveredFolderKey === folderKey || group.items.length === 0) && (
+              {!renaming && !group.systemManaged && hoveredFolderKey === folderKey && (
                 <span className="work-folder-heading__actions">
                   {/* 专属 Agent 的对话只在 Agent 页里创建，侧栏不提供入口。 */}
                   {!group.dedicatedAgent && (

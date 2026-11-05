@@ -11,7 +11,7 @@ function getWorkFolderName(work) {
   return String(candidate || '默认工作区').trim() || '默认工作区'
 }
 
-export function groupWorksByFolder(works, projects = []) {
+export function groupWorksByFolder(works, projects = [], { hasScheduledTasks = true } = {}) {
   const groups = new Map()
   // Creation order is independent of message activity and project renames.
   const orderedProjects = [...projects].sort((a, b) => (
@@ -30,7 +30,9 @@ export function groupWorksByFolder(works, projects = []) {
     groups.get(key).items.push(work)
   }
   const defaultGroup = groups.get('default')
-  const projectGroups = [...groups.values()].filter((group) => group.id)
+  const projectGroups = [...groups.values()].filter((group) => group.id && (
+    !group.systemManaged || hasScheduledTasks || group.items.some(work => !work.archived)
+  ))
   return [
     ...projectGroups,
     ...(defaultGroup ? [defaultGroup] : []),

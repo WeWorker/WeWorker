@@ -228,9 +228,6 @@ html.dark .dedicated-agents-sidebar {
 .work-activity--completed { color: #3b82f6; }
 .work-activity--failed { color: #dc2626; }
 @keyframes work-activity-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .work-activity--running svg { animation: none; }
-}
 .work-title-viewport.is-scrolling { text-overflow: clip; }
 .work-title-viewport.is-scrolling .work-title-text {
   animation: work-title-reveal var(--title-scroll-duration) linear 650ms forwards;
