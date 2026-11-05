@@ -103,7 +103,7 @@ export default function SaveCodewordModal({ selectedMessages, onClose }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>保存为暗号</div>
+            <div style={{ fontWeight: 700, fontSize: 'var(--font-size-subtitle)' }}>保存为暗号</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               已从 {selectedMessages.length} 条消息中提取操作步骤
             </div>
@@ -120,7 +120,7 @@ export default function SaveCodewordModal({ selectedMessages, onClose }) {
             onChange={e => setName(e.target.value)}
             placeholder='例如：续命、查订单、发周报...'
             autoFocus
-            style={{ width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 14, padding: '8px 12px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            style={{ width: '100%', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 'var(--font-size-body)', padding: '8px 12px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
             onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleSave() }}
           />
         </div>

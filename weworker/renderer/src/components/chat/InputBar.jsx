@@ -1,4 +1,9 @@
 import routeAliases from '../../config/route-aliases.json'
+import { clipboardMarkdown, createFormattedBody, FormattedBody } from '../../utils/formatted-body.js'
+import { handleChatLinkClick } from '../../utils/chat-links.js'
+import { isFormattedBody, restoreBodyToInput, finishBodySave, hasBodyFormatting } from '../../utils/formatted-body-draft.js'
+import FormattedBodyCard from './FormattedBodyCard.jsx'
+import './formatted-body.css'
 import React, { useRef, useEffect, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { ExclamationCircleOutlined, FolderOpenOutlined, UnlockOutlined } from '@ant-design/icons'
@@ -124,9 +129,37 @@ export default function InputBar({
     setThinkingEffort(next)
     try { window.localStorage.setItem(THINKING_EFFORT_STORAGE_KEY, next) } catch {}
   }, [])
-  const inputDisabled = !!disabled || (!!streaming && !allowQueue) || modelSelectionPending
+  const [bodyPreview, setBodyPreview] = useState(false)
+  const [savingBody, setSavingBody] = useState(false)
+  const [bodyNotice, setBodyNotice] = useState('')
+  const formatMenuRef = useRef(null)
+  const bodyOperation = useRef(0)
+  const bodySavePending = useRef(false)
+  const draftRef = useRef(null)
+  draftRef.current = { target: attachmentTarget, text: text || '', attachments, onTextChange, onAttachmentsChange }
+  const bodyFiles = attachments.filter(isFormattedBody)
+  const ordinaryFiles = attachments.filter(file => !isFormattedBody(file))
+  const bodyEditing = bodyFiles.some(file => typeof file.formattedBody.draft === 'string')
+  const inputDisabled = !!disabled || (!!streaming && !allowQueue) || modelSelectionPending || savingBody
   const isCommandMode = String(text || '').trimStart().startsWith('!')
+  const showFormatMenu = !isCommandMode && hasBodyFormatting(text)
   const [attachmentNotice, setAttachmentNotice] = useState('')
+  useEffect(() => {
+    setBodyPreview(false)
+    setBodyNotice('')
+    setSavingBody(false)
+    bodySavePending.current = false
+    if (formatMenuRef.current) formatMenuRef.current.open = false
+    return () => { bodyOperation.current++ }
+  }, [attachmentTarget])
+  useEffect(() => { setBodyNotice('') }, [text, attachments])
+  useEffect(() => {
+    const dismiss = event => {
+      if (!formatMenuRef.current?.contains(event.target)) formatMenuRef.current?.removeAttribute('open')
+    }
+    document.addEventListener('pointerdown', dismiss)
+    return () => document.removeEventListener('pointerdown', dismiss)
+  }, [])
   const [slashMenuState, setSlashMenuState] = useState(null)
   const [slashMenuPlacement, setSlashMenuPlacement] = useState(null)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
@@ -150,10 +183,15 @@ export default function InputBar({
   useEffect(() => {
     if (!isWelcome || String(text || '').trim() || inputDisabled) return undefined
     const timer = window.setInterval(() => {
-      setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous))
+      setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous, sites))
     }, 4200)
     return () => window.clearInterval(timer)
-  }, [inputDisabled, isWelcome, text])
+  }, [inputDisabled, isWelcome, sites, text])
+
+  useEffect(() => {
+    if (!isWelcome || String(text || '').trim()) return
+    setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous, sites))
+  }, [isWelcome, sites, text])
 
   const webcliSlashCommands = useMemo(() => buildWebcliSlashCommands(sites), [sites])
   const buildBangSlashItems = useCallback((query) => {
@@ -289,7 +327,7 @@ export default function InputBar({
       const contentH = Math.max(ta.scrollHeight, minLineHeight)
       ta.style.height = `${Math.min(contentH, maxTaHeight)}px`
     }
-  }, [text, maxTaHeight, isWelcome])
+  }, [text, maxTaHeight, isWelcome, bodyPreview])
 
   useEffect(() => {
     if (fillSeq > 0 && !ignoreGlobalFill) requestAnimationFrame(() => textareaRef.current?.focus())
@@ -461,23 +499,29 @@ export default function InputBar({
       return
     }
 
+    const html = e.clipboardData?.getData('text/html') || ''
+    const plain = e.clipboardData?.getData('text/plain') || ''
+    let pasted = plain
+    if (!isCommandMode && !plain.trimStart().startsWith('!')) {
+      try { pasted = clipboardMarkdown({ html, text: plain }) }
+      catch { setBodyNotice('此内容的格式转换失败，已粘贴为纯文本，请检查正文。') }
+    }
     const hasClipboardImage = Array.from(e.clipboardData?.items || [])
       .some((item) => String(item?.type || '').startsWith('image/'))
-    if (hasClipboardImage) {
+    if (hasClipboardImage && !pasted.trim()) {
       e.preventDefault()
       await attachClipboardImage()
       return
     }
 
-    const pasted = e.clipboardData?.getData('text/plain') ?? ''
     if (!pasted) {
       if (await attachClipboardImage()) e.preventDefault()
       return
     }
 
     e.preventDefault()
-    const cleaned = pasted.replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '')
-    if (cleaned.length > textAttachmentThreshold) {
+    const cleaned = pasted
+    if (!html && cleaned.length > textAttachmentThreshold) {
       await attachPastedText(cleaned)
       return
     }
@@ -582,7 +626,11 @@ export default function InputBar({
 
   const submit = async () => {
     const trimmed = (text || '').trim()
-    if ((!trimmed && !hasAttachments) || inputDisabled) return
+    if ((!trimmed && !hasAttachments) || inputDisabled || bodyEditing) return
+    if (isCommandMode && bodyFiles.length) {
+      setBodyNotice('发布正文不能随终端命令发送。请改为普通消息，或先将正文移回输入框。')
+      return
+    }
     if (overAttachmentLimit) {
       setAttachmentNotice(`\u5df2\u9009 ${attachments.length}/${attachmentLimit}\uff0c\u8bf7\u5220\u51cf\u5230 ${attachmentLimit} \u4e2a\u4ee5\u5185`)
       return
@@ -611,6 +659,8 @@ export default function InputBar({
       return
     }
     onSend(trimmed, attachments, thinkingEffort, permissionMode)
+    setBodyPreview(false)
+    setBodyNotice('')
     onTextChange('')
     onAttachmentsChange?.([])
     setAttachmentNotice('')
@@ -619,13 +669,64 @@ export default function InputBar({
     textareaRef.current?.focus()
   }
 
+  const attachFormattedBody = async (path = null) => {
+    if (inputDisabled || !onAttachmentsChange || bodySavePending.current) return
+    const draft = draftRef.current
+    const existing = path && draft.attachments.find(file => file.path === path)
+    const markdown = path ? existing?.formattedBody?.draft : draft.text
+    if (typeof markdown !== 'string' || !markdown.trim()) return
+    if (!path && draft.attachments.some(isFormattedBody)) return
+    if (!path && draft.attachments.length >= attachmentLimit) {
+      setBodyNotice(`最多只能添加 ${attachmentLimit} 个文件`)
+      return
+    }
+    const operation = ++bodyOperation.current
+    bodySavePending.current = true
+    const start = { target: attachmentTarget, path, markdown }
+    if (formatMenuRef.current) formatMenuRef.current.open = false
+    setSavingBody(true)
+    setBodyNotice('')
+    try {
+      const body = createFormattedBody(markdown)
+      const saved = await window.electronAPI?.saveFormattedBody?.(body)
+      if (!saved?.path) throw new Error('保存正文失败，请确认客户端已更新')
+      if (bodyOperation.current !== operation) return
+      const current = draftRef.current
+      const next = finishBodySave(start, current, saved, attachmentLimit)
+      if (!next) { setBodyNotice('草稿已变化，正文未替换，请重新保存。'); return }
+      current.onAttachmentsChange(next.attachments)
+      current.onTextChange(next.text)
+      setBodyPreview(false)
+    } catch (error) {
+      if (bodyOperation.current === operation) setBodyNotice(error.message || '保存正文失败，内容已保留')
+    } finally {
+      if (bodyOperation.current === operation) { bodySavePending.current = false; setSavingBody(false) }
+    }
+  }
+
+  const editBody = (file, markdown) => {
+    setBodyNotice('')
+    onAttachmentsChange(attachments.map(item => item.path === file.path
+      ? { ...item, formattedBody: { markdown: item.formattedBody.markdown, ...(markdown === null ? {} : { draft: markdown }) } } : item))
+  }
+  const restoreBody = file => {
+    if (inputDisabled) return
+    onTextChange(restoreBodyToInput(text || '', file))
+    onAttachmentsChange(attachments.filter(item => item.path !== file.path))
+    setBodyNotice('')
+    setBodyPreview(false)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
   const focusTextarea = () => {
     if (inputDisabled) return
     window.electronAPI?.focusWindow?.()
     const focus = () => {
       const textarea = textareaRef.current
       if (!textarea || textarea.disabled) return
-      textarea.focus()
+      // The welcome composer may be sticky; focusing must not reveal its
+      // original position by scrolling the surrounding page backwards.
+      textarea.focus({ preventScroll: true })
     }
     focus()
     requestAnimationFrame(focus)
@@ -718,7 +819,7 @@ export default function InputBar({
         border: 'none',
         outline: 'none',
         color: 'var(--text-primary)',
-        fontSize: 14,
+        fontSize: 'var(--font-size-body)',
         resize: 'none',
         maxHeight: maxTaHeight,
         overflowY: 'auto',
@@ -739,6 +840,7 @@ export default function InputBar({
   const uploadBtn = (
     <button
       type="button"
+      className="chat-input-upload"
       onClick={handleUpload}
       disabled={inputDisabled}
       title="上传文件"
@@ -746,10 +848,7 @@ export default function InputBar({
       style={{
         width: 28,
         height: 28,
-        borderRadius: 7,
         border: 'none',
-        background: 'transparent',
-        color: 'var(--text-secondary)',
         cursor: inputDisabled ? 'not-allowed' : 'pointer',
         display: 'flex',
         alignItems: 'center',
@@ -793,22 +892,22 @@ export default function InputBar({
       onClick={submit}
       title={streaming ? '发送消息，当前回复结束后发送' : '发送消息'}
       aria-label="发送消息"
-      disabled={inputDisabled || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit}
+      disabled={inputDisabled || bodyEditing || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit}
       style={{
         ...buttonBase,
         width: 30,
         height: 30,
         borderRadius: 8,
-        background: (inputDisabled || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit) ? '#8f8f93' : 'var(--text-primary)',
+        background: (inputDisabled || bodyEditing || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit) ? '#8f8f93' : 'var(--text-primary)',
         border: 'none',
         color: 'var(--bg-secondary)',
-        cursor: (inputDisabled || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit) ? 'not-allowed' : 'pointer',
+        cursor: (inputDisabled || bodyEditing || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit) ? 'not-allowed' : 'pointer',
         padding: 0,
         alignSelf: 'center',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: (inputDisabled || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit) ? 0.9 : 1,
+        opacity: (inputDisabled || bodyEditing || (!(text || '').trim() && !hasAttachments) || overAttachmentLimit) ? 0.9 : 1,
         fontSize: 0,
       }}
     >
@@ -834,6 +933,19 @@ export default function InputBar({
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flexWrap: 'wrap' }}>
         {uploadBtn}
+        {showFormatMenu && <details ref={formatMenuRef} className="chat-format-menu" data-chat-input-ignore-focus
+          onKeyDown={event => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}>
+          <summary aria-label="格式" title="预览排版，或将内容用作发布正文">格式</summary>
+          <div className="chat-format-options">
+            <button type="button" disabled={inputDisabled || !String(text || '').trim()} onClick={() => { setBodyPreview(!bodyPreview); formatMenuRef.current.open = false }}>
+              {bodyPreview ? '返回编辑消息' : '预览消息排版'}
+            </button>
+            <button type="button" disabled={inputDisabled || !String(text || '').trim() || !!bodyFiles.length} onClick={() => attachFormattedBody()}>
+              用作发布正文
+              <small>{bodyFiles.length ? '已有正文，请在卡片中编辑' : '保留排版，再填写发布目标'}</small>
+            </button>
+          </div>
+        </details>}
         <div
           className="chat-permission-picker-tooltip"
           title={`权限模式：${CHAT_PERMISSION_MODES.find(mode => mode.value === permissionMode)?.label || '工作区内修改'}`}
@@ -845,12 +957,12 @@ export default function InputBar({
             onChange={handlePermissionModeChange}
             renderOptionPrefix={option => option?.icon ? React.createElement(option.icon) : null}
             disabled={!!disabled}
-            minMenuWidth={156}
+            minMenuWidth={180}
             placement="top"
             className="chat-permission-picker"
           />
         </div>
-        <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />
+        {!isWelcome && <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />}
       </div>
       <div className="chat-input-toolbar-actions">
         <ModelSelector
@@ -993,20 +1105,30 @@ export default function InputBar({
         style={innerStyle}
         onPointerDownCapture={handleInputSurfacePointerDown}
       >
-        {hasAttachments && (
+        {ordinaryFiles.length > 0 && (
           <div style={{ padding: '12px 14px 0' }}>
             <AttachmentTray
-              attachments={attachments}
+              attachments={ordinaryFiles}
               maxAttachments={attachmentLimit}
               notice={attachmentNotice}
               disabled={inputDisabled}
-              onRemove={(idx) => onAttachmentsChange?.(attachments.filter((_, i) => i !== idx))}
+              onRemove={(idx) => { setBodyNotice(''); onAttachmentsChange?.(attachments.filter(file => file !== ordinaryFiles[idx])) }}
             />
           </div>
         )}
-        <div>
-          {textareaEl}
-        </div>
+        {bodyFiles.map(file => <FormattedBodyCard key={`${attachmentTarget}:${file.path}`} file={file} disabled={inputDisabled}
+          onEdit={markdown => editBody(file, markdown)} onCancel={() => editBody(file, null)}
+          onSave={() => attachFormattedBody(file.path)} onRestore={() => restoreBody(file)} />)}
+        <div style={{ display: bodyPreview && !isCommandMode && text ? 'none' : undefined }}>{textareaEl}</div>
+        {bodyPreview && !isCommandMode && !!text && (
+          <div data-chat-input-ignore-focus>
+          <button className="formatted-back-edit" type="button" onClick={() => { setBodyPreview(false); requestAnimationFrame(() => textareaRef.current?.focus()) }}>返回编辑消息</button>
+          <div className="formatted-body formatted-body-preview" aria-label="消息排版预览">
+            <FormattedBody markdown={text} onLinkClick={handleChatLinkClick} />
+          </div>
+          </div>
+        )}
+        {bodyNotice && <div className="formatted-body-notice" role="status">{bodyNotice}</div>}
         {toolbarEl}
       </div>
       {renderSlashMenu()}

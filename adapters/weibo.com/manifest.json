@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "weibo.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "微博：热搜、搜索、微博/评论读取、收藏列表、发布和登录检查",
   "homepage_url": "https://weibo.com/",
   "match": [

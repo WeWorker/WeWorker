@@ -1,14 +1,17 @@
 import React from 'react'
-import { formatDuration } from '../../utils/format-duration.js'
+import { formatTimingDuration, formatTimingTotal } from '../../utils/format-timing-duration.js'
 
-export default function ToolTimingBadge({ thinkMs, execMs }) {
+export default function ToolTimingBadge({ thinkMs, execMs, showTotal = false }) {
   const parts = []
 
-  const thinkText = formatDuration(thinkMs)
-  if (thinkText) parts.push(`think ${thinkText}`)
+  const thinkText = formatTimingDuration(thinkMs)
+  if (thinkText) parts.push(`模型思考 ${thinkText}`)
 
-  const execText = formatDuration(execMs)
-  if (execText) parts.push(`exec ${execText}`)
+  const execText = formatTimingDuration(execMs)
+  if (execText) parts.push(`执行 ${execText}`)
+
+  const totalText = showTotal ? formatTimingTotal(thinkMs, execMs) : ''
+  if (totalText) parts.push(`总计 ${totalText}`)
 
   if (!parts.length) return null
 

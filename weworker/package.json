@@ -72,8 +72,13 @@
         "from": "build/bridge-dist/",
         "to": "bridge",
         "filter": [
-          "bridge.cjs"
+          "**/*"
         ]
+      },
+      {
+        "from": "host-cli-assets/",
+        "to": "host-cli-assets",
+        "filter": ["**/*", "!**/official/**", "!**/.npmrc"]
       },
       {
         "from": "build/webcli-dist/",

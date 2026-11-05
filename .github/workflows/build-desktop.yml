@@ -26,6 +26,7 @@ jobs:
     if: github.event_name == 'pull_request' || inputs.target == 'win'
     name: Build Windows x64
     uses: ./.github/workflows/common-build.yml
+    secrets: inherit
     with:
       artifact_prefix: test-build
       build_matrix: >-
@@ -35,6 +36,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'mac'
     name: Build macOS x64
     uses: ./.github/workflows/common-build.yml
+    secrets: inherit
     with:
       artifact_prefix: test-build
       build_matrix: >-
@@ -44,6 +46,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'mac-arm'
     name: Build macOS arm64
     uses: ./.github/workflows/common-build.yml
+    secrets: inherit
     with:
       artifact_prefix: test-build
       build_matrix: >-
@@ -53,6 +56,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.target == 'all'
     name: Build all desktop platforms
     uses: ./.github/workflows/common-build.yml
+    secrets: inherit
     with:
       artifact_prefix: test-build
       build_matrix: >-

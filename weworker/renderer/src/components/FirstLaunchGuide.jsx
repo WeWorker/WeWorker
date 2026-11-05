@@ -24,7 +24,7 @@ export default function FirstLaunchGuide({ onClose }) {
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
             <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 16 }}>W</div>
-            <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--text-primary)' }}>欢迎使用 WeWorker</span>
+            <span style={{ fontWeight: 700, fontSize: 'var(--font-size-title)', color: 'var(--text-primary)' }}>欢迎使用 WeWorker</span>
             <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>v{currentVersion.version}</span>
           </div>
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>

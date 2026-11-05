@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "dianping.com",
   "version": "0.1.0",
+  "enabled": true,
   "description": "大众点评店铺搜索、详情和登录",
   "match": [
     "www.dianping.com"

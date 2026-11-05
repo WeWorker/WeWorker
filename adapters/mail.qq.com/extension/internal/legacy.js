@@ -10,18 +10,297 @@
 /**
  * QQ邮箱适配脚本
  *
- * 目标站点：https://mail.qq.com/
+ * 目标站点：https://wx.mail.qq.com/
+ * 旧版经典页 https://mail.qq.com/cgi-bin/frame_html 仍保留兼容。
  *
  * 注意：运行在 isolated world，只能操作 DOM，不能访问页面 JS 变量。
- * 经典版主内容在 #mainFrame 内，工具函数需通过 getMainDocument() 访问。
+ * 新版是 wx.mail.qq.com/home/index 单页；经典版主内容在 #mainFrame 内。
  *
- * 验证版本：QQ邮箱网页版 2026年3月
+ * 验证版本：QQ邮箱网页版 2026年11月（wx.mail.qq.com）
  * 维护者：WeWorker 项目
  */
 
 // ─── 配置 ───────────────────────────────────────────────────────────────────
 
-const HOME_URL = "https://mail.qq.com/";
+const HOME_URL = "https://wx.mail.qq.com/";
+const CLASSIC_HOME_URL = "https://mail.qq.com/";
+
+function isQqMailHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return host === "wx.mail.qq.com" || host === "mail.qq.com" || host.endsWith(".mail.qq.com");
+}
+
+/** 新版网页邮箱（wx.mail.qq.com/home/index），与经典版 iframe 页面区分。 */
+function isModernQqMail() {
+  return !!document.querySelector(".xmail-page-root, .mail-list-page, .mail-list-page-reader");
+}
+
+function qqMailInboxUrl() {
+  const url = new URL(HOME_URL);
+  url.pathname = "/home/index";
+  const sid = new URLSearchParams(window.location.search).get("sid") || "";
+  if (sid) url.searchParams.set("sid", sid);
+  url.hash = "/list/1";
+  return url.toString();
+}
+
+function textOf(el) {
+  return (el?.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+/** 新版列表常只显示「10:24」「今天」「Yesterday」，月份筛选需要落成时间戳。 */
+function modernListTimestamp(dateText, groupText) {
+  const now = new Date();
+  const source = `${dateText || ""} ${groupText || ""}`;
+  if (/今天|Today/i.test(source) || /^\d{1,2}:\d{2}$/.test(String(dateText || "").trim())) {
+    return now.getTime();
+  }
+  if (/昨天|Yesterday/i.test(source)) {
+    return now.getTime() - 24 * 60 * 60 * 1000;
+  }
+  return null;
+}
+
+function parseModernEmailList() {
+  const emails = [];
+  const seen = new Set();
+  const items = document.querySelectorAll(".mail-list-page-item, .mail-list-search-item");
+  for (const item of items) {
+    let groupText = "";
+    let prev = item.previousElementSibling;
+    while (prev) {
+      if (prev.classList?.contains("mail-list-page-group-title")) {
+        groupText = textOf(prev);
+        break;
+      }
+      prev = prev.previousElementSibling;
+    }
+    const subject = textOf(item.querySelector(".mail-text")) || textOf(item.querySelector(".mail-subject"));
+    const sender = textOf(item.querySelector(".cmp-account-nick")) || textOf(item.querySelector(".mail-sender"));
+    const date = textOf(item.querySelector(".mail-time"));
+    const id = item.getAttribute("data-mailid") || subject.slice(0, 50);
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    if (!subject && !id) continue;
+    emails.push({
+      id,
+      sender,
+      subject,
+      date: groupText ? `${groupText} ${date}`.trim() : date,
+      timestampMs: modernListTimestamp(date, groupText),
+      previewText: textOf(item.querySelector(".mail-digest")),
+      isUnread: !!item.querySelector(".mail-unread"),
+      hasAttachment: !!item.querySelector(".mail-attach"),
+      summary: textOf(item.querySelector(".mail-digest")),
+    });
+  }
+  return emails;
+}
+
+function parseModernEmailDetail() {
+  const subject = textOf(document.querySelector(".mail-detail-subject .mail-subject-text, .mail-subject-text"));
+  if (!subject) return { error: "邮件详情区域未找到" };
+  const fromName = textOf(document.querySelector(".mail-detail-basic .cmp-account-nick"));
+  const fromEmail = textOf(document.querySelector(".mail-detail-basic .cmp-account-email"));
+  const attachments = [];
+  for (const card of document.querySelectorAll(".mail-detail-attach-card")) {
+    const name = `${textOf(card.querySelector(".attach-name"))}${textOf(card.querySelector(".attach-suffix"))}`.trim();
+    const size = textOf(card.querySelector(".attach-size-num"));
+    if (name) attachments.push({ name, size });
+  }
+  return {
+    subject,
+    from: fromEmail ? `${fromName} ${fromEmail}`.trim() : fromName,
+    to: "",
+    date: textOf(document.querySelector(".mail-detail-basic .time-text")),
+    body: textOf(document.querySelector(".mail-detail-content")).substring(0, 5000),
+    attachments,
+    hasAttachment: attachments.length > 0,
+  };
+}
+
+function collectModernAttachmentCards() {
+  return [...document.querySelectorAll(".mail-detail-attach-card")].map((card) => {
+    const name = `${textOf(card.querySelector(".attach-name"))}${textOf(card.querySelector(".attach-suffix"))}`.trim();
+    const lastDot = name.lastIndexOf(".");
+    return {
+      name,
+      baseName: lastDot > 0 ? name.slice(0, lastDot) : name,
+      ext: lastDot > 0 ? name.slice(lastDot).toLowerCase() : "",
+      card,
+    };
+  }).filter((att) => att.name);
+}
+
+function clickModernDownload(card) {
+  card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  const buttons = [...card.querySelectorAll(".desc-btn")];
+  const labeled = buttons.find((btn) => /下载|download/i.test(`${textOf(btn)} ${btn.getAttribute("title") || ""}`));
+  (labeled || buttons[0] || card).click();
+}
+
+/**
+ * 新版附件卡片下载。没有卡片时返回 null，交给经典版或正文链接逻辑。
+ * @param {"all"|"smart"|string} attachmentName
+ */
+async function downloadModernAttachmentCards(attachmentName) {
+  const attachments = collectModernAttachmentCards();
+  if (!attachments.length) return null;
+
+  const pickPreferred = (group) => {
+    const pdf = group.find((att) => att.ext === ".pdf");
+    if (pdf) return pdf;
+    const archiveExts = [".zip", ".rar", ".7z", ".tar", ".gz"];
+    return group.find((att) => archiveExts.includes(att.ext)) || group[0];
+  };
+
+  if (attachmentName !== "all" && attachmentName !== "smart") {
+    const found = attachments.find((att) => att.name === attachmentName);
+    if (!found) {
+      return {
+        error: "Attachment not found",
+        attachmentName,
+        availableAttachments: attachments.map((att) => att.name),
+        message: `未找到名为"${attachmentName}"的附件`,
+      };
+    }
+    clickModernDownload(found.card);
+    return {
+      status: "downloading",
+      attachmentName,
+      message: `已触发下载附件: ${attachmentName}`,
+    };
+  }
+
+  const groups = new Map();
+  for (const att of attachments) {
+    if (!groups.has(att.baseName)) groups.set(att.baseName, []);
+    groups.get(att.baseName).push(att);
+  }
+  const selected = [...groups.values()].map(pickPreferred);
+  if (attachmentName === "smart") {
+    const pdf = selected.find((att) => att.ext === ".pdf");
+    const chosen = pdf || selected[0];
+    clickModernDownload(chosen.card);
+    return {
+      status: "downloading",
+      type: chosen.ext === ".pdf" ? "pdf" : ".zip.rar.7z".includes(chosen.ext) ? "archive" : "other",
+      filename: chosen.name,
+      message: `已触发下载: ${chosen.name}`,
+    };
+  }
+
+  const downloaded = [];
+  for (const att of selected) {
+    clickModernDownload(att.card);
+    downloaded.push(att.name);
+    await sleep(1000);
+  }
+  const skippedCount = attachments.length - downloaded.length;
+  return {
+    status: "downloading",
+    attachmentName: "all",
+    message: `已触发下载 ${downloaded.length} 个附件${skippedCount > 0 ? `（跳过了 ${skippedCount} 个重复格式的文件，优先下载PDF）` : ""}。提示：如浏览器询问是否允许多个下载，请点击"允许"并勾选"记住选择"`,
+    downloaded,
+    totalAttachments: attachments.length,
+    skipped: skippedCount,
+  };
+}
+
+async function navigateModernInbox() {
+  const currentUrl = window.location.href;
+  const inbox = document.querySelector('[data-sidebar-dir-id="1"]');
+  if (inbox) {
+    inbox.click();
+    await sleep(1500);
+    return {
+      status: "success",
+      message: "已返回收件箱首页",
+      previousUrl: currentUrl,
+      currentUrl: window.location.href,
+    };
+  }
+  if ((window.location.hash || "").startsWith("#/list/1") && document.querySelector(".mail-list-page")) {
+    return {
+      status: "success",
+      message: "当前已在收件箱",
+      previousUrl: currentUrl,
+      currentUrl: window.location.href,
+    };
+  }
+  return null;
+}
+
+async function searchModernEmails(keyword) {
+  const q = keyword != null && String(keyword).trim() !== "" ? String(keyword).trim() : "发票";
+  const wrap = document.querySelector(".mail-lazy-search-wrap");
+  if (!wrap) {
+    return { error: "search_input_not_found", message: "未找到搜索框，请确保在QQ邮箱页面", keyword: q };
+  }
+  wrap.click();
+  let input = null;
+  try {
+    input = await waitForElement("input.filter-input, .mail-search-keyword-wrap input", 3000, document);
+  } catch (e) {}
+  if (!input) {
+    return { error: "search_input_not_found", message: "未找到搜索框，请确保在QQ邮箱页面", keyword: q };
+  }
+  input.focus();
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  if (setter) setter.call(input, q);
+  else input.value = q;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await sleep(400);
+  const suggestion = [...document.querySelectorAll(".mail-lazy-search-wrap li, [class*='suggest'] li, [class*='search'] [role='option']")]
+    .find((option) => {
+      const text = textOf(option);
+      return text.includes(q) && /邮件|mail/i.test(text);
+    });
+  if (suggestion) {
+    suggestion.click();
+  } else {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+  }
+  await sleep(2500);
+  const emails = parseModernEmailList();
+  return { keyword: q, count: emails.length, emails };
+}
+
+async function openModernEmail(emailId) {
+  const items = document.querySelectorAll(".mail-list-page-item, .mail-list-search-item");
+  let target = null;
+  let subjectInList = "";
+  for (const item of items) {
+    const id = item.getAttribute("data-mailid") || "";
+    const subject = textOf(item.querySelector(".mail-text")) || textOf(item.querySelector(".mail-subject"));
+    if (id === emailId || (subject && emailId && subject.includes(emailId))) {
+      target = item;
+      subjectInList = subject;
+      break;
+    }
+  }
+  if (!target) {
+    return { error: "Email not found", emailId, message: "指定的邮件不存在，可能已被删除或 ID 不正确" };
+  }
+  (target.querySelector(".mail-subject") || target).click();
+  let detail = null;
+  let attempts = 0;
+  while (attempts < 15) {
+    await sleep(500);
+    attempts++;
+    const temp = parseModernEmailDetail();
+    if (!temp.error && temp.subject && (!subjectInList || temp.subject.includes(subjectInList) || subjectInList.includes(temp.subject))) {
+      detail = temp;
+      break;
+    }
+  }
+  if (!detail) detail = parseModernEmailDetail();
+  if (detail.error) {
+    return { status: "clicked", emailId, warning: detail.error, message: "邮件已点击，但无法解析详情内容" };
+  }
+  return { status: "opened", emailId, detail, loadTime: `${attempts * 500}ms` };
+}
 
 /** 登录后页面特征（顶栏 + 左侧文件夹 + mainFrame） */
 const LOGIN_SELECTORS = [
@@ -123,6 +402,12 @@ function isElementVisible(el) {
 }
 
 function detectLoggedIn() {
+  if (isModernQqMail()) {
+    return { logged_in: true, matched_selector: ".xmail-page-root" };
+  }
+  if (isQqMailHost(window.location.hostname) && /登录|Log in/i.test(document.title || "")) {
+    return { logged_in: false, matched_selector: null };
+  }
   if (document.querySelector("#login, #qlogin")) {
     return { logged_in: false, matched_selector: null };
   }
@@ -175,6 +460,7 @@ function getMainDocument() {
  * - 附件：.cij.Ju 类（有 Ju 表示有附件）
  */
 function parseEmailList() {
+  if (isModernQqMail()) return parseModernEmailList();
   const emails = [];
   const { doc } = getMainDocument();
   if (!doc || !doc.body) return emails;
@@ -336,6 +622,7 @@ function parseEmailListLegacy(doc) {
  * @returns {Promise<Object>} 搜索结果
  */
 async function searchEmails(keyword) {
+  if (isModernQqMail()) return searchModernEmails(keyword);
   const q = (keyword != null && String(keyword).trim() !== "")
     ? String(keyword).trim()
     : "发票";
@@ -429,6 +716,14 @@ async function searchEmails(keyword) {
  */
 async function getUnreadEmails(limit = 20) {
   try {
+    if (isModernQqMail()) {
+      await navigateModernInbox();
+      const unread = parseModernEmailList()
+        .filter((email) => email.isUnread)
+        .slice(0, limit)
+        .map(({ id, sender, subject, date }) => ({ id, sender, subject, date }));
+      return { count: unread.length, emails: unread };
+    }
     const { doc } = getMainDocument();
     const inboxLink =
       doc.querySelector(
@@ -470,6 +765,7 @@ async function getUnreadEmails(limit = 20) {
  */
 async function openEmail(emailId) {
   try {
+    if (isModernQqMail()) return openModernEmail(emailId);
     const { doc } = getMainDocument();
     let mailElement = null;
     let subjectInList = "";
@@ -599,9 +895,11 @@ async function openEmail(emailId) {
  */
 async function downloadAttachment(attachmentName) {
   try {
+    const modernResult = await downloadModernAttachmentCards(attachmentName);
+    if (modernResult) return modernResult;
     const { doc } = getMainDocument();
     const readArea = doc.querySelector(
-      '[class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
+      '.mail-detail-content, [class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
     );
 
     // 尝试多种方式查找附件区域
@@ -856,9 +1154,12 @@ async function downloadAttachment(attachmentName) {
  */
 function parseEmailDetail() {
   try {
+    if (document.querySelector(".mail-detail-subject, .mail-list-page-reader")) {
+      return parseModernEmailDetail();
+    }
     const { doc } = getMainDocument();
     const readArea = doc.querySelector(
-      '[class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
+      '.mail-detail-content, [class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
     );
     const attArea =
       doc.querySelector("#attachment") ||
@@ -1131,6 +1432,20 @@ function isEmailOnDay(email, day) {
  */
 async function goBackToList() {
   try {
+    if (isModernQqMail()) {
+      const backBtn = [...document.querySelectorAll(".mail-list-page-toolbar .xmail-ui-btn")]
+        .find((el) => /^(返回|Back)$/i.test(textOf(el)));
+      if (backBtn) {
+        backBtn.click();
+        await sleep(1500);
+        return { success: true };
+      }
+      if (document.querySelector(".mail-list-page-item, .mail-list-search-item")) {
+        return { success: true };
+      }
+      const modern = await navigateModernInbox();
+      if (modern) return { success: true };
+    }
     const { doc } = getMainDocument();
     const backSelectors = [
       '[title="返回"]',
@@ -1165,9 +1480,11 @@ async function goBackToList() {
  */
 async function smartDownloadAttachment(_detail) {
   try {
+    const modernResult = await downloadModernAttachmentCards("smart");
+    if (modernResult) return modernResult;
     const { doc } = getMainDocument();
     const readArea = doc.querySelector(
-      '[class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
+      '.mail-detail-content, [class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
     );
     const attArea =
       doc.querySelector("#attachment") ||
@@ -1656,6 +1973,19 @@ async function downloadInvoicesByInvoice(invoiceKeyword, month, day) {
  */
 async function navigateToInbox() {
   try {
+    if (isModernQqMail()) {
+      const modern = await navigateModernInbox();
+      if (modern) return modern;
+      const previousUrl = window.location.href;
+      window.location.href = qqMailInboxUrl();
+      await sleep(2000);
+      return {
+        status: "success",
+        message: "已打开QQ邮箱收件箱",
+        previousUrl,
+        currentUrl: window.location.href,
+      };
+    }
     const currentUrl = window.location.href;
     const { doc } = getMainDocument();
 
@@ -1781,10 +2111,11 @@ async function navigateToInbox() {
     }
 
     // 最后的备选方案：刷新页面
-    window.location.href =
-      "https://mail.qq.com/cgi-bin/frame_html?sid=" +
-      (new URLSearchParams(window.location.search).get("sid") || "") +
-      "&r=undefined";
+    window.location.href = document.querySelector("#mainFrame")
+      ? CLASSIC_HOME_URL + "cgi-bin/frame_html?sid=" +
+        (new URLSearchParams(window.location.search).get("sid") || "") +
+        "&r=undefined"
+      : qqMailInboxUrl();
     await sleep(2000);
     return {
       status: "success",
@@ -1810,16 +2141,19 @@ function getCurrentPageInfo() {
     const title = document.title;
     const { doc, inFrame } = getMainDocument();
 
+    const hash = window.location.hash || "";
     const isInbox =
-      url.includes("mail.qq.com") &&
+      isQqMailHost(window.location.hostname) &&
       !url.includes("readmail") &&
-      (url.includes("inbox") || url.includes("frame"));
-    const isEmailDetail = !!doc.querySelector(
-      '[class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
+      (hash.startsWith("#/list") || url.includes("inbox") || url.includes("frame") || !!document.querySelector(".mail-list-page"));
+    const isEmailDetail = !!(
+      textOf(doc.querySelector(".mail-subject-text")) ||
+      doc.querySelector('[class*="readmail"], #readmail, #mainContent, .readmail_content') ||
+      (!isModernQqMail() && doc.querySelector("[class*='mail-detail']"))
     );
-    const isComposing = !!doc.querySelector(
-      '[class*="compose"], [title="写信"]'
-    );
+    const isComposing = isModernQqMail()
+      ? hash.includes("/compose")
+      : !!doc.querySelector('[class*="compose"], [title="写信"]');
 
     let emailListInfo = null;
     if (!isEmailDetail && !isComposing) {
@@ -1833,8 +2167,16 @@ function getCurrentPageInfo() {
 
     let emailDetailInfo = null;
     if (isEmailDetail) {
+      if (isModernQqMail()) {
+        const detail = parseModernEmailDetail();
+        emailDetailInfo = {
+          subject: detail.subject || "",
+          hasAttachments: !!detail.hasAttachment,
+          attachmentCount: detail.attachments?.length || 0,
+        };
+      } else {
       const readArea = doc.querySelector(
-        '[class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
+        '.mail-detail-content, [class*="readmail"], [class*="mail-detail"], #readmail, #mainContent, .readmail_content'
       );
       const subjectEl = readArea?.querySelector(
         "h1, [class*='subject'], .title"
@@ -1850,6 +2192,7 @@ function getCurrentPageInfo() {
         hasAttachments: attachments.length > 0,
         attachmentCount: attachments.length,
       };
+      }
     }
 
     return {
@@ -1877,7 +2220,7 @@ function getCurrentPageInfo() {
 
 window.__webmcpRegister({
   name: "qq-mail-adapter",
-  match: ["mail.qq.com"],
+  match: ["wx.mail.qq.com", "mail.qq.com"],
   tools: [
     {
       name: "mail.qq.com.check_login_status",
@@ -1892,7 +2235,7 @@ window.__webmcpRegister({
           matched_selector: login.matched_selector,
           hint: login.logged_in
             ? "QQ邮箱已登录"
-            : "QQ邮箱可能未登录或页面未加载完成，请确认已打开 mail.qq.com 并完成登录",
+            : "QQ邮箱可能未登录或页面未加载完成，请确认已打开 QQ邮箱并完成登录",
         };
       }),
     },

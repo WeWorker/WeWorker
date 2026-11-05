@@ -37,7 +37,7 @@ import { codeBadgeStyle, fieldStyle, hintStyle, labelStyle, monoStyle, sectionSt
 const REFRESH_MS = 4000
 
 const nameInputStyle = {
-  fontSize: 16,
+  fontSize: 'var(--font-size-body)',
   fontWeight: 600,
   color: 'var(--text-primary)',
   fontFamily: 'inherit',

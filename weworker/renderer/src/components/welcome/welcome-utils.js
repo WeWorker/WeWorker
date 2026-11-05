@@ -90,6 +90,13 @@ export function userPromptTemplate(scenario) {
   return scenario.prompts?.find((prompt) => prompt?.text?.trim())?.text || ''
 }
 
+export function filterFeaturedSites(rows, query, displayName = (site) => site.name) {
+  const normalizedQuery = String(query || '').trim().toLowerCase()
+  if (!normalizedQuery) return rows
+  return rows.filter(({ site }) => [displayName(site), site.name, site.id]
+    .some((value) => String(value || '').toLowerCase().includes(normalizedQuery)))
+}
+
 export function filterScenarios(scenarios, query) {
   const normalizedQuery = String(query || '').trim().toLowerCase()
   if (!normalizedQuery) return scenarios

@@ -20,7 +20,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
  * Fake extension + browser. `script` is a list of auth_check states returned in order
  * (the last one repeats): { cookies, open, onLoginPage, url }.
  */
-function setup({ script = [{ cookies: false }], mode = 'dedicated', check = async () => null, vault = null, autofill, graceMs = 0 } = {}) {
+function setup({ script = [{ cookies: false }], mode = 'dedicated', check = async () => null, vault = null, autofill, graceMs = 0, prepareQr } = {}) {
   const events = []
   const calls = []
   let step = 0
@@ -42,6 +42,10 @@ function setup({ script = [{ cookies: false }], mode = 'dedicated', check = asyn
         cookies: state.cookies ?? null, ...(state.fingerprint ? { fingerprint: state.fingerprint } : {}),
         loginTab: { open: state.open !== false, onLoginPage: state.onLoginPage !== false, url: state.url || 'https://passport.example.com/login' },
       }
+    }
+    if (type === 'auth_prepare_qr') {
+      if (!prepareQr) throw new Error('unexpected ' + type)
+      return prepareQr(payload)
     }
     throw new Error('unexpected ' + type)
   })
@@ -70,11 +74,29 @@ describe('login flow for a failed command', () => {
     expect(retry).toHaveBeenCalledTimes(1)
     expect(browser.showPage).not.toHaveBeenCalled()
     expect(browser.hideWindows).not.toHaveBeenCalled()
-    expect(statuses()).toEqual(['login_required', 'waiting_user', 'logged_in'])
+    expect(statuses()).toEqual(['login_required', 'waiting_user', 'waiting_user', 'logged_in'])
     expect(calls[0]).toEqual(['auth_open_login', { site: manifest.name }])
     expect((await coordinator.status({ sites: [manifest, bare] })).sites).toEqual([
       expect.objectContaining({ site: manifest.name, name: '示例站', state: 'logged_in', flow: null }),
     ])
+  })
+
+  it('announces the login page before the QR code is ready and updates the same card afterwards', async () => {
+    const { coordinator, events } = setup({
+      script: [{ cookies: false }],
+      prepareQr: async () => {
+        await tick()
+        return { available: true, method: 'heuristic', imageDataUrl: 'data:image/png;base64,AAAA' }
+      },
+    })
+    await expect(coordinator.handleFailure(authError(), {
+      site: manifest.name, command: { id: 'list', safety: 'read' }, retry: vi.fn(), loginWaitMs: 20,
+    })).rejects.toMatchObject({ code: 'AUTH_REQUIRED' })
+
+    const waiting = events.filter((event) => event.status === 'waiting_user')
+    expect(waiting.length).toBeGreaterThanOrEqual(2)
+    expect(waiting[0].qr).toBeUndefined()
+    expect(waiting.at(-1).qr).toMatchObject({ available: true })
   })
 
   it('continues silently when the session is still valid (no browser shown)', async () => {
@@ -186,14 +208,14 @@ describe('auto-login', () => {
     const autofill = vi.fn(async () => ({ ok: false, reason: 'no_password_field' }))
     const first = setup({ vault, autofill, script: [{ cookies: false }, { cookies: false }, { cookies: true, onLoginPage: false }] })
     await first.coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry: async () => 'ok' })
-    expect(first.statuses()).toEqual(['login_required', 'autologin_started', 'autologin_failed', 'waiting_user', 'logged_in'])
+    expect(first.statuses()).toEqual(['login_required', 'autologin_started', 'autologin_failed', 'waiting_user', 'waiting_user', 'logged_in'])
     expect(first.events[2].message).toMatch(/扫码或短信验证码/)
     expect(first.browser.showPage).not.toHaveBeenCalled()
 
     const again = setup({ vault, autofill, script: [{ cookies: false }, { cookies: true, onLoginPage: false }] })
     await again.coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry: async () => 'ok' })
     expect(autofill).toHaveBeenCalledTimes(1)
-    expect(again.statuses()).toEqual(['login_required', 'waiting_user', 'logged_in'])
+    expect(again.statuses()).toEqual(['login_required', 'waiting_user', 'waiting_user', 'logged_in'])
   })
 
   it('offers auto-login after the second manual login', async () => {
@@ -244,6 +266,6 @@ describe('stale session cookies', () => {
     ] })
     const retry = vi.fn(async () => 'ok')
     await expect(coordinator.handleFailure(authError(), { site: manifest.name, command: { id: 'list', safety: 'read' }, retry, loginWaitMs: 5_000 })).resolves.toBe('ok')
-    expect(statuses()).toEqual(['login_required', 'waiting_user', 'logged_in'])
+    expect(statuses()).toEqual(['login_required', 'waiting_user', 'waiting_user', 'logged_in'])
   })
 })

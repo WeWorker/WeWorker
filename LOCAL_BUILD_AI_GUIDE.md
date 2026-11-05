@@ -131,6 +131,16 @@ https://npmmirror.com/mirrors/electron/...
 npm run build:win
 ```
 
+**指标上报（可选）**：构建产物的指标上报由三个环境变量注入（`model.json` 不携带任何 metrics 配置；未设置时产物保持关闭）。需要开启上报时在构建前设置：
+
+```powershell
+$env:WEBCLI_METRICS_UPLOAD = "on"
+$env:WEBCLI_METRICS_ENDPOINT = "<指标批量上报地址，路径必须是 /v1/metrics/batch>"
+$env:WEBCLI_METRICS_CLIENT_TOKEN = "<不少于 32 字符的客户端令牌>"
+```
+
+GitHub Actions 构建从仓库 Secrets 读取同名值（`WEWORKER_METRICS_UPLOAD` / `WEWORKER_METRICS_ENDPOINT` / `WEWORKER_METRICS_CLIENT_TOKEN`），未配置 Secrets 的 fork 构建自动保持关闭。本地 `npm run dev` 走同一配置链，设置相同变量即可让本地运行的客户端开启上报。
+
 完整流程依次包括：
 
 1. `prepare-build`：验证 `build-profile.json`、筛选适配器、生成构建配置、同步版本号。

@@ -41,7 +41,7 @@ test('client exploration exposes draft generation and reviewed local installatio
 test('API exploration is distinct from the DOM exploration agent in user-facing copy', () => {
   assert.doesNotMatch(sidebarSource, />API 探索</)
   assert.doesNotMatch(sidebarSource, />网站探索agent/)
-  assert.match(railSource, /label="API 探索"/)
+  assert.doesNotMatch(railSource, /label="API 探索"/)
   assert.match(railSource, /label="网站探索agent"/)
   assert.match(componentSource, /网站 API 探索/)
   assert.match(componentSource, /开始 API 探索/)

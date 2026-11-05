@@ -153,15 +153,17 @@ export function createConfiguredQueryRoute(
       return false
     }
 
-    const execMs = (deps.now?.() ?? Date.now()) - start
-    const totalMs = (deps.now?.() ?? Date.now()) - context.chatStartTime
+    const dispatchMs = (deps.now?.() ?? Date.now()) - start
     const text = renderGeneric(raw, route.title)
+    const totalMs = (deps.now?.() ?? Date.now()) - context.chatStartTime
+    const execMs = Math.min(totalMs, Math.max(0, dispatchMs))
+    const llmMs = totalMs - execMs
 
     context.send({ type: 'turn_start', turnId: context.turnId, workId: context.workId })
     context.send({ type: 'text_delta', content: text })
-    context.send({ type: 'turn_end', turnId: context.turnId, workId: context.workId, totalMs, llmMs: 0, execMs, steps: 1 })
+    context.send({ type: 'turn_end', turnId: context.turnId, workId: context.workId, totalMs, llmMs, execMs, steps: 1 })
 
-    const timing = { totalMs, llmMs: 0, execMs, steps: 1 }
+    const timing = { totalMs, llmMs, execMs, steps: 1 }
     if (deps.persistAssistantMessage) {
       deps.persistAssistantMessage(context.workId, text, timing)
     } else {

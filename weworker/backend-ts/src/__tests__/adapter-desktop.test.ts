@@ -52,6 +52,22 @@ beforeEach(() => {
 afterEach(() => { clearAdapterCache(); vi.unstubAllEnvs(); fs.rmSync(root, { recursive: true, force: true }) })
 
 describe('desktop Adapter catalog and Skill continuity', () => {
+  it('preserves the optional client enablement flag from Adapter manifests', () => {
+    const pkg = files()
+    const manifest = JSON.parse(pkg.get('manifest.json')!)
+    manifest.enabled = false
+    pkg.set('manifest.json', JSON.stringify(manifest))
+    installAdapter({ files: pkg, origin: { kind: 'local' } })
+    expect(parseAllAdapters().get('demo')?.clientEnabled).toBe(false)
+
+    const enabled = files('1.1.0')
+    const enabledManifest = JSON.parse(enabled.get('manifest.json')!)
+    enabledManifest.enabled = true
+    enabled.set('manifest.json', JSON.stringify(enabledManifest))
+    installAdapter({ files: enabled, origin: { kind: 'local' } })
+    expect(parseAllAdapters().get('demo')?.clientEnabled).toBe(true)
+  })
+
   it('uses the selected package icon through updates, disable and removal', () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><rect width="80" height="80" fill="#2563eb"/></svg>'
     const pkg = files()

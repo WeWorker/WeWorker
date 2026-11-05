@@ -2,7 +2,7 @@
   width: fit-content;
   margin: 10px 0 14px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-body);
   font-weight: 500;
   line-height: 24px;
 }
@@ -36,7 +36,7 @@ html.dark .working-indicator { --working-highlight: #ffffff; }
   78%, 100% { background-position: 0% 0; }
 }
 
-@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+@media (forced-colors: active) {
   .working-indicator__label {
     animation: none;
     background: none;

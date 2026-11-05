@@ -301,8 +301,11 @@ export function buildPlanMatcher(
       for (const plan of compiled) {
         if (plan.entry.negative.some((re) => re.test(trimmed))) continue
         for (const re of plan.entry.positive) {
+          re.lastIndex = 0
           const match = re.exec(trimmed)
-          if (!match) continue
+          // A plan takes over the entire request. Never extract slots from a side clause
+          // (including a zero-width lookahead) and silently discard the remaining intent.
+          if (!match || match.index !== 0 || match[0].length !== trimmed.length) continue
           const input: PlanInput = {}
           for (const [key, value] of Object.entries(match.groups ?? {})) {
             if (value !== undefined) input[key] = value

@@ -11,10 +11,10 @@ export const listColumnStyle = {
 }
 export const contentStyle = { flex: 1, minWidth: 0, overflowY: 'auto', padding: '24px 32px' }
 export const sectionStyle = { background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16 }
-export const sectionTitleStyle = { margin: '0 0 12px 0', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }
-export const titleStyle = { margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }
-export const labelStyle = { display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 5, fontWeight: 600 }
-export const hintStyle = { fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }
+export const sectionTitleStyle = { margin: '0 0 12px 0', fontSize: 'var(--font-size-subtitle)', fontWeight: 600, color: 'var(--text-primary)' }
+export const titleStyle = { margin: 0, fontSize: 'var(--font-size-title)', fontWeight: 600, color: 'var(--text-primary)' }
+export const labelStyle = { display: 'block', fontSize: 'var(--font-size-label)', color: 'var(--text-secondary)', marginBottom: 5, fontWeight: 600 }
+export const hintStyle = { fontSize: 'var(--font-size-caption)', color: 'var(--text-muted)', lineHeight: 1.6 }
 export const fieldStyle = { marginBottom: 14 }
 export const monoStyle = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12 }
 export const markdownEditorStyle = {

@@ -74,6 +74,7 @@ export interface ParsedAdapter {
   authCheckTool: string | null
   toolExecution?: Record<string, ToolExecution>
   hidden: boolean
+  clientEnabled?: boolean
   defaultEnabled: boolean
   detailDescription: string
   registryScenarios: RegistryScenarioDef[]
@@ -409,6 +410,7 @@ function parseAdaptersFromDir(
         authCheckTool: manifest.auth_check_tool ?? registryEntry?.auth_check_tool ?? null,
         toolExecution,
         hidden: manifest.hidden ?? registryEntry?.hidden ?? false,
+        clientEnabled: manifest.enabled ?? registryEntry?.enabled,
         defaultEnabled: (manifest.enabled ?? registryEntry?.enabled) !== false,
         registryScenarios: manifest.scenarios ?? registryEntry?.scenarios ?? [],
         routeTemplates: manifest.route_templates ?? registryEntry?.route_templates ?? [],
@@ -480,6 +482,7 @@ export function parseAllAdapters(): Map<string, ParsedAdapter> {
         description: command.description, parameters: command.schema })),
       testPrompts: manifest.test_prompts || [], requiresAuth: manifest.requires_auth === true,
       authCheckTool: manifest.auth_check_tool || null, hidden: manifest.hidden === true,
+      clientEnabled: manifest.enabled,
       defaultEnabled: manifest.managed.enabled, managed: manifest.managed,
       registryScenarios: (manifest.scenarios || []) as RegistryScenarioDef[],
       routeTemplates: (manifest.route_templates || []) as ManifestRouteTemplateDef[],

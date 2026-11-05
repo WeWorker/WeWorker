@@ -131,9 +131,14 @@ export async function buildUploadConfig({ webcliVersion }) {
   const enabled =
     process.env.WEBCLI_METRICS !== "off" && uploadOn && !!endpoint;
 
+  const clientId = await getOrCreateClientId();
+  const systemUser = whoami();
+  // whoami 失败（无命令/超时/受限环境）时降级为 clientId 前缀，保证每条
+  // 上报都可归因；userSource 标记来源，服务端可据此区分真实用户与降级值。
   const meta = {
-    clientId: await getOrCreateClientId(),
-    user: whoami(),
+    clientId,
+    user: systemUser || `client-${clientId.slice(0, 8)}`,
+    userSource: systemUser ? "whoami" : "client-id-fallback",
     webcliVersion,
     os: process.platform,
   };

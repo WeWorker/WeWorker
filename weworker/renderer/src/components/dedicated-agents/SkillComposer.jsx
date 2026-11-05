@@ -41,7 +41,7 @@ export function SiteCapabilitySummary({ site }) {
         <SiteIcon site={site} size={30} />
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{site?.name || site?.id}</strong>
+            <strong style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-primary)' }}>{site?.name || site?.id}</strong>
             <Tag bordered={false} style={{ fontSize: 10, marginInlineEnd: 0 }}>{toolCount} 项工具</Tag>
           </div>
           <div style={{ ...hintStyle, marginTop: 4, color: 'var(--text-secondary)' }}>{sitePurpose(site)}</div>

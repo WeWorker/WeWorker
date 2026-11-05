@@ -1,9 +1,8 @@
 /**
  * 守卫式短路（`router-config/shortcuts.json`，详见设计文档 §2 第 12 行）。
  *
- * 与 Tier -1（patterns.json）的分工：**这层是「带门槛的精细正则」**——每条自带
- * `patterns.negative`（命中即否决，如「不要把陈述句当成查询」）与 `args.extract`
- * （从原句抽参），因此可以比 Tier -1 更早、更敢用正则，代价是必须逐条写清负向。
+ * 无参数入口枚举全句全等；参数入口必须使用显式锚定模板和严格槽值。
+ * `patterns.negative` 先于正向判断；抽参失败绝不派发。
  *
  * 三条硬性纪律：
  *   1. **负向优先**：`patterns.negative` 命中即整条否决，不给任何翻盘机会；
@@ -29,8 +28,8 @@ type CompiledShortcut = {
   entry: ShortcutEntry
   positives: RegExp[]
   negatives: RegExp[]
-  /** keyword 型正向：与正则分开存，避免把用户词当正则转义出错 */
-  positiveKeywords: string[]
+  /** Enumerated complete utterances, compared case-insensitively after trimming. */
+  exact: string[]
   extractors: { re: RegExp; rule: ShortcutExtractRule }[]
 }
 
@@ -61,25 +60,29 @@ export function compileShortcuts(entries: readonly ShortcutEntry[] | null | unde
       const re = compileRegex(source, undefined)
       if (re) negatives.push(re)
     }
-    const positiveKeywords = (entry.patterns?.positive ?? []).filter((source) => typeof source === 'string' && source)
+    const exact = (entry.patterns?.exact ?? [])
+      .filter((phrase): phrase is string => typeof phrase === 'string' && !!phrase.trim())
+      .map((phrase) => phrase.trim().toLocaleLowerCase())
     const extractors: CompiledShortcut['extractors'] = []
+    let validExtractors = true
     for (const rule of entry.extract ?? []) {
-      if (!rule || typeof rule.regex !== 'string' || !rule.regex || !rule.arg) continue
+      if (!rule || typeof rule.regex !== 'string' || !rule.regex || !rule.arg ||
+          !rule.regex.startsWith('^') || !rule.regex.endsWith('$')) {
+        validExtractors = false
+        break
+      }
       const re = compileRegex(rule.regex, rule.flags)
-      if (re) extractors.push({ re, rule })
+      if (!re) { validExtractors = false; break }
+      extractors.push({ re, rule })
     }
-    if (!positives.length && !positiveKeywords.length) continue
-    out.push({ entry, positives, negatives, positiveKeywords, extractors })
+    const parameterized = !!entry.extract?.length
+    if (!validExtractors || (parameterized && (!positives.length || exact.length)) ||
+        (!parameterized && (!exact.length || positives.length))) continue
+    if (parameterized && (entry.patterns?.positive ?? []).some((source) => !source.startsWith('^') || !source.endsWith('$') || /\.\*|\.\+|\[\\s\\S\]|\[\^\]/.test(source))) continue
+    out.push({ entry, positives, negatives, exact, extractors })
   }
   // priority 大者优先；同分保持配置顺序，避免「改一行顺序就换答案」
   return out.sort((a, b) => (b.entry.priority ?? 0) - (a.entry.priority ?? 0))
-}
-
-function clamp(value: number, min?: number, max?: number): number {
-  let out = value
-  if (typeof min === 'number') out = Math.max(min, out)
-  if (typeof max === 'number') out = Math.min(max, out)
-  return out
 }
 
 function extractOne(raw: string, rule: ShortcutExtractRule): unknown {
@@ -87,18 +90,20 @@ function extractOne(raw: string, rule: ShortcutExtractRule): unknown {
     case 'integer': {
       const num = Number(raw)
       if (!Number.isInteger(num)) return undefined
-      return clamp(num, rule.min, rule.max)
+      return (rule.min !== undefined && num < rule.min) || (rule.max !== undefined && num > rule.max)
+        ? undefined : num
     }
     case 'number': {
       const num = Number(raw)
       if (!Number.isFinite(num)) return undefined
-      return clamp(num, rule.min, rule.max)
+      return (rule.min !== undefined && num < rule.min) || (rule.max !== undefined && num > rule.max)
+        ? undefined : num
     }
     case 'boolean':
       return raw === 'true' ? true : raw === 'false' ? false : undefined
     default:
-      return typeof rule.min === 'number' || typeof rule.max === 'number'
-        ? undefined // 字符串类型不做钳制，配了 min/max 视为配置错误 → 不产出
+      return !raw.trim() || typeof rule.min === 'number' || typeof rule.max === 'number'
+        ? undefined // 空槽或字符串 min/max 配置均不得派发
         : raw
   }
 }
@@ -108,8 +113,8 @@ function extractArgs(compiled: CompiledShortcut, message: string): Record<string
   const out: Record<string, unknown> = {}
   for (const { re, rule } of compiled.extractors) {
     const match = re.exec(message)
-    if (!match) continue
-    const raw = match[1] ?? match[0]
+    if (!match || match[1] === undefined) return null
+    const raw = match[1]
     if (raw === undefined) return null
     const value = extractOne(raw, rule)
     if (value === undefined) return null
@@ -133,9 +138,8 @@ export function buildShortcutMatcher(
 
     for (const item of compiled) {
       if (item.negatives.some((re) => re.test(trimmed))) continue
-      const positive =
-        item.positives.some((re) => re.test(trimmed)) ||
-        item.positiveKeywords.some((keyword) => trimmed.includes(keyword))
+      const positive = item.exact.includes(trimmed.toLocaleLowerCase()) ||
+        item.positives.some((re) => re.test(trimmed))
       if (!positive) continue
 
       const extracted = extractArgs(item, trimmed)

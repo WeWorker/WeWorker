@@ -90,6 +90,7 @@ export default function App() {
   const startWidthRef = useRef(0)
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
+  const draftProjectId = useWorksStore((s) => s.draftProjectId)
   const scheduledTasks = useScheduledTasksStore((s) => s.tasks)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
   const tasksStatus = useScheduledTasksStore((s) => s.tasksStatus)
@@ -99,7 +100,7 @@ export default function App() {
   const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted)
   const poll = useStatusStore((s) => s.poll)
   const toggleUserFilesPanel = useUserFilesStore((s) => s.togglePanel)
-  const setWorkspaceWorkId = useUserFilesStore((s) => s.setWorkspaceWorkId)
+  const setWorkspaceContext = useUserFilesStore((s) => s.setWorkspaceContext)
   const userFilesOpen = useUserFilesStore((s) => s.open)
   const toolPackageOpen = useToolPackagePageStore((s) => s.open)
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
@@ -110,10 +111,11 @@ export default function App() {
   // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
+  const minimalWorkspaceToolbar = dedicatedAgentsOpen || activeSidebarSection === 'tasks'
 
   useEffect(() => {
-    setWorkspaceWorkId(websiteOpen ? developmentWorkId : activeWorkId)
-  }, [activeWorkId, websiteOpen, developmentWorkId, setWorkspaceWorkId])
+    setWorkspaceContext(websiteOpen ? developmentWorkId : activeWorkId, websiteOpen ? null : draftProjectId)
+  }, [activeWorkId, draftProjectId, websiteOpen, developmentWorkId, setWorkspaceContext])
 
   useEffect(() => {
     if (!websiteOpen) return
@@ -397,7 +399,7 @@ export default function App() {
         justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', userSelect: 'none', gap: 8 }}>
-          {settingsLoaded && onboardingCompleted && !showSettings && !focusedWorkspaceOpen && (
+          {settingsLoaded && onboardingCompleted && !showSettings && (!focusedWorkspaceOpen || dedicatedAgentsOpen) && (
             <>
               <Tooltip text={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}>
                 <button
@@ -424,7 +426,7 @@ export default function App() {
               </Tooltip>
             </>
           )}
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>WeWorker</span>
+          <span style={{ fontWeight: 700, fontSize: 'var(--font-size-label)', color: 'var(--text-primary)' }}>WeWorker</span>
           <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 2 }}>v{appVersion || ''}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
@@ -492,11 +494,12 @@ export default function App() {
           </>
         )}
         <div className="app-main-column">
-          {!showSettings && !focusedWorkspaceOpen && (
+          {!showSettings && (!focusedWorkspaceOpen || dedicatedAgentsOpen) && (
             <div className="workspace-toolbar" aria-label="工作区工具栏">
               <div id="workspace-toolbar-context" className="workspace-toolbar__context" />
               <div className="workspace-toolbar__actions">
-                <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'}>
+                {!minimalWorkspaceToolbar && (
+                <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'} delay={800} placement="top">
                   <button
                     type="button"
                     onClick={handleToggleUserFilesPanel}
@@ -507,7 +510,8 @@ export default function App() {
                     <FolderIcon size={16} />
                   </button>
                 </Tooltip>
-                <Tooltip text={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}>
+                )}
+                <Tooltip text={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'} delay={800} placement="top">
                   <button
                     type="button"
                     onClick={toggleTheme}
@@ -525,13 +529,13 @@ export default function App() {
                     </span>
                   </button>
                 </Tooltip>
-                <CapabilitiesToggleButton variant="titlebar" />
+                {!minimalWorkspaceToolbar && <CapabilitiesToggleButton variant="titlebar" />}
               </div>
             </div>
           )}
           {showSettings
             ? <SettingsPage onClose={() => setShowSettings(false)} />
-            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} compactLayout={compactLayout} onOpenSettings={() => setShowSettings((current) => !current)} />}
+            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onResizeStart} compactLayout={compactLayout} onOpenSettings={() => setShowSettings((current) => !current)} />}
         </div>
         </>}
       </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useSitesStore } from '../../store/sites.js'
-import { normalizeSiteScenarios, getScenarioPromptText } from '../../utils/site-scenarios.js'
+import { normalizeSiteScenarios, getScenarioPromptText, filterCapabilitySites } from '../../utils/site-scenarios.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import SiteIcon from '../icons/SiteIcon.jsx'
 import EditablePromptTemplate from '../prompt/EditablePromptTemplate.jsx'
@@ -48,18 +48,10 @@ export default function SitesCapabilitiesView({
     onDragStart: (event) => setSiteDragData(event.dataTransfer, site.id),
   })
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return sites
-    return sites.filter((site) => {
-      const scenarios = normalizeSiteScenarios(site)
-      if (site.name.toLowerCase().includes(q)) return true
-      if (site.description?.toLowerCase().includes(q)) return true
-      return scenarios.some(
-        (sc) => sc.title.toLowerCase().includes(q) || sc.summary.toLowerCase().includes(q),
-      )
-    })
-  }, [sites, searchQuery])
+  const filtered = useMemo(
+    () => filterCapabilitySites(sites, searchQuery),
+    [sites, searchQuery],
+  )
   const focusedSite = useMemo(
     () => (focusedId ? sites.find((site) => site.id === focusedId) || null : null),
     [focusedId, sites],

@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import http from 'http'
 import fs from 'node:fs'
-import { performApiReplayRequest } from '../bridge.js'
+import { handleBackendRuntimeFetch, performApiReplayRequest } from '../bridge.js'
 
 const servers = []
 
@@ -135,6 +135,74 @@ describe('api replay request', () => {
     })
     expect(observed.headers.cookie).toBe('sid=abc')
     expect(observed.headers['content-type']).toBe('application/json')
+  })
+
+  it('sends a single request after an uncertain write failure', async () => {
+    let received = 0
+    const server = http.createServer((req) => {
+      received++
+      req.socket.destroy()
+    })
+    const port = await listen(server)
+    await expect(handleBackendRuntimeFetch({
+      url: `http://127.0.0.1:${port}/api/create`,
+      singleAttempt: true,
+      redactBodyInTrace: true,
+      options: { method: 'POST', body: '{"name":"example"}' },
+    })).rejects.toThrow('Backend fetch failed')
+    expect(received).toBe(1)
+  })
+
+  it('does not follow redirects for single-attempt requests', async () => {
+    const visited = []
+    const server = http.createServer((req, res) => {
+      visited.push(req.url)
+      res.writeHead(307, { Location: '/target' })
+      res.end()
+    })
+    const port = await listen(server)
+    const result = await handleBackendRuntimeFetch({
+      url: `http://127.0.0.1:${port}/start`, singleAttempt: true,
+      options: { method: 'POST', body: 'example', redirect: 'follow' },
+    })
+    expect(result.status).toBe(307)
+    expect(visited).toEqual(['/start'])
+  })
+
+  it('redacts API key headers and nested JSON fields from bridge traces', async () => {
+    const server = http.createServer((req, res) => {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ data: { apiKey: 'example-response-key-placeholder', label: 'visible' } }))
+    })
+    const port = await listen(server)
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const result = await handleBackendRuntimeFetch({
+        url: `http://127.0.0.1:${port}/api`,
+        options: { headers: { 'Example-Cli-Api-Key': 'example-header-key-placeholder' } },
+      }, 'trace-placeholder')
+      expect(JSON.parse(result.body).data.apiKey).toBe('example-response-key-placeholder')
+      const logs = write.mock.calls.map(([line]) => String(line)).join('')
+      expect(logs).toContain('visible')
+      expect(logs).not.toContain('example-response-key-placeholder')
+      expect(logs).not.toContain('example-header-key-placeholder')
+    } finally { write.mockRestore() }
+  })
+
+  it('hides unstructured request and response bodies when requested', async () => {
+    const server = http.createServer((req, res) => res.end('example-unstructured-response-placeholder'))
+    const port = await listen(server)
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      await handleBackendRuntimeFetch({
+        url: `http://127.0.0.1:${port}/api`, redactBodyInTrace: true,
+        options: { method: 'POST', body: 'example-unstructured-request-placeholder' },
+      }, 'trace-placeholder')
+      const logs = write.mock.calls.map(([line]) => String(line)).join('')
+      expect(logs).not.toContain('example-unstructured-request-placeholder')
+      expect(logs).not.toContain('example-unstructured-response-placeholder')
+      expect(logs).toContain('[redacted]')
+    } finally { write.mockRestore() }
   })
 
   it('does not follow redirects in curl fallback when manual handling is requested', async () => {

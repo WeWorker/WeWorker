@@ -99,5 +99,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readClipboardFilePaths: () => ipcRenderer.invoke('read-clipboard-file-paths'),
   saveClipboardImage: () => ipcRenderer.invoke('save-clipboard-image'),
   savePastedText: (text) => ipcRenderer.invoke('save-pasted-text', text),
+  saveFormattedBody: (body) => ipcRenderer.invoke('save-formatted-body', body),
   readLocalImageThumbnail: (targetPath) => ipcRenderer.invoke('read-local-image-thumbnail', targetPath),
 })

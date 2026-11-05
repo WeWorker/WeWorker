@@ -20,11 +20,12 @@ vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, error() {}, w
 vi.mock('../adapter-parser.js', () => ({ parseAllAdapters: () => new Map() }))
 vi.mock('../webcli-path.js', () => ({ resolveWebcliDir: () => path.join(mocks.directory, 'webcli') }))
 vi.mock('../user-directory-access.js', () => ({
-  buildAgentFilesystemSettings: () => ({}),
+  buildAgentFilesystemSettings: () => ({ permissions: { allow: [] } }),
   createUnifiedToolGuard: () => async () => ({ behavior: 'deny' }),
 }))
 
 import { clearStoredConversationCompaction, streamChat } from '../agent.js'
+import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 
 function message(id: string, text: string, role: Message['role'] = 'user'): Message {
   return { id, work_id: 'compaction-test', role, content: [{ type: 'text', text }], created_at: '' }
@@ -78,6 +79,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  configureWorkLogs(undefined)
   clearStoredConversationCompaction(options.workId)
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
@@ -85,6 +87,33 @@ afterEach(() => {
 })
 
 describe('agent conversation compaction', () => {
+  it('writes complete model input and tool result parts during execution, without model credentials', async () => {
+    configureWorkLogs(path.join(mocks.directory, 'logs'))
+    const first = 'FIRST-RESULT-' + 'a'.repeat(5_000)
+    const second = 'SECOND-RESULT-' + 'b'.repeat(5_000)
+    mocks.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'fixture-call', name: 'Read', input: { query: 'QUERY-END' } }] } }
+        yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'fixture-call', content: [{ type: 'text', text: first }, { type: 'text', text: second }] }] } }
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'ANSWER-END' }] } }
+        yield { type: 'result', subtype: 'success', is_error: false, result: 'ANSWER-END' }
+      },
+      close() {},
+    }))
+    const messages = [message('current', 'INPUT-' + 'x'.repeat(2_000) + '-END')]
+    for await (const event of streamChat(messages, settings, undefined, { ...options, streaming: false })) {
+      if (event.type === 'tool_call_result') {
+        expect(fs.readFileSync(path.join(mocks.directory, 'logs', options.workId + '.log'), 'utf8')).toContain(event.result)
+      }
+    }
+    const text = readWorkLog({ id: options.workId, messages })
+    expect(text).toContain('INPUT-' + 'x'.repeat(2_000) + '-END')
+    expect(text).toContain(first)
+    expect(text).toContain(second)
+    expect(text).toContain('ANSWER-END')
+    expect(text).toContain('"status":"completed"')
+    expect(text).not.toContain(settings.api_key)
+  })
   it.each([{ disabled: '1', enabled: false }, { disabled: '0', enabled: true }])(
     'applies the process memory switch to a real agent turn: disabled=$disabled', async ({ disabled, enabled }) => {
       vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', disabled)
@@ -93,10 +122,34 @@ describe('agent conversation compaction', () => {
       expect(mocks.query).toHaveBeenCalledOnce()
       const request = mocks.query.mock.calls[0][0]
       expect(request.options.systemPrompt.includes('<weworker_memory>')).toBe(enabled)
-      expect(Boolean(request.options.hooks)).toBe(enabled)
+      expect(Boolean(request.options.hooks?.UserPromptSubmit)).toBe(enabled)
+      expect(Boolean(request.options.hooks?.PostToolBatch)).toBe(enabled)
       expect(recall.mock.calls.length).toBe(enabled ? 1 : 0)
     },
   )
+  it('keeps workspace permission checks registered when automatic memory is disabled', async () => {
+    vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', '1')
+    await collect([message('only', 'Public fixture')], {
+      memoryEnabled: true, channelPermissionMode: 'workspace', workId: undefined,
+    })
+    const request = mocks.query.mock.calls[0][0]
+    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+    expect(request.options.hooks.PostToolBatch).toBeUndefined()
+    const hook = request.options.hooks.PreToolUse[0].hooks[0]
+    const result = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} })
+    expect(result.hookSpecificOutput.permissionDecision).toBe('deny')
+  })
+  it('registers per-operation confirmation independently of automatic memory', async () => {
+    vi.stubEnv('WEWORKER_DISABLE_AUTOMATIC_MEMORY', '1')
+    await collect([message('only', 'Public fixture')], {
+      memoryEnabled: false, channelPermissionMode: 'ask', permissionMode: 'default', workId: undefined,
+    })
+    const request = mocks.query.mock.calls[0][0]
+    expect(request.options.disallowedTools).not.toContain(process.platform === 'win32' ? 'PowerShell' : 'Bash')
+    expect(request.options.hooks.PreToolUse[0].hooks).toHaveLength(1)
+    expect(request.options.hooks.PreToolUse[0].timeout).toBeGreaterThan(300)
+    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+  })
   it('streams visible text before block stop while preserving the hidden memory decision', async () => {
     mocks.query.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {

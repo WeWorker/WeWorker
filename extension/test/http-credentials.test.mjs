@@ -1,6 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readHttpCookies } from '../background/http-credentials.js';
+import { readHttpCookies, readHostCliCookies } from '../background/http-credentials.js';
+
+test('host CLI reads URL-matching non-partitioned cookies only for its exact primary host', async () => {
+  const calls = [];
+  const chrome = { cookies: { getAll: async args => { calls.push(args); return [
+    { name: 'example_session', value: 'placeholder-one', domain: 'site.example.com', path: '/' },
+    { name: 'example_parent', value: 'placeholder-two', domain: '.example.com', path: '/' },
+    { name: 'example_partition', value: 'placeholder-three', domain: 'site.example.com', path: '/', partitionKey: { topLevelSite: 'https://example.com' } },
+    { name: 'example_other', value: 'placeholder-four', domain: 'other.example.com', path: '/' },
+  ]; } } };
+  const url = 'https://site.example.com/api/action';
+  assert.deepEqual(await readHostCliCookies(chrome, { url }, 'site.example.com'), { cookies: [
+    { name: 'example_session', value: 'placeholder-one', domain: 'site.example.com', path: '/' },
+    { name: 'example_parent', value: 'placeholder-two', domain: '.example.com', path: '/' },
+  ] });
+  assert.deepEqual(calls, [{ url }]);
+  for (const payload of [{ url: 'https://other.example.com/' }, { url, names: ['example_session'] },
+    { url, storeId: '1' }, { url, partitionKey: {} }, { url: 'https://user:pass@site.example.com/' }]) {
+    await assert.rejects(readHostCliCookies(chrome, payload, 'site.example.com'), /Invalid host CLI/);
+  }
+  assert.equal(calls.length, 1);
+  await assert.rejects(readHttpCookies(chrome, { url }), /Invalid scoped/);
+});
 
 test('requests cookies only for the exact URL and declared names, excluding unknown partitions', async () => {
   const calls = [];

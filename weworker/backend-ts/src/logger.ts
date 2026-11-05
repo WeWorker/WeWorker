@@ -10,6 +10,10 @@
  *   log.error('connection failed', e)  // 2026-04-03 15:50:48.564 [chat] [ERROR] connection failed: ...
  */
 
+import { getTurnExecutionContext } from './memory/turn-execution-context.js'
+import { redactLogText, redactLogValue } from './log-redaction.js'
+import { appendWorkLog } from './work-log-file.js'
+
 type Level = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG'
 
 function formatTimestamp(): string {
@@ -20,17 +24,29 @@ function formatTimestamp(): string {
 }
 
 function formatMessage(source: string, level: Level, msg: string, extra?: unknown): string {
-  let line = `${formatTimestamp()} [${source}] [${level}] ${msg}`
+  const turn = getTurnExecutionContext()
+  const workTag = turn ? `[work:${turn.workId.slice(0, 8)}]` : ''
+  const turnTag = turn ? `[turn:${turn.turnId}]` : ''
+  const prefix = `${formatTimestamp()} [${source}] [${level}] `
+  let line = msg
   if (extra !== undefined) {
     if (extra instanceof Error) {
-      line += `: ${extra.message}`
+      line += `: ${extra.stack || extra.message}`
     } else if (typeof extra === 'string') {
       line += `: ${extra}`
     } else {
-      try { line += ` ${JSON.stringify(extra)}` } catch { line += ` ${String(extra)}` }
+      try { line += ` ${JSON.stringify(redactLogValue(extra))}` } catch { line += ` ${String(extra)}` }
     }
   }
-  return line
+  const formatted = redactLogText(line).split(/\r?\n/).map(part => {
+    const tags = turn ? [
+      !part.includes(workTag) && !part.includes(turn.workId) ? workTag : '',
+      !part.includes(turnTag) ? turnTag : '',
+    ].filter(Boolean).join('') : ''
+    return `${prefix}${tags ? `${tags} ` : ''}${part}`
+  }).join('\n')
+  if (turn) appendWorkLog(turn.workId, 'diagnostic', { source, level, message: formatted }, turn.turnId)
+  return formatted
 }
 
 export interface Logger {

@@ -21,9 +21,11 @@ import fc from 'fast-check'
 
 // Mock channel-manager: control getStatuses() per test
 const mockGetStatuses = vi.fn<() => Record<string, { status: string; error?: string }>>()
+const mockGetChannel = vi.fn()
 vi.mock('../channels/channel-manager.js', () => ({
   channelManager: {
     getStatuses: (...args: unknown[]) => mockGetStatuses(...(args as [])),
+    getChannel: (...args: unknown[]) => mockGetChannel(...args),
   },
 }))
 
@@ -105,6 +107,7 @@ describe('Property 9: 通知分发', () => {
     registerSSEClient(fakeClient.res)
     // Default: no channels connected
     mockGetStatuses.mockReturnValue({})
+    mockGetChannel.mockReset()
   })
 
   afterEach(() => {
@@ -138,6 +141,25 @@ describe('Property 9: 通知分发', () => {
       }),
       { numRuns: 100 },
     )
+  })
+
+  it('uses the separately generated summary as the channel notification body', async () => {
+    const sendNotification = vi.fn()
+    mockGetStatuses.mockReturnValue({ wecom: { status: 'connected' } })
+    mockGetChannel.mockReturnValue({ sendNotification })
+
+    await notify({
+      taskId: 'fixture-task',
+      taskTitle: 'Fixture task',
+      status: 'completed',
+      summary: 'Concise notification summary',
+      fullText: 'Long original execution output',
+      executionId: 'fixture-execution',
+      workId: 'fixture-work',
+    }, ['wecom'])
+
+    expect(sendNotification).toHaveBeenCalledWith(expect.stringContaining('Concise notification summary'))
+    expect(sendNotification).not.toHaveBeenCalledWith(expect.stringContaining('Long original execution output'))
   })
 
   // -------------------------------------------------------------------------

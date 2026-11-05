@@ -10,6 +10,7 @@ esbuild.buildSync({
   entryPoints: [path.resolve(projectRoot, 'webcli/index.js')],
   absWorkingDir: projectRoot,
   bundle: true,
+  external: ['@napi-rs/keyring'],
   platform: 'node',
   format: 'cjs',
   outfile: path.resolve(__dirname, '../build/bridge-dist/bridge.cjs'),
@@ -24,3 +25,4 @@ esbuild.buildSync({
 })
 
 console.log('Bridge bundle created: build/bridge-dist/bridge.cjs')
+require('./host-keychain-deps.cjs').copyHostKeychainDeps(path.resolve(__dirname, '../build/bridge-dist'))

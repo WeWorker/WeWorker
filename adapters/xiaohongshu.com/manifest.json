@@ -2,6 +2,7 @@
   "schema_version": 2,
   "name": "xiaohongshu.com",
   "version": "2.0.1",
+  "enabled": true,
   "description": "小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理",
   "match": [
     "xiaohongshu.com",

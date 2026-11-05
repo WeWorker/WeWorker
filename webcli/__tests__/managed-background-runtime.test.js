@@ -33,6 +33,27 @@ function fixture({ source, timeoutMs = 1000, failAttach = false, documents = [] 
 }
 
 describe('managed background execution lifecycle', () => {
+  it('does not expose the host invocation identity to Adapter code', async () => {
+    const f = fixture({ source: '__webcliRegisterCommand("run", () => window.__webmcpWecliRuntime.getContext());' });
+    const result = await f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true },
+      { adapterId: 'demo', declaredHosts: ['example.com'], hostCallId: 'host-only-id' });
+    expect(result.adapterId).toBe('demo');
+    expect(result).not.toHaveProperty('hostCallId');
+  });
+  it('authorizes host cookies only while the original managed invocation is active', async () => {
+    const f = fixture({ source: '__webcliRegisterCommand("run", async () => __webmcpWecliRuntime.requestPrivileged("wait", {}));' });
+    let finish;
+    f.request.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    expect(f.runtime.hostCookieContext('host-call')).toBeNull();
+    const running = f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true },
+      { adapterId: 'demo', routeDomain: 'example.com', hostCallId: 'host-call' });
+    while (!finish) await new Promise(resolve => setImmediate(resolve));
+    expect(f.runtime.hostCookieContext('wrong-call')).toBeNull();
+    expect(f.runtime.hostCookieContext('host-call')).toEqual({ routeDomain: 'example.com', credentialHosts: [] });
+    finish({ ok: true });
+    await running;
+    expect(f.runtime.hostCookieContext('host-call')).toBeNull();
+  });
   it('isolates preview source and restores pinned installed source on the next call', async () => {
     const f = fixture();
     const preview = { manifest: structuredClone(f.manifest), files: { 'extension/commands/run.js': '__webcliRegisterCommand("run",()=>"example-preview");' } };

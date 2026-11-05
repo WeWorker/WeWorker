@@ -1,5 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { DownloadOutlined, TagOutlined } from '@ant-design/icons'
+import { useWorkActivityStore } from '../../store/work-activity.js'
 import { useWorksStore } from '../../store/works.js'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useSitesStore } from '../../store/sites.js'
@@ -47,6 +49,10 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const healthCheckMeta = useWorksStore((s) => s.healthCheckMeta)
   // Streaming state from store — survives component remount on work switch
   const streaming = useWorksStore((s) => s.streamingWorkIds.has(workId))
+  useEffect(() => {
+    useWorkActivityStore.getState().view(workId)
+    return () => useWorkActivityStore.getState().leave(workId)
+  }, [workId])
   const [error, setError] = useState(null)
   const handleSendRef = useRef(null)
   const { inputText, setInputText, attachments, setAttachments } = useChatDraft(`work:${workId}`)
@@ -94,6 +100,25 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     setAttachments([])
   }, [fillSeq, fillText, streaming])
 
+  // Download this conversation's diagnostic log (header + message timeline + the
+  // [work:xxxxxxxx] tagged backend/bridge chain logs) as a txt for developers.
+  const handleExportLogs = async () => {
+    try {
+      const res = await backendFetch(`/works/${workId}/logs.txt`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `weworker-work-${workId?.slice(0, 8) || 'unknown'}-logs.txt`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      console.error('[chat] export logs failed:', e)
+      setError('日志导出失败，请稍后重试')
+    }
+  }
+
   const handleStop = () => {
     void queue.stop().catch(e => setError(e.message))
   }
@@ -104,7 +129,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const handleChoice = async (choiceId, answer) => {
     const cleanAnswer = cleanUserChoiceText(answer)
     try {
-      await submitUserChoice(workId, cleanAnswer)
+      await submitUserChoice(workId, cleanAnswer, choiceId)
+      useWorkActivityStore.getState().answer(workId, choiceId)
       // Update the choice block status to 'answered'
       updateStreamMessage({ type: 'user_choice_answer', id: choiceId }, (msg) => ({
         ...msg,
@@ -131,6 +157,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     useWorksStore.getState().clearMemoryStatus(workId)
 
     const controller = new AbortController()
+    useWorkActivityStore.getState().start(workId, controller)
     const currentPlan = buildTodoWriteState(useWorksStore.getState().messages[workId] ?? [], { streaming: false })?.plan ?? null
     const modelText = (() => {
       const plan = currentPlan
@@ -174,6 +201,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     try {
       await streamChat(workId, text, (event) => {
         if (event.type === 'error') failed = true
+        if (event.type === 'user_choice') useWorkActivityStore.getState().wait(workId, controller, event.id)
+        // A choice can also resolve by timeout; only clear its matching request.
+        if (event.type === 'tool_call_result') useWorkActivityStore.getState().answer(workId, event.id)
         if (event.type === 'steering_message_saved') {
           steered = true
           insertSteeringMessage(event.message, event.previousAssistant)
@@ -242,6 +272,15 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
           useWorksStore.getState().setMemoryStatus(workId, event)
           return
         }
+        if (event.type === 'tool_timing_final') {
+          updateLastMessage(workId, (msg) => {
+            if (!msg || msg.role !== 'assistant') return msg
+            return { ...msg, content: (msg.content ?? []).map((block) => block.type === 'tool_use' && block.id === event.id
+              ? { ...block, execMs: event.execMs, status: block.status === 'running' ? 'done' : block.status }
+              : block) }
+          })
+          return
+        }
         // turn_end: append a timing summary block to the assistant message being streamed
         if (event.type === 'turn_end') {
           updateLastMessage(workId, (msg) => {
@@ -249,7 +288,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
             if ((msg.content ?? []).some((b) => b.type === 'timing')) return msg
             return {
               ...msg,
-              content: [...(msg.content ?? []), { type: 'timing', totalMs: event.totalMs, llmMs: event.llmMs, execMs: event.execMs, steps: event.steps }],
+              content: [...(msg.content ?? []), { type: 'timing', totalMs: event.totalMs, llmMs: event.llmMs, execMs: event.execMs, remainingModelMs: event.remainingModelMs, steps: event.steps }],
             }
           })
           return
@@ -325,7 +364,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
                 ...msg,
                 content: content.map((b) =>
                   b.type === 'tool_use' && b.id === event.id
-                    ? { ...b, result: event.result ?? '(no result)', status: 'done', execMs: event.execMs }
+                    ? { ...b, result: event.result ?? '(no result)', status: 'done', execMs: event.execMs ?? b.execMs }
                     : b
                 ),
               }
@@ -345,12 +384,12 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
                 ...msg,
                 content: content.map((b) =>
                   b.type === 'tool_use' && b.id === event.id
-                    ? { ...b, image: event.data, status: 'done' }
+                    ? { ...b, image: event.data, status: 'done', execMs: event.execMs ?? b.execMs }
                     : b
                 ),
               }
             }
-            return { ...msg, content: [...content, { type: 'tool_use', id: event.id, name: 'capture_screenshot', image: event.data, status: 'done' }] }
+            return { ...msg, content: [...content, { type: 'tool_use', id: event.id, name: 'capture_screenshot', image: event.data, status: 'done', execMs: event.execMs }] }
           }
 
           if (event.type === 'error') {
@@ -393,6 +432,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       if (steered && accepted && !failed && !controller.signal.aborted) {
         await useWorksStore.getState().refreshWorkMessages(workId)
       }
+      useWorkActivityStore.getState().finish(workId, controller, controller.signal.aborted || !accepted ? 'stopped' : failed ? 'failed' : 'completed')
       onTurnFinished?.()
     }
     return { status: controller.signal.aborted ? 'stopped' : failed ? 'failed' : 'completed', accepted }
@@ -447,6 +487,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     const userMessageId = `${startedAt}-u`
     const assistantMessageId = `${startedAt}-shell`
     const toolId = `chat-bang-${startedAt.toString(36)}`
+    useWorkActivityStore.getState().start(workId, toolId)
 
     useWorksStore.setState((s) => ({
       streamingWorkIds: new Set([...s.streamingWorkIds, workId]),
@@ -541,6 +582,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
         return { streamingWorkIds: next }
       })
     }
+    useWorkActivityStore.getState().finish(workId, toolId, shellFailed ? 'failed' : 'completed')
     return { status: shellFailed ? 'failed' : 'completed', accepted: true }
   }
   const enqueueShell = (command, originalText) => {
@@ -597,9 +639,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   }, [])
 
   const shortId = workId?.slice(0, 8) || ''
-  // Sum of all turn durations in this work (each assistant turn ends with a timing block)
+  // Derive the work total from the same thinking and execution components as each turn.
   const taskTotalMs = messages.reduce(
-    (s, m) => s + (m.content ?? []).filter((b) => b.type === 'timing').reduce((a, b) => a + (b.totalMs || 0), 0),
+    (s, m) => s + (m.content ?? []).filter((b) => b.type === 'timing').reduce((a, b) => a + (b.llmMs || 0) + (b.execMs || 0), 0),
     0,
   )
   const sites = useSitesStore((s) => s.sites)
@@ -636,16 +678,18 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
               <span>累计用时：{formatDuration(taskTotalMs)}</span>
             </div>
           </details>
-          <LabelDot workId={workId} label={work?.label} />
-          <span style={{ opacity: 0.6, flexShrink: 0 }}>·</span>
-          <button
-            type="button"
-            onClick={() => { void handleExportLogs() }}
-            title="下载本次对话的诊断日志（对话时间线 + 调用链路日志），可发给开发者定位问题"
-            style={{ flexShrink: 0, border: 'none', background: 'transparent', color: 'inherit', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }}
-          >
-            导出日志
-          </button>
+          <span className="chat-heading__actions">
+            <LabelDot workId={workId} label={work?.label} />
+            <button
+              type="button"
+              className="workspace-toolbar__button"
+              onClick={() => { void handleExportLogs() }}
+              title="本次对话日志下载"
+              aria-label="导出本次对话日志"
+            >
+              <DownloadOutlined />
+            </button>
+          </span>
         </div>,
         toolbarContextTarget,
       )
@@ -767,17 +811,16 @@ function LabelDot({ workId, label }) {
   }, [open])
 
   return (
-    <div ref={ref} style={{ position: 'relative', marginLeft: 'auto', flexShrink: 0 }}>
+    <div ref={ref} className="chat-heading__label" style={{ position: 'relative', flexShrink: 0 }}>
       <button
+        type="button"
+        className={`workspace-toolbar__button${label || open ? ' is-active' : ''}`}
         onClick={() => setOpen(!open)}
         title={label ? (labelNames[label] || label) : '标记颜色'}
-        style={{
-          width: 16, height: 16, borderRadius: '50%', border: '1px dashed var(--border, #d1d5db)',
-          cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: label ? LABEL_COLORS[label] : 'transparent',
-        }}
+        aria-label={label ? `标记颜色：${labelNames[label] || label}` : '标记颜色'}
+        aria-expanded={open}
       >
-        {!label && <span style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1 }}>●</span>}
+        <TagOutlined />
       </button>
       {open && (
         <div style={{

@@ -11,6 +11,7 @@ export interface DesktopAdapter {
   auth_check_tool?: string
   gate_aliases?: string[]
   hidden?: boolean
+  enabled?: boolean
   icon?: string
   iconUrl?: string
   test_prompts?: string[]

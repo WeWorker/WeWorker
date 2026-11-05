@@ -62,3 +62,43 @@ test('private build rejects unsafe URL and model-embedded credentials', t => {
   fs.writeFileSync(paths.modelPath, JSON.stringify({ environment: { WEBCLI_METRICS_ENDPOINT: 'https://example.com/v1/metrics/batch', WEBCLI_METRICS_UPLOAD: 'on', WEBCLI_METRICS_TOKEN: 'never-in-model' } }));
   assert.throws(() => prepareMetricsClientConfig({ ...paths, env: { WEBCLI_METRICS_CLIENT_TOKEN: 'fixture-shared-client-credential-12345' } }), /model/i);
 });
+
+test('build env injects the full metrics contract when model.json carries none', t => {
+  const paths = fixture(t);
+  fs.writeFileSync(paths.modelPath, JSON.stringify({ environment: {} }));
+  const config = prepareMetricsClientConfig({ ...paths, env: {
+    WEBCLI_METRICS_UPLOAD: 'on',
+    WEBCLI_METRICS_ENDPOINT: 'https://example.com/v1/metrics/batch',
+    WEBCLI_METRICS_CLIENT_TOKEN: 'fixture-shared-client-credential-12345',
+  } });
+  assert.deepEqual(config, { enabled: true, endpoint: 'https://example.com/v1/metrics/batch', token: 'fixture-shared-client-credential-12345' });
+});
+
+test('explicit env off overrides a model.json enabled build', t => {
+  const paths = fixture(t);
+  fs.writeFileSync(paths.modelPath, JSON.stringify({ environment: { WEBCLI_METRICS_UPLOAD: 'on', WEBCLI_METRICS_ENDPOINT: 'https://example.com/v1/metrics/batch' } }));
+  const config = prepareMetricsClientConfig({ ...paths, env: {
+    WEBCLI_METRICS_UPLOAD: 'off',
+    WEBCLI_METRICS_CLIENT_TOKEN: 'fixture-shared-client-credential-12345',
+  } });
+  assert.deepEqual(config, { enabled: false });
+});
+
+test('env endpoint overrides the model endpoint for overlay builds', t => {
+  const paths = fixture(t);
+  fs.writeFileSync(paths.modelPath, JSON.stringify({ environment: { WEBCLI_METRICS_UPLOAD: 'on', WEBCLI_METRICS_ENDPOINT: 'https://stale.example.com/v1/metrics/batch' } }));
+  const config = prepareMetricsClientConfig({ ...paths, env: {
+    WEBCLI_METRICS_ENDPOINT: 'https://example.com/v1/metrics/batch',
+    WEBCLI_METRICS_CLIENT_TOKEN: 'fixture-shared-client-credential-12345',
+  } });
+  assert.equal(config.endpoint, 'https://example.com/v1/metrics/batch');
+});
+
+test('upload on without any endpoint still fails the build loudly', t => {
+  const paths = fixture(t);
+  fs.writeFileSync(paths.modelPath, JSON.stringify({ environment: {} }));
+  assert.throws(() => prepareMetricsClientConfig({ ...paths, env: {
+    WEBCLI_METRICS_UPLOAD: 'on',
+    WEBCLI_METRICS_CLIENT_TOKEN: 'fixture-shared-client-credential-12345',
+  } }), /endpoint/i);
+});

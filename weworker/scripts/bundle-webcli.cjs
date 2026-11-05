@@ -48,6 +48,7 @@ esbuild.buildSync({
   entryPoints: [path.resolve(projectRoot, 'webcli/index.js')],
   absWorkingDir: projectRoot,
   bundle: true,
+  external: ['@napi-rs/keyring'],
   platform: 'node',
   format: 'cjs',
   outfile: path.join(outDir, 'webcli.cjs'),
@@ -63,6 +64,7 @@ esbuild.buildSync({
 })
 
 console.log('WebCLI bundle created: build/webcli-dist/webcli.cjs')
+require('./host-keychain-deps.cjs').copyHostKeychainDeps(outDir)
 
 // 2. Create shell wrapper script for macOS / Unix
 //
