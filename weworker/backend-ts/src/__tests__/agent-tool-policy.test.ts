@@ -82,17 +82,22 @@ describe('agent tool policy', () => {
     }
   })
 
-  it('allows Adapter commands through every command tool in full mode', async () => {
+  it('refuses Adapter commands through WeWorker Shell in full mode and keeps native commands allowed', async () => {
     const policy = createWeWorkerToolPolicy('full')
 
     await expect(policy(
       'mcp__weworker__weworker_powershell',
       { command: 'webcli call blog-admin.search-blog --limit=5' },
       {} as never,
-    )).resolves.toMatchObject({ behavior: 'allow' })
+    )).resolves.toMatchObject({ behavior: 'deny' })
     await expect(policy(
       'mcp__weworker__weworker_powershell',
       { command: 'npm test' },
+      {} as never,
+    )).resolves.toMatchObject({ behavior: 'allow' })
+    await expect(policy(
+      'PowerShell',
+      { command: 'webcli call blog-admin.search-blog --limit=5' },
       {} as never,
     )).resolves.toMatchObject({ behavior: 'allow' })
   })
@@ -107,6 +112,8 @@ describe('agent tool policy', () => {
     }
     await expect(policy('PowerShell', { command: ' ' }, {} as never)).resolves.toMatchObject({ behavior: 'allow' })
     const result = await policy('mcp__weworker__weworker_powershell', { command: 'webcli call example.com.read' }, {} as never)
-    expect(result).toMatchObject({ behavior: 'allow' })
+    expect(result).toMatchObject({ behavior: 'deny' })
+    const localCommand = await policy('mcp__weworker__weworker_powershell', { command: 'npm test' }, {} as never)
+    expect(localCommand).toMatchObject({ behavior: 'allow' })
   })
 })

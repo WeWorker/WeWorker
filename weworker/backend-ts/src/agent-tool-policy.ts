@@ -35,6 +35,11 @@ export function createWeWorkerToolPolicy(mode: ChannelPermissionMode): CanUseToo
     }
 
     if (mode === 'ask' || mode === 'workspace' || mode === 'full') {
+      // 原生命令工具可用时，不允许用 WeWorker Shell 跑 webcli：提示词只表达偏好，
+      // 模型仍可能选 MCP 工具，这里把它变成确定性约束。其它本地命令仍可用它兜底。
+      if (toolName === 'mcp__weworker__weworker_powershell' && invokesWebcli(input.command)) {
+        return deny('Adapter commands must run with the platform-native Claude Code command tool (PowerShell/Bash), not WeWorker Shell.')
+      }
       return { behavior: 'allow' }
     }
 
