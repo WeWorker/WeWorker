@@ -154,7 +154,7 @@ const SETTINGS_DESCRIPTIONS = {
   permissions: '管理网站访问与操作权限。',
   browser: '管理网站操作浏览器与连接设置。',
   logs: '查看运行记录，帮助排查问题。',
-  'webcli-route': '默认开启。在直接路由未命中时，为 Agent 提供命令推荐。',
+  'webcli-route': '默认关闭。开启后，在直接路由未命中时为 Agent 提供命令推荐。',
   about: '查看版本信息与更新选项。',
 }
 
@@ -311,7 +311,7 @@ function WebcliRouteTab() {
   }
   return (
     <div className="settings-group">
-      <SettingRow title="启用 WebCLI 路由" description="默认开启。直接路由未命中时，先推荐可用命令，再由 Agent 继续处理；发生路由错误时会将诊断信息交给 Agent 后继续执行。关闭后按原流程执行。">
+      <SettingRow title="启用 WebCLI 路由" description="默认关闭。开启后，直接路由未命中时先推荐可用命令，再由 Agent 继续处理；发生路由错误时会将诊断信息交给 Agent 后继续执行。关闭后按原流程执行。">
         <AppSwitch checked={enabled} disabled={!loaded || saving}
           onChange={event => change(event.target.checked)} aria-label="启用 WebCLI 路由" />
       </SettingRow>
