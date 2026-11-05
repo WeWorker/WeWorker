@@ -30,7 +30,7 @@ function settingsPatch(data, fallback = {}) {
   return {
     activeProvider: data.active_provider,
     onboardingCompleted: data.onboarding_completed ?? fallback.onboardingCompleted ?? false,
-    webcliRouteEnabled: data.webcli_route_enabled ?? fallback.webcliRouteEnabled ?? true,
+    webcliRouteEnabled: data.webcli_route_enabled ?? fallback.webcliRouteEnabled ?? false,
     baseUrl: data.base_url,
     model: data.model,
     contextLimit: data.context_limit || fallback.contextLimit || 1000000,
@@ -66,7 +66,7 @@ export const PROVIDERS = BUILD_PROVIDERS.map(p => ({ ...p, ...(p.presentation ||
 export const useSettingsStore = create((set, get) => ({
   activeProvider: BUILD_DEFAULT_PROVIDER,
   onboardingCompleted: false,
-  webcliRouteEnabled: true,
+  webcliRouteEnabled: false,
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
   contextLimit: 1000000,

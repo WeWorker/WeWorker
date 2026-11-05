@@ -184,10 +184,17 @@ it.each([
   expect(events.some(event => event.name === 'webcli_route')).toBe(false)
 })
 
-it('enables WebCLI routing by default when the setting is absent', async () => {
+it('keeps WebCLI routing off by default when the setting is absent', async () => {
   const events = await collect([message('route', 'search')], {
     channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },
   }, settings)
+  expect(events.some(event => event.type === 'tool_call_start' && event.name === 'webcli_route')).toBe(false)
+})
+
+it('runs WebCLI routing when the setting is explicitly enabled', async () => {
+  const events = await collect([message('route', 'search')], {
+    channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },
+  }, { ...settings, webcli_route_enabled: true })
   expect(events.some(event => event.type === 'tool_call_start' && event.name === 'webcli_route')).toBe(true)
 })
 

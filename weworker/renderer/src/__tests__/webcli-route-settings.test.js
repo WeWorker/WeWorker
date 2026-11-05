@@ -11,11 +11,11 @@ afterEach(() => {
   useSettingsStore.setState(initialState, true)
 })
 
-test('WebCLI route defaults on for older settings and saves immediately through the extensions API', async () => {
+test('WebCLI route defaults off until routing is validated, and saves immediately through the extensions API', async () => {
   globalThis.window = {}
   globalThis.fetch = async () => Response.json({})
   await useSettingsStore.getState().load()
-  assert.equal(useSettingsStore.getState().webcliRouteEnabled, true)
+  assert.equal(useSettingsStore.getState().webcliRouteEnabled, false)
   const requests = []
   globalThis.fetch = async (url, options) => {
     requests.push([url, options.method, JSON.parse(options.body)])

@@ -1058,7 +1058,8 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
   // Only real turns whose entry point tried/skipped the direct router opt in.
   // Warmup, compaction and notification summaries must never call WebCLI route.
   if (opts?.directRoute && !opts.warmupOnly && !opts.compactionOnly && !opts.notificationSummaryOnly) {
-    const enabled = args[1].webcli_route_enabled !== false
+    // 默认关闭：只有显式开启才调用 WebCLI 路由，缺省或字段缺失一律视为关闭。
+    const enabled = args[1].webcli_route_enabled === true
     const skipReason = opts.isolatedClaudeConfigDir ? 'dedicated_agent'
       : opts.channelPermissionMode === 'qa_only' ? 'qa_only' : undefined
     if (enabled && !skipReason) await waitForAdapterRuntimeReload()
