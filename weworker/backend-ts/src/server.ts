@@ -2139,12 +2139,9 @@ app.patch('/works/:id/archive', (req, res) => {
     return
   }
   try {
-    const previous = store.getWork(req.params.id)
     const work = store.archiveWork(req.params.id, archived)
     if (!work) { res.status(404).json({ detail: 'Not found' }); return }
-    if (archived && previous?.project_id && !listAgentProjectIds().has(previous.project_id)) {
-      store.cleanupProjectIfNoVisibleWorks(previous.project_id)
-    }
+    // 归档只是把对话移出侧栏，不能连带删除它所在的项目；项目由用户显式删除。
     broadcastSSE({ type: 'works_changed', workId: work.id })
     res.json({ ...work, archived })
   } catch (error) {
