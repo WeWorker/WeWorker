@@ -120,6 +120,25 @@ export class SiteLoginCoordinator {
     return [...this._flows.values()].some((flow) => flow.status === 'waiting_user');
   }
 
+  /**
+   * 用户点「刷新二维码」：只对正在等待的登录生效，重新取一次码并更新同一张卡片。
+   * 不新建流程、不改变等待状态；取不到新码时保留原图并如实返回失败原因。
+   */
+  async refreshQr(site) {
+    const manifest = this._manifestFor(site);
+    if (!manifest) throw new Error(`Adapter "${site}" is not available.`);
+    const flow = this._flows.get(site);
+    if (!flow || flow.status !== 'waiting_user') return { site, refreshed: false, reason: 'NO_WAITING_LOGIN' };
+    const qr = await this._prepareQrLogin(manifest, flow);
+    if (qr?.available) flow.qr = qr;
+    await this._refreshScreenshot(manifest, flow);
+    this._emit(manifest, flow, 'waiting_user', {
+      ...(flow.qr?.available ? { qr: flow.qr } : {}),
+      ...(flow.screenshot ? { screenshot: flow.screenshot, screenshotVersion: flow.screenshotVersion, screenshotUpdated: true } : {}),
+    });
+    return { site, refreshed: qr?.available === true, ...(qr?.available ? {} : { reason: 'QR_UNAVAILABLE' }) };
+  }
+
   // ── Called by the Bridge for a failed command ─────────────────────────────
 
   /**

@@ -2031,6 +2031,9 @@ export class WebSocketBridge extends EventEmitter {
         result = await login.show(site);
       } else if (action === 'cancel') {
         result = { cancelled: login.cancel(site) };
+      } else if (action === 'refresh_qr') {
+        requireSite();
+        result = await login.refreshQr(site);
       } else if (action === 'set_autologin') {
         if (msg.enabled === true) requireAutologin(); else requireSite();
         const vault = login.vault;

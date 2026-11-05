@@ -7,7 +7,7 @@
  */
 const SITE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/
 const CONTEXT_ID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/
-const ACTIONS = new Set(['status', 'check', 'login', 'show_login', 'cancel', 'set_autologin', 'save_credential', 'forget_credential'])
+const ACTIONS = new Set(['status', 'check', 'login', 'show_login', 'cancel', 'refresh_qr', 'set_autologin', 'save_credential', 'forget_credential'])
 
 export function sanitizeSiteAuthRequest(action, payload = {}) {
   if (!ACTIONS.has(action)) throw new Error('Unsupported login action.')
