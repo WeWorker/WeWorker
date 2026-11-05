@@ -135,7 +135,10 @@
     "adapterhub-package-v2.js",
     "adapterhub-compat.js",
     "adapterhub.js",
-    "adapterhub-profile.json"
+    "adapterhub-profile.json",
+    "runtime-config.js",
+    "runtime-config.json",
+    "decision-api-key.js"
   ],
   "scripts": {
     "start": "node index.js",
