@@ -985,13 +985,13 @@ const queueChannelMutation = createChannelMutationQueue()
 // A WeCom bot serves either the main channel or exactly one dedicated agent.
 function assertWecomBotNotUsedByAgent(botId: string | undefined): void {
   const agent = botId ? findAgentByBotId(botId) : null
-  if (agent) throw new Error(`该企业微信机器人已被专属 Agent「${agent.name}」使用，一个机器人只能连接一个 Agent`)
+  if (agent) throw new Error(`该企业微信机器人已被WeWorker Bot「${agent.name}」使用，一个机器人只能连接一个 Agent`)
 }
 
 // Same rule for WeChat bots, identified by their login token.
 function assertWeixinTokenNotUsedByAgent(token: string | undefined): void {
   const agent = token ? findAgentByWeixinToken(token) : null
-  if (agent) throw new Error(`该微信机器人已被专属 Agent「${agent.name}」使用，一个机器人只能连接一个 Agent`)
+  if (agent) throw new Error(`该微信机器人已被WeWorker Bot「${agent.name}」使用，一个机器人只能连接一个 Agent`)
 }
 
 async function syncChannelSettings(previous: Settings, updated: Settings) {
@@ -2153,7 +2153,7 @@ app.patch('/works/:id/archive', (req, res) => {
 })
 
 app.get('/projects', (_req, res) => {
-  // 专属 Agent folders are generated from the Agent name: flag them so the
+  // WeWorker Bot folders are generated from the Agent name: flag them so the
   // renderer can hide the manual rename entry.
   const agentProjectIds = listAgentProjectIds()
   res.json(store.listProjects().map((project) => (
@@ -2174,7 +2174,7 @@ app.post('/projects', (req, res) => {
 app.patch('/projects/:id', (req, res) => {
   try {
     if (listAgentProjectIds().has(req.params.id)) {
-      res.status(400).json({ detail: '这个文件夹由专属 Agent 自动维护，改名请直接修改 Agent 名称' })
+      res.status(400).json({ detail: '这个文件夹由WeWorker Bot 自动维护，改名请直接修改 Agent 名称' })
       return
     }
     const { name } = req.body as { name?: string }
@@ -3035,7 +3035,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     try {
       dedicatedAgentOptions = buildDesktopAgentTurnOptions(dedicatedAgent)
     } catch (e) {
-      res.status(500).json({ detail: `专属 Agent 运行环境准备失败：${e instanceof Error ? e.message : String(e)}` })
+      res.status(500).json({ detail: `WeWorker Bot 运行环境准备失败：${e instanceof Error ? e.message : String(e)}` })
       return
     }
   }

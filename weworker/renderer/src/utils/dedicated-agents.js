@@ -1,4 +1,4 @@
-// Pure helpers for the 专属 Agent page (kept free of React for node --test).
+// Pure helpers for the WeWorker Bot page (kept free of React for node --test).
 
 export const WIZARD_STEPS = [
   { key: 'site', title: '选网站' },
@@ -210,7 +210,7 @@ export function summarizeAgentChannels(channels) {
 }
 
 export const SKILL_SCOPE_LABELS = {
-  private: '仅专属 Agent',
+  private: '仅WeWorker Bot',
   public: '也用于主对话',
 }
 

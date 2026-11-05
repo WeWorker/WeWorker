@@ -18,8 +18,8 @@
  * 3. **权限不得因路由被绕过**：`qa_only` 渠道回合连 MCP 工具都不注册（见 `tools.ts`），
  *    因此这些回合**绝不允许**路由派发只读工具，否则等于给访客开了一条模型自己都没有的通道。
  *
- * 谁不该接入：**专属 Agent**（桌面专属 Agent 对话、专属 Agent 渠道 profile）。它们有自己的
- * 站点/技能边界，路由可能用别的站点回答，与「这是某站点的专属 Agent」直接冲突。
+ * 谁不该接入：**WeWorker Bot**（桌面WeWorker Bot 对话、WeWorker Bot 渠道 profile）。它们有自己的
+ * 站点/技能边界，路由可能用别的站点回答，与「这是某站点的WeWorker Bot」直接冲突。
  */
 
 import { randomUUID } from 'node:crypto'

@@ -92,11 +92,11 @@ export default function StatusBar() {
         <button
           type="button"
           onClick={showDedicatedAgentsPage}
-          title={agentChannels.errors ? `${agentChannels.errors} 个专属 Agent 连接异常` : undefined}
+          title={agentChannels.errors ? `${agentChannels.errors} 个WeWorker Bot 连接异常` : undefined}
           style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-start' }}
         >
           {channelDot(agentChannels.errors ? 'error' : agentChannels.connected === agentChannels.total ? 'connected' : 'starting')}
-          专属 Agent {agentChannels.connected}/{agentChannels.total} 在线
+          WeWorker Bot {agentChannels.connected}/{agentChannels.total} 在线
         </button>
       )}
       {Object.entries(channels).filter(([name]) => !isAgentChannelKey(name)).map(([name, info]) => (

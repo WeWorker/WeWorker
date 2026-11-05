@@ -67,7 +67,7 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
           <button
             type="button"
             className="sidebar-row-action"
-            aria-label={`重命名专属 Agent ${agent.name}`}
+            aria-label={`重命名WeWorker Bot ${agent.name}`}
             title="重命名"
             onMouseDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
@@ -91,7 +91,7 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
           <button
             type="button"
             className="sidebar-row-action"
-            aria-label={`删除专属 Agent ${agent.name}`}
+            aria-label={`删除WeWorker Bot ${agent.name}`}
             title="删除"
             onMouseDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
@@ -108,7 +108,7 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
 function Intro({ onCreate, hasAgents }) {
   return (
     <div style={{ maxWidth: 720 }}>
-      <h2 style={titleStyle}>专属 Agent</h2>
+      <h2 style={titleStyle}>WeWorker Bot</h2>
       <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', margin: '8px 0 20px' }}>
         为某个网站打造一个小而专注的 Agent：它掌握你的专属知识，连接一个企业微信或微信机器人。你在手机上直接和它对话，它独立运行，不影响 WeWorker 的主对话。
       </div>
@@ -125,7 +125,7 @@ function Intro({ onCreate, hasAgents }) {
           </div>
         ))}
       </div>
-      <Button data-app-button="action" type="primary" size="large" icon={<PlusOutlined />} onClick={onCreate}>新建专属 Agent</Button>
+      <Button data-app-button="action" type="primary" size="large" icon={<PlusOutlined />} onClick={onCreate}>新建WeWorker Bot</Button>
       {hasAgents && <div style={{ ...hintStyle, marginTop: 12 }}>也可以在左侧选择一个已有的 Agent 查看和管理。</div>}
     </div>
   )
@@ -193,7 +193,7 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
           }}
         >
           <FormOutlined aria-hidden="true" style={{ width: 16, height: 16, fontSize: 16 }} />
-          <span>新建专属 Agent</span>
+          <span>新建WeWorker Bot</span>
         </button>
         <div className="sidebar-conversation-header" style={{
           padding: '4px 12px 2px',
@@ -203,13 +203,13 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
           position: 'relative',
           WebkitAppRegion: 'no-drag',
         }}>
-          <span className="sidebar-workspaces-label">专属 Agent</span>
-          <Tooltip text="搜索专属 Agent">
+          <span className="sidebar-workspaces-label">WeWorker Bot</span>
+          <Tooltip text="搜索WeWorker Bot">
             <button
               ref={searchButtonRef}
               type="button"
               className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
-              aria-label="搜索专属 Agent"
+              aria-label="搜索WeWorker Bot"
               aria-expanded={showSearch}
               aria-controls="sidebar-dedicated-agent-search"
               onClick={() => {
@@ -229,7 +229,7 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
             <input
               id="sidebar-dedicated-agent-search"
               type="search"
-              aria-label="搜索专属 Agent"
+              aria-label="搜索WeWorker Bot"
               autoFocus
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
@@ -258,8 +258,8 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
         )}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loadError && <Alert type="error" showIcon message={loadError} style={{ margin: 4 }} />}
-          {loaded && !agents.length && !loadError && <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', padding: '8px 12px' }}>还没有专属 Agent</div>}
-          {agents.length > 0 && visibleAgents.length === 0 && <div style={{ ...hintStyle, fontSize: 'var(--font-size-caption)', padding: '8px 12px' }}>没有匹配的专属 Agent</div>}
+          {loaded && !agents.length && !loadError && <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', padding: '8px 12px' }}>还没有WeWorker Bot</div>}
+          {agents.length > 0 && visibleAgents.length === 0 && <div style={{ ...hintStyle, fontSize: 'var(--font-size-caption)', padding: '8px 12px' }}>没有匹配的WeWorker Bot</div>}
           {visibleAgents.map((agent) => (
             <AgentListItem
               key={agent.id}

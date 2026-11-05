@@ -29,7 +29,7 @@ import { hideBrowserForNewTurn } from '../../utils/dedicated-browser.js'
 /**
  * @param {object} props
  * @param {string} props.workId
- * @param {boolean} [props.embedded] Render inside another page (e.g. 专属 Agent) without
+ * @param {boolean} [props.embedded] Render inside another page (e.g. WeWorker Bot) without
  *   making this work the active main chat.
  * @param {(fill: (text: string) => void) => React.ReactNode} [props.renderEmpty] Empty-state override.
  * @param {() => void} [props.onTurnFinished] Called after each send completes.
@@ -652,7 +652,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   }
   // Only show streaming UI (cursor, disabled input) if THIS workId is the one streaming
   const isStreamingHere = streaming
-  // Embedded chats (专属 Agent) do not own the main workspace toolbar.
+  // Embedded chats (WeWorker Bot) do not own the main workspace toolbar.
   const toolbarContext = !embedded && !isHealthCheck && messages.length > 0 && toolbarContextTarget
     ? createPortal(
         <div className="chat-heading">
