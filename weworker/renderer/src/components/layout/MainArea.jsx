@@ -61,10 +61,10 @@ export default function MainArea({ onOpenSettings, sidebarWidth, activeSidebarSe
   React.useEffect(() => {
     if (fillSeq <= handledFillSeqRef.current) return
     handledFillSeqRef.current = fillSeq
-    if (!activeWorkId && !activeTaskId) {
+    if (!activeWorkId && !activeTaskId && !websiteOpen && !dedicatedAgentsOpen && !toolPackageOpen && !explorationOpen) {
       setInputText(fillText)
     }
-  }, [activeTaskId, activeWorkId, fillSeq, fillText, setInputText])
+  }, [activeTaskId, activeWorkId, websiteOpen, dedicatedAgentsOpen, toolPackageOpen, explorationOpen, fillSeq, fillText, setInputText])
 
   React.useEffect(() => {
     if (activeWorkId || activeTaskId || activeSidebarSection === 'tasks' || websiteOpen || dedicatedAgentsOpen || toolPackageOpen || explorationOpen) return

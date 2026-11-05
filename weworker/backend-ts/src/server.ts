@@ -1,4 +1,4 @@
-import { createDevelopmentChatHandoff } from './website-exploration-handoff.js'
+import { prepareExplorationConversation, listExplorationConversations, excludeExplorationConversations } from './exploration-conversations.js'
 import { createSkillManagementRouter, sanitizeSkillDirectoryName } from './skill-management.js'
 import { officialSkillBuildTime } from './skill-build-time.js'
 import { randomUUID as channelQrId, createHash } from 'node:crypto'
@@ -330,8 +330,9 @@ app.get('/internal/webwright/model-config', (req, res) => {
 app.use(requireHttpAuth)
 app.use(express.json({ limit: '50mb' }))
 app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
+  onListDevelopmentChats: () => listExplorationConversations(),
   onDevelopmentHandoff: input => {
-    const result = createDevelopmentChatHandoff(input)
+    const result = prepareExplorationConversation(input)
     broadcastSSE({ type: 'works_changed', workId: result.work.id })
     return result
   },
@@ -2116,7 +2117,7 @@ app.get('/works', (_req, res) => {
   // Dedicated agent conversations share the same work records and are visible in the main list.
   try {
     const archivedIds = new Set(listArchivedWorkIds())
-    res.json(store.listWorks().map((work) => ({ ...work, archived: archivedIds.has(work.id) })))
+    res.json(excludeExplorationConversations(store.listWorks()).map((work) => ({ ...work, archived: archivedIds.has(work.id) })))
   } catch (error) {
     res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to load conversations' })
   }
@@ -2124,7 +2125,7 @@ app.get('/works', (_req, res) => {
 
 app.get('/works/archived', (_req, res) => {
   try {
-    res.json(store.listArchivedWorks())
+    res.json(excludeExplorationConversations(store.listArchivedWorks()))
   } catch (error) {
     res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to load archived conversations' })
   }

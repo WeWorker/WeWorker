@@ -279,3 +279,5 @@ export function cancelDebugRun(debugRunId) {
 // Prepare the work and attachment; the confirmed handoff queues its initial turn in Renderer.
 export const prepareDevelopmentChat = (explorationId, body = {}) =>
   post(`/api/explorations/${encode(explorationId)}/development/chat`, body)
+
+export const listDevelopmentChats = () => request('/api/development/chats')

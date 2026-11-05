@@ -35,8 +35,12 @@ export function shouldSubmitExploration(event, actionMode = 'send') {
 }
 
 
-export function sortExplorations(records = [], activeExplorationId = '') {
-  const priority = item => item.exploration_id === activeExplorationId ? 2 : runningStatuses.includes(item.status) ? 1 : 0
+export function isExplorationInProgress(item, activeExplorationId = '', developingIds = new Set()) {
+  return item.exploration_id === activeExplorationId || runningStatuses.includes(item.status) || developingIds.has(item.exploration_id)
+}
+
+export function sortExplorations(records = [], activeExplorationId = '', developingIds = new Set()) {
+  const priority = item => item.exploration_id === activeExplorationId ? 2 : isExplorationInProgress(item, activeExplorationId, developingIds) ? 1 : 0
   const time = item => Number.isFinite(item.created_at_timestamp) ? item.created_at_timestamp : -Infinity
   return [...(records || [])].sort((a, b) => {
     const byActivity = priority(b) - priority(a)

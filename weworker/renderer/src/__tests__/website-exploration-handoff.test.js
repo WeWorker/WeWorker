@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import { readFileSync } from 'node:fs'
-import { continueWebsiteExploration, finishExplorationTransfer, openDevelopmentChat, useWebsiteExplorationStore as exploration } from '../store/website-exploration.js'
+import { continueWebsiteExploration, rememberDevelopmentSession, finishExplorationTransfer, openDevelopmentChat, useWebsiteExplorationStore as exploration } from '../store/website-exploration.js'
+import { explorationDevelopmentPermissionSettings, saveChatPermissionMode } from '../utils/chat-permission-preferences.js'
 import { useWorksStore as works } from '../store/works.js'
 import { useChatDraftStore as drafts } from '../store/chat-drafts.js'
 import { useScheduledTasksStore as scheduled } from '../store/scheduled-tasks.js'
@@ -13,10 +14,10 @@ const originalFetch = globalThis.fetch
 const originalWindow = globalThis.window
 const body = { instruction: 'Read title' }
 function setup() {
-  handoffs.setState({ handoffs: {} })
+  handoffs.setState({ handoffs: {}, sessions: {} })
   globalThis.window = { electronAPI: {} }
   exploration.setState({ open: true, codeDraft: null, leaveRequest: null })
-  works.setState({ works: [{ id: 'existing' }], activeWorkId: 'existing', handoffWorkIds: new Set(), pendingMessage: 'unrelated pending message', pendingAttachments: [{ name: 'other.txt', path: 'C:/example/other.txt' }], pendingShellCommand: { command: 'echo unrelated' }, messages: { existing: ['kept'] } })
+  works.setState({ embeddedWorks: {}, works: [{ id: 'existing' }], activeWorkId: 'existing', handoffWorkIds: new Set(), pendingMessage: 'unrelated pending message', pendingAttachments: [{ name: 'other.txt', path: 'C:/example/other.txt' }], pendingShellCommand: { command: 'echo unrelated' }, messages: { existing: ['kept'] } })
   drafts.setState({ drafts: { 'work:existing': { text: 'keep me', attachments: [] }, welcome: { text: 'welcome draft', attachments: [] } } })
 }
 afterEach(() => { for (const id of Object.keys(useMessageQueueStore.getState().queues)) discardMessageQueue(id); globalThis.fetch = originalFetch; globalThis.window = originalWindow; exploration.setState({ codeDraft: null, leaveRequest: null }) })
@@ -36,11 +37,13 @@ test('handoff queues one initial turn with its real attachment before opening th
   try {
     await Promise.all([openDevelopmentChat('exp_example', body), openDevelopmentChat('exp_example', body)])
   } finally { unsubscribe() }
-  assert.equal(queuedOnOpen, 1)
+  assert.equal(queuedOnOpen, undefined)
+  assert.deepEqual(works.getState().works, [{ id: 'existing' }])
+  assert.equal(works.getState().embeddedWorks.new.id, 'new')
   assert.deepEqual(handoffs.getState().handoffs.exp_example, { workId: 'new', runId: null })
   assert.equal(await openDevelopmentChat('exp_example', body), false)
-  assert.deepEqual(calls, [{ url: 'http://127.0.0.1:8765/api/website-exploration/explorations/exp_example/development/chat', method: 'POST', body }])
-  assert.equal(works.getState().activeWorkId, 'new')
+  assert.deepEqual(calls, [{ url: 'http://127.0.0.1:8765/api/website-exploration/explorations/exp_example/development/chat', method: 'POST', body: { ...body, run_id: null } }])
+  assert.equal(works.getState().activeWorkId, 'existing')
   assert.equal(works.getState().handoffWorkIds.has('new'), true)
   assert.equal(works.getState().pendingMessage, 'unrelated pending message')
   assert.deepEqual(works.getState().messages.existing, ['kept'])
@@ -52,7 +55,7 @@ test('handoff queues one initial turn with its real attachment before opening th
   assert.equal(item.text, 'Read input.json and Skill')
   assert.deepEqual(item.files, [{ path: 'C:/example/input.json', name: 'input.json' }])
   assert.equal(item.thinkingEffort, 'off')
-  assert.equal(item.permissionMode, 'workspace')
+  assert.equal(item.permissionMode, 'full')
   assert.equal(item.command, undefined)
   assert.deepEqual(works.getState().pendingShellCommand, { command: 'echo unrelated' })
   assert.equal(works.getState().pendingAttachments[0].name, 'other.txt')
@@ -72,9 +75,9 @@ test('handoff queues one initial turn with its real attachment before opening th
   await tick()
   assert.equal(sent.length, 1)
   assert.equal(queue.snapshot().items.length, 0)
-  assert.equal(exploration.getState().open, false)
-  assert.equal(scheduled.getState().activeTaskId, null)
-  assert.equal(agents.getState().open, false)
+  assert.equal(exploration.getState().open, true)
+  assert.equal(scheduled.getState().activeTaskId, 'task')
+  assert.equal(agents.getState().open, true)
 })
 test('handoff error leaves current page and drafts unchanged', async () => {
   setup()
@@ -94,7 +97,7 @@ test('dirty-code cancellation does not prepare a chat', async () => {
   assert.equal(await pending, false)
   assert.equal(exploration.getState().open, true)
 })
-test('inline completion choice hands exploration directly to the main chat without target selection', () => {
+test('inline completion choice hands exploration directly to embedded development without target selection', () => {
   const source = readFileSync(new URL('../components/website-exploration/ExploreWorkspace.jsx', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /TransferExploration|api.createToolkit|api.createTool|开发目标|setDevelopmentChoice/)
   const actions = source.slice(source.indexOf("{data.status === 'succeeded' &&"), source.indexOf('{data.active_issue'))
@@ -127,11 +130,11 @@ test('selected exploration and target prepare a chat directly, without navigatin
   assert.equal(await finishExplorationTransfer({ explorationId: 'exp_selected', instruction: 'Read title' }), true)
   assert.deepEqual(calls, [{
     url: 'http://127.0.0.1:8765/api/website-exploration/explorations/exp_selected/development/chat',
-    body: { instruction: 'Read title' },
+    body: { instruction: 'Read title', run_id: null },
   }])
   assert.equal(exploration.getState().workspace, 'explore')
   assert.equal(exploration.getState().drafts['demo/read_title/source'], 'keep-source')
-  assert.equal(works.getState().activeWorkId, 'target-chat')
+  assert.equal(works.getState().activeWorkId, 'existing')
 })
 test('target selection never falls back to the hidden local development workflow', async () => {
   setup()
@@ -145,9 +148,9 @@ test('target selection never falls back to the hidden local development workflow
   assert.deepEqual(calls, [
     { url: 'http://127.0.0.1:8765/api/website-exploration/explorations/exp_selected/development/chat', method: 'POST' },
   ])
-  assert.equal(exploration.getState().open, false)
+  assert.equal(exploration.getState().open, true)
   assert.deepEqual(exploration.getState().drafts, {})
-  assert.equal(works.getState().activeWorkId, 'target-chat')
+  assert.equal(works.getState().activeWorkId, 'existing')
 })
 
 test('code edited during handoff can cancel navigation without losing the prepared draft', async () => {
@@ -240,9 +243,52 @@ test('only an accepted followup or resume clears the submitted marker for that e
 test('a new exploration run can submit again but the same run cannot', async () => {
   setup()
   handoffs.getState().record('exp_example', 'old-chat', 'run-first')
+  handoffs.getState().remember({ explorationId: 'exp_example', runId: 'run-first', work: { id: 'old-chat' } })
   globalThis.fetch = async () => assert.fail('same run must not create another chat')
   assert.equal(await openDevelopmentChat('exp_example', {}, 'run-first'), false)
   globalThis.fetch = async () => Response.json({ work: { id: 'new-run-chat' }, attachment: { path: 'C:/example/input.json', name: 'input.json' }, prompt: 'Read Skill' })
   assert.equal(await finishExplorationTransfer({ explorationId: 'exp_example', runId: 'run-second' }), true)
   assert.deepEqual(handoffs.getState().handoffs.exp_example, { workId: 'new-run-chat', runId: 'run-second' })
+})
+
+
+test('different explorations prepare independent conversations concurrently', async () => {
+  setup()
+  globalThis.fetch = async url => {
+    const id = url.includes('/exp_one/') ? 'dev-one' : 'dev-two'
+    return Response.json({ work: { id }, attachment: { path: 'C:/example/' + id + '/input.json', name: 'input.json' }, prompt: 'Read input' })
+  }
+  await Promise.all([openDevelopmentChat('exp_one'), openDevelopmentChat('exp_two')])
+  assert.equal(handoffs.getState().handoffs.exp_one.workId, 'dev-one')
+  assert.equal(handoffs.getState().handoffs.exp_two.workId, 'dev-two')
+  assert.equal(getMessageQueue('dev-one').snapshot().items.length, 1)
+  assert.equal(getMessageQueue('dev-two').snapshot().items.length, 1)
+  assert.deepEqual(works.getState().works, [{ id: 'existing' }])
+})
+test('recovered accepted conversation preserves its draft and never resends the initial task', async () => {
+  setup()
+  drafts.getState().setText('work:recovered', 'unsent followup')
+  globalThis.fetch = async () => Response.json({ work: { id: 'recovered' }, attachment: { path: 'C:/example/input.json', name: 'input.json' }, prompt: 'Read input', needsInitialMessage: false })
+  await openDevelopmentChat('exp_example')
+  assert.equal(getMessageQueue('recovered').snapshot().items.length, 0)
+  assert.equal(drafts.getState().drafts['work:recovered'].text, 'unsent followup')
+  assert.equal(works.getState().activeWorkId, 'existing')
+})
+test('history hydration caches metadata without executing, selecting, or replacing messages', async () => {
+  setup()
+  works.setState({ messages: { existing: ['kept'], recovered: ['live'] } })
+  await rememberDevelopmentSession({ explorationId: 'exp_example', runId: 'run_one', work: { id: 'recovered' }, needsInitialMessage: true })
+  assert.equal(useMessageQueueStore.getState().queues.recovered, undefined)
+  assert.deepEqual(works.getState().messages.recovered, ['live'])
+  assert.equal(works.getState().activeWorkId, 'existing')
+  assert.deepEqual(works.getState().works, [{ id: 'existing' }])
+})
+
+test('automatic recovery uses the same saved permission as its composer without changing main preference', async () => {
+  setup()
+  const settings = explorationDevelopmentPermissionSettings('restricted-recovery')
+  saveChatPermissionMode('ask', settings.permissionScope)
+  globalThis.fetch = async () => Response.json({ work: { id: 'restricted-recovery' }, attachment: { path: 'C:/example/input.json', name: 'input.json' }, prompt: 'Read input', needsInitialMessage: true })
+  await openDevelopmentChat('exp_recovery')
+  assert.equal(getMessageQueue('restricted-recovery').snapshot().items[0].permissionMode, 'ask')
 })

@@ -2,9 +2,10 @@ import { create } from 'zustand'
 import * as api from '../api/website-exploration-api.js'
 import { isDevelopmentSubmitted, useExplorationDevelopmentHandoffsStore as handoffs } from './exploration-development-handoffs.js'
 import { getMessageQueue } from './message-queue.js'
+import { explorationDevelopmentPermissionSettings, readChatPermissionMode } from '../utils/chat-permission-preferences.js'
 
 export const useWebsiteExplorationStore = create((set, get) => ({
-  open: false, toolkitId: '', toolId: '', workspace: 'explore', explorationContext: null,
+  open: false, activeDevelopmentWorkId: null, toolkitId: '', toolId: '', workspace: 'explore', explorationContext: null,
   drafts: {}, selections: {}, scrolls: {}, codeDraft: null, leaveRequest: null,
   activity: { running: false }, connection: 'starting',
   setContext: (patch) => set(patch),
@@ -43,44 +44,63 @@ export async function changeWebsiteContext(patch) {
   return true
 }
 
-let pendingDevelopmentChat = null
+// Reuse normal work-scoped state without selecting or adding to the main list.
+export async function rememberDevelopmentSession(session) {
+  const { useWorksStore } = await import('./works.js')
+  useWorksStore.setState(state => ({
+    embeddedWorks: { ...state.embeddedWorks, [session.work.id]: session.work },
+    handoffWorkIds: new Set([...state.handoffWorkIds, session.work.id]),
+  }))
+  handoffs.getState().remember(session)
+}
+
+export async function startDevelopmentSession(session) {
+  const [{ useWorksStore }, { useChatDraftStore }] = await Promise.all([import('./works.js'), import('./chat-drafts.js')])
+  const workId = session.work.id
+  const queue = getMessageQueue(workId)
+  const state = useWorksStore.getState()
+  // Refreshes and remounts must not resend an accepted or queued first turn.
+  if (session.needsInitialMessage !== false && !state.messages[workId]?.length && !state.streamingWorkIds.has(workId)
+      && !queue.snapshot().running && !queue.snapshot().items.length) {
+    if (!queue.enqueue({ text: session.prompt, files: [session.attachment], thinkingEffort: 'off', permissionMode: readChatPermissionMode(explorationDevelopmentPermissionSettings(workId)) })) {
+      throw new Error('网站适配器生成请求准备失败，请重试')
+    }
+    const key = 'work:' + workId
+    const draft = useChatDraftStore.getState().drafts[key]
+    if (draft?.text === session.prompt && draft.attachments?.length === 1 && draft.attachments[0].path === session.attachment.path) {
+      useChatDraftStore.getState().discard(key)
+    }
+  }
+}
+
+const pendingDevelopmentChats = new Map()
 export function openDevelopmentChat(explorationId, body = {}, runId = null) {
-  if (pendingDevelopmentChat) return pendingDevelopmentChat
-  if (isDevelopmentSubmitted(handoffs.getState().handoffs[explorationId], runId)) return Promise.resolve(false)
-  pendingDevelopmentChat = (async () => {
+  const requestKey = JSON.stringify([explorationId, runId])
+  if (pendingDevelopmentChats.has(requestKey)) return pendingDevelopmentChats.get(requestKey)
+  if (isDevelopmentSubmitted(handoffs.getState().handoffs[explorationId], runId)
+      && Object.values(handoffs.getState().sessions).some(s => s.explorationId === explorationId && s.runId === runId)) return Promise.resolve(false)
+  const pending = (async () => {
     if (!await useWebsiteExplorationStore.getState().guard()) return false
-    const [{ useWorksStore }, { useChatDraftStore }, { useScheduledTasksStore }, { useDedicatedAgentsStore }] = await Promise.all([
-      import('./works.js'), import('./chat-drafts.js'), import('./scheduled-tasks.js'), import('./dedicated-agents.js'),
-    ])
-    const { work, attachment, prompt } = await api.prepareDevelopmentChat(explorationId, body)
-    if (!work?.id || !attachment?.path || typeof prompt !== 'string') throw new Error('开发对话准备失败')
-    // The backend always creates a fresh work, so no existing draft is replaced.
-    const key = `work:${work.id}`
-    useChatDraftStore.getState().setText(key, prompt)
-    useChatDraftStore.getState().setAttachments(key, [attachment])
-    useWorksStore.setState(state => ({
-      works: [work, ...state.works.filter(item => item.id !== work.id)],
-      handoffWorkIds: new Set([...state.handoffWorkIds, work.id]),
-      messages: { ...state.messages, [work.id]: [] },
-    }))
-    // A code edit may have appeared while the request was in flight. Keep the
-    // prepared chat draft even if the user now chooses to stay in exploration.
+    const { useChatDraftStore } = await import('./chat-drafts.js')
+    const result = await api.prepareDevelopmentChat(explorationId, { ...body, run_id: runId })
+    const { work, attachment, prompt } = result
+    if (!work?.id || !attachment?.path || typeof prompt !== 'string') throw new Error('网站适配器生成准备失败')
+    const session = { ...result, explorationId, runId: result.runId ?? runId }
+    const key = 'work:' + work.id
+    // Only seed a genuinely empty first turn; reopening must preserve user drafts.
+    if (result.needsInitialMessage !== false && !useChatDraftStore.getState().drafts[key]) {
+      useChatDraftStore.getState().setText(key, prompt)
+      useChatDraftStore.getState().setAttachments(key, [attachment])
+    }
     if (!await useWebsiteExplorationStore.getState().guard()) return false
-    // Enqueue only after both leave guards accept. The per-work queue survives
-    // remounts; ChatView uses its normal send pipeline, never global pending state.
-    const queued = getMessageQueue(work.id).enqueue({
-      text: prompt, files: [attachment], thinkingEffort: 'off', permissionMode: 'workspace',
-    })
-    if (!queued) throw new Error('开发对话发送准备失败，请在新对话中重试')
-    handoffs.getState().record(explorationId, work.id, runId)
-    useChatDraftStore.getState().discard(key)
-    useScheduledTasksStore.setState({ activeTaskId: null })
-    useDedicatedAgentsStore.setState({ open: false })
-    useWorksStore.setState({ activeWorkId: work.id, draftProjectId: null })
-    useWebsiteExplorationStore.setState({ open: false })
+    await startDevelopmentSession(session)
+    await rememberDevelopmentSession(session)
+    handoffs.getState().record(explorationId, work.id, session.runId)
+    // Stay in the exploration page; main selection, drafts and pending inputs are untouched.
     return true
-  })().finally(() => { pendingDevelopmentChat = null })
-  return pendingDevelopmentChat
+  })().finally(() => { pendingDevelopmentChats.delete(requestKey) })
+  pendingDevelopmentChats.set(requestKey, pending)
+  return pending
 }
 
 // Destination selection belongs to the development Skill, not to exploration.

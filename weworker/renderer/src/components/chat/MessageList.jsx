@@ -103,7 +103,7 @@ function MessageHistoryNavigator({ entries, activeIndex, onJump }) {
   )
 }
 
-export default function MessageList({ messages, streaming, compactionStatus, workId, onChoice, onSelectModeChange, onShellCommand }) {
+export default function MessageList({ messages, streaming, compactionStatus, workId, onChoice, onSelectModeChange, onShellCommand, historyPrefix }) {
   const bottomRef = useRef(null)
   const containerRef = useRef(null)
   const messageRefs = useRef([])
@@ -361,6 +361,7 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
       />
       <div ref={containerRef} onScroll={handleScroll} className="message-list-scroll">
       <div className="message-list-scroll__inner">
+      {historyPrefix}
       {messages.map((msg, i) => {
         const showTime = i === 0 || shouldShowTime(messages[i - 1], msg)
         return (
