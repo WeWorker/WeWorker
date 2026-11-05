@@ -68,8 +68,8 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
               <div key={blockKey} className="tool-exec-group__entry">
                 <Tooltip
                   trigger={['hover', 'focus']}
-                  color="#fff"
-                  styles={{ body: { color: '#333', border: '1px solid #e5e7eb', boxShadow: '0 8px 18px rgba(0, 0, 0, 0.12)' } }}
+                  color="var(--bg-secondary)"
+                  styles={{ body: { color: 'var(--text-primary)', border: '1px solid var(--border)', boxShadow: '0 8px 18px rgba(0, 0, 0, 0.12)' } }}
                   overlayStyle={{ maxWidth: 'min(720px, calc(100vw - 32px))' }}
                   title={<pre style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '50vh', overflowY: 'auto', font: 'inherit', userSelect: 'text' }}>{getToolExecTooltipText(block)}</pre>}
                 >

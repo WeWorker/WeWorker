@@ -1361,7 +1361,8 @@ button.app-rail__issue-item:focus-visible {
   background: var(--bg-primary);
 }
 
-html.dark .settings-shell.settings-shell--sidebar {
+html.dark .settings-shell.settings-shell--sidebar,
+html.dark .settings-style-dialog-overlay {
   --bg-primary: #141414;
   --bg-secondary: #1e1e1e;
   --bg-tertiary: #2a2a2a;
