@@ -162,15 +162,37 @@ describe('project persistence', () => {
     expect(() => store.deleteProject(project.id)).toThrow('project must be empty before deletion')
   })
 
-  it('deletes only an empty project folder', () => {
+  it('removes the project record and keeps its folder', () => {
     const project = store.createProject('Empty')
+    const folder = store.getProject(project.id)!.folder_path
     store.deleteProject(project.id)
-    expect(fs.existsSync(path.join(fixtureRoot, 'projects', 'Empty'))).toBe(false)
+    expect(store.listProjects()).toHaveLength(0)
+    expect(fs.existsSync(folder)).toBe(true)
+  })
+
+  it('keeps project files when the project record is deleted', () => {
+    const project = store.createProject('Keep mine')
+    const folder = store.getProject(project.id)!.folder_path
+    fs.writeFileSync(path.join(folder, 'notes.txt'), 'mine')
+    store.deleteProject(project.id)
+    expect(fs.readFileSync(path.join(folder, 'notes.txt'), 'utf8')).toBe('mine')
     expect(store.listProjects()).toHaveLength(0)
   })
 
-  it('moves archived conversations to the default workspace and removes a workspace with no visible conversations', () => {
+  it('does not clean up the project when a conversation is archived', () => {
+    const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
+    const start = source.indexOf("app.patch('/works/:id/archive'")
+    const end = source.indexOf("app.get('/projects'", start)
+    expect(start).toBeGreaterThan(0)
+    expect(end).toBeGreaterThan(start)
+    const route = source.slice(start, end)
+    expect(route).toContain('archiveWork')
+    expect(route).not.toContain('cleanupProjectIfNoVisibleWorks')
+  })
+
+  it('moves archived conversations to the default workspace and removes an empty project record without deleting the folder', () => {
     const project = store.createProject('Archive me')
+    const folder = store.getProject(project.id)!.folder_path
     const work = store.createWork('Archived conversation', project.id)
 
     const archived = store.archiveWork(work.id, true)!
@@ -178,7 +200,7 @@ describe('project persistence', () => {
     expect(archived.workspace_directory).toBe(path.join(fixtureRoot, 'projects', 'default'))
     expect(store.cleanupProjectIfNoVisibleWorks(project.id)).toBe(true)
     expect(store.getProject(project.id)).toBeNull()
-    expect(fs.existsSync(path.join(fixtureRoot, 'Archive me'))).toBe(false)
+    expect(fs.existsSync(folder)).toBe(true)
 
     const restored = store.archiveWork(work.id, false)!
     expect(restored.project_id).toBeNull()
@@ -187,7 +209,8 @@ describe('project persistence', () => {
 
   it('preserves files when an archived conversation empties a workspace', () => {
     const project = store.createProject('Keep files')
-    const filePath = path.join(fixtureRoot, 'projects', 'Keep files', 'notes.txt')
+    const folder = store.getProject(project.id)!.folder_path
+    const filePath = path.join(folder, 'notes.txt')
     fs.writeFileSync(filePath, 'preserved')
     const work = store.createWork('Archived conversation', project.id)
 
@@ -195,6 +218,7 @@ describe('project persistence', () => {
     expect(store.cleanupProjectIfNoVisibleWorks(project.id)).toBe(true)
     expect(store.getProject(project.id)).toBeNull()
     expect(fs.readFileSync(filePath, 'utf8')).toBe('preserved')
+    expect(fs.existsSync(folder)).toBe(true)
   })
 
   it('keeps a workspace while it still contains a visible conversation and cleans it after deletion', () => {
