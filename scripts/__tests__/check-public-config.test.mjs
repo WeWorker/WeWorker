@@ -57,14 +57,19 @@ function buildFixtureRepo({ webcliVersion = '1.0.4', ledgerOverrides = {} } = {}
   writeText('weworker/renderer/src/components/settings/SettingsModal.jsx', 'const updateSources = deploymentConfig.updateSources.map(Boolean)\n')
   writeText('weworker/scripts/build-electron-current-arch.cjs', 'const publish = { url: deployment.updateSources[0].url }\n')
   writeText('officialWeb/src/lib/siteConfig.js', `export const OFFICIAL_SITE = '${PUBLIC_SITE_URL}'\nexport const GITHUB_REPO = '${PUBLIC_REPO_URL}'\n`)
-  writeText('officialWeb/index.html', `<link rel="canonical" href="${PUBLIC_SITE_URL}/"><meta property="og:image" content="${PUBLIC_SITE_URL}/logo.png">\n`)
+  writeText('officialWeb/index.html', `<link rel="canonical" href="${PUBLIC_SITE_URL}/"><meta property="og:image" content="${PUBLIC_SITE_URL}/social-preview.png">\n`)
   const fixtureLogo = Buffer.from('fixture-logo')
   const publicLogo = path.join(root, 'officialWeb', 'public', 'logo.png')
   fs.mkdirSync(path.dirname(publicLogo), { recursive: true })
   fs.writeFileSync(publicLogo, fixtureLogo)
+  const socialPreviewPng = Buffer.alloc(24)
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(socialPreviewPng)
+  socialPreviewPng.writeUInt32BE(1280, 16)
+  socialPreviewPng.writeUInt32BE(640, 20)
+  fs.writeFileSync(path.join(root, 'officialWeb', 'public', 'social-preview.png'), socialPreviewPng)
   writeText('docs/github-repo-settings.md', `${PUBLIC_REPO_URL}\n${PUBLIC_SITE_URL}\n`)
   writeText('docs/assets/social-preview.html', `${PUBLIC_SITE_URL}\n../../officialWeb/public/logo.png\n`)
-  writeText('docs/assets/social-preview.svg', `${PUBLIC_SITE_URL}\n<image href="data:image/png;base64,${fixtureLogo.toString('base64')}"/>\n`)
+  writeText('docs/assets/social-preview.svg', `<svg width="1280" height="640"><image href="../../officialWeb/public/logo.png"/>${PUBLIC_SITE_URL}</svg>\n`)
 
   writeJson('webcli/package.json', { version: webcliVersion })
   writeJson('webcli/version.json', { version: ledgerOverrides.versionJson ?? webcliVersion })
@@ -116,15 +121,14 @@ test('retired public addresses and website updater sources are rejected', () => 
   }
 })
 
-test('social preview embedded logo must match the public product logo', () => {
+test('social preview image dimensions must match the GitHub card size', () => {
   const root = buildFixtureRepo()
   try {
-    fs.writeFileSync(
-      path.join(root, 'docs', 'assets', 'social-preview.svg'),
-      `${PUBLIC_SITE_URL}\n<image href="data:image/png;base64,${Buffer.from('different-logo').toString('base64')}"/>\n`,
-    )
+    const invalidSizePng = fs.readFileSync(path.join(root, 'officialWeb', 'public', 'social-preview.png'))
+    invalidSizePng.writeUInt32BE(1200, 16)
+    fs.writeFileSync(path.join(root, 'officialWeb', 'public', 'social-preview.png'), invalidSizePng)
     assert.deepEqual(validatePublicConfig(root), [
-      'docs/assets/social-preview.svg embedded logo must match officialWeb/public/logo.png',
+      'officialWeb/public/social-preview.png must be 1280x640, got 1200x640',
     ])
   } finally {
     fs.rmSync(root, { recursive: true, force: true })

@@ -29,14 +29,11 @@ workflow-automation
 
 ## 社交预览图
 
-**文件位置**: `docs/assets/social-preview.html`
+**上传文件**: `officialWeb/public/social-preview.png`
 
-### 生成步骤
+**设计源文件**: `docs/assets/social-preview.svg`
 
-1. 用浏览器打开 `social-preview.html`
-2. 按 `F12` 打开开发者工具
-3. 设置设备模拟为 `1280x640`
-4. 截图保存为 PNG
+更新设计后，需要重新生成 1280 x 640 的 PNG，并在上传 GitHub 前检查文字、留白和文件大小。
 
 ### 尺寸要求
 

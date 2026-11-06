@@ -5,7 +5,7 @@ import ProductPathsSection from '../components/ProductPathsSection.jsx'
 import ScrollReveal from '../components/ScrollReveal.jsx'
 import MagneticButton from '../components/MagneticButton.jsx'
 import sitesData from '../lib/sites.json'
-import { GITHUB_RELEASES } from '../lib/siteConfig.js'
+import { GITHUB_REPO } from '../lib/siteConfig.js'
 
 const ALL_SITE_NAMES = sitesData.groups
   .flatMap((g) => g.sites)
@@ -136,6 +136,17 @@ export default function Landing() {
                 <path d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </Link>
+            <a
+              href={GITHUB_REPO}
+              target="_blank"
+              rel="noreferrer"
+              className="hero-cta-secondary"
+            >
+              GitHub Star
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="m12 2.5 2.86 5.8 6.4.93-4.63 4.51 1.09 6.38L12 17.1l-5.72 3.02 1.09-6.38-4.63-4.51 6.4-.93L12 2.5Z" />
+              </svg>
+            </a>
           </div>
         </div>
       </section>
@@ -239,12 +250,12 @@ export default function Landing() {
       <section id="opensource" className="section-pad pb-24 sm:pb-28">
         <div className="max-w-page mx-auto text-center">
           <a
-            href={GITHUB_RELEASES}
+            href={GITHUB_REPO}
             target="_blank"
             rel="noreferrer"
             className="text-sm text-muted hover:text-accent transition-colors"
           >
-            也可直接从 GitHub Releases 获取最新安装包 →
+            在 GitHub 查看源码、参与贡献并 Star →
           </a>
         </div>
       </section>

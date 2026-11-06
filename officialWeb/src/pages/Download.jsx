@@ -6,6 +6,7 @@ import {
 } from '../lib/downloadConfig.js'
 import { CHANGELOG } from '../lib/changelog.js'
 import { reportDownload, triggerFileDownload } from '../lib/downloadActions.js'
+import { GITHUB_FAQ } from '../lib/siteConfig.js'
 import disclaimer from '../../../weworker/disclaimer.json'
 
 const URL_RE = /(https?:\/\/[^\s）)]+)/
@@ -50,7 +51,6 @@ export default function Download() {
   const [summary, setSummary] = useState(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [summaryError, setSummaryError] = useState(false)
-  const [activeMacTipPlatform, setActiveMacTipPlatform] = useState(null)
 
   const fetchSummary = async ({ silent = false, cancelledRef } = {}) => {
     const cancelled = () => cancelledRef?.current === true
@@ -112,6 +112,17 @@ export default function Download() {
             <span className="font-semibold tabular-nums text-[rgb(var(--color-text))]">v{APP_VERSION}</span>
             <span className="text-muted"> — 欢迎体验</span>
           </p>
+          <p>
+            安装或首次使用遇到问题？查看{' '}
+            <a
+              href={GITHUB_FAQ}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-accent hover:underline"
+            >
+              安装与首次使用 FAQ
+            </a>
+          </p>
         </div>
       </header>
 
@@ -125,11 +136,6 @@ export default function Download() {
               className="group flex flex-col rounded-xl border border-border bg-surface p-6 text-left min-h-[240px] transition-colors hover:border-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               onClick={(e) => {
                 e.preventDefault()
-                if (d.platform.startsWith('mac-')) {
-                  setActiveMacTipPlatform(d.platform)
-                } else {
-                  setActiveMacTipPlatform(null)
-                }
                 handleDownloadClick(d.href, d.platform)
               }}
             >
@@ -141,13 +147,14 @@ export default function Download() {
                 <PlatformIcon name={d.icon} />
               </div>
               <h2 className="text-[rgb(var(--color-text))] font-semibold text-lg mb-2">{d.title}</h2>
-              <p className="text-muted text-sm leading-relaxed flex-1">{d.subtitle}</p>
-              {activeMacTipPlatform === d.platform && (
+              <p className="text-muted text-sm leading-relaxed">{d.subtitle}</p>
+              <p className="mt-2 text-xs text-muted">{d.sizeHint}</p>
+              {d.notice && (
                 <p className="mt-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-2.5 py-2 text-[12px] leading-relaxed text-amber-300">
-                  首次打开前需在终端运行 <code className="font-mono">xattr -cr /Applications/WeWorker.app</code>，否则会提示"已损坏"
+                  {d.notice} 安装后请在终端运行 <code className="font-mono">xattr -cr /Applications/WeWorker.app</code>，再打开应用。
                 </p>
               )}
-              <p className="text-[11px] text-muted font-mono truncate mt-4 mb-5" title={d.filename}>
+              <p className="text-[11px] text-muted font-mono truncate mt-auto pt-4 mb-5" title={d.filename}>
                 {d.filename}
               </p>
               <span className="mt-auto flex items-center justify-center gap-2 w-full rounded-lg border border-accent/35 bg-accent/[0.08] py-2.5 px-3 text-sm font-semibold text-accent transition-colors group-hover:border-accent/55 group-hover:bg-accent group-hover:text-white">
