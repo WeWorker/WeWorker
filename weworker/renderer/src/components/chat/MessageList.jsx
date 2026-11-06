@@ -6,6 +6,8 @@ import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { useWorksStore } from '../../store/works.js'
 import { applyPausedTodoState, applyStreamingTodoProgress, buildDisplayTodoSnapshots, buildTodoWriteState } from '../../utils/todowrite-state.js'
 import { backendFetch } from '../../api/http.js'
+import { getCompactionStatus } from '../../api/backend.js'
+import WorkingIndicator from './WorkingIndicator.jsx'
 import { showConfirm } from '../../store/dialog.js'
 import { findClosestHistoryMessageIndex, getHistoryMessagePreview } from '../../utils/message-history-navigation.js'
 
@@ -147,6 +149,32 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
   }, [workId])
 
   useEffect(() => () => onSelectModeChange?.(false), [onSelectModeChange])
+
+  // 压缩期间轮询后端心跳：有产出就是「压缩中」，长时间无产出才是「可能卡住」。
+  const [compactionHeartbeat, setCompactionHeartbeat] = useState(null)
+  useEffect(() => {
+    if (compactionStatus !== 'compacting' || !workId) { setCompactionHeartbeat(null); return undefined }
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const heartbeat = await getCompactionStatus(workId)
+        if (!cancelled) setCompactionHeartbeat(heartbeat)
+      } catch { /* 心跳失败不影响压缩本身 */ }
+    }
+    void tick()
+    const timer = setInterval(tick, 1000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [compactionStatus, workId])
+
+  // 正常压缩只显示与 working 一致的样式；长时间没有产出才补上超时计数，恢复后自动回到正常文案。
+  const compactionLabel = (() => {
+    const heartbeat = compactionHeartbeat
+    const stalled = heartbeat?.status === 'running' && (heartbeat.idle_ms ?? 0) >= 30_000
+    if (!stalled) return '压缩中......'
+    const elapsed = Math.floor((heartbeat.elapsed_ms ?? 0) / 1000)
+    const total = Math.floor((heartbeat.total_ms ?? 600_000) / 1000)
+    return `压缩中......请求超时(${elapsed}s/${total}s)`
+  })()
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -413,10 +441,15 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
             color: compactionStatus === 'failed' ? 'var(--error)' : compactionStatus === 'compacting' ? 'var(--accent)' : 'var(--text-secondary)',
           }}
         >
-          {compactionStatus === 'compacting' && '压缩中……'}
-          {compactionStatus === 'completed' && '对话上下文压缩完成'}
-          {compactionStatus === 'skipped' && '当前没有足够的历史对话可压缩'}
-          {compactionStatus === 'failed' && '对话上下文压缩失败'}
+          {compactionStatus === 'compacting' ? (
+            <WorkingIndicator label={compactionLabel} />
+          ) : (
+            <>
+              {compactionStatus === 'completed' && '对话上下文压缩完成'}
+              {compactionStatus === 'skipped' && '当前没有足够的历史对话可压缩'}
+              {compactionStatus === 'failed' && '对话上下文压缩失败'}
+            </>
+          )}
         </div>
       )}
       <div ref={bottomRef} />

@@ -399,4 +399,52 @@ describe('agent conversation compaction', () => {
     expect(result?.status).toBe('failed')
     expect(result?.error).toContain('prompt is too long')
   })
+
+  it('fails fast instead of hanging when the summarizer never returns', async () => {
+    const previous = process.env.WEWORKER_COMPACTION_TIMEOUT_MS
+    process.env.WEWORKER_COMPACTION_TIMEOUT_MS = '60'
+    try {
+      mocks.query.mockImplementation(() => ({
+        // A summarizer that never yields and never ends: exactly the stuck case.
+        async *[Symbol.asyncIterator]() { await new Promise(() => {}) },
+        close() {},
+      }))
+      const outcome = await Promise.race([
+        collect(history(), { forceCompaction: true, compactionOnly: true }),
+        new Promise((resolve) => setTimeout(() => resolve('still-hanging'), 3_000)),
+      ])
+      expect(outcome).not.toBe('still-hanging')
+      const result = (outcome as Array<{ type: string; compaction?: { status?: string; error?: string } }>)
+        .find(event => event.type === 'context_compaction_end')?.compaction
+      expect(result?.status).toBe('failed')
+      expect(result?.error).toContain('对话压缩超时')
+    } finally {
+      if (previous === undefined) delete process.env.WEWORKER_COMPACTION_TIMEOUT_MS
+      else process.env.WEWORKER_COMPACTION_TIMEOUT_MS = previous
+    }
+  })
+
+  it('keeps a slow summarizer alive as long as it keeps producing output', async () => {
+    const previous = process.env.WEWORKER_COMPACTION_TIMEOUT_MS
+    // Shorter than the whole run, longer than the gap between two streamed chunks.
+    process.env.WEWORKER_COMPACTION_TIMEOUT_MS = '80'
+    try {
+      mocks.query.mockImplementation(() => ({
+        async *[Symbol.asyncIterator]() {
+          for (let index = 0; index < 6; index += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 40))
+            yield { type: 'stream_event', event: { delta: { type: 'text_delta', text: 'x' } } }
+          }
+          yield { type: 'result', subtype: 'success', result: 'SUMMARY' }
+        },
+        close() {},
+      }))
+      const events = await collect(history(), { forceCompaction: true, compactionOnly: true })
+      const result = events.find(event => event.type === 'context_compaction_end')?.compaction
+      expect(result?.status).toBe('completed')
+    } finally {
+      if (previous === undefined) delete process.env.WEWORKER_COMPACTION_TIMEOUT_MS
+      else process.env.WEWORKER_COMPACTION_TIMEOUT_MS = previous
+    }
+  })
 })
