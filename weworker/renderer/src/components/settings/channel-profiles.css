@@ -6,14 +6,14 @@
 .channel-profile-menu button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .channel-profile-row { display: flex; align-items: center; gap: 2px; min-height: 38px; padding: 3px 4px 3px 8px; border-radius: 7px; margin-bottom: 4px; }
 .channel-profile-row:hover, .channel-profile-row:focus-within { background: var(--dropdown-hover); }
-.channel-profile-row.is-selected { background: #edf7ef; color: #168442; }
+.channel-profile-row.is-selected { background: color-mix(in srgb, var(--success) 12%, var(--bg-primary)); color: var(--success-text); }
 .channel-profile-name { flex: 1; min-width: 0; padding: 6px 0; text-align: left; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: inherit; font-size: 12px; }
-.channel-profile-row.is-selected .channel-profile-name { color: #168442; }
+.channel-profile-row.is-selected .channel-profile-name { color: var(--success-text); }
 .channel-profile-actions { display: flex; align-items: center; flex-shrink: 0; gap: 1px; }
 .channel-profile-actions button { width: 25px; height: 26px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border-radius: 5px; font-size: 13px; }
 .channel-profile-menu .channel-profile-row button:hover:not(:disabled),
 .channel-profile-menu .channel-profile-row button:focus { background: transparent; }
-.channel-profile-actions button.is-active { color: #168442; opacity: 1; }
+.channel-profile-actions button.is-active { color: var(--success-text); opacity: 1; }
 .channel-profile-actions button.is-delete:hover { color: var(--error); }
 .channel-profile-menu button:disabled:not(.is-active) { cursor: default; opacity: .5; }
 .channel-profile-menu button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
