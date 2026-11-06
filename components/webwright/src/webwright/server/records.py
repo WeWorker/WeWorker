@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,11 +32,34 @@ def make_run_id() -> str:
     return f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 
 
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+def atomic_write_json(
+    path: Path,
+    payload: dict[str, Any],
+    *,
+    max_retries: int = 30,
+    retry_delay: float = 0.02,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f".{path.name}.tmp")
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}_{time.time_ns()}.tmp")
     tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp_path.replace(path)
+    last_error: Exception | None = None
+    try:
+        for attempt in range(max_retries):
+            try:
+                tmp_path.replace(path)
+                return
+            except OSError as exc:
+                last_error = exc
+                if attempt + 1 < max_retries:
+                    time.sleep(retry_delay)
+        if last_error:
+            raise last_error
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 class TaskStore:
@@ -122,16 +147,16 @@ class TaskStore:
     def list_explorations(
         self,
         *,
-        toolkit_id: str,
-        tool_id: str,
+        toolkit_id: str | None = None,
+        tool_id: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         return [
             task
             for task in self.list_tasks(limit=max(limit, 1_000))
             if task.get("activity_type") == "exploration"
-            and task.get("toolkit_id") == toolkit_id
-            and task.get("tool_id") == tool_id
+            and (toolkit_id is None or task.get("toolkit_id") == toolkit_id)
+            and (tool_id is None or task.get("tool_id") == tool_id)
         ][:limit]
 
     def read_exploration(self, exploration_id: str) -> dict[str, Any]:

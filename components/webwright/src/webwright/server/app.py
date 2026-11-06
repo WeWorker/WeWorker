@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import base64
 import json
 import os
 import time
@@ -12,10 +13,8 @@ from flask import (
     Flask,
     Response,
     jsonify,
-    redirect,
     request,
     send_file,
-    send_from_directory,
     stream_with_context,
 )
 
@@ -38,6 +37,7 @@ from webwright.server.browser import (
     browser_tabs,
 )
 from webwright.server.debug_store import DebugRunStore
+from webwright.server.adapter_v2 import bind_base, current_package, read_base
 from webwright.server.development_store import DevelopmentRunStore
 from webwright.server.publisher import ToolkitPublisher, skill_name
 from webwright.server.process_manager import BusyError, InvalidStateError, NotFoundError, ProcessManager
@@ -81,9 +81,9 @@ def _openapi_spec() -> dict[str, Any]:
         },
         "servers": [{"url": "http://127.0.0.1:8765"}],
         "paths": {
-            "/": {"get": op("Redirect to the Webwright UI")},
-            "/ui": {"get": op("Webwright task UI")},
             "/api/health": {"get": op("Server health")},
+            "/api/explorations/{exploration_id}/development/input": {"post": op("Prepare development input without launching a model; host instance identity required")},
+            "/api/development/commands/{command}": {"post": op("Agent-authored Toolkit development; host instance identity required")},
             "/api/docs": {"get": op("Markdown API documentation")},
             "/api/openapi.json": {"get": op("OpenAPI document")},
             "/api/browser/status": {"get": op("Check local CDP browser availability")},
@@ -125,12 +125,11 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/development/events": {"get": op("Stream Tool development events")},
             "/api/development-runs/{development_run_id}": {"get": op("Get Development Run details")},
             "/api/development-runs/{development_run_id}/files/{path}": {"get": op("Read a Development Run artifact")},
-            "/api/toolkits/{toolkit_id}/tools/{tool_id}/publish": {"post": op("Publish the development Tool")},
-            "/api/toolkits/{toolkit_id}/export-status": {"get": op("Get formal artifact export eligibility")},
-            "/api/toolkits/{toolkit_id}/export": {"get": op("Download the verified Toolkit ZIP")},
-            "/api/toolkits/{toolkit_id}/install-to-weworker": {
-                "post": op("Install an export-eligible Toolkit into the embedded WeWorker host")
-            },
+            "/api/toolkits/{toolkit_id}/export-status": {"get": op("Get v2 Adapter package export eligibility")},
+            "/api/toolkits/{toolkit_id}/export": {"get": op("Download the verified v2 Adapter ZIP")},
+            "/api/toolkits/{toolkit_id}/bind-adapter": {"post": op("Bind a host-validated v2 Adapter baseline in embedded mode")},
+            "/api/toolkits/{toolkit_id}/adapter-base": {"get": op("Read the bound Adapter identity in embedded mode")},
+            "/api/toolkits/{toolkit_id}/v2-package": {"get": op("Read the saved complete v2 package in embedded mode")},
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/debug-runs": {
                 "get": op("List Debug Runs"),
                 "post": op("Create and start a Debug Run"),
@@ -139,6 +138,10 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/debug-runs/{debug_run_id}/cancel": {"post": op("Cancel a Debug Run")},
             "/api/debug-runs/{debug_run_id}/events": {"get": op("Stream Debug Run events")},
             "/api/debug-runs/{debug_run_id}/files/{path}": {"get": op("Read a Debug Run artifact")},
+            "/api/explorations": {
+                "get": op("List site explorations"),
+                "post": op("Start exploration from a URL without a Tool"),
+            },
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/explorations": {
                 "get": op("List Tool-owned Explorations"),
                 "post": op("Create and start a Tool-owned Exploration"),
@@ -213,8 +216,6 @@ Base URL: `{base_url}`
 
 ## Docs
 
-- `GET /` - Webwright task UI
-- `GET /ui` - Webwright task UI
 - `GET /api/docs` - this Markdown document
 - `GET /api/openapi.json` - OpenAPI-style endpoint index
 - `GET /api/health` - server health
@@ -253,13 +254,11 @@ It has no independent model configuration API or persistent model store.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/messages` - continue development with an instruction and optional selected Debug Run.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/cancel` - cancel active development.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/reset-from-formal` - overwrite development from formal.
-- `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/restart-from-exploration` - clear development and rebuild only from one succeeded Tool-owned Exploration.
+- `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/restart-from-exploration` - clear development and rebuild only from one succeeded compatible Exploration.
 - `DELETE /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development` - discard development.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/development/events` - latest Development Run SSE.
-- `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/publish` - publish after a matching succeeded Debug Run.
-- `GET /api/toolkits/{{toolkit_id}}/export-status` - get current formal artifact hash, per-Tool verification, and export eligibility.
+- `GET /api/toolkits/{{toolkit_id}}/export-status` - get the saved candidate package digest and export eligibility.
 - `GET /api/toolkits/{{toolkit_id}}/export` - download the verified Toolkit ZIP after server-side revalidation.
-- `POST /api/toolkits/{{toolkit_id}}/install-to-weworker` - embedded-only; install the current export-eligible Toolkit into its WeWorker host.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/debug-runs` - list Debug Runs.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/debug-runs` - run the formal or development slot.
   Body: `{{"channel":"development","parameters":{{}},"timeout_seconds":60}}`
@@ -270,6 +269,8 @@ It has no independent model configuration API or persistent model store.
 
 ## Explorations
 
+- `GET /api/explorations` - list independent and Tool-owned Explorations.
+- `POST /api/explorations` - start an independent Exploration with `start_url` and optional `instruction` / `title`; no Tool or prepared page is required.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/explorations` - list one Tool's Explorations.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/explorations` - create and start an Exploration.
   Body: `{{"instruction":"optional supplemental instruction"}}`
@@ -403,6 +404,9 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "exploration_id": exploration_id,
+        "last_run_id": task.get("last_run_id"),
+        "start_url": view["start_url"],
+        "title": task.get("title", ""),
         "toolkit_id": view["toolkit_id"],
         "tool_id": view["tool_id"],
         "instruction": view["instruction"],
@@ -561,7 +565,6 @@ def create_app(
 ) -> Flask:
     app = Flask(__name__)
     resources = BundledResources()
-    web_root = resources.web_root()
     paths = (paths or WebwrightPaths.resolve()).ensure()
     task_store = store or TaskStore(paths.tasks)
     toolkits = toolkit_store or ToolkitStore(paths.toolkits)
@@ -626,6 +629,37 @@ def create_app(
     else:
         app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] = None
 
+    from webwright.server.development_commands import DevelopmentCommands, DevelopmentCommandError
+    development_commands = DevelopmentCommands(toolkits, manager, debug_runs)
+
+    @app.post("/api/development/commands/<command>")
+    def development_command(command: str):
+        envelope = {"schemaVersion": 1, "command": f"development.{command}"}
+        expected = app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]
+        if not expected or request.headers.get("X-WeWorker-Exploration-Instance") != expected:
+            return jsonify({**envelope, "ok": False, "error": {
+                "code": "HOST_IDENTITY_MISMATCH", "message": "Expected host instance identity is required."}}), 403
+        if request.content_length is not None and request.content_length > 2 * 1024 * 1024:
+            return jsonify({**envelope, "ok": False, "error": {
+                "code": "INPUT_TOO_LARGE", "message": "Development arguments exceed 2 MiB."}}), 413
+        try:
+            raw = request.stream.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise DevelopmentCommandError("INPUT_TOO_LARGE", "Development arguments exceed 2 MiB.")
+            try:
+                arguments = json.loads(raw)
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError("Development arguments must be a UTF-8 JSON object.") from exc
+            data = development_commands.execute(command, arguments)
+            return jsonify({**envelope, "ok": True, "data": data})
+        except (ValueError, FileNotFoundError, BusyError, InvalidStateError) as exc:
+            code = (exc.code if isinstance(exc, DevelopmentCommandError) else
+                    "NOT_FOUND" if isinstance(exc, FileNotFoundError) else
+                    "BUSY" if isinstance(exc, BusyError) else
+                    "INVALID_STATE" if isinstance(exc, InvalidStateError) else "INVALID_ARGUMENT")
+            status = 404 if code == "NOT_FOUND" else 409 if code in {"STALE_REVISION", "STALE_PACKAGE", "TOOL_EXISTS", "BUSY", "INVALID_STATE"} else 400
+            return jsonify({**envelope, "ok": False, "error": {"code": code, "message": str(exc)}}), status
+
     @app.before_request
     def enforce_local_http_boundary():
         allowed_hosts = {"127.0.0.1", "localhost"}
@@ -679,17 +713,6 @@ def create_app(
     def handle_invalid_state(exc: InvalidStateError):
         return _error("invalid_state", str(exc), 409)
 
-    @app.get("/")
-    def index():
-        return redirect("/ui")
-
-    @app.get("/ui")
-    def ui():
-        return send_from_directory(web_root, "index.html")
-
-    @app.get("/web/<path:relative_path>")
-    def web_asset(relative_path: str):
-        return send_from_directory(web_root, relative_path)
 
     @app.get("/api/health")
     def health():
@@ -705,8 +728,8 @@ def create_app(
                 "bind": app.config["WEBWRIGHT_BIND_HOST"],
                 "port": str(configured_port if configured_port is not None else request_port or ""),
                 "capabilities": {
-                    "install_to_weworker": app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"]
-                    is not None,
+                    "adapter_v2_package": app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None,
+                    "development_commands": bool(app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]),
                 },
             }
         )
@@ -745,6 +768,13 @@ def create_app(
 
     @app.get("/api/browser/match")
     def match_browser_tab():
+        toolkit_id = str(request.args.get("toolkit_id") or "")
+        if toolkit_id:
+            toolkit = toolkits.get_toolkit(toolkit_id)
+            tool = toolkits.get_tool(toolkit_id, str(request.args.get("tool_id") or ""))
+            return jsonify(browser_match(
+                app.config["WEBWRIGHT_CDP_URL"], tool["start_url"], toolkit["allowed_domains"],
+            ))
         return jsonify(
             browser_match(
                 app.config["WEBWRIGHT_CDP_URL"],
@@ -875,6 +905,22 @@ def create_app(
         toolkits.delete_tool(toolkit_id, tool_id)
         return jsonify({"ok": True})
 
+    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/delete-prepare")
+    def prepare_tool_deletion(toolkit_id: str, tool_id: str):
+        return jsonify({"transaction_id": toolkits.stage_tool_deletion(toolkit_id, tool_id)})
+
+    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/delete-finish")
+    def finish_tool_deletion(toolkit_id: str, tool_id: str):
+        payload = _request_json()
+        toolkits.finish_tool_deletion(
+            toolkit_id, tool_id, str(payload.get("transaction_id") or ""),
+            restore=payload.get("restore") is True,
+            host_uninstalled=payload.get("host_uninstalled") is True,
+            host_package=payload.get("host_package") if isinstance(payload.get("host_package"), dict) else None,
+            host_revision=payload.get("host_revision"),
+        )
+        return jsonify({"ok": True})
+
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/formal")
     def get_formal_slot(toolkit_id: str, tool_id: str):
         return jsonify({"formal": toolkits.read_formal_slot(toolkit_id, tool_id)})
@@ -893,14 +939,7 @@ def create_app(
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/development")
     def get_development_slot(toolkit_id: str, tool_id: str):
         development = toolkits.read_development_slot(toolkit_id, tool_id)
-        publish_eligible = bool(
-            development
-            and debug_runs.has_successful_run(
-                tool_id=tool_id,
-                channel="development",
-                code_hash=str(development["code_hash"]),
-            )
-        )
+        publish_eligible = bool(development)
         runs = development_runs.list_for_tool(toolkit_id, tool_id)
         return jsonify(
             {
@@ -928,13 +967,26 @@ def create_app(
         return jsonify(
             {
                 "development": development,
-                "publish_eligible": debug_runs.has_successful_run(
-                    tool_id=tool_id,
-                    channel="development",
-                    code_hash=str(development["code_hash"]),
-                ),
+                "publish_eligible": True,
             }
         )
+
+    @app.post("/api/explorations/<exploration_id>/development/input")
+    def prepare_development_input(exploration_id: str):
+        from webwright.server.development import build_exploration_development_input
+
+        expected = app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]
+        if not expected or request.headers.get("X-WeWorker-Exploration-Instance") != expected:
+            return jsonify({"detail": "Expected host instance identity is required."}), 403
+        payload = _request_json()
+        if set(payload) - {"instruction", "target"}:
+            raise ValueError("Unknown exploration input fields.")
+        if "target" in payload and payload["target"] is None:
+            raise ValueError("Omit target when no destination is selected.")
+        return jsonify(build_exploration_development_input(
+            task_store=task_store, exploration_id=exploration_id,
+            instruction=payload.get("instruction", ""), target=payload.get("target"),
+        ))
 
     def _start_development(
         toolkit_id: str,
@@ -1046,21 +1098,66 @@ def create_app(
         )
         return send_file(resolve_task_file(run_dir, relative_path))
 
-    @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/publish")
-    def publish_tool(toolkit_id: str, tool_id: str):
-        result = toolkit_publisher.publish(toolkit_id, tool_id)
-        return jsonify(
-            {
-                "toolkit_id": toolkit_id,
-                "tool_id": tool_id,
-                "code_hash": result["formal"]["code_hash"],
-                "build": result["build"],
-            }
-        )
-
     @app.get("/api/toolkits/<toolkit_id>/export-status")
     def toolkit_export_status(toolkit_id: str):
         return jsonify(toolkit_publisher.export_status(toolkit_id))
+
+    if app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None:
+
+        @app.post("/api/toolkits/<toolkit_id>/bind-adapter")
+        def bind_existing_adapter(toolkit_id: str):
+            payload = _request_json()
+            return jsonify(bind_base(
+                toolkits, toolkit_id,
+                profile=payload.get("profile"), digest=payload.get("digest"),
+                files=payload.get("files"),
+            ))
+
+        @app.get("/api/toolkits/<toolkit_id>/adapter-base")
+        def get_adapter_base(toolkit_id: str):
+            base = read_base(toolkits, toolkit_id)
+            if base is None:
+                return _error("not_found", "Adapter workspace has no baseline.", 404)
+            return jsonify({"name": base["name"], "profile": base["profile"], "digest": base["digest"]})
+
+        @app.get("/api/toolkits/<toolkit_id>/v2-package")
+        def get_v2_package(toolkit_id: str):
+            status = toolkit_publisher.export_status(toolkit_id)
+            if not status["export_eligible"]:
+                return _error("invalid_state", "Adapter has no complete saved candidate.", 409)
+            from webwright.server.package_workspace import prepare_apply
+            with toolkits._slot_lock:
+                state = prepare_apply(toolkits, toolkit_id)
+                metadata, files, _ = current_package(toolkits, toolkit_id)
+            return jsonify({
+                "name": metadata["name"], "digest": metadata["digest"],
+                "files": {name: base64.b64encode(content).decode("ascii")
+                          for name, content in files.items()},
+                "base": read_base(toolkits, toolkit_id),
+                "install_baseline_digest": state.get("install_baseline_digest"),
+                "profile": state.get("profile"),
+                "changed_tools": sorted(set(state["drafts"]) | set(state["removed_tools"])),
+                "operation_id": state["operation_id"],
+            })
+
+        @app.post("/api/toolkits/<toolkit_id>/installation-ack")
+        def acknowledge_installation(toolkit_id: str):
+            from webwright.server.package_workspace import acknowledge_apply
+            payload = _request_json()
+            revision = payload.get("revision")
+            profile = payload.get("profile")
+            if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0 or not isinstance(profile, str) or not profile:
+                raise ValueError("Invalid installation acknowledgement.")
+            return jsonify(acknowledge_apply(toolkits, toolkit_id, digest=payload.get("digest"), revision=revision, profile=profile, operation_id=payload.get("operation_id")))
+
+        @app.post("/api/toolkits/<toolkit_id>/installation-reconcile")
+        def reconcile_host_installation(toolkit_id: str):
+            from webwright.server.package_workspace import reconcile_installation
+            payload = _request_json()
+            revision, profile = payload.get("revision"), payload.get("profile")
+            if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0 or not isinstance(profile, str) or not profile:
+                raise ValueError("Invalid installation acknowledgement.")
+            return jsonify(reconcile_installation(toolkits, toolkit_id, digest=payload.get("digest"), revision=revision, profile=profile))
 
     @app.get("/api/toolkits/<toolkit_id>/export")
     def export_toolkit(toolkit_id: str):
@@ -1070,28 +1167,9 @@ def create_app(
             archive,
             mimetype="application/zip",
             as_attachment=True,
-            download_name=f"{skill_name(toolkit_id)}.zip",
+            download_name=f"{toolkit_publisher.export_status(toolkit_id)['adapter_name']}.zip",
         )
 
-    if app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None:
-
-        @app.post("/api/toolkits/<toolkit_id>/install-to-weworker")
-        def install_toolkit_to_weworker(toolkit_id: str):
-            status = toolkit_publisher.export_status(toolkit_id)
-            if not status["export_eligible"]:
-                return _error(
-                    "invalid_state",
-                    "Toolkit is not eligible for export.",
-                    409,
-                )
-            return jsonify(
-                toolkit_publisher.install_to_weworker(
-                    toolkit_id,
-                    user_files_dir=app.config[
-                        "WEBWRIGHT_WEWORKER_USER_FILES_DIR"
-                    ],
-                )
-            )
 
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/debug-runs")
     def list_debug_runs(toolkit_id: str, tool_id: str):
@@ -1159,6 +1237,20 @@ def create_app(
         run = debug_runs.read(debug_run_id)
         run_dir = debug_runs.run_dir(str(run["tool_id"]), debug_run_id)
         return send_file(resolve_task_file(run_dir, relative_path))
+
+    @app.get("/api/explorations")
+    def list_site_explorations():
+        return jsonify({"explorations": [_exploration_view(item) for item in task_store.list_explorations()]})
+
+    @app.post("/api/explorations")
+    def create_site_exploration():
+        payload = _request_json()
+        exploration = manager.start_url_exploration(
+            start_url=str(payload.get("start_url") or ""),
+            instruction=str(payload.get("instruction") or ""),
+            title=str(payload.get("title") or ""),
+        )
+        return jsonify(_exploration_view(exploration))
 
     @app.get("/api/toolkits/<toolkit_id>/tools/<tool_id>/explorations")
     def list_explorations(toolkit_id: str, tool_id: str):

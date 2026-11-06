@@ -36,7 +36,7 @@ def test_build_is_onedir_and_collects_runtime_assets() -> None:
     assert 'f"--paths={ROOT / \'src\'}"' in source
     assert '"--collect-data=webwright"' not in source
     assert "ROOT / 'src' / 'webwright' / 'config'" in source
-    assert "ROOT / 'src' / 'webwright' / 'server' / 'web'" in source
+    assert "ROOT / 'src' / 'webwright' / 'server' / 'web'" not in source
     assert '"--collect-all=playwright"' in source
     assert '"--hidden-import=webwright.models.openai_chat_model"' in source
     assert "tool_runtime' / 'toolkit_runtime.py'" in source
@@ -109,6 +109,7 @@ def test_embedded_build_keeps_raw_onedir_and_writes_runtime_manifest(
         "mode": "embedded",
         "platform": "darwin",
         "webwright_version": "0.1.0",
+        "build_id": build._runtime_manifest()["build_id"],
     }
     assert (runtime_dir / "LICENSE.webwright").read_text(encoding="utf-8").startswith(
         "    MIT License"

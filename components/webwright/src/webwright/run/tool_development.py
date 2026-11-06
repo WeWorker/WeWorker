@@ -15,7 +15,7 @@ from webwright.utils.logging import append_process_log, log_run_error
 
 
 _SYSTEM_PROMPT = """You are the Webwright Tool Developer Agent. Produce one minimal stable browser Tool from the supplied evidence.
-Return only one JSON object with exactly these fields: code, description, parameters_schema, result_schema, requires, ensures, side_effects, risk_notice. requires, ensures, and side_effects must each be a JSON array of strings, even when there is only one item; use an empty array when there are no items.
+Return only one JSON object with exactly these fields: code, description, parameters_schema, result_schema, risk_notice.
 parameters_schema and result_schema must each be a JSON-encoded object string; the runtime decodes and validates both strings before saving the Developer Slot.
 The code must contain only one top-level async function named exactly as tool.tool_id; put any imports or helpers inside that function. Do not use decorators, positional-only parameters, *args, or **kwargs. Its first parameter is ctx; all other parameters are business parameters. parameters_schema.properties must match those business parameters exactly, and parameters_schema.required must match the parameters without defaults. Never expose target_id or cdp_url. Use ctx.page for Playwright operations. Do not include markdown fences."""
 
@@ -24,9 +24,6 @@ _SLOT_FIELDS = (
     "description",
     "parameters_schema",
     "result_schema",
-    "requires",
-    "ensures",
-    "side_effects",
     "risk_notice",
 )
 
@@ -38,9 +35,6 @@ _DEVELOPER_SLOT_SCHEMA: dict[str, Any] = {
         "description": {"type": "string"},
         "parameters_schema": {"type": "string"},
         "result_schema": {"type": "string"},
-        "requires": {"type": "array", "items": {"type": "string"}},
-        "ensures": {"type": "array", "items": {"type": "string"}},
-        "side_effects": {"type": "array", "items": {"type": "string"}},
         "risk_notice": {"type": "string"},
     },
     "required": list(_SLOT_FIELDS),
@@ -60,9 +54,6 @@ def _developer_system_prompt(tool_id: str) -> str:
         "description": "Describe the Tool result.",
         "parameters_schema": json.dumps(parameters_schema, ensure_ascii=False),
         "result_schema": json.dumps(result_schema, ensure_ascii=False),
-        "requires": [],
-        "ensures": [],
-        "side_effects": [],
         "risk_notice": "",
     }
     return (
@@ -178,17 +169,6 @@ def _validate_developer_output(text: str, *, tool_id: str) -> dict[str, Any]:
                 "output_validate",
                 "output_validation_failed",
                 f"{field} 类型不符合 Developer Slot 约束。",
-                error_type="InvalidSlotFieldType",
-            )
-    for field in ("requires", "ensures", "side_effects"):
-        if not isinstance(slot[field], list) or any(
-            not isinstance(item, str) for item in slot[field]
-        ):
-            raise DeveloperOutputError(
-                "developer_output_invalid_slot",
-                "output_validate",
-                "output_validation_failed",
-                f"{field} 必须是字符串数组。",
                 error_type="InvalidSlotFieldType",
             )
     try:

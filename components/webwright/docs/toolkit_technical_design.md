@@ -1,4 +1,19 @@
-# Webwright Toolkit 技术设计
+# 网站探索agent Toolkit 技术设计
+
+## 现行流程（2026-11-01）
+
+现行实现以[开发产物与直接应用 Adapter 实施方案](../../../docs/website_exploration_adapter_workflow_plan.md)为准：
+
+- 页面仅保留「探索｜开发」两个工作区，开发区的即时调试为可选操作。
+- 开发保存时由工程端生成 Adapter v2 最终格式候选包；点击「应用到 Adapter」直接进入宿主评审、安装与状态同步。
+- 主要调试入口是 WeWorker 对话。应用和导出不要求预先通过业务测试，包结构、语法、权限及安装冲突检查继续保留。
+- 模型边界、提示词、通信协议及生成职责不变。工程端维护 manifest、入口包装、资源与版本。
+- 新工作区以包文件保存代码，以少量 JSON 保存来源、草稿修订号、候选/安装快照引用及安装操作；不创建旧开发/正式代码 JSON，不做旧数据迁移。
+- 同步失败可以重试；不会把本地生成成功误报为已安装，也不会清除安装期间产生的新草稿。
+
+以下内容保留为历史设计记录，其中三工作区、两次验证门槛、五文件旧产物、Publisher 本地提升与磁盘直装等描述均不再作为现行要求。共享浏览器和宿主权限边界继续遵守现行项目规范。
+
+## 历史设计记录
 
 > 当前执行合同：Publisher 生成五文件 Toolkit Adapter Skill，WebCLI 根据 `adapter_type=toolkit` 发现并通过 embedded runtime 的 `--internal-script` 执行。用户入口为 `webcli call`，不再提供 `webcli-py`。完整设计见 [`../../../docs/webcli_toolkit_adapter_design.md`](../../../docs/webcli_toolkit_adapter_design.md)。本文后续历史描述中的旧命令与四文件合同不再构成现行规范。
 
@@ -262,9 +277,6 @@ Task metadata 新增：
   "description": "根据关键词搜索博客",
   "parameters_schema": {},
   "result_schema": {},
-  "requires": [],
-  "ensures": [],
-  "side_effects": [],
   "risk_notice": "",
   "source_exploration_id": "",
   "based_on_formal_hash": "",
@@ -632,9 +644,7 @@ Toolkit／Tool 产品定义与允许域名
 - 参数 JSON Schema。
 - 返回值 JSON Schema。
 - 描述。
-- `requires`。
-- `ensures`。
-- `side_effects` 和 `risk_notice`。
+- `risk_notice`。
 - Tool 起始 URL。
 - 稳定错误码约定。
 
@@ -790,7 +800,7 @@ flowchart TD
 - frontmatter `description` 由 Toolkit 描述和 `allowed_domains` 组成，使用「当需要操作以下域名的网页时可使用：<allowed_domains>」列出域名，不列举 Tool 名称。
 - 只描述业务参数。
 - 不包含 `target_id`。
-- 描述 `requires`、`ensures`、返回值、错误和副作用。
+- 描述返回值、错误和风险提示。
 - 描述多个 Tool 的组合方式。
 - 对保存、发布、提交、删除等副作用给出风险提示。
 
@@ -855,7 +865,7 @@ search_blog(keyword)
 - Runtime 自动复用同一个浏览器页面。
 - 每个 Tool 输出统一 JSON。
 - 前一步 `data` 可以作为后一步业务参数。
-- `requires／ensures` 写入 Skill，供 AI 判断组合是否成立。
+- 调用 AI 根据前一步结果与当前页面状态判断是否继续组合。
 - 某一步失败后由调用 AI 决定是否重试或停止。
 
 调试工作区的固定顺序组合只是一组按顺序执行的 Debug Run，不引入新的 Workflow 领域对象。
@@ -1061,7 +1071,7 @@ src/webwright/server/web/
 
 顶栏不设置独立的 Tool 选择器，Tool 切换只通过左侧 Toolkit Tree 完成。
 
-顶栏模型和浏览器状态均为可操作按钮：模型按钮打开完整 CRUD／激活弹窗；浏览器按钮调用 `/api/browser/open` 启动或聚焦浏览器。「新建探索」弹窗调用 `/api/browser/match` 精确匹配 Tool 起始 URL，成功后将 `target_id` 提交给产品 Exploration API；未匹配时，弹窗调用 `POST /api/browser/open` 并提交 `{"url": tool.start_url}`，后端复用完全匹配的标签页或新建标签页直接打开该 URL。窗口重新获得焦点和用户点击全局刷新时同步刷新模型、浏览器、Toolkit Tree、当前工作区及全局活动状态。
+顶栏模型和浏览器状态均为可操作按钮：模型按钮打开完整 CRUD／激活弹窗；浏览器按钮调用 `/api/browser/open` 启动或聚焦浏览器。「新建探索」弹窗调用 `/api/browser/match` 并携带 `toolkit_id`、`tool_id`，服务端读取 Tool 起始 URL 和 Adapter 允许域名，返回候选 `targets` 与唯一优先匹配的 `target`；候选不唯一时由用户选择。提交 Exploration 后按真实 `target_id` 校验页面仍存在、URL 使用 HTTP／HTTPS 且 hostname 在允许列表内。允许域名快照传入 Worker 配置，在绑定页面时再次检查；已绑定的初始页面不注入起始 URL 导航。路径、查询参数和片段变化不阻止探索。默认打开入口仍调用 `POST /api/browser/open` 并提交 `{"url": tool.start_url}`。窗口重新获得焦点和用户点击全局刷新时同步刷新模型、浏览器、Toolkit Tree、当前工作区及全局活动状态。
 
 开发工作区必须按版本状态区分入口：正式槽位和开发中槽位都为空时，探索工作区选中的 `sourceExplorationId` 只作为普通首次开发输入，页面显示「开始开发」和必填的首次开发指令输入框，提交 `POST /development/start`；已有正式版本或开发中版本时，可通过「从探索重新开发」选择成功 Exploration，随后同样回到首次开发输入页。该模式的「开始开发」提交独立 restart API，服务端才执行清空和 `exploration_only` 启动。首次开发不得复用带清空警告的重新开发弹窗。
 
@@ -1089,7 +1099,7 @@ MVP 与现有 Exploration 保持相同信任模型：
 - 模型生成代码在独立子进程中执行。
 - 支持超时、取消和强制结束。
 - 不增加 OS 沙箱、容器或权限系统。
-- Tool 的副作用通过 `side_effects`、`risk_notice` 和 Skill 明确提示。
+- Tool 的风险通过 `risk_notice` 和 Skill 提示。当前网站探索agent新生成的 Adapter 命令统一声明 `safety: "read"`。
 - 不向 Tool 进程注入模型 API Key。
 
 ### 15.2 文件写入边界

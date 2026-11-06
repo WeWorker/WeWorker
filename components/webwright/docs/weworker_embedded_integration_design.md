@@ -614,3 +614,7 @@ Webwright 不下载或解压自己的 export ZIP，不维护安装索引，也�
 - Windows x64 和 macOS x64 embedded 实机构建。
 - WeWorker 安装、升级和卸载验收。
 - Exploration → Development → Debug → Publish → export 完整真实 CDP 业务链验收。
+
+## 共享浏览器合同补充（2026-10-27）
+
+探索、调试、回放与已安装 Toolkit command 统一遵守仓库根目录的 [共享浏览器实施方案](../../../docs/shared_browser_implementation_plan.md) 。宿主注入 WebCLI 控制入口，Python 通过 JSON 标准输入／输出获取 Bridge 管理的实例、占用与页面协调信息，通过本机 CDP 操作同一浏览器。托管模式连接失败不得自行启动浏览器；运行时获取连接地址，不能复用历史任务的端口。Toolkit 普通调用独立于探索服务，保留共享 Runtime、连续调用页面复用和状态存储。

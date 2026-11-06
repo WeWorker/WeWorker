@@ -11,6 +11,8 @@ import pytest
 
 from webwright.server.debug_store import DebugRunStore
 from webwright.server.publisher import ToolkitPublisher, artifact_hash, render_artifacts
+from webwright.server.adapter_v2 import snapshot_package
+from webwright.runtime_identity import RuntimeIdentity
 from webwright.server.status import DebugRunStatus
 from webwright.server.toolkit_store import ToolkitStore, code_hash
 from webwright.tool_runtime.browser import ToolkitBrowserSession
@@ -99,6 +101,83 @@ class FakePlaywrightManager:
 
     async def start(self):
         return self.playwright
+
+
+def test_managed_session_uses_host_endpoint_claims_page_and_releases(tmp_path, monkeypatch):
+    from webwright.tool_runtime import toolkit_runtime as managed_browser
+    calls = []
+
+    class Control:
+        descriptor = {"instanceId": "fixture-instance"}
+        def acquire(self, **params):
+            calls.append(("acquire", params))
+            return "http://127.0.0.1:9222"
+
+        def watch_current_task(self):
+            pass
+
+        def claim(self, target_id):
+            calls.append(("claim", target_id))
+
+        def close(self):
+            calls.append(("close", None))
+
+    monkeypatch.setenv("WEWORKER_BROWSER_MANAGED", "1")
+    monkeypatch.setattr(managed_browser, "ManagedBrowser", Control)
+    playwright = FakePlaywright(FakeBrowser(FakeContext([])))
+    session = ToolkitBrowserSession(runtime_store=FileRuntimeStore(tmp_path / "runtime.json"),
+        allowed_domains=["example.com"], cdp_url="http://127.0.0.1:1",
+        playwright_factory=lambda: FakePlaywrightManager(playwright))
+
+    async def scenario():
+        try:
+            await session.open({"start_url": "https://example.com/"})
+            assert calls[0][0] == "acquire"
+            assert calls[0][1]["resource"].startswith("toolkit:")
+            assert calls[1] == ("claim", "new-target")
+        finally:
+            await session.close()
+
+    asyncio.run(scenario())
+    assert calls[-1][0] == "close"
+    assert playwright.stopped
+
+
+def test_managed_connection_failure_never_launches_a_second_browser(tmp_path, monkeypatch):
+    from webwright.tool_runtime import toolkit_runtime as managed_browser
+    launches = []
+    closed = []
+
+    class Control:
+        def acquire(self, **_kwargs):
+            return "http://127.0.0.1:9222"
+        def watch_current_task(self):
+            pass
+        def close(self):
+            closed.append(True)
+
+    class BrokenChromium:
+        async def connect_over_cdp(self, _url):
+            raise RuntimeError("fixture disconnected")
+
+    monkeypatch.setenv("WEWORKER_BROWSER_MANAGED", "1")
+    monkeypatch.setattr(managed_browser, "ManagedBrowser", Control)
+    playwright = FakePlaywright(FakeBrowser(FakeContext([])))
+    playwright.chromium = BrokenChromium()
+    session = ToolkitBrowserSession(runtime_store=FileRuntimeStore(tmp_path / "runtime.json"),
+        allowed_domains=["example.com"], playwright_factory=lambda: FakePlaywrightManager(playwright),
+        browser_launcher=lambda *_args: launches.append(True))
+
+    async def scenario():
+        try:
+            with pytest.raises(RuntimeRecoveryError, match="不会启动另一个"):
+                await session.open({"start_url": "https://example.com/"})
+        finally:
+            await session.close()
+
+    asyncio.run(scenario())
+    assert launches == []
+    assert closed == [True]
 
 
 def _store(tmp_path: Path) -> ToolkitStore:
@@ -633,11 +712,23 @@ class PropertyCertificateSession(RunnerSession):
         type(self).last_events = self.page.events
 
 
+def _certificate_workspace(tmp_path: Path) -> ToolkitStore:
+    # Existing public fixture is a test input, not a runtime storage migration.
+    fixture = Path(__file__).parents[1] / "fixtures" / "toolkits" / "tianjin_property"
+    metadata = json.loads((fixture / ".server" / "toolkit.json").read_text(encoding="utf-8"))
+    tool = json.loads((fixture / "tools" / "print_property_certificate" / "tool.json").read_text(encoding="utf-8"))
+    store = ToolkitStore(tmp_path / "toolkits")
+    store.create_toolkit(name="tianjin_property", allowed_domains=metadata["allowed_domains"])
+    store.create_tool("tianjin_property", name="print_property_certificate", goal=tool["goal"], start_url=tool["start_url"])
+    formal = json.loads((fixture / "tools" / "print_property_certificate" / "formal.json").read_text(encoding="utf-8"))
+    development = json.loads((fixture / "development" / "print_property_certificate" / "current.json").read_text(encoding="utf-8"))
+    store.write_formal_slot("tianjin_property", "print_property_certificate", formal)
+    store.write_development_slot("tianjin_property", "print_property_certificate", development)
+    return store
+
+
 def test_reusable_property_certificate_tool_fixture_runs_through_runner(tmp_path: Path) -> None:
-    fixture_root = Path(__file__).parents[1] / "fixtures" / "toolkits"
-    store_root = tmp_path / "toolkits"
-    shutil.copytree(fixture_root, store_root)
-    store = ToolkitStore(store_root)
+    store = _certificate_workspace(tmp_path)
 
     tool = store.get_tool("tianjin_property", "print_property_certificate")
     slot = store.read_development_slot(
@@ -668,10 +759,7 @@ def test_reusable_property_certificate_tool_fixture_runs_through_runner(tmp_path
 def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_artifact(
     tmp_path: Path,
 ) -> None:
-    fixture_root = Path(__file__).parents[1] / "fixtures" / "toolkits"
-    store_root = tmp_path / "toolkits"
-    shutil.copytree(fixture_root, store_root)
-    store = ToolkitStore(store_root)
+    store = _certificate_workspace(tmp_path)
     debug_store = DebugRunStore(store)
     publisher = ToolkitPublisher(store, debug_store)
 
@@ -699,11 +787,10 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     assert "PublishedToolkitRunner" in source
     assert "ToolkitStore" not in source
     assert "formal.json" not in source
-    assert store.read_runtime("tianjin_property") == {
+    assert {key: value for key, value in store.read_runtime("tianjin_property").items() if key != "updated_at"} == {
         "target_id": "",
         "last_url": "",
         "last_title": "",
-        "updated_at": "",
     }
 
     formal_output = asyncio.run(
@@ -741,7 +828,8 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
         ).run(tool_id="print_property_certificate", parameters={})
     )
     assert published_output["ok"] is True
-    assert publisher.export_status("tianjin_property")["export_eligible"] is False
+    v2_build = snapshot_package(store, "tianjin_property")
+    assert publisher.export_status("tianjin_property")["export_eligible"] is True
 
     stale_run = debug_store.create(
         tool_id="print_property_certificate",
@@ -753,14 +841,15 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     debug_store.update(
         stale_run["debug_run_id"], status=DebugRunStatus.SUCCEEDED.value
     )
-    assert publisher.export_status("tianjin_property")["export_eligible"] is False
+    assert publisher.export_status("tianjin_property")["export_eligible"] is True
 
     formal_run = debug_store.create(
         tool_id="print_property_certificate",
         channel="formal",
-        code_hash=formal["code_hash"],
-        artifact_hash=build["artifact_hash"],
-        distribution_hash=build["distribution_hash"],
+        code_hash="sha256:" + v2_build["digest"],
+        artifact_hash=v2_build["digest"],
+        distribution_hash=v2_build["digest"],
+        runtime_identity=RuntimeIdentity.resolve().as_health_fields(),
         parameters={},
     )
     debug_store.update(
@@ -771,8 +860,5 @@ def test_property_certificate_fixture_rebuilds_and_exports_independent_formal_ar
     archive = zipfile.ZipFile(io.BytesIO(publisher.export_zip("tianjin_property")))
     assert set(archive.namelist()) == {
         "tianjin-property/manifest.json",
-        "tianjin-property/SKILL.md",
-        "tianjin-property/scripts/toolkit.py",
-        "tianjin-property/scripts/toolkit_runtime.py",
-        "tianjin-property/scripts/requirements.txt",
+        "tianjin-property/wewright/commands/print-property-certificate.py",
     }

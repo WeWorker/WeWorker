@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import subprocess
 from types import SimpleNamespace
 from pathlib import Path
@@ -14,7 +15,7 @@ from webwright.server.app import create_app
 from webwright.server.debug_store import DebugRunStore
 from webwright.server import process_manager
 from webwright.server.process_manager import ProcessManager
-from webwright.server.publisher import ToolkitPublisher, read_distribution
+from webwright.server.adapter_v2 import current_package, package_digest, snapshot_package
 from webwright.server.records import TaskStore, atomic_write_json
 from webwright.server.status import DebugRunStatus
 from webwright.server.toolkit_store import ToolkitStore
@@ -39,8 +40,8 @@ def _stores(tmp_path: Path) -> tuple[ToolkitStore, DebugRunStore]:
         "result_schema": {"type": "object"},
         "source_exploration_id": "exp_1",
     }
-    toolkits.write_development_slot("blog_admin", "search_blog", slot)
     toolkits.write_formal_slot("blog_admin", "search_blog", slot)
+    toolkits.write_development_slot("blog_admin", "search_blog", slot)
     return toolkits, DebugRunStore(toolkits)
 
 
@@ -160,7 +161,7 @@ def test_process_manager_formal_debug_fixes_current_artifact_hash(
     monkeypatch, tmp_path: Path
 ) -> None:
     toolkits, debug_runs = _stores(tmp_path)
-    build = ToolkitPublisher(toolkits, debug_runs).ensure_consistent("blog_admin")
+    build = snapshot_package(toolkits, "blog_admin")
     manager = ProcessManager(
         store=TaskStore(tmp_path / "tasks"),
         toolkit_store=toolkits,
@@ -183,24 +184,20 @@ def test_process_manager_formal_debug_fixes_current_artifact_hash(
         ).read_text(encoding="utf-8")
     )
 
-    assert run["artifact_hash"] == build["artifact_hash"]
-    assert spec["artifact_hash"] == build["artifact_hash"]
-    assert spec["code_hash"] == build["artifact_hash"]
-    assert spec["distribution_hash"] == build["distribution_hash"]
-    assert read_distribution(Path(spec["adapter_root"]))["distribution_hash"] == build["distribution_hash"]
+    assert run["artifact_hash"] == build["digest"]
+    assert spec["artifact_hash"] == build["digest"]
+    assert spec["code_hash"] == "sha256:" + build["digest"]
+    assert spec["distribution_hash"] == build["digest"]
+    assert package_digest({path.relative_to(spec["adapter_root"]).as_posix(): path.read_bytes()
+                           for path in Path(spec["adapter_root"]).rglob("*") if path.is_file()}) == build["digest"]
 
 
 def test_process_manager_formal_debug_rejects_changed_published_execution_file(
     monkeypatch, tmp_path: Path
 ) -> None:
     toolkits, debug_runs = _stores(tmp_path)
-    ToolkitPublisher(toolkits, debug_runs).ensure_consistent("blog_admin")
-    published = (
-        toolkits.toolkit_dir("blog_admin")
-        / "blog-admin"
-        / "scripts"
-        / "toolkit.py"
-    )
+    snapshot_package(toolkits, "blog_admin")
+    published = current_package(toolkits, "blog_admin")[2] / "wewright/commands/search-blog.py"
     published.write_text(published.read_text(encoding="utf-8") + "\n# changed\n", encoding="utf-8")
     manager = ProcessManager(
         store=TaskStore(tmp_path / "tasks"),
@@ -241,10 +238,9 @@ def test_formal_debug_runs_webcli_with_json_parameters(
     monkeypatch, tmp_path: Path, capsys
 ) -> None:
     toolkits, runs = _stores(tmp_path)
-    ToolkitPublisher(toolkits, runs).ensure_consistent("blog_admin")
+    build = snapshot_package(toolkits, "blog_admin")
     toolkit_dir = toolkits.toolkit_dir("blog_admin")
-    adapter_root = toolkit_dir / "blog-admin"
-    package = read_distribution(adapter_root)
+    adapter_root = current_package(toolkits, "blog_admin")[2]
     monkeypatch.setenv("WEWORKER_WEBCLI_NODE", tool_debug.sys.executable)
     monkeypatch.setenv("WEWORKER_WEBCLI_ENTRY", __file__)
     (toolkit_dir / "runtime.json").write_text(
@@ -256,7 +252,13 @@ def test_formal_debug_runs_webcli_with_json_parameters(
 
     async def create_process(*command, **kwargs):
         calls.append((command, kwargs))
-        process = CompletedCliProcess()
+        if len(command) > 2 and command[2] == "adapter":
+            process = CompletedCliProcess()
+            async def listing(input=None):
+                return (json.dumps([{"id": "blog-admin", "digest": build["digest"]}]).encode(), b"")
+            process.communicate = listing
+        else:
+            process = CompletedCliProcess()
         processes.append(process)
         return process
 
@@ -274,8 +276,9 @@ def test_formal_debug_runs_webcli_with_json_parameters(
                 "toolkit_id": "blog_admin",
                 "tool_id": "search_blog",
                 "adapter_root": str(adapter_root),
-                "distribution_hash": package["distribution_hash"],
+                "distribution_hash": build["digest"],
                 "channel": "formal",
+                "profile": "public",
                 "cdp_url": "http://127.0.0.1:9222",
                 "parameters": {
                     "text": "hello",
@@ -291,7 +294,8 @@ def test_formal_debug_runs_webcli_with_json_parameters(
         )
     )
 
-    command, process_options = calls[0]
+    assert calls[0][0][2:5] == ("adapter", "list", "--json")
+    command, process_options = calls[1]
     assert command[:4] == (tool_debug.sys.executable, __file__, "call", "blog-admin.search-blog")
     assert command[-1] == "--output-format=json"
     assert json.loads(command[5]) == {
@@ -314,6 +318,43 @@ def test_formal_debug_runs_webcli_with_json_parameters(
     assert result["before_page"]["title"] == "Before"
     assert result["after_page"]["title"] == "完成"
     assert "正式 CLI 日志" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required for WebCLI")
+def test_formal_debug_executes_isolated_uninstalled_v2_package(monkeypatch, tmp_path: Path) -> None:
+    name = "demo.example.com"
+    catalog = tmp_path / "debug-run" / "catalog"
+    adapter_root = catalog / name
+    command = adapter_root / "wewright" / "commands" / "read-page.py"
+    command.parent.mkdir(parents=True)
+    manifest = {
+        "schema_version": 2, "name": name, "version": "1.0.0", "description": "Example read command",
+        "runtime_allowed_hosts": ["example.com"],
+        "commands": [{"id": "read-page", "runtime": "wewright", "module": "wewright/commands/read-page.py",
+                      "description": "Read a page", "safety": "read", "schema": {"type": "object", "properties": {"keyword": {"type": "string"}}}}],
+    }
+    (adapter_root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    command.write_text(
+        "import json, sys\nargs=json.load(sys.stdin)\nprint(json.dumps({'ok': True, 'data': args, 'page': {'url': 'https://example.com/', 'title': 'Example'}}))\n",
+        encoding="utf-8",
+    )
+    digest = package_digest({path.relative_to(adapter_root).as_posix(): path.read_bytes()
+                             for path in adapter_root.rglob("*") if path.is_file()})
+    (catalog / ".profile.json").write_text(json.dumps({"schema_version": 1, "profile": "public",
+        "adapters": [{"name": name, "version": "1.0.0", "digest": digest}]}), encoding="utf-8")
+    (tmp_path / "debug-run" / "empty-adapters").mkdir()
+    monkeypatch.setenv("WEWORKER_WEBCLI_NODE", str(shutil.which("node")))
+    monkeypatch.setenv("WEWORKER_WEBCLI_ENTRY", str(Path(__file__).parents[4] / "webcli" / "index.js"))
+    result = asyncio.run(tool_debug.run_debug({
+        "toolkit_root": str(tmp_path / "toolkits"), "toolkit_id": "demo", "tool_id": "read_page",
+        "adapter_root": str(adapter_root), "distribution_hash": digest, "channel": "formal",
+        "profile": "public", "cdp_url": "http://127.0.0.1:9222", "parameters": {"keyword": "fixture"},
+        "result_path": str(tmp_path / "debug-run" / "result.json"),
+        "screenshot_path": str(tmp_path / "debug-run" / "screenshot.png"),
+    }))
+    assert result["ok"] is True
+    assert result["result"] == {"keyword": "fixture"}
+    assert result["after_page"]["title"] == "Example"
 
 
 def test_finish_debug_persists_result_pages_screenshot_and_publish_eligibility(
@@ -436,3 +477,52 @@ def test_debug_run_http_api_and_publish_eligibility(tmp_path: Path) -> None:
         "/api/toolkits/blog_admin/tools/search_blog/development"
     ).get_json()["publish_eligible"] is True
     assert "/api/debug-runs/{debug_run_id}" in client.get("/api/openapi.json").get_json()["paths"]
+
+
+@pytest.mark.parametrize("writable_result", [True, False])
+def test_debug_worker_persists_unexpected_error(monkeypatch, tmp_path: Path, capsys, writable_result: bool) -> None:
+    spec_path = tmp_path / "debug_spec.json"
+    result_path = tmp_path / "result.json"
+    atomic_write_json(spec_path, {"result_path": str(result_path)})
+
+    async def fail(spec):
+        json.loads('{"data": "unfinished')
+
+    monkeypatch.setattr(tool_debug, "run_debug", fail)
+    if not writable_result:
+        def fail_write(*args):
+            raise OSError("Fixture write failure")
+        monkeypatch.setattr(tool_debug, "atomic_write_json", fail_write)
+    assert tool_debug.main(["--spec", str(spec_path)]) == 1
+    logged = json.loads(capsys.readouterr().err)
+    assert "Unterminated string" in logged["error"]
+    if not writable_result:
+        assert not result_path.exists()
+        return
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert saved["ok"] is False
+    assert "Unterminated string" in saved["error"]
+    assert logged["error"] == saved["error"]
+
+
+@pytest.mark.parametrize("result_error,log_error,timed_out,expected", [
+    (None, "Invalid CLI JSON", False, "Invalid CLI JSON"),
+    ("Result error", "Log error", False, "Result error"),
+    (None, None, False, "Debug process exited with code 1."),
+    (None, "Log error", True, "Debug Run timed out."),
+])
+def test_finish_debug_recovers_worker_error_from_log(tmp_path: Path, result_error, log_error, timed_out, expected) -> None:
+    toolkits, debug_runs = _stores(tmp_path)
+    manager = ProcessManager(store=TaskStore(tmp_path / "tasks"), toolkit_store=toolkits, debug_store=debug_runs)
+    run = debug_runs.create(tool_id="search_blog", channel="development", code_hash="sha256:fixture", parameters={})
+    run_dir = debug_runs.run_dir("search_blog", run["debug_run_id"])
+    if log_error:
+        (run_dir / "process.log").write_text(
+            'worker_started\n' + json.dumps({"ok": False, "error": log_error}) + '\nworker_exited\n', encoding="utf-8"
+        )
+    if result_error:
+        atomic_write_json(run_dir / "result.json", {"ok": False, "error": result_error})
+    manager._finish_debug(run["debug_run_id"], 1, timed_out=timed_out)
+    saved = debug_runs.read(run["debug_run_id"])
+    assert saved["status"] == "failed"
+    assert saved["error"] == expected

@@ -32,4 +32,4 @@ webwright-server = "webwright.run.bootstrap:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-webwright = ["config/*.yaml", "config/**/*.yaml", "server/web/**/*.html", "server/web/**/*.css", "server/web/**/*.js"]
+webwright = ["config/*.yaml", "config/**/*.yaml"]

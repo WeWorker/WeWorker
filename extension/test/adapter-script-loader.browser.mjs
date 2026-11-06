@@ -118,7 +118,7 @@ test('real MV3 external Adapter injection, update, navigation and cleanup', {
     return serviceWorker.slice(start, end);
   }).join('\n') + '\nexport { runRuntimeBrowserFetch };';
   await writeFile(join(extension, 'runtime-fetch-fixture.js'), helperSource);
-  const messageFunctions = ['requestBridge', 'handleNativeMessage'].map(name => {
+  const messageFunctions = ['requestBridge', 'handleNativeMessageInternal', 'handleNativeMessage'].map(name => {
     const start = serviceWorker.search(new RegExp('^(?:async )?function ' + name + '\\(', 'm'));
     assert.ok(start >= 0);
     const end = serviceWorker.indexOf('\n}', start) + 2;

@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any, Callable, Literal, Mapping
 
 from webwright.server.artifacts import (
@@ -20,14 +21,13 @@ from webwright.server.browser import (
     browser_activate,
     browser_target,
 )
+from webwright.tool_runtime.managed_browser import managed_browser_enabled
 from webwright.server.debug_store import DebugRunStore
-from webwright.server.development import build_development_input
+from webwright.server.adapter_v2 import current_package, read_base
+from webwright.server.development import build_development_input, validate_exploration_source
 from webwright.server.development_store import DevelopmentRunStore
 from webwright.server.weworker_model_config import ManagedModelConfig, load_managed_model_config
-from webwright.server.publisher import (
-    read_distribution,
-    skill_name,
-)
+from webwright.server.publisher import skill_name
 from webwright.server.records import TaskStore, atomic_write_json, make_run_id, now_iso, sanitize_id, timestamp_compact
 from webwright.server.status import (
     AGENT_EXIT_ERROR_MESSAGES,
@@ -41,7 +41,8 @@ from webwright.server.status import (
 )
 from webwright.server.toolkit_store import DevelopmentSlotConflictError, ToolkitStore
 from webwright.runtime_launcher import RuntimeLauncher
-from webwright.utils.local_cdp import normalize_page_url
+from webwright.runtime_identity import RuntimeIdentity
+from webwright.utils.local_cdp import normalize_page_url, page_in_allowed_domains
 from webwright.utils.logging import append_process_log
 
 
@@ -88,7 +89,7 @@ def _default_config_spec(
         "environment.environment_class=local_browser",
         "environment.browser_mode=local_cdp",
         "environment.local_cdp_new_page=true",
-        "environment.local_cdp_auto_start=true",
+        f"environment.local_cdp_auto_start={'false' if managed_browser_enabled() else 'true'}",
         f"environment.local_cdp_url={cdp_url}",
         "model.action_field=python_code",
         *model_overrides,
@@ -344,6 +345,21 @@ class ProcessManager:
         )
         thread.start()
 
+    def start_url_exploration(
+        self, *, start_url: str, instruction: str = "", title: str = ""
+    ) -> dict[str, Any]:
+        url = str(start_url).strip()
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("start_url must be an HTTP(S) URL without credentials.")
+        return self.start_task(
+            start_url=url,
+            instruction=instruction.strip() or "探索网站的主要功能、接口与鉴权方式，整理可复用能力；不要执行有副作用的操作。",
+            title=title.strip() or f"探索 {parsed.hostname}",
+            requested_task_id="exp_site",
+            activity_type="exploration",
+        )
+
     def start_exploration(
         self,
         *,
@@ -354,6 +370,8 @@ class ProcessManager:
     ) -> dict[str, Any]:
         if self.toolkit_store is None:
             raise InvalidStateError("Toolkit Store is not configured.")
+        if not target_id.strip():
+            raise InvalidStateError("请选择允许域名内的探索页面")
         tool = self.toolkit_store.get_tool(toolkit_id, tool_id)
         instruction_parts = [str(tool["goal"])]
         expected_effect = str(tool.get("expected_effect") or "").strip()
@@ -396,18 +414,21 @@ class ProcessManager:
         artifact_hash = ""
         distribution_hash = ""
         if channel == "formal":
-            skill_root = self.toolkit_store.toolkit_dir(toolkit_id) / skill_name(toolkit_id)
             try:
-                package = read_distribution(skill_root)
+                metadata, package_files, _ = current_package(self.toolkit_store, toolkit_id)
             except (OSError, ValueError) as error:
                 raise InvalidStateError("Published Adapter package is invalid.") from error
-            if tool_id.replace("_", "-") not in {item["id"] for item in package["manifest"]["tools"]}:
+            manifest = json.loads(package_files["manifest.json"])
+            if tool_id.replace("_", "-") not in {
+                item["id"] for item in manifest["commands"] if item["runtime"] == "wewright"
+            }:
                 raise InvalidStateError("Tool is not present in the Adapter manifest.")
-            artifact_hash = package["artifact_hash"]
-            distribution_hash = package["distribution_hash"]
+            package = package_files
+            artifact_hash = metadata["digest"]
+            distribution_hash = metadata["digest"]
             if expected_distribution_hash is not None and expected_distribution_hash != distribution_hash:
                 raise InvalidStateError("Adapter package changed. Refresh the validation form.")
-            code_hash = artifact_hash
+            code_hash = "sha256:" + artifact_hash
         else:
             slot = self.toolkit_store.read_development_slot(toolkit_id, tool_id)
             if slot is None:
@@ -423,16 +444,25 @@ class ProcessManager:
                 toolkit_id=toolkit_id,
                 distribution_hash=distribution_hash,
                 artifact_hash=artifact_hash,
+                runtime_identity=RuntimeIdentity.resolve().as_health_fields() if package else None,
                 parameters=parameters,
             )
             debug_run_id = str(run["debug_run_id"])
             run_dir = self.debug_store.run_dir(tool_id, debug_run_id)
-            adapter_root = run_dir / "artifacts" / skill_name(toolkit_id)
+            adapter_name = metadata["name"] if package else skill_name(toolkit_id)
+            adapter_root = run_dir / "catalog" / adapter_name
             if package:
-                for name, content in package["artifacts"].items():
+                for name, content in package.items():
                     target = adapter_root / name
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(content.encode("utf-8"))
+                    target.write_bytes(content)
+                base = read_base(self.toolkit_store, toolkit_id)
+                profile = str(base["profile"] if base else os.environ.get("WEWORKER_BUILD_PROFILE") or "public")
+                atomic_write_json(run_dir / "catalog" / ".profile.json", {
+                    "schema_version": 1, "profile": profile,
+                    "adapters": [{"name": adapter_name, "version": metadata["version"], "digest": distribution_hash}],
+                })
+                (run_dir / "empty-adapters").mkdir(exist_ok=True)
             spec_path = run_dir / "debug_spec.json"
             atomic_write_json(
                 spec_path,
@@ -444,6 +474,8 @@ class ProcessManager:
                     "code_hash": code_hash,
                     "distribution_hash": distribution_hash,
                     "adapter_root": str(adapter_root) if package else "",
+                    "v2": bool(package),
+                    "profile": profile if package else "",
                     "artifact_hash": artifact_hash,
                     "parameters": parameters,
                     "timeout_seconds": timeout_seconds,
@@ -532,13 +564,7 @@ class ProcessManager:
             raise ValueError("Exploration-only development requires a source Exploration.")
         if exploration_only:
             source = self.store.read_exploration(source_exploration_id)
-            if (
-                source.get("toolkit_id") != toolkit_id
-                or source.get("tool_id") != tool_id
-            ):
-                raise ValueError("Exploration does not belong to this Tool.")
-            if source.get("status") != "succeeded":
-                raise ValueError("Source Exploration must be succeeded.")
+            validate_exploration_source(source, self.toolkit_store.get_toolkit(toolkit_id), tool_id)
         current = self.toolkit_store.read_development_slot(toolkit_id, tool_id)
         formal = self.toolkit_store.read_formal_slot(toolkit_id, tool_id)
         if exploration_only:
@@ -571,13 +597,7 @@ class ProcessManager:
                 model, env_extra = self._resolve_developer_model()
                 if exploration_only:
                     source = self.store.read_exploration(source_exploration_id)
-                    if (
-                        source.get("toolkit_id") != toolkit_id
-                        or source.get("tool_id") != tool_id
-                    ):
-                        raise ValueError("Exploration does not belong to this Tool.")
-                    if source.get("status") != "succeeded":
-                        raise ValueError("Source Exploration must be succeeded.")
+                    validate_exploration_source(source, self.toolkit_store.get_toolkit(toolkit_id), tool_id)
                     self.toolkit_store.clear_development_slot(toolkit_id, tool_id)
                 development_input = build_development_input(
                     task_store=self.store,
@@ -760,11 +780,18 @@ class ProcessManager:
             raise ValueError("start_url is required.")
         with self.lock:
             self._ensure_not_busy_locked()
+            allowed_domains = (
+                self.toolkit_store.get_toolkit(toolkit_id)["allowed_domains"]
+                if activity_type == "exploration" and toolkit_id and self.toolkit_store is not None else None
+            )
             if target_id:
                 target = browser_target(self.cdp_url, target_id)
                 if target is None:
                     raise InvalidStateError("Prepared Agent browser page no longer exists.")
-                if normalize_page_url(str(target.get("url") or "")) != normalize_page_url(
+                if allowed_domains is not None:
+                    if not page_in_allowed_domains(str(target.get("url") or ""), allowed_domains):
+                        raise InvalidStateError("所选页面不在 Adapter 允许域名内，请重新选择页面或修改允许域名")
+                elif normalize_page_url(str(target.get("url") or "")) != normalize_page_url(
                     start_url
                 ):
                     raise InvalidStateError(
@@ -812,6 +839,8 @@ class ProcessManager:
                 "toolkit_id": toolkit_id,
                 "tool_id": tool_id,
             }
+            if allowed_domains is not None:
+                spec["config_spec"].append(f"environment.allowed_domains={json.dumps(allowed_domains)}")
             atomic_write_json(self.store.spec_path(task_id), spec)
             process = self._spawn(
                 self.launcher.worker_command(
@@ -1535,7 +1564,11 @@ class ProcessManager:
         if timed_out:
             error = "Debug Run timed out."
         elif not succeeded:
-            error = str(result.get("error") or f"Debug process exited with code {returncode}.")
+            error = str(
+                result.get("error")
+                or self._last_process_error(run_dir / "process.log").get("error")
+                or f"Debug process exited with code {returncode}."
+            )
         screenshot_url = (
             f"/api/debug-runs/{debug_run_id}/files/screenshot.png"
             if (run_dir / "screenshot.png").is_file()

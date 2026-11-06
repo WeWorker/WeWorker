@@ -40,19 +40,16 @@ test('runtime validation rejects incomplete third-party notices', () => {
   }), /third-party notices missing/)
 })
 
-test('runtime validation rejects stale model-management web assets', () => {
+test('runtime validation rejects obsolete server web assets', () => {
   const source = path.join(__dirname, 'fixtures', 'runtime')
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-webwright-runtime-'))
   fs.cpSync(source, root, { recursive: true })
-  fs.writeFileSync(
-    path.join(root, '_internal', 'webwright', 'server', 'web', 'app.js'),
-    'import "./components/model_manager.js";\n',
-  )
+  fs.mkdirSync(path.join(root, '_internal', 'webwright', 'server', 'web'), { recursive: true })
   assert.throws(() => validateRuntime({
     runtimeRoot: root,
     platform: 'darwin',
     arch: 'arm64',
-  }), /stale model-management web assets/)
+  }), /obsolete server web assets/)
 })
 
 test('packaged WebCLI excludes legacy webcli-py wrappers', () => {

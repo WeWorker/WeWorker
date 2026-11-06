@@ -124,6 +124,5 @@ def test_bundled_resources_are_readable() -> None:
     resources = BundledResources()
 
     assert resources.builtin_config("base.yaml").is_file()
-    assert resources.web_asset("index.html").is_file()
     runtime = resources.canonical_toolkit_runtime()
     assert "class PublishedToolkitRunner" in runtime

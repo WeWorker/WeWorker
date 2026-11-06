@@ -107,14 +107,15 @@ export default function App() {
 
   const explorationOpen = useExplorationPageStore((s) => s.open)
   const websiteOpen = useWebsiteExplorationStore((s) => s.open)
-  // The WeWorker Bot page has its own agent and conversation lists, so it hides the main sidebar.
+  const developmentWorkId = useWebsiteExplorationStore((s) => s.activeDevelopmentWorkId)
+  // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
   const minimalWorkspaceToolbar = dedicatedAgentsOpen || activeSidebarSection === 'tasks'
 
   useEffect(() => {
-    setWorkspaceContext(activeWorkId, draftProjectId)
-  }, [activeWorkId, draftProjectId, setWorkspaceContext])
+    setWorkspaceContext(websiteOpen ? developmentWorkId : activeWorkId, websiteOpen ? null : draftProjectId)
+  }, [activeWorkId, draftProjectId, websiteOpen, developmentWorkId, setWorkspaceContext])
 
   useEffect(() => {
     if (!websiteOpen) return

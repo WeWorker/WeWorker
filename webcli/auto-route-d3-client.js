@@ -1,44 +1,52 @@
-/** d3-flash classification client (System One, no authentication required). */
+/** Configurable System One classification client. */
 import { decisionServiceUrl } from './decision-service-config.js';
+import { runtimeConfig as config } from './runtime-config.js';
+import { loadDecisionApiKey } from './decision-api-key.js';
 export function d3Url() {
-  return decisionServiceUrl(process.env.WEBCLI_D3_URL, 'WEBCLI_D3_URL');
+  return decisionServiceUrl(process.env.WEBCLI_D3_URL || config.d3Url, 'WEBCLI_D3_URL');
 }
 export async function d3Predict(state, questions, opts = {}) {
 
   const answers = {};
+  let apiKey;
+  let serverModel;
+  const model = process.env.WEBCLI_D3_MODEL ?? config.model;
+  if (model != null && typeof model !== 'string') throw new Error('WEBCLI_D3_MODEL must be a string.');
   // Serialize questions to avoid unnecessary concurrent service load.
   for (const [id, question] of Object.entries(questions)) {
     const entries = Object.entries(question.criteria || {});
-    if (!entries.length) throw new Error('d3-flash choice 缺少候选');
+    if (!entries.length) throw new Error('Decision service choice 缺少候选');
     if (entries.length === 1) {
       answers[id] = { type: 'choice', choice: entries[0][0], probabilities: { [entries[0][0]]: 1 }, confidence: 1 };
       continue;
     }
+    apiKey ||= await loadDecisionApiKey({ defaultKey: config.apiKey, optional: config.apiKey === undefined && !process.env.DECISION_API_KEY?.trim() });
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await fetch(`${decisionServiceUrl(opts.url ?? process.env.WEBCLI_D3_URL, 'WEBCLI_D3_URL')}/v1/systemone`, {
+      const response = await fetch(`${decisionServiceUrl(opts.url ?? d3Url(), 'WEBCLI_D3_URL')}/v1/systemone`, {
         method: 'POST', redirect: 'error',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        body: JSON.stringify({ model: 'vllm-sr/d3-flash', state, questions: { [id]: question } }), signal: controller.signal,
+        headers: { ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}), 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ state, questions: { [id]: question }, ...(model?.trim() ? { model: model.trim() } : {}) }), signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`d3-flash /v1/systemone HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`Decision service /v1/systemone HTTP ${response.status}`);
       let json;
       try { json = await response.json(); }
-      catch { throw new Error('d3-flash response is not valid JSON.'); }
+      catch { throw new Error('Decision service response is not valid JSON.'); }
+      if (typeof json?.model === 'string') serverModel = json.model;
       const answer = json?.answers?.[id];
       const probabilities = answer?.probabilities;
       const values = entries.map(([option]) => probabilities?.[option]);
-      if (answer?.type !== 'choice' || !probabilities ||
+      if ((answer?.type !== undefined && answer.type !== 'choice') || !probabilities ||
           !Object.hasOwn(question.criteria, answer.choice) ||
           values.some(value => !Number.isFinite(value) || value < 0 || value > 1) ||
           Object.keys(probabilities).some(option => !Object.hasOwn(question.criteria, option)) ||
           Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) > 0.01 ||
           probabilities[answer.choice] < Math.max(...values) - 1e-6) {
-        throw new Error('d3-flash choice 响应无效');
+        throw new Error('Decision service choice 响应无效');
       }
       answers[id] = answer;
     } finally { clearTimeout(timer); }
   }
-  return { answers, routing: { model: 'd3-flash' }, usage: { input_tokens: 0, output_tokens: 0 } };
+  return { answers, routing: { model: serverModel || model || null }, usage: { input_tokens: 0, output_tokens: 0 } };
 }

@@ -11,12 +11,6 @@ class BundledResources:
     def builtin_config(self, name: str) -> Path:
         return Path(str(self._package.joinpath("config", name)))
 
-    def web_root(self) -> Path:
-        return Path(str(self._package.joinpath("server", "web")))
-
-    def web_asset(self, name: str) -> Path:
-        return Path(str(self._package.joinpath("server", "web", name)))
-
     def canonical_toolkit_runtime(self) -> str:
         return self._package.joinpath(
             "tool_runtime", "toolkit_runtime.py"

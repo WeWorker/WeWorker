@@ -31,25 +31,18 @@ import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { normalizeThinkingEffort, THINKING_EFFORT_STORAGE_KEY } from '../../utils/thinking-effort.js'
 import { shouldWarmupOnTextChange } from '../../utils/chat-warmup.js'
 import { confirmChatPermissionMode } from '../../utils/chat-permission-confirmation.js'
+import { readChatPermissionMode, saveChatPermissionMode } from '../../utils/chat-permission-preferences.js'
 import { getRandomWelcomePromptPlaceholder } from '../../utils/welcome-prompt-placeholder.js'
 
 const COLLAPSED_ATTACHMENT_COUNT = 10
 const ATTACHMENT_CHIP_HEIGHT = 62
 const DEFAULT_MAX_ATTACHMENTS = 60
 const DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD = 20000
-const CHAT_PERMISSION_MODE_STORAGE_KEY = 'weworker.chat.permission-mode'
 const CHAT_PERMISSION_MODES = [
   { value: 'ask', label: '修改询问', icon: ExclamationCircleOutlined },
   { value: 'workspace', label: '工作区内修改', icon: FolderOpenOutlined },
   { value: 'full', label: '完全权限', icon: UnlockOutlined },
 ]
-
-function readChatPermissionMode() {
-  try {
-    const value = window.localStorage.getItem(CHAT_PERMISSION_MODE_STORAGE_KEY)
-    return CHAT_PERMISSION_MODES.some((mode) => mode.value === value) ? value : 'workspace'
-  } catch { return 'workspace' }
-}
 
 // 命令路由友好别名。**生效口径以后端 `/router/aliases` 为准**（它读的是
 // `router-config/aliases.json` + 用户覆盖层，经 Adapter 作用域过滤）；随包的
@@ -94,6 +87,9 @@ export default function InputBar({
   variant,
   embedded,
   attachmentTarget = 'welcome',
+  ignoreGlobalFill = false,
+  permissionScope,
+  defaultPermissionMode = 'workspace',
   contextSnapshot = null,
   historyMessages = [],
   onWarmup,
@@ -120,14 +116,14 @@ export default function InputBar({
   const [thinkingEffort, setThinkingEffort] = useState(() => {
     try { return normalizeThinkingEffort(window.localStorage.getItem(THINKING_EFFORT_STORAGE_KEY)) } catch { return 'off' }
   })
-  const [permissionMode, setPermissionMode] = useState(readChatPermissionMode)
+  const [permissionMode, setPermissionMode] = useState(() => readChatPermissionMode({ permissionScope, defaultPermissionMode }))
   const [welcomePromptPlaceholder, setWelcomePromptPlaceholder] = useState(() => getRandomWelcomePromptPlaceholder())
   const handlePermissionModeChange = useCallback(async (value) => {
     const next = CHAT_PERMISSION_MODES.some((mode) => mode.value === value) ? value : 'workspace'
     if (!await confirmChatPermissionMode(next)) return
     setPermissionMode(next)
-    try { window.localStorage.setItem(CHAT_PERMISSION_MODE_STORAGE_KEY, next) } catch {}
-  }, [])
+    saveChatPermissionMode(next, permissionScope)
+  }, [permissionScope])
   const handleThinkingEffortChange = useCallback((value) => {
     const next = normalizeThinkingEffort(value)
     setThinkingEffort(next)
@@ -334,8 +330,8 @@ export default function InputBar({
   }, [text, maxTaHeight, isWelcome, bodyPreview])
 
   useEffect(() => {
-    if (fillSeq > 0) requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [fillSeq])
+    if (fillSeq > 0 && !ignoreGlobalFill) requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [fillSeq, ignoreGlobalFill])
 
   useEffect(() => {
     if (attachments.length < attachmentLimit && attachmentNotice) setAttachmentNotice('')
@@ -800,6 +796,7 @@ export default function InputBar({
   const textareaEl = (
     <textarea
       data-weworker-chat-input="true"
+      data-chat-attachment-target={attachmentTarget}
       ref={textareaRef}
       value={text || ''}
       onChange={handleTextChange}

@@ -1,10 +1,25 @@
 # Webwright Roadmap
 
+- 2026-10-27：共享浏览器实现已接入探索、继续探索、开发中／正式调试、回放和公共 Toolkit Runtime；宿主控制通道获取 Bridge 实例与占用，托管模式禁止自启浏览器。原方案与详细验收见仓库 [实施记录](../../docs/shared_browser_implementation_status.md) 。Python unit／distribution 全量 282 项通过、4 项跳过；既有 OpenAI 完整 URL 拼接测试仍失败 1 项。macOS arm64 embedded 与打包 CLI 的真实探索／正式调试／回放及普通 Toolkit 调用通过；完整桌面安装包、macOS x64、Windows x64／Edge 仍待验收，旧 Profile 不迁移。
+  - 已验证长任务取消和 Bridge 强制退出时调用失败、占用释放与受管浏览器退出；后续调用获取新实例，已提交的测试操作未被重放。
+
 ## 当前阶段
+
+- 2026-10-28：共享浏览器 PR 在官方 `dev-1.1.0` 上复验，Python 聚焦 66 项通过、1 项既有完整 URL 测试失败。启动时显示浏览器窗口的原因及完整桌面验收待确认，PR 保持 Draft。
 
 推进 Python harness 的 `local_browser` + `local_cdp` 产品升级。Toolkit 阶段一至阶段七均已完成；下一阶段为阶段八「多 Tool 组合与系统验收」。总进度见 [`docs/toolkit_roadmap.md`](docs/toolkit_roadmap.md)。
 
 ## 已完成
+
+- 2026-10-28：探索启动改为按 Adapter 显式允许域名选择页面，不再要求完整 URL 与 Tool 起始网址一致。服务端返回候选并复核所选页面，Worker 接收域名快照重新校验，保留当前页面且不注入首次导航；模型提示改为先观察当前状态。两套界面支持多页选择，启动失败保留补充指令。产品／技术规范同步更新。Python 聚焦 101 项通过，1 项既有 OpenAI 完整 URL 拼接测试失败；Backend 19 项与 Renderer 6 项测试、类型检查、Renderer 构建、JS 语法与配置解析通过。Chrome 模拟接口验证两套界面交互；真实模型、业务站点全流程和安装包待验收。
+
+- 2026-10-28：修复正式 Adapter 调试异常丢失：Debug Worker 将未预期异常写入结果文件，进程管理器在结果缺失时从日志恢复原始错误，保留结果错误与超时错误的优先级；WebCLI 等待 Toolkit 大 JSON 管道输出完成。Python 调试与进程管理测试 40 项通过，1 项模型完整 URL 测试在未修改的官方 dev-1.1.0 基线上同样失败；WebCLI 聚焦测试 15 项、JS 语法与差异检查通过。未验证真实站点、冻结运行时、安装包及 Windows。
+
+- 2026-10-24：为 WeWorker 统一 Adapter 树删除流程增加 Tool／开发中目录暂存、恢复与完成接口；安装器失败可恢复原 Tool，安装成功后从可见目录移除。Python 存储与 Server API 聚焦测试 40 项、Python 编译通过；与宿主安装器的联合场景由根目录 Roadmap 记录。跨进程崩溃后的暂存需人工检查。
+
+- 2026-10-24：Developer Slot 移除页面前置／后置状态文字数组；槽位直接读取，不保留旧字段过滤逻辑。删除当前持久目录中带旧字段的 4 个槽位文件，同步生成契约、旧 Skill 文本、开发界面、夹具及设计。本轮槽位、发布和调试聚焦测试 61 项通过；此前聚焦测试 80 项通过、1 项真实 CDP 跳过，单元全量 269 项通过、3 项跳过、1 项因既有 OpenAI 完整 URL 拼接问题失败。Renderer 4 项单测、生产构建及 Web JS 语法检查通过。
+
+- 2026-10-24：Developer Slot 移除 `side_effects` 字段，新生成的 v2 Adapter 命令暂时固定 `safety: "read"`；同步槽位校验、Skill 内容、页面展示、示例与设计。Python 聚焦测试 84 项通过、1 项真实 CDP 测试跳过；Web JS 语法检查通过。后续安全分类规则待定。
 
 - 2026-09-22：健康接口返回 Electron 注入的探索实例 ID，与 Backend 托管实例校验对齐。独立运行返回空 ID，不绕过宿主校验；健康接口与生命周期聚焦测试 35/35 通过。用户随后确认客户端问题已修复，详见根目录 Roadmap。
 
@@ -49,7 +64,7 @@
 - 2026-07-18：修复 Windows 正式版 Debug 子进程编码链路：外层 Debug 进程与内层已发布 CLI 统一通过 `PYTHONIOENCODING=utf-8` 输出，捕获端显式按 UTF-8 解码，不再将 GBK 中文误解码为 `U+FFFD`，避免 Tool 已成功却因结果日志打印失败被判定为 Debug 失败。
 - 2026-07-18：修复首次开发误用“从探索重新开发”交互：从未发布且无开发中版本的 Tool 选择成功 Exploration 后，开发工作区改为显示「开始开发」、所选 Exploration 和必填首次开发指令，提交走普通 `/development/start`；已有正式版本的独立重新开发入口和清空语义保持不变。
 - 2026-07-18：完成「从探索重新开发」专项：已发布 Tool 可从当前 Tool 的一次成功 Exploration 清空开发中槽位并重新开发；Developer 输入通过显式 `exploration_only` 隔离正式／开发中代码和历史 Debug 证据，Development Run 固定空 `based_on_formal_hash`／`debug_run_evidence_id`；独立 API、开发工作区双入口和显式确认弹窗已接通，运行失败保持正式版本有效且开发槽位为空，发布前正式 Skill、`artifact_hash`、formal Debug 证据和导出资格保持不变。
-- 2026-07-18：修复 Developer Agent 元数据字符串被拆成字符数组：提示词明确 `requires`／`ensures`／`side_effects` 应为字符串数组，Tool 槽位写入时将单个字符串归一化为单元素数组并拒绝其他错误类型，不再生成逐字符插入分号的 `SKILL.md`。
+- 2026-07-18：修复旧版 Developer Agent 文本数组元数据被拆成字符的问题：当时通过提示词约束和槽位归一化避免 `SKILL.md` 逐字符插入分号；该元数据契约后来已移除。
 - 2026-07-18：完成 Toolkit 正式交付闭环：标准五文件 Skill、Runtime 状态外置、formal Debug、当前产物验证、五文件只读导出、旧生成物迁移清理及系统验收全部通过，进展已归并至 `docs/toolkit_roadmap.md`。
 - 2026-07-17：探索循环发送模型历史时，仅在临时请求副本中将最近一次 assistant 动作还原为包含 `thought`、完整 `python_code`／`bash_command`、`done`、`final_response` 的 JSON；更早动作继续只传 thought，持久化 trajectory 和 UI 展示结构不变。正常探索、20 步历史压缩与 Follow-up 恢复统一遵守该规则。
 - 2026-07-16：修复 Toolkit 发布正确性与 Tool 代码边界：发布恢复不再只依赖 journal 阶段，而是按目标 `code_hash` 核对正式槽位，补齐 `prepared` 后已转正但产物未构建的崩溃窗口；开发／正式槽位变更统一加锁，发布通过期望哈希条件转正和清理，开发代码在发布期间变化时中止或保留新版本，不再误删；Tool 槽位限制为唯一同名顶层异步函数，并校验业务参数、必填性与参数 Schema 完全一致，阻止多 Tool 拼接时的顶层符号污染。

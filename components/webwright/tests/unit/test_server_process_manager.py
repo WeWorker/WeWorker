@@ -94,8 +94,12 @@ def _manager(
     return manager, store, commands
 
 
+@pytest.mark.parametrize("prepared_url", [
+    "https://blog.example.com/admin/posts",
+    "https://blog.example.com/orders?page=2#open",
+])
 def test_start_exploration_uses_tool_definition_and_persists_ownership(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, prepared_url: str
 ) -> None:
     toolkit_store = ToolkitStore(tmp_path / "toolkits")
     toolkit_store.create_toolkit(
@@ -115,7 +119,7 @@ def test_start_exploration_uses_tool_definition_and_persists_ownership(
         "webwright.server.process_manager.browser_target",
         lambda cdp_url, target_id: {
             "target_id": target_id,
-            "url": "https://blog.example.com/admin/posts",
+            "url": prepared_url,
         },
     )
     monkeypatch.setattr(
@@ -141,6 +145,21 @@ def test_start_exploration_uses_tool_definition_and_persists_ownership(
     assert saved["initial_supplement"] == "Only published posts"
     assert spec["activity_type"] == "exploration"
     assert spec["target_id"] == "prepared-target"
+    assert 'environment.allowed_domains=["blog.example.com"]' in spec["config_spec"]
+
+
+@pytest.mark.parametrize("target", [None, {"url": "https://other.example.org/"}, {"url": "file:///tmp/test"}])
+def test_exploration_rejects_missing_or_outside_page(monkeypatch, tmp_path, target):
+    toolkits = ToolkitStore(tmp_path / "toolkits")
+    toolkits.create_toolkit(name="demo", allowed_domains=["example.com"])
+    toolkits.create_tool("demo", name="read_page", goal="Read", start_url="https://example.com/")
+    manager, _, commands = _manager(tmp_path, monkeypatch, toolkit_store=toolkits)
+    monkeypatch.setattr("webwright.server.process_manager.browser_target", lambda *_: target)
+    with pytest.raises(InvalidStateError):
+        manager.start_exploration(toolkit_id="demo", tool_id="read_page", target_id="stale")
+    assert commands == []
+    with pytest.raises(InvalidStateError, match="请选择"):
+        manager.start_exploration(toolkit_id="demo", tool_id="read_page")
 
 
 def test_start_task_writes_absolute_spec_and_clears_stale_control(monkeypatch, tmp_path: Path) -> None:
@@ -844,3 +863,26 @@ def test_spawn_does_not_inherit_parent_stdin(monkeypatch, tmp_path: Path) -> Non
     # stdout/stderr 仍按既有约定汇入同一个日志句柄。
     assert captured["stderr"] is subprocess.STDOUT
     assert getattr(captured["stdout"], "name", "") == str(log_path)
+
+
+@pytest.mark.parametrize("with_toolkit_store", [False, True])
+def test_url_exploration_has_no_tool_or_prepared_page(tmp_path, monkeypatch, with_toolkit_store):
+    manager, store, commands = _manager(tmp_path, monkeypatch,
+        toolkit_store=ToolkitStore(tmp_path / "toolkits") if with_toolkit_store else None)
+    record = manager.start_url_exploration(start_url="https://example.com/catalog")
+    assert record["activity_type"] == "exploration"
+    assert record["toolkit_id"] == record["tool_id"] == ""
+    assert record["instruction"]
+    assert commands
+    spec = json.loads(store.spec_path(record["task_id"]).read_text(encoding="utf-8"))
+    assert spec["start_url"] == "https://example.com/catalog"
+    assert spec["target_id"] == ""
+
+
+@pytest.mark.parametrize("url", ["", "file:///tmp/test", "javascript:alert(1)", "https://user:password@example.com", "https:///missing-host"])
+def test_url_exploration_rejects_invalid_urls(tmp_path, monkeypatch, url):
+    manager, store, commands = _manager(tmp_path, monkeypatch)
+    with pytest.raises(ValueError):
+        manager.start_url_exploration(start_url=url)
+    assert not commands
+    assert not store.list_tasks()

@@ -143,8 +143,8 @@ agent:
     Example response (rendered for readability — in practice you emit a single JSON object on one logical message):
     ```
     {
-      "thought": "Navigate to the start URL and print the URL, title, and a short ARIA snapshot for the next step.",
-      "python_code": "await page.goto(\"{{ start_url }}\", wait_until=\"domcontentloaded\")\nprint(\"URL:\", page.url)\nprint(\"TITLE:\", await page.title())\nprint(\"ARIA:\", await page.locator(\"body\").aria_snapshot())",
+      "thought": "Inspect the prepared page's current URL, title, and ARIA snapshot before taking action.",
+      "python_code": "print(\"URL:\", page.url)\nprint(\"TITLE:\", await page.title())\nprint(\"ARIA:\", await page.locator(\"body\").aria_snapshot())",
       "done": false,
       "final_response": ""
     }
@@ -152,6 +152,7 @@ agent:
     (The `python_code` value above is shown with literal newlines for readability; in an actual JSON response those newlines must be encoded as `\n` so the object remains valid JSON.)
 
     ## Rules
+    - Start from the prepared page's current state. The start URL is a default entry address, not a requirement to navigate back; preserve the user's login, filters, and current location unless the task requires changing them.
     - Use stable selectors and current-observation evidence; do not guess UI interactions.
     - Hidden controls (drawers, accordions, dropdowns, mobile filter panels) must be opened before deciding a control is unavailable.
     - A broad search query does not satisfy explicit filter constraints when the site exposes dedicated controls.

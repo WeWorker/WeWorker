@@ -377,3 +377,56 @@ def test_exploration_routes_are_documented(tmp_path: Path) -> None:
     assert "/api/toolkits/{toolkit_id}/tools/{tool_id}/explorations" in spec["paths"]
     assert "/api/explorations/{exploration_id}" in spec["paths"]
     assert "POST /api/toolkits/{toolkit_id}/tools/{tool_id}/explorations" in docs
+
+
+def test_independent_exploration_api_lists_without_tool(tmp_path):
+    task_store, toolkit_store = _stores(tmp_path)
+
+    class Manager:
+        def start_url_exploration(self, **kwargs):
+            assert kwargs == {"start_url": "https://example.com", "instruction": "Inspect search", "title": ""}
+            return task_store.create_task_record(
+                task_id="exp_site", title="Site", instruction=kwargs["instruction"],
+                start_url=kwargs["start_url"], output_dir=task_store.task_dir("exp_site"),
+                run_id="run-1", activity_type="exploration",
+            )
+
+    client = create_app(paths=WebwrightPaths.resolve(home=tmp_path), store=task_store,
+                        toolkit_store=toolkit_store, process_manager=Manager()).test_client()
+    response = client.post("/api/explorations", json={"start_url": "https://example.com", "instruction": "Inspect search"})
+    assert response.status_code == 200
+    record = response.get_json()
+    assert record["toolkit_id"] == record["tool_id"] == ""
+    assert record["start_url"] == "https://example.com"
+    assert record["title"] == "Site"
+    assert client.get("/api/explorations").get_json()["explorations"] == [record]
+    assert client.get("/api/toolkits/blog_admin/tools/search_blog/explorations").get_json()["explorations"] == []
+
+
+def test_independent_source_is_reusable_without_reparenting(tmp_path):
+    import pytest
+    from webwright.server.development import build_development_input
+    from webwright.server.debug_store import DebugRunStore
+
+    task_store, toolkit_store = _stores(tmp_path)
+    toolkit_store.create_tool("blog_admin", name="read_blog", goal="Read posts", start_url="https://blog.example.com/posts")
+    task_store.create_task_record(task_id="exp_site", title="Site", instruction="Inspect site",
+        start_url="https://blog.example.com/posts", output_dir=task_store.task_dir("exp_site"),
+        run_id="run-1", activity_type="exploration")
+    task_store.update_task("exp_site", status="succeeded")
+    def build(tool_id):
+        return build_development_input(task_store=task_store, toolkit_store=toolkit_store,
+            debug_store=DebugRunStore(tmp_path / "debug"), toolkit_id="blog_admin", tool_id=tool_id,
+            instruction="Implement search", source_exploration_id="exp_site")
+    for tool_id in ["search_blog", "read_blog"]:
+        assert build(tool_id)["source_exploration"]["exploration_id"] == "exp_site"
+    assert task_store.read_exploration("exp_site")["tool_id"] == ""
+    task_store.update_task("exp_site", status="running")
+    with pytest.raises(ValueError, match="succeeded"):
+        build("search_blog")
+    task_store.update_task("exp_site", status="succeeded", start_url="https://other.example.org")
+    with pytest.raises(ValueError, match="allowed domains"):
+        build("search_blog")
+    task_store.update_task("exp_site", toolkit_id="blog_admin", tool_id="read_blog")
+    with pytest.raises(ValueError, match="does not belong"):
+        build("search_blog")

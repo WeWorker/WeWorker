@@ -1,3 +1,4 @@
+import { prepareExplorationConversation, listExplorationConversations, excludeExplorationConversations } from './exploration-conversations.js'
 import { createSkillManagementRouter, sanitizeSkillDirectoryName } from './skill-management.js'
 import { officialSkillBuildTime } from './skill-build-time.js'
 import { randomUUID as channelQrId, createHash } from 'node:crypto'
@@ -7,6 +8,7 @@ import { createChatTurnRegistry } from './chat-turn-lifecycle.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
+import { createWebsiteExplorationAdapterRouter } from './website-exploration-adapters.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -334,6 +336,20 @@ app.get('/internal/webwright/model-config', (req, res) => {
 })
 app.use(requireHttpAuth)
 app.use(express.json({ limit: '50mb' }))
+app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
+  onListDevelopmentChats: () => listExplorationConversations(),
+  onDevelopmentHandoff: input => {
+    const result = prepareExplorationConversation(input)
+    broadcastSSE({ type: 'works_changed', workId: result.work.id })
+    return result
+  },
+  onInstalled: ({ name, revision, profile }) => {
+    clearAdapterCache()
+    refreshDesktopAdapterSkills(SKILLS_DIR)
+    clearAdapterCache()
+    broadcastSSE({ type: 'adapter_state_changed', profile, revision, adapters: [name] })
+  },
+}))
 app.use('/api/website-exploration', createWebsiteExplorationRouter())
 registerDedicatedAgentRoutes(app)
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -2119,7 +2135,7 @@ app.get('/works', (_req, res) => {
   // Dedicated agent conversations share the same work records and are visible in the main list.
   try {
     const archivedIds = new Set(listArchivedWorkIds())
-    res.json(store.listWorks().map((work) => ({ ...work, archived: archivedIds.has(work.id) })))
+    res.json(excludeExplorationConversations(store.listWorks()).map((work) => ({ ...work, archived: archivedIds.has(work.id) })))
   } catch (error) {
     res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to load conversations' })
   }
@@ -2127,7 +2143,7 @@ app.get('/works', (_req, res) => {
 
 app.get('/works/archived', (_req, res) => {
   try {
-    res.json(store.listArchivedWorks())
+    res.json(excludeExplorationConversations(store.listArchivedWorks()))
   } catch (error) {
     res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to load archived conversations' })
   }

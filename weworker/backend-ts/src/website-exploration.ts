@@ -7,6 +7,7 @@ const UPSTREAM = 'http://127.0.0.1:8766'
 const id = '[A-Za-z0-9_-]+'
 const tool = `/api/toolkits/${id}/tools/${id}`
 const rules: [string, RegExp][] = [
+  ['GET POST', /^\/api\/explorations$/],
   ['GET', /^\/api\/(health|activity|browser\/(status|tabs|match)|toolkits)$/],
   ['POST', /^\/api\/(browser\/open|toolkits)$/],
   ['GET PUT DELETE', new RegExp(`^/api/toolkits/${id}$`)],
@@ -16,10 +17,8 @@ const rules: [string, RegExp][] = [
   ['GET PUT DELETE', new RegExp(`^${tool}/development$`)],
   ['POST', new RegExp(`^${tool}/development/(start|messages|cancel|reset-from-formal|restart-from-exploration)$`)],
   ['GET', new RegExp(`^${tool}/development/events$`)],
-  ['POST', new RegExp(`^${tool}/publish$`)],
   ['GET POST', new RegExp(`^${tool}/(explorations|debug-runs)$`)],
   ['GET', new RegExp(`^/api/toolkits/${id}/(export-status|export)$`)],
-  ['POST', new RegExp(`^/api/toolkits/${id}/install-to-weworker$`)],
   ['GET', new RegExp(`^/api/(explorations|debug-runs|development-runs|replays)/${id}$`)],
   ['GET', new RegExp(`^/api/explorations/${id}/(timeline|steps|messages|events)$`)],
   ['POST', new RegExp(`^/api/explorations/${id}/(messages|pause|resume|cancel|replay)$`)],
@@ -34,7 +33,7 @@ export function allowedExplorationRequest(method: string, raw: string): boolean 
   if (pathname.split('/').some(part => part === '.' || part === '..')) return false
   if (!rules.some(([methods, pattern]) => methods.split(' ').includes(method) && pattern.test(pathname))) return false
   const params = new URLSearchParams(query)
-  const allowed = pathname === '/api/browser/match' ? ['url'] : pathname.endsWith('/cancel') ? ['force'] : []
+  const allowed = pathname === '/api/browser/match' ? ['url', 'toolkit_id', 'tool_id'] : pathname.endsWith('/cancel') ? ['force'] : []
   return [...params.keys()].every(key => allowed.includes(key))
 }
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -11,6 +13,41 @@ from webwright.environments.local_browser import LocalBrowserEnvironment
 from webwright.environments.local_workspace import LocalWorkspaceEnvironment
 from webwright.run.cli import run_one
 from webwright.utils.trajectory import build_resume_state, load_trajectory, resolve_trajectory_path
+
+
+@pytest.mark.parametrize("url,allowed", [
+    ("https://example.com/orders?page=2#open", True),
+    ("https://auth.example.com/signed-in", True),
+    ("https://other.example.org/", False),
+])
+def test_prepared_exploration_page_keeps_current_state(monkeypatch, tmp_path, url, allowed):
+    from webwright.environments import local_browser
+    monkeypatch.delenv("WEWORKER_BROWSER_MANAGED", raising=False)
+    page = SimpleNamespace(url=url, goto=AsyncMock(), on=Mock())
+    context = SimpleNamespace(set_default_timeout=Mock(), set_default_navigation_timeout=Mock())
+    browser = SimpleNamespace(contexts=[context])
+    playwright = SimpleNamespace(chromium=SimpleNamespace(connect_over_cdp=AsyncMock(return_value=browser)))
+    monkeypatch.setattr("playwright.async_api.async_playwright", lambda: SimpleNamespace(start=AsyncMock(return_value=playwright)))
+    monkeypatch.setattr(local_browser, "_ensure_local_cdp_page_target", lambda *_: None)
+    monkeypatch.setattr(local_browser, "_find_cdp_target_by_id", lambda *_: {"id": "selected", "url": url})
+    monkeypatch.setattr(local_browser, "_activate_cdp_target", lambda *_: None)
+    env = LocalBrowserEnvironment(output_dir=tmp_path, browser_mode="local_cdp",
+                                  start_url="https://example.com/", allowed_domains=["example.com", "auth.example.com"])
+    monkeypatch.setattr(env, "_ensure_local_cdp_browser", lambda: None)
+    monkeypatch.setattr(env, "_match_page_in_context", AsyncMock(return_value=(page, "cdp_target_id")))
+    monkeypatch.setattr(env, "_target_id_for_page", AsyncMock(return_value="selected"))
+    # Exercise binding and navigation without the unrelated cleanup transport.
+    monkeypatch.setattr(env, "_prepare_async", env._prepare_connected_async)
+    if not allowed:
+        with pytest.raises(RuntimeError, match="允许域名"):
+            env.prepare(initial_target_id="selected")
+        env._match_page_in_context.assert_not_awaited()
+        return
+    env.prepare(initial_target_id="selected")
+    page.goto.assert_not_awaited()
+    env._step_index = 1
+    assert env._with_initial_navigation("print(page.url)") == "print(page.url)"
+    assert env._page.url == url
 
 
 class FakeModel:

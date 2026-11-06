@@ -25,8 +25,10 @@ function getScheduledTasksStore() {
 
 export const useWorksStore = create((set, get) => ({
   works: [],
+  embeddedWorks: {}, // Metadata cache for scoped chats; never part of the main sidebar.
   projects: [],
   activeWorkId: null,
+  handoffWorkIds: new Set(), // Handoff chats own their queue and must never consume global pending messages/shell commands.
   draftProjectId: null,
   draftFolderKey: null,
   messages: {}, // workId -> Message[]
@@ -232,6 +234,7 @@ export const useWorksStore = create((set, get) => ({
         delete contextCompactionStatuses[id]
         return {
           works,
+          handoffWorkIds: new Set([...s.handoffWorkIds].filter(workId => workId !== id)),
           messages,
           contextSnapshots,
           contextTokenAnchors,

@@ -1,10 +1,11 @@
+import ApplyAdapter from './ApplyAdapter.jsx'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import React, { useEffect, useState } from 'react'
 import * as api from '../../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as useStore, changeWebsiteContext } from '../../store/website-exploration.js'
 import { ErrorMessage, JsonView, Modal, RequiredMark, ResourceImage, Status, useAction, useDraft, useSnapshot } from './shared.jsx'
 
-export default function DevelopWorkspace({ toolkitId, tool, disabled, globalBusy, modelReady = true }) {
+export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = '', disabled, globalBusy, modelReady = true, onInstalled }) {
   const scope = toolkitId + '/' + tool.tool_id
   const snapshot = useSnapshot(() => api.getSlots(toolkitId, tool.tool_id), [scope], '/api/toolkits/' + scope.replace('/', '/tools/') + '/development/events')
   const action = useAction(snapshot.refresh)
@@ -22,7 +23,13 @@ export default function DevelopWorkspace({ toolkitId, tool, disabled, globalBusy
     const timer = setTimeout(() => setMessage(''), 5000)
     return () => clearTimeout(timer)
   }, [message])
-  const explorations = useSnapshot(() => api.listExplorations(toolkitId, tool.tool_id), [scope])
+  const explorations = useSnapshot(async () => {
+    const [all, kit] = await Promise.all([api.listExplorations(), api.request(`/api/toolkits/${encodeURIComponent(toolkitId)}`)])
+    return all.filter(item => {
+      if (item.toolkit_id || item.tool_id) return item.toolkit_id === toolkitId && item.tool_id === tool.tool_id
+      try { return kit.allowed_domains.includes(new URL(item.start_url).hostname.toLowerCase()) } catch { return false }
+    })
+  }, [scope])
   const runs = useSnapshot(() => api.listDebugRuns(toolkitId, tool.tool_id), [scope])
   const data = snapshot.data
   const dev = data?.development
@@ -41,24 +48,25 @@ export default function DevelopWorkspace({ toolkitId, tool, disabled, globalBusy
   </div>
   return <div className="wx-development-workspace">
     <div className="wx-actions wx-development-toolbar">
+      <button data-app-button="action" className="wx-quiet" disabled={blocked || !modelReady} onClick={() => changeWebsiteContext({ workspace: 'explore', explorationContext: { toolkitId, tool } })}>补充探索</button>
       {!developing && !initial && (dev ? <>
         <button data-app-button="action" className="wx-quiet" disabled={blocked} onClick={() => setConfirm('discard')}>重新开始</button>
-        <button data-app-button="action" className="wx-primary" disabled={blocked || !data.publish_eligible} title="应用后本次修改正式生效" onClick={() => perform(() => api.publishTool(toolkitId, tool.tool_id), '已成功应用到 Adapter')}>应用到 Adapter</button>
       </> : <>
         <button data-app-button="action" className="wx-primary" disabled={blocked} onClick={() => perform(async () => { await api.startDevelopmentFromFormal(toolkitId, tool.tool_id); setRebuilding(false) }, '已基于已应用代码创建本轮开发')}>基于已应用版本开发</button>
         <button data-app-button="action" className="wx-quiet" disabled={blocked} onClick={() => { setPickedSource(successful.some(item => item.exploration_id === source) ? source : successful[0]?.exploration_id || ''); setConfirm('source') }}>从探索重新开发</button>
       </>)}
     </div>
+    {(!initial || Boolean(publishedDigest)) && <ApplyAdapter toolkitId={toolkitId} revision={(publishedDigest || '') + ':' + (dev?.code_hash || data?.formal?.code_hash || '')} disabled={blocked} onInstalled={async () => { await snapshot.refresh(); await onInstalled?.() }} />}
     {message && <p role="status" className="wx-development-notice">{message}</p>}
     <ErrorMessage>{snapshot.error || action.error}</ErrorMessage>
     {snapshot.loading ? <p>正在加载…</p> : data && <>
       {dirty && <p className="wx-development-notice">正在编辑当前开发代码。请先保存或取消修改，再执行其他开发操作。</p>}
-      {dev && !data.publish_eligible && !developing && <p className="wx-development-notice">当前修改尚未应用到 Adapter。请先在即时调试区运行一次测试。</p>}
+      {dev && !data.publish_eligible && !developing && <p className="wx-development-notice">当前修改尚未保存为完整 Adapter。请检查开发结果。</p>}
       <div className="wx-development">
         <div className="wx-code-pane">
           {initial ? <section className="wx-dev-card">
             <h3>首次开发</h3><p>来源探索：{effectiveSource || '尚未选择'}</p>
-            {!developing && (effectiveSource ? <p className="wx-muted">{rebuilding ? '本轮会完全基于所选探索重新实现此 Tool。点击「开始开发」后才清空当前开发中修改。' : source ? 'Developer Agent 将基于所选探索和下面的指令生成首个实现。' : '上次开发未完成，Developer Agent 将沿用其来源探索和下面的指令重新生成首个实现。'}</p> : <p>请先到探索工作区选择一次成功探索作为开发输入。<button data-app-button="action" className="wx-quiet" onClick={() => changeWebsiteContext({ workspace: 'explore' })}>前往探索</button></p>)}
+            {!developing && (effectiveSource ? <p className="wx-muted">{rebuilding ? '本轮会完全基于所选探索重新实现此 Tool。点击「开始开发」后才清空当前开发中修改。' : source ? 'Developer Agent 将基于所选探索和下面的指令生成首个实现。' : '上次开发未完成，Developer Agent 将沿用其来源探索和下面的指令重新生成首个实现。'}</p> : <p>请先到探索工作区选择一次成功探索作为开发输入。<button data-app-button="action" className="wx-quiet" onClick={() => changeWebsiteContext({ workspace: 'explore', explorationContext: { toolkitId, tool } })}>补充探索</button></p>)}
             {failure}
             <DevelopmentPrompt label="首次开发指令" value={initialInstruction} onChange={setInitialInstruction} placeholder="描述首个实现需要重点关注的内容" hint="必填。该指令会与所选探索一起提供给 Developer Agent。" submitLabel="开始开发" developing={developing} disabled={blocked || !modelReady || !effectiveSource || !initialInstruction.trim()} stopDisabled={disabled || action.busy} onStop={stopDevelopment} onSubmit={() => perform(async () => {
               if (rebuilding) await api.restartDevelopmentFromExploration(toolkitId, tool.tool_id, effectiveSource, initialInstruction)
@@ -68,7 +76,7 @@ export default function DevelopWorkspace({ toolkitId, tool, disabled, globalBusy
           </section> : dev ? <>
             <section className="wx-dev-card"><h3>{dev.description || '当前开发代码'}</h3><SlotContract slot={dev} />
               {dirty ? <label><span>开发中 Python 代码<RequiredMark /></span><textarea required className="wx-code-editor" aria-label="开发中 Python 代码" spellCheck={false} value={codeDraft.code} onChange={e => useStore.getState().setCodeDraft({ ...codeDraft, code: e.target.value })} /></label> : <JsonView value={dev.code} />}
-              <div className="wx-actions">{dirty ? <><button data-app-button="action" disabled={action.busy} onClick={() => { useStore.getState().setCodeDraft(null); setMessage('已取消代码修改') }}>取消修改</button><button data-app-button="action" className="wx-primary" disabled={disabled || globalBusy || developing || action.busy || !codeDraft.code.trim()} onClick={() => perform(() => useStore.getState().saveCode(), '代码已保存，请重新调试当前版本')}>保存修改</button><span className="wx-muted">只修改 Python 代码；函数签名必须与当前参数 Schema 保持一致。</span></> : <button data-app-button="action" className="wx-quiet" disabled={blocked} onClick={() => useStore.getState().setCodeDraft({ toolkitId, toolId: tool.tool_id, hash: dev.code_hash, code: dev.code })}>编辑代码</button>}</div>
+              <div className="wx-actions">{dirty ? <><button data-app-button="action" disabled={action.busy} onClick={() => { useStore.getState().setCodeDraft(null); setMessage('已取消代码修改') }}>取消修改</button><button data-app-button="action" className="wx-primary" disabled={disabled || globalBusy || developing || action.busy || !codeDraft.code.trim()} onClick={() => perform(() => useStore.getState().saveCode(), '代码已保存，可直接应用到 Adapter 或按需调试')}>保存修改</button><span className="wx-muted">只修改 Python 代码；函数签名必须与当前参数 Schema 保持一致。</span></> : <button data-app-button="action" className="wx-quiet" disabled={blocked} onClick={() => useStore.getState().setCodeDraft({ toolkitId, toolId: tool.tool_id, hash: dev.code_hash, code: dev.code })}>编辑代码</button>}</div>
             </section>
             <section className="wx-dev-card wx-agent"><h3>继续开发</h3>
               {failure}
@@ -83,7 +91,7 @@ export default function DevelopWorkspace({ toolkitId, tool, disabled, globalBusy
       </div>
     </>}
     {confirm === 'discard' && <Modal title="重新开始开发" onClose={() => setConfirm(null)}><p>当前开发中的全部修改将被清空且不可恢复。</p><p>已应用版本不受影响。清空后，如需继续开发，请重新选择开发入口。</p><ErrorMessage>{action.error}</ErrorMessage><footer><button data-app-button="action" onClick={() => setConfirm(null)}>取消</button><button data-app-button="action" data-variant="danger" className="wx-danger" disabled={blocked} onClick={() => perform(async () => { await api.restartDevelopment(toolkitId, tool.tool_id); setSource(''); setRebuilding(false); setEvidence(null); setConfirm(null) }, '已清空本次开发的全部修改')}>确认清空</button></footer></Modal>}
-    {confirm === 'source' && <Modal title="从探索重新开发" onClose={() => setConfirm(null)}><p>选择当前 Tool 的一次成功探索，Developer Agent 将完全基于该探索重新实现此 Tool。</p><ErrorMessage>{explorations.error}</ErrorMessage>{successful.length ? <fieldset aria-label="探索记录"><legend>探索记录<RequiredMark /></legend>{successful.map(item => <label className="wx-exploration-choice" key={item.exploration_id}><input required type="radio" name="development-source" value={item.exploration_id} checked={pickedSource === item.exploration_id} onChange={() => setPickedSource(item.exploration_id)} /><span>{item.exploration_id}</span><Status value={item.status} /><span className="wx-muted">{item.created_at}</span></label>)}</fieldset> : <p>当前 Tool 没有成功的探索，请先到探索工作区完成一次探索。</p>}<p>已应用版本不受影响；选择后先填写开发指令，真正开始开发时才清空当前开发中修改。</p><footer><button data-app-button="action" onClick={() => setConfirm(null)}>取消</button><button data-app-button="action" className="wx-primary" disabled={blocked || !successful.some(item => item.exploration_id === pickedSource)} onClick={() => { setSource(pickedSource); setRebuilding(true); setEvidence(null); setConfirm(null); setMessage('已选择探索，请填写开发指令后开始重新开发') }}>选择并填写指令</button></footer></Modal>}
+    {confirm === 'source' && <Modal title="从探索重新开发" onClose={() => setConfirm(null)}><p>选择一次适用于当前 Adapter 的成功探索，Developer Agent 将完全基于该探索重新实现此 Tool。</p><ErrorMessage>{explorations.error}</ErrorMessage>{successful.length ? <fieldset aria-label="探索记录"><legend>探索记录<RequiredMark /></legend>{successful.map(item => <label className="wx-exploration-choice" key={item.exploration_id}><input required type="radio" name="development-source" value={item.exploration_id} checked={pickedSource === item.exploration_id} onChange={() => setPickedSource(item.exploration_id)} /><span>{item.exploration_id}</span><Status value={item.status} /><span className="wx-muted">{item.created_at}</span></label>)}</fieldset> : <p>当前 Tool 没有成功的探索，请先到探索工作区完成一次探索。</p>}<p>已应用版本不受影响；选择后先填写开发指令，真正开始开发时才清空当前开发中修改。</p><footer><button data-app-button="action" onClick={() => setConfirm(null)}>取消</button><button data-app-button="action" className="wx-primary" disabled={blocked || !successful.some(item => item.exploration_id === pickedSource)} onClick={() => { setSource(pickedSource); setRebuilding(true); setEvidence(null); setConfirm(null); setMessage('已选择探索，请填写开发指令后开始重新开发') }}>选择并填写指令</button></footer></Modal>}
   </div>
 }
 
@@ -99,7 +107,7 @@ function DevelopmentPrompt({ label, value, onChange, placeholder, hint, submitLa
 
 function SlotContract({ slot }) {
   const describe = schema => Object.entries(schema?.properties || {}).map(([name, field]) => name + (schema.required?.includes(name) ? '*' : '') + ':' + field.type).join('、') || '—'
-  return <dl className="wx-dev-facts"><dt>参数</dt><dd>{describe(slot.parameters_schema)}</dd><dt>返回</dt><dd>{describe(slot.result_schema)}</dd><dt>requires</dt><dd>{slot.requires?.join('、') || '—'}</dd><dt>ensures</dt><dd>{slot.ensures?.join('、') || '—'}</dd><dt>副作用</dt><dd>{slot.side_effects?.join('、') || '无'}</dd></dl>
+  return <dl className="wx-dev-facts"><dt>参数</dt><dd>{describe(slot.parameters_schema)}</dd><dt>返回</dt><dd>{describe(slot.result_schema)}</dd></dl>
 }
 
 export function collectParameters(schema, values) {
@@ -124,7 +132,7 @@ export function collectParameters(schema, values) {
   return result
 }
 
-export function TestRunner({ toolkitId, tool, slot, channel, disabled, onRefresh, onEvidence, primary = true }) {
+export function TestRunner({ toolkitId, tool, slot, channel, disabled, onRefresh }) {
   const scope = toolkitId + '/' + tool.tool_id + '/' + channel
   const [values, setValues] = useDraft(scope + '/params/' + (slot.distribution_hash || slot.code_hash), {})
   const selected = useStore(s => s.selections[scope + '/run'])
@@ -134,19 +142,19 @@ export function TestRunner({ toolkitId, tool, slot, channel, disabled, onRefresh
   const snapshot = useSnapshot(() => id ? api.request('/api/debug-runs/' + id) : Promise.resolve(null), [id], id ? '/api/debug-runs/' + id + '/events' : null)
   const action = useAction(async () => { await runs.refresh(); await snapshot.refresh(); await onRefresh?.() })
   const run = snapshot.data
-  const development = channel === 'development'
   const [parametersTouched, setParametersTouched] = useState(false)
   let parameterError = ''
   try { collectParameters(slot.parameters_schema, values) } catch (error) { parameterError = error.message }
   const [message, setMessage] = useState('')
+  const submitRun = parameters => action.run(async () => {
+    const result = await api.runDebugTool(toolkitId, tool.tool_id, channel, parameters, slot.distribution_hash)
+    useStore.getState().selectRecord(scope + '/run', result.debug_run_id)
+    setMessage('已提交测试运行')
+  })
   return <>
-    <section className={development ? 'wx-dev-card' : undefined}>
-    {development && <h3>即时调试</h3>}
-    <form onSubmit={e => { e.preventDefault(); if (parameterError) return; void action.run(async () => {
-      const result = await api.runDebugTool(toolkitId, tool.tool_id, channel, collectParameters(slot.parameters_schema, values), slot.distribution_hash)
-      useStore.getState().selectRecord(scope + '/run', result.debug_run_id)
-      setMessage('已提交测试运行')
-    }) }}>
+    <section className="wx-dev-card">
+    <h3>即时调试</h3>
+    <form onSubmit={e => { e.preventDefault(); if (parameterError) return; void submitRun(collectParameters(slot.parameters_schema, values)) }}>
       <fieldset disabled={disabled || action.busy} onBlur={() => setParametersTouched(true)} onChange={() => setParametersTouched(true)}>
       {Object.entries(slot.parameters_schema?.properties || {}).map(([name, field]) => <label key={name}><span>{name}{slot.parameters_schema.required?.includes(name) && <RequiredMark />}</span>
         {field.type === 'boolean' || field.enum ? <AppDropdownSelect className="wx-dropdown" ariaLabel={name + (slot.parameters_schema.required?.includes(name) ? ' *' : '')} required={slot.parameters_schema.required?.includes(name)} disabled={disabled || action.busy} value={String(values[name] ?? field.default ?? '')} onChange={value => { setValues({ ...values, [name]: value }); setParametersTouched(true) }} options={[{ value: '', label: '请选择' }, ...(field.type === 'boolean' ? [{ value: 'true', label: '是' }, { value: 'false', label: '否' }] : field.enum.map(value => ({ value: String(value), label: String(value) })))]} /> : <input aria-label={name + (slot.parameters_schema.required?.includes(name) ? ' *' : '')} required={slot.parameters_schema.required?.includes(name)} type={['integer', 'number'].includes(field.type) ? 'number' : 'text'} step={field.type === 'integer' ? '1' : 'any'} value={typeof (values[name] ?? field.default) === 'object' ? JSON.stringify(values[name] ?? field.default) : values[name] ?? field.default ?? ''} onChange={e => setValues({ ...values, [name]: e.target.value })} />}
@@ -154,17 +162,16 @@ export function TestRunner({ toolkitId, tool, slot, channel, disabled, onRefresh
       </label>)}
       </fieldset>
       {!Object.keys(slot.parameters_schema?.properties || {}).length && <p>该 Tool 无需业务参数。</p>}
-      <button data-app-button="action" className={primary ? "wx-primary" : "wx-quiet"} disabled={disabled || action.busy || Boolean(parameterError)} title={parameterError || undefined}>{channel === 'formal' ? '验证正式产物' : '运行测试'}</button>
+      <button data-app-button="action" className="wx-primary" disabled={disabled || action.busy || Boolean(parameterError)} title={parameterError || undefined}>运行测试</button>
     </form>
     {message && <p role="status">{message}</p>}
     <ErrorMessage>{(parametersTouched && parameterError) || action.error || runs.error || snapshot.error}</ErrorMessage>
     </section>
-    <section className={development ? 'wx-dev-card' : undefined}>
-    {development && <h3>试运行历史</h3>}
+    <section className="wx-dev-card">
+    <h3>试运行历史</h3>
     <label>运行历史<AppDropdownSelect ariaLabel="运行历史" className="wx-dropdown" value={id || ""} onChange={value => useStore.getState().selectRecord(scope + "/run", value)} options={[{ value: "", label: "暂无运行" }, ...history.map(item => ({ value: item.debug_run_id, label: item.created_at + " · " + item.status }))]} /></label>
-    {run && <><RunDetail run={run} /><p>{development ? (run.code_hash === slot.code_hash ? '当前代码的结果' : '旧代码的结果') : (run.distribution_hash === slot.distribution_hash ? '当前产物的结果' : '旧产物的结果')}</p>
+    {run && <><RunDetail run={run} /><p>{run.code_hash === slot.code_hash ? '当前代码的结果' : '旧代码的结果'}</p>
       {['queued', 'running'].includes(run.status) && <button data-app-button="action" disabled={action.busy} onClick={() => action.run(() => api.cancelDebugRun(run.debug_run_id))}>取消运行</button>}
-      {run.status === 'failed' && onEvidence && <button data-app-button="action" disabled={disabled} onClick={() => onEvidence(run)}>作为修复依据</button>}
     </>}
     </section>
   </>

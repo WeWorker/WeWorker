@@ -188,7 +188,7 @@ Is a website you use missing from the catalog? Submit a PR for a public website 
 
 ## Version
 
-The current public version is `1.0.2`. See [CHANGELOG.md](CHANGELOG.md) for public release history and [the release guide](docs/RELEASE.md) for the maintainer workflow.
+The current public version is `1.1.0`. See [CHANGELOG.md](CHANGELOG.md) for public release history and [the release guide](docs/RELEASE.md) for the maintainer workflow.
 
 ---
 

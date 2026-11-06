@@ -178,6 +178,16 @@ describe('unified catalog and installer', () => {
     expect(resolveCatalogTool('demo.list', { paths }).command.runtime).toBe('extension');
   });
 
+  it('rejects a stale deletion review before removing the installed package', () => {
+    const { paths } = setup();
+    const installed = installAdapter({ files: files(), origin: local }, { paths });
+    expect(() => removeInstalledAdapter('demo', { paths, expectedStateRevision: installed.revision - 1,
+      expectedSourceDigest: installed.digest })).toThrow(/changed after deletion review/);
+    expect(() => removeInstalledAdapter('demo', { paths, expectedStateRevision: installed.revision,
+      expectedSourceDigest: '0'.repeat(64) })).toThrow(/changed after deletion review/);
+    expect(snapshot(paths).effective[0].digest).toBe(installed.digest);
+  });
+
   it('keeps distinct profiles and explicit root ownership isolated', () => {
     const { root, paths } = setup();
     const custom = resolveAdapterPaths({ home: root, env: { WEWORKER_BUILD_PROFILE: 'custom', WEWORKER_BUILTIN_ADAPTERS_DIR: paths.builtinDir } });

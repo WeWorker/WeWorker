@@ -1,6 +1,39 @@
 from __future__ import annotations
 
 from typing import Any
+from contextvars import ContextVar
+from functools import wraps
+from webwright.tool_runtime.managed_browser import ManagedBrowser, managed_browser_enabled
+
+_browser_control = ContextVar("browser_control", default=None)
+
+
+def _host_browser(*, start=False):
+    def decorate(function):
+        @wraps(function)
+        def wrapped(cdp_url=DEFAULT_CDP_URL, *args, **kwargs):
+            if not managed_browser_enabled():
+                return function(cdp_url, *args, **kwargs)
+            with ManagedBrowser() as control:
+                if start:
+                    control.acquire(visible=True)
+                else:
+                    control.descriptor = control.request("status")
+                    if not control.descriptor.get("cdpUrl"):
+                        if function.__name__ == "browser_status":
+                            return {"available": False, "auto_start_enabled": True, "cdp_url": "", "browser": "", "web_socket_debugger_url": "", "error": "WeWorker 浏览器尚未启动"}
+                        if function.__name__ == "browser_tabs":
+                            return {"tabs": []}
+                        if function.__name__ == "browser_match":
+                            return {"status": "missing", "target": None}
+                        return None
+                token = _browser_control.set(control)
+                try:
+                    return function(control.http_url, *args, **kwargs)
+                finally:
+                    _browser_control.reset(token)
+        return wrapped
+    return decorate
 
 from webwright.utils.local_cdp import (
     DEFAULT_CDP_URL,
@@ -12,10 +45,12 @@ from webwright.utils.local_cdp import (
     launch_browser,
     normalize_page_url,
     page_origin,
+    page_in_allowed_domains,
     page_targets,
 )
 
 
+@_host_browser()
 def browser_status(cdp_url: str = DEFAULT_CDP_URL) -> dict[str, Any]:
     try:
         payload = get_json(cdp_url, "/json/version")
@@ -39,6 +74,7 @@ def browser_status(cdp_url: str = DEFAULT_CDP_URL) -> dict[str, Any]:
     }
 
 
+@_host_browser()
 def browser_tabs(cdp_url: str = DEFAULT_CDP_URL) -> dict[str, list[dict[str, Any]]]:
     try:
         payload = page_targets(cdp_url)
@@ -60,9 +96,11 @@ def browser_tabs(cdp_url: str = DEFAULT_CDP_URL) -> dict[str, list[dict[str, Any
     return {"tabs": tabs}
 
 
+@_host_browser(start=True)
 def browser_open(cdp_url: str = DEFAULT_CDP_URL, url: str = "") -> dict[str, Any]:
     normalized = normalize_page_url(url) if url else ""
-    launch_browser(cdp_url)
+    if _browser_control.get() is None:
+        launch_browser(cdp_url)
     targets = page_targets(cdp_url)
     target = None
     if normalized:
@@ -82,6 +120,8 @@ def browser_open(cdp_url: str = DEFAULT_CDP_URL, url: str = "") -> dict[str, Any
     if target is None:
         target = targets[0] if targets else None
     if target is not None:
+        if _browser_control.get():
+            _browser_control.get().claim(str(target.get("id", "")))
         activate_target(cdp_url, str(target.get("id", "") or ""))
     return {
         "available": True,
@@ -90,8 +130,23 @@ def browser_open(cdp_url: str = DEFAULT_CDP_URL, url: str = "") -> dict[str, Any
     }
 
 
-def browser_match(cdp_url: str, url: str) -> dict[str, Any]:
+@_host_browser()
+def browser_match(cdp_url: str, url: str, allowed_domains: list[str] | None = None) -> dict[str, Any]:
     normalized = normalize_page_url(url)
+    if allowed_domains is not None:
+        targets = [
+            _target_view(target) for target in page_targets(cdp_url)
+            if target.get("type") == "page"
+            and page_in_allowed_domains(str(target.get("url") or ""), allowed_domains)
+        ]
+        exact = [target for target in targets if normalize_page_url(target["url"]) == normalized]
+        preferred = exact if exact else targets
+        target = preferred[0] if len(preferred) == 1 else None
+        return {
+            "status": "exact" if target and exact else "allowed" if target else "choose" if targets else "missing",
+            "target": target,
+            "targets": targets,
+        }
     origin = page_origin(normalized)
     same_origin: list[dict[str, Any]] = []
     for target in page_targets(cdp_url):
@@ -110,12 +165,16 @@ def browser_match(cdp_url: str, url: str) -> dict[str, Any]:
     return {"status": "missing", "target": None}
 
 
+@_host_browser()
 def browser_target(cdp_url: str, target_id: str) -> dict[str, Any] | None:
     target = find_target_by_id(cdp_url, target_id)
     return _target_view(target) if target is not None else None
 
 
+@_host_browser(start=True)
 def browser_activate(cdp_url: str, target_id: str) -> None:
+    if _browser_control.get():
+        _browser_control.get().claim(target_id)
     activate_target(cdp_url, target_id)
 
 

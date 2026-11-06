@@ -591,10 +591,9 @@ export function deleteProject(id: string): void {
   db().prepare('DELETE FROM projects WHERE id = ?').run(id)
 }
 
-export function createWork(title = '', projectId: string | null = null, workspaceDirectory?: string): Work {
+export function createWork(title = '', projectId: string | null = null, workspaceDirectory?: string, id = randomUUID()): Work {
   if (projectId && !getProject(projectId)) throw new Error('project not found')
   const now = new Date().toISOString()
-  const id = randomUUID()
   const directory = workspaceDirectory || (projectId ? getProject(projectId)!.folder_path : ensureProjectDirectory('default'))
   db().prepare('INSERT INTO works (id, title, project_id, workspace_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, title, projectId, directory, now, now)
   return { id, title, label: null, project_id: projectId, workspace_directory: directory, zcf_role: null, created_at: now, updated_at: now }
@@ -677,6 +676,11 @@ export function getWork(id: string): Work | null {
 
 export function getWorkspaceDirectoryForWork(id: string): string | null {
   return getWork(id)?.workspace_directory ?? null
+}
+
+/** Cheap existence check for scoped conversation indexes; do not load full histories. */
+export function hasWorkMessages(id: string): boolean {
+  return Boolean(db().prepare('SELECT 1 FROM messages WHERE work_id = ? LIMIT 1').get(id))
 }
 
 export function getWorkWithMessages(id: string): WorkWithMessages | null {

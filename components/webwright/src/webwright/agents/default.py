@@ -132,7 +132,10 @@ class DefaultAgent:
             "error_code": error_code,
             "error_stage": error_stage,
         }
-        atomic_write_json(path, payload)
+        try:
+            atomic_write_json(path, payload)
+        except OSError:
+            pass
 
     def _initial_browser_observation(self) -> None:
         observer = getattr(self.env, "initial_observation", None)

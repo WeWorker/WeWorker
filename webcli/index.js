@@ -110,6 +110,7 @@ Login（网站登录由 WeWorker 自动处理：命令遇到未登录时打开�
   call ... --login-wait=<秒>     本次调用最多等待登录的时间（终端默认 300 秒；脚本/AI 默认不等待，立即返回登录提示与截图，登录流程后台继续）
 
 API exploration (standalone, no desktop/model key required):
+  call development.help                    Toolkit 开发、构建、调试、审查与应用
   call exploration.help                    探索、草稿编辑、验证与安装命令
   call browser.help                        浏览器会话、页面操作与网络检查
   call profile.help                        多浏览器连接、别名与默认选择
@@ -238,6 +239,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "completion", usage: "webcli completion bash|zsh|fish", description: "输出 shell 补全脚本" },
         { name: "skills", usage: "webcli skills list | read <skill[/path]>", description: "读取随包 Skill 和参考文件" },
         { name: "profile", usage: "webcli call profile.help", description: "浏览器连接、别名和默认选择" },
+        { name: "development", usage: "webcli call development.help", description: "Toolkit 代码校验、开发槽位、调试与正式应用" },
         { name: "exploration", usage: "webcli call exploration.help", description: "独立 API 探索、Agent 草稿编辑、验证与本地安装" },
         { name: "adapter", usage: "webcli adapter <command>", description: "管理网站适配器" },
         { name: "service", usage: "webcli service <start|stop|status|logs>", description: "管理 WebSocket bridge 服务" },
@@ -371,10 +373,25 @@ async function cmdServiceStart(daemon, report = console.log) {
     const token  = randomUUID().replace(/-/g, "");
     const child  = spawn(process.execPath, getServiceNodeArgs(), {
       detached: true,
-      stdio: ["ignore", logFd, logFd],
+      stdio: ["ignore", logFd, logFd, "ipc"],
       env: { ...process.env, WEBCLI_SERVICE_TOKEN: token },
     });
+    closeSync(logFd);
+    // Only the process which actually bound the port may publish the PID.
+    // Concurrent first calls can race to spawn, but cannot overwrite the
+    // winning daemon's PID with a losing EADDRINUSE process.
+    const ready = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('Bridge startup timed out')); }, 10000);
+      child.once('message', message => { clearTimeout(timer); resolve(message?.type === 'bridge_ready'); });
+      child.once('exit', () => { clearTimeout(timer); resolve(false); });
+      child.once('error', error => { clearTimeout(timer); reject(error); });
+    });
+    if (child.connected) child.disconnect();
     child.unref();
+    if (!ready) {
+      if (await checkPortListening()) { report('Bridge started by another local client'); return; }
+      throw new Error('Bridge failed to start');
+    }
     await writeFile(PID_FILE, String(child.pid));
     await writeFile(OWNER_FILE, JSON.stringify({
       pid: child.pid, port: INSTANCE.port, kind: INSTANCE.kind, tokenHash: tokenHash(token),
@@ -485,6 +502,7 @@ async function runServiceMode() {
     instanceKind: INSTANCE.kind,
     serviceTokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
   });
+  bridge._wss.once('listening', () => { if (process.send) process.send({ type: 'bridge_ready' }); });
 
   // 初始化埋点上报配置（whoami / clientId / 版本号）；实时上报无需定时器。
   // 仅当 WEBCLI_METRICS_UPLOAD=on 且配置了 endpoint 才启用，失败一律静默。
@@ -896,6 +914,17 @@ async function cmdCall(toolName, argsStr, options = {}) {
   // renderer as Adapter calls, without changing the transport envelope.
   const printManagement = value => console.log(formatCallOutput(value, options.outputFormat === undefined ? 'json' : outputFormat));
 
+  if (toolName.startsWith('development.')) {
+    const command = toolName.slice('development.'.length);
+    const { developmentHelp } = await import('./development-commands.js');
+    if (command === 'help') { printManagement(developmentHelp()); return; }
+    const { callDevelopment } = await import('./development-client.js');
+    const result = await callDevelopment(command, args);
+    printManagement(result);
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
   if (toolName.startsWith('profile.')) {
     const command = toolName.slice('profile.'.length);
     const { profileHelp } = await import('./browser-profiles.js');
@@ -953,8 +982,8 @@ async function cmdCall(toolName, argsStr, options = {}) {
   const { resolveAdapterCall } = await import("./adapter-host.js");
   const v2Match = resolveAdapterCall(toolName);
   if (v2Match) {
-    if ((v2Match.command.runtime === 'http' || v2Match.command.pageWrite || v2Match.command.uiWrite) && (v2Match.command.safety === 'write' || v2Match.command.requires_confirmation) && args.__confirmed !== true) {
-      console.log(formatCallOutput({ error: 'Explicit confirmation is required for this command.', code: (v2Match.command.pageWrite || v2Match.command.uiWrite) ? 'CONFIRMATION_REQUIRED' : 'HTTP_CONFIRMATION_REQUIRED', trace_id: null }, outputFormat));
+    if ((v2Match.command.runtime === 'http' || v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) && (v2Match.command.safety === 'write' || v2Match.command.requires_confirmation) && args.__confirmed !== true) {
+      console.log(formatCallOutput({ error: 'Explicit confirmation is required for this command.', code: (v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) ? 'CONFIRMATION_REQUIRED' : 'HTTP_CONFIRMATION_REQUIRED', trace_id: null }, outputFormat));
       process.exitCode = 1;
       return;
     }
@@ -987,11 +1016,12 @@ async function cmdCall(toolName, argsStr, options = {}) {
           ? { ...completed.result, trace_id: completed.traceID }
           : { result: completed.result, trace_id: completed.traceID };
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
-        process.exit(completed.exitCode);
+        process.exitCode = completed.exitCode;
       } catch (error) {
         console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
-        process.exit(1);
+        process.exitCode = 1;
       }
+      return;
     }
     // v2 extension 命令：走 Bridge 转发，toolName = <name>.<command-id>（extension loader v2 负责注入）
   }
@@ -1015,11 +1045,12 @@ async function cmdCall(toolName, argsStr, options = {}) {
         ? { ...completed.result, trace_id: completed.traceID }
         : { result: completed.result, trace_id: completed.traceID };
       console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
-      process.exit(completed.exitCode);
+      process.exitCode = completed.exitCode;
     } catch (error) {
       console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
-      process.exit(1);
+      process.exitCode = 1;
     }
+    return;
   }
 
   await ensureBridgeRunning();
@@ -1483,6 +1514,11 @@ async function main() {
   const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(process.argv.slice(2));
   const cmd  = args[0];
   const sub  = args[1];
+  if (cmd === '--internal-browser-control') {
+    const { runBrowserControlStdio } = await import('./shared-browser-client.js');
+    await runBrowserControlStdio({ ensureBridgeRunning, checkRunning: checkPortListening });
+    return;
+  }
   if (cmd === 'route') {
     const { runRouteCommand } = await import('./route-command.js');
     await runRouteCommand(args.slice(1), { verbose, outputFormat });
@@ -1493,6 +1529,11 @@ async function main() {
     runSkillsCli(args.slice(1), { outputFormat }); return;
   }
   const invocation = resolveCliInvocation(args);
+
+  if (cmd === 'call' && sub?.startsWith('development.') && args.some(arg => ['--help', '-h'].includes(arg))) {
+    const { developmentHelp } = await import('./development-commands.js');
+    console.log(formatCallOutput(developmentHelp(), outputFormat ?? 'json')); return;
+  }
 
   if ((cmd === 'profile' && (sub === 'help' || args.some(arg => ['--help', '-h'].includes(arg))))
       || (cmd === 'call' && sub?.startsWith('profile.') && args.some(arg => ['--help', '-h'].includes(arg)))) {

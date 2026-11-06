@@ -19,7 +19,11 @@ const health = () => Response.json({ ok: true, instance_id: 'owned' })
 
 describe('website exploration route boundary', () => {
   it.each([
+    ['GET', '/api/explorations', true], ['POST', '/api/explorations', true],
+    ['DELETE', '/api/explorations', false], ['GET', '/api/explorations?path=secret', false],
     ['GET', '/api/toolkits', true], ['GET', '/api/browser/match?url=https%3A%2F%2Fexample.com', true],
+    ['GET', '/api/browser/match?toolkit_id=demo&tool_id=read_page', true],
+    ['GET', '/api/browser/match?toolkit_id=demo&allowed_domains=other.example.org', false],
     ['POST', '/api/explorations/run-1/cancel?force=true', true],
     ['GET', '/api/tasks', false], ['POST', '/api/health', false],
     ['GET', '/api/toolkits?url=http://attacker', false],
@@ -27,6 +31,9 @@ describe('website exploration route boundary', () => {
     ['GET', '/api/explorations/a/files/%2e%2e/secret', false],
     ['GET', '/api/explorations/a/files/%252e%252e/secret', false],
     ['GET', '/api/internal/model-config', false],
+    ['POST', '/api/toolkits/demo/installation-ack', false],
+    ['POST', '/api/toolkits/demo/installation-reconcile', false],
+    ['POST', '/api/toolkits/demo/tools/read_page/publish', false],
     ['GET', 'http://attacker/api/toolkits', false],
   ])('%s %s => %s', (method, path, allowed) => expect(allowedExplorationRequest(method, path)).toBe(allowed))
 

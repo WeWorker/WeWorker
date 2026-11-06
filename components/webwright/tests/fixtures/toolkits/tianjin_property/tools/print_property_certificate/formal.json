@@ -25,12 +25,6 @@
       "message"
     ]
   },
-  "requires": [],
-  "ensures": [
-    "查询结果页面显示",
-    "打印证明按钮被点击"
-  ],
-  "side_effects": [],
   "risk_notice": "该工具会触发网页查询和打印操作，可能产生实际的打印请求。",
   "source_exploration_id": "exp_print_property_certificate_20260715_162632",
   "based_on_formal_hash": "",

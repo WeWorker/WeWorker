@@ -246,6 +246,57 @@ describe("Toolkit Adapter registry", () => {
 });
 
 describe("Toolkit Runner", () => {
+  it.each([['legacy', 0], ['legacy', 7], ['v2', 0], ['v2', 7]])(
+    "flushes large %s CLI output before exiting with code %i", async (kind, exitCode) => {
+      const fixture = await createToolkit();
+      const builtinDir = join(fixture.root, 'builtin');
+      const emptyDir = join(fixture.root, 'empty');
+      mkdirSync(emptyDir);
+      mkdirSync(builtinDir);
+      if (kind === 'v2') {
+        const root = join(builtinDir, 'example.com');
+        mkdirSync(join(root, 'wewright', 'commands'), { recursive: true });
+        writeFileSync(join(root, 'wewright', 'commands', 'read.py'), '# fixture\n');
+        writeFileSync(join(root, 'manifest.json'), JSON.stringify({
+          schema_version: 2, name: 'example.com', version: '1.0.0', description: 'Fixture',
+          runtime_allowed_hosts: ['example.com'],
+          commands: [{ id: 'read', runtime: 'wewright', module: 'wewright/commands/read.py',
+            description: 'Read fixture', safety: 'read', schema: { type: 'object', properties: {} } }],
+        }));
+      }
+      const runtime = join(fixture.root, 'fake-runtime');
+      const text = '示例'.repeat(200000);
+      writeFileSync(runtime, `#!/usr/bin/env node
+process.stdin.resume();
+process.stdin.on('end', () => {
+  console.log(JSON.stringify({ok: ${exitCode === 0}, data: '示例'.repeat(200000)}));
+  process.exitCode = ${exitCode};
+});
+`);
+      chmodSync(runtime, 0o755);
+      let completed;
+      try {
+        completed = await execFileAsync(process.execPath, [cliPath, 'call',
+          kind === 'v2' ? 'example.com.read' : 'blog-admin.search-blog', '--args', '{}', '--output-format=json'], {
+          maxBuffer: 4 * 1024 * 1024,
+          timeout: 10000,
+          env: { ...process.env, WEWORKER_RESOURCES_PATH: '',
+            WEWORKER_ADAPTERS_DIR: kind === 'legacy' ? fixture.adaptersRoot : emptyDir,
+            WEWORKER_BUILTIN_ADAPTERS_DIR: builtinDir, WEWORKER_USER_ADAPTERS_DIR: emptyDir,
+            WEWORKER_ADAPTER_DATA_DIR: join(fixture.root, 'data'), WEBCLI_ADAPTERS_DIR: emptyDir,
+            WEWORKER_BUILD_PROFILE: 'public', WEWORKER_TOOLKIT_RUNTIME: runtime,
+            WEBCLI_METRICS_UPLOAD: 'off' },
+        });
+        expect(exitCode).toBe(0);
+      } catch (error) {
+        expect(error.code).toBe(exitCode);
+        completed = error;
+      }
+      expect(completed.stderr).toBe('');
+      expect(JSON.parse(completed.stdout)).toMatchObject({ ok: exitCode === 0, data: text });
+    },
+  );
+
   it("keeps WebCLI values unchanged and runs through --internal-script", async () => {
     const fixture = await createToolkit();
     const match = resolveToolkitTool("blog-admin.search-blog", { cwd: fixture.root, env: {} });
@@ -291,12 +342,24 @@ process.stdin.on('end', () => {
       .toThrow("Toolkit Runtime 不可用");
   });
 
+  it("rejects a historical self-launching runtime before spawning it", async () => {
+    const fixture = await createToolkit();
+    writeFileSync(join(fixture.adapterRoot, 'scripts', 'toolkit_runtime.py'), 'def launch_browser(url):\n    pass\n');
+    await expect(runToolkitTool({ adapter: { root: fixture.adapterRoot, entryPath: join(fixture.adapterRoot, 'scripts', 'toolkit.py') },
+      tool: { id: 'search-blog', name: 'blog-admin.search-blog' } }, {}, { runtimePath: process.execPath }))
+      .rejects.toMatchObject({ code: 'TOOLKIT_RUNTIME_UPGRADE_REQUIRED' });
+  });
+
   it("isolates Python environment variables without changing argument types", () => {
     expect(toolkitEnvironment({ PYTHONHOME: "x", PYTHONPATH: "y", KEEP: "yes" })).toEqual({
       KEEP: "yes",
       PYTHONNOUSERSITE: "1",
       PYTHONDONTWRITEBYTECODE: "1",
       WEBWRIGHT_PARAMETERS_STDIN: "1",
+      WEWORKER_BROWSER_MANAGED: "1",
+      WEWORKER_TOOLKIT_PARENT_PID: String(process.pid),
+      WEWORKER_WEBCLI_NODE: process.execPath,
+      WEWORKER_WEBCLI_ENTRY: expect.stringMatching(/index\.js$/),
     });
   });
 });

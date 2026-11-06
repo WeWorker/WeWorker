@@ -10,6 +10,7 @@ from typing import Any
 from webwright.environments.local_browser import LocalBrowserEnvironment
 from webwright.server.records import atomic_write_json
 from webwright.server.status import StepStatus
+from webwright.tool_runtime.managed_browser import managed_browser_enabled
 
 
 def _load_spec(path: Path) -> dict[str, Any]:
@@ -51,7 +52,7 @@ def run_replay(spec: dict[str, Any]) -> int:
         browser_mode="local_cdp",
         local_cdp_url=str(spec.get("cdp_url") or "http://127.0.0.1:9222"),
         local_cdp_new_page=True,
-        local_cdp_auto_start=True,
+        local_cdp_auto_start=not managed_browser_enabled(),
     )
     failed = False
     try:

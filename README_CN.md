@@ -250,11 +250,11 @@ npm run build:win
 
 ## 版本
 
-当前版本为 `1.0.2`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本为 `1.1.0`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
-git tag v1.0.2
-git push origin v1.0.2
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 正式发布由维护者完成；推送版本 Tag 后会自动构建 Draft Release，维护者验证安装包后再发布。创建 Tag 前必须通过项目规定的审核、测试、构建和发布验证，完整流程见 [发布指南](docs/RELEASE.md)。

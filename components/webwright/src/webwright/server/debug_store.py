@@ -38,6 +38,7 @@ class DebugRunStore:
         code_hash: str,
         artifact_hash: str = "",
         distribution_hash: str = "",
+        runtime_identity: dict[str, str] | None = None,
         toolkit_id: str | None = None,
         parameters: dict[str, Any],
     ) -> dict[str, Any]:
@@ -58,6 +59,7 @@ class DebugRunStore:
             "code_hash": code_hash,
             "artifact_hash": str(artifact_hash or "") if channel == "formal" else "",
             "distribution_hash": distribution_hash if channel == "formal" else "",
+            "runtime_identity": runtime_identity or {} if channel == "formal" else {},
             "parameters": parameters,
             "status": DebugRunStatus.QUEUED.value,
             "result": {},

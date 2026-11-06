@@ -4,6 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import { fileURLToPath } from 'url'
 import { randomBytes, randomUUID } from 'crypto'
+import { stopManagedServices } from './managed-shutdown.js'
 import {
   BridgeManager,
   NodeManager,
@@ -222,7 +223,7 @@ const updateManager = new UpdateManager({
   beforeInstall: async () => {
     isInstallingUpdate = true
     background.allowQuitWithoutPrompt('update install')
-    await Promise.allSettled([webwrightManager.stop(), pythonManager.stop(), stopBridgeAndBrowser()])
+    await stopManagedServices({ stopExploration: () => webwrightManager.stop(), stopBackend: () => pythonManager.stop(), stopBrowser: stopBridgeAndBrowser })
   },
 })
 
@@ -514,7 +515,7 @@ app.on('before-quit', async (event) => {
   event.preventDefault()
   log('[main] before-quit — stopping subprocesses')
   try {
-    await Promise.allSettled([webwrightManager.stop(), pythonManager.stop(), stopBridgeAndBrowser()])
+    await stopManagedServices({ stopExploration: () => webwrightManager.stop(), stopBackend: () => pythonManager.stop(), stopBrowser: stopBridgeAndBrowser })
   } catch (err) {
     log(`[main] cleanup error: ${err?.message || err}`)
   }
