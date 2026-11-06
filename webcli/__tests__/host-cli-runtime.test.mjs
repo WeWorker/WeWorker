@@ -6,6 +6,7 @@ import { authorizeHostCliWrite } from '../host-cli-write-authorization.js';
 import { usesBackgroundExecution as hostBranch } from '../conditional-execution.js';
 import { usesBackgroundExecution as extensionBranch } from '../../extension/background/conditional-execution.js';
 import { readFileSync } from 'node:fs';
+import { normalizeHostArguments, hostArgumentDiagnostic } from '../host-cli-arguments.js';
 
 function fixture(overrides = {}) {
   const ws = {}, controller = new AbortController();
@@ -17,6 +18,57 @@ function fixture(overrides = {}) {
     resolveAdapterCall: () => selected, execute: async ({ args }) => args, credentials: async () => [], ...overrides };
   return { call, pending, selected, controller, pendingRequests };
 }
+
+test('schema normalization preserves string and union IDs and safely converts arrays and defaults', () => {
+  const schema = { type: 'object', properties: { id: { type: 'string' }, mixed: { type: ['string', 'integer'] },
+    ids: { type: 'array', items: { type: 'integer' } }, page: { type: 'integer', default: 1 },
+    nested: { type: 'object', properties: { enabled: { type: 'boolean' }, count: { type: 'number' } } },
+    __confirmed: { type: 'boolean', default: true } } };
+  const input = { id: '00123', mixed: '00123', ids: ['7', '8'], nested: { enabled: 'false', count: '1.5' } };
+  assert.deepEqual(normalizeHostArguments(input, schema), { id: '00123', mixed: '00123', ids: [7, 8], page: 1, nested: { enabled: false, count: 1.5 } });
+  assert.equal(input.ids[0], '7');
+  assert.equal(normalizeHostArguments({ __confirmed: 'true' }, schema).__confirmed, 'true');
+});
+
+test('invalid numeric input fails before authorization, credentials or write with a value-free diagnostic', async () => {
+  for (const value of ['secret-value', '', '9007199254740993', '9007199254740991.1', 9007199254740992, null]) {
+    const f = fixture({ authorizeWrite: async () => assert.fail('unexpected approval'), execute: async () => assert.fail('unexpected write') });
+    f.selected.command.safety = 'write';
+    f.selected.command.schema = { type: 'object', properties: { productId: { type: 'integer' } } };
+    f.pending.hostCall.originalArgs = { productId: value, __confirmed: true };
+    f.call.payload.args = { productId: value };
+    await assert.rejects(invokeHostCli(f.call), error => {
+      assert.deepEqual(hostArgumentDiagnostic(error).details, { stage: 'argument_validation', writeDispatched: false, reason: 'type', argument: 'productId', expected: 'integer' });
+      assert.ok(!error.message.includes('secret-value'));
+      return error.code === 'HOST_CLI_INVALID_ARGUMENT';
+    });
+    assert.equal(f.pending.hostWriteDispatched, undefined);
+  }
+});
+
+test('normalization does not approve changed values, injected defaults, strings, arrays or extra fields', async () => {
+  const original = { productId: '123', id: '001', ids: '2,3', __confirmed: true };
+  for (const altered of [{ productId: 124, id: '001', ids: [2, 3] }, { productId: 123, id: '1', ids: [2, 3] },
+    { productId: 123, id: '001', ids: [2, 4] }, { productId: 123, id: '001', ids: [2, 3], limit: 99 },
+    { productId: 123, id: '001', ids: [2, 3], extra: 'injected' }]) {
+    const f = fixture({ authorizeWrite: async () => assert.fail('tampered arguments approved') });
+    f.selected.command.safety = 'write';
+    f.selected.command.schema = { type: 'object', properties: { productId: { type: 'integer' }, id: { type: 'string' },
+      ids: { type: 'array', items: { type: 'integer' } }, limit: { type: 'integer', default: 10 } } };
+    f.pending.hostCall.originalArgs = original;
+    f.call.payload.args = altered;
+    await assert.rejects(invokeHostCli(f.call), { code: 'HOST_CLI_INVALID_ARGUMENT' });
+  }
+});
+
+test('authorization mutation cannot change the normalized execution payload', async () => {
+  const f = fixture({ authorizeWrite: async ({ args }) => { args.count = 999; return true; }, execute: async ({ args, markWriteDispatched }) => {
+    assert.deepEqual(args, { count: 123 }); markWriteDispatched(); return true;
+  } });
+  f.selected.command.safety = 'write'; f.selected.command.schema = { type: 'object', properties: { count: { type: 'integer' } } };
+  f.pending.hostCall.originalArgs = { count: '123', __confirmed: true }; f.call.payload.args = { count: 123 };
+  assert.equal(await invokeHostCli(f.call), true);
+});
 
 test('only the host-resolved selected identity and command reach the provider', async () => {
   let context;
