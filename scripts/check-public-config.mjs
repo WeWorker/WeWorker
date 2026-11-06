@@ -91,22 +91,32 @@ export function validatePublicConfig(repoRoot) {
     ['officialWeb/src/lib/siteConfig.js', `OFFICIAL_SITE = '${PUBLIC_SITE_URL}'`],
     ['officialWeb/src/lib/siteConfig.js', `GITHUB_REPO = '${PUBLIC_REPO_URL}'`],
     ['officialWeb/index.html', `${PUBLIC_SITE_URL}/`],
-    ['officialWeb/index.html', `${PUBLIC_SITE_URL}/logo.png`],
+    ['officialWeb/index.html', `${PUBLIC_SITE_URL}/social-preview.png`],
     ['docs/assets/social-preview.html', '../../officialWeb/public/logo.png'],
-    ['docs/assets/social-preview.svg', 'data:image/png;base64,'],
+    ['docs/assets/social-preview.svg', 'width="1280" height="640"'],
+    ['docs/assets/social-preview.svg', '../../officialWeb/public/logo.png'],
   ]
   for (const [relativePath, expected] of publicUrlSources) {
     const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8')
     if (!content.includes(expected)) errors.push(`${relativePath} must reference ${expected}`)
   }
 
-  const socialPreviewSvg = fs.readFileSync(path.join(repoRoot, 'docs', 'assets', 'social-preview.svg'), 'utf8')
-  const embeddedLogo = socialPreviewSvg.match(/href="data:image\/png;base64,([^"]+)"/)?.[1]
-  const publicLogo = fs.readFileSync(path.join(repoRoot, 'officialWeb', 'public', 'logo.png'))
-  if (!embeddedLogo) {
-    errors.push('docs/assets/social-preview.svg must embed the public logo')
-  } else if (!Buffer.from(embeddedLogo, 'base64').equals(publicLogo)) {
-    errors.push('docs/assets/social-preview.svg embedded logo must match officialWeb/public/logo.png')
+  const socialPreviewPngPath = path.join(repoRoot, 'officialWeb', 'public', 'social-preview.png')
+  if (!fs.existsSync(socialPreviewPngPath)) {
+    errors.push('officialWeb/public/social-preview.png must exist')
+  } else {
+    const socialPreviewPng = fs.readFileSync(socialPreviewPngPath)
+    const isPng = socialPreviewPng.length >= 24
+      && socialPreviewPng.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    if (!isPng) {
+      errors.push('officialWeb/public/social-preview.png must be a valid PNG')
+    } else {
+      const width = socialPreviewPng.readUInt32BE(16)
+      const height = socialPreviewPng.readUInt32BE(20)
+      if (width !== 1280 || height !== 640) {
+        errors.push(`officialWeb/public/social-preview.png must be 1280x640, got ${width}x${height}`)
+      }
+    }
   }
 
   const updaterSource = fs.readFileSync(path.join(repoRoot, 'weworker', 'electron', 'update-manager.js'), 'utf8')
