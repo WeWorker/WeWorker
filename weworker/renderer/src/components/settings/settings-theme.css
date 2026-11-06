@@ -261,7 +261,7 @@
   gap: 6px;
   min-height: 34px;
   padding: 4px 6px 4px 12px;
-  background: #ffffff;
+  background: var(--bg-primary);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   box-sizing: border-box;
@@ -304,7 +304,7 @@
   flex-shrink: 0;
   border: none;
   border-radius: 999px;
-  background: #fff;
+  background: var(--bg-primary);
   color: var(--text-secondary);
   font-size: var(--font-size-label);
   font-weight: 600;
@@ -315,7 +315,7 @@
 }
 
 .settings-pill-btn:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--bg-primary);
 }
 
 .settings-pill-btn:disabled {
@@ -367,7 +367,7 @@
   align-items: center;
   gap: 8px;
   min-height: 36px;
-  background: #ffffff;
+  background: var(--bg-primary);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   padding: 8px 10px;
@@ -406,7 +406,7 @@
 .settings-chip-expand {
   flex-shrink: 0;
   border: none;
-  background: #ffffff;
+  background: var(--bg-primary);
   color: var(--accent);
   font-size: 12px;
   font-weight: 600;
@@ -428,7 +428,7 @@
 }
 
 .settings-banner {
-  background: #ffffff;
+  background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px 14px;
@@ -772,7 +772,7 @@
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--bg-primary);
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   content-visibility: auto;
   contain-intrinsic-size: auto 220px;
@@ -788,7 +788,7 @@
 }
 
 .settings-card.is-active {
-  background: #ffffff;
+  background: var(--bg-primary);
   border: 1.5px solid var(--accent);
 }
 
@@ -873,7 +873,7 @@
 .settings-style-option.is-selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, #fff);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
 }
 
 .settings-style-option:disabled {
@@ -956,7 +956,7 @@
 .settings-style-option--add:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, #fff);
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg-primary));
 }
 
 .settings-style-option__icon--add {
@@ -985,7 +985,7 @@
 
 .settings-style-option-wrap.is-selected {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, #fff);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary));
 }
 
 .settings-style-option-wrap > .settings-style-option {
@@ -1128,7 +1128,7 @@
 }
 
 /* 自定义风格编辑弹窗：portal 到 body，这里重新声明设置页的浅色变量，
-   保证弹窗配色与设置页一致（不跟随 html.dark）。 */
+   保证弹窗配色与设置页一致；深色变量由 workspace 主题同步覆盖。 */
 .settings-style-dialog-overlay {
   --bg-primary: #ffffff;
   --bg-secondary: #ffffff;
@@ -1376,8 +1376,8 @@
   text-align: left;
   cursor: pointer;
 }
-.channel-settings-item:hover { background: #f5f5f5; }
-.channel-settings-item.is-selected { color: #15803d; background: #edf7ee; }
+.channel-settings-item:hover { background: var(--bg-hover); }
+.channel-settings-item.is-selected { color: var(--success-text); background: color-mix(in srgb, var(--success) 12%, var(--bg-primary)); }
 .channel-settings-item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .channel-settings-item > .anticon { font-size: 16px; }
 .channel-settings-status { margin-left: auto; white-space: nowrap; color: var(--text-muted); font-size: 10px; }
@@ -1946,19 +1946,19 @@
 }
 
 .settings-btn-primary:disabled {
-  background: #ffffff;
+  background: var(--bg-primary);
   color: var(--text-muted);
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
 .settings-btn-secondary {
-  background: #ffffff;
+  background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border-strong);
 }
 
 .settings-btn-secondary:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--bg-primary);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -1970,7 +1970,7 @@
 }
 
 .settings-btn-ghost:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--bg-primary);
   color: var(--text-secondary);
 }
 
@@ -2322,7 +2322,7 @@
   border-radius: 999px;
   font-size: 12px;
   line-height: 20px;
-  background: #fff;
+  background: var(--bg-primary);
   border: 1px solid var(--border-strong);
   color: var(--text-primary);
   flex-shrink: 0;
