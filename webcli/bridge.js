@@ -33,6 +33,7 @@ import { SiteLoginCoordinator, DEFAULT_LOGIN_WAIT_MS, MAX_LOGIN_WAIT_MS } from "
 import { CredentialVault } from "./credential-vault.js";
 import { executeHostCli } from './host-cli-provider.js';
 import { invokeHostCli } from './host-cli-runtime.js';
+import { hostArgumentDiagnostic } from './host-cli-arguments.js';
 import { usesBackgroundExecution } from './conditional-execution.js';
 import { authorizeHostCliWrite } from './host-cli-write-authorization.js';
 import { adapterHelperPatterns, adapterPrimaryHost, hostMatchesPattern } from './host-scope.js';
@@ -892,11 +893,13 @@ export class WebSocketBridge extends EventEmitter {
     pending.detachClient?.();
     pending.controller?.abort();
     this._pendingRequests.delete(msg.id);
-    if (msg.type === 'call_tool_error' || msg.ok === false) {
-      const error = new Error(pending.hostWriteDispatched ? 'The write result is unknown; inspect the target before retrying.' : msg.error || 'Extension request failed');
+    if (pending.hostArgumentError || msg.type === 'call_tool_error' || msg.ok === false) {
+      const error = !pending.hostWriteDispatched && pending.hostArgumentError
+        ? pending.hostArgumentError
+        : new Error(pending.hostWriteDispatched ? 'The write result is unknown; inspect the target before retrying.' : msg.error || 'Extension request failed');
       error.fromExtension = true;
       if (pending.hostWriteDispatched) error.code = 'HOST_CLI_OUTCOME_UNKNOWN';
-      else if (typeof msg.code === 'string' && msg.code) error.code = msg.code;
+      else if (!pending.hostArgumentError && typeof msg.code === 'string' && msg.code) error.code = msg.code;
       if (!pending.hostWriteDispatched && error.code === 'HOST_CLI_REQUIRED_FIELDS') {
         const details = safeRequiredFields(msg.details);
         if (details) error.details = details;
@@ -1117,6 +1120,7 @@ export class WebSocketBridge extends EventEmitter {
           type: 'call_tool_error', id, error: err.message, traceID,
           ...(typeof err.code === 'string' && err.code ? { code: err.code } : {}),
           ...(err.code === 'HOST_CLI_REQUIRED_FIELDS' && safeRequiredFields(err.details) ? { details: safeRequiredFields(err.details) } : {}),
+          ...(hostArgumentDiagnostic(err) ? { details: hostArgumentDiagnostic(err).details } : {}),
           ...(err.auth && typeof err.auth === 'object' ? { auth: err.auth } : {}),
         });
       } finally {
@@ -1754,8 +1758,12 @@ export class WebSocketBridge extends EventEmitter {
         HOST_CLI_REQUIRED_FIELDS: 'Required fields are missing.',
         AUTH_REQUIRED: 'Sign in to the service before retrying.',
       };
-      const details = code === 'HOST_CLI_REQUIRED_FIELDS' ? safeRequiredFields(error.details) : undefined;
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: false, code, error: Object.hasOwn(messages, code) ? messages[code] : 'Host CLI request failed.', ...(details ? { details } : {}) }));
+      const diagnostic = hostArgumentDiagnostic(error);
+      const pending = this._pendingRequests.get(msg.parentId);
+      if (diagnostic && pending?.ws === ws && !pending.hostWriteDispatched) pending.hostArgumentError = error;
+      const details = diagnostic?.details || (code === 'HOST_CLI_REQUIRED_FIELDS' ? safeRequiredFields(error.details) : undefined);
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: false, code,
+        error: diagnostic?.message || (Object.hasOwn(messages, code) ? messages[code] : 'Host CLI request failed.'), ...(details ? { details } : {}) }));
     }
   }
 

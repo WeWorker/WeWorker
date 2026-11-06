@@ -94,6 +94,7 @@
     "toolkit-runner.js",
     "host-cli-provider.js",
     "host-cli-runtime.js",
+    "host-cli-arguments.js",
     "conditional-execution.js",
     "host-cli-write-authorization.js",
     "host-secret-store.js",

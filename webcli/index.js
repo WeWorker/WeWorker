@@ -20,6 +20,7 @@
  */
 
 import { spawn } from "child_process";
+import { safeHostArgumentDetails } from './host-cli-arguments.js';
 import { openSync, existsSync, statSync, readSync, closeSync, realpathSync, readFileSync } from "fs";
 import { mkdir, writeFile, readFile, unlink } from "fs/promises";
 import { homedir } from "os";
@@ -1119,13 +1120,16 @@ async function cmdCall(toolName, argsStr, options = {}) {
         ws.close();
         process.exit(0);
       } else if (msg.type === "call_tool_error") {
+        const argumentDetails = msg.code === 'HOST_CLI_INVALID_ARGUMENT' ? safeHostArgumentDetails(msg.details) : undefined;
         const output = {
           error: msg.error,
           ...(msg.code ? { code: msg.code } : {}),
           ...(msg.code === 'HOST_CLI_REQUIRED_FIELDS' && Array.isArray(msg.details?.missingFields) && msg.details.missingFields.length > 0 && msg.details.missingFields.length <= 50 && msg.details.missingFields.every(value => typeof value === 'string' && value.length > 0 && value.length <= 270 && !/[\u0000-\u001f\u007f-\u009f]/.test(value) && !/api[_-]?key|cookie|authorization|password|secret|token/i.test(value)) ? { details: { missingFields: msg.details.missingFields } } : {}),
           ...(msg.auth ? { auth: msg.auth } : {}),
+          ...(argumentDetails ? { details: argumentDetails } : {}),
           trace_id: traceID,
-          hint: `用 webcli trace ${traceID} 查看完整链路日志${dedicatedBrowserHint()}`,
+          hint: argumentDetails ? '参数校验失败，尚未派发写入。请核对参数名称和类型；无需重新登录，也不要反复提交相同参数。'
+            : `用 webcli trace ${traceID} 查看完整链路日志${dedicatedBrowserHint()}`,
         };
         console.log(formatCallOutput(output, outputFormat));
         await printVerboseTrace(traceID, verbose, options.profile);
@@ -1436,6 +1440,7 @@ function extractFlagArgs(argv, startIndex = 0) {
   let structuredArgs;
   for (let i = startIndex; i < argv.length; i++) {
     const arg = argv[i];
+    if (arg === '--__confirmed') throw new Error('Missing value for --__confirmed. Use --__confirmed=true after confirming the write.');
     if (arg === '--args' || arg === '--args-file' || arg.startsWith('--args-file=') || arg.startsWith('--args=')) {
       if (structuredArgs !== undefined) throw new Error('Use exactly one --args or --args-file input.');
       const fromFile = arg.startsWith('--args-file');

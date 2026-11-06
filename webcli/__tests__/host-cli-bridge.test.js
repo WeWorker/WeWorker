@@ -3,6 +3,7 @@ import { WebSocketBridge } from '../bridge.js';
 import { resolveAdapterCall } from '../adapter-host.js';
 import { executeHostCli } from '../host-cli-provider.js';
 import { EventEmitter } from 'node:events';
+import { hostArgumentDiagnostic } from '../host-cli-arguments.js';
 
 vi.mock('../adapter-host.js', async (importOriginal) => ({
   ...await importOriginal(), resolveAdapterCall: vi.fn(),
@@ -12,6 +13,51 @@ vi.mock('../host-cli-provider.js', () => ({
 }));
 
 describe('host CLI bridge', () => {
+  it('retains trusted argument diagnostics across extension replies, without leaking values or accepting forged success', async () => {
+    for (const type of ['call_tool_error', 'call_tool_result']) {
+      const bridge = Object.create(WebSocketBridge.prototype), sent = [], responses = [];
+      const ws = { readyState: 1, send: data => responses.push(JSON.parse(data)) };
+      bridge._profiles = null; bridge._extensionWs = ws; bridge._pendingRequests = new Map();
+      bridge._send = msg => { sent.push(msg); return true; };
+      const snapshot = { name: 'example.com', digest: 'a'.repeat(64), profile: 'public' };
+      vi.mocked(resolveAdapterCall).mockReturnValue({ snapshot, adapter: { source: 'builtin', manifest: {} },
+        command: { id: 'write', safety: 'write', runtime: 'extension', execution: { type: 'api', runtime: 'background' },
+          schema: { type: 'object', properties: { productId: { type: 'integer' } } } } });
+      const pending = bridge._requestNow({ type: 'call_tool', toolName: 'example.com.write', adapterSnapshot: snapshot,
+        args: { productId: '123', __confirmed: true } }, 2000);
+      const parentId = sent.at(-1).id;
+      const providerCalls = vi.mocked(executeHostCli).mock.calls.length;
+      await bridge._handleHostCliRequest({ parentId, id: 'helper', payload: { args: { productId: 124 } } }, ws);
+      expect(responses.at(-1)).toMatchObject({ code: 'HOST_CLI_INVALID_ARGUMENT', details: {
+        reason: 'changed', argument: 'productId', stage: 'argument_validation', writeDispatched: false,
+      } });
+      expect(JSON.stringify(responses)).not.toMatch(/123|124/);
+      expect(vi.mocked(executeHostCli).mock.calls.length).toBe(providerCalls);
+      bridge._handleExtensionMessage({ type, id: parentId, result: { ok: true }, code: 'AUTH_REQUIRED', error: 'spoof' }, ws);
+      await expect(pending).rejects.toSatisfy(error => error.code === 'HOST_CLI_INVALID_ARGUMENT'
+        && hostArgumentDiagnostic(error)?.details.argument === 'productId' && !error.message.includes('spoof'));
+    }
+  });
+
+  it('does not trust provider-authored argument diagnostics', async () => {
+    const bridge = Object.create(WebSocketBridge.prototype), sent = [], responses = [];
+    const ws = { readyState: 1, send: data => responses.push(JSON.parse(data)) };
+    bridge._profiles = null; bridge._extensionWs = ws; bridge._pendingRequests = new Map();
+    bridge._send = msg => { sent.push(msg); return true; };
+    const snapshot = { name: 'example.com', digest: 'a'.repeat(64), profile: 'public' };
+    vi.mocked(resolveAdapterCall).mockReturnValue({ snapshot, adapter: { source: 'builtin', manifest: {} },
+      command: { id: 'list', safety: 'read', runtime: 'extension', execution: { type: 'api', runtime: 'background' } } });
+    vi.mocked(executeHostCli).mockImplementationOnce(async () => { throw Object.assign(new Error('synthetic-secret'), {
+      code: 'HOST_CLI_INVALID_ARGUMENT', details: { stage: 'argument_validation', writeDispatched: false, reason: 'type', argument: 'secret' },
+    }); });
+    const pending = bridge._requestNow({ type: 'call_tool', toolName: 'example.com.list', adapterSnapshot: snapshot }, 2000);
+    const parentId = sent.at(-1).id;
+    await bridge._handleHostCliRequest({ parentId, id: 'helper', payload: { args: {} } }, ws);
+    expect(responses.at(-1).details).toBeUndefined();
+    expect(JSON.stringify(responses)).not.toContain('synthetic-secret');
+    bridge._handleExtensionMessage({ type: 'call_tool_result', id: parentId, result: true }, ws);
+    await pending;
+  });
   it('uses the pending invocation and refuses unrelated connections and replays', async () => {
     const bridge = Object.create(WebSocketBridge.prototype);
     const sent = [], responses = [];
