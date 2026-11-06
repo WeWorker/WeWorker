@@ -6,7 +6,7 @@ import { createDecipheriv } from 'node:crypto'
 import { DEFAULT_CONTEXT_LIMIT } from './context-window.js'
 import { normalizeLlmBaseUrl, type ProviderEntry } from './llm-egress.js'
 
-import { configuredProvider, configuredEncryptedApiKey, CONFIGURED_PROVIDERS } from './provider-config.js'
+import { configuredProvider, configuredEncryptedApiKey, CONFIGURED_PROVIDERS, explorationResetPatch } from './provider-config.js'
 
 // Credential material remains Backend-only; all public metadata comes from JSON.
 export const BUILTIN_PROVIDER = configuredProvider('builtin')!
@@ -109,6 +109,7 @@ export function activateBuiltinProvider(provider: ProviderEntry, env: NodeJS.Pro
     base_url_is_full: false,
     model: access.provider.defaultModel,
     context_limit: DEFAULT_CONTEXT_LIMIT,
+    ...explorationResetPatch(access.provider.id),
   }
 }
 
