@@ -105,6 +105,7 @@ import { execFile } from 'node:child_process'
 import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveSiteMemoryFromWorkflow } from './site-memory.js'
 import * as store from './works-store.js'
 import { listArchivedWorkIds } from './conversation-archive.js'
+import { getCompactionStatus } from './compaction-status.js'
 import { tryBackendProfileQueryRoute } from './profile-query-route.js'
 import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
@@ -2815,6 +2816,15 @@ async function streamConversationCompaction(
   chatLog.error('conversation compaction failed', { workId, detail })
   throw new Error(detail)
 }
+
+// 压缩是否还在推进：前端据此区分「压缩中」和「卡住」，而不是只转圈。
+app.get('/works/:id/compaction', (req, res) => {
+  try {
+    res.json(getCompactionStatus(req.params.id))
+  } catch (error) {
+    res.status(500).json({ detail: error instanceof Error ? error.message : 'Failed to read compaction status' })
+  }
+})
 
 app.post('/works/:id/compact', async (req, res) => {
   const workId = req.params.id

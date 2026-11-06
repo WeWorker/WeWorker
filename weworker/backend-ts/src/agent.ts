@@ -21,6 +21,7 @@ import { redactSensitive } from './http-security.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
 import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
+import { markCompactionFinished, markCompactionProgress, markCompactionStarted } from './compaction-status.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
 import { parseAllAdapters } from './adapter-parser.js'
 import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
@@ -589,11 +590,79 @@ function getPackagedClaudeSetup(): { pathToClaudeCodeExecutable: string; executa
   return { pathToClaudeCodeExecutable: wrapperPath }
 }
 
+// 压缩本身可以是几分钟的正常工作，所以判定依据是「有没有进展」而不是总时长：
+// 只要还在产出消息就续期，连续一段时间完全没有输出才算卡死；另设一个足够宽松的
+// 总时长上限，避免无限缓慢地跑下去。
+const DEFAULT_COMPACTION_IDLE_TIMEOUT_MS = 120_000
+const DEFAULT_COMPACTION_TOTAL_TIMEOUT_MS = 10 * 60_000
+const DEFAULT_COMPACTION_PROBE_IDLE_TIMEOUT_MS = 60_000
+const DEFAULT_COMPACTION_PROBE_TOTAL_TIMEOUT_MS = 5 * 60_000
+
+/** 测试和排障可以用环境变量覆盖；正常运行时用默认值。 */
+function compactionTimeouts(kind: 'summary' | 'probe'): { idleMs: number; totalMs: number } {
+  const base = kind === 'summary'
+    ? { idleMs: DEFAULT_COMPACTION_IDLE_TIMEOUT_MS, totalMs: DEFAULT_COMPACTION_TOTAL_TIMEOUT_MS }
+    : { idleMs: DEFAULT_COMPACTION_PROBE_IDLE_TIMEOUT_MS, totalMs: DEFAULT_COMPACTION_PROBE_TOTAL_TIMEOUT_MS }
+  const idleOverride = Number(process.env.WEWORKER_COMPACTION_TIMEOUT_MS)
+  const totalOverride = Number(process.env.WEWORKER_COMPACTION_TOTAL_TIMEOUT_MS)
+  return {
+    idleMs: Number.isFinite(idleOverride) && idleOverride > 0 ? idleOverride : base.idleMs,
+    totalMs: Number.isFinite(totalOverride) && totalOverride > 0 ? totalOverride : base.totalMs,
+  }
+}
+
+/**
+ * 摘要器和 token 探针都在等待 SDK 进程；进程卡住时既没有事件也没有错误，压缩就会一直
+ * 停在「压缩中」。这里用「无进展超时」兜底：每收到一条消息就续期，真正卡住才失败，
+ * 正常但耗时几分钟的压缩不会被误杀。
+ */
+async function withCompactionWatchdog<T>(
+  kind: 'summary' | 'probe',
+  parent: AbortController | undefined,
+  run: (controller: AbortController, onProgress: () => void) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController()
+  const linkParent = () => controller.abort()
+  if (parent) {
+    if (parent.signal.aborted) controller.abort()
+    else parent.signal.addEventListener('abort', linkParent, { once: true })
+  }
+  const { idleMs, totalMs } = compactionTimeouts(kind)
+  const label = kind === 'summary' ? '摘要器' : '上下文 token 探针'
+  let idleTimer: NodeJS.Timeout | undefined
+  let totalTimer: NodeJS.Timeout | undefined
+  let fail: (error: Error) => void = () => {}
+  const watchdog = new Promise<never>((_, reject) => { fail = reject })
+  const armIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      controller.abort()
+      fail(new Error(`对话压缩超时：${label}连续 ${Math.max(1, Math.round(idleMs / 1000))} 秒没有任何进展`))
+    }, idleMs)
+  }
+  armIdle()
+  totalTimer = setTimeout(() => {
+    controller.abort()
+    fail(new Error(`对话压缩超时：${label}超过 ${Math.max(1, Math.round(totalMs / 60_000))} 分钟仍未完成`))
+  }, totalMs)
+  const task = run(controller, armIdle)
+  // 超时后子进程的拒绝是预期内的，避免成为未处理的 Promise。
+  task.catch(() => {})
+  try {
+    return await Promise.race([task, watchdog])
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer)
+    if (totalTimer) clearTimeout(totalTimer)
+    parent?.signal.removeEventListener('abort', linkParent)
+  }
+}
+
 async function summarizeConversationOnly(input: {
   conversation: string
   settings: Settings
   purpose?: 'compaction' | 'task_notification'
   abortController?: AbortController
+  onProgress?: () => void
   env: NodeJS.ProcessEnv
   claudeSetup: { pathToClaudeCodeExecutable?: string; executable?: string }
   spawnClaudeCodeProcess: (spawnArgs: ClaudeSpawnOptions) => SpawnedProcess
@@ -620,7 +689,8 @@ async function summarizeConversationOnly(input: {
       persistSession: false,
       maxTurns: 1,
       permissionMode: 'dontAsk',
-      includePartialMessages: false,
+      // 打开流式片段：压缩是否卡住按「有无进展」判定，需要能观测到中间输出。
+      includePartialMessages: true,
       cwd: getUserDirectory(),
       pathToClaudeCodeExecutable: input.claudeSetup.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess: input.spawnClaudeCodeProcess,
@@ -631,6 +701,7 @@ async function summarizeConversationOnly(input: {
   try {
     let receivedResult = false
     for await (const message of summaryQuery) {
+      input.onProgress?.()
       if (message.type !== 'result') continue
       receivedResult = true
       const result = message as unknown as { subtype?: string; result?: string; is_error?: boolean; errors?: string[] }
@@ -666,6 +737,7 @@ async function probeContextUsage(input: {
   contextAssembly: { sdk: { system_prompt: string; prompt: string } }
   settings: Settings
   abortController?: AbortController
+  onProgress?: () => void
   claudeSetup: { pathToClaudeCodeExecutable?: string }
   spawnClaudeCodeProcess: (spawnArgs: ClaudeSpawnOptions) => SpawnedProcess
   env: NodeJS.ProcessEnv
@@ -683,7 +755,7 @@ async function probeContextUsage(input: {
       disallowedTools: input.disallowedTools,
       canUseTool: async () => ({ behavior: 'deny', message: '上下文 token 探针不执行工具' }),
       permissionMode: 'dontAsk',
-      includePartialMessages: false,
+      includePartialMessages: true,
       settingSources: input.settingSources,
       persistSession: false,
       maxTurns: 1,
@@ -696,6 +768,7 @@ async function probeContextUsage(input: {
 
   try {
     for await (const message of probeQuery) {
+      input.onProgress?.()
       if (message.type !== 'result') continue
       const result = message as unknown as {
         subtype?: string
@@ -1535,16 +1608,21 @@ async function* streamChatWithBaseUrl(
         .filter((text) => text.trim())
         .join('\n\n')
       compactionEventEmitted = true
+      markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
       yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
       try {
-        const summary = await summarizeConversationOnly({
+        const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
           conversation: summarySource,
           settings,
-          abortController,
+          abortController: summaryAbort,
+          onProgress: () => {
+            markCompactionProgress(opts.workId)
+            onProgress()
+          },
           env: envWithWebcli,
           claudeSetup,
           spawnClaudeCodeProcess,
-        })
+        }))
         if (summary) {
           const recentConversation = buildPromptString([...recentSelection.retained, currentMessage])
           const compactedConversation = buildCompactedConversationPrompt({
@@ -1586,6 +1664,8 @@ async function* streamChatWithBaseUrl(
             error: error instanceof Error ? error.message : String(error),
           },
         }
+      } finally {
+        markCompactionFinished(opts.workId)
       }
     } else {
       compactionEventEmitted = true
@@ -1618,17 +1698,18 @@ async function* streamChatWithBaseUrl(
   if (opts.compactionOnly) {
     if (compactionCompleted) {
       try {
-        const usage = await probeContextUsage({
+        const usage = await withCompactionWatchdog('probe', abortController, (probeAbort, onProgress) => probeContextUsage({
           contextAssembly,
           settings,
-          abortController,
+          abortController: probeAbort,
+          onProgress,
           claudeSetup,
           spawnClaudeCodeProcess,
           env: envWithWebcli,
           mcpServer: activeMcpServer,
           disallowedTools,
           settingSources,
-        })
+        }))
         yield { type: 'usage', usage } as SSEEvent
       } catch (error) {
         log.error('post-compaction usage probe failed', error instanceof Error ? error.message : String(error))
