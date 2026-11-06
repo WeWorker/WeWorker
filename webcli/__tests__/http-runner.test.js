@@ -13,6 +13,20 @@ import { resolveAdapterPaths } from '../paths.js';
 import { managedAdapterView, managedAdapterSkill } from '../adapter-views.js';
 import { ExplorationService } from '../exploration-service.js';
 import { resolveAdapterCall } from '../adapter-host.js';
+import { WriteConfirmationCoordinator } from '../write-confirmation.js';
+
+async function reviewedHttp(match, args = {}) {
+  match = { ...match, snapshot: { name: 'example-http', digest: match.adapter.digest, profile: 'public' } };
+  let runtimeError;
+  const coordinator = new WriteConfirmationCoordinator({ confirm: async () => true });
+  try {
+    return await coordinator.run({ selected: match, args, scope: {}, context: async () => 'example-account', resolve: () => match,
+      execute: async ({ permit, markDispatched }) => {
+        try { return (await runHttpTool(match, args, { permit, beforeDispatch: markDispatched })).result; }
+        catch (error) { runtimeError = error; throw error; }
+      } });
+  } catch (error) { throw runtimeError || error; }
+}
 
 const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); vi.unstubAllEnvs(); });
@@ -135,7 +149,8 @@ it('checks package snapshots and confirmation before sending a write', async () 
   const f = await fixture(`module.exports = (args, ctx) => ctx.request({url: ORIGIN + '/items', method: 'POST', json: {id: args.id}});`, {}, 'write');
   await expect(runHttpTool(f.match, { id: 'example' })).rejects.toMatchObject({ code: 'HTTP_CONFIRMATION_REQUIRED' });
   expect(f.requests).toHaveLength(0);
-  await runHttpTool(f.match, { id: 'example', __confirmed: true });
+  await expect(runHttpTool(f.match, { id: 'example', __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_CONFIRMATION_REQUIRED' });
+  await reviewedHttp(f.match, { id: 'example' });
   expect(f.requests).toHaveLength(1);
   writeFileSync(join(f.dir, 'http/commands/read.js'), 'module.exports = () => "changed";');
   await expect(runHttpTool(f.match, { __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_STALE_PACKAGE' });
@@ -143,13 +158,13 @@ it('checks package snapshots and confirmation before sending a write', async () 
 
 it('does not follow write redirects or dispatch a second write request, and rejects unfinished requests', async () => {
   const redirect = await fixture(`module.exports = (args, api) => api.request({url: ORIGIN + '/redirect-loop', method:'PUT', json:{title:'Example'}});`, {}, 'write');
-  await expect(runHttpTool(redirect.match, { __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_REDIRECT' });
+  await expect(reviewedHttp(redirect.match)).rejects.toMatchObject({ code: 'HTTP_REDIRECT' });
   expect(redirect.requests).toHaveLength(1);
   const twice = await fixture(`module.exports = async (args, api) => { await api.request({url: ORIGIN + '/items',method:'PUT'}); return api.request({url: ORIGIN + '/items',method:'PUT'}); };`, {}, 'write');
-  await expect(runHttpTool(twice.match, { __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_REQUEST_LIMIT' });
+  await expect(reviewedHttp(twice.match)).rejects.toMatchObject({ code: 'HTTP_REQUEST_LIMIT' });
   expect(twice.requests).toHaveLength(1);
   const pending = await fixture(`module.exports = (args, api) => { api.request({url: ORIGIN + '/slow',method:'PUT'}); return {ok:true}; };`, {}, 'write');
-  await expect(runHttpTool(pending.match, { __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_UNSETTLED_REQUESTS' });
+  await expect(reviewedHttp(pending.match)).rejects.toMatchObject({ code: 'HTTP_UNSETTLED_REQUESTS' });
 });
 
 it('requires new installation permissions for origins and cookie names', async () => {

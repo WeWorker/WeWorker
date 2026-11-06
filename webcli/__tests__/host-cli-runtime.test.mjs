@@ -7,6 +7,15 @@ import { usesBackgroundExecution as hostBranch } from '../conditional-execution.
 import { usesBackgroundExecution as extensionBranch } from '../../extension/background/conditional-execution.js';
 import { readFileSync } from 'node:fs';
 import { normalizeHostArguments, hostArgumentDiagnostic } from '../host-cli-arguments.js';
+import { WriteConfirmationCoordinator } from '../write-confirmation.js';
+
+async function withHostPermit(f, confirmed = true) {
+  const coordinator = new WriteConfirmationCoordinator({ confirm: async () => confirmed });
+  const { result } = await coordinator.run({ selected: f.selected, args: f.pending.hostCall.originalArgs,
+    scope: {}, context: async () => 'example-account', resolve: () => f.selected,
+    execute: async ({ permit }) => { f.pending.hostCall.permit = permit; return invokeHostCli(f.call); } });
+  return result;
+}
 
 function fixture(overrides = {}) {
   const ws = {}, controller = new AbortController();
@@ -128,8 +137,8 @@ test('the public provider is unavailable by default', async () => {
   await assert.rejects(executeHostCli(), { code: 'HOST_CLI_UNAVAILABLE' });
 });
 
-test('write uses the original Bridge confirmation and ignores a forged Adapter helper flag', async () => {
-  assert.equal(await authorizeHostCliWrite({ requiresConfirmation: true, originalConfirmed: true }), true);
+test('write ignores both the original caller flag and a forged Adapter helper flag', async () => {
+  assert.equal(await authorizeHostCliWrite({ requiresConfirmation: true, originalConfirmed: true }), false);
   let calls = 0;
   const f = fixture({ execute: async () => { calls++; }, authorizeWrite: authorizeHostCliWrite });
   f.selected.command.safety = 'write';
@@ -164,7 +173,7 @@ test('host authorization receives original call identity and arguments', async (
   assert.deepEqual(approval.command, { id: 'list', safety: 'write' });
   assert.deepEqual(approval.args, { product: 'one' });
   assert.equal(approval.requiresConfirmation, true);
-  assert.equal(approval.originalConfirmed, true);
+  assert.equal(approval.originalConfirmed, undefined);
   assert.equal(f.pending.hostWriteDispatched, true);
   await assert.rejects(invokeHostCli(f.call), { code: 'HOST_CLI_ALREADY_CALLED' });
 });
@@ -175,17 +184,17 @@ test('write honors a selected command confirmation opt-out without trusting help
   } });
   f.selected.command.safety = 'write'; f.selected.command.requires_confirmation = false;
   f.pending.hostCall.originalArgs = { product: 'one' };
-  assert.deepEqual(await invokeHostCli(f.call), { done: true });
+  assert.deepEqual(await withHostPermit(f), { done: true });
 });
 
-test('write can execute when the original Bridge invocation was confirmed', async () => {
+test('write executes only with the host invocation capability, irrespective of legacy flags', async () => {
   const f = fixture({ authorizeWrite: authorizeHostCliWrite, execute: async ({ markWriteDispatched }) => {
     markWriteDispatched(); return { done: true };
   } });
   f.selected.command.safety = 'write';
   f.pending.hostCall.originalArgs = { product: 'one', __confirmed: true };
   f.call.payload.args = { product: 'one', __confirmed: false };
-  assert.deepEqual(await invokeHostCli(f.call), { done: true });
+  assert.deepEqual(await withHostPermit(f), { done: true });
 });
 
 test('a dispatched write with an abort or exception is reported as outcome unknown', async () => {

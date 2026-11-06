@@ -66,7 +66,7 @@ export async function invokeHostCli({ parentId, ws, payload, pendingRequests, re
         adapter: { ...selected.snapshot }, command: { id: selected.command.id, safety: 'write' },
         args: structuredClone(executionArgs), signal,
         requiresConfirmation: selected.command.requires_confirmation ?? true,
-        originalConfirmed: pending.hostCall.originalArgs?.__confirmed === true });
+        permit: pending.hostCall.permit, selected });
       if (!active()) fail('HOST_CLI_CONTEXT_INVALID', 'The host invocation is no longer active.');
       if (approved !== true) fail('HOST_CLI_CONFIRMATION_REQUIRED', 'Verified user confirmation is required.');
     }

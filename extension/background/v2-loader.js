@@ -18,7 +18,7 @@ export function v2CommandDef(manifest, command) {
     aliases: [...(command.aliases || []).map((alias) => manifest.name + '.' + alias), ...(command.legacyNames || [])],
     name: `${manifest.name}.${command.id}`, // 公开名 = handlerName（call_tool 默认按工具名取 handler）
     description: command.description || "",
-    parameters: command.schema || { type: "object", properties: {} },
+    parameters: { ...(command.schema || { type: "object", properties: {} }), 'x-webcli-host-confirmation': true },
     safety: command.safety || 'read',
     requires_confirmation: command.requires_confirmation ?? command.safety === 'write',
     ...(command.execution?.runtime === 'background' ? { execution: command.execution, ...(command.execution.pageWhenAbsent === undefined ? { directCapable: true, executionMode: 'direct' } : {}) } : {}),

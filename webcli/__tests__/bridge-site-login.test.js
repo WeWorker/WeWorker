@@ -88,7 +88,7 @@ describe('Bridge login wiring', () => {
     bridge.callTool = vi.fn(async () => { throw Object.assign(new Error('需要登录'), { code: 'AUTH_REQUIRED', auth: { site: 'fixture.example.com', status: 'waiting_user' } }) })
     const client = connect(bridge)
     await bridge._handleClientRequest({ type: 'call_tool', id: 'cli-1', toolName: 'fixture.example.com.list', args: {}, loginWaitMs: 5000 }, client)
-    expect(bridge.callTool).toHaveBeenCalledWith('fixture.example.com.list', {}, null, undefined, { loginWaitMs: 5000 })
+      expect(bridge.callTool).toHaveBeenCalledWith('fixture.example.com.list', {}, null, undefined, expect.objectContaining({ loginWaitMs: 5000, signal: expect.any(AbortSignal), onExecution: expect.any(Function) }))
     expect(sentTo(client)).toContainEqual(expect.objectContaining({ type: 'call_tool_error', id: 'cli-1', code: 'AUTH_REQUIRED', auth: { site: 'fixture.example.com', status: 'waiting_user' } }))
   })
 

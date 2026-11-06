@@ -112,7 +112,7 @@ function formatToolLine(tool: StaticToolDef): string {
     properties?: Record<string, { type?: string }>
   }
   const properties = params.properties ?? {}
-  const names = Object.keys(properties).slice(0, 8)
+  const names = Object.keys(properties).filter(name => name !== '__confirmed').slice(0, 8)
   const paramText = names.length
     ? `。参数：${names.map((n) => `${n}（${properties[n]?.type ?? 'string'}）`).join('、')}`
     : ''
@@ -122,8 +122,10 @@ function formatToolLine(tool: StaticToolDef): string {
   const nav = typeof tool.execution?.navigate_before === 'string' ? tool.execution.navigate_before.trim() : ''
   const navText = nav ? `。需先 open_browser ${nav}（返回即可调用；返回 toolsReady: false 时等 5 秒）` : ''
   const confirmationText = tool.safety === 'write' && tool.requiresConfirmation === false
-    ? '。无需显式确认；用户请求且参数明确时直接调用，不要要求用户手动执行或传入 __confirmed'
-    : ''
+    ? '。按工具策略无需额外确认；用户请求且参数明确时直接提交工具和业务参数'
+    : tool.safety === 'write' || tool.requiresConfirmation === true
+      ? '。确认由宿主管理：只提交工具和业务参数，等待用户在宿主确认后自动续跑，不添加确认标记，不重复调用；结果未知时先查询目标状态'
+      : ''
   const desc = String(tool.description || '').replace(/\s+/g, ' ').trim()
   return `- \`${tool.name}\`：${desc || '（说明见该站点 Skill 文档）'}${paramText}${navText}${confirmationText}`
 }

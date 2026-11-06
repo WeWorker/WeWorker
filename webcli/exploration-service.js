@@ -7,6 +7,7 @@ import { workflowParameters } from './exploration-workflow.js';
 import { analyzeApiCandidate, analyzeExploration, normalizeStrategyNote } from './exploration-analysis.js';
 import { explorationDraftHash, archiveExplorationDraft, explorationRevisionView, readExplorationRevision } from './exploration-revisions.js';
 import fs from 'node:fs';
+import { WriteConfirmationCoordinator } from './write-confirmation.js';
 import { buildBackgroundTool, isBackgroundCommand } from './exploration-background.js';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -65,7 +66,8 @@ const diagnosticHints = {
 /** Owned by the existing Bridge. No desktop Backend, Python, or model credentials. */
 export class ExplorationService {
   constructor({ rootDir, paths, mode = 'browser', readOnly = false, requestExtension, capabilities = () => ({ connected: false, capabilities: [] }),
-    runtimeValidator, publisher, tabLocks = new TabOperationLocks() } = {}) {
+    runtimeValidator, publisher, confirmWrite, tabLocks = new TabOperationLocks() } = {}) {
+    this.writeConfirmations = new WriteConfirmationCoordinator({ confirm: confirmWrite });
     this.readOnly = readOnly;
     this.mode = mode;
     this.paths = paths || resolveAdapterPaths();

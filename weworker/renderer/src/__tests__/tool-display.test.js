@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { formatToolResultText, getToolCallSummary, getToolExecGroupLabel, getToolExecLineText, getToolExecTooltipText } from '../utils/tool-display.js'
+import { formatToolResultText, getToolCallSummary, getToolExecGroupLabel, getToolExecLineText, getToolExecTooltipText, getToolExecStatusText } from '../utils/tool-display.js'
 
 describe('tool-display summaries', () => {
   it('keeps the complete shell command in tooltips, including multiline tails', () => {
@@ -35,6 +35,15 @@ describe('tool-display summaries', () => {
 })
 
 describe('tool result display', () => {
+  it('uses host business status independently of Shell exit status', () => {
+    const labels = { waiting_confirmation: '等待确认', cancelled: '已取消', not_submitted: '尚未提交', succeeded: '执行成功', failed: '执行失败', unknown: '结果未知' }
+    for (const [state, label] of Object.entries(labels)) {
+      const result = JSON.stringify({ success: true, exitCode: 0, output: JSON.stringify({ _execution: { state } }) })
+      assert.equal(getToolExecStatusText({ name: 'weworker_powershell', status: 'completed', result }), label)
+    }
+    assert.equal(getToolExecStatusText({ name: 'PowerShell', status: 'completed', result: 'done' }), '命令已结束')
+    assert.equal(getToolExecStatusText({ name: 'PowerShell', status: 'completed', result: '等待宿主确认；请勿重复提交。\n' + JSON.stringify({ _execution: { state: 'cancelled' } }) }), '已取消')
+  })
   it('shows only command output for WeWorker Shell JSON results', () => {
     const result = JSON.stringify({
       success: true,

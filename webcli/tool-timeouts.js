@@ -11,8 +11,10 @@ export const QQ_MAIL_BATCH_DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 export function interruptedCallResult(command, requestSent, timeout = false) {
   if (requestSent && command?.safety === 'write') return {
     error: '写操作结果未知，请先检查目标状态再决定是否重试。', code: 'WRITE_OUTCOME_UNKNOWN', trace_id: null,
+    _execution: { state: 'unknown', dispatched: true, retryable: false },
   };
-  return { error: timeout ? '工具调用超时' : '无法连接到 WebSocket bridge，请先运行 webcli service start -d', trace_id: null };
+  return { error: timeout ? '工具调用超时' : '无法连接到 WebSocket bridge，请先运行 webcli service start -d', trace_id: null,
+    ...(!requestSent && command?.safety === 'write' ? { _execution: { state: 'not_submitted', dispatched: false, retryable: true } } : {}) };
 }
 
 const QQ_MAIL_BATCH_DOWNLOAD_TOOLS = new Set([

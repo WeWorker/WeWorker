@@ -119,8 +119,8 @@ describe('Property 4: Skill content completeness', () => {
     expect(generateSkillContent(adapter)).toContain('Confirmation: not required')
     expect(generateSkillContent(adapter)).not.toContain('__confirmed')
     adapter.tools[0].requiresConfirmation = true
-    expect(generateSkillContent(adapter)).toContain('Confirmation: required')
-    expect(generateSkillContent(adapter)).toContain('__confirmed: true')
+    expect(generateSkillContent(adapter)).toContain('Confirmation: managed by the host')
+    expect(generateSkillContent(adapter)).not.toContain('__confirmed')
   })
   // **Validates: Requirements 2.2, 2.3, 6.1, 6.2, 6.3**
 

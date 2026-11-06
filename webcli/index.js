@@ -495,6 +495,7 @@ async function cmdServiceLogs(follow) {
 
 async function runServiceMode() {
   const { WebSocketBridge } = await import("./bridge.js");
+  const { createParentConfirmationChannel } = await import('./write-confirmation-channel.js');
 
   process.stderr.write("[WebCLI] Starting WebSocket bridge...\n");
   const bridge = new WebSocketBridge({
@@ -502,6 +503,7 @@ async function runServiceMode() {
     host: INSTANCE.bindHost,
     instanceKind: INSTANCE.kind,
     serviceTokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
+    confirmWrite: createParentConfirmationChannel(),
   });
   bridge._wss.once('listening', () => { if (process.send) process.send({ type: 'bridge_ready' }); });
 
@@ -983,13 +985,10 @@ async function cmdCall(toolName, argsStr, options = {}) {
   const { resolveAdapterCall } = await import("./adapter-host.js");
   const v2Match = resolveAdapterCall(toolName);
   if (v2Match) {
-    if ((v2Match.command.runtime === 'http' || v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) && (v2Match.command.safety === 'write' || v2Match.command.requires_confirmation) && args.__confirmed !== true) {
-      console.log(formatCallOutput({ error: 'Explicit confirmation is required for this command.', code: (v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) ? 'CONFIRMATION_REQUIRED' : 'HTTP_CONFIRMATION_REQUIRED', trace_id: null }, outputFormat));
-      process.exitCode = 1;
-      return;
-    }
-    if ((v2Match.command.requires_confirmation ?? v2Match.command.safety === "write") && args.__confirmed !== true) throw new Error("Explicit confirmation is required for this command.");
-    if (v2Match.command.runtime === 'http' && !v2Match.command.http.cookies) {
+    const { isControlled } = await import('./write-confirmation.js');
+    // Every controlled invocation is resolved again and retained by the host.
+    // Legacy confirmation flags are compatibility input, never authority.
+    if (v2Match.command.runtime === 'http' && !v2Match.command.http.cookies && !isControlled(v2Match.command)) {
       try {
         const { runHttpTool } = await import('./http-runner.js');
         const completed = await runHttpTool(v2Match, args);
@@ -1003,7 +1002,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
       }
       return;
     }
-    if (v2Match.command.runtime === "wewright") {
+    if (v2Match.command.runtime === "wewright" && !isControlled(v2Match.command)) {
       // v2 wewright 命令：内嵌 Runtime --internal-script，入口取 manifest module（现有合同不变）
       try {
         const { runToolkitTool } = await import("./toolkit-runner.js");
@@ -1097,6 +1096,15 @@ async function cmdCall(toolName, argsStr, options = {}) {
 
     ws.on("message", async (data) => {
       const msg = JSON.parse(data.toString());
+      if (msg.id === id && msg.type === 'write_execution_event') {
+        const state = msg.execution?.state;
+        if (state === 'waiting_confirmation') {
+          console.error('等待宿主确认；确认后将继续此请求，请勿重新提交命令。');
+          clearTimeout(timeout);
+          timeout = setTimeout(onTimeout, Math.max(0, msg.execution.expiresAt - Date.now()) + callTimeoutMs + 1000);
+        }
+        return;
+      }
       // The Bridge runs the login flow for this site: report progress, and allow the login time.
       if (msg.type === "auth_event" && site && msg.site === site) {
         printAuthEvent(msg);
@@ -1113,16 +1121,17 @@ async function cmdCall(toolName, argsStr, options = {}) {
       if (msg.type === "call_tool_result") {
         const isPlainObject = msg.result && typeof msg.result === "object" && !Array.isArray(msg.result);
         const output = isPlainObject
-          ? { ...msg.result, trace_id: traceID }
-          : { result: msg.result, trace_id: traceID };
+          ? { ...msg.result, trace_id: traceID, ...(msg.execution ? { _execution: msg.execution } : {}) }
+          : { result: msg.result, trace_id: traceID, ...(msg.execution ? { _execution: msg.execution } : {}) };
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
         await printVerboseTrace(traceID, verbose, options.profile);
         ws.close();
-        process.exit(0);
+        process.exit(msg.execution?.state === 'failed' ? 1 : 0);
       } else if (msg.type === "call_tool_error") {
         const argumentDetails = msg.code === 'HOST_CLI_INVALID_ARGUMENT' ? safeHostArgumentDetails(msg.details) : undefined;
         const output = {
           error: msg.error,
+          ...(msg.execution ? { _execution: msg.execution } : {}),
           ...(msg.code ? { code: msg.code } : {}),
           ...(msg.code === 'HOST_CLI_REQUIRED_FIELDS' && Array.isArray(msg.details?.missingFields) && msg.details.missingFields.length > 0 && msg.details.missingFields.length <= 50 && msg.details.missingFields.every(value => typeof value === 'string' && value.length > 0 && value.length <= 270 && !/[\u0000-\u001f\u007f-\u009f]/.test(value) && !/api[_-]?key|cookie|authorization|password|secret|token/i.test(value)) ? { details: { missingFields: msg.details.missingFields } } : {}),
           ...(msg.auth ? { auth: msg.auth } : {}),
@@ -1440,7 +1449,7 @@ function extractFlagArgs(argv, startIndex = 0) {
   let structuredArgs;
   for (let i = startIndex; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--__confirmed') throw new Error('Missing value for --__confirmed. Use --__confirmed=true after confirming the write.');
+    if (arg === '--__confirmed') continue; // Deprecated, inert compatibility flag.
     if (arg === '--args' || arg === '--args-file' || arg.startsWith('--args-file=') || arg.startsWith('--args=')) {
       if (structuredArgs !== undefined) throw new Error('Use exactly one --args or --args-file input.');
       const fromFile = arg.startsWith('--args-file');

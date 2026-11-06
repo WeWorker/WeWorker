@@ -346,11 +346,13 @@ async function executeCurrentTool() {
         args[key] = value;
       }
     }
-    if (!confirmToolExecution(currentTool, args)) return;
-    if (toolRequiresConfirmation(currentTool)) args.__confirmed = true;
+    if (!currentTool.parameters?.['x-webcli-host-confirmation']) {
+      if (!confirmToolExecution(currentTool, args)) return;
+      if (toolRequiresConfirmation(currentTool)) args.__confirmed = true;
+    }
 
     btnExecute.disabled = true;
-    btnExecute.textContent = "执行中...";
+    btnExecute.textContent = "等待宿主处理 / 确认...";
     modalResult.hidden = true;
 
     // 调用工具
@@ -365,10 +367,11 @@ async function executeCurrentTool() {
     modalResult.hidden = false;
     if (response.error) {
       modalResult.className = "result-box result-error";
-      modalResult.textContent = `错误：${response.error}`;
+      const states = { cancelled: '已取消', not_submitted: '尚未提交', unknown: '结果未知', failed: '执行失败' };
+      modalResult.textContent = `${states[response.execution?.state] || '执行失败'}：${response.error}`;
     } else {
-      modalResult.className = "result-box result-success";
-      modalResult.textContent = JSON.stringify(response.result, null, 2);
+      modalResult.className = response.execution?.state === 'failed' ? 'result-box result-error' : 'result-box result-success';
+      modalResult.textContent = `${response.execution?.state === 'failed' ? '执行失败' : response.execution?.state === 'succeeded' ? '执行成功' : '调用完成'}\n${JSON.stringify(response.result, null, 2)}`;
     }
   } catch (error) {
     modalResult.hidden = false;

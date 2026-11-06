@@ -1,6 +1,6 @@
 # Host CLI argument contract
 
-`webcli call example.com.start --productId=123 --id=00456 --__confirmed=true`
+`webcli call example.com.start --productId=123 --id=00456`
 is a supported invocation. CLI numeric-looking values stay strings until the
 selected runtime applies its schema; string IDs must keep leading zeroes.
 
@@ -14,9 +14,9 @@ Invalid numeric inputs, including unsafe integers, are rejected.
 The host compares the complete normalized arguments, then uses its own captured
 copy for authorization and provider execution. It never trusts a helper's schema
 or confirmation flag. Root `__confirmed` is excluded from the business argument
-comparison, but confirmation still comes exclusively from the original caller.
-Schema defaults cannot synthesize confirmation. Conditional page/background
-selection still uses the original arguments before defaults are applied.
+comparison. Confirmation now comes from the [host execution flow](host-write-confirmation.md),
+never the original caller's boolean. Schema defaults cannot synthesize confirmation.
+Controlled calls bind the normalized arguments, including defaults, before execution.
 
 This corrects host writes whose helpers normalize numeric CLI values. It does
 not change the global CLI parser, HTTP, page or Toolkit argument contracts.
@@ -31,8 +31,8 @@ never included. The host retains these diagnostics across the extension reply,
 including when a helper swallows the error. Other provider errors do not inherit
 this pre-dispatch assertion.
 
-Boolean controls require an explicit value, such as `--__confirmed=true`.
-A bare `--__confirmed` gives a targeted syntax error; it does not imply approval.
+Legacy confirmation flags, including a bare flag, are accepted as inert input.
+They do not imply approval and must not be included in new tool instructions.
 
 Regression coverage exercises CLI flags, inline JSON and UTF-8 JSON files
 through the real managed Adapter validator and host authorization, plus forged

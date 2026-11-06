@@ -97,6 +97,8 @@
     "host-cli-arguments.js",
     "conditional-execution.js",
     "host-cli-write-authorization.js",
+    "write-confirmation.js",
+    "write-confirmation-channel.js",
     "host-secret-store.js",
     "http-contract.js",
     "http-auth.js",

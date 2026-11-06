@@ -4,6 +4,7 @@ import { createManagedBackgroundRuntime } from '../../extension/background/manag
 import { extractFlagArgs } from '../index.js';
 import { invokeHostCli } from '../host-cli-runtime.js';
 import { authorizeHostCliWrite } from '../host-cli-write-authorization.js';
+import { WriteConfirmationCoordinator } from '../write-confirmation.js';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -62,7 +63,11 @@ describe('managed background execution lifecycle', () => {
           pendingRequests: new Map([['call', pending]]), resolveAdapterCall: () => ({ snapshot, adapter: { source: 'builtin' }, command: f.manifest.commands[0] }),
           execute, authorizeWrite: approve, credentials: async () => { throw Error('No live credentials'); } }));
         const expected = { productId: 123, id: '00456', action: 'start', ids: [7, 8], verbose: false };
-        expect(await f.run(args)).toEqual(expected);
+        const selected = { snapshot, adapter: { source: 'builtin' }, command: f.manifest.commands[0] };
+        const coordinator = new WriteConfirmationCoordinator({ confirm: async () => true });
+        const completed = await coordinator.run({ selected, args, scope: {}, context: async () => 'example-account', resolve: () => selected,
+          execute: async ({ permit, args }) => { pending.hostCall.permit = permit; return f.run({ ...args, __confirmed: true }); } });
+        expect(completed.result).toEqual(expected);
         expect(approve.mock.calls[0][0].args).toEqual(expected);
         expect(execute).toHaveBeenCalledTimes(1);
         expect(pending.hostWriteDispatched).toBe(true);

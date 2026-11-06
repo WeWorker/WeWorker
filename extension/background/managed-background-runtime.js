@@ -1,4 +1,5 @@
 import { buildV2Bootstrap, v2InjectionFiles } from './v2-loader.js';
+import { assertWriteAccount } from './write-account-context.js';
 
 export const MANAGED_RUNNER_PATH = 'offscreen/managed-runner.html';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,13 +112,17 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
       throw new Error('Adapter runtime context is unavailable.');
     }
     // Never accept caller-provided route, host grants, digest or trace context.
-    const task = Promise.resolve().then(() => request(message.action, message.payload || {}, call.context));
+    const task = Promise.resolve().then(async () => {
+      if (call.context.writeAccountFingerprint) await assertWriteAccount(call.context.writeAccountFingerprint, api);
+      return request(message.action, message.payload || {}, call.context);
+    });
     call.pending.add(task);
     try { return await task; } finally { call.pending.delete(task); }
   }
 
   async function execute(manifest, command, args = {}, context = {}, previewBundle = null) {
     return exclusive(async () => {
+      if (context.writeAccountFingerprint) await assertWriteAccount(context.writeAccountFingerprint, api);
       const selected = previewBundle || await bundle(manifest);
       const current = selected.manifest.commands.find((entry) => entry.id === command.id);
       if (current?.runtime !== 'extension' || !usesBackgroundExecution(current, args)) {
@@ -200,7 +205,8 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
     execute, handleMessage,
     hostCookieContext(id) {
       if (!active?.accepting || !id || active.context.hostCallId !== id) return null;
-      return { routeDomain: active.context.routeDomain, credentialHosts: [...active.credentialHosts] };
+      return { routeDomain: active.context.routeDomain, credentialHosts: [...active.credentialHosts],
+        ...(active.context.writeAccountFingerprint ? { writeAccountFingerprint: active.context.writeAccountFingerprint } : {}) };
     },
   };
 }

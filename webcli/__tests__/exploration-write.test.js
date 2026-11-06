@@ -7,6 +7,13 @@ import { ExplorationService } from '../exploration-service.js';
 import { resolveAdapterPaths } from '../paths.js';
 import { resolveAdapterCall } from '../adapter-host.js';
 import { runHttpTool } from '../http-runner.js';
+import { WriteConfirmationCoordinator } from '../write-confirmation.js';
+
+async function ordinaryWrite(match, args) {
+  return new WriteConfirmationCoordinator({ confirm: async () => true }).run({ selected: match, args,
+    scope: {}, context: async () => 'fixture-account', resolve: () => match,
+    execute: async ({ permit, markDispatched }) => (await runHttpTool(match, args, { permit, beforeDispatch: markDispatched })).result });
+}
 import { generationEvidenceDir } from '../generation-harness/package-draft.js';
 import { readPackageDirectory } from '../adapter-package-files.js';
 import { readGenerationEvidence } from '../generation-harness/package-inspection.js';
@@ -40,7 +47,7 @@ async function setup({ behavior = 'normal', source, auth = false, mixed = false,
   cleanup.push(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const paths = resolveAdapterPaths({ home: root, env: { WEWORKER_USER_ADAPTERS_DIR: path.join(root, 'user'), WEWORKER_ADAPTER_DATA_DIR: path.join(root, 'data'), WEWORKER_BUILTIN_ADAPTERS_DIR: path.join(root, 'builtin'), WEWORKER_BUILD_PROFILE: 'public' } });
-  const options = { mode: 'http', rootDir: path.join(root, 'tasks'), paths };
+  const options = { mode: 'http', rootDir: path.join(root, 'tasks'), paths, confirmWrite: async () => true };
   const service = new ExplorationService(options);
   const started = await service.execute('start', { origin, goal: 'Update a local public example', requestId: 'example-write' });
   const taskId = started.data.taskId;
@@ -171,7 +178,8 @@ it('generates declared HTTP writes, runs no-network mocks, verifies a real effec
   expect(f.run.status).toBe('installed');
   const match = resolveAdapterCall(f.tool, { paths: f.paths });
   await expect(runHttpTool(match, { title: 'Ordinary' })).rejects.toMatchObject({ code: 'HTTP_CONFIRMATION_REQUIRED' });
-  expect((await runHttpTool(match, { title: 'Ordinary', __confirmed: true })).result).toMatchObject({ ok: true, title: 'Ordinary' });
+  await expect(runHttpTool(match, { title: 'Ordinary', __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_CONFIRMATION_REQUIRED' });
+  expect((await ordinaryWrite(match, { title: 'Ordinary' })).result).toMatchObject({ ok: true, title: 'Ordinary' });
   const stored = fs.readFileSync(path.join(f.options.rootDir, f.taskId + '.json'), 'utf8');
   expect(stored).not.toContain('example-unpersisted-body');
   expect(fs.existsSync(path.join(match.adapter.root, 'write-verification.json'))).toBe(false);
@@ -581,7 +589,7 @@ it('repairs installed HTTP write mappings using historical data, fresh consent, 
   const after = readPackageDirectory(installed);
   for (const [name, bytes] of before.files) if (!r.run.editableFiles.includes(name)) expect(after.files.get(name)).toEqual(bytes);
   expect(after.manifest.commands[1]).toEqual(before.manifest.commands[1]);
-  expect((await runHttpTool(resolveAdapterCall(r.tool, { paths: f.paths }), { title: 'Ordinary', __confirmed: true })).result).toMatchObject({ ok: true, title: 'Ordinary' });
+  expect((await ordinaryWrite(resolveAdapterCall(r.tool, { paths: f.paths }), { title: 'Ordinary' })).result).toMatchObject({ ok: true, title: 'Ordinary' });
   expect((await runHttpTool(resolveAdapterCall(f.run.draft.toolNames[1], { paths: f.paths }), {})).result.id).toBe('example');
   const knowledge = (await r.service.execute('knowledge-read', { site: r.run.siteKey })).data;
   const saved = await r.call('knowledge-save', { expectedHash: knowledge.hash });

@@ -2,6 +2,8 @@
 
 连接 AI 工具与网站 Adapter 的统一命令行入口。
 
+写操作只提交工具名和业务参数；需要确认时由宿主展示请求并在确认后续跑，模型无需添加确认标记。等待确认时不要重新调用，结果未知时先查询目标状态。独立 CLI 没有可信确认界面时不会提交受保护的操作。详见[宿主确认机制](../docs/host-write-confirmation.md)。
+
 静态验证与历史证据使用 `adapter verify`；legacy/Toolkit 用 `--runtime` 明确选择，固定 Git 子包用 `adapter source` 审阅后显式安装。普通验证不执行工具、不产生真实写，完整契约见 [U01 验证与诊断](../docs/opencli_u01_verification.md)。
 
 日期／选项与目录／chooser 上传见 [B02 契约与证据](../docs/opencli_b02_controls.md)。

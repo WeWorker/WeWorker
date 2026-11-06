@@ -10,6 +10,32 @@ import { extractExplorationEvidence, structuralUrl } from './exploration-evidenc
 import { assertReadRequest } from './exploration-host.js';
 import { createHttpClient } from './http-client.js';
 import { runHttpTool } from './http-runner.js';
+import { fingerprint, CONFIRMATION_TTL_MS } from './write-confirmation.js';
+
+async function runReviewedHttp(service, run, review, match, args, options) {
+  const selected = () => {
+    const pkg = readPackageDirectory(run.draft.adapterDir);
+    return { ...match, snapshot: { name: pkg.manifest.name, digest: pkg.digest, profile: 'draft' },
+      command: { ...pkg.commands.find(c => c.id === match.command.id), requires_confirmation: true, reviewDigest: writeProofDigest(run) } };
+  };
+  const captured = selected();
+  const account = async () => {
+    const auth = captured.command.http.auth;
+    const credentials = auth ? ['env', 'usernameEnv', 'passwordEnv'].map(key => auth[key] ? process.env[auth[key]] : null) : [];
+    const cookies = captured.command.http.cookies ? (await service.request({ type: 'write_account_context' }, 10000)).fingerprint : null;
+    return fingerprint({ credentials, cookies });
+  };
+  const completed = await service.writeConfirmations.run({ selected: captured, args, resolve: selected, context: account,
+    scope: { review: review.reviewId, request: review.fixture.expectedRequest, effect: review.fixture.effect }, signal: options.signal,
+    execute: async ({ args, permit, markDispatched, account: approvedAccount }) => {
+      await options.beforeExecute();
+      service.assertPlannedDraft(run);
+      if (await account() !== approvedAccount) throw fail('WRITE_CONTEXT_CHANGED', 'Account changed before dispatch.');
+      return (await runHttpTool(captured, args, { ...options, permit,
+        beforeDispatch: input => { options.beforeDispatch(input); markDispatched(); } })).result;
+    } });
+  return { result: completed.result };
+}
 import { strictVerifier } from './http-preview.js';
 import { resolveUiWrite, validateUiEffect, uiWriteSuccess, uiWriteMockSuccess } from './exploration-ui-write.js';
 import { resolvePageWrite } from './exploration-extension-write.js';
@@ -236,8 +262,9 @@ export function verifyWrite(service, run, args, options = {}) {
     const controller = new AbortController(), abort = () => controller.abort();
     signal.addEventListener('abort', abort, { once: true });
     if (signal.aborted) controller.abort();
-    const timer = setTimeout(abort, 30000);
-    const deadline = Date.now() + 30000, operationId = randomUUID();
+    const timer = setTimeout(abort, review.page ? 30000 : CONFIRMATION_TTL_MS + 30000);
+    let deadline = Date.now() + 30000;
+    const operationId = randomUUID();
     let violation = false, calls = 0, bindingError;
     const captureResult = (value, metadata) => {
       if (!execution.effect.resultReadback) return;
@@ -249,8 +276,13 @@ export function verifyWrite(service, run, args, options = {}) {
     };
     try {
       await service.checkTab(run);
-      const before = await readEffect(service, execution, controller.signal, 'before', { deadline, operationId });
-      if (!before.passed) throw fail('WRITE_PRECONDITION_FAILED', 'The before assertion failed; no write was sent.');
+      let before;
+      const checkBefore = async () => {
+        deadline = Date.now() + 30000;
+        before = await readEffect(service, execution, controller.signal, 'before', { deadline, operationId });
+        if (!before.passed) throw fail('WRITE_PRECONDITION_FAILED', 'The before assertion failed; no write was sent.');
+      };
+      if (execution.page) await checkBefore();
       if (controller.signal.aborted) throw fail('HTTP_ABORTED', 'Write verification cancelled.');
       if (writeProofDigest(run) !== review.digest) throw fail('STALE_DRAFT', 'Draft or fixture changed before write dispatch.');
       service.assertPlannedDraft(run);
@@ -276,8 +308,8 @@ export function verifyWrite(service, run, args, options = {}) {
           service.save(run);
         }
         captureResult(result,reply.resultMetadata);
-      } else ({ result } = await runHttpTool({ adapter: { root: run.draft.adapterDir, digest: pkg.digest }, command }, { ...review.fixture.representativeArgs, __confirmed: true }, {
-        signal: controller.signal, resolveCookies: cookieResolver(service), writeResult:execution.effect.resultReadback,
+      } else ({ result } = await runReviewedHttp(service, run, review, { adapter: { root: run.draft.adapterDir, digest: pkg.digest }, command }, review.fixture.representativeArgs, {
+        signal: controller.signal, beforeExecute: checkBefore, resolveCookies: cookieResolver(service), writeResult:execution.effect.resultReadback,
         observe: entry => { if (entry.status >= 200 && entry.status < 300) captureResult(entry.responseBody,entry.resultMetadata); },
         onRequestFailure: () => { violation = true; },
         validateRequest: input => {

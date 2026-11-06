@@ -133,6 +133,20 @@ export function getToolExecTooltipText(block) {
 }
 
 export function getToolExecStatusText(block, streaming = false) {
+  const labels = { waiting_confirmation: '等待确认', cancelled: '已取消', not_submitted: '尚未提交', running: '执行中', succeeded: '执行成功', failed: '执行失败', unknown: '结果未知' }
+  let result = block.result
+  for (let depth = 0; depth < 4; depth++) {
+    if (typeof result === 'string') {
+      try { result = JSON.parse(result.replace(/^\s*等待宿主确认[^\r\n]*\r?\n/, '')) } catch {
+        if (streaming && result.includes('等待宿主确认')) return '等待确认'
+        break
+      }
+    }
+    const state = result?._execution?.state
+    if (labels[state]) return labels[state]
+    result = result?.output ?? result?.stdout ?? result?.result
+    if (result === undefined) break
+  }
   if (streaming && block.status === 'running') return '执行中'
   if (getBaseToolName(block.name) === 'webcli_route') {
     try {
@@ -145,5 +159,6 @@ export function getToolExecStatusText(block, streaming = false) {
     if (block.status === 'failed') return '已失败'
     if (block.status === 'cancelled') return '已取消'
   }
-  return '已执行'
+  if (['Bash', 'PowerShell'].includes(getBaseToolName(block.name)) || isWeWorkerShellToolName(block.name)) return '命令已结束'
+  return '调用已结束'
 }

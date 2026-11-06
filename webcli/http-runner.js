@@ -4,6 +4,7 @@ import { readPackageDirectory, adapterError } from './adapter-package-files.js';
 import { validateHttpContract } from './http-contract.js';
 import { createHttpClient } from './http-client.js';
 import { httpWorkerMain } from './http-worker.js';
+import { hasExecutionPermit, isControlled } from './write-confirmation.js';
 
 const fail = (code, message) => adapterError('HTTP_' + code, message);
 
@@ -32,7 +33,10 @@ export async function runHttpTool(match, args = {}, options = {}) {
   if (!command || command.runtime !== 'http') throw fail('COMMAND_UNAVAILABLE', 'HTTP command is unavailable.');
   validateHttpContract(command);
   args = normalizeHttpArguments(args, command.schema);
-  if (!options.mockRequest && (command.requires_confirmation || command.safety === 'write') && args.__confirmed !== true) throw fail('CONFIRMATION_REQUIRED', 'Explicit confirmation is required for this command.');
+  if (!options.mockRequest && isControlled(command) && !hasExecutionPermit(options.permit, match, args)) throw fail('CONFIRMATION_REQUIRED', 'Submit this operation through the host confirmation flow.');
+  // Compatibility for already-generated handlers. Only an in-process capability
+  // can reach this point; caller flags never authorize execution.
+  if (!options.mockRequest && isControlled(command)) args = { ...args, __confirmed: true };
   if (options.signal?.aborted) throw fail('ABORTED', 'HTTP operation cancelled.');
   const controller = new AbortController();
   // The mock transport exists only in the host verifier. It receives no auth

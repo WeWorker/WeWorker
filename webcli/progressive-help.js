@@ -4,7 +4,7 @@ import { formatCallOutput } from './output-format.js';
 function schemaToParams(schema) {
   const properties = schema?.properties || {};
   const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
-  return Object.entries(properties).map(([name, property]) => ({
+  return Object.entries(properties).filter(([name]) => name !== '__confirmed').map(([name, property]) => ({
     name,
     type: Array.isArray(property?.enum) ? "enum" : property?.type || "string",
     description: property?.description || "",
@@ -148,7 +148,7 @@ export function renderCommandHelp(adapterModel, command) {
   });
   lines.push(`  ${'-h, --help'.padEnd(width)}  Show help`);
   if (command.safety && command.safety !== 'read') lines.push('', `Safety: ${command.safety}`);
-  if (command.requires_confirmation !== undefined) lines.push(`Confirmation: ${command.requires_confirmation ? 'required' : 'not required'}`);
+  if (command.requires_confirmation !== undefined || command.safety === 'write') lines.push(`Confirmation: ${(command.requires_confirmation ?? command.safety === 'write') ? 'host-managed; submit business arguments once and wait for the host review' : 'no additional prompt under this tool policy'}. Do not add confirmation flags. Never replay an unknown write outcome.`);
   lines.push(`Runtime: ${RUNTIME_LABEL[command.runtime] || command.runtime}`);
   if (command.execution?.runtime === 'background') lines.push('Execution: background API');
   lines.push('', 'Examples:', `  webcli call ${command.name}${params.filter(p => p.required).map(p => ` --${p.name}=<${p.type}>`).join('')}`);

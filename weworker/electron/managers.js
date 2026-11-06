@@ -5,7 +5,8 @@ import os from 'os'
 import { Socket } from 'net'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { app, utilityProcess } from 'electron'
+import { app, utilityProcess, dialog } from 'electron'
+import { attachWriteConfirmation } from './write-confirmation.js'
 import { buildAdapterEnvironment } from './adapter-environment.js'
 import {
   formatProcessExitCode,
@@ -140,7 +141,7 @@ export class BridgeManager {
         'start',
       ]
       this._process = spawn(cmd, args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         detached: false,
         env: bridgeEnv,
       })
@@ -180,6 +181,8 @@ export class BridgeManager {
       this._process.on('exit', (code) => this._handleBridgeExit(code))
     }
 
+    const confirmationChild = this._process
+    attachWriteConfirmation(confirmationChild, { dialog, isCurrent: () => this._process === confirmationChild && !this._stopping })
     try {
       await waitForPort(3711, 10000)
       this._status = 'running'

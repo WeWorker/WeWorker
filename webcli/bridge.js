@@ -16,6 +16,7 @@ import { usesWorkflowControl } from './page-workflow-control.js';
 import { WebSocketServer } from "ws";
 import { EventEmitter } from "events";
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { WriteConfirmationCoordinator, isControlled, needsConfirmation, fingerprint, hasExecutionPermit, markHostPreflightError } from './write-confirmation.js';
 import { BrowserProfiles, profileError } from './browser-profiles.js';
 import { usesNavigationQuery, usesNavigationHash } from './page-navigation-parameters.js';
 import { GenerationRunStore } from './generation-harness/run-store.js';
@@ -542,8 +543,11 @@ export class WebSocketBridge extends EventEmitter {
     host = DEFAULT_INSTANCE.bindHost,
     instanceKind = DEFAULT_INSTANCE.kind,
     serviceTokenHash = null,
+    confirmWrite,
   } = {}) {
     super();
+    this._writeConfirmations = new WriteConfirmationCoordinator({ confirm: confirmWrite });
+    this._writeInvocation = new AsyncLocalStorage();
     this._port = port;
     this._host = host;
     this._instanceKind = instanceKind;
@@ -719,6 +723,10 @@ export class WebSocketBridge extends EventEmitter {
               if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result') {
                 // 来自Chrome扩展的消息
                 this._handleExtensionMessage(msg, ws);
+              } else if (msg.type === 'manual_call_tool' && ws._browserConnection) {
+                // The extension UI submits a proposal, never an approval. The
+                // native host reviews the same resolved request as chat calls.
+                this._handleClientRequest({ ...msg, type: 'call_tool' }, ws);
               } else if (msg.type === 'profile_command') {
                 this._handleProfileCommand(msg, ws);
               } else if (msg.type === 'exploration_command') {
@@ -954,6 +962,7 @@ export class WebSocketBridge extends EventEmitter {
           externallyBusy: tabId => route.connection?.instance === 'dedicated' && !!this._browserHost?.leases.hasTab(tabId),
         }));
         return new Service({ rootDir: this._profiles.serviceRoot(route, namespace), readOnly: route.readOnly,
+          confirmWrite: this._writeConfirmations.confirm,
           tabLocks: this._profileLocks.get(route.contextId), requestExtension: (message, timeout) => this._request(message, timeout),
           capabilities: () => {
             const current = this._route.getStore();
@@ -973,7 +982,7 @@ export class WebSocketBridge extends EventEmitter {
       if (namespace === 'exploration' && (msg.args?.mode === 'http' || /^http-[a-f0-9-]{36}$/.test(msg.args?.taskId || ''))) {
         const key = 'host:exploration';
         if (!this._services.has(key)) this._services.set(key, import('./exploration-service.js').then(({ ExplorationService }) =>
-          new ExplorationService({ mode: 'http', rootDir: path.join(this._profiles.workspaceDir, 'http-exploration') })).catch(error => { this._services.delete(key); throw error; }));
+          new ExplorationService({ mode: 'http', confirmWrite: this._writeConfirmations.confirm, rootDir: path.join(this._profiles.workspaceDir, 'http-exploration') })).catch(error => { this._services.delete(key); throw error; }));
         result = { ...await (await this._services.get(key)).execute(msg.command, msg.args), contextId: null, connectionId: null };
         this._reply(ws, { type: namespace + '_command_result', id: msg.id, result });
         return;
@@ -1111,13 +1120,24 @@ export class WebSocketBridge extends EventEmitter {
       process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 收到调用: ${toolName}\n`);
 
       try {
-        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId });
-        this._reply(ws, { type: 'call_tool_result', id, result, traceID });
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        ws.once?.('close', cancel);
+        let execution;
+        try {
+          const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId,
+            signal: controller.signal, onExecution: status => {
+              execution = status;
+              this._reply(ws, { type: 'write_execution_event', id, execution: status });
+            } });
+          this._reply(ws, { type: 'call_tool_result', id, result, traceID, ...(execution ? { execution } : {}) });
+        } finally { ws.off?.('close', cancel); }
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用成功: ${toolName} (${callTiming ? Date.now() - callTiming.entry.receivedAt : '?'}ms)\n`);
       } catch (err) {
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用失败: ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
         this._reply(ws, {
           type: 'call_tool_error', id, error: err.message, traceID,
+          ...(err.execution ? { execution: err.execution } : {}),
           ...(typeof err.code === 'string' && err.code ? { code: err.code } : {}),
           ...(err.code === 'HOST_CLI_REQUIRED_FIELDS' && safeRequiredFields(err.details) ? { details: safeRequiredFields(err.details) } : {}),
           ...(hostArgumentDiagnostic(err) ? { details: hostArgumentDiagnostic(err).details } : {}),
@@ -1700,7 +1720,7 @@ export class WebSocketBridge extends EventEmitter {
       const timing = this._callTimings.get(msg.traceID);
       if (timing) timing.dispatchedAt = Date.now();
     }
-    const logMessage = ['http_credentials', 'host_cli_cookies', 'browser_execute', 'exploration_observe_page', 'exploration_intercept_read', 'exploration_page_query', 'exploration_page_write'].includes(msg.type) ? { type: msg.type, command: msg.command, id: msg.id, tabId: msg.tabId }
+    const logMessage = ['call_tool', 'write_account_context', 'http_credentials', 'host_cli_cookies', 'browser_execute', 'exploration_observe_page', 'exploration_intercept_read', 'exploration_page_query', 'exploration_page_write'].includes(msg.type) ? { type: msg.type, command: msg.command, id: msg.id, tabId: msg.tabId }
       : msg.type === 'validate_generation_preview' ? { type: msg.type, id: msg.id, tabId: msg.tabId,
         expectedToolCount: msg.expectedToolNames?.length || 0, testCaseCount: msg.testCases?.length || 0 } : msg;
     process.stderr.write(`[${ts()}] [Bridge] -> extension: ${JSON.stringify(logMessage).substring(0, 200)}\n`);
@@ -1736,6 +1756,8 @@ export class WebSocketBridge extends EventEmitter {
           const response = named
             ? await this._request({ type: 'http_credentials', payload: { url: url.href, names: request.names } }, 10000)
             : await this._request({ type: 'host_cli_cookies', parentId: msg.parentId, payload: { url: url.href } }, 10000);
+          const account = this._pendingRequests.get(msg.parentId)?.hostCall?.account;
+          if (account && await this._writeAccountContext(selected) !== account) throw Object.assign(new Error('Account context changed.'), { code: 'HOST_CLI_CONTEXT_INVALID' });
           return response.cookies;
         },
       });
@@ -1760,7 +1782,12 @@ export class WebSocketBridge extends EventEmitter {
       };
       const diagnostic = hostArgumentDiagnostic(error);
       const pending = this._pendingRequests.get(msg.parentId);
-      if (diagnostic && pending?.ws === ws && !pending.hostWriteDispatched) pending.hostArgumentError = error;
+      if (pending?.ws === ws && !pending.hostWriteDispatched) {
+        if (diagnostic) pending.hostArgumentError = markHostPreflightError(error);
+        else if (code === 'HOST_CLI_REQUIRED_FIELDS' && safeRequiredFields(error.details)) {
+          pending.hostArgumentError = markHostPreflightError(Object.assign(new Error(messages[code]), { code, details: safeRequiredFields(error.details) }));
+        }
+      }
       const details = diagnostic?.details || (code === 'HOST_CLI_REQUIRED_FIELDS' ? safeRequiredFields(error.details) : undefined);
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: false, code,
         error: diagnostic?.message || (Object.hasOwn(messages, code) ? messages[code] : 'Host CLI request failed.'), ...(details ? { details } : {}) }));
@@ -1812,7 +1839,7 @@ export class WebSocketBridge extends EventEmitter {
       pending = { resolve, reject, traceID, raw, timer, ws: connection.ws, controller,
         detachClient: () => client?.off?.('close', onClientClose),
         ...(msg.type === 'call_tool' && msg.adapterSnapshot ? { hostCall: { toolName: msg.toolName, snapshot: msg.adapterSnapshot,
-          originalArgs } } : {}) };
+          originalArgs, permit: this._writeInvocation?.getStore()?.permit, account: this._writeInvocation?.getStore()?.account } } : {}) };
       this._pendingRequests.set(id, pending);
       client?.once?.('close', onClientClose);
       if (typeof client?.readyState === 'number' && client.readyState !== 1) { onClientClose(); return; }
@@ -1836,7 +1863,21 @@ export class WebSocketBridge extends EventEmitter {
     // 埋点只记元数据，绝不阻塞调用（reportMetric 内部 fire-and-forget 且静默失败）。
     const t0 = Date.now();
     try {
-      const result = await this._callToolWithLogin(toolName, args, traceID, adapterSnapshot, options);
+      const selected = resolveAdapterCall(toolName);
+      let result;
+      if (selected && isControlled(selected.command)) {
+        if (adapterSnapshot && fingerprint(adapterSnapshot) !== fingerprint(selected.snapshot)) throw Object.assign(new Error('Adapter changed before submission.'), { code: 'WRITE_CONTEXT_CHANGED' });
+        const route = this._route?.getStore();
+        const scope = { profile: route?.contextId || 'host', connection: route?.connection?.connectionId || null };
+        const completed = await this._writeConfirmations.run({ selected, args: args || {}, scope,
+          signal: options.signal, notify: options.onExecution,
+          resolve: () => resolveAdapterCall(toolName), context: () => this._writeAccountContext(selected),
+          execute: invocation => this._writeInvocation.run(invocation, () => this._callToolInner(toolName,
+            { ...invocation.args, ...(needsConfirmation(selected.command) ? { __confirmed: true } : {}) }, traceID, selected.snapshot, options.workId)),
+        });
+        options.onExecution?.(completed.execution);
+        result = completed.result;
+      } else result = await this._callToolWithLogin(toolName, args, traceID, adapterSnapshot, options);
       const transformed = this._extractQrcodeToFile(result);
       reportMetric(this._metricsCfg, toolName, true, Date.now() - t0, traceID, null);
       return transformed;
@@ -1844,6 +1885,19 @@ export class WebSocketBridge extends EventEmitter {
       reportMetric(this._metricsCfg, toolName, false, Date.now() - t0, traceID, err);
       throw err;
     }
+  }
+
+  async _writeAccountContext(selected) {
+    const command = selected.command, auth = command.http?.auth;
+    const credentials = auth ? Object.fromEntries(['env', 'usernameEnv', 'passwordEnv'].filter(key => auth[key]).map(key => [key, process.env[auth[key]] || null])) : {};
+    if (command.runtime === 'http' && !command.http.cookies) return fingerprint(credentials);
+    const connection = this._currentConnection();
+    if (!connection?.capabilities?.includes('write_confirmation_v1')) throw Object.assign(new Error('Reload the browser extension before submitting writes.'), { code: 'WRITE_CONTEXT_UNAVAILABLE' });
+    const state = await this._request({ type: 'write_account_context' }, 10_000);
+    if (!/^[a-f0-9]{64}$/.test(state?.fingerprint || '')) throw new Error('Account context is unavailable.');
+    const invocation = this._writeInvocation?.getStore();
+    if (invocation) invocation.cookieFingerprint = state.fingerprint;
+    return fingerprint({ credentials, cookies: state.fingerprint, connection: connection.connectionId });
   }
 
   /**
@@ -2142,18 +2196,22 @@ export class WebSocketBridge extends EventEmitter {
       || adapterSnapshot.digest !== selected.snapshot.digest || adapterSnapshot.profile !== selected.snapshot.profile)) {
       throw new Error('Adapter changed since this call started; refresh the catalog.');
     }
-    if ((selected?.command.requires_confirmation ?? selected?.command.safety === 'write') && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
+    const invocation = this._writeInvocation?.getStore();
+    if (selected && isControlled(selected.command) && !hasExecutionPermit(invocation?.permit, selected, args || {})) throw Object.assign(new Error('Submit this operation through the host confirmation flow.'), { code: 'WRITE_CONFIRMATION_REQUIRED' });
     if (selected?.command.runtime === 'http') {
       const { runHttpTool } = await import('./http-runner.js');
       const completed = await runHttpTool(selected, args || {}, { traceID,
+        permit: invocation?.permit, signal: invocation?.signal, beforeDispatch: invocation?.markDispatched,
         resolveCookies: async payload => {
           const result = await this._request({ type: 'http_credentials', payload }, 10_000);
+          if (invocation && await this._writeAccountContext(selected) !== invocation.account) throw Object.assign(new Error('Account changed before submission.'), { code: 'WRITE_CONTEXT_CHANGED' });
           return result.cookies;
         },
       });
       return completed.result;
     }
     if (selected?.command.runtime === 'wewright') {
+      invocation?.markDispatched();
       const { runToolkitTool } = await import('./toolkit-runner.js');
       const completed = await runToolkitTool({
         adapter: { root: selected.adapter.root, entryPath: path.join(selected.adapter.root, selected.command.module) },
@@ -2192,7 +2250,12 @@ export class WebSocketBridge extends EventEmitter {
     if (selected?.command.pageWrite && !this._extensionCapabilities?.includes('page_write_v1')) throw new Error('Reload the browser extension before calling page writes.');
     if (selected?.command.pageStrategy === 'INTERCEPT' && !this._extensionCapabilities?.includes('intercept_read_v1')) throw new Error('Reload the browser extension before calling intercepted page queries.');
     const timeout = resolveToolCallTimeout(toolName);
-    return this._request({ type: "call_tool", toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) }, timeout, traceID);
+    if (invocation) {
+      if (await this._writeAccountContext(selected) !== invocation.account) throw Object.assign(new Error('Account changed before submission.'), { code: 'WRITE_CONTEXT_CHANGED' });
+      invocation.markDispatched(); // Conservative boundary: Adapter code can perform effects.
+    }
+    return this._request({ type: "call_tool", toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}),
+      ...(invocation?.cookieFingerprint ? { writeAccountFingerprint: invocation.cookieFingerprint } : {}), ...(workId ? { workId } : {}) }, timeout, traceID);
   }
 
   async getPageState(tabId = null) {

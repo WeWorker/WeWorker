@@ -23,7 +23,7 @@ describe("v2CommandDef", () => {
       safety: "read",
       name: "demo.list-metrics",
       description: "查询指标",
-      parameters: { type: "object", properties: { mode: { type: "string" } }, required: ["mode"] },
+      parameters: { type: "object", properties: { mode: { type: "string" } }, required: ["mode"], 'x-webcli-host-confirmation': true },
       requires_confirmation: false,
       adapterId: "demo",
       routeDomain: "demo.example.com",

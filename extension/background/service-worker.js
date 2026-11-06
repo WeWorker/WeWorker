@@ -1,4 +1,5 @@
 import { uiWriteRequest } from './ui-write.js';
+import { writeAccountContext, assertWriteAccount } from './write-account-context.js';
 import { usesBackgroundExecution } from './conditional-execution.js';
 import { browserContextId } from './browser-profile.js';
 import { readHttpCookies, readHostCliCookies } from './http-credentials.js';
@@ -95,6 +96,7 @@ const EXTENSION_CAPABILITIES = [
   'http_credentials_v1',
   'http_credentials_v2',
   'host_cli_cookies_v1',
+  'write_confirmation_v1',
   'browser_frames_v1',
   'browser_downloads_v1',
   'browser_frame_pointer_v1',
@@ -2743,6 +2745,8 @@ async function handleNativeMessageInternal(msg) {
     || msg.type === "wecli_backend_xlsx_read_result"
     || msg.type === "wecli_backend_file_write_result"
     || msg.type === "wecli_host_cli_result"
+    || msg.type === "call_tool_result"
+    || msg.type === "call_tool_error"
   ) {
     const pending = pendingWriteRequests.get(msg.id);
     if (pending) {
@@ -2815,10 +2819,11 @@ async function handleNativeMessageInternal(msg) {
         throw new Error('Adapter changed since this call started; refresh the catalog.');
       }
       if (selected.managed) {
+        await assertWriteAccount(msg.writeAccountFingerprint);
         if (selected.command.runtime !== 'extension') throw new Error('This command requires the host Toolkit runtime.');
         if ((selected.command.pageWrite || selected.command.uiWrite || (selected.command.requires_confirmation ?? selected.command.safety === 'write')) && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
         if (usesBackgroundExecution(selected.command, args || {})) {
-          const result = await callManagedBackgroundTool(selected.manifest, selected.command, args || {}, traceID, msg.id);
+          const result = await callManagedBackgroundTool(selected.manifest, selected.command, args || {}, traceID, msg.id, msg.writeAccountFingerprint);
           sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID });
           return;
         }
@@ -3049,10 +3054,14 @@ async function handleNativeMessageInternal(msg) {
       sendToNative({ type: 'call_tool_error', id: msg.id, error: err.message });
     }
 
+  } else if (msg.type === 'write_account_context') {
+    try { sendToNative({ type: 'call_tool_result', id: msg.id, result: await writeAccountContext() }, true); }
+    catch { sendToNative({ type: 'call_tool_error', id: msg.id, error: 'Account context is unavailable.', code: 'WRITE_CONTEXT_UNAVAILABLE' }); }
   } else if (msg.type === 'host_cli_cookies') {
     try {
       const context = getManagedBackgroundRuntime().hostCookieContext(msg.parentId);
       if (!context) throw new Error('Host invocation is unavailable.');
+      await assertWriteAccount(context.writeAccountFingerprint);
       const result = await readHostCliCookies(chrome, msg.payload, context.routeDomain, context.credentialHosts);
       // Do not send credentials after the original invocation has ended.
       if (!getManagedBackgroundRuntime().hostCookieContext(msg.parentId)) throw new Error('Host invocation is unavailable.');
@@ -6502,8 +6511,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "test_call_tool") {
-    callToolInTab(msg.tabId, msg.toolName, msg.args)
-      .then(result => sendResponse({ result }))
+    if (sender.id !== chrome.runtime.id || !['popup/popup.html', 'sidepanel/sidepanel.html'].some(path => sender.url === chrome.runtime.getURL(path))) {
+      sendResponse({ error: 'Manual tool execution is only available in the extension popup.' }); return;
+    }
+    (async () => {
+      const selected = await getHostAdapterClient().tool(msg.toolName);
+      if (selected.managed) return requestBridge({ type: 'manual_call_tool', toolName: msg.toolName, args: msg.args }, 8 * 60_000, '结果未知，请先检查目标状态，不要重复提交。');
+      return { result: await callToolInTab(msg.tabId, msg.toolName, msg.args) };
+    })()
+      .then(result => sendResponse(result))
       .catch(err => sendResponse({ error: err.message }));
     return true;
   }
@@ -7341,11 +7357,11 @@ function assertManagedRuntimeRequest(action, payload, context) {
   }
 }
 
-async function callManagedBackgroundTool(manifest, command, args, traceID, hostCallId = null) {
+async function callManagedBackgroundTool(manifest, command, args, traceID, hostCallId = null, writeAccountFingerprint = null) {
   const routeDomain = adapterPrimaryHost(manifest);
   const declaredHosts = adapterHelperPatterns(manifest);
   const context = { adapterId: manifest.name, routeDomain, tabDomain: routeDomain, traceID, hostCallId,
-    declaredHosts,
+    declaredHosts, writeAccountFingerprint,
     allowedHosts: declaredHosts.map(host => host.replace(/^\*\./, '')) };
   // The runtime owns the shared queue. Set global legacy helper context only
   // while its queued task runs, including settlement of in-flight helpers.

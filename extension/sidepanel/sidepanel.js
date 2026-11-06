@@ -2160,13 +2160,16 @@ async function executeCurrentTool() {
       let val = parseToolFieldValue(input);
       if (val !== undefined && val !== '') args[key] = val;
     }
-    if (!confirmToolExecution(currentTool, args)) return;
-    if (toolRequiresConfirmation(currentTool)) args.__confirmed = true;
-    btn.disabled = true; btn.textContent = '执行中...'; resultEl.hidden = true;
+    if (!currentTool.parameters?.['x-webcli-host-confirmation']) {
+      if (!confirmToolExecution(currentTool, args)) return;
+      if (toolRequiresConfirmation(currentTool)) args.__confirmed = true;
+    }
+    btn.disabled = true; btn.textContent = '等待宿主处理 / 确认...'; resultEl.hidden = true;
     const r = await chrome.runtime.sendMessage({ type: 'test_call_tool', tabId: currentTabId, toolName: currentTool.name, args });
     resultEl.hidden = false;
-    resultEl.className = r.error ? 'result-box result-error' : 'result-box result-success';
-    resultEl.textContent = r.error ? `错误：${r.error}` : JSON.stringify(r.result, null, 2);
+    const states = { cancelled: '已取消', not_submitted: '尚未提交', unknown: '结果未知', failed: '执行失败', succeeded: '执行成功' };
+    resultEl.className = r.error || r.execution?.state === 'failed' ? 'result-box result-error' : 'result-box result-success';
+    resultEl.textContent = `${states[r.execution?.state] || '调用完成'}\n${r.error || JSON.stringify(r.result, null, 2)}`;
   } catch (e) { resultEl.hidden = false; resultEl.className = 'result-box result-error'; resultEl.textContent = e.message; }
   finally { btn.disabled = false; btn.textContent = '执行'; }
 }
