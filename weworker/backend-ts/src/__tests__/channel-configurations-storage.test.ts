@@ -40,3 +40,38 @@ it('encrypts every instance, retains legacy saves and persists deletions without
     expect(fs.readFileSync(diskPath, 'utf8')).not.toContain(second.id)
   } finally { home.mockRestore(); setMasterKeyForTests(null); config.resetSettingsStateForTests(); vi.resetModules() }
 })
+
+it('persists WeCom pairing across restart and leaves the owner unbound when saving fails', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-pairing-fixture-'))
+  const home = vi.spyOn(os, 'homedir').mockReturnValue(root)
+  vi.resetModules()
+  const config = await import('../config.js')
+  const { setMasterKeyForTests } = await import('../secret-store.js')
+  const { changeChannelConfiguration } = await import('../channels/channel-configurations.js')
+  const { createWecomOwnerPairing } = await import('../channels/wecom-owner-pairing.js')
+  setMasterKeyForTests('0123456789abcdef0123456789abcdef')
+  let writer: ReturnType<typeof vi.spyOn> | undefined
+  try {
+    const identity = { bot_id: 'fixture-bot', secret: 'fixture-secret', enabled: true }
+    const added = changeChannelConfiguration(config.getSettings(), 'wecom', 'add')
+    config.updateSettings(added.updates)
+    let state = config.updateSettings(changeChannelConfiguration(config.getSettings(), 'wecom', 'save', added.id, identity).updates)
+    const code = state.channels.wecom.pairing_code
+    config.resetSettingsStateForTests()
+    expect(config.getSettings().channels.wecom.pairing_code).toBe(code)
+    const authorize = createWecomOwnerPairing(identity)
+    const original = fs.writeFileSync
+    writer = vi.spyOn(fs, 'writeFileSync').mockImplementation((...args: Parameters<typeof fs.writeFileSync>) => {
+      if (String(args[0]).endsWith('settings.json')) throw new Error('fixture write failure')
+      return original(...args)
+    })
+    expect(authorize('fixture-owner', `绑定 ${code}`, 'single')).toMatchObject({ kind: 'reply', text: expect.stringContaining('失败') })
+    expect(config.getSettings().channels.wecom.owner_user_id).toBe('')
+    writer.mockRestore()
+    expect(authorize('fixture-owner', `绑定 ${code}`, 'single')).toMatchObject({ ownerPaired: true })
+    config.resetSettingsStateForTests()
+    state = config.getSettings()
+    expect(state.channels.wecom).toMatchObject({ owner_user_id: 'fixture-owner', pairing_code: '', secret: 'fixture-secret' })
+    expect(state.channel_configurations![added.id].config.owner_user_id).toBe('fixture-owner')
+  } finally { writer?.mockRestore(); home.mockRestore(); setMasterKeyForTests(null); config.resetSettingsStateForTests(); vi.resetModules() }
+})
