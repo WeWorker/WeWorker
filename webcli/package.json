@@ -9,6 +9,11 @@
   },
   "files": [
     "index.js",
+    "host-client.js",
+    "host-call.js",
+    "host-runtime.js",
+    "host-helpers.js",
+    "host-page.js",
     "npm-entry.js",
     "npm-environment.js",
     "npm-metrics.js",
