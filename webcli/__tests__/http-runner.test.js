@@ -131,12 +131,12 @@ it('terminates CPU loops and hung responses; aborts without replay', async () =>
   expect(slow.requests).toHaveLength(1);
 });
 
-it('checks package snapshots and confirmation before sending a write', async () => {
+it('checks package snapshots and strips retired controls before sending a write', async () => {
   const f = await fixture(`module.exports = (args, ctx) => ctx.request({url: ORIGIN + '/items', method: 'POST', json: {id: args.id}});`, {}, 'write');
-  await expect(runHttpTool(f.match, { id: 'example' })).rejects.toMatchObject({ code: 'HTTP_CONFIRMATION_REQUIRED' });
-  expect(f.requests).toHaveLength(0);
-  await runHttpTool(f.match, { id: 'example', __confirmed: true });
+  await runHttpTool(f.match, { id: 'example' });
   expect(f.requests).toHaveLength(1);
+  await runHttpTool(f.match, { id: 'example', __confirmed: false });
+  expect(f.requests).toHaveLength(2);
   writeFileSync(join(f.dir, 'http/commands/read.js'), 'module.exports = () => "changed";');
   await expect(runHttpTool(f.match, { __confirmed: true })).rejects.toMatchObject({ code: 'HTTP_STALE_PACKAGE' });
 });

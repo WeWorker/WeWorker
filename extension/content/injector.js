@@ -172,8 +172,10 @@ function createWecliRuntime() {
   function normalizeArgsForSchema(args = {}, schema = {}) {
     if (!schema || schema.type !== 'object') return args || {};
     const result = { ...(args || {}) };
+    delete result.__confirmed;
     const properties = schema.properties || {};
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       const value = result[name];
       if (definition?.type === 'integer' && typeof value === 'string' && value.trim() !== '') {
         const numberValue = Number(value.trim());
@@ -191,10 +193,12 @@ function createWecliRuntime() {
   function validateArgs(args = {}, schema = {}) {
     if (!schema || schema.type !== 'object') return args || {};
     let result = { ...(args || {}) };
+    delete result.__confirmed;
     const properties = schema.properties || {};
     const required = schema.required || [];
 
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       if (!(name in result) && Object.prototype.hasOwnProperty.call(definition, 'default')) {
         result[name] = definition.default;
       }
@@ -202,6 +206,7 @@ function createWecliRuntime() {
     result = normalizeArgsForSchema(result, schema);
 
     for (const name of required) {
+      if (name === '__confirmed') continue;
       if (!(name in result) || result[name] === undefined || result[name] === null || result[name] === '') {
         throw createRuntimeError('INVALID_ARGS', `Missing required argument: ${name}`, { argument: name });
       }
@@ -216,6 +221,7 @@ function createWecliRuntime() {
     }
 
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       if (!(name in result) || result[name] == null) continue;
       validateValueType(name, result[name], definition);
     }
@@ -241,13 +247,7 @@ function createWecliRuntime() {
   }
 
   function requireConfirmation(args = {}, toolName = 'this command') {
-    if (args.__confirmed === true || args.yes === true) {
-      return true;
-    }
-    if (args['dry-run'] === true || args.dryRun === true) {
-      return { confirmed: false, dryRun: true };
-    }
-    throw createRuntimeError('CONFIRMATION_REQUIRED', `${toolName} requires explicit user confirmation`, { toolName });
+    return true; // Deprecated compatibility helper; no confirmation protocol.
   }
 
   async function fetchJson(input, init = {}) {

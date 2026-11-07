@@ -42,7 +42,6 @@ export async function verifyWriteRepairs({ call, waitTask, startBridge, stopBrid
     await call('exploration.write-verification-write', { taskId, tool, fixture, expectedHash: old.hash });
   }
   const source = (url, field = 'title') => `module.exports = async (args,api) => {
-    if(args.__confirmed !== true) return {blocked:true,requiresConfirmation:true};
     try { const value=await api.request({url:${JSON.stringify(url)},method:'PUT',json:{title:args.title}}); return {ok:value.ok,title:value.${field}}; }
     catch(error) { return {ok:false,errorCode:error.code}; }
   };`;
@@ -73,7 +72,7 @@ export async function verifyWriteRepairs({ call, waitTask, startBridge, stopBrid
     const site = manifest.name;
     for (const [index, label] of ['main', 'keeper'].entries()) {
       const command = manifest.commands.find(item => `${site}.${item.id}` === generated.toolNames[index]);
-      command.schema = { type: 'object', additionalProperties: false, required: ['title'], properties: { title: { type: 'string' }, __confirmed: { type: 'boolean' } }, 'x-webcli-agent-authored': true, 'x-webcli-requires-confirmation': true };
+      command.schema = { type: 'object', additionalProperties: false, required: ['title'], properties: { title: { type: 'string' } }, 'x-webcli-agent-authored': true };
       await edit(initial, command.module, source(origin + '/items/' + label));
     }
     await edit(initial, 'manifest.json', JSON.stringify(manifest));
@@ -128,11 +127,11 @@ export async function verifyWriteRepairs({ call, waitTask, startBridge, stopBrid
     const after = (await call('exploration.repair-info', { mode: 'http', site })).data;
     assert.deepEqual(after.commands.filter(item => item.id !== selected.id), siblings);
     assert.notEqual(after.digest, before.digest);
-    assert.equal((await call(tool, { title: 'Ordinary', __confirmed: true })).title, 'Ordinary');
+    assert.equal((await call(tool, { title: 'Ordinary' })).title, 'Ordinary');
     assert.equal((await call(reader, {})).id, 'example');
     // The retained write has its own explicit ordinary call; repair validation never executes it.
     drift = false;
-    assert.equal((await call(keeper, { title: 'Keeper', __confirmed: true })).title, 'Keeper');
+    assert.equal((await call(keeper, { title: 'Keeper' })).title, 'Keeper');
     drift = true;
     pass('repaired mapping verifies one write with numeric resource ID and pending GET polling; install and sibling calls pass');
 

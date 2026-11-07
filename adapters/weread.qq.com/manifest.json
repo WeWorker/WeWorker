@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "weread.qq.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "微信读书：书籍搜索/详情、书架、划线笔记、排行榜和登录检查",
   "homepage_url": "https://weread.qq.com/",
@@ -121,7 +121,6 @@
       "routeDomain": "weread.qq.com",
       "description": "Open the weread login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},

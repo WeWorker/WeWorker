@@ -39,7 +39,7 @@ describe('Xiaohongshu v2 migration contracts', () => {
     expect(s.pkg.commands).toHaveLength(32);
     expect(s.ctx.__xhsOpenCLI.commands.size).toBe(25);
     expect(managedAdapterSkill({ ...s.pkg.manifest, id: s.pkg.manifest.name, tools: [], guidance: readFileSync(resolve(base, 'guidance.md'), 'utf8') })).toContain('xsec_token');
-    for (const cmd of s.pkg.commands.filter(c => c.safety === 'write' && !['like-note', 'favorite-note'].includes(c.id))) expect(cmd.requires_confirmation).toBe(true);
+    for (const cmd of s.pkg.commands.filter(c => c.safety === 'write' && !['like-note', 'favorite-note'].includes(c.id))) expect(cmd.requires_confirmation).toBeUndefined();
     expect(s.pkg.manifest.verified_on).toBeUndefined();
   });
   it('continues a read after host navigation without evaluating the wrong page', async () => {
@@ -57,10 +57,10 @@ describe('Xiaohongshu v2 migration contracts', () => {
       expect(s.calls.filter(x => x.action === 'main_world_eval')).toHaveLength(0);
     }
   });
-  it.each(['publish', 'delete-note', 'draft-clear', 'follow', 'ask'])('guards %s before helper calls', async name => {
+  it.each(['delete-note', 'draft-clear', 'follow', 'ask'])('prepares %s without a generic confirmation marker', async name => {
     const s = setup();
-    await expect(s.run(name, { title: 'Fixture', content: 'Body', query: 'Fixture', 'note-id': ID, 'user-id': ID })).rejects.toThrow();
-    expect(s.calls).toHaveLength(0);
+    expect(await s.run(name, { title: 'Fixture', content: 'Body', query: 'Fixture', 'note-id': ID, 'user-id': ID })).toMatchObject({ __webcli_navigation: { resume: false } });
+    expect(s.calls.filter(x => x.action === 'main_world_eval')).toHaveLength(0);
   });
   it.each([0, -1, 1.2, true, '', '1e2', '101', null])('rejects invalid limits %s before navigation', async limit => {
     const s = setup(); await expect(s.run('search', { query: 'fixture', limit })).rejects.toMatchObject({ code: 'ARGUMENT' }); expect(s.calls).toHaveLength(0);
@@ -218,11 +218,11 @@ describe('Xiaohongshu v2 migration contracts', () => {
     expect((await s.run('like-note', { url: NOTE })).__webcli_navigation).toMatchObject({ resume: false, result: { executed: false } });
     await expect(s.run('favorite-note', { url: 'https://example.org/explore/' + ID })).rejects.toThrow();
   });
-  it('retains idempotent local actions and compatibility confirmation grant', async () => {
+  it('retains idempotent local actions and business-specific confirmation', async () => {
     const s = setup(NOTE); let params;
     s.ctx.__xiaohongshu_com_internal.invoke = async (_, input) => { params = input; return { liked: true, alreadyLiked: true }; };
     expect(await s.run('like-note', { url: NOTE })).toMatchObject({ alreadyLiked: true });
-    expect(params.__confirmed).toBe(true);
+    expect(params.__confirmed).toBeUndefined();
   });
   it('ignores aria-hidden and near-transparent duplicate filter controls', async () => {
     const s = setup(WEB + '/search_result?keyword=fixture&source=web_search_result_notes'); let filterResult;

@@ -1,20 +1,21 @@
-# Adapter command confirmation policy
+# Adapter invocation policy
 
-Command metadata distinguishes data mutation from a second user confirmation:
+Ordinary `webcli call <adapter>.<tool> --key=value` uses business arguments only. CLI, Bridge, HTTP, Extension and Toolkit entrypoints do not implement a second user-confirmation protocol. `safety: "write"` still classifies side effects; it does not require a flag or popup. Execute only the user-requested operation, and clarify ambiguous targets or missing inputs first. A request to preview is not a request to submit.
 
-```json
-{
-  "safety": "write",
-  "requires_confirmation": false
-}
-```
+## Compatibility
 
-The optional boolean `requires_confirmation` defaults to true for writes and false for reads. Set it to false only for commands approved to execute directly when the user requests the action and its parameters are clear. Keep `safety: "write"`; this remains a data-changing command.
+- Old boolean `requires_confirmation` metadata is accepted but has no consent or permission-diff meaning, including `true`.
+- The top-level `__confirmed` argument is discarded, never interpreted as authorization, automatically supplied or passed to business handlers. Nested fields and business `confirm`, `yes`, `execute`, `submit`, `dry-run` options are preserved.
+- Shared `requireConfirmation()` helpers remain inert compatibility exports. Custom handlers with their own old flag checks need migration; the runtime does not rewrite third-party code or inject grants.
+- Discovery/Skills hide the retired controls. Scaffolds and offline verification use business arguments.
+- Exact old declarative page/UI registration stubs and schemas remain loadable; dispatch still uses the validated manifest, not arbitrary author JavaScript.
 
-The policy belongs to the versioned manifest and its content digest, not invocation arguments. CLI, Bridge, Extension routing and v2 bootstrap enforce the selected package policy. Canonical and legacy command names resolve to the same policy. Toolkit commands use the CLI/Bridge gate before entering their existing Runner.
+## Independent protections
 
-With true, obtain confirmation before submission and pass the existing boolean `__confirmed: true`. With false, no second confirmation or manual Execute click is required; callers do not need to supply `__confirmed`. Generated Skills and help expose the policy.
+Package digests, fixed command mappings, parameter validation, account/credential scope, original-call/helper argument binding, cancellation and dispatch-state checks remain. Unknown write outcomes require reconciliation before another write; removing confirmation does not add idempotency or make replay safe.
 
-Changing an installed write command from confirmation-required to false adds an `unconfirmed-write:<command-id>` package permission, using the existing permission-change review mechanism. Builtin changes are reviewed with the source update. Automatically generated write drafts retain the default confirmation policy and their existing verification requirements.
+Business preview/submit controls, Shell/desktop permissions, Adapter installation review and exploration real write-verification/sequence approval remain separate gates. UI result fields named `confirmation` represent business receipts, not user consent.
 
-For explicitly opted-out write commands, the v2 bootstrap passes a fresh argument object with the internal compatibility grant `__confirmed: true` to the handler. This satisfies preserved legacy confirmation guards without changing caller arguments or shared runtime state. Read commands (including conditional write branches) never receive this grant. The field does not bypass business-side approvals, required parameters, login, dry-run controls or business operation selectors such as save versus submit. It also does not authorize actions the user did not request.
+## Validation
+
+Cover omitted/false/true legacy policies/markers, marker stripping, ordinary flags and JSON input, real wrappers with mocked providers, changed arguments, duplicate dispatch and unknown outcomes. Real acceptance uses reads or isolated simulated writes, never unsolicited business releases or approvals.

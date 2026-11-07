@@ -143,14 +143,12 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
         name: command.name, caseId:fixture?.id, httpRuntime: command.runtime === 'http' || Boolean(command.pageWrite || command.uiWrite), writeVerification: command.uiWrite ? { ...fixture, expectedRequest: fixture?.expectedSubmission,
           successResponse: { status: 200 }, successExpectation: uiWriteSuccess, failureResponse: { status: 409 }, failureExpectation: uiWriteFailure } : fixture,
         handler: command.uiWrite ? async args => {
-          if (args.__confirmed !== true) return { blocked: true, requiresConfirmation: true };
           validateUiEffect(command, fixture);
           const request = resolveUiWrite(command, args);
           requests.push(normalizeHttpWriteRequest({ url: request.url, method: request.method, json: request.body }));
           // A model of the declared submission, never a mocked network response.
           return structuredClone(responseSpec.status >= 400 ? uiWriteFailure : uiWriteMockSuccess(command));
         } : command.pageWrite ? async args => {
-          if (args.__confirmed !== true) return { blocked: true, requiresConfirmation: true };
           const request = resolvePageWrite(command, args);
           requests.push(normalizeHttpWriteRequest({ url: request.url, method: request.method, json: request.body }));
           return responseSpec.status >= 400 ? { ok: false, errorCode: 'PAGE_WRITE_HTTP_STATUS' } : structuredClone(responseSpec.body ?? {});
@@ -199,41 +197,21 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
       ? structuredClone(fixture.representativeArgs)
       : {};
 
-    // The verifier, not the model-authored fixture, controls confirmation state.
-    // Check both omission and explicit false so unsafe handler defaults cannot pass.
-    const unconfirmedArgs = structuredClone(representativeArgs);
-    delete unconfirmedArgs.__confirmed;
-    let confirmationPassed = true;
-    for (const args of [unconfirmedArgs, { ...structuredClone(unconfirmedArgs), __confirmed: false }]) {
-      requests.length = 0;
-      let blockedResult;
-      try {
-        blockedResult = await tool.handler(args);
-      } catch (cause) {
-        errors.push(error('WRITE_CONFIRMATION_GUARD_FAILED', `unconfirmed ${tool.name} threw: ${cause.message}`, { toolName: tool.name }));
-        confirmationPassed = false;
-        break;
-      }
-      if (requests.length !== 0 || blockedResult?.blocked !== true || blockedResult?.requiresConfirmation !== true) {
-        errors.push(error('WRITE_IO_BEFORE_CONFIRMATION', `unconfirmed ${tool.name} must block with zero network I/O`, { toolName: tool.name, requestCount: requests.length }));
-        confirmationPassed = false;
-        break;
-      }
-    }
-    if (!confirmationPassed) continue;
+    // Ordinary invocation uses only business arguments, including in offline verification.
+    delete representativeArgs.__confirmed;
 
     requests.length = 0;
     responseSpec = fixture.successResponse || { status: 200, body: {} };
     let successResult;
     try {
-      successResult = await tool.handler({ ...structuredClone(representativeArgs), __confirmed: true });
+      successResult = await tool.handler(structuredClone(representativeArgs));
     } catch (cause) {
-      errors.push(error('WRITE_SUCCESS_CASE_FAILED', `confirmed ${tool.name} success case threw: ${cause.message}`, { toolName: tool.name }));
+      errors.push(error('WRITE_SUCCESS_CASE_FAILED', `${tool.name} success case threw: ${cause.message}`, { toolName: tool.name }));
       continue;
     }
     const observed = requests[requests.length - 1];
     if (requests.length !== Number(fixture.expectedRequestCount || 1) || !(tool.httpRuntime ? compareHttpWriteRequest : compareRequest)(observed, fixture.expectedRequest)) {
-      errors.push(error('WRITE_REQUEST_MISMATCH', `confirmed ${tool.name} request does not match reviewed fixture`, {
+      errors.push(error('WRITE_REQUEST_MISMATCH', `${tool.name} request does not match reviewed fixture`, {
         toolName: tool.name,
         observed,
         expected: fixture.expectedRequest,
@@ -245,7 +223,7 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
     const forbidden = Array.isArray(fixture.forbiddenValues) ? fixture.forbiddenValues.map(String).filter(Boolean) : [];
     const leaked = forbidden.filter((value) => serializedRequest.includes(value));
     if (leaked.length > 0) {
-      errors.push(error('WRITE_CAPTURED_VALUE_LEAK', `confirmed ${tool.name} request contains forbidden captured values`, { toolName: tool.name, leaked }));
+      errors.push(error('WRITE_CAPTURED_VALUE_LEAK', `${tool.name} request contains forbidden captured values`, { toolName: tool.name, leaked }));
       continue;
     }
     if (fixture.successExpectation && !subsetMatches(successResult, fixture.successExpectation)) {
@@ -258,7 +236,7 @@ export async function verifyGeneratedWriteTools({ adapterDir, expectedSiteKey = 
       responseSpec = fixture.failureResponse;
       let failureResult;
       try {
-        failureResult = await tool.handler({ ...structuredClone(representativeArgs), __confirmed: true });
+        failureResult = await tool.handler(structuredClone(representativeArgs));
       } catch (cause) {
         failureResult = { ok: false, error: cause.message };
       }

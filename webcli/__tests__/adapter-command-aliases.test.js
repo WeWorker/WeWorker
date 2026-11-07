@@ -95,15 +95,15 @@ describe('same-package command aliases', () => {
     expect(describeDesktopAdapters().adapters[0].commands[0].aliases).toEqual(['list_items']);
   });
 
-  it('uses the same confirmation gate for aliases and pins forwarded calls', async () => {
+  it('executes canonical names and aliases without confirmation and pins forwarded calls', async () => {
     const installed = install();
     const request = vi.fn().mockResolvedValue('fixture result');
     const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'] };
     const run = (name, args) => WebSocketBridge.prototype._callToolInner.call(bridge, name, args);
     for (const name of ['demo.list-items', 'demo.list_items']) {
-      await expect(run(name, {})).rejects.toThrow(/confirmation/);
+      expect(await run(name, {})).toBe('fixture result');
     }
-    expect(request).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(2);
     expect(await run('demo.list_items', { __confirmed: true })).toBe('fixture result');
     expect(request.mock.calls[0][0].adapterSnapshot.digest).toBe(installed.digest);
   });
@@ -118,8 +118,8 @@ describe('same-package command aliases', () => {
       expect(await WebSocketBridge.prototype._callToolInner.call(bridge, name, { count: '007' })).toBe('done');
     }
     expect(request.mock.calls[0][0].args).toEqual({ count: '007' });
-    expect(managedAdapterView('demo').tools[0]).toMatchObject({ safety: 'write', requires_confirmation: false });
-    expect(managedAdapterSkill(managedAdapterView('demo'))).toContain('Confirmation: not required');
+    expect(managedAdapterView('demo').tools[0]).toMatchObject({ safety: 'write' });
+    expect(managedAdapterSkill(managedAdapterView('demo'))).not.toContain('Confirmation:');
   });
 
   it('routes Toolkit aliases to the canonical module without converting parameters', async () => {
@@ -127,11 +127,11 @@ describe('same-package command aliases', () => {
     pkg.commands[0].runtime = 'wewright'; pkg.commands[0].module = 'wewright/commands/list-items.py';
     const installed = install(pkg);
     const request = vi.fn(), args = { count: '007', __confirmed: true };
-    expect(await WebSocketBridge.prototype._callToolInner.call({ _request: request }, 'demo.list_items', args)).toEqual(args);
+    expect(await WebSocketBridge.prototype._callToolInner.call({ _request: request }, 'demo.list_items', args)).toEqual({ count: '007' });
     const [match, forwarded] = runToolkitTool.mock.calls.at(-1);
     expect(match.adapter.root).toBe(installed.executionRoot);
     expect(match.adapter.entryPath).toBe(join(installed.executionRoot, 'wewright/commands/list-items.py'));
-    expect(forwarded).toBe(args);
+    expect(forwarded).toEqual({ count: '007' });
     expect(request).not.toHaveBeenCalled();
   });
 

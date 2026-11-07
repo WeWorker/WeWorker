@@ -844,7 +844,7 @@ async function readComments(args = {}) {
 }
 
 async function likeNote(args = {}) {
-  const { id = '', url = '', confirm = false, __confirmed = false } = args;
+  const { id = '', url = '', confirm = false } = args;
   const targetUrl = normalizeNoteUrl({ id, url });
   if (!isNotePath() || ((id || url) && !isSameNotePage(targetUrl))) {
     return navigateAndAskRetry(targetUrl, '已打开小红书笔记详情页，请等待页面加载完成后再次调用该工具点赞。');
@@ -862,7 +862,7 @@ async function likeNote(args = {}) {
       url: window.location.href,
     };
   }
-  if (!confirm && __confirmed !== true) {
+  if (!confirm) {
     return {
       changed: false,
       liked: false,
@@ -894,7 +894,7 @@ async function likeNote(args = {}) {
 }
 
 async function favoriteNote(args = {}) {
-  const { id = '', url = '', confirm = false, __confirmed = false } = args;
+  const { id = '', url = '', confirm = false } = args;
   const targetUrl = normalizeNoteUrl({ id, url });
   if (!isNotePath() || ((id || url) && !isSameNotePage(targetUrl))) {
     return navigateAndAskRetry(targetUrl, '已打开小红书笔记详情页，请等待页面加载完成后再次调用该工具收藏。');
@@ -912,7 +912,7 @@ async function favoriteNote(args = {}) {
       url: window.location.href,
     };
   }
-  if (!confirm && __confirmed !== true) {
+  if (!confirm) {
     return {
       changed: false,
       favorited: false,

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "51job.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "前程无忧职位搜索、推荐、详情与公司",
   "match": [

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { businessArgs } from './business-args.js';
 /**
  * WebCLI Adapter — CLI entry point
  *
@@ -983,12 +984,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
   const { resolveAdapterCall } = await import("./adapter-host.js");
   const v2Match = resolveAdapterCall(toolName);
   if (v2Match) {
-    if ((v2Match.command.runtime === 'http' || v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) && (v2Match.command.safety === 'write' || v2Match.command.requires_confirmation) && args.__confirmed !== true) {
-      console.log(formatCallOutput({ error: 'Explicit confirmation is required for this command.', code: (v2Match.command.runtime === 'wewright' || v2Match.command.pageWrite || v2Match.command.uiWrite) ? 'CONFIRMATION_REQUIRED' : 'HTTP_CONFIRMATION_REQUIRED', trace_id: null }, outputFormat));
-      process.exitCode = 1;
-      return;
-    }
-    if ((v2Match.command.requires_confirmation ?? v2Match.command.safety === "write") && args.__confirmed !== true) throw new Error("Explicit confirmation is required for this command.");
+    args = businessArgs(args);
     if (v2Match.command.runtime === 'http' && !v2Match.command.http.cookies) {
       try {
         const { runHttpTool } = await import('./http-runner.js');
@@ -1028,6 +1024,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
   }
   const toolkitMatch = v2Match ? null : resolveToolkitTool(toolName);
   if (toolkitMatch) {
+    args = businessArgs(args);
     const { findExtensionTool, loadExtensionAdapters } = await import("./adapter-cli.js");
     const extensionAdapters = await loadExtensionAdapters();
     if (extensionAdapters.some((adapter) => adapter.id === toolkitMatch.adapter.id)) {
@@ -1440,7 +1437,7 @@ function extractFlagArgs(argv, startIndex = 0) {
   let structuredArgs;
   for (let i = startIndex; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--__confirmed') throw new Error('Missing value for --__confirmed. Use --__confirmed=true after confirming the write.');
+    if (arg === '--__confirmed') continue; // Retired control; accepted for old callers.
     if (arg === '--args' || arg === '--args-file' || arg.startsWith('--args-file=') || arg.startsWith('--args=')) {
       if (structuredArgs !== undefined) throw new Error('Use exactly one --args or --args-file input.');
       const fromFile = arg.startsWith('--args-file');

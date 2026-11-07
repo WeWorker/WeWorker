@@ -59,7 +59,7 @@ function normalizeFixture(run, command, input) {
   keys(input, command.uiWrite ? ['id', 'representativeArgs', 'expectedSubmission', 'effect'] : ['id', 'representativeArgs', 'expectedRequest', 'successResponse', 'successExpectation', 'failureResponse', 'failureExpectation', 'effect']);
   if (JSON.stringify(input).length > 40000 || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(input.id || '')) invalid('Provide a portable fixture id and at most 40000 characters.');
   dataOnly(input);
-  if (!object(input.representativeArgs) || Object.hasOwn(input.representativeArgs, '__confirmed')) invalid('Author arguments without __confirmed; the verifier controls confirmation.');
+  if (!object(input.representativeArgs) || Object.hasOwn(input.representativeArgs, '__confirmed')) invalid('Author business arguments without retired control parameters.');
   const expected = command.uiWrite ? input.expectedSubmission : input.expectedRequest;
   const origins = (command.pageWrite || command.uiWrite) ? [command.uiWrite?.frames?.at(-1).origin || command.pageRoute.origin] : command.http.origins;
   keys(expected, command.uiWrite ? ['url', 'method', 'body'] : ['url', 'method', 'body', 'headers']);
@@ -73,7 +73,7 @@ function normalizeFixture(run, command, input) {
   if (expected.headers !== undefined && (!object(expected.headers) || Object.keys(expected.headers).some(key => key !== 'content-type') || Object.values(expected.headers).some(value => typeof value !== 'string' || /[\r\n\0]/.test(value)))) invalid('Write fixtures only author lower-case content-type; credentials come from the HTTP contract.');
   if (expected.body != null && typeof expected.body !== 'string' && expected.headers?.['content-type'] !== undefined && expected.headers['content-type'] !== 'application/json') invalid('Structured JSON bodies use application/json.');
   if (command.pageWrite || command.uiWrite) {
-    const request = (command.uiWrite ? resolveUiWrite : resolvePageWrite)(command, { ...input.representativeArgs, __confirmed: true });
+    const request = (command.uiWrite ? resolveUiWrite : resolvePageWrite)(command, { ...input.representativeArgs });
     if (!compareHttpWriteRequest(normalizeHttpWriteRequest({ url: request.url, method: request.method, json: request.body }), expected)) invalid('Page write fixture must match the manifest bindings and arguments exactly.');
   }
   for (const name of command.uiWrite ? [] : ['successResponse', 'failureResponse']) {
@@ -257,7 +257,7 @@ export function verifyWrite(service, run, args, options = {}) {
       const pkg = readPackageDirectory(run.draft.adapterDir), command = pkg.commands.find(item => item.name === review.tool);
       let result;
       if (execution.page) {
-        const request = (command.uiWrite ? resolveUiWrite : resolvePageWrite)(command, { ...review.fixture.representativeArgs, __confirmed: true });
+        const request = (command.uiWrite ? resolveUiWrite : resolvePageWrite)(command, { ...review.fixture.representativeArgs });
         if (!compareHttpWriteRequest(normalizeHttpWriteRequest({ url: request.url, method: request.method, json: request.body }), (review.fixture.expectedSubmission || review.fixture.expectedRequest))) throw fail('WRITE_REQUEST_MISMATCH', 'Page write differs from the reviewed request.');
         await service.checkTab(run);
         if (controller.signal.aborted || writeProofDigest(run) !== review.digest) throw fail('STALE_DRAFT', 'Page write changed or was cancelled before dispatch.');
@@ -276,7 +276,7 @@ export function verifyWrite(service, run, args, options = {}) {
           service.save(run);
         }
         captureResult(result,reply.resultMetadata);
-      } else ({ result } = await runHttpTool({ adapter: { root: run.draft.adapterDir, digest: pkg.digest }, command }, { ...review.fixture.representativeArgs, __confirmed: true }, {
+      } else ({ result } = await runHttpTool({ adapter: { root: run.draft.adapterDir, digest: pkg.digest }, command }, { ...review.fixture.representativeArgs }, {
         signal: controller.signal, resolveCookies: cookieResolver(service), writeResult:execution.effect.resultReadback,
         observe: entry => { if (entry.status >= 200 && entry.status < 300) captureResult(entry.responseBody,entry.resultMetadata); },
         onRequestFailure: () => { violation = true; },

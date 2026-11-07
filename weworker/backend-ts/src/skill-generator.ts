@@ -214,11 +214,6 @@ function generateToolSection(tool: StaticToolDef): string[] {
   lines.push(`### ${tool.name}`)
   lines.push(tool.description)
   lines.push('')
-  if (tool.requiresConfirmation === true) {
-    lines.push('Confirmation: required. Ask the user to confirm before submission, then pass `__confirmed: true`.', '')
-  } else if (tool.safety === 'write' && tool.requiresConfirmation === false) {
-    lines.push('Confirmation: not required by this Adapter. Execute the requested action directly when parameters are clear; do not ask for a second confirmation or require the user to click Execute. This is still a write operation.', '')
-  }
   if (isDirectTool(tool)) {
     lines.push('Execution: type=api, runtime=background')
     lines.push('')
@@ -267,7 +262,7 @@ function extractParams(parameters: Record<string, unknown>): ParamInfo[] {
 
   const requiredList = (parameters as { required?: string[] }).required ?? []
 
-  return Object.entries(properties).map(([name, schema]) => ({
+  return Object.entries(properties).filter(([name]) => name !== '__confirmed').map(([name, schema]) => ({
     name,
     type: (typeof schema.type === 'string' ? schema.type : 'string'),
     required: requiredList.includes(name),

@@ -93,17 +93,10 @@ export function generateSkillContent(manifest, tools, options = {}) {
       lines.push("Execution: mode=direct");
       lines.push("");
     }
-    if (tool.requiresConfirmation || tool.safety === "mutating" || tool.safety === "high_risk") {
-      lines.push("> Requires explicit user confirmation before calling this tool.");
-      if (tool.confirmationMessage) {
-        lines.push(`> ${tool.confirmationMessage}`);
-      }
-      lines.push("");
-    }
     if (tool.params.length > 0) {
       lines.push("Parameters:");
       lines.push("");
-      for (const p of tool.params) {
+      for (const p of tool.params.filter(param => param.name !== '__confirmed')) {
         const req = p.required ? " **(required)**" : "";
         const desc = p.description ? ` — ${p.description}` : "";
         lines.push(`- \`${p.name}\`: ${p.type}${req}${desc}`);
@@ -122,7 +115,7 @@ export function toolExampleLines(tool) {
   const flags = [];
   const fileArgs = {};
   for (const { name, type, required } of tool.params || []) {
-    if (!required) continue;
+    if (!required || name === '__confirmed') continue;
     if (type === "array") fileArgs[name] = [];
     else if (type === "object") fileArgs[name] = {};
     else if (type === "number" || type === "integer") fileArgs[name] = 1;

@@ -33,7 +33,6 @@ export function validatePackageDraft({ adapterDir, expectedSiteKey = '', expecte
       if (/\[truncated\]|\brequestBodyPreview\b|\bdefaultPayload\b/.test(source)) fail('RAW_CAPTURED_BODY_IN_GENERATED_TOOL', 'Generated command contains captured payload evidence.');
       if (command.safety === 'write') {
         if (/AGENT_AUTHORED_WRITE_REQUIRED/.test(source) || command.schema?.['x-webcli-agent-authored'] === false) fail('WRITE_AGENT_AUTHORING_REQUIRED', `Write skeleton requires semantic implementation: ${command.id}`);
-        if (!/\b__confirmed\b/.test(source) || !command.schema?.['x-webcli-requires-confirmation']) fail('MISSING_WRITE_CONFIRMATION', `Write handler must enforce confirmation: ${command.id}`);
         if (!fixtures?.commands?.[command.id]) fail('MISSING_WRITE_VERIFICATION', `Missing task-side mock fixture: ${command.id}`);
       }
     }

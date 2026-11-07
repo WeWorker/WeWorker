@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "x.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "Twitter/X：搜索、时间线、推文/资料、书签/列表、互动发布和登录检查",
   "homepage_url": "https://x.com/",
@@ -95,7 +95,6 @@
       "routeDomain": "x.com",
       "description": "Auto-accept DM requests containing specific keywords",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -162,7 +161,6 @@
       "routeDomain": "x.com",
       "description": "Open the twitter login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},
@@ -177,7 +175,6 @@
       "routeDomain": "x.com",
       "description": "Block a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -199,7 +196,6 @@
       "routeDomain": "x.com",
       "description": "Bookmark a tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -336,7 +332,6 @@
       "routeDomain": "x.com",
       "description": "Delete a specific tweet by URL",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -411,7 +406,6 @@
       "routeDomain": "x.com",
       "description": "Follow a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -433,7 +427,6 @@
       "routeDomain": "x.com",
       "description": "Follow multiple Twitter/X users from a comma-separated username list",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -508,7 +501,6 @@
       "routeDomain": "x.com",
       "description": "Hide a reply on your tweet (useful for hiding bot/spam replies)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -530,7 +522,6 @@
       "routeDomain": "x.com",
       "description": "Like a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -610,7 +601,6 @@
       "routeDomain": "x.com",
       "description": "Add a user to a Twitter/X list you own (no-op if already a member)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -637,7 +627,6 @@
       "routeDomain": "x.com",
       "description": "Add multiple users to a Twitter/X list you own from a comma-separated username list",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -674,7 +663,6 @@
       "routeDomain": "x.com",
       "description": "Create a new Twitter/X list (returns the new list id)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -706,7 +694,6 @@
       "routeDomain": "x.com",
       "description": "Delete a Twitter/X list you own after explicit confirmation",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -738,7 +725,6 @@
       "routeDomain": "x.com",
       "description": "Remove a user from a Twitter/X list you own (toggles via UI; no-op if not currently a member)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -765,7 +751,6 @@
       "routeDomain": "x.com",
       "description": "Remove multiple users from a Twitter/X list you own from a comma-separated username list",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -832,7 +817,6 @@
       "routeDomain": "x.com",
       "description": "Add a muted word or phrase on Twitter/X",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -874,7 +858,6 @@
       "routeDomain": "x.com",
       "description": "Post a new tweet (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -915,7 +898,6 @@
       "routeDomain": "x.com",
       "description": "Quote-tweet a specific tweet with your own text (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -942,7 +924,6 @@
       "routeDomain": "x.com",
       "description": "Reply to a specific tweet (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -969,7 +950,6 @@
       "routeDomain": "x.com",
       "description": "Send a message to recent DM conversations",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1006,7 +986,6 @@
       "routeDomain": "x.com",
       "description": "Retweet a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1194,7 +1173,6 @@
       "routeDomain": "x.com",
       "description": "Unblock a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1216,7 +1194,6 @@
       "routeDomain": "x.com",
       "description": "Remove a tweet from bookmarks",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1238,7 +1215,6 @@
       "routeDomain": "x.com",
       "description": "Unfollow a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1260,7 +1236,6 @@
       "routeDomain": "x.com",
       "description": "Remove a like from a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1282,7 +1257,6 @@
       "routeDomain": "x.com",
       "description": "Undo a retweet on a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {

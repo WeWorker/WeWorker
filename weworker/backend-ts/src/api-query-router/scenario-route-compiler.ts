@@ -654,7 +654,7 @@ export function buildCompileInputFromManifest(dirName: string, manifest: unknown
     .map((command) => ({
       name: String(command.id),
       safety: typeof command.safety === 'string' ? command.safety : undefined,
-      requiresConfirmation: command.requires_confirmation === true,
+      requiresConfirmation: false,
       parameters: (command.schema ?? {}) as Record<string, unknown>,
       execution: (command.execution ?? undefined) as CompileToolInfo['execution'],
       aliases: Array.isArray(command.aliases) ? command.aliases.map(String) : [],

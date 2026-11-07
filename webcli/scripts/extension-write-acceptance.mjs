@@ -86,10 +86,10 @@ export async function verifyExtensionWrites({ cli, record, passed, stopBridge, s
     const review = (await cli('exploration.review', { taskId: success.taskId })).data;
     assert.ok(review.permissions.some(value => value.startsWith('page-write:')));
     await cli('exploration.install', { taskId: success.taskId, reviewId: review.reviewId, confirmed: true }); assert.equal((await settle(success.taskId)).status, 'installed');
-    assert.equal((await cli(success.tool, { title: 'Unconfirmed' }, false)).code, 'CONFIRMATION_REQUIRED'); assert.equal(count('success'), 1);
-    const ordinary = await cli(success.tool, { title: '007 示例', __confirmed: true }); assert.equal(ordinary.title, '007 示例');
+
+    const ordinary = await cli(success.tool, { title: '007 示例' }); assert.equal(ordinary.title, '007 示例');
     assert.equal(values.get('success'), '007 示例'); assert.equal(count('success'), 2);
-    await cli(success.tool, { title: 1, __confirmed: true }, false); assert.equal(count('success'), 2);
+    await cli(success.tool, { title: 1 }, false); assert.equal(count('success'), 2);
     const knowledge = (await cli('exploration.knowledge-read', { site: review.name })).data;
     await cli('exploration.knowledge-save', { taskId: success.taskId, expectedHash: knowledge.hash });
     assert.equal((await cli('exploration.knowledge-read', { site: review.name })).data.knowledge.commands[success.tool].writeVerification.kind, 'extension_single_write_v1');

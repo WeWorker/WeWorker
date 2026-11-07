@@ -33,7 +33,7 @@ function fixture({ source, timeoutMs = 1000, failAttach = false, documents = [] 
   const bundle = vi.fn(async () => ({ manifest, files: { 'extension/commands/run.js': source || '__webcliRegisterCommand("run", args => args);' } }));
   runtime = createManagedBackgroundRuntime({ api, bundle, request, timeoutMs,
     exclusive(task) { const run = queue.then(task, task); queue = run.catch(() => {}); return run; } });
-  const run = (args = { __confirmed: true, count: '007' }) => runtime.execute(manifest, manifest.commands[0], args, { adapterId: 'demo', declaredHosts: ['example.com'] });
+  const run = (args = { count: '007' }) => runtime.execute(manifest, manifest.commands[0], args, { adapterId: 'demo', declaredHosts: ['example.com'] });
   return { api, runtime, run, events, messages, request, bundle, manifest, getScope: () => scope, getUrl: () => url };
 }
 
@@ -44,7 +44,7 @@ describe('managed background execution lifecycle', () => {
       verbose: { type: 'boolean', default: false }, ids: { type: 'array', items: { type: 'integer' } },
     }, required: ['productId', 'id'], additionalProperties: false };
     const source = `__webcliRegisterCommand('run', args => __webmcpWecliRuntime.requestPrivileged('host_cli_call', {args: __webmcpWecliRuntime.validateArgs(args, ${JSON.stringify(schema)})}));`;
-    const json = { productId: 123, id: '00456', action: 'start', ids: [7, 8], __confirmed: true };
+    const json = { productId: 123, id: '00456', action: 'start', ids: [7, 8] };
     const dir = mkdtempSync(join(tmpdir(), 'host-args-'));
     const file = join(dir, 'args.json');
     writeFileSync(file, '\uFEFF' + JSON.stringify(json));
@@ -63,7 +63,7 @@ describe('managed background execution lifecycle', () => {
           execute, authorizeWrite: approve, credentials: async () => { throw Error('No live credentials'); } }));
         const expected = { productId: 123, id: '00456', action: 'start', ids: [7, 8], verbose: false };
         expect(await f.run(args)).toEqual(expected);
-        expect(approve.mock.calls[0][0].args).toEqual(expected);
+        expect(approve).not.toHaveBeenCalled();
         expect(execute).toHaveBeenCalledTimes(1);
         expect(pending.hostWriteDispatched).toBe(true);
         if (!argv.includes('--args') && !argv.includes('--args-file')) expect(args.productId).toBe('123');
@@ -72,7 +72,7 @@ describe('managed background execution lifecycle', () => {
   });
   it('does not expose the host invocation identity to Adapter code', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", () => window.__webmcpWecliRuntime.getContext());' });
-    const result = await f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true },
+    const result = await f.runtime.execute(f.manifest, f.manifest.commands[0], {},
       { adapterId: 'demo', declaredHosts: ['example.com'], hostCallId: 'host-only-id' });
     expect(result.adapterId).toBe('demo');
     expect(result).not.toHaveProperty('hostCallId');
@@ -82,7 +82,7 @@ describe('managed background execution lifecycle', () => {
     let finish;
     f.request.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     expect(f.runtime.hostCookieContext('host-call')).toBeNull();
-    const running = f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true },
+    const running = f.runtime.execute(f.manifest, f.manifest.commands[0], {},
       { adapterId: 'demo', routeDomain: 'example.com', hostCallId: 'host-call' });
     while (!finish) await new Promise(resolve => setImmediate(resolve));
     expect(f.runtime.hostCookieContext('wrong-call')).toBeNull();
@@ -94,55 +94,55 @@ describe('managed background execution lifecycle', () => {
   it('isolates preview source and restores pinned installed source on the next call', async () => {
     const f = fixture();
     const preview = { manifest: structuredClone(f.manifest), files: { 'extension/commands/run.js': '__webcliRegisterCommand("run",()=>"example-preview");' } };
-    expect(await f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true }, { previewNoPage: true, previewDeadline: Date.now() + 1000 }, preview)).toBe('example-preview');
+    expect(await f.runtime.execute(f.manifest, f.manifest.commands[0], {}, { previewNoPage: true, previewDeadline: Date.now() + 1000 }, preview)).toBe('example-preview');
     expect(f.bundle).not.toHaveBeenCalled();
-    expect(await f.run()).toEqual({ __confirmed: true, count: '007' });
+    expect(await f.run()).toEqual({ count: '007' });
     expect(f.bundle).toHaveBeenCalledOnce();
     expect(f.events).toEqual(['create', 'attach', 'detach', 'close', 'create', 'attach', 'detach', 'close']);
   });
   it('times out preview code within its budget and closes its owned runner', async () => {
     const f = fixture();
     const preview = { manifest: f.manifest, files: { 'extension/commands/run.js': '__webcliRegisterCommand("run",()=>new Promise(()=>{}));' } };
-    await expect(f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true }, { previewNoPage: true, previewDeadline: Date.now() + 50 }, preview)).rejects.toThrow(/timed out/);
+    await expect(f.runtime.execute(f.manifest, f.manifest.commands[0], {}, { previewNoPage: true, previewDeadline: Date.now() + 50 }, preview)).rejects.toThrow(/timed out/);
     expect(f.events.slice(-2)).toEqual(['detach', 'close']);
-    expect(await f.run()).toEqual({ __confirmed: true, count: '007' });
+    expect(await f.run()).toEqual({ count: '007' });
   });
-  it('uses package confirmation policy independently of write classification', async () => {
+  it('ignores retired confirmation metadata while preserving write classification', async () => {
     const f = fixture();
-    await expect(f.run({ requires_confirmation: false })).rejects.toThrow(/confirmation/);
+    expect(await f.run({ requires_confirmation: false })).toEqual({ requires_confirmation: false });
     f.manifest.commands[0].requires_confirmation = false;
-    expect(await f.run({ count: '007' })).toEqual({ count: '007', __confirmed: true });
+    expect(await f.run({ count: '007' })).toEqual({ count: '007' });
     expect(f.manifest.commands[0].safety).toBe('write');
     f.manifest.commands[0].requires_confirmation = true;
-    await expect(f.run({})).rejects.toThrow(/confirmation/);
+    expect(await f.run({})).toEqual({});
   });
-  it('honors opt-out through the preserved runtime helper', async () => {
+  it('keeps the retired runtime helper inert', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", args => { __webmcpWecliRuntime.requireConfirmation(args); return args.value; });' });
     f.manifest.commands[0].requires_confirmation = false;
     const args = Object.freeze({ value: 'requested' });
     expect(await f.run(args)).toBe('requested');
     expect(args).toEqual({ value: 'requested' });
     f.manifest.commands[0].safety = 'read';
-    await expect(f.run({})).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+    expect(await f.run({})).toBeNull();
   });
   it('executes the pinned module without argument conversion and cleans up owned resources', async () => {
     const f = fixture();
-    expect(await f.run()).toEqual({ __confirmed: true, count: '007' });
+    expect(await f.run()).toEqual({ count: '007' });
     expect(f.events).toEqual(['create', 'attach', 'detach', 'close']);
     expect(f.bundle).toHaveBeenCalledOnce();
     expect(f.api.debugger.detach).toHaveBeenCalledWith({ targetId: 'owned' });
   });
-  it('checks confirmation and selected execution metadata before creating a document', async () => {
-    const f = fixture(); await expect(f.run({})).rejects.toThrow(/confirmation/);
+  it('checks selected execution metadata before creating a document', async () => {
+    const f = fixture();
     delete f.manifest.commands[0].execution;
     await expect(f.run()).rejects.toThrow(/background execution/);
     expect(f.api.offscreen.createDocument).not.toHaveBeenCalled();
   });
   it('validates required and unknown parameters against explicit runtime schemas', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, {type:"object",properties:{count:{type:"integer"}},required:["count"],additionalProperties:false}));' });
-    await expect(f.run({__confirmed:true})).rejects.toMatchObject({code:'INVALID_ARGS'});
-    expect(await f.run({__confirmed:true,count:7})).toEqual({__confirmed:true,count:7});
-    await expect(f.run({__confirmed:true,count:7,unknown:true})).rejects.toMatchObject({code:'INVALID_ARGS'});
+    await expect(f.run({})).rejects.toMatchObject({code:'INVALID_ARGS'});
+    expect(await f.run({count:7})).toEqual({count:7});
+    await expect(f.run({count:7,unknown:true})).rejects.toMatchObject({code:'INVALID_ARGS'});
   });
   it('normalizes CLI numeric flags only when the runtime schema requests numbers', async () => {
     const schema = { type: 'object', properties: {
@@ -153,37 +153,37 @@ describe('managed background execution lifecycle', () => {
     const f = fixture({ source: `__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, ${JSON.stringify(schema)}));` });
     const { args } = extractFlagArgs(['--pageSize=50', '--ratio=0.5', '--id=007', '--enabled=false', '--tags=["one","two"]', '--extra={"count":2}']);
     expect(args.pageSize).toBe('50');
-    const input = Object.freeze({ ...args, __confirmed: true });
+    const input = Object.freeze({ ...args });
     expect(await f.run(input)).toEqual({ ...input, pageSize: 50, page: 1, ratio: 0.5 });
     expect(input.pageSize).toBe('50');
-    expect(await f.run({ __confirmed: true, pageSize: '0', ratio: '-1.5', id: '007' }))
-      .toEqual({ __confirmed: true, pageSize: 0, page: 1, ratio: -1.5, id: '007' });
+    expect(await f.run({ pageSize: '0', ratio: '-1.5', id: '007' }))
+      .toEqual({ pageSize: 0, page: 1, ratio: -1.5, id: '007' });
   });
   it('preserves explicit JSON numbers and validates enums after numeric conversion', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, {type:"object",properties:{count:{type:"integer",enum:[0,50]}}}));' });
     const { args } = extractFlagArgs(['--args', '{"count":50}']);
-    expect(await f.run({ ...args, __confirmed: true })).toEqual({ count: 50, __confirmed: true });
-    expect(await f.run({ count: '0', __confirmed: true })).toEqual({ count: 0, __confirmed: true });
-    await expect(f.run({ count: '2', __confirmed: true })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+    expect(await f.run({ ...args })).toEqual({ count: 50 });
+    expect(await f.run({ count: '0' })).toEqual({ count: 0 });
+    await expect(f.run({ count: '2' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
   });
   it('keeps invalid numeric values rejected instead of truncating or substituting defaults', async () => {
     for (const type of ['integer', 'number']) {
       const f = fixture({ source: `__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, {type:"object",properties:{count:{type:"${type}",default:20}}}));` });
       for (const count of ['', ' ', 'abc', '50rows', 'NaN', 'Infinity', '1e999', true, null, ...(type === 'integer' ? ['1.5'] : [])]) {
-        await expect(f.run({ count, __confirmed: true })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+        await expect(f.run({ count })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
       }
     }
   });
   it('supports numeric nullable schemas without changing schemas that accept strings', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, {type:"object",properties:{count:{type:["integer","null"]},id:{type:["integer","string"]}}}));' });
-    expect(await f.run({ count: '50', id: '007', __confirmed: true })).toEqual({ count: 50, id: '007', __confirmed: true });
-    expect(await f.run({ count: null, __confirmed: true })).toEqual({ count: null, __confirmed: true });
+    expect(await f.run({ count: '50', id: '007' })).toEqual({ count: 50, id: '007' });
+    expect(await f.run({ count: null })).toEqual({ count: null });
   });
   it('matches the existing integer-array CLI syntax without splitting string arrays', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", args => __webmcpWecliRuntime.validateArgs(args, {type:"object",properties:{ids:{type:"array",items:{type:"integer"}},names:{type:"array",items:{type:"string"}}}}));' });
-    expect(await f.run({ ids: '1, 2,3', __confirmed: true })).toEqual({ ids: [1, 2, 3], __confirmed: true });
-    await expect(f.run({ ids: '1,no', __confirmed: true })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
-    await expect(f.run({ names: 'one,two', __confirmed: true })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+    expect(await f.run({ ids: '1, 2,3' })).toEqual({ ids: [1, 2, 3] });
+    await expect(f.run({ ids: '1,no' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
+    await expect(f.run({ names: 'one,two' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
   });
   it('binds helper requests to the active document and immutable call context', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", async () => __webmcpWecliRuntime.requestPrivileged("fixture", { value: "ok" }));' });
@@ -234,14 +234,14 @@ describe('managed background execution lifecycle', () => {
   it('preserves a completed call when Chrome has already closed its offscreen document', async () => {
     const f = fixture();
     f.api.offscreen.closeDocument.mockRejectedValueOnce(new Error('No current offscreen document'));
-    expect(await f.run()).toEqual({ __confirmed: true, count: '007' });
-    expect(await f.run()).toEqual({ __confirmed: true, count: '007' });
+    expect(await f.run()).toEqual({ count: '007' });
+    expect(await f.run()).toEqual({ count: '007' });
     expect(f.api.offscreen.createDocument).toHaveBeenCalledTimes(2);
   });
   it('tolerates a stale document context but preserves other close failures', async () => {
     const stale = fixture({ documents: [{ documentUrl: 'chrome-extension://test-extension/offscreen/direct-runner.html' }] });
     stale.api.offscreen.closeDocument.mockRejectedValueOnce(new Error('No current offscreen document'));
-    expect(await stale.run()).toEqual({ __confirmed: true, count: '007' });
+    expect(await stale.run()).toEqual({ count: '007' });
     const unexpected = fixture();
     unexpected.api.offscreen.closeDocument.mockRejectedValueOnce(new Error('Offscreen cleanup failed'));
     await expect(unexpected.run()).rejects.toThrow('Offscreen cleanup failed');

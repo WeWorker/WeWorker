@@ -2,9 +2,8 @@ const fail = () => { throw Object.assign(new Error('Invalid native UI write cont
 export function uiWriteRequest(command, args) {
   const spec = command.uiWrite;
   if (!spec || ![1, 2].includes(spec.version) || spec.method !== 'POST' || !(spec.version === 2 ? ['native-setter-no-events', 'native-input-change'] : ['native-setter-no-events']).includes(spec.inputMode)
-    || command.runtime !== 'extension' || command.safety !== 'write' || command.requires_confirmation === false || command.pageWrite || command.pageWorkflow || command.execution
+    || command.runtime !== 'extension' || command.safety !== 'write' || command.pageWrite || command.pageWorkflow || command.execution
     || !Array.isArray(spec.inputs) || !spec.inputs.length || spec.inputs.length > 10) fail();
-  if (args?.__confirmed !== true) throw Object.assign(new Error('Explicit confirmation is required.'), { code: 'CONFIRMATION_REQUIRED' });
   const names = spec.inputs.map(v => v.parameter);
   if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).some(k => k !== '__confirmed' && !names.includes(k))
     || names.some(k => typeof args[k] !== 'string' || args[k].length > 10000 || /[\r\n\0]/.test(args[k])) || !args[spec.confirmation?.parameter]?.trim()) fail();

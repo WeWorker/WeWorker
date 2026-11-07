@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "juejin.cn",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "enabled": true,
   "description": "掘金：登录检查、当前内容点赞/收藏和详情候选读取",
   "match": [
@@ -77,8 +77,7 @@
       },
       "aliases": [
         "like_current_item"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "favorite-current-item",
@@ -98,8 +97,7 @@
       },
       "aliases": [
         "favorite_current_item"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "list-detail-candidates",

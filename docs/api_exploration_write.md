@@ -1,3 +1,5 @@
+> 普通工具调用已移除通用确认协议，当前规则见 [调用策略](adapter_confirmation_policy.md)。探索真实写验收的 `confirmed` 审核和页面结果回执仍保留。
+
 # HTTP／Extension 写命令与副作用验证
 
 2026-10-28 新增 W01–W04 契约：受控 input/change、自动保存、显式控件/hidden/Shadow/frame、click/Enter/整页导航、多组写用例、任务内有限写序列和部分恢复，以及多 ID/公开 Header/Location/响应 URL/UI 网络结果和精确负数/任意精度整数。完整字段、编排入口及边界见 [写工作流](opencli_write_workflows.md)。下文 2026-10-18 的单请求/v1 说明保留为基线，其“尚未覆盖”不表示新契约仍缺失；不支持的任意控件、真实账户和跨环境验证仍保持独立边界。
@@ -36,11 +38,10 @@
 {"tools":[{"name":"update_item","risk":"write","sourceApiKind":"action","sourceApiIndexes":[0],"strategy":"PUBLIC_API","writeReason":"更新公开测试条目的标题","strategyNote":{"reason":"明确的 HTTP 更新接口","limitations":"一次请求并以独立 GET 回查"}}]}
 ```
 
-生成器只提供带确认保护的骨架。Agent 必须编辑模块与 schema，保留 `safety:write`、`x-webcli-requires-confirmation:true`，完成语义实现后设置 `x-webcli-agent-authored:true`。原始捕获值不能作为参数默认值。模块确认前返回 `{blocked:true,requiresConfirmation:true}`，确认后才调用 `api.request`，明确解释成功与失败结果。
+生成器只提供待实现的骨架。Agent 必须编辑模块与 schema，保留 `safety:write`，完成语义实现后设置 `x-webcli-agent-authored:true`。原始捕获值不能作为参数默认值。模块接收业务参数，调用 `api.request` 并明确解释成功与失败结果；不生成通用确认门禁。
 
 ```js
 module.exports = async (args, api) => {
-  if (args.__confirmed !== true) return {blocked: true, requiresConfirmation: true};
   try {
     return await api.request({url: 'https://example.com/items/example', method: 'PUT', json: {title: args.title}});
   } catch (error) {
@@ -74,14 +75,14 @@ module.exports = async (args, api) => {
 
 ## 验证、执行与安装
 
-1. 普通 `validate` 做静态检查、写命令 mock 与真实只读命令验证。mock 在 HTTP Worker 内运行作者代码，替换全部传输；没有宿主鉴权和网络回退。检查省略/false 确认均为零请求，以及确认后的请求、成功/失败解释。骨架或 mock 失败不能进入真实写审阅。
+1. 普通 `validate` 做静态检查、写命令 mock 与真实只读命令验证。mock 在 HTTP Worker 内运行作者代码，替换全部传输；没有宿主鉴权和网络回退。使用纯业务参数检查实际请求及成功/失败解释。骨架或 mock 失败不能进入真实写审阅。
 2. 通过后返回 `write_review_ready`。`write-review` 返回完整 fixture、HTTP 鉴权声明、package/cases/fixtures 的综合摘要和 reviewId，不发送请求。
 3. 在用户已有授权覆盖实际目标及测试副作用时，调用 `write-verify`，传精确 `tool`、`reviewId`、`confirmed:true`；没有覆盖时应展示这份具体审阅后取得同意。安装授权不自动等于远端测试写入授权。
 4. 验证整体最多 30 秒：独立 GET 检查 before，通过后才执行一次精确写请求，再独立 GET 检查 after。预检失败不发送写请求，且消耗当前 reviewId；派发前先持久化 `dispatching`，存储失败不发请求。每任务最多 100 个消耗的审阅。
 5. 同一 reviewId 重复调用、并发重入、取消、Bridge 重启或 CLI 丢失响应都只返回已有记录，不重放。取消不能撤回已经派发的请求；此时结果可能是 `uncertain`。`write-readback` 在任务结束/取消/中断后仍可重查 GET，只报告当前 after 是否满足，不将失败的命令自动标为验证通过。
 6. 请求不匹配、额外请求、网络/状态错误、未等待请求完成就返回、响应断言失败或回查失败均不能通过；作者代码吞掉请求错误也不能绕过。全部当前写命令通过真实效果验证、全部读命令通过后，才进入 `review_ready`，复用安装审阅与 consent。安装时 mock 会再次运行，不会再次实际写入。
 
-HTTP write 每次普通调用也强制 `__confirmed:true`、最多一个请求、不跟随任何重定向、不自动重试；宿主不能被 `requires_confirmation:false` 放宽。普通 call 是每次新的显式调用，没有探索任务的 reviewId 去重账本，调用方遇到超时必须先检查效果，不能盲目重试。只读 HTTP 保留最多 50 请求和五跳重定向。返回前有尚未结束的请求会明确失败。
+HTTP write 普通调用使用业务参数，最多一个请求、不跟随任何重定向、不自动重试。普通 call 是每次新的显式调用，没有探索任务的 reviewId 去重账本，调用方遇到超时必须先检查效果，不能盲目重试。只读 HTTP 保留最多 50 请求和五跳重定向。返回前有尚未结束的请求会明确失败。
 
 ## 当前限制与证据
 
@@ -151,7 +152,7 @@ url 必须与写接口同 origin，包含恰好一个完整的 `:id` 路径段�
 
 write-review 展示完整 resultReadback 声明与 ID 持久化政策，纳入既有 package/cases/fixtures 摘要。`publicId:true` 是作者确认该字段为可保存公开标识的声明，不能用来保存个人数据、账号、凭据或不明字段。实际只保存 `{id}` 到当前任务执行账本，随既有 0600 原子存储；摘要/get/list/trace、write-review 执行记录、知识和安装包不输出该真实 ID，其余响应内容不落盘。
 
-真实写成功收到 ID 后先持久化，再等待作者结果及执行 GET。固定 after 必须通过，随后资源的 identityPath 必须严格等于实际 ID，expect 还须包含至少一项非 ID、非通配标量 equals 内容断言。HTTP 延续宿主鉴权和脱敏；页面读取延续原 profile/tab 和同文档守卫，包括固定 after 到资源 GET 之间的导航变化。总执行预算仍为 30 秒，不增加写次数。resultReadback 属于作者验证 fixture，不装入普通命令；安装后的普通 call 延续单请求/确认行为，不自动执行额外回查或保存返回 ID。
+真实写成功收到 ID 后先持久化，再等待作者结果及执行 GET。固定 after 必须通过，随后资源的 identityPath 必须严格等于实际 ID，expect 还须包含至少一项非 ID、非通配标量 equals 内容断言。HTTP 延续宿主鉴权和脱敏；页面读取延续原 profile/tab 和同文档守卫，包括固定 after 到资源 GET 之间的导航变化。总执行预算仍为 30 秒，不增加写次数。resultReadback 属于作者验证 fixture，不装入普通命令；安装后的普通 call 延续单请求行为，不自动执行额外回查或保存返回 ID。
 
 丢失响应、缺 ID、非法 ID 或保存失败均不能通过或继续资源 GET；review 已消耗，不得为找回 ID 重发写。没有持久 ID 时 write-readback 在发送任何 GET 前返回 WRITE_RESULT_ID_UNAVAILABLE，调用方须通过独立已授权的只读工具检查服务状态，不能猜测资源地址。已保存 ID 后取消/重启/详情读取失败，可用原 reviewId 重新运行两个 GET，仍保留原 uncertain，不放行安装或把失败 handler 变成通过。
 
@@ -224,7 +225,7 @@ poll 全部字段进入原 fixture 摘要与精确审阅，修改后旧 review �
 - confirmation 必须为已存在且可见的同一 DOM 节点，其明确 `data-*` 属性在提交前不同于本次关联参数，提交后精确等于该参数。节点替换、同 URL 新文档、路由变化、超时均失败。回执只代表页面确认，业务效果仍须独立 GET。
 - 沿用完整 URL/main frame/loader 与隔离 world 随机文档标记，过期注入不能迟发。一次操作最多 15 秒，总验证最多 30 秒；使用现有 profile、tab 锁及取消/断线机制。
 
-UI fixture 专门使用 `expectedSubmission`，不填写 HTTP successResponse/failureResponse，也不伪造请求次数或网络正文。离线 validate 检查未确认零派发、参数/字段契约和模拟确认成功/失败；不连接浏览器，不提交表单，不能代替真实验证。
+UI fixture 专门使用 `expectedSubmission`，不填写 HTTP successResponse/failureResponse，也不伪造请求次数或网络正文。离线 validate 检查参数/字段契约和模拟页面回执成功/失败；不连接浏览器，不提交表单，不能代替真实验证。
 
 ```json
 {
@@ -250,7 +251,7 @@ UI fixture 专门使用 `expectedSubmission`，不填写 HTTP successResponse/fa
 
 **一次 requestSubmit 不等于一次网络请求，更不等于一次实际修改。** 页面代码、浏览器和服务端可各自产生重复行为，本路径不注入幂等键，不假设服务端支持去重。真实夹具分别统计 submit 事件、网络请求和 mutation；响应连接丢失时可能观察到一次 submit 对应多次请求。所有失败/超时/取消/重启/响应丢失均不得自动重放，同 reviewId 返回已有记录；只能先 `write-readback` 独立 GET 检查当前效果，uncertain 不升级为 verified、不放行安装。已发生的页面动作或网络请求不能被取消撤回。
 
-安装后的普通 call 也必须 `__confirmed:true`，返回 `{ok:true,submitted:true,confirmationMatched:true,effectVerified:false}` 只说明页面回执匹配。验证 fixture 不进入安装包，所以普通 call 不附加效果 GET 或持久 review 账本；必须由调用方独立检查实际效果，失败后不得盲目重调。同值旧回执会拒绝，但不是持久幂等机制。
+安装后的普通 call 使用业务参数，返回 `{ok:true,submitted:true,confirmationMatched:true,effectVerified:false}` 只说明页面回执匹配。验证 fixture 不进入安装包，所以普通 call 不附加效果 GET 或持久 review 账本；必须由调用方独立检查实际效果，失败后不得盲目重调。同值旧回执会拒绝，但不是持久幂等机制。
 
 仍未覆盖：触发 input/change 才生效的受控组件、自动保存、click/Enter 手势、原生整页提交导航、hidden CSRF、多步写、任意 UI 网络响应拦截、复杂控件/跨 frame、写 repair。既有 HTTP/PAGE_FETCH 的多 ID/header/响应 URL 等回查差距保持；数字 ID 仅覆盖显式非负安全整数。自动化入口为 `exploration-ui-write.test.js`、`extension/test/ui-write.test.mjs`；真实验收 `verify-exploration-browser.mjs --ui-write-only`，加 `--bundled-cli --bundled-bridge` 验证两端 bundle，结果见交接末尾。
 

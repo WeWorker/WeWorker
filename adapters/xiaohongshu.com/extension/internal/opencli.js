@@ -2806,7 +2806,6 @@ var __xhsOpenCLI = (() => {
     const command9 = commands.get(name);
     if (!command9) throw new ArgumentError("Unknown Xiaohongshu command");
     const args = normalizeArgs(command9, input);
-    if (command9.access === "write" && args.__confirmed !== true) throw new CliError("CONFIRMATION_REQUIRED", "This command requires confirmation");
     const page = new Page(command9, args);
     try {
       if (name === "download") await resolveDownloadLink(args);

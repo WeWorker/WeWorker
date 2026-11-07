@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "12306.cn",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "enabled": true,
   "description": "中国铁路12306车站、余票、经停、票价及账号只读查询",
   "match": [

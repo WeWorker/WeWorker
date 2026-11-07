@@ -1,3 +1,4 @@
+import { businessArgs } from './business-args.js';
 import { usesWorkflowOrigins } from './page-workflow-origins.js';
 import { requiresWorkflowFrameCapability } from './page-workflow-frames.js';
 import { usesWorkflowControl } from './page-workflow-control.js';
@@ -35,7 +36,6 @@ import { executeHostCli } from './host-cli-provider.js';
 import { invokeHostCli } from './host-cli-runtime.js';
 import { hostArgumentDiagnostic } from './host-cli-arguments.js';
 import { usesBackgroundExecution } from './conditional-execution.js';
-import { authorizeHostCliWrite } from './host-cli-write-authorization.js';
 import { adapterHelperPatterns, adapterPrimaryHost, hostMatchesPattern } from './host-scope.js';
 import { watchAdapterState } from './adapter-state-watch.js';
 import { describeAdapterCatalog, readAdapterBundle, resolveAdapterCall } from './adapter-host.js';
@@ -1721,7 +1721,7 @@ export class WebSocketBridge extends EventEmitter {
     try {
       const result = await invokeHostCli({
         parentId: msg.parentId, ws, payload: msg.payload,
-        pendingRequests: this._pendingRequests, resolveAdapterCall, execute: executeHostCli, authorizeWrite: authorizeHostCliWrite,
+        pendingRequests: this._pendingRequests, resolveAdapterCall, execute: executeHostCli,
         credentials: async (request, selected) => {
           let url;
           try { url = new URL(request?.url); } catch { throw new Error('Invalid credential scope.'); }
@@ -2142,7 +2142,7 @@ export class WebSocketBridge extends EventEmitter {
       || adapterSnapshot.digest !== selected.snapshot.digest || adapterSnapshot.profile !== selected.snapshot.profile)) {
       throw new Error('Adapter changed since this call started; refresh the catalog.');
     }
-    if ((selected?.command.requires_confirmation ?? selected?.command.safety === 'write') && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
+    args = businessArgs(args);
     if (selected?.command.runtime === 'http') {
       const { runHttpTool } = await import('./http-runner.js');
       const completed = await runHttpTool(selected, args || {}, { traceID,

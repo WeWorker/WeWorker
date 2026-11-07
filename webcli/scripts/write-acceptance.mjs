@@ -38,11 +38,10 @@ export async function verifyHttpWrites({ call, waitTask, startBridge, stopBridge
     }
     const manifest = JSON.parse((await call('exploration.draft-read', { taskId, file: 'manifest.json' })).data.content);
     const command = manifest.commands.find(item => tool === manifest.name + '.' + item.id);
-    command.schema = { type: 'object', properties: { title: { type: 'string' }, __confirmed: { type: 'boolean' } }, required: ['title'], additionalProperties: false,
-      'x-webcli-requires-confirmation': true, 'x-webcli-agent-authored': true };
+    command.schema = { type: 'object', properties: { title: { type: 'string' } }, required: ['title'], additionalProperties: false,
+      'x-webcli-agent-authored': true };
     await edit('manifest.json', JSON.stringify(manifest));
     await edit(command.module, `module.exports = async (args, api) => {
-      if (args.__confirmed !== true) return {blocked:true,requiresConfirmation:true};
       try { return await api.request({url:${JSON.stringify(url)},method:'PUT',json:{title:args.title}}); }
       catch (error) { return {ok:false,errorCode:error.code}; }
     };`);
@@ -69,11 +68,8 @@ export async function verifyHttpWrites({ call, waitTask, startBridge, stopBridge
     await call('exploration.write-verify', success); assert.equal(writeCount('success'), 1);
     const review = await call('exploration.review', { taskId: success.taskId });
     await call('exploration.install', { taskId: success.taskId, reviewId: review.data.reviewId, confirmed: true }); await waitTask(success.taskId, 'installed');
-    const unconfirmed = await call(success.tool, { title: 'Ordinary' }, false);
-    assert.equal(unconfirmed.code, 'HTTP_CONFIRMATION_REQUIRED');
-    assert.equal(writeCount('success'), 1);
-    assert.equal((await call(success.tool, { title: 'Ordinary', __confirmed: true })).title, 'Ordinary');
-    pass('real before/write/after succeeds; duplicate review never repeats; installation and ordinary CLI confirmation work');
+    assert.equal((await call(success.tool, { title: 'Ordinary' })).title, 'Ordinary');
+    pass('real before/write/after succeeds; duplicate review never repeats; installation and ordinary business calls work');
 
     for (const label of ['lost', 'noeffect', 'redirect']) {
       const args = await draft(label);

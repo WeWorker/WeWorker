@@ -11,7 +11,7 @@ function makeWriteAdapter({
   actualBody = null,
   representativeArgs = { title: 'Request', visitorCount: 2 },
   confirmationDefault = 'false',
-  confirmationGuard = '!__confirmed',
+  confirmationGuard = 'false',
   expectations = {},
 } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'webcli-write-verifier-'));
@@ -77,7 +77,7 @@ describe('generated write tool verifier', () => {
     }
   });
 
-  it.each([true, false])('controls confirmation independently of fixture value %s', async (__confirmed) => {
+  it.each([true, false])('ignores retired fixture marker %s', async (__confirmed) => {
     const result = await verifyGeneratedWriteTools({
       adapterDir: makeWriteAdapter({ representativeArgs: { title: 'Request', visitorCount: 2, __confirmed } }),
       expectedSiteKey: 'example.test',
@@ -86,23 +86,13 @@ describe('generated write tool verifier', () => {
     expect(result.cases).toHaveLength(1);
   });
 
-  it.each([
-    { confirmationDefault: 'true' },
-    { confirmationDefault: 'undefined', confirmationGuard: '__confirmed === undefined' },
-    { confirmationGuard: 'false' },
-  ])('rejects unsafe missing/false confirmation handling: %j', async (options) => {
-    const result = await verifyGeneratedWriteTools({
-      adapterDir: makeWriteAdapter({
-        ...options,
-        representativeArgs: { title: 'Request', visitorCount: 2, __confirmed: true },
-      }),
-      expectedSiteKey: 'example.test',
-    });
+  it('rejects a generated tool that still depends on the retired marker', async () => {
+    const result = await verifyGeneratedWriteTools({adapterDir: makeWriteAdapter({confirmationGuard:'!__confirmed'}), expectedSiteKey:'example.test'});
     expect(result.passed).toBe(false);
-    expect(result.errors).toContainEqual(expect.objectContaining({ code: 'WRITE_IO_BEFORE_CONFIRMATION', requestCount: 1 }));
+    expect(result.errors).toContainEqual(expect.objectContaining({code:'WRITE_REQUEST_MISMATCH'}));
   });
 
-  it('verifies no I/O before confirmation, exact request, and business success/failure', async () => {
+  it('verifies exact request and business success/failure using business arguments', async () => {
     const result = await verifyGeneratedWriteTools({ adapterDir: makeWriteAdapter(), expectedSiteKey: 'example.test' });
     expect(result).toMatchObject({ passed: true, writeToolCount: 1 });
     expect(result.cases[0].request).toMatchObject({

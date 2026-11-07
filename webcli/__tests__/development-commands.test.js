@@ -118,7 +118,7 @@ it('discovers management commands without starting a browser', async () => {
   expect(JSON.parse(output.stdout).namespace).toBe('development');
 });
 
-it('requires confirmation before spawning a Toolkit write runtime', () => {
+it('reaches Toolkit runtime validation without a confirmation gate', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'development-write-guard-'));
   const builtin = path.join(root, 'builtin');
   const adapter = path.join(builtin, 'example.com');
@@ -138,7 +138,8 @@ it('requires confirmation before spawning a Toolkit write runtime', () => {
       WEWORKER_BUILD_PROFILE: 'public', WEWORKER_TOOLKIT_RUNTIME: path.join(root, 'must-not-start'), WEBCLI_METRICS_UPLOAD: 'off' },
   });
   expect(output.status, output.stderr).toBe(1);
-  expect(JSON.parse(output.stdout).code).toBe('CONFIRMATION_REQUIRED');
+  expect(JSON.parse(output.stdout).error).toMatch(/runtime|Runtime/);
+  expect(output.stdout).not.toContain('CONFIRMATION_REQUIRED');
 });
 it('discovers target-resolution commands and lists workspaces without a preselected target', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(health()).mockResolvedValueOnce(Response.json({ schemaVersion: 1, command: 'development.list', ok: true, data: { workspaces: [] } }));

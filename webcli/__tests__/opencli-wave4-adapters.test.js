@@ -34,7 +34,7 @@ describe('wave4 package contracts', () => {
     const guidance=readFileSync(resolve(root,'adapters',id,'guidance.md'),'utf8');
     expect(managedAdapterSkill({id,version:s.pkg.manifest.version,tools:[],guidance,match:s.pkg.manifest.match})).toContain(guidance.trim());
     expect(JSON.parse(readFileSync(resolve(root,'weworker/build-profile.json'))).adapters).toContain(id);
-    for (const c of s.pkg.commands) { expect(c.runtime).toBe('extension'); if (c.safety === 'write') expect(c.requires_confirmation).toBe(true); }
+    for (const c of s.pkg.commands) { expect(c.runtime).toBe('extension'); if (c.safety === 'write') expect(c.requires_confirmation).toBeUndefined(); }
   });
   it.each([null, true, [], {}, '', '1e2', 0, 1.1, -1, '51'].map(v=>[v]))('rejects unsafe limits %s before I/O', async limit => {
     const s=setup('toutiao.com',{}); await expect(s.run('hot',{limit})).rejects.toMatchObject({code:'ARGUMENT'}); expect(s.calls).toHaveLength(0);

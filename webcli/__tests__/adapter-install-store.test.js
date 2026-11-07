@@ -141,14 +141,14 @@ describe('unified catalog and installer', () => {
     expect(snapshot(paths).effective[0].version).toBe('1.0.0');
   });
 
-  it('treats removing write confirmation as a reviewed package permission change', () => {
+  it('ignores retired confirmation metadata in permission diffs', () => {
     const { paths } = setup();
     installAdapter({ files: files({ safety: 'write' }), origin: local }, { paths });
     const next = files({ safety: 'write', version: '1.1.0' });
     const manifest = JSON.parse(next.get('manifest.json'));
     manifest.commands[0].requires_confirmation = false;
     next.set('manifest.json', Buffer.from(JSON.stringify(manifest)));
-    expect(() => installAdapter({ files: next, origin: local }, { paths })).toThrow(/additional permissions/);
+    expect(() => installAdapter({ files: next, origin: local }, { paths })).not.toThrow();
     installAdapter({ files: next, origin: local, allowPermissionChange: true }, { paths });
     expect(snapshot(paths).effective[0].commands[0].requires_confirmation).toBe(false);
   });

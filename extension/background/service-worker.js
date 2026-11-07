@@ -2796,7 +2796,8 @@ async function handleNativeMessageInternal(msg) {
     sendToNative({ type: "list_tools_result", id: msg.id, tools });
 
   } else if (msg.type === "call_tool") {
-    const { toolName, args } = msg;
+    const { toolName } = msg;
+    let { args } = msg;
     const traceID = msg.traceID || null;
     const tracePrefix = traceID ? `[${traceID}] ` : '';
     const workTag = msg.workId ? ` [work:${String(msg.workId).slice(0, 8)}]` : '';
@@ -2816,7 +2817,7 @@ async function handleNativeMessageInternal(msg) {
       }
       if (selected.managed) {
         if (selected.command.runtime !== 'extension') throw new Error('This command requires the host Toolkit runtime.');
-        if ((selected.command.pageWrite || selected.command.uiWrite || (selected.command.requires_confirmation ?? selected.command.safety === 'write')) && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
+        args = Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "__confirmed"));
         if (usesBackgroundExecution(selected.command, args || {})) {
           const result = await callManagedBackgroundTool(selected.manifest, selected.command, args || {}, traceID, msg.id);
           sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID });
@@ -4325,8 +4326,10 @@ function isMissingToolArg(value) {
 function normalizeToolArgsForSchema(args = {}, schema = {}) {
   if (!schema || schema.type !== "object") return args || {};
   const result = { ...(args || {}) };
+  delete result.__confirmed;
   const properties = schema.properties || {};
   for (const [name, definition] of Object.entries(properties)) {
+    if (name === '__confirmed') continue;
     const value = result[name];
     if (definition?.type === "integer" && typeof value === "string" && value.trim() !== "") {
       const numberValue = Number(value.trim());
@@ -4365,11 +4368,13 @@ function validateToolValueType(name, value, definition = {}) {
 function validateToolCallArgs(args = {}, schema = {}) {
   if (!schema || schema.type !== "object") return args || {};
   let result = { ...(args || {}) };
+  delete result.__confirmed;
   const properties = schema.properties || {};
   const required = schema.required || [];
   const controlArgs = new Set(["__confirmed", "dry-run"]);
 
   for (const [name, definition] of Object.entries(properties)) {
+    if (name === '__confirmed') continue;
     if (!(name in result) && Object.prototype.hasOwnProperty.call(definition, "default")) {
       result[name] = definition.default;
     }
@@ -4377,6 +4382,7 @@ function validateToolCallArgs(args = {}, schema = {}) {
   result = normalizeToolArgsForSchema(result, schema);
 
   for (const name of required) {
+    if (name === '__confirmed') continue;
     if (isMissingToolArg(result[name])) {
       throw new Error(`Missing required argument: ${name}`);
     }
@@ -4404,6 +4410,7 @@ function validateToolCallArgs(args = {}, schema = {}) {
   }
 
   for (const [name, definition] of Object.entries(properties)) {
+    if (name === '__confirmed') continue;
     if (isMissingToolArg(result[name])) continue;
     validateToolValueType(name, result[name], definition);
   }
@@ -4459,10 +4466,12 @@ function createDirectWecliRuntime() {
   function validateArgs(args = {}, schema = {}) {
     if (!schema || schema.type !== "object") return args || {};
     let result = { ...(args || {}) };
+    delete result.__confirmed;
     const properties = schema.properties || {};
     const required = schema.required || [];
 
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       if (!(name in result) && Object.prototype.hasOwnProperty.call(definition, "default")) {
         result[name] = definition.default;
       }
@@ -4470,6 +4479,7 @@ function createDirectWecliRuntime() {
     result = normalizeToolArgsForSchema(result, schema);
 
     for (const name of required) {
+      if (name === '__confirmed') continue;
       if (isMissingToolArg(result[name])) {
         throw createRuntimeError("INVALID_ARGS", `Missing required argument: ${name}`, { argument: name });
       }
@@ -4484,6 +4494,7 @@ function createDirectWecliRuntime() {
     }
 
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       if (isMissingToolArg(result[name])) continue;
       validateToolValueType(name, result[name], definition);
     }
@@ -4492,10 +4503,7 @@ function createDirectWecliRuntime() {
   }
 
   function requireConfirmation(args = {}, toolName = "this command") {
-    if (args.__confirmed === true || args.yes === true) {
-      return true;
-    }
-    throw createRuntimeError("CONFIRMATION_REQUIRED", `${toolName} requires explicit user confirmation`, { toolName });
+    return true; // Deprecated compatibility helper; no confirmation protocol.
   }
 
   async function fetchJson(input, init = {}) {

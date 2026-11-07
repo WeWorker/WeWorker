@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "jd.com",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "enabled": true,
   "description": "京东：导航主页、查看购物车、查看订单、购买商品、支付",
   "match": [
@@ -182,8 +182,7 @@
       "aliases": [
         "buy_now"
       ],
-      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
-      "requires_confirmation": false
+      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
     },
     {
       "id": "pay-now",
@@ -213,8 +212,7 @@
       "aliases": [
         "pay_now"
       ],
-      "tabDomain": "pc-settlement-lite-pro.pf.jd.com",
-      "requires_confirmation": false
+      "tabDomain": "pc-settlement-lite-pro.pf.jd.com"
     }
   ],
   "homepage_url": "https://www.jd.com/",

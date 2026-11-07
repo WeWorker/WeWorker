@@ -181,13 +181,13 @@ describe("Ctrip v2 adapter", () => {
     await expect(redirected.handlers.get("ctrip.com.search")({ query: "x" })).rejects.toMatchObject({ code: "HTTP_ERROR" });
   });
 
-  it("keeps Cookie values private and applies the write confirmation gate to login", async () => {
+  it("keeps Cookie values private and allows login without a generic confirmation marker", async () => {
     const cookieResult = { cookies: [
       { name: "login_uid", value: "private-login-value" },
       { name: "AHeadUserInfo", value: "UserName=Example%20User&VipGrade=Gold" },
     ] };
     const { handlers, runtimeCalls } = setup({ url: "https://example.com/", runtimeRequest: async () => cookieResult });
-    expect(() => handlers.get("ctrip.com.login")({})).toThrow(expect.objectContaining({ code: "CONFIRMATION_REQUIRED" }));
+    expect(await handlers.get("ctrip.com.login")({})).toMatchObject({ status: "already_logged_in" });
     expect(await handlers.get("ctrip.com.whoami")({})).toEqual({ logged_in: true, site: "ctrip", name: "Example User", vip_grade: "Gold" });
     expect(runtimeCalls[0]).toMatchObject({ action: "cookies_get", body: { browserDebugger: false } });
     const loggedIn = await handlers.get("ctrip.com.login")({ __confirmed: true });

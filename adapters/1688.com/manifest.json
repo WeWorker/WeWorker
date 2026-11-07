@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "1688.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "1688 批发：商品搜索、商品/店铺详情、素材提取和登录检查",
   "homepage_url": "https://www.1688.com/",
@@ -127,7 +127,6 @@
       "routeDomain": "1688.com",
       "description": "Open the 1688 login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},

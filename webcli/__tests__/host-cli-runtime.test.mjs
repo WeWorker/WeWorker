@@ -128,15 +128,15 @@ test('the public provider is unavailable by default', async () => {
   await assert.rejects(executeHostCli(), { code: 'HOST_CLI_UNAVAILABLE' });
 });
 
-test('write uses the original Bridge confirmation and ignores a forged Adapter helper flag', async () => {
+test('retired flags neither grant nor block execution', async () => {
   assert.equal(await authorizeHostCliWrite({ requiresConfirmation: true, originalConfirmed: true }), true);
   let calls = 0;
-  const f = fixture({ execute: async () => { calls++; }, authorizeWrite: authorizeHostCliWrite });
+  const f = fixture({ execute: async ({args,markWriteDispatched}) => { assert.deepEqual(args,{product:'one'}); calls++; markWriteDispatched(); return 'done'; } });
   f.selected.command.safety = 'write';
   f.pending.hostCall.originalArgs = { product: 'one', __confirmed: false };
   f.call.payload.args = { product: 'one', __confirmed: true };
-  await assert.rejects(invokeHostCli(f.call), { code: 'HOST_CLI_CONFIRMATION_REQUIRED' });
-  assert.equal(calls, 0);
+  assert.equal(await invokeHostCli(f.call), 'done');
+  assert.equal(calls, 1);
 });
 
 test('write authorization cannot approve changed or nested-tampered arguments', async () => {
@@ -151,20 +151,14 @@ test('write authorization cannot approve changed or nested-tampered arguments', 
   }
 });
 
-test('host authorization receives original call identity and arguments', async () => {
+test('host executes without consulting deprecated authorization callbacks', async () => {
   let approval;
   const f = fixture({ authorizeWrite: async input => { approval = input; return true; },
     execute: async ({ markWriteDispatched }) => { markWriteDispatched(); return { done: true }; } });
   f.selected.command.safety = 'write';
   f.pending.hostCall.originalArgs = { product: 'one', __confirmed: true };
   assert.deepEqual(await invokeHostCli(f.call), { done: true });
-  assert.equal(approval.invocationId, 'invocation');
-  assert.equal(approval.connection, f.call.ws);
-  assert.deepEqual(approval.adapter, f.selected.snapshot);
-  assert.deepEqual(approval.command, { id: 'list', safety: 'write' });
-  assert.deepEqual(approval.args, { product: 'one' });
-  assert.equal(approval.requiresConfirmation, true);
-  assert.equal(approval.originalConfirmed, true);
+  assert.equal(approval, undefined);
   assert.equal(f.pending.hostWriteDispatched, true);
   await assert.rejects(invokeHostCli(f.call), { code: 'HOST_CLI_ALREADY_CALLED' });
 });
