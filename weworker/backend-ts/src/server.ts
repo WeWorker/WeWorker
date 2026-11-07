@@ -997,6 +997,7 @@ app.post('/settings/provider/probe', async (req, res) => {
 registerExplorationModelRoutes(app, { getSettings, updateSettings })
 
 app.get('/settings/channels', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   res.json(publicChannelSettings(getSettings()))
 })
 
@@ -1045,6 +1046,7 @@ async function mutateChannelProfile(type: ChannelType, action: string, id: unkno
 }
 
 app.post('/settings/channels/configuration', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   const { channel, action, id, config = {}, name } = req.body || {}
   if (!isChannelType(channel) || !config || typeof config !== 'object' || Array.isArray(config)) return res.status(400).json({ detail: '机器人配置格式无效' })
   try { res.json(await mutateChannelProfile(channel, action, id, action === 'rename' ? { name } : config)) }

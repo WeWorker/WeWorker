@@ -143,6 +143,9 @@ export interface WecomChannelConfig {
 
   owner_permission_level: OwnerPermissionLevel
 
+  /** One-time owner binding code; cleared after successful pairing. */
+  pairing_code?: string
+
 }
 
 export interface FeishuChannelConfig {
@@ -822,6 +825,7 @@ export function getSettings(): Settings {
 export function updateSettings(updates: Partial<Settings>): Settings {
 
   getSettings() // Ensure the persisted settings have been loaded.
+  const previousSettings = _settings
   // Merge the stored state, not the runtime projection containing deployment credentials.
   _settings = deepMerge(_settings!, updates) as Settings
   // Model configuration operations supply the complete collection. Deep merging
@@ -877,7 +881,13 @@ export function updateSettings(updates: Partial<Settings>): Settings {
 
   _settings.added_providers = normalizeAddedProviders(_settings.added_providers)
 
-  persistSettingsToDisk(_settings)
+  try {
+    persistSettingsToDisk(_settings)
+  } catch (error) {
+    // A failed save must not grant a new owner permissions only in memory.
+    _settings = previousSettings
+    throw error
+  }
 
   _settingsInitialized = true
 

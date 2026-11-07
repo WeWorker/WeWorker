@@ -25,6 +25,8 @@ import {
   type DedicatedAgentRecord,
 } from './agent-store.js'
 import { buildAgentChatOptions } from './agent-runtime.js'
+import { extractPairingCode } from '../channels/pairing-code.js'
+export { extractPairingCode } from '../channels/pairing-code.js'
 
 const log = createLogger('dedicated-agent')
 const KEY_PREFIX = 'agent:'
@@ -37,13 +39,6 @@ export function agentChannelKey(agentId: string): string {
 
 export function isAgentChannelKey(key: string): boolean {
   return key.startsWith(KEY_PREFIX)
-}
-
-/** Extract a 6-digit code from 「绑定 123456」, 「/bind 123456」 or just 「123456」. */
-export function extractPairingCode(text: string): string | null {
-  const normalized = String(text ?? '').replace(/\s+/g, '').toLowerCase()
-  const match = normalized.match(/^(?:绑定|配对|\/bind|bind|\/绑定)?[:：]?(\d{6})$/)
-  return match ? match[1] : null
 }
 
 interface SiteInfo { name: string; enabled: boolean; exists: boolean }

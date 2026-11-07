@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import type { ChannelsConfig, Settings } from '../config.js'
+import type { ChannelsConfig, Settings, WecomChannelConfig } from '../config.js'
 import { normalizeOwnerPermissionLevel, validateOwnerUserId } from './channel-permissions.js'
+import { generatePairingCode } from './pairing-code.js'
 
 export const CHANNEL_NAMES = { qq: 'QQ', feishu: '飞书', wecom: '企业微信', weixin: '微信' } as const
 export type ChannelType = keyof typeof CHANNEL_NAMES
@@ -11,7 +12,7 @@ export const isChannelType = (value: unknown): value is ChannelType => typeof va
 export function emptyChannel(type: ChannelType): ChannelsConfig[ChannelType] {
   const base = { enabled: false, owner_user_id: '', owner_permission_level: 'qa_only' as const }
   return type === 'weixin' ? { ...base, token: '', base_url: '' }
-    : type === 'wecom' ? { ...base, bot_id: '', secret: '' } : { ...base, app_id: '', app_secret: '' }
+    : type === 'wecom' ? { ...base, bot_id: '', secret: '', pairing_code: '' } : { ...base, app_id: '', app_secret: '' }
 }
 
 // Lazy, idempotent migration: keep the old runtime fields for existing consumers.
@@ -71,9 +72,22 @@ export function changeChannelConfiguration(settings: Settings, type: ChannelType
     } else if (action === 'delete') {
       delete entries[entry.id]
       if (active[type] === entry.id) { delete active[type]; Object.assign(channels[type], emptyChannel(type)) }
+    } else if (type === 'wecom' && (action === 'pair' || action === 're-pair')) {
+      const config = entry.config as WecomChannelConfig
+      if (!config.enabled || active.wecom !== entry.id || !config.bot_id || !config.secret) throw new Error('请先保存并启用这个企业微信机器人')
+      if (action === 're-pair') {
+        config.owner_user_id = ''
+        config.owner_permission_level = 'qa_only'
+        config.pairing_code = generatePairingCode(config.pairing_code)
+      } else if (!config.owner_user_id && !config.pairing_code) {
+        config.pairing_code = generatePairingCode()
+      }
+      Object.assign(channels.wecom, config)
     } else if (action === 'save' || action === 'activate') {
+      const previousBotId = type === 'wecom' ? (entry.config as WecomChannelConfig).bot_id : ''
       if (action === 'save') {
-        const allowed = Object.keys(emptyChannel(type))
+        // WeCom owner identity is written only by verified inbound pairing.
+        const allowed = Object.keys(emptyChannel(type)).filter(key => type !== 'wecom' || !['owner_user_id', 'pairing_code'].includes(key))
         const config = entry.config as unknown as Record<string, unknown>
         for (const key of allowed) {
           if (input[key] === undefined) continue
@@ -83,10 +97,20 @@ export function changeChannelConfiguration(settings: Settings, type: ChannelType
           if (['app_secret', 'secret', 'token'].includes(key) && !value) continue
           config[key] = value
         }
-        const error = validateOwnerUserId(type, entry.config.owner_user_id)
+        const error = type === 'wecom' ? null : validateOwnerUserId(type, entry.config.owner_user_id)
         if (error) throw new Error(error)
         entry.config.owner_permission_level = entry.config.owner_user_id ? normalizeOwnerPermissionLevel(entry.config.owner_permission_level) : 'qa_only'
       } else entry.config.enabled = true
+      if (type === 'wecom') {
+        const config = entry.config as WecomChannelConfig
+        if (previousBotId !== config.bot_id) {
+          config.owner_user_id = ''
+          config.owner_permission_level = 'qa_only'
+          config.pairing_code = ''
+        }
+        if (config.owner_user_id) config.pairing_code = ''
+        else if (config.bot_id && config.secret && !config.pairing_code) config.pairing_code = generatePairingCode()
+      }
       if (entry.config.enabled) {
         const config = entry.config as unknown as Record<string, unknown>
         const required = type === 'weixin' ? ['token'] : type === 'wecom' ? ['bot_id', 'secret'] : ['app_id', 'app_secret']

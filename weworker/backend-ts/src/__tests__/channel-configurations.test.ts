@@ -80,3 +80,46 @@ it('serializes asynchronous mutations and recovers after a rejected operation', 
   await first; await rejected; await third
   expect(events).toEqual(['stop', 'start', 'next', 'recovered'])
 })
+
+it('issues an independent WeCom binding code after credentials are saved', () => {
+  let state = initial()
+  const first = changeChannelConfiguration(state, 'wecom', 'add')
+  state = { ...state, ...first.updates }
+  state = { ...state, ...changeChannelConfiguration(state, 'wecom', 'save', first.id, { ...credentials('wecom'), enabled: true }).updates }
+  const firstCode = state.channels.wecom.pairing_code
+  expect(firstCode).toMatch(/^\d{6}$/)
+  state = { ...state, ...changeChannelConfiguration(state, 'wecom', 'pair', first.id).updates }
+  expect(state.channels.wecom.pairing_code).toBe(firstCode)
+  const second = changeChannelConfiguration(state, 'wecom', 'add')
+  state = { ...state, ...second.updates }
+  state = { ...state, ...changeChannelConfiguration(state, 'wecom', 'save', second.id, { bot_id: 'other-fixture-bot', secret: 'fixture-secret', enabled: true }).updates }
+  expect(state.channels.wecom.pairing_code).toMatch(/^\d{6}$/)
+  expect(state.channel_configurations![first.id].config).toMatchObject({ pairing_code: firstCode, enabled: false })
+  expect(() => changeChannelConfiguration(state, 'wecom', 'pair', first.id)).toThrow('启用')
+})
+
+it('keeps the bound owner when a stale form saves, and resets on explicit re-pair or bot replacement', () => {
+  let state = initial()
+  state.channels.wecom = { ...state.channels.wecom, ...credentials('wecom'), enabled: true, owner_user_id: 'fixture-owner', owner_permission_level: 'full', pairing_code: '' }
+  state = migrateChannelConfigurations(state)
+  const id = state.active_channel_configurations!.wecom!
+  state = { ...state, ...changeChannelConfiguration(state, 'wecom', 'save', id, { owner_user_id: '', pairing_code: '111111' }).updates }
+  expect(state.channels.wecom).toMatchObject({ owner_user_id: 'fixture-owner', owner_permission_level: 'full', pairing_code: '' })
+  expect(changeChannelConfiguration(state, 'wecom', 'pair', id).updates.channels.wecom.owner_user_id).toBe('fixture-owner')
+  const reset = changeChannelConfiguration(state, 'wecom', 're-pair', id)
+  expect(reset.updates.channels.wecom).toMatchObject({ owner_user_id: '', owner_permission_level: 'qa_only' })
+  expect(reset.updates.channels.wecom.pairing_code).toMatch(/^\d{6}$/)
+  const replaced = changeChannelConfiguration(state, 'wecom', 'save', id, { bot_id: 'replacement-fixture-bot' })
+  expect(replaced.updates.channels.wecom.owner_user_id).toBe('')
+  expect(replaced.updates.channels.wecom.pairing_code).toMatch(/^\d{6}$/)
+})
+
+it('does not generate codes for incomplete or non-WeCom configurations', () => {
+  let state = initial()
+  const draft = changeChannelConfiguration(state, 'wecom', 'add')
+  state = { ...state, ...draft.updates }
+  expect(() => changeChannelConfiguration(state, 'wecom', 'pair', draft.id)).toThrow()
+  const qq = changeChannelConfiguration(state, 'qq', 'add')
+  state = { ...state, ...qq.updates }
+  expect(() => changeChannelConfiguration(state, 'qq', 'pair', qq.id)).toThrow()
+})
