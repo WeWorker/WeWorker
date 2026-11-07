@@ -1,4 +1,4 @@
-/** Model-independent development commands; arguments use the existing --args parser. */
+/** Model-independent development commands; use the shared WebCLI argument parser. */
 export const developmentCommands = {
   list: { required: [], description: 'List current development workspaces, Adapter identities, editable Tool metadata, retained commands and baseline digests. Read-only; no installed catalog snapshot.' },
   prepare: { required: ['adapter_id', 'expected_digest'], optional: ['toolkit_id'], description: 'Prepare an installed Adapter workspace at the exact catalog digest. Reuse matching workspace or bind a retained package; never install or overwrite. Multiple matches require toolkit_id. Only returned editable_tools may be modified; retained commands cannot be rewritten by this Toolkit flow.' },
@@ -16,7 +16,7 @@ export const developmentCommands = {
 
 export function developmentHelp() {
   return { namespace: 'development', schemaVersion: 1, model: 'calling-agent',
-    usage: 'webcli call development.<command> --args <JSON object>',
+    usage: 'webcli call development.<command> [--key=value ...] [--args-file=./args.json]',
     requirements: ['Running host-managed website exploration service on 127.0.0.1:8766',
       'WEWORKER_EXPLORATION_INSTANCE_ID supplied by the same desktop host; never infer identity from an unknown listener',
       'prepare/review/apply additionally require the running desktop backend and host-provided WEWORKER_HTTP_TOKEN / WEWORKER_BACKEND_INSTANCE_ID; never pass credentials as command arguments'],

@@ -83,14 +83,20 @@ export function buildOfficialAdapterToolSection(tool) {
     }
     lines.push('')
   }
-  const requiredArgs = {}
-  for (const param of tool.parameters || []) {
-    if (param.required) requiredArgs[param.name] = `<${param.name}>`
+  const required = (tool.parameters || []).filter(param => param.required)
+  const flags = []
+  const fileArgs = {}
+  for (const { name, type } of required) {
+    if (type === 'array') fileArgs[name] = []
+    else if (type === 'object') fileArgs[name] = {}
+    else if (type === 'number' || type === 'integer') fileArgs[name] = 1
+    else flags.push('--' + name + '=' + (type === 'boolean' ? 'true' : 'example-value'))
   }
-  const argsText = Object.keys(requiredArgs).length ? ` --args '${JSON.stringify(requiredArgs)}'` : ''
-  lines.push('```bash')
-  lines.push(`webcli call ${tool.name}${argsText}`)
-  lines.push('```')
+  if (Object.keys(fileArgs).length) {
+    lines.push('按实际值填写 UTF-8 文件 `args.json`：', '', '```json', JSON.stringify(fileArgs, null, 2), '```', '')
+    flags.push('--args-file=./args.json')
+  }
+  lines.push('```bash', [`webcli call ${tool.name}`, ...flags].join(' '), '```')
   return lines.join('\n')
 }
 

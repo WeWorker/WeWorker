@@ -111,24 +111,29 @@ export function generateSkillContent(manifest, tools, options = {}) {
       lines.push("");
     }
 
-    // Add usage example with --key=value format
-    const flagParts = [];
-    for (const p of tool.params) {
-      if (p.required) {
-        if (p.type === "string") flagParts.push(`--${p.name}=<${p.name}>`);
-        else if (p.type === "number") flagParts.push(`--${p.name}=1`);
-        else if (p.type === "boolean") flagParts.push(`--${p.name}=true`);
-        else flagParts.push(`--${p.name}=<${p.name}>`);
-      }
-    }
-    const argsStr = flagParts.length > 0 ? ` ${flagParts.join(" ")}` : "";
-    lines.push("```bash");
-    lines.push(`webcli call ${tool.name}${argsStr}`);
-    lines.push("```");
+    lines.push(...toolExampleLines(tool));
     lines.push("");
   }
 
   return lines.join("\n");
+}
+
+export function toolExampleLines(tool) {
+  const flags = [];
+  const fileArgs = {};
+  for (const { name, type, required } of tool.params || []) {
+    if (!required) continue;
+    if (type === "array") fileArgs[name] = [];
+    else if (type === "object") fileArgs[name] = {};
+    else if (type === "number" || type === "integer") fileArgs[name] = 1;
+    else flags.push("--" + name + "=" + (type === "boolean" ? "true" : "example-value"));
+  }
+  const lines = [];
+  if (Object.keys(fileArgs).length) {
+    lines.push("Fill in `args.json` as UTF-8 JSON:", "", "```json", JSON.stringify(fileArgs, null, 2), "```", "");
+    flags.push("--args-file=./args.json");
+  }
+  return [...lines, "```bash", [`webcli call ${tool.name}`, ...flags].join(" "), "```"];
 }
 
 function isDirectTool(tool) {
