@@ -518,18 +518,14 @@ async function cmdValidate(args, emit = value => console.log(JSON.stringify(valu
 
 async function cmdInstall(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
   const p = parseArgs(args, {
-    flags: ["force", "reload", "json", "allow-permission-change", "change-source"],
+    flags: ["json"],
     values: { version: {} },
     positionalUsage: "adapter 名称 / name@version / 本地 .adapt 路径", maxPositional: 1, minPositional: 1,
   });
   const rawTarget = p.positionals[0];
-  const decisions = {
-    allowDowngrade: p.flags.has("force"),
-    allowPermissionChange: p.flags.has("allow-permission-change"),
-    allowSourceChange: p.flags.has("change-source"),
-  };
-  const force = p.flags.has("force");
-  const reload = p.flags.has("reload");
+  // 安装语义内化：指定什么装什么（同版本幂等重装、允许降级）、权限变化照装并提示、
+  // 来源可自由切换；装完自动 best-effort 热重载扩展。不再暴露确认类参数。
+  const decisions = { allowDowngrade: true, allowPermissionChange: true, allowSourceChange: true };
   const json = p.flags.has("json");
 
   // 本地 .adapt 包安装（离线）
@@ -540,34 +536,20 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
     const bytes = readFileSync(abs);
     const pre = readAdapterPackage(bytes);
     const local = readLocalManifest(pre.manifest.name);
-    if (!decisions.allowSourceChange) assertInstalledAdapterOrigin(pre.manifest.name, { kind: "local" });
-    if (local?.version && !force && !decisions.allowSourceChange) {
-      const cmp = compareVersions(pre.manifest.version, local.version);
-      if (cmp === 0) {
-        if (json) { emit({ name: pre.manifest.name, version: local.version, action: "already-latest" }); return; }
-        console.log(`✓ ${pre.manifest.name} 已是同版本（v${local.version}）。用 --force 强制重装。`);
-        return;
-      }
-      if (cmp < 0) {
-        if (json) { process.exitCode = 1; emit({ name: pre.manifest.name, localVersion: local.version, packageVersion: pre.manifest.version, action: "downgrade-blocked" }); return; }
-        console.error(`! 包版本 v${pre.manifest.version} 低于本地 v${local.version}（降级）。用 --force 确认降级安装。`);
-        process.exitCode = 1;
-        return;
-      }
+    if (local?.version && !json && compareVersions(pre.manifest.version, local.version) < 0) {
+      console.log(`降级安装 ${pre.manifest.name}: v${local.version} → v${pre.manifest.version}（本地包指定版本）`);
     }
     const { pkg } = installAdapterPackage(bytes, {}, { ...decisions, origin: { kind: "local" } });
     const localResult = { name: pkg.manifest.name, version: pkg.manifest.version, action: local ? "upgraded" : "installed", source: "local", path: join(installDir(), pkg.manifest.name) };
-    if (reload) Object.assign(localResult, await reloadExtensionBestEffort({ json }));
+    Object.assign(localResult, await reloadExtensionBestEffort({ json }));
     if (json) { emit(localResult); return; }
     console.log(`✓ 已从本地包安装: ${pkg.manifest.name} v${pkg.manifest.version} → ${join(installDir(), pkg.manifest.name)}`);
-    if (!reload) console.log("→ 请在 chrome://extensions 重载扩展生效");
     return;
   }
 
   rejectCommandTarget(rawTarget);
   const { name, version } = parseTarget(rawTarget);
   const origin = { kind: "hub", service: resolveEndpoint() };
-  if (!decisions.allowSourceChange) assertInstalledAdapterOrigin(name, origin);
   const versionArg = p.values.get("version") || version;
 
   // v2 优先；404 回退 v1 站点冻结存量
@@ -578,7 +560,7 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
     if (err.status !== 404 || versionArg) throw err;
     await installSite(name);
     const siteResult = { name, action: "installed", source: "v1-site" };
-    if (reload) Object.assign(siteResult, await reloadExtensionBestEffort({ json }));
+    Object.assign(siteResult, await reloadExtensionBestEffort({ json }));
     if (json) { emit(siteResult); return; }
     return;
   }
@@ -604,19 +586,10 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
   const result = { name: remote.name };
   if (local?.version) {
     const cmp = compareVersions(targetVersion, local.version);
-    if (cmp === 0 && !force && !decisions.allowSourceChange) {
-      if (json) return emit({ ...result, version: local.version, action: "already-latest" });
-      console.log(`✓ ${remote.name} 已是最新（v${local.version}）。用 --force 强制重装。`);
-      return;
-    }
-    if (cmp < 0 && !force) {
-      if (json) { process.exitCode = 1; emit({ ...result, localVersion: local.version, remoteVersion: targetVersion, action: "downgrade-blocked" }); return; }
-      console.error(`! 线上版本 v${targetVersion} 低于本地 v${local.version}（降级）。用 --force 确认降级安装。`);
-      process.exitCode = 1;
-      return;
-    }
+    if (cmp === 0 && !json) console.log(`重装 ${remote.name} v${local.version}（同版本）`);
+    if (cmp < 0 && !json) console.log(`降级安装 ${remote.name}: v${local.version} → v${targetVersion}（指定版本）`);
     if (cmp > 0 && !json) console.log(`升级 ${remote.name}: v${local.version} → v${targetVersion}`);
-    result.action = "upgraded";
+    result.action = cmp === 0 ? "reinstalled" : cmp < 0 ? "downgraded" : "upgraded";
     result.fromVersion = local.version;
   } else {
     if (!json) console.log(`安装 ${remote.display || remote.name}（${remote.name}）v${targetVersion}，含 ${remote.commandCount ?? 0} 个命令`);
@@ -635,7 +608,7 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
   result.installedAt = join(installDir(), pkg.manifest.name);
 
   if (json) {
-    if (reload) Object.assign(result, await reloadExtensionBestEffort({ json }));
+    Object.assign(result, await reloadExtensionBestEffort({ json }));
     emit(result);
   } else {
     console.log(`✓ Adapter 已安装: ${pkg.manifest.name} v${pkg.manifest.version} → ${result.installedAt}`);
@@ -643,15 +616,12 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
     if (Array.isArray(remote.scenarios) && remote.scenarios.length) {
       console.log("（提示词已列出，装好后直接对 AI 助手说即可；${} 为占位符）");
     }
+    await reloadExtensionBestEffort();
   }
-  if (reload && !json) await reloadExtensionBestEffort();
-  else if (!reload && !json) console.log("→ 请在 chrome://extensions 重载扩展生效");
 }
 
 async function cmdUpgrade(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["all", "force", "json", "dry-run", "allow-permission-change"], positionalUsage: "adapter 名称或 --all", maxPositional: 1 });
-  const force = p.flags.has("force");
-  const dryRun = p.flags.has("dry-run");
+  const p = parseArgs(args, { flags: ["all", "json"], positionalUsage: "adapter 名称或 --all", maxPositional: 1 });
   const json = p.flags.has("json");
   const target = p.positionals[0] || null;
   if (!p.flags.has("all") && !target) throw new UsageError("请指定 Adapter 或使用 --all。用法: webcli adapterhub upgrade [<目标>|--all]");
@@ -678,42 +648,40 @@ async function cmdUpgrade(args, emit = value => console.log(JSON.stringify(value
     }
     if (remote.installable === false) { plan.push({ name: id, action: "skipped-placeholder" }); skipped++; if (!json) console.log(`- ${id}: 暂无可下载制品（官方占位），跳过`); continue; }
     const cmp = compareVersions(remote.version, local.version);
-    if (cmp > 0 || (cmp < 0 && force)) {
-      plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: cmp < 0 ? "downgrade" : "upgrade" });
-      if (!json) console.log(`↑ ${id}: v${local.version} → v${remote.version}${cmp < 0 ? "（--force 降级）" : ""}`);
-      if (dryRun) { updated++; continue; }
+    if (cmp > 0) {
+      plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "upgrade" });
+      if (!json) console.log(`↑ ${id}: v${local.version} → v${remote.version}`);
       const expectedSha = String(remote.artifact?.sha256 || "").replace("sha256:", "");
       const { buffer } = await downloadAdapter(id);
       const { pkg } = installAdapterPackage(buffer, { name: id, version: remote.version, sha256hex: expectedSha }, {
-        origin, allowDowngrade: force, allowPermissionChange: p.flags.has("allow-permission-change"),
+        origin, allowDowngrade: true, allowPermissionChange: true,
       });
       updated++;
       if (json) plan[plan.length - 1].installedAt = join(installDir(), pkg.manifest.name);
     } else if (cmp < 0) {
       plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "local-newer" });
-      newer++; if (!json) console.log(`- ${id}: 本地 v${local.version} 比线上 v${remote.version} 新，跳过（--force 可降级）`);
+      newer++; if (!json) console.log(`- ${id}: 本地 v${local.version} 比线上 v${remote.version} 新，跳过（可用 install <名称>@<版本> 降级）`);
     } else {
       plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "up-to-date" });
       upToDate++;
     }
   }
-  const summary = { updated, upToDate, newer, delisted, skipped, dryRun };
+  const summary = { updated, upToDate, newer, delisted, skipped };
   if (json) return emit({ summary, plan });
-  console.log(`\n完成：${updated} 更新 · ${upToDate} 已最新${newer ? ` · ${newer} 本地更新` : ""}${delisted ? ` · ${delisted} 已下架` : ""}${skipped ? ` · ${skipped} 占位跳过` : ""}${dryRun ? "（--dry-run，未实际执行）" : ""}`);
+  console.log(`\n完成：${updated} 更新 · ${upToDate} 已最新${newer ? ` · ${newer} 本地更新` : ""}${delisted ? ` · ${delisted} 已下架` : ""}${skipped ? ` · ${skipped} 占位跳过` : ""}`);
 }
 
 async function cmdRemove(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["reload", "json"], positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1 });
+  const p = parseArgs(args, { flags: ["json"], positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1 });
   const target = p.positionals[0];
   rejectCommandTarget(target);
   const json = p.flags.has("json");
   const id = findLocalAdapterByTarget(target);
   if (id) {
     const removal = removeInstalledAdapter(id);
-    if (p.flags.has("reload")) Object.assign(removal, await reloadExtensionBestEffort({ json }));
+    Object.assign(removal, await reloadExtensionBestEffort({ json }));
     if (json) { emit(removal); return; }
     console.log(`✓ Adapter 已卸载: ${id}`);
-    if (!p.flags.has("reload")) console.log("→ 请在 chrome://extensions 重载扩展生效");
     return;
   }
   // v1 site 冻结存量
@@ -725,10 +693,9 @@ async function cmdRemove(args, emit = value => console.log(JSON.stringify(value,
   delete current.sites[match.site.id];
   saveState(current);
   const removal = { name: match.site.domain, action: "removed", source: "v1-site" };
-  if (p.flags.has("reload")) Object.assign(removal, await reloadExtensionBestEffort({ json }));
+  Object.assign(removal, await reloadExtensionBestEffort({ json }));
   if (json) { emit(removal); return; }
   console.log(`Removed ${match.site.domain}`);
-  if (!p.flags.has("reload")) console.log("→ 请在 chrome://extensions 重载扩展生效");
 }
 
 // ─── pack / publish ──────────────────────────────────────────────────────────
@@ -861,7 +828,7 @@ function help() {
 用法: webcli adapterhub <命令> [参数]；参数详情: webcli adapterhub <命令> --help
 
   list [--installed[=false]] [--origin …] [--sort …]   列出线上 Adapter（标记/过滤安装状态）
-  find <关键词>                                        按名称、域名、用途检索
+  search <关键词>                                      按名称、域名、用途检索
   info <adapter> [--versions]                          详情（含命令清单；--versions 版本历史）
   install <adapter>[@<版本>] | <本地.adapt>            安装/升级 Adapter
   upgrade [<adapter>|--all]                            检查并升级已安装 Adapter
@@ -873,11 +840,7 @@ function help() {
   publish <目录或.adapt> [--yes]                       发布/更新到 Hub
 
 说明:
-  - 官方地址已内置，无需配置；自建时设 WEBCLI_ADAPTERHUB_ENDPOINT
-  - <adapter> 通常是站点域名；name@version 可安装指定历史版本
-  - install 支持 ./xxx.adapt 本地包离线安装；覆盖已有版本时做版本比对确认
-  - 非交互/脚本场景可 webcli adapterhub init ahp_xxx 直接保存 PAT
-  - ADAPTERHUB_TOKEN 仅作为临时覆盖，优先于已保存凭据`);
+  - 发布需 PAT：webcli adapterhub init ahp_xxx（Hub 网页「令牌」处创建）`);
 }
 
 /** 子命令参数详情（webcli adapterhub <命令> --help）。 */
@@ -890,57 +853,47 @@ const SUBCOMMAND_HELP = {
   --origin official|user     按来源过滤
   --runtime extension|wewright  按运行时过滤
   --sort favorites|downloads|recent|name  排序（默认收藏）
-  --q <关键词>               过滤关键词
-  --json                     JSON 输出`,
-  find: `webcli adapterhub find <关键词> [--json]
+  --q <关键词>               过滤关键词`,
+  search: `webcli adapterhub search <关键词>
 
   按名称、域名、用途检索线上 Adapter。`,
-  info: `webcli adapterhub info <adapter> [--versions] [--json]
+  info: `webcli adapterhub info <adapter> [--versions]
 
   查看详情：元数据、匹配域名、命令清单、推荐提示词。
   --versions   追加版本历史`,
-  install: `webcli adapterhub install <adapter>[@<版本>] | <本地.adapt> [选项]
+  install: `webcli adapterhub install <adapter>[@<版本>] | <本地.adapt>
 
-  安装/升级整个 Adapter（从 Hub 或本地 .adapt 包）。
+  安装/升级整个 Adapter（从 Hub 或本地 .adapt 包）：
+  指定什么装什么（同版本幂等重装、@旧版本 可降级），
+  权限变化照装并在输出中提示，装完自动热重载扩展（失败则提示手动重载）。`,
+  upgrade: `webcli adapterhub upgrade [<adapter>|--all]
 
-  --force                   覆盖本地已有版本（跳过版本比对确认，允许降级）
-  --reload                  安装后通知扩展热重载
-  --change-source           显式更换安装来源（如从本地包改为 Hub）
-  --allow-permission-change 接受新增权限（不包含在 --force 中）
-  --json                    JSON 输出`,
-  upgrade: `webcli adapterhub upgrade [<adapter>|--all] [选项]
+  检查并升级自装的 Adapter（内置随包升级；本地比线上新则跳过，
+  降级用 install <名称>@<版本>）。`,
+  remove: `webcli adapterhub remove <adapter>
 
-  检查并升级已安装 Adapter（来源为 Hub 的自装 Adapter；内置随包升级）。
-
-  --all                     升级全部已安装
-  --force                   允许降级
-  --dry-run                 只检查不落盘
-  --allow-permission-change 接受新增权限
-  --json                    JSON 输出`,
-  remove: `webcli adapterhub remove <adapter> [--reload] [--json]
-
-  卸载 Adapter（内置 Adapter 不在卸载范围，随包管理）。`,
+  卸载自装 Adapter（内置 Adapter 随包管理，不可卸载）；卸载后自动热重载扩展。`,
   validate: `webcli adapterhub validate <文件.adapt>
 
   离线校验 .adapt 包结构与哈希（pack/publish 也会自动校验）。`,
-  pack: `webcli adapterhub pack <目录> [-o <文件.adapt>] [--json]
+  pack: `webcli adapterhub pack <目录> [-o <文件.adapt>]
 
   将 Adapter 目录打包为 .adapt（打包后立即校验）。`,
-  init: `webcli adapterhub init [PAT] [--json]
+  init: `webcli adapterhub init [PAT]
 
   安全保存发布 PAT（Windows DPAPI 加密）。
   省略 PAT 时交互隐藏输入；脚本/Agent 场景直接传 ahp_xxx。`,
-  status: `webcli adapterhub status [--json]
+  status: `webcli adapterhub status
 
   查看 PAT 是否已配置（不显示令牌）。`,
-  publish: `webcli adapterhub publish <目录或.adapt> [--yes] [--json]
+  publish: `webcli adapterhub publish <目录或.adapt> [--yes]
 
-  发布/更新 Adapter 到 Hub（需 PAT：adapterhub init 配置或 ADAPTERHUB_TOKEN）。
+  发布/更新 Adapter 到 Hub（需 PAT：adapterhub init 配置）。
   --yes   跳过交互确认（非交互环境必须）`,
 };
 
 const COMMANDS = {
-  list: cmdList, find: cmdFind, search: cmdFind, info: cmdInfo,
+  list: cmdList, search: cmdFind, find: cmdFind, info: cmdInfo,
   validate: cmdValidate, pack: cmdPack,
   install: cmdInstall, upgrade: cmdUpgrade, remove: cmdRemove, uninstall: cmdRemove,
   init: cmdInit, login: cmdInit, status: cmdAuthStatus, publish: cmdPublish,

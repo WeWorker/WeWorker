@@ -108,13 +108,19 @@ describe('命令集精简', () => {
     expect(help.stdout).toContain('upgrade');
   });
 
-  it('子命令 --help 展示参数详情', () => {
-    for (const [command, marker] of [['install', '--change-source'], ['upgrade', '--dry-run'], ['list', '--installed'], ['publish', '--yes']]) {
+  it('子命令 --help 展示参数详情且不暴露 --json/--force', () => {
+    for (const [command, marker] of [['install', '本地 .adapt'], ['upgrade', '--all'], ['list', '--installed'], ['publish', '--yes']]) {
       const output = run([command, '--help']);
       expect(output.status).toBe(0);
       expect(output.stderr).toBe('');
       expect(output.stdout).toContain(marker);
+      expect(output.stdout).not.toContain('--json');
     }
+    const installHelp = run(['install', '--help']);
+    expect(installHelp.stdout).not.toContain('--force');
+    expect(installHelp.stdout).not.toContain('--reload');
+    expect(installHelp.stdout).not.toContain('--change-source');
+    expect(installHelp.stdout).not.toContain('--allow-permission-change');
   });
 
   it('已删除的命令报未知命令（退出码 2）', () => {

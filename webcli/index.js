@@ -142,7 +142,7 @@ Adapters:
 
 AdapterHub（参数详情: webcli adapterhub <命令> --help）:
   adapterhub list [--installed[=false]] [--origin …] [--json]  列出线上 Adapter（标记/过滤安装状态）
-  adapterhub find <keyword> [--json]                   按名称、域名、用途检索
+  adapterhub search <keyword>                          按名称、域名、用途检索
   adapterhub info <adapter> [--versions] [--json]      详情（含命令清单；--versions 版本历史）
   adapterhub install <adapter>[@<版本>] | <本地.adapt> [--force] [--reload] [--json]
                                                        安装/升级整个 Adapter
