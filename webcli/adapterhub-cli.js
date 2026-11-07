@@ -23,7 +23,7 @@ import { zipSync } from "fflate";
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readAdapt } from "./adapterhub-package.js";
 import { readAdapterPackage } from "./adapterhub-package-v2.js";
-import { resolveAdaptersDir, resolveUserAdaptersDir, resolveAdapterPaths } from "./paths.js";
+import { resolveAdaptersDir, resolveBuiltinAdaptersDir, resolveUserAdaptersDir, resolveAdapterPaths } from "./paths.js";
 import { readAdapterState } from "./adapter-state.js";
 import { installAdapter, removeInstalledAdapter, assertInstalledAdapterOrigin } from "./adapter-install-store.js";
 import { adapterHubCredentialStatus, readHiddenToken, removeAdapterHubToken, saveAdapterHubToken } from "./adapterhub-credentials.js";
@@ -167,6 +167,31 @@ function findLocalAdapterByTarget(target) {
   const ids = localAdapterIds();
   if (ids.includes(target)) return target;
   return ids.find((id) => id.toLowerCase() === String(target).toLowerCase()) || null;
+}
+
+/** 打包内置 Adapter（随宿主/包分发的 adapters 目录，不占安装记录）。 */
+function builtinAdapterIds() {
+  try {
+    const dir = resolveBuiltinAdaptersDir();
+    if (!existsSync(dir)) return [];
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(dir, entry.name, "manifest.json")))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+function readBuiltinManifestVersion(id) {
+  try {
+    return JSON.parse(readFileSync(join(resolveBuiltinAdaptersDir(), id, "manifest.json"), "utf8")).version || "?";
+  } catch {
+    return "?";
+  }
+}
+
+/** 本地已有的 Adapter 名集合（内置 ∪ 自装，小写归一），供 list 标记未安装。 */
+function knownLocalAdapterNames() {
+  return new Set([...localAdapterIds(), ...builtinAdapterIds()].map((id) => id.toLowerCase()));
 }
 
 // ── 通用工具 ─────────────────────────────────────────────────────────────────
@@ -372,12 +397,17 @@ async function cmdList(args, emit = value => console.log(JSON.stringify(value, n
   const { items, total } = await listAllAdapters(origin || runtime || sort ? { origin, runtime, sort } : {});
   if (p.flags.has("json")) return emit({ total, items });
   if (!items.length) { console.log("AdapterHub 目录为空。"); return; }
-  console.log(`AdapterHub Adapter（共 ${total} 个）：\n`);
-  for (const item of items) {
-    const runtimes = normalizeRuntimes(item.runtimes).join("+") || "—";
+  // 本地默认已内置/已安装大部分 Adapter，仅标记缺的；不再展示命令数/下载量。
+  const localNames = knownLocalAdapterNames();
+  let missing = 0;
+  const lines = items.map((item) => {
     const originTag = item.origin === "user" ? " [用户上传]" : "";
-    console.log(`  ${String(item.name || "").padEnd(30)} ${item.display || ""} v${item.version} · ${item.commandCount ?? 0} 命令 · ${item.downloads ?? 0} 下载${originTag}`);
-  }
+    const installedTag = localNames.has(String(item.name || "").toLowerCase()) ? "" : " [未安装]";
+    if (installedTag) missing++;
+    return `  ${String(item.name || "").padEnd(30)} ${item.display || ""} v${item.version}${originTag}${installedTag}`;
+  });
+  console.log(`AdapterHub Adapter（共 ${total} 个，未安装 ${missing} 个）：\n`);
+  for (const line of lines) console.log(line);
 }
 
 async function cmdFind(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
@@ -714,11 +744,22 @@ async function cmdUpdate(args, emit = value => console.log(JSON.stringify(value,
 
 function cmdInstalled(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
   const p = parseArgs(args, { flags: ["json"], maxPositional: 0 });
-  const ids = localAdapterIds();
-  const items = ids.map((id) => ({ name: id, version: readLocalManifest(id)?.version || "?" }));
-  if (p.flags.has("json")) return emit({ items, total: items.length });
-  console.log(`本地已安装 ${ids.length} 个 Adapter：\n`);
-  for (const item of items) console.log(`  ${item.name.padEnd(30)} v${item.version}`);
+  // 内置 Adapter 随包分发、不占安装记录；自装 Adapter 以安装记录为准，重名时自装覆盖内置。
+  const installedIds = localAdapterIds();
+  const items = [
+    ...builtinAdapterIds()
+      .filter((id) => !installedIds.includes(id))
+      .map((id) => ({ name: id, version: readBuiltinManifestVersion(id), source: "builtin" })),
+    ...installedIds.map((id) => ({ name: id, version: readLocalManifest(id)?.version || "?", source: "installed" })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const builtinCount = items.filter((item) => item.source === "builtin").length;
+  const installedCount = items.length - builtinCount;
+  if (p.flags.has("json")) return emit({ items, total: items.length, builtin: builtinCount, installed: installedCount });
+  console.log(`本地 Adapter ${items.length} 个（内置 ${builtinCount} · 自装 ${installedCount}）：\n`);
+  for (const item of items) {
+    const sourceTag = item.source === "builtin" ? "[内置]" : "[自装]";
+    console.log(`  ${item.name.padEnd(30)} v${item.version} ${sourceTag}`);
+  }
 }
 
 async function cmdRemove(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
@@ -902,7 +943,7 @@ function help() {
   webcli adapterhub update [<adapter>|--all] [--force] [--dry-run] [--json]
                                                           检查并更新已安装 Adapter
     --allow-permission-change                             接受新增权限
-  webcli adapterhub installed [--json]                   列出本地已安装 Adapter
+  webcli adapterhub installed [--json]                   列出本地 Adapter（内置 + 自装）
   webcli adapterhub remove <adapter> [--reload] [--json] 卸载 Adapter
   webcli adapterhub init [PAT] [--json]                 安全保存发布 PAT（Windows DPAPI；省略 PAT 时交互输入）
   webcli adapterhub status [--json]                     查看 PAT 是否已配置（不显示令牌）
