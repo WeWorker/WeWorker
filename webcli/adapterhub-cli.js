@@ -26,7 +26,7 @@ import { readAdapterPackage } from "./adapterhub-package-v2.js";
 import { resolveAdaptersDir, resolveBuiltinAdaptersDir, resolveUserAdaptersDir, resolveAdapterPaths } from "./paths.js";
 import { readAdapterState } from "./adapter-state.js";
 import { installAdapter, removeInstalledAdapter, assertInstalledAdapterOrigin } from "./adapter-install-store.js";
-import { adapterHubCredentialStatus, readHiddenToken, removeAdapterHubToken, saveAdapterHubToken } from "./adapterhub-credentials.js";
+import { adapterHubCredentialStatus, readHiddenToken, saveAdapterHubToken } from "./adapterhub-credentials.js";
 import {
   compareVersions,
   downloadAdapter,
@@ -88,6 +88,12 @@ function parseArgs(rawArgs, { flags = [], values = {}, positionalUsage = "", max
       const spec0 = valueSpecs.get(name);
       const target = spec0.alias || name;
       const v = inlineValue !== undefined ? inlineValue : (args[i + 1] && !args[i + 1].startsWith("-") || args[i + 1] === undefined ? args[++i] : undefined);
+      // optionalValue：`--flag` 裸用等价 true（如 list --installed），`--flag=false` 显式取反
+      if ((v === undefined || v === "") && spec0.optionalValue) {
+        if (hasEq && inlineValue === "") throw new UsageError(`--${name} 需要一个值。${spec(target, valueSpecs)}`);
+        parsed.values.set(target, "true");
+        continue;
+      }
       if (v === undefined || v === "") throw new UsageError(`--${name} 需要一个值。${spec(target, valueSpecs)}`);
       parsed.values.set(target, v);
       continue;
@@ -373,14 +379,20 @@ function printScenarios(adapter, indent = "") {
 
 async function cmdList(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
   const p = parseArgs(args, {
-    flags: ["json", "installed"],
-    values: { q: {}, origin: { choices: ["official", "user"] }, runtime: { choices: ["extension", "wewright"] }, sort: { choices: ["favorites", "downloads", "recent", "name"] } },
+    flags: ["json"],
+    values: {
+      q: {},
+      origin: { choices: ["official", "user"] },
+      runtime: { choices: ["extension", "wewright"] },
+      sort: { choices: ["favorites", "downloads", "recent", "name"] },
+      installed: { optionalValue: true, choices: ["true", "false"] },
+    },
     positionalUsage: "（可省略）", maxPositional: 1,
   });
-  if (p.flags.has("installed")) return cmdInstalled(args.filter((a) => a !== "--installed"), emit);
   if (p.positionals.length) {
     const t = p.positionals[0];
     if (t === "commands") throw new UsageError("命令维度已下线：Adapter（站点）是唯一分发单位。使用 webcli adapterhub list 查看全部 adapter。");
+    if (t === "installed") throw new UsageError("installed 已并入过滤参数：webcli adapterhub list --installed（仅看已装）/ list --installed=false（仅看未装）。");
     if (t === "sites") {
       const data = await listSites({ q: p.values.get("q") || "" });
       if (p.flags.has("json")) return emit(data);
@@ -394,19 +406,31 @@ async function cmdList(args, emit = value => console.log(JSON.stringify(value, n
   const origin = p.values.get("origin") || "";
   const sort = p.values.get("sort") || "";
   const runtime = p.values.get("runtime") || "";
-  const { items, total } = await listAllAdapters(origin || runtime || sort ? { origin, runtime, sort } : {});
-  if (p.flags.has("json")) return emit({ total, items });
-  if (!items.length) { console.log("AdapterHub 目录为空。"); return; }
+  const { items: allItems, total } = await listAllAdapters(origin || runtime || sort ? { origin, runtime, sort } : {});
   // 本地默认已内置/已安装大部分 Adapter，仅标记缺的；不再展示命令数/下载量。
   const localNames = knownLocalAdapterNames();
+  const installedFilter = p.values.get("installed"); // 'true' | 'false' | undefined
+  const ofLocal = (item) => localNames.has(String(item.name || "").toLowerCase());
+  const items = installedFilter === undefined ? allItems
+    : allItems.filter((item) => (installedFilter === "true") === ofLocal(item));
+  if (p.flags.has("json")) {
+    return emit({ total, ...(installedFilter === undefined ? {} : { installedFilter }), items });
+  }
+  if (!items.length) {
+    console.log(installedFilter === undefined ? "AdapterHub 目录为空。" : `没有匹配的 Adapter（--installed=${installedFilter}）。`);
+    return;
+  }
   let missing = 0;
   const lines = items.map((item) => {
     const originTag = item.origin === "user" ? " [用户上传]" : "";
-    const installedTag = localNames.has(String(item.name || "").toLowerCase()) ? "" : " [未安装]";
+    const installedTag = ofLocal(item) ? "" : " [未安装]";
     if (installedTag) missing++;
     return `  ${String(item.name || "").padEnd(30)} ${item.display || ""} v${item.version}${originTag}${installedTag}`;
   });
-  console.log(`AdapterHub Adapter（共 ${total} 个，未安装 ${missing} 个）：\n`);
+  const heading = installedFilter === "true" ? `AdapterHub Adapter（已安装 ${items.length} 个）：`
+    : installedFilter === "false" ? `AdapterHub Adapter（未安装 ${items.length} 个）：`
+    : `AdapterHub Adapter（共 ${total} 个，未安装 ${missing} 个）：`;
+  console.log(`${heading}\n`);
   for (const line of lines) console.log(line);
 }
 
@@ -424,10 +448,11 @@ async function cmdFind(args, emit = value => console.log(JSON.stringify(value, n
 }
 
 async function cmdInfo(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["json"], positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1 });
+  const p = parseArgs(args, { flags: ["json", "versions"], positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1 });
   const target = p.positionals[0];
   rejectCommandTarget(target);
   const { name } = parseTarget(target);
+  const withVersions = p.flags.has("versions");
   let adapter;
   try {
     adapter = await getAdapter(name);
@@ -438,102 +463,37 @@ async function cmdInfo(args, emit = value => console.log(JSON.stringify(value, n
     console.log(`Site(v1): ${site.domain || name}`);
     return;
   }
-  if (p.flags.has("json")) return emit(adapter);
+  // 历史版本与命令清单均为可选增强：服务端不支持（404）或网络失败时静默省略，不阻断详情。
+  const history = withVersions ? await getAdapterVersions(name).catch(() => null) : null;
+  const commands = await getAdapterCommands(name).catch(() => null);
+  if (p.flags.has("json")) {
+    return emit({ ...adapter, ...(history ? { versions: history.items || [] } : {}) });
+  }
   console.log(`Adapter: ${adapter.display || adapter.name}${adapter.origin === "user" ? "（用户上传）" : "（官方内置）"}`);
   console.log(`  名称/域名: ${adapter.name}`);
   console.log(`  版本: v${adapter.version}`);
   if (adapter.origin === "user" && adapter.author) console.log(`  作者: ${adapter.author}`);
   console.log(`  描述: ${adapter.description || "无"}`);
-  console.log(`  命令数: ${adapter.commandCount ?? 0} · 下载: ${adapter.downloads ?? 0} · 收藏: ${adapter.favoriteCount ?? 0}`);
   console.log(`  匹配域名: ${(adapter.match || []).join(", ") || "—"}`);
   console.log(`  运行时: ${normalizeRuntimes(adapter.runtimes).join(", ") || "—"}`);
-  console.log(`  包: sha256=${String(adapter.artifact?.sha256 || "").slice(7, 23) || "—"}… ${Math.max(1, Math.round((adapter.artifact?.size || 0) / 1024))} KB`);
   if (adapter.installable === false) console.log(`  ⚠ 该 Adapter 暂无可下载制品（官方占位）`);
+  if (commands?.items?.length) {
+    console.log(`  命令（${commands.items.length} 个）:`);
+    for (const c of commands.items) {
+      const runtime = c.runtime === "toolkit" ? "wewright" : c.runtime;
+      console.log(`    ${c.fullName || `${name}.${c.id}`}  [${runtime}]  ${c.description || ""}`);
+    }
+  } else {
+    console.log(`  命令: ${adapter.commandCount ?? 0} 个`);
+  }
+  if (history?.items?.length) {
+    console.log(`  版本历史（${history.items.length} 个）:`);
+    for (const v of history.items) {
+      console.log(`    v${v.version}  ${v.publishedAt || ""}  ${Math.max(1, Math.round((v.size || v.artifactSize || 0) / 1024))} KB`);
+    }
+  }
   printScenarios(adapter, "  ");
   console.log(`\n安装: webcli adapterhub install ${adapter.name}`);
-}
-
-async function cmdVersions(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["json"], positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1 });
-  const target = p.positionals[0];
-  rejectCommandTarget(target);
-  const { name } = parseTarget(target);
-  let data;
-  try {
-    data = await getAdapterVersions(name);
-  } catch (err) {
-    if (err.status === 404) {
-      // 两种可能：adapter 不存在 / 服务端旧版无 versions 路由 —— 用 getAdapter 区分
-      await getAdapter(name).catch((e2) => { throw e2.status === 404 ? new Error(`Adapter "${name}" 不存在。`) : e2; });
-      throw new Error(`当前服务端暂不支持版本历史（${name}）。请升级 AdapterHub 服务端。`);
-    }
-    throw err;
-  }
-  if (p.flags.has("json")) return emit(data);
-  const items = data.items || [];
-  console.log(`Adapter ${name} 版本历史（${items.length} 个）：\n`);
-  for (const v of items) {
-    console.log(`  v${v.version}  ${v.publishedAt || ""}  ${Math.max(1, Math.round((v.size || v.artifactSize || 0) / 1024))} KB${v.sha256 ? `  sha256:${String(v.sha256).replace("sha256:", "").slice(0, 12)}…` : ""}`);
-  }
-}
-
-async function cmdCommands(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["json"], positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1 });
-  const target = p.positionals[0];
-  rejectCommandTarget(target);
-  const { name } = parseTarget(target);
-  const data = await getAdapterCommands(name);
-  if (p.flags.has("json")) return emit(data);
-  const items = data.items || [];
-  console.log(`Adapter ${name} 命令清单（${items.length} 个）：\n`);
-  for (const c of items) {
-    const runtime = c.runtime === "toolkit" ? "wewright" : c.runtime;
-    console.log(`  ${c.fullName || `${name}.${c.id}`}  [${runtime}]  ${c.description || ""}`);
-    const schema = c.parametersSchema || c.schema || {};
-    const props = schema.properties || {};
-    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
-    for (const [pname, prop] of Object.entries(props)) {
-      const req = required.has(pname) ? "必填" : "可选";
-      const type = Array.isArray(prop?.enum) ? `enum(${prop.enum.join("|")})` : prop?.type || "string";
-      console.log(`      --${pname}  <${type}>  ${req}  ${prop?.description || ""}`);
-    }
-  }
-  console.log(`\n安装: webcli adapterhub install ${name}`);
-}
-
-async function cmdDownload(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, {
-    flags: ["json"],
-    values: { output: {}, "o": { alias: "output" }, version: {} },
-    positionalUsage: "adapter 名称", maxPositional: 1, minPositional: 1,
-  });
-  const target = p.positionals[0];
-  rejectCommandTarget(target);
-  const { name, version } = parseTarget(target);
-  const outFile = p.values.get("output");
-  const versionArg = p.values.get("version") || version;
-  let buffer;
-  try {
-    buffer = (await downloadAdapter(name, { version: versionArg })).buffer;
-  } catch (err) {
-    if (err.status !== 404 || versionArg) throw err;
-    buffer = (await downloadSite(name)).buffer; // v1 冻结回退（仅未指定版本）
-  }
-  let downloaded;
-  try {
-    downloaded = readAdapterPackage(buffer);
-    if (downloaded.manifest.name !== name) throw new Error(`下载包名不匹配：期望 ${name}，实际 ${downloaded.manifest.name}`);
-    if (versionArg && downloaded.manifest.version !== versionArg) throw new Error(`下载包版本不符：期望 v${versionArg}，实际 v${downloaded.manifest.version}`);
-  } catch (v2Error) {
-    if (versionArg) throw v2Error;
-    try { downloaded = readAdapt(buffer); } catch { throw v2Error; }
-  }
-  let fallback = `${sanitizeFileName(name)}.adapt`;
-  fallback = downloaded.manifest.name || downloaded.manifest.domain ? `${sanitizeFileName(downloaded.manifest.name || downloaded.manifest.domain)}.adapt` : fallback;
-  const dest = outFile || fallback;
-  writeFileSync(dest, buffer);
-  if (p.flags.has("json")) return emit({ path: resolve(dest), size: buffer.length, name: downloaded.manifest.name || downloaded.manifest.domain || name, ...(downloaded.manifest.version ? { version: downloaded.manifest.version } : {}) });
-  console.log(`✓ 已下载: ${dest}（${Math.round(buffer.length / 1024)} KB${versionArg ? `，指定版本 v${versionArg}` : ""}）`);
 }
 
 async function cmdValidate(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
@@ -688,13 +648,13 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
   else if (!reload && !json) console.log("→ 请在 chrome://extensions 重载扩展生效");
 }
 
-async function cmdUpdate(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
+async function cmdUpgrade(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
   const p = parseArgs(args, { flags: ["all", "force", "json", "dry-run", "allow-permission-change"], positionalUsage: "adapter 名称或 --all", maxPositional: 1 });
   const force = p.flags.has("force");
   const dryRun = p.flags.has("dry-run");
   const json = p.flags.has("json");
   const target = p.positionals[0] || null;
-  if (!p.flags.has("all") && !target) throw new UsageError("请指定 Adapter 或使用 --all。用法: webcli adapterhub update [<目标>|--all]");
+  if (!p.flags.has("all") && !target) throw new UsageError("请指定 Adapter 或使用 --all。用法: webcli adapterhub upgrade [<目标>|--all]");
   const installed = target ? [findLocalAdapterByTarget(target)].filter(Boolean) : localAdapterIds();
   if (target && !installed.length) throw new Error(`本地未安装 "${target}"。`);
   let upToDate = 0, updated = 0, newer = 0, delisted = 0, skipped = 0;
@@ -740,26 +700,6 @@ async function cmdUpdate(args, emit = value => console.log(JSON.stringify(value,
   const summary = { updated, upToDate, newer, delisted, skipped, dryRun };
   if (json) return emit({ summary, plan });
   console.log(`\n完成：${updated} 更新 · ${upToDate} 已最新${newer ? ` · ${newer} 本地更新` : ""}${delisted ? ` · ${delisted} 已下架` : ""}${skipped ? ` · ${skipped} 占位跳过` : ""}${dryRun ? "（--dry-run，未实际执行）" : ""}`);
-}
-
-function cmdInstalled(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["json"], maxPositional: 0 });
-  // 内置 Adapter 随包分发、不占安装记录；自装 Adapter 以安装记录为准，重名时自装覆盖内置。
-  const installedIds = localAdapterIds();
-  const items = [
-    ...builtinAdapterIds()
-      .filter((id) => !installedIds.includes(id))
-      .map((id) => ({ name: id, version: readBuiltinManifestVersion(id), source: "builtin" })),
-    ...installedIds.map((id) => ({ name: id, version: readLocalManifest(id)?.version || "?", source: "installed" })),
-  ].sort((a, b) => a.name.localeCompare(b.name));
-  const builtinCount = items.filter((item) => item.source === "builtin").length;
-  const installedCount = items.length - builtinCount;
-  if (p.flags.has("json")) return emit({ items, total: items.length, builtin: builtinCount, installed: installedCount });
-  console.log(`本地 Adapter ${items.length} 个（内置 ${builtinCount} · 自装 ${installedCount}）：\n`);
-  for (const item of items) {
-    const sourceTag = item.source === "builtin" ? "[内置]" : "[自装]";
-    console.log(`  ${item.name.padEnd(30)} v${item.version} ${sourceTag}`);
-  }
 }
 
 async function cmdRemove(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
@@ -864,13 +804,6 @@ async function cmdAuthStatus(args, emit = value => console.log(JSON.stringify(va
   console.log(status.configured ? `AdapterHub PAT 已配置（${status.source}）` : "AdapterHub PAT 未配置。运行 webcli adapterhub init。")
 }
 
-async function cmdLogout(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["json"], maxPositional: 0 });
-  const removed = await removeAdapterHubToken();
-  if (p.flags.has("json")) return emit({ removed });
-  console.log(removed ? "✓ AdapterHub 已保存 PAT 已删除。" : "AdapterHub 没有已保存的 PAT。")
-}
-
 async function cmdPublish(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
   const p = parseArgs(args, { flags: ["yes", "y", "json"], positionalUsage: "目录或 .adapt", maxPositional: 1, minPositional: 1 });
   const yes = p.flags.has("yes") || p.flags.has("y");
@@ -925,53 +858,92 @@ function endpointOrNull() {
 function help() {
   console.log(`webcli adapterhub — Adapter 目录与分发（${endpointLabel()}）
 
-用法:
-  webcli adapterhub list [--origin official|user] [--runtime extension|wewright] [--sort …] [--json]
-                                                          列出线上 Adapter（默认收藏排序）
-  webcli adapterhub find <关键词> [--json]               按名称、域名、用途检索
-  webcli adapterhub info <adapter> [--json]              查看 Adapter 详情（含推荐提示词）
-  webcli adapterhub versions <adapter> [--json]          查看版本历史
-  webcli adapterhub commands <adapter> [--json]          查看命令清单与参数
-  webcli adapterhub download <adapter>[@<版本>] [-o <文件>] [--json]
-                                                          下载 .adapt 包（可指定历史版本）
-  webcli adapterhub validate <文件.adapt>                离线校验包结构与哈希
-  webcli adapterhub pack <目录> [-o <文件.adapt>] [--json] 将目录打包为 .adapt
-  webcli adapterhub install <adapter>[@<版本>] | <本地.adapt> [--force] [--reload] [--json]
-                                                          安装/升级整个 Adapter
-    --change-source                                       显式更换安装来源
-    --allow-permission-change                             接受新增权限（不包含在 --force 中）
-  webcli adapterhub update [<adapter>|--all] [--force] [--dry-run] [--json]
-                                                          检查并更新已安装 Adapter
-    --allow-permission-change                             接受新增权限
-  webcli adapterhub installed [--json]                   列出本地 Adapter（内置 + 自装）
-  webcli adapterhub remove <adapter> [--reload] [--json] 卸载 Adapter
-  webcli adapterhub init [PAT] [--json]                 安全保存发布 PAT（Windows DPAPI；省略 PAT 时交互输入）
-  webcli adapterhub status [--json]                     查看 PAT 是否已配置（不显示令牌）
-  webcli adapterhub logout [--json]                     删除已保存 PAT
-  webcli adapterhub publish <目录或.adapt> [--yes] [--json]  发布/更新 Adapter
-  webcli adapterhub endpoint [--json]                    打印当前 AdapterHub 端点
+用法: webcli adapterhub <命令> [参数]；参数详情: webcli adapterhub <命令> --help
+
+  list [--installed[=false]] [--origin …] [--sort …]   列出线上 Adapter（标记/过滤安装状态）
+  find <关键词>                                        按名称、域名、用途检索
+  info <adapter> [--versions]                          详情（含命令清单；--versions 版本历史）
+  install <adapter>[@<版本>] | <本地.adapt>            安装/升级 Adapter
+  upgrade [<adapter>|--all]                            检查并升级已安装 Adapter
+  remove <adapter>                                     卸载 Adapter
+  validate <文件.adapt>                                离线校验包结构与哈希
+  pack <目录> [-o <文件.adapt>]                        将目录打包为 .adapt
+  init [PAT]                                           安全保存发布 PAT（省略 PAT 时交互输入）
+  status                                               查看 PAT 是否已配置
+  publish <目录或.adapt> [--yes]                       发布/更新到 Hub
 
 说明:
   - 官方地址已内置，无需配置；自建时设 WEBCLI_ADAPTERHUB_ENDPOINT
-  - <adapter> 通常是站点域名；name@version 可安装/下载指定历史版本
-  - install 支持 ./xxx.adapt 本地包离线安装
-  - install/update 覆盖本地已有版本时会做版本比对确认
-  - 首次发布前运行 adapterhub init；PAT 使用 Windows DPAPI 加密保存
+  - <adapter> 通常是站点域名；name@version 可安装指定历史版本
+  - install 支持 ./xxx.adapt 本地包离线安装；覆盖已有版本时做版本比对确认
   - 非交互/脚本场景可 webcli adapterhub init ahp_xxx 直接保存 PAT
   - ADAPTERHUB_TOKEN 仅作为临时覆盖，优先于已保存凭据`);
 }
 
+/** 子命令参数详情（webcli adapterhub <命令> --help）。 */
+const SUBCOMMAND_HELP = {
+  list: `webcli adapterhub list [选项]
+
+  列出线上 Adapter，默认标记 [未安装]（本地已有 = 内置 ∪ 自装）。
+
+  --installed[=true|false]   过滤安装状态：裸用仅看已装；=false 仅看未装；缺省全部
+  --origin official|user     按来源过滤
+  --runtime extension|wewright  按运行时过滤
+  --sort favorites|downloads|recent|name  排序（默认收藏）
+  --q <关键词>               过滤关键词
+  --json                     JSON 输出`,
+  find: `webcli adapterhub find <关键词> [--json]
+
+  按名称、域名、用途检索线上 Adapter。`,
+  info: `webcli adapterhub info <adapter> [--versions] [--json]
+
+  查看详情：元数据、匹配域名、命令清单、推荐提示词。
+  --versions   追加版本历史`,
+  install: `webcli adapterhub install <adapter>[@<版本>] | <本地.adapt> [选项]
+
+  安装/升级整个 Adapter（从 Hub 或本地 .adapt 包）。
+
+  --force                   覆盖本地已有版本（跳过版本比对确认，允许降级）
+  --reload                  安装后通知扩展热重载
+  --change-source           显式更换安装来源（如从本地包改为 Hub）
+  --allow-permission-change 接受新增权限（不包含在 --force 中）
+  --json                    JSON 输出`,
+  upgrade: `webcli adapterhub upgrade [<adapter>|--all] [选项]
+
+  检查并升级已安装 Adapter（来源为 Hub 的自装 Adapter；内置随包升级）。
+
+  --all                     升级全部已安装
+  --force                   允许降级
+  --dry-run                 只检查不落盘
+  --allow-permission-change 接受新增权限
+  --json                    JSON 输出`,
+  remove: `webcli adapterhub remove <adapter> [--reload] [--json]
+
+  卸载 Adapter（内置 Adapter 不在卸载范围，随包管理）。`,
+  validate: `webcli adapterhub validate <文件.adapt>
+
+  离线校验 .adapt 包结构与哈希（pack/publish 也会自动校验）。`,
+  pack: `webcli adapterhub pack <目录> [-o <文件.adapt>] [--json]
+
+  将 Adapter 目录打包为 .adapt（打包后立即校验）。`,
+  init: `webcli adapterhub init [PAT] [--json]
+
+  安全保存发布 PAT（Windows DPAPI 加密）。
+  省略 PAT 时交互隐藏输入；脚本/Agent 场景直接传 ahp_xxx。`,
+  status: `webcli adapterhub status [--json]
+
+  查看 PAT 是否已配置（不显示令牌）。`,
+  publish: `webcli adapterhub publish <目录或.adapt> [--yes] [--json]
+
+  发布/更新 Adapter 到 Hub（需 PAT：adapterhub init 配置或 ADAPTERHUB_TOKEN）。
+  --yes   跳过交互确认（非交互环境必须）`,
+};
+
 const COMMANDS = {
-  list: cmdList, find: cmdFind, search: cmdFind, info: cmdInfo, versions: cmdVersions,
-  commands: cmdCommands, download: cmdDownload, validate: cmdValidate, pack: cmdPack,
-  install: cmdInstall, update: cmdUpdate, installed: cmdInstalled, remove: cmdRemove,
-  uninstall: cmdRemove, init: cmdInit, login: cmdInit, status: cmdAuthStatus, logout: cmdLogout, publish: cmdPublish,
-  endpoint: (args, emit) => {
-    const p = parseArgs(args, { flags: ["json"], maxPositional: 0 });
-    const ep = resolveEndpoint();
-    if (p.flags.has("json")) emit({ endpoint: ep });
-    else console.log(ep);
-  },
+  list: cmdList, find: cmdFind, search: cmdFind, info: cmdInfo,
+  validate: cmdValidate, pack: cmdPack,
+  install: cmdInstall, upgrade: cmdUpgrade, remove: cmdRemove, uninstall: cmdRemove,
+  init: cmdInit, login: cmdInit, status: cmdAuthStatus, publish: cmdPublish,
 };
 
 export async function runAdapterHubCli(args, { outputFormat } = {}) {
@@ -985,13 +957,18 @@ export async function runAdapterHubCli(args, { outputFormat } = {}) {
     if (command === undefined || ["--help", "-h", "help"].includes(command)) {
       if (explicitFormat !== undefined || rest.includes('--json')) return emit({
         usage: 'webcli adapterhub <command> [options]', endpoint: endpointOrNull(),
-        commands: Object.keys(COMMANDS), formats: ['json', 'markdown', 'table', 'plain', 'csv', 'yaml'],
+        commands: Object.keys(SUBCOMMAND_HELP), formats: ['json', 'markdown', 'table', 'plain', 'csv', 'yaml'],
         confirmation: 'Output format does not grant installation permissions or confirm publication.',
       });
       return help();
     }
     const handler = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
     if (!handler) throw new UsageError(`未知命令: ${command}`);
+    // 子命令参数详情：webcli adapterhub <命令> --help
+    if (rest.includes('--help') || rest.includes('-h')) {
+      console.log(SUBCOMMAND_HELP[command] || `webcli adapterhub ${command}`);
+      return;
+    }
     // Reuse each command's existing JSON data path. Formatting never changes
     // its confirmation, source-change or permission decisions.
     return await handler(explicitFormat === undefined ? rest : ['--json', ...rest], emit);

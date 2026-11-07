@@ -97,3 +97,31 @@ describe('init 支持非交互式 PAT', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+describe('命令集精简', () => {
+  it('主 help 一行制：不展开子命令参数', () => {
+    const help = run(['--help']);
+    expect(help.status).toBe(0);
+    expect(help.stdout).not.toContain('--change-source');
+    expect(help.stdout).not.toContain('--allow-permission-change');
+    expect(help.stdout).toContain('--help');
+    expect(help.stdout).toContain('upgrade');
+  });
+
+  it('子命令 --help 展示参数详情', () => {
+    for (const [command, marker] of [['install', '--change-source'], ['upgrade', '--dry-run'], ['list', '--installed'], ['publish', '--yes']]) {
+      const output = run([command, '--help']);
+      expect(output.status).toBe(0);
+      expect(output.stderr).toBe('');
+      expect(output.stdout).toContain(marker);
+    }
+  });
+
+  it('已删除的命令报未知命令（退出码 2）', () => {
+    for (const command of ['endpoint', 'logout', 'download', 'versions', 'commands', 'installed', 'update']) {
+      const output = run([command]);
+      expect(output.status).toBe(2);
+      expect(output.stderr).toContain('未知命令');
+    }
+  });
+});
