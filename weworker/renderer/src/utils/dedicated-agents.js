@@ -1,7 +1,7 @@
 // Pure helpers for the WeWorker Bot page (kept free of React for node --test).
 
 export const WIZARD_STEPS = [
-  { key: 'site', title: '选网站' },
+  { key: 'scope', title: '网站与目录' },
   { key: 'skill', title: '专属知识' },
   { key: 'bind', title: '绑定机器人' },
   { key: 'pair', title: '完成配对' },
@@ -83,8 +83,24 @@ export function pairingCommand(code) {
   return code ? `绑定 ${code}` : ''
 }
 
-export function defaultAgentName(site) {
-  const name = String(site?.name || '').trim()
+/** Site ids an agent operates: the multi-site field, falling back to the legacy single field. */
+export function agentSiteIds(agent) {
+  if (Array.isArray(agent?.site_ids)) return agent.site_ids.filter(Boolean)
+  const legacy = String(agent?.site_id || '').trim()
+  return legacy ? [legacy] : []
+}
+
+/** Skill names an agent references: the multi-skill field, falling back to the legacy single field. */
+export function agentSkillNames(agent) {
+  if (Array.isArray(agent?.skill_names)) return agent.skill_names.filter(Boolean)
+  const legacy = String(agent?.skill_name || '').trim()
+  return legacy ? [legacy] : []
+}
+
+/** Default name from the first selected site (accepts a single site or a list); '' when no site. */
+export function defaultAgentName(siteOrSites) {
+  const list = Array.isArray(siteOrSites) ? siteOrSites : [siteOrSites]
+  const name = String(list[0]?.name || list[0]?.id || '').trim()
   return name ? `${name}助手`.slice(0, 40) : ''
 }
 
@@ -101,8 +117,8 @@ export function normalizeAgentName(input, { currentName = '', maxLength = 40 } =
 
 /** Validation for the wizard step the user is on. Returns an error message or ''. */
 export function validateWizardStep(stepKey, draft) {
-  if (stepKey === 'site') {
-    if (!draft.siteId) return '请选择要操作的网站'
+  if (stepKey === 'scope' || stepKey === 'site') {
+    // Websites and the local directory are both optional: a plain agent is fine.
     if (!String(draft.name || '').trim()) return '请给 Agent 起个名字'
     return ''
   }

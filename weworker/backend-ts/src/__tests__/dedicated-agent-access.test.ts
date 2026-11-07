@@ -8,8 +8,9 @@ function agent(overrides: Partial<DedicatedAgentRecord> = {}): DedicatedAgentRec
     id: 'agent0001',
     name: 'Example Operations Assistant',
     description: '',
-    site_id: 'example.com',
-    skill_name: '',
+    site_ids: ['example.com'],
+    skill_names: [],
+    work_dir: '',
     examples: ['Check today\'s orders'],
     enabled: true,
     wecom: { bot_id: 'placeholder-bot', secret_enc: 'placeholder' },
@@ -25,13 +26,13 @@ function agent(overrides: Partial<DedicatedAgentRecord> = {}): DedicatedAgentRec
 
 const site = { name: 'Example', enabled: true, exists: true }
 
-function decide(record: DedicatedAgentRecord, userId: string, text: string, attempts: PairingAttempts = new Map(), now = 0) {
+function decide(record: DedicatedAgentRecord, userId: string, text: string, attempts: PairingAttempts = new Map(), now = 0, sites = [site]) {
   const paired: string[] = []
   const decision = decideAgentAccess({
     agent: record,
     userId,
     text,
-    site,
+    sites,
     attempts,
     now,
     onPair: (owner) => {
@@ -92,18 +93,29 @@ describe('dedicated agent access', () => {
     expect(decide(weixin, 'someone-else', 'Check stock').decision.kind).toBe('reply')
   })
 
-  it('stops serving when disabled or when the website capability is off', () => {
+  it('stops serving when disabled or when every bound site is off', () => {
     expect(decide(agent({ enabled: false, owner_user_id: 'owner-user' }), 'owner-user', 'hi').decision.kind).toBe('reply')
     const decision = decideAgentAccess({
       agent: agent({ owner_user_id: 'owner-user' }),
       userId: 'owner-user',
       text: 'hi',
-      site: { name: 'Example', enabled: false, exists: true },
+      sites: [{ name: 'Example', enabled: false, exists: true }],
       attempts: new Map(),
       now: 0,
       onPair: () => { throw new Error('should not pair') },
     })
     expect(decision.kind).toBe('reply')
+  })
+
+  it('keeps serving while at least one bound site is usable, and with no sites at all', () => {
+    const multiSite = agent({ site_ids: ['example.com', 'example.org'], owner_user_id: 'owner-user' })
+    const sites = [
+      { name: 'Example', enabled: false, exists: true },
+      { name: 'Org', enabled: true, exists: true },
+    ]
+    expect(decide(multiSite, 'owner-user', 'hi', new Map(), 0, sites).decision).toEqual({ kind: 'allow', mode: 'full' })
+    const noSites = agent({ site_ids: [], owner_user_id: 'owner-user' })
+    expect(decide(noSites, 'owner-user', 'hi', new Map(), 0, []).decision).toEqual({ kind: 'allow', mode: 'full' })
   })
 
   it('always answers /myid', () => {

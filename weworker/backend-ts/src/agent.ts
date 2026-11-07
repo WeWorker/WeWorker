@@ -1249,6 +1249,12 @@ async function* streamChatWithBaseUrl(
      * managed-skill refresh are skipped so the run only sees the caller's skills.
      */
     isolatedClaudeConfigDir?: string;
+    /**
+     * Working directory for a dedicated agent with a bound local folder. The
+     * session runs there like `claude` invoked in that folder: project settings
+     * and memory files (CLAUDE.md/AGENTS.md) under it are loaded.
+     */
+    agentCwd?: string;
     /** Extra system prompt text appended after the standard WeWorker prompt. */
     appendSystemPrompt?: string;
     /** Additional tool guard evaluated before the standard WeWorker policy. */
@@ -1343,11 +1349,13 @@ async function* streamChatWithBaseUrl(
   // text before tool calls complete. qa_only disables partial streaming and project
   // skills so visitors get plain text answers instead of silent tool attempts.
   // Runtime skills are stored under the isolated CLAUDE_CONFIG_DIR/skills,
-  // which Claude Code treats as the user skill source.
+  // which Claude Code treats as the user skill source. A dedicated agent with a
+  // bound directory additionally reads that folder's project sources (CLAUDE.md,
+  // project skills) so it behaves like `claude` invoked inside the folder.
   const isolatedSkills = !!opts.isolatedClaudeConfigDir
   const settingSources: SettingSource[] = channelPermissionMode === 'qa_only' || opts.restrictBuiltInTools
     ? []
-    : isolatedSkills ? ['user'] : ['user', 'project']
+    : isolatedSkills ? (opts.agentCwd ? ['user', 'project'] : ['user']) : ['user', 'project']
   const includePartialMessages = channelPermissionMode === 'qa_only'
     ? false
     : opts.streaming !== false
@@ -1409,7 +1417,7 @@ async function* streamChatWithBaseUrl(
     ),
     ...(opts.extraDisallowedTools ?? []),
   ]
-  const agentCwd = ensureAgentWorkingDirectory(workspaceDirectory)
+  const agentCwd = ensureAgentWorkingDirectory(opts.agentCwd ?? workspaceDirectory)
   const filesystemSettings = buildAgentFilesystemSettings(agentCwd, channelPermissionMode)
   if (opts.permissionMode === 'default') {
     filesystemSettings.permissions.allow = filesystemSettings.permissions.allow.filter((rule) => !rule.startsWith('Edit(') && !rule.startsWith('Write('))

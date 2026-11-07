@@ -36,8 +36,9 @@ const agent = (overrides: Partial<DedicatedAgentRecord> = {}): DedicatedAgentRec
   id: 'agent0001',
   name: 'Example Operations Assistant',
   description: 'Handles routine work on example.com',
-  site_id: 'example.com',
-  skill_name: 'inventory-helper',
+  site_ids: ['example.com'],
+  skill_names: ['inventory-helper'],
+  work_dir: '',
   examples: [],
   enabled: true,
   access_mode: 'owner_only',
@@ -80,6 +81,19 @@ describe('dedicated agent runtime and skill library', () => {
     ])
   })
 
+  it('combines every chosen site and drops website skills when no site is selected', () => {
+    const multi = resolveAgentSkillNames(
+      agent({ site_ids: ['example.com', 'example.org'], skill_names: [] }),
+      runtimeSkillsDir,
+      libraryDir,
+    ).sort()
+    expect(multi).toEqual([
+      'orders-checklist', 'other-site-notes', 'webcli', 'webcli-example.com', 'webcli-example.org',
+    ])
+    const plain = resolveAgentSkillNames(agent({ site_ids: [], skill_names: ['inventory-helper'] }), runtimeSkillsDir, libraryDir)
+    expect(plain).toEqual(['inventory-helper'])
+  })
+
   it('mirrors the selected skills into an isolated config dir and removes stale ones', () => {
     const staleDir = path.join(getAgentClaudeConfigDir('agent0001', agentsRoot), 'skills', 'unrelated-public')
     fs.mkdirSync(staleDir, { recursive: true })
@@ -87,7 +101,7 @@ describe('dedicated agent runtime and skill library', () => {
     const skillsDir = path.join(synced.claudeConfigDir, 'skills')
     expect(fs.readdirSync(skillsDir).sort()).toEqual(['inventory-helper', 'orders-checklist', 'webcli', 'webcli-example.com'])
     expect(fs.readFileSync(path.join(skillsDir, 'inventory-helper', 'reference', 'fields.md'), 'utf8')).toBe('SKU, quantity\n')
-    expect(synced.missingPrivateSkill).toBe(false)
+    expect(synced.missingPrivateSkills).toEqual([])
 
     // A second sync with the same sources keeps the copy; an edit is picked up.
     const skillFile = path.join(libraryDir, 'inventory-helper', 'SKILL.md')
@@ -96,38 +110,86 @@ describe('dedicated agent runtime and skill library', () => {
     expect(fs.readFileSync(path.join(skillsDir, 'inventory-helper', 'SKILL.md'), 'utf8')).toContain('Updated body')
   })
 
-  it('reports a missing chosen skill and omits the load instruction', () => {
+  it('reports missing chosen skills and keeps the agent usable without them', () => {
+    const synced = syncAgentSkills(agent({ skill_names: ['inventory-helper', 'missing-skill'] }), {
+      runtimeSkillsDir,
+      agentsRoot,
+      libraryDir,
+    })
+    expect(synced.missingPrivateSkills).toEqual(['missing-skill'])
+    expect(synced.skills).toContain('inventory-helper')
+    expect(synced.skills).not.toContain('missing-skill')
+  })
+
+  it('builds chat options with a working directory, file tools and scoped webcli', () => {
+    const workDir = path.join(root, 'workspace')
+    fs.mkdirSync(workDir, { recursive: true })
     const options = buildAgentChatOptions({
-      agent: agent({ skill_name: 'missing-skill' }),
-      siteName: 'Example',
+      agent: agent({ site_ids: ['example.com'], skill_names: [], work_dir: workDir }),
       runtimeSkillsDir,
       agentsRoot,
       libraryDir,
       knownSiteIds: ['example.com', 'example.org'],
     })
     expect(options.isolatedClaudeConfigDir).toBe(getAgentClaudeConfigDir('agent0001', agentsRoot))
-    expect(options.appendSystemPrompt).not.toContain('missing-skill')
-    expect(options.extraDisallowedTools).toContain('Write')
+    expect(options.agentCwd).toBe(workDir)
+    expect(options.extraDisallowedTools).not.toContain('Write')
+    expect(options.extraDisallowedTools).not.toContain('Edit')
+    expect(options.extraToolGuard?.('Write', { file_path: 'notes.txt' })).toEqual({ behavior: 'allow' })
+    expect(options.extraToolGuard?.('PowerShell', { command: 'Get-ChildItem -Recurse' })).toEqual({ behavior: 'allow' })
     expect(options.extraToolGuard?.('Bash', { command: 'webcli call example.org.search' }).behavior).toBe('deny')
-    expect(options.extraToolGuard?.('Bash', { command: 'webcli call example.com.search' }).behavior).toBe('allow')
+    expect(options.extraToolGuard?.('Bash', { command: 'git pull && webcli call example.com.search' })).toEqual({ behavior: 'allow' })
+    expect(options.mcpServerOverride).toBeTruthy()
   })
 
-  it('builds a focused system prompt', () => {
-    const prompt = buildAgentSystemPrompt({ agent: agent(), siteName: 'Example', privateSkillAvailable: true })
+  it('leaves agentCwd unset for directory-less agents', () => {
+    const options = buildAgentChatOptions({
+      agent: agent({ site_ids: [], skill_names: [], work_dir: '' }),
+      runtimeSkillsDir,
+      agentsRoot,
+      libraryDir,
+      knownSiteIds: [],
+    })
+    expect(options.agentCwd).toBeUndefined()
+    expect(options.appendSystemPrompt).toContain('WeWorker Bot')
+    expect(options.appendSystemPrompt).not.toContain('webcli')
+    expect(options.extraToolGuard?.('Bash', { command: 'webcli call example.com.search' }).behavior).toBe('deny')
+  })
+
+  it('builds a compact system prompt for sites, directory and skills', () => {
+    const workDir = 'C:\\weworker-fixtures\\workspace'
+    const prompt = buildAgentSystemPrompt({
+      agent: agent({ site_ids: ['example.com', 'example.org'], work_dir: workDir }),
+      siteNames: ['Example', 'Org'],
+      availableSkills: ['inventory-helper'],
+    })
     expect(prompt).toContain('WeWorker Bot')
-    expect(prompt).toContain('example.com')
+    expect(prompt).toContain('你可以操作这些网站：Example（example.com）、Org（example.org）')
+    expect(prompt).toContain('webcli call <站点ID>.<工具名>')
+    expect(prompt).toContain(workDir)
+    expect(prompt).toContain('CLAUDE.md')
     expect(prompt).toContain('inventory-helper')
-    expect(prompt).toContain('webcli call example.com.<工具名>')
-    expect(prompt).toContain('调用前不要执行 `open_browser` 或登录状态检查')
-    expect(prompt).toContain('Host-managed Extension Adapter')
     // The private Skill is loaded once per conversation, not on every turn.
     expect(prompt).toContain('本对话中第一次处理请求前')
     expect(prompt).toContain('不要重复加载')
-    expect(prompt).not.toContain('每个会话处理第一个请求前')
-    // Unrecoverable errors must not trigger blind waits or retries.
-    expect(prompt).toContain('webcli trace')
-    expect(prompt).toContain('不要 Start-Sleep')
-    expect(prompt).toContain('主动消息工具')
+    // Old focused-agent restrictions are gone.
+    expect(prompt).not.toContain('一次一条')
+    expect(prompt).not.toContain('只处理本网站')
+    expect(prompt).not.toContain('Start-Sleep')
+    expect(prompt).not.toContain('open_browser')
+  })
+
+  it('builds a minimal prompt for a plain agent without sites, directory or skills', () => {
+    const prompt = buildAgentSystemPrompt({
+      agent: agent({ site_ids: [], skill_names: [], work_dir: '', description: '' }),
+      siteNames: [],
+      availableSkills: [],
+    })
+    expect(prompt).toContain('WeWorker Bot')
+    expect(prompt).toContain('先给结论')
+    expect(prompt).not.toContain('你可以操作这些网站')
+    expect(prompt).not.toContain('工作目录')
+    expect(prompt).not.toContain('Skill 工具')
   })
 
   it('rejects unsafe agent ids and removes the runtime directory', () => {

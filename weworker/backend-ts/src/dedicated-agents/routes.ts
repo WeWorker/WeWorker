@@ -21,6 +21,9 @@ import {
   getAgent,
   listAgents,
   normalizeSkillName,
+  normalizeSiteIds,
+  normalizeSkillNames,
+  normalizeWorkDir,
   removeAgentWork,
   resetPairing,
   toAgentView,
@@ -115,6 +118,16 @@ function requireAdapter(siteId: unknown): ParsedAdapter {
   const adapter = parseAllAdapters().get(String(siteId ?? ''))
   if (!adapter) throw new DedicatedAgentError('所选网站不存在或尚未安装')
   return adapter
+}
+
+function assertDirectoryAvailable(dir: string): void {
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(dir)
+  } catch {
+    throw new DedicatedAgentError('所选目录不存在，请重新选择')
+  }
+  if (!stat.isDirectory()) throw new DedicatedAgentError('请选择一个文件夹，而不是文件')
 }
 
 function parseScope(value: unknown, fallback: SkillScope): SkillScope {
@@ -212,6 +225,32 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
     if (name && !locateSkill(name, locations())) throw new DedicatedAgentError(`Skill「${name}」不存在或已停用`)
   }
   /**
+   * Agent scope fields shared by create and patch. `site_ids`/`skill_names`
+   * accept the new array payload or the legacy single `site_id`/`skill_name`
+   * string; `work_dir` may be '' or null for "no directory".
+   */
+  const readAgentScopeFields = (body: Record<string, unknown>): {
+    site_ids?: string[]
+    skill_names?: string[]
+    work_dir?: string
+  } => {
+    const fields: { site_ids?: string[]; skill_names?: string[]; work_dir?: string } = {}
+    if (body.site_ids !== undefined || body.site_id !== undefined) {
+      fields.site_ids = normalizeSiteIds(body.site_ids !== undefined ? body.site_ids : body.site_id)
+      for (const siteId of fields.site_ids) requireAdapter(siteId)
+    }
+    if (body.skill_names !== undefined || body.skill_name !== undefined) {
+      const raw = body.skill_names !== undefined ? body.skill_names : body.skill_name
+      fields.skill_names = normalizeSkillNames(raw)
+      for (const name of fields.skill_names) assertSkillExists(name)
+    }
+    if (body.work_dir !== undefined) {
+      fields.work_dir = body.work_dir === null ? '' : normalizeWorkDir(body.work_dir)
+      if (fields.work_dir) assertDirectoryAvailable(fields.work_dir)
+    }
+    return fields
+  }
+  /**
    * Bot credentials from a scan session (企业微信 / 微信) or, for WeCom, manual
    * BotID + Secret. Scanned secrets never pass through the renderer.
    */
@@ -299,7 +338,7 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
     const agents = listAgents()
     const skills = listAgentSkills(locations()).map((skill) => ({
       ...skill,
-      used_by: agents.filter((agent) => agent.skill_name === skill.name).map((agent) => ({ id: agent.id, name: agent.name })),
+      used_by: agents.filter((agent) => agent.skill_names.includes(skill.name)).map((agent) => ({ id: agent.id, name: agent.name })),
     }))
     res.json({ skills })
   })
@@ -415,8 +454,11 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
         .filter((work): work is works.Work => !!work)
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
         .map(conversationView)
-      const skill = agent.skill_name ? locateSkill(agent.skill_name, locations()) : null
-      res.json({ agent: { ...viewWithStatus(agent), skill_scope: skill?.scope ?? null }, conversations })
+      const skills = agent.skill_names.map((name) => {
+        const located = locateSkill(name, locations())
+        return { name, scope: located?.scope ?? null }
+      })
+      res.json({ agent: { ...viewWithStatus(agent), skills }, conversations })
     } catch (error) {
       sendError(res, error)
     }
@@ -518,9 +560,7 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
   app.post('/dedicated-agents', async (req, res) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>
-      const adapter = requireAdapter(body.site_id)
-      const skillName = normalizeSkillName(body.skill_name)
-      assertSkillExists(skillName)
+      const scope = readAgentScopeFields(body)
       const resolved = resolveBot(body)
       if (!resolved) throw new DedicatedAgentError('请先扫码绑定机器人')
       const workspace = createAgentWorkspace(String(body.name ?? ''))
@@ -529,8 +569,9 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
         agent = createAgent({
           name: String(body.name ?? ''),
           description: String(body.description ?? ''),
-          site_id: adapter.id,
-          skill_name: skillName,
+          site_ids: scope.site_ids ?? [],
+          skill_names: scope.skill_names ?? [],
+          work_dir: scope.work_dir ?? '',
           examples: Array.isArray(body.examples) ? body.examples as string[] : [],
           access_mode: body.access_mode as 'owner_only' | 'wecom_authorized' | undefined,
           ...resolved.bot,
@@ -555,14 +596,14 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
   app.patch('/dedicated-agents/:id', async (req, res) => {
     try {
       const body = (req.body ?? {}) as Record<string, unknown>
-      if (body.site_id !== undefined) requireAdapter(body.site_id)
-      if (body.skill_name !== undefined) assertSkillExists(normalizeSkillName(body.skill_name))
+      const scope = readAgentScopeFields(body)
       const resolved = resolveBot(body)
       const agent = updateAgent(req.params.id, {
         name: body.name as string | undefined,
         description: body.description as string | undefined,
-        site_id: body.site_id as string | undefined,
-        skill_name: body.skill_name as string | undefined,
+        site_ids: scope.site_ids,
+        skill_names: scope.skill_names,
+        work_dir: scope.work_dir,
         examples: Array.isArray(body.examples) ? body.examples as string[] : undefined,
         access_mode: body.access_mode as 'owner_only' | 'wecom_authorized' | undefined,
         enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,

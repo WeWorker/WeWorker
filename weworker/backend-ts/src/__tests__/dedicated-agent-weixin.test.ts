@@ -37,7 +37,8 @@ describe('dedicated agents with WeChat bots', () => {
 
   const createWeixin = (overrides: Record<string, unknown> = {}) => createAgent({
     name: 'Example Operations Assistant',
-    site_id: 'example.com',
+    site_ids: ['example.com'],
+    skill_names: [],
     channel: 'weixin',
     bot_id: 'placeholder-bot@im.bot',
     token: 'placeholder-weixin-token',
@@ -73,7 +74,7 @@ describe('dedicated agents with WeChat bots', () => {
     expect(() => createWeixin({ name: 'Third', bot_id: '', token: 'placeholder-weixin-token' })).toThrow('只能连接一个 Agent')
     expect(() => createWeixin({ name: 'Fourth', bot_id: 'other@im.bot', token: 'placeholder-main-token' })).not.toThrow()
     expect(() => createAgent({
-      name: 'Fifth', site_id: 'example.org', channel: 'weixin', bot_id: 'fifth@im.bot', token: 'placeholder-reserved', base_url: BASE_URL,
+      name: 'Fifth', site_ids: ['example.org'], skill_names: [], channel: 'weixin', bot_id: 'fifth@im.bot', token: 'placeholder-reserved', base_url: BASE_URL,
     }, { reservedWeixinTokens: ['placeholder-reserved'] })).toThrow('设置 → 通道 → 微信')
   })
 
@@ -91,7 +92,7 @@ describe('dedicated agents with WeChat bots', () => {
   })
 
   it('switches channels on rebind and requires pairing again', () => {
-    const agent = createAgent({ name: 'Switcher', site_id: 'example.com', bot_id: 'placeholder-wecom', secret: 'placeholder-secret' })
+    const agent = createAgent({ name: 'Switcher', site_ids: ['example.com'], skill_names: [], bot_id: 'placeholder-wecom', secret: 'placeholder-secret' })
     expect(agent.channel).toBe('wecom')
 
     const switched = updateAgent(agent.id, { bot: { channel: 'weixin', bot_id: 'switch@im.bot', token: 'placeholder-switch-token', base_url: BASE_URL } })

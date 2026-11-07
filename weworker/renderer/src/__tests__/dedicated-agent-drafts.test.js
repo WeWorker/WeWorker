@@ -22,7 +22,7 @@ const add = (store, name) => {
 test('each click creates a separate persistent draft and selection restores its own fields', () => {
   const { store, storage } = fixture()
   const first = add(store, 'Example One')
-  store.getState().updateDraftAgent({ siteId: 'example-site', goal: 'Example goal', knowledge: 'Example notes', skillMarkdown: '# Example', wizardStep: 1 }, first)
+  store.getState().updateDraftAgent({ siteIds: ['example-site'], workDir: 'C:/weworker-fixtures/workspace', goal: 'Example goal', knowledge: 'Example notes', skillMarkdown: '# Example', wizardStep: 1 }, first)
   const second = add(store, 'Example Two')
   assert.notEqual(first, second)
   assert.equal(store.getState().agents.length, 2)
@@ -31,6 +31,8 @@ test('each click creates a separate persistent draft and selection restores its 
   assert.equal(store.getState().view, 'create')
   const restored = createDedicatedAgentsStore({ storage })
   assert.equal(restored.getState().agents.length, 2)
+  assert.deepEqual(restored.getState().agents[0].siteIds, ['example-site'])
+  assert.equal(restored.getState().agents[0].workDir, 'C:/weworker-fixtures/workspace')
   assert.equal(restored.getState().agents[0].knowledge, 'Example notes')
   assert.equal(restored.getState().agents[0].wizardStep, 1)
   assert.equal(restored.getState().agents[1].goal, undefined)

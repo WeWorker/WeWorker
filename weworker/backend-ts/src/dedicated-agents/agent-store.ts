@@ -10,7 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomInt, randomUUID } from 'node:crypto'
-import { getConfigDirectory } from '../config.js'
+import { expandHomePath, getConfigDirectory } from '../config.js'
 import { assertAllowedWeixinBaseUrl } from '../channel-egress.js'
 import { decryptSecret, encryptSecret, isSecretStoreReady } from '../secret-store.js'
 
@@ -27,10 +27,12 @@ export interface DedicatedAgentRecord {
   id: string
   name: string
   description: string
-  /** Adapter id of the website this agent operates. */
-  site_id: string
-  /** Skill directory name in the runtime skills dir; '' means Adapter capabilities only. */
-  skill_name: string
+  /** Adapter ids of the websites this agent may operate; may be empty. */
+  site_ids: string[]
+  /** Skill directory names in the runtime skills dir; empty means Adapter capabilities only. */
+  skill_names: string[]
+  /** Absolute path of the agent's working directory; '' means no bound directory. */
+  work_dir: string
   examples: string[]
   enabled: boolean
   /** Which IM serves this agent. Records written before WeChat support are WeCom. */
@@ -66,8 +68,11 @@ export interface AgentBotInput {
 export interface DedicatedAgentInput extends AgentBotInput {
   name: string
   description?: string
-  site_id: string
-  skill_name?: string
+  /** Adapter ids; empty array = a general agent without website capabilities. */
+  site_ids?: string[]
+  skill_names?: string[]
+  /** Absolute working directory path; '' = none. */
+  work_dir?: string
   examples?: string[]
   /** Only supported for WeCom agents; defaults to owner_only. */
   access_mode?: AgentAccessMode
@@ -77,8 +82,9 @@ export interface DedicatedAgentInput extends AgentBotInput {
 export interface DedicatedAgentPatch {
   name?: string
   description?: string
-  site_id?: string
-  skill_name?: string
+  site_ids?: string[]
+  skill_names?: string[]
+  work_dir?: string
   examples?: string[]
   access_mode?: AgentAccessMode
   enabled?: boolean
@@ -108,7 +114,11 @@ const NAME_MAX = 40
 const DESCRIPTION_MAX = 200
 const EXAMPLE_MAX = 120
 const EXAMPLES_MAX = 6
+const SITES_MAX = 10
+const SKILLS_MAX = 8
+const WORK_DIR_MAX = 600
 const SKILL_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+const SITE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/
 const BOT_ID_PATTERN = /^[A-Za-z0-9_-]{4,128}$/
 const WEIXIN_BOT_ID_PATTERN = /^[A-Za-z0-9@._:-]{1,128}$/
 const WEIXIN_TOKEN_MAX = 4096
@@ -130,12 +140,65 @@ export function normalizeAgentAccessMode(value: unknown, channel: AgentChannelTy
   throw new DedicatedAgentError('不支持的访问范围')
 }
 
+/** Adapter ids an agent may operate, deduplicated and capped. Accepts a single string for old payloads. */
+export function normalizeSiteIds(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : (value === undefined || value === null || value === '' ? [] : [value])
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    const id = String(entry ?? '').trim()
+    if (!id) continue
+    if (!SITE_ID_PATTERN.test(id)) throw new DedicatedAgentError('网站 ID 格式不正确')
+    seen.add(id)
+    if (seen.size >= SITES_MAX) break
+  }
+  return [...seen]
+}
+
+/** Private skill names, validated and deduplicated. Accepts a single string for old payloads. */
+export function normalizeSkillNames(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : (value === undefined || value === null || value === '' ? [] : [value])
+  const seen = new Set<string>()
+  for (const entry of raw) {
+    const name = normalizeSkillName(entry)
+    if (!name) continue
+    seen.add(name)
+    if (seen.size >= SKILLS_MAX) break
+  }
+  return [...seen]
+}
+
+/** Working directory: '' (none) or an absolute local path. Existence is checked by the routes. */
+export function normalizeWorkDir(value: unknown): string {
+  const trimmed = String(value ?? '').trim()
+  if (!trimmed) return ''
+  const dir = expandHomePath(trimmed)
+  if (dir.length > WORK_DIR_MAX) throw new DedicatedAgentError('目录路径过长')
+  const isAbsolute = /^([A-Za-z]:[\\/]|\\\\|\/)/.test(dir)
+  if (!isAbsolute) throw new DedicatedAgentError('请选择一个绝对路径的本地目录')
+  return dir
+}
+
+/**
+ * Migrate records written before multi-site/multi-skill/directory support:
+ * `site_id`/`skill_name` become the first entries of the new array fields.
+ */
+function migrateLegacyRecord(agent: Record<string, unknown>): Record<string, unknown> {
+  const siteIds = Array.isArray(agent.site_ids) ? agent.site_ids : []
+  if (!siteIds.length && typeof agent.site_id === 'string' && agent.site_id.trim()) siteIds.push(agent.site_id)
+  const skillNames = Array.isArray(agent.skill_names) ? agent.skill_names : []
+  if (!skillNames.length && typeof agent.skill_name === 'string' && agent.skill_name.trim()) skillNames.push(agent.skill_name)
+  return { ...agent, site_ids: siteIds, skill_names: skillNames, work_dir: typeof agent.work_dir === 'string' ? agent.work_dir : '' }
+}
+
 function normalizeRecord(agent: DedicatedAgentRecord): DedicatedAgentRecord {
   const channel = agentChannel(agent)
   return {
     ...agent,
     channel,
     access_mode: channel === 'wecom' && agent.access_mode === 'wecom_authorized' ? 'wecom_authorized' : 'owner_only',
+    site_ids: agent.site_ids ?? [],
+    skill_names: agent.skill_names ?? [],
+    work_dir: agent.work_dir ?? '',
     wecom: agent.wecom ?? { bot_id: '', secret_enc: '' },
   }
 }
@@ -146,7 +209,9 @@ function readFile(): StoreFile {
     if (parsed && Array.isArray(parsed.agents)) {
       return {
         version: 1,
-        agents: parsed.agents.filter((agent) => agent && typeof agent.id === 'string').map(normalizeRecord),
+        agents: parsed.agents
+          .filter((agent) => agent && typeof agent.id === 'string')
+          .map((agent) => normalizeRecord(migrateLegacyRecord(agent as unknown as Record<string, unknown>) as unknown as DedicatedAgentRecord)),
       }
     }
   } catch {
@@ -292,8 +357,6 @@ export function getAgentWeixinToken(agent: DedicatedAgentRecord): string {
 export function createAgent(input: DedicatedAgentInput, options: ReservedBots = {}): DedicatedAgentRecord {
   const name = cleanText(input.name, NAME_MAX)
   if (!name) throw new DedicatedAgentError('请填写 Agent 名称')
-  const site_id = String(input.site_id ?? '').trim()
-  if (!site_id) throw new DedicatedAgentError('请选择要操作的网站')
   const bot = validateBot(input)
   const data = readFile()
   assertBotUnused(data.agents, bot, null, options)
@@ -302,8 +365,9 @@ export function createAgent(input: DedicatedAgentInput, options: ReservedBots = 
     id: randomUUID().replace(/-/g, '').slice(0, 12),
     name,
     description: cleanText(input.description, DESCRIPTION_MAX),
-    site_id,
-    skill_name: normalizeSkillName(input.skill_name),
+    site_ids: normalizeSiteIds(input.site_ids),
+    skill_names: normalizeSkillNames(input.skill_names),
+    work_dir: normalizeWorkDir(input.work_dir),
     examples: cleanExamples(input.examples),
     enabled: true,
     ...botFields(bot),
@@ -339,12 +403,9 @@ export function updateAgent(id: string, patch: DedicatedAgentPatch, options: Res
       agent.name = name
     }
     if (patch.description !== undefined) agent.description = cleanText(patch.description, DESCRIPTION_MAX)
-    if (patch.site_id !== undefined) {
-      const site = String(patch.site_id).trim()
-      if (!site) throw new DedicatedAgentError('请选择要操作的网站')
-      agent.site_id = site
-    }
-    if (patch.skill_name !== undefined) agent.skill_name = normalizeSkillName(patch.skill_name)
+    if (patch.site_ids !== undefined) agent.site_ids = normalizeSiteIds(patch.site_ids)
+    if (patch.skill_names !== undefined) agent.skill_names = normalizeSkillNames(patch.skill_names)
+    if (patch.work_dir !== undefined) agent.work_dir = normalizeWorkDir(patch.work_dir)
     if (patch.examples !== undefined) agent.examples = cleanExamples(patch.examples)
     if (patch.access_mode !== undefined) {
       const channel = patch.bot?.channel === 'weixin' ? 'weixin' : agentChannel(agent)
@@ -440,6 +501,10 @@ export interface DedicatedAgentView {
   id: string
   name: string
   description: string
+  site_ids: string[]
+  skill_names: string[]
+  work_dir: string
+  /** First entries for older readers; derived, do not write back. */
   site_id: string
   skill_name: string
   examples: string[]
@@ -461,8 +526,11 @@ export function toAgentView(agent: DedicatedAgentRecord): DedicatedAgentView {
     id: agent.id,
     name: agent.name,
     description: agent.description,
-    site_id: agent.site_id,
-    skill_name: agent.skill_name,
+    site_ids: [...agent.site_ids],
+    skill_names: [...agent.skill_names],
+    work_dir: agent.work_dir,
+    site_id: agent.site_ids[0] ?? '',
+    skill_name: agent.skill_names[0] ?? '',
     examples: [...agent.examples],
     enabled: agent.enabled,
     channel: agentChannel(agent),

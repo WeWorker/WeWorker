@@ -3,7 +3,8 @@
  *
  * Each agent owns one bot. Its pairing owner always has access; a WeCom agent
  * can optionally also serve members authorized for that bot in WeCom. Every
- * turn runs with isolated skills, memory scope and focused tool limits.
+ * turn runs with isolated skills, memory scope, an optional working directory
+ * and webcli scoped to the agent's own sites.
  */
 import { channelManager, type ChannelStatus } from '../channels/channel-manager.js'
 import type { ChannelAccessDecision, ChannelProfile } from '../channels/channel-profile.js'
@@ -58,6 +59,20 @@ function resolveSite(siteId: string): SiteInfo {
   }
 }
 
+/** Site info for every site the agent operates, in record order. */
+function resolveAgentSites(agent: Pick<DedicatedAgentRecord, 'site_ids'>): SiteInfo[] {
+  return (agent.site_ids ?? []).map(resolveSite)
+}
+
+/** Sites the agent could actually reach right now (installed and enabled). */
+function usableSites(sites: SiteInfo[]): SiteInfo[] {
+  return sites.filter((site) => site.exists && site.enabled)
+}
+
+function sitesTextLabel(sites: SiteInfo[]): string {
+  return sites.map((site) => `「${site.name}」`).join('')
+}
+
 function examplesText(agent: DedicatedAgentRecord): string {
   if (!agent.examples.length) return ''
   return `\n\n可以这样问我：\n${agent.examples.map((example) => `· ${example}`).join('\n')}`
@@ -84,12 +99,12 @@ export function decideAgentAccess(input: {
   agent: DedicatedAgentRecord
   userId: string
   text: string
-  site: SiteInfo
+  sites: SiteInfo[]
   attempts: PairingAttempts
   now: number
   onPair: (userId: string) => DedicatedAgentRecord
 }): ChannelAccessDecision {
-  const { agent, userId, text, site, attempts, now } = input
+  const { agent, userId, text, sites, attempts, now } = input
   if (text.trim() === '/myid') {
     return { kind: 'reply', text: `你的${AGENT_CHANNEL_LABELS[agentChannel(agent)]}用户 ID：${userId}` }
   }
@@ -105,9 +120,13 @@ export function decideAgentAccess(input: {
     if (code && agent.pairing_code && code === agent.pairing_code) {
       attempts.delete(userId)
       const paired = input.onPair(userId)
+      const usable = usableSites(sites)
+      const intro = usable.length
+        ? `专门帮你处理${sitesTextLabel(usable)}上的工作`
+        : '可以随时为你处理各类工作'
       return {
         kind: 'reply',
-        text: `✅ 绑定成功！我是你的WeWorker Bot「${paired.name}」，专门帮你处理「${site.name}」上的工作。现在可以直接给我发消息了。${examplesText(paired)}`,
+        text: `✅ 绑定成功！我是你的WeWorker Bot「${paired.name}」，${intro}。现在可以直接给我发消息了。${examplesText(paired)}`,
       }
     }
     if (code) {
@@ -128,8 +147,10 @@ export function decideAgentAccess(input: {
   if (!hasAccess) {
     return { kind: 'reply', text: `这是「${agent.name}」的WeWorker Bot，目前仅允许它的主人使用。` }
   }
-  if (!site.exists || !site.enabled) {
-    return { kind: 'reply', text: `「${site.name}」的网站能力当前未启用，请在 WeWorker 桌面端启用后再试。` }
+  // Website capabilities are auxiliary: block only when the agent has sites
+  // and none of them is currently installed and enabled.
+  if (sites.length && !usableSites(sites).length) {
+    return { kind: 'reply', text: `这个WeWorker Bot 绑定的网站能力当前未启用（${sites.map((site) => site.name).join('、')}），请在 WeWorker 桌面端启用后再试；其他工作不受影响。` }
   }
   return { kind: 'allow', mode: 'full' }
 }
@@ -151,24 +172,26 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
     welcomeText: () => {
       const agent = getAgent(agentId)
       if (!agent) return '你好！'
-      const site = resolveSite(agent.site_id)
-      const intro = `你好，我是「${agent.name}」，专门帮你处理「${site.name}」上的工作。${agent.description ? `\n${agent.description}` : ''}`
+      const usable = usableSites(resolveAgentSites(agent))
+      const intro = `你好，我是「${agent.name}」。${usable.length ? `我可以帮你处理${sitesTextLabel(usable)}上的工作` : '我是你的专属助手'}${agent.work_dir ? '，也可以处理本地目录里的工作' : ''}。${agent.description ? `\n${agent.description}` : ''}`
       if (!agent.owner_user_id) return `${intro}\n\n首次使用请把 WeWorker 桌面端显示的绑定码发给我，例如：绑定 123456`
       return `${intro}${examplesText(agent)}\n\n发送 /new 开启新对话，发送 /help 查看说明。`
     },
     helpText: () => {
       const agent = current()
-      const site = resolveSite(agent.site_id)
+      const sites = resolveAgentSites(agent)
+      const usable = usableSites(sites)
       return [
         `「${agent.name}」`,
-        `负责网站：${site.name}`,
-        agent.skill_name ? `专属 Skill：${agent.skill_name}` : '专属 Skill：未设置（仅使用网站能力）',
+        usable.length ? `可操作网站：${usable.map((site) => site.name).join('、')}` : '可操作网站：未绑定',
+        agent.work_dir ? `工作目录：${agent.work_dir}` : '',
+        agent.skill_names.length ? `专属 Skill：${agent.skill_names.join('、')}` : '专属 Skill：未设置',
         '',
         '/new 开启新对话',
         '/stop 停止当前任务',
         '/id 查看当前对话 ID',
         '/help 查看本说明',
-      ].join('\n') + examplesText(agent)
+      ].filter(Boolean).join('\n') + examplesText(agent)
     },
     authorize: (userId, text) => {
       const agent = getAgent(agentId)
@@ -177,7 +200,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
         agent,
         userId,
         text,
-        site: resolveSite(agent.site_id),
+        sites: resolveAgentSites(agent),
         attempts,
         now: now(),
         onPair: (owner) => {
@@ -195,7 +218,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
     },
     chatOptions: (userId) => {
       const agent = current()
-      return buildAgentChatOptions({ agent, siteName: resolveSite(agent.site_id).name, actorUserId: userId })
+      return buildAgentChatOptions({ agent, actorUserId: userId })
     },
     onWorkCreated: (workId) => addAgentWork(agentId, workId),
   }
@@ -208,7 +231,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
  */
 export function buildDesktopAgentTurnOptions(agent: DedicatedAgentRecord) {
   return {
-    ...buildAgentChatOptions({ agent, siteName: resolveSite(agent.site_id).name }),
+    ...buildAgentChatOptions({ agent }),
     memoryEnabled: false,
   }
 }

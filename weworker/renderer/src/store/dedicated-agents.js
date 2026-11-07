@@ -8,7 +8,7 @@ import { useExplorationPageStore } from './exploration-page.js'
 import { useWebsiteExplorationStore, leaveWebsiteExploration } from './website-exploration.js'
 
 const DRAFT_FIELDS = [
-  'id', 'draftKey', 'name', 'description', 'site_id', 'siteId', 'skill_name', 'examples',
+  'id', 'draftKey', 'name', 'description', 'siteIds', 'siteId', 'site_id', 'workDir', 'skill_name', 'examples',
   'skillMode', 'goal', 'knowledge', 'skillName', 'skillMarkdown', 'existingSkill',
   'examplesText', 'savedSkillName', 'skillScope', 'accessMode', 'channel', 'wizardStep',
   'pairing_code', 'paired',
@@ -41,8 +41,8 @@ export const createDedicatedAgentsStore = ({ storage = defaultStorage(), fetchAg
       draft: true,
       name: '新建WeWorker Bot',
       description: '',
-      site_id: '',
-      skill_name: '',
+      siteIds: [],
+      workDir: '',
       examples: [],
       enabled: true,
       paired: false,

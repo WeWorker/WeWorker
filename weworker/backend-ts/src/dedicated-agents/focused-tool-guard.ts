@@ -1,10 +1,12 @@
 /**
- * Tool guard for dedicated agents.
+ * Tool guards for dedicated agents (WeWorker Bot).
  *
- * A dedicated agent is reachable from an IM bot, so its native shell is limited
- * to a single `webcli` invocation for its own website. Quoted argument text is
- * passed to webcli verbatim (e.g. free-form text an Adapter tool accepts), so
- * shell operators are only rejected when they appear outside quotes.
+ * A workspace agent behaves like Claude running in a folder, optionally with
+ * WeWorker website capabilities: native file and shell tools are unrestricted,
+ * but every `webcli` invocation must target one of the agent's own sites.
+ * Quoted argument text is passed to webcli verbatim (e.g. free-form text an
+ * Adapter tool accepts), so shell operators are only rejected when they appear
+ * outside quotes in a single invocation.
  */
 
 export type ShellWordsResult =
@@ -117,22 +119,20 @@ export function checkFocusedWebcliCommand(command: unknown, allowedSiteIds: stri
   return { ok: false, reason: `不支持的 webcli 子命令：${subcommand}` }
 }
 
-/** MCP tools a dedicated agent may use; everything else from the WeWorker MCP server is hidden. */
+/** MCP tools a workspace agent may use; everything else from the WeWorker MCP server is hidden. */
 const ALLOWED_MCP_TOOLS = new Set([
   'mcp__weworker__ask_user',
   'mcp__weworker__webcli_result',
+  'mcp__weworker__send_file_to_user',
+  'mcp__weworker__send_image_to_user',
 ])
 
-export const FOCUSED_AGENT_DISALLOWED_TOOLS = [
-  'Edit',
-  'Write',
-  'NotebookEdit',
+/** MCP tools hidden from a workspace agent's tool list (native file/shell tools stay available). */
+export const WORKSPACE_AGENT_DISALLOWED_TOOLS = [
   'mcp__weworker__weworker_powershell',
   'mcp__weworker__create_scheduled_task',
   'mcp__weworker__list_scheduled_tasks',
   'mcp__weworker__list_files',
-  'mcp__weworker__send_file_to_user',
-  'mcp__weworker__send_image_to_user',
   'mcp__weworker__check_file_encryption',
   'mcp__weworker__decrypt_file',
   'mcp__weworker__list_explorable_tabs',
@@ -144,23 +144,90 @@ export const FOCUSED_AGENT_DISALLOWED_TOOLS = [
   'mcp__weworker__publish_adapter_generation',
 ]
 
-const WRITE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit'])
-
 export type FocusedGuardDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string }
 
-export function createFocusedToolGuard(allowedSiteIds: string[], knownSiteIds: string[] = [], allowedMcpTools: string[] = []) {
+const WEBCLI_TOKEN = /\bwebcli(?:\.cmd|\.ps1)?\b/i
+const SEGMENT_SEPARATORS = new Set([';', '\r', '\n', '|', '&', '`', '(', ')', '<', '>'])
+const ENV_PREFIX = /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]*)\s+/
+
+/**
+ * Split a command into segments on shell separators that appear outside
+ * quotes, so compound commands (`&&`, `;`, pipelines, `$(...)`) are checked
+ * invocation by invocation while quoted text stays intact.
+ */
+function splitCommandSegments(command: string): string[] {
+  const segments: string[] = []
+  let current = ''
+  let quote: "'" | '"' | null = null
+  for (const char of command) {
+    if (quote) {
+      current += char
+      if (char === quote) quote = null
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      current += char
+      continue
+    }
+    if (SEGMENT_SEPARATORS.has(char)) {
+      segments.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  segments.push(current)
+  return segments
+}
+
+/**
+ * Scope-check every `webcli` invocation inside an arbitrary (possibly compound)
+ * shell command. Anything else in the command is not restricted here. A webcli
+ * mention that cannot be parsed as a plain invocation is denied so the model
+ * falls back to running webcli as a standalone command.
+ */
+export function checkWebcliScopeInCommand(command: unknown, allowedSiteIds: string[], knownSiteIds: string[] = []): WebcliCheck {
+  const text = typeof command === 'string' ? command : ''
+  if (!text.trim()) return { ok: true }
+  if (!WEBCLI_TOKEN.test(text)) return { ok: true }
+  for (const segment of splitCommandSegments(text)) {
+    if (!WEBCLI_TOKEN.test(segment)) continue
+    let trimmed = segment.trim()
+    for (;;) {
+      const next = trimmed.replace(ENV_PREFIX, '')
+      if (next === trimmed) break
+      trimmed = next
+    }
+    const firstWord = trimmed.split(/\s+/)[0] ?? ''
+    if (!WEBCLI_TOKEN.test(firstWord)) {
+      return {
+        ok: false,
+        reason: '无法解析的 webcli 调用：请把 webcli 作为独立的一条命令执行，不要嵌进变量、子 shell 或其他命令里',
+      }
+    }
+    const check = checkFocusedWebcliCommand(trimmed, allowedSiteIds, knownSiteIds)
+    if (!check.ok) return check
+  }
+  return { ok: true }
+}
+
+/**
+ * Tool guard for a workspace dedicated agent: a full Claude-style agent that
+ * may also operate the websites it was given. Native file and shell tools are
+ * unrestricted; only webcli invocations are scoped to the agent's sites and
+ * WeWorker MCP tools stay behind an allowlist.
+ */
+export function createWorkspaceToolGuard(allowedSiteIds: string[], knownSiteIds: string[] = [], allowedMcpTools: string[] = []) {
   const permittedMcpTools = new Set([...ALLOWED_MCP_TOOLS, ...allowedMcpTools])
   return (toolName: string, input: Record<string, unknown>): FocusedGuardDecision => {
     if (toolName === 'Bash' || toolName === 'PowerShell') {
-      const check = checkFocusedWebcliCommand(input?.command, allowedSiteIds, knownSiteIds)
+      const check = checkWebcliScopeInCommand(input?.command, allowedSiteIds, knownSiteIds)
       if (check.ok) return { behavior: 'allow' }
       return {
         behavior: 'deny',
-        message: `WeWorker Bot 只能执行本网站的单条 webcli 命令：${check.reason}。需要过滤或处理输出时，把内容放进 webcli 参数的单引号里。`,
+        message: `webcli 只能操作这个WeWorker Bot 负责的网站：${check.reason}`,
       }
-    }
-    if (WRITE_TOOLS.has(toolName)) {
-      return { behavior: 'deny', message: 'WeWorker Bot 不修改本地文件。' }
     }
     if (toolName.startsWith('mcp__') && !permittedMcpTools.has(toolName)) {
       return { behavior: 'deny', message: `WeWorker Bot 不能使用 ${toolName}。` }

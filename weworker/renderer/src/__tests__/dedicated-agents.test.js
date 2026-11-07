@@ -7,6 +7,8 @@ import {
   AGENT_ACCESS_MODES,
   agentBotId,
   agentChannelOf,
+  agentSiteIds,
+  agentSkillNames,
   boundBotPayload,
   channelLabel,
   agentStatusPresentation,
@@ -53,10 +55,10 @@ test('agent status combines enabled flag, connection and pairing', () => {
   assert.equal(agentStatusPresentation({ enabled: true, paired: true, connection: { status: 'connected' } }).tone, 'success')
 })
 
-test('wizard validation follows the selected skill mode', () => {
-  assert.equal(validateWizardStep('site', { siteId: '', name: 'x' }), '请选择要操作的网站')
-  assert.equal(validateWizardStep('site', { siteId: 'example.com', name: ' ' }), '请给 Agent 起个名字')
-  assert.equal(validateWizardStep('site', { siteId: 'example.com', name: 'Example Operations Assistant' }), '')
+test('wizard validation allows plain agents and follows the selected skill mode', () => {
+  assert.equal(validateWizardStep('scope', { siteIds: [], workDir: '', name: 'Plain Claude' }), '')
+  assert.equal(validateWizardStep('scope', { siteIds: [], workDir: 'C:/weworker-fixtures/workspace', name: ' ' }), '请给 Agent 起个名字')
+  assert.equal(validateWizardStep('scope', { siteIds: ['example.com'], name: 'Example Operations Assistant' }), '')
   assert.match(validateWizardStep('skill', { skillMode: SKILL_MODES.existing }), /已有的 Skill/)
   assert.match(validateWizardStep('skill', { skillMode: SKILL_MODES.generate, skillMarkdown: '' }), /先生成 Skill/)
   assert.match(validateWizardStep('skill', { skillMode: SKILL_MODES.generate, skillMarkdown: 'x', skillName: 'webcli-x' }), /webcli/)
@@ -67,6 +69,16 @@ test('wizard validation follows the selected skill mode', () => {
   assert.equal(resolveDraftSkillName({ skillMode: SKILL_MODES.none, skillName: 'ignored' }), '')
 })
 
+test('agents expose multi-site and multi-skill fields with legacy fallback', () => {
+  assert.deepEqual(agentSiteIds({ site_ids: ['example.com', 'example.org'] }), ['example.com', 'example.org'])
+  assert.deepEqual(agentSiteIds({ site_ids: [] }), [])
+  assert.deepEqual(agentSiteIds({ site_id: 'example.com' }), ['example.com'])
+  assert.deepEqual(agentSiteIds({}), [])
+  assert.deepEqual(agentSkillNames({ skill_names: ['inventory-helper', 'orders-helper'] }), ['inventory-helper', 'orders-helper'])
+  assert.deepEqual(agentSkillNames({ skill_name: 'inventory-helper' }), ['inventory-helper'])
+  assert.deepEqual(agentSkillNames({}), [])
+})
+
 test('site helpers summarize purpose and 3-5 core capabilities', () => {
   assert.equal(sitePurpose(site), 'Example inventory site')
   assert.equal(sitePurpose({ id: 'example.org' }), '通过 Adapter 操作 example.org。')
@@ -75,6 +87,7 @@ test('site helpers summarize purpose and 3-5 core capabilities', () => {
   assert.equal(capabilities[1].description, '可调用的操作工具')
   assert.equal(compactSiteCapabilities({ tools: Array.from({ length: 9 }, (_, index) => ({ name: `t${index}`, description: `d${index}` })) }).length, 5)
   assert.equal(defaultAgentName(site), 'Example助手')
+  assert.equal(defaultAgentName([site, { id: 'example.org', name: 'Org' }]), 'Example助手')
   assert.equal(defaultAgentName({}), '')
 })
 

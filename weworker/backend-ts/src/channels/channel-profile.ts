@@ -44,7 +44,7 @@ type StreamChatOptions = NonNullable<Parameters<typeof streamChat>[3]>
 /** Extra per-turn agent options a profile may contribute. */
 export type ChannelProfileChatOptions = Pick<
   StreamChatOptions,
-  'isolatedClaudeConfigDir' | 'appendSystemPrompt' | 'extraToolGuard' | 'extraDisallowedTools' | 'mcpServerOverride'
+  'isolatedClaudeConfigDir' | 'appendSystemPrompt' | 'extraToolGuard' | 'extraDisallowedTools' | 'mcpServerOverride' | 'agentCwd'
 >
 
 export interface ChannelProfile {
@@ -52,8 +52,8 @@ export interface ChannelProfile {
   channelKey: string
   /**
    * Set when this profile serves a dedicated Agent. Those turns never use
-   * deterministic routing (see routed-turn.ts): an Agent is bound to one
-   * site/skill, and routing could answer with a different site.
+   * deterministic routing (see routed-turn.ts): an Agent has its own site and
+   * skill scope, and routing could answer with a different site.
    */
   dedicatedAgentId?: string
   /** Prefix shown in conversation titles, e.g. 企微 / 微信. */
