@@ -83,7 +83,7 @@ export async function handle(req, res, ctx) {
     if (!checkAuth(req, ctx.token)) return send(res, 401, { error: "unauthorized" });
     const byRaw = url.searchParams.get("by");
     const by =
-      byRaw === "tool" ? "tool" : byRaw === "user" ? "user" : byRaw === "route" ? "route" : "domain";
+      byRaw === "tool" ? "tool" : byRaw === "err" ? "err" : byRaw === "user" ? "user" : byRaw === "route" ? "route" : "domain";
     const since = url.searchParams.get("since") || "30d";
     const kind = url.searchParams.get("kind") || null;
     const topRaw = url.searchParams.get("top");

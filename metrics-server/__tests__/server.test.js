@@ -231,3 +231,36 @@ test("queryStats by=user：空 user 归入 (unknown) 组，缺失可见", () => 
   assert.equal(unknown.calls, 2);
   assert.equal(totalCalls, 2);
 });
+
+test("queryStats by=err：失败原因聚合（仅 ok=0，按 err 分组）", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: now, traceID: "e1", ok: false, ms: 100, err: "LOGIN_REQUIRED" }),
+      rec({ ts: now, traceID: "e2", ok: false, ms: 120, err: "LOGIN_REQUIRED" }),
+      rec({ ts: now, traceID: "e3", ok: false, ms: 80, err: "HTTP_ERROR" }),
+      rec({ ts: now, traceID: "e4", ok: true, ms: 90 }),
+    ],
+  });
+  const { rows, totalFailed } = queryStats(db, { by: "err", since: "1d" });
+  assert.equal(totalFailed, 3);
+  assert.equal(rows.length, 2);
+  const login = rows.find((r) => r.err === "LOGIN_REQUIRED");
+  assert.equal(login.calls, 2);
+  assert.ok(login.tools >= 1);
+  assert.equal(rows[0].calls >= rows[1].calls, true);
+});
+
+test("queryStats by=err：空 err 的失败不计入", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.now(), traceID: "e1", ok: false, ms: 100, err: null }),
+    ],
+  });
+  const { rows } = queryStats(db, { by: "err", since: "1d" });
+  assert.equal(rows.length, 0);
+});
