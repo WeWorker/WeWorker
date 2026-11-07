@@ -201,11 +201,19 @@ jobs:
           $output = Join-Path $env:RUNNER_TEMP 'artifacts'
           New-Item -ItemType Directory -Force -Path $output | Out-Null
           if ('${{ matrix.target }}' -eq 'windows') {
-            Copy-Item (Join-Path $source 'WeWorker-*-win-x64.exe*') $output
-            Copy-Item (Join-Path $source 'latest.yml') $output
+            if ($env:RELEASE_TAG) {
+              Copy-Item (Join-Path $source 'WeWorker-*-win-x64.exe*') $output
+              Copy-Item (Join-Path $source 'latest.yml') $output
+            } else {
+              Copy-Item (Join-Path $source 'WeWorker-*-win-x64.exe') $output
+            }
           } else {
-            Copy-Item (Join-Path $source 'WeWorker-*-mac-*') $output
-            Copy-Item (Join-Path $source 'latest-mac.yml') $output
+            if ($env:RELEASE_TAG) {
+              Copy-Item (Join-Path $source 'WeWorker-*-mac-*') $output
+              Copy-Item (Join-Path $source 'latest-mac.yml') $output
+            } else {
+              Copy-Item (Join-Path $source 'WeWorker-*-mac-*.dmg') $output
+            }
           }
 
           $profile = Get-Content -Raw 'weworker/build-profile.json' | ConvertFrom-Json
