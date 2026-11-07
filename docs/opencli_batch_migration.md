@@ -6,9 +6,8 @@
 
 - OpenCLI SHA：`24136945847afbfad266c6c46a8cd335377f9112`，Apache-2.0，Copyright 2025 jackwener；许可证与 `docs/third_party/OpenCLI-LICENSE.txt` 换行归一化后完全相同。派生源码保留归属和修改说明。
 - 实际开发在公开 WeWorker，沿用 `codex/migrate-opencli-adapters`，HEAD `9542d4ffa1975927abe90e6f921af43b1f60d906`，跟踪 `fork/codex/migrate-opencli-adapters`。PR #39 仍 OPEN / MERGEABLE，base develop。没有提交、推送、合并或发版。
-- 内部 WeWorker-Int 为 `codex/internal-development`，HEAD `53746a1ff559787925da34b9ad16454051d7c688`，跟踪 `upstream/develop`，未发现对应开放 PR。
-- 开始前已保存两仓工作区/暂存区二进制 diff 与未跟踪文件副本，继续使用当前迁移基线。未新增工作树，未使用旧开发路径，未清理 Archive。
-- 前轮仅公开包/Profile/文档/站点测试发生变化。本轮新增通用 Bridge 二进制响应，源码、通用测试和架构文档精确同步内外两仓；两个内部 lockfile 原改动保留；公开旧有 diff（除本轮需扩展的 ROADMAP/Profile）保持一致，未跟踪技术文章逐字节保留。
+- 开始前已保存公开工作区/暂存区二进制 diff 与未跟踪文件副本，继续使用当前迁移基线。未新增工作树，未使用旧开发路径，未清理 Archive。
+- 前轮仅公开包、Profile、文档和站点测试发生变化。本轮新增通用 Bridge 二进制响应，并同步更新源码、通用测试和架构文档；公开旧有 diff（除本轮需扩展的 ROADMAP/Profile）保持一致，未跟踪技术文章逐字节保留。
 
 ## 包与清单
 
@@ -114,9 +113,9 @@ node weworker/build/webcli-dist/webcli.cjs call douyin.com.search --query=风景
 
 新增知乎download及豆瓣download保留来源参数和本地output目录语义。图片用受限backend_fetch的base64模式及backend_file_write保存，禁止未知域、跳转、非图片内容和旧Bridge文本响应。图像请求有大小/时间预算，失败返回逐图failed或not_attempted；知乎仍保留远程图片并标partial。Markdown转换沿用OpenCLI规则，内置Turndown 7.2.2与GFM 1.0.2，MIT许可证保留在包内注释及docs/third_party/zhihu-markdown-LICENSES.txt。
 
-通用二进制能力详见 [架构记录](runtime_binary_response.md)，两仓通用测试各23项通过。两仓WebCLI均重新构建（public 16包，internal 38包）；这不表示内部包含本批迁移包。该轮运行中客户端尚需重启加载Bridge；后续已完成，结果见下方重启后验收。
+通用二进制能力详见 [架构记录](runtime_binary_response.md)，公开通用测试 23 项通过，WebCLI 已重新构建。该轮运行中客户端尚需重启加载 Bridge；后续已完成，结果见下方重启后验收。
 
-第二轮最终验证：公开8组224项通过，内部通用3组23项通过；Profile/打包6项及八包.adapt/Skill复核通过。两仓Bridge源码/通用测试/架构文档逐字节一致；除明确修改的ROADMAP/Profile/Bridge外，原有工作区差异保留，内部lockfile与公开未跟踪技术文章保留。未提交、推送、合并或发版。
+第二轮最终验证：公开 8 组 224 项通过，通用 3 组 23 项通过；Profile/打包 6 项及八包 `.adapt`/Skill 复核通过。除明确修改的 ROADMAP、Profile 和 Bridge 外，原有公开工作区差异与未跟踪技术文章保留。未提交、推送、合并或发版。
 
 ## 源码客户端重启后下载验收（2026-09-28）
 
@@ -131,4 +130,4 @@ node weworker/build/webcli-dist/webcli.cjs call douyin.com.search --query=风景
 
 BOSS 0.1.1 改用页面主世界的显式只读请求，已完成上海跨页18条、北京第2页以及学历/经验筛选的真实验证；见 BOSS 迁移文档。12306 当前会话已失效，已修复登录页识别与个人中心导航，待重新登录继续核对旧订单缺列表问题。两站修复仅在公开包与站点测试中，无通用框架修改。
 
-重新登录后续验：12306 0.1.1 不再依赖旧登录标签页判断登录；先核验官方服务器会话。官方成功响应省略 data 且页面明确显示无未完成订单时，严格组合响应与可见页面证据返回 EMPTY_RESULT，真实 trace `3225174f6409`。这只验证空状态，不等于有订单提取通过，也不表示未出行或历史订单为空。两站及宿主导航116项通过；未修改通用框架及内部仓库，未执行业务写操作。
+重新登录后续验：12306 0.1.1 不再依赖旧登录标签页判断登录；先核验官方服务器会话。官方成功响应省略 data 且页面明确显示无未完成订单时，严格组合响应与可见页面证据返回 EMPTY_RESULT，真实 trace `3225174f6409`。这只验证空状态，不等于有订单提取通过，也不表示未出行或历史订单为空。两站及宿主导航 116 项通过；未修改通用框架，未执行业务写操作。

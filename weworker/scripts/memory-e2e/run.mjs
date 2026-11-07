@@ -127,16 +127,16 @@ const SCENARIOS = [
     postDelayMs: 12000,
   },
   {
-    id: 'B2-AIEP',
-    name: 'AIEP 真实站点工具流程',
-    prompt: '请在 AIEP 中先检查页面和登录状态，再查询可用筛选项，最后查看最近一天的模型总览。只读，不要修改任何内容。请真实执行，不要编造结果。',
+    id: 'B2-GITHUB',
+    name: 'GitHub 公开站点工具流程',
+    prompt: '请在 GitHub 中查看 Trending，并整理最近一天值得关注的开源项目。只读，不要修改任何内容。请真实执行，不要编造结果。',
     timeout: 360000,
     postDelayMs: 12000,
   },
   {
     id: 'T5-B1',
-    name: 'AIEP 声明式站点流程',
-    prompt: '记住，在 AIEP 中查询模型时，固定流程是：先检查登录状态，再查模型总览，最后查模型性能。这是我的固定操作顺序。',
+    name: 'GitHub 声明式站点流程',
+    prompt: '记住，在 GitHub 中调研开源项目时，固定流程是：先查看 Trending，再打开项目详情，最后整理关键信息。这是我的固定操作顺序。',
     timeout: 240000,
     postDelayMs: 10000,
   },
@@ -178,7 +178,7 @@ function judgeScenario(record, status) {
     else if (record.toolSteps >= 2 && !memSaved) verdict = '未通过：工具执行但未落库 task_execution'
     else if (record.ok && record.toolSteps === 0) verdict = '未通过：未执行工具'
     else verdict = record.ok ? '待核对' : `失败：${record.error || 'chat error'}`
-  } else if (record.id === 'B2-AIEP') {
+  } else if (record.id === 'B2-GITHUB') {
     if (status.extension !== 'connected') verdict = '阻塞：扩展未连接'
     else if (taskOps.length > 0 && memSaved) verdict = '通过'
     else if (record.toolSteps >= 2 && !taskOps.length) verdict = '未通过：多次工具调用但未写入 task_execution'
