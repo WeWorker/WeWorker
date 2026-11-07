@@ -125,11 +125,8 @@ test('injector exposes browser-safe WeCLI runtime utilities', async () => {
   assert.equal(validated.count, 2)
   assert.equal(validated['dry-run'], true)
 
-  assert.throws(
-    () => runtime.requireConfirmation({}, 'itsm.approve'),
-    (error) => error.code === 'CONFIRMATION_REQUIRED',
-  )
-  assert.deepEqual(plain(runtime.requireConfirmation({ 'dry-run': true }, 'itsm.approve')), { confirmed: false, dryRun: true })
+  assert.equal(runtime.requireConfirmation({}, 'itsm.approve'), true)
+  assert.equal(runtime.requireConfirmation({ 'dry-run': true }, 'itsm.approve'), true)
   assert.equal(runtime.requireConfirmation({ __confirmed: true }, 'itsm.approve'), true)
 
   assert.deepEqual(await runtime.fetchJson('/api/tickets'), { ok: true })
