@@ -615,11 +615,21 @@ export class WecomChannel implements Channel {
     })
 
     const access = this._profile.authorize(userId, text)
+    const channelKey = this._profile.channelKey
     if (access.kind === 'reply') {
+      // A dedicated agent's pairing message replies instead of allowing, but
+      // it is still the owner's first contact: record the chat so quick-create
+      // can register scheduled tasks for it right after pairing. Main channels
+      // keep recording authorized messages only.
+      if (this._profile.dedicatedAgentId) {
+        store.saveChannelNotifyTarget(channelKey, chatType === 'single' ? userId : (chatId ?? userId), {
+          chat_type: chatType === 'single' ? '1' : '2',
+          user_id: userId,
+        })
+      }
       replyOnce(access.text)
       return
     }
-    const channelKey = this._profile.channelKey
 
     // Cache user info for sendNotification
     this._lastUserId = chatType === 'single' ? userId : (chatId ?? userId)

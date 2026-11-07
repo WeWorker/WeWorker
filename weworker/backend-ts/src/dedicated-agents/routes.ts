@@ -57,6 +57,7 @@ import {
   type SkillLocations,
   type SkillScope,
 } from './skill-library.js'
+import { registerQuickCreateRoutes } from './quick-create.js'
 
 const log = createLogger('dedicated-agent-api')
 
@@ -656,4 +657,7 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
       sendError(res, error)
     }
   })
+
+  // Quick-create support: task creation for finished template flows.
+  registerQuickCreateRoutes(app)
 }

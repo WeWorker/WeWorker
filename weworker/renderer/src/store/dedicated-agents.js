@@ -12,6 +12,8 @@ const DRAFT_FIELDS = [
   'skillMode', 'goal', 'knowledge', 'skillName', 'skillMarkdown', 'existingSkill',
   'examplesText', 'savedSkillName', 'skillScope', 'accessMode', 'channel', 'wizardStep',
   'pairing_code', 'paired',
+  // 快速创建：创建方式与模板流程状态。
+  'createMode', 'templateId', 'templateAnswers', 'templateSkill', 'quickStep', 'quickQuestionIndex',
 ]
 const persistDraft = (agent) => ({
   ...Object.fromEntries(DRAFT_FIELDS.filter((field) => agent[field] !== undefined).map((field) => [field, agent[field]])),

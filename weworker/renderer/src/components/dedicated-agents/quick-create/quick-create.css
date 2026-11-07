@@ -1,0 +1,511 @@
+/* 快速创建 WeWorker Bot：与其他页面同风格，但允许更俏皮一点。 */
+
+/* ── 首页：模板卡片本身就是选择，自定义放底部次级入口 ─────────────── */
+
+.quick-create__template-card {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-primary);
+  padding: 18px 18px 16px;
+  margin-bottom: 12px;
+}
+
+.quick-create__template-card.is-selectable {
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.quick-create__template-card.is-selectable:hover,
+.quick-create__template-card.is-selectable:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.1);
+}
+
+.quick-create__template-card.is-selectable:hover .quick-create__template-cta,
+.quick-create__template-card.is-selectable:focus-visible .quick-create__template-cta {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+.quick-create__template-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quick-create__template-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.quick-create__template-name {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.quick-create__template-site {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.quick-create__template-tagline {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  margin: 6px 0 8px;
+}
+
+.quick-create__template-highlights {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.quick-create__template-cta {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.quick-create__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0 14px;
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.quick-create__divider::before,
+.quick-create__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.quick-create__custom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.quick-create__custom:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.quick-create__custom-emoji {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.quick-create__custom-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.quick-create__custom-title {
+  font-size: var(--font-size-body);
+  font-weight: 600;
+}
+
+.quick-create__custom-desc {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.quick-create__custom-arrow {
+  color: var(--text-muted);
+  transition: color 0.16s ease, transform 0.16s ease;
+}
+
+.quick-create__custom:hover .quick-create__custom-arrow {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+/* ── 流程步骤指示：比 antd Steps 更轻一点、圆一点 ─────────────── */
+
+.quick-create__steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.quick-create__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 12px 3px 4px;
+}
+
+.quick-create__step + .quick-create__step::before {
+  content: '›';
+  margin-right: 2px;
+  color: var(--text-muted);
+}
+
+.quick-create__step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  font-size: 11px;
+}
+
+.quick-create__step.is-current {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.quick-create__step.is-current .quick-create__step-dot {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+}
+
+.quick-create__step.is-done .quick-create__step-dot {
+  background: color-mix(in srgb, var(--success, #22c55e) 18%, var(--bg-secondary));
+  color: var(--success, #22c55e);
+}
+
+/* ── 预览步骤：左边知识、右边回答摘要与任务卡片 ─────────────── */
+
+.quick-create__preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .quick-create__preview {
+    grid-template-columns: 1fr;
+  }
+}
+
+.quick-create__preview-side {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  padding: 12px 14px;
+  font-size: var(--font-size-caption);
+  align-self: start;
+}
+
+.quick-create__answer-summary {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.quick-create__answer-summary-row {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
+.quick-create__answer-summary-q {
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+}
+
+.quick-create__answer-summary-a {
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.quick-create__task-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.quick-create__task-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  padding: 6px 10px;
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+}
+
+/* ── 一问一答：一屏一问（iPhone 开机设置页风格） ─────────────── */
+
+.qflow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0 6px;
+}
+
+.qflow__dots {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 26px;
+}
+
+.qflow__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: width 0.28s cubic-bezier(0.2, 0.7, 0.3, 1), background 0.28s ease;
+}
+
+.qflow__dot.is-done {
+  background: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.qflow__dot.is-current {
+  width: 22px;
+  background: var(--accent);
+}
+
+.qflow__screen {
+  position: relative;
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: qflow-in-forward 0.32s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.qflow__screen--back {
+  animation-name: qflow-in-back;
+}
+
+.qflow__back {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  font-family: inherit;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.qflow__back:hover {
+  color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+.qflow__emoji {
+  font-size: 40px;
+  line-height: 1;
+  margin: 10px 0 14px;
+}
+
+.qflow__title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.qflow__subtitle {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  line-height: 1.7;
+  max-width: 400px;
+  margin-bottom: 24px;
+}
+
+.qflow__control {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.qflow__input {
+  width: 100%;
+}
+
+.qflow__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.qflow__chip {
+  min-width: 76px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.qflow__chip:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.qflow__chip.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-primary));
+  font-weight: 600;
+}
+
+.qflow__monitor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.qflow__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.18s ease;
+}
+
+.qflow__toggle.is-on {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.qflow__toggle-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.2s ease;
+}
+
+.qflow__toggle.is-on .qflow__toggle-track {
+  background: var(--success, #22c55e);
+}
+
+.qflow__toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.qflow__toggle.is-on .qflow__toggle-thumb {
+  transform: translateX(18px);
+}
+
+.qflow__window {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qflow__error {
+  font-size: var(--font-size-caption);
+  color: var(--error, #ef4444);
+}
+
+.qflow__next {
+  min-width: 200px;
+  margin-top: 10px;
+}
+
+@keyframes qflow-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes qflow-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qflow__screen {
+    animation: none;
+  }
+  .quick-create__template-card.is-selectable:hover {
+    transform: none;
+  }
+}

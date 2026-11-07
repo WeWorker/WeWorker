@@ -23,6 +23,7 @@ import {
 } from '../../utils/dedicated-agents.js'
 import SkillComposer from './SkillComposer.jsx'
 import WecomQrBind, { BotChannelPicker } from './WecomQrBind.jsx'
+import { QuickCreateFlow, QuickCreateHome } from './quick-create/index.js'
 import AppSwitch from '../common/AppSwitch.jsx'
 import { codeBadgeStyle, fieldStyle, hintStyle, labelStyle, sectionStyle, titleStyle } from './styles.js'
 import './agent-create-wizard.css'
@@ -46,6 +47,8 @@ const INITIAL_DRAFT = {
   skillScope: 'private',
   /** Keep the safer private setting unless the creator opts into WeCom sharing. */
   accessMode: 'owner_only',
+  /** Quick-create: '' until the user picks a creation mode. */
+  createMode: '',
 }
 
 /** Drafts saved before multi-site support carry `siteId`; map them onto `siteIds`. */
@@ -225,7 +228,6 @@ export default function AgentCreateWizard({ draftKey }) {
   const loadSites = useSitesStore((s) => s.load)
   const existingDraft = useDedicatedAgentsStore((s) => s.agents.find((agent) => agent.draft && (agent.draftKey || agent.id) === draftKey))
   const updateDraftAgent = useDedicatedAgentsStore((s) => s.updateDraftAgent)
-  const cancelCreate = useDedicatedAgentsStore((s) => s.cancelCreate)
   const completeCreate = useDedicatedAgentsStore((s) => s.completeCreate)
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const backendCreated = existingDraft && !existingDraft.id.startsWith('draft-')
@@ -250,6 +252,14 @@ export default function AgentCreateWizard({ draftKey }) {
   const update = (patch) => {
     updateDraftAgent(patch, draftKey)
   }
+
+  // 快速创建门禁：先选创建方式。模板流程自成一体；自定义走本向导。
+  // 已有进度（旧版本草稿或绑定完机器人）直接视为自定义，避免打断进行中的创建。
+  const hasCustomProgress = backendCreated || (existingDraft?.wizardStep || 0) > 0
+    || (draft.siteIds?.length || 0) > 0 || Boolean(draft.skillMarkdown) || Boolean(draft.existingSkill)
+  const createMode = draft.createMode || (hasCustomProgress ? 'custom' : '')
+  if (createMode === 'template') return <QuickCreateFlow draftKey={draftKey} />
+  if (!createMode || createMode === 'home') return <QuickCreateHome draftKey={draftKey} />
 
   const toggleSite = (site) => {
     const includes = draft.siteIds.includes(site.id)
@@ -337,7 +347,7 @@ export default function AgentCreateWizard({ draftKey }) {
             )}
           </h2>
         </div>
-        {!createdAgent && <Button data-app-button="action" onClick={cancelCreate}>保存并返回</Button>}
+        {!createdAgent && <Button data-app-button="action" onClick={() => update({ createMode: 'home' })}>‹ 选择创建方式</Button>}
       </div>
       <div style={{ ...hintStyle, marginBottom: 18 }}>一个WeWorker Bot = 网站 + 专属知识 + 一个本地目录 + 一个企业微信或微信机器人，像随时在线的 Claude。大约 5 分钟完成。</div>
       <Steps size="small" current={step} items={WIZARD_STEPS.map((item) => ({ title: item.title }))} style={{ marginBottom: 20 }} />
