@@ -27,6 +27,13 @@ import { buildAgentChatOptions } from './dedicated-agents/agent-runtime.js'
 const log = createLogger('task-executor')
 const memoryLog = createLogger('memory')
 
+/**
+ * WeWorker Bot 定时任务复用同一个持久会话，每轮执行追加「执行 + 总结」两条用户消息。
+ * 只保留最近这么多条用户轮次（≈ 最近 5 轮执行）：高频任务（如每 10 分钟）的历史
+ * 若不截断会无限累积，最终把模型上下文撑爆（Prompt is too long）。
+ */
+const AGENT_TASK_CONTEXT_TURNS = 10
+
 export interface ExecutionResult {
   workId: string
   executionId: string
@@ -255,6 +262,18 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
   const work = agent && task.context_work_id
     ? (store.getWork(task.context_work_id) ?? store.createWork(`【定时】${task.title}`, agent.project_id ?? taskProject.id))
     : store.createWork(`[定时] ${task.title} · ${timeStr}`, taskProject.id, taskWorkspace)
+
+  // 截断要在追加本轮用户消息之前做：模型调用读到的是「截断后的历史 + 本轮」，
+  // 已经过载的老会话也能在下一轮直接恢复，不必先失败一次。
+  if (agent && task.context_work_id) {
+    try {
+      const removed = store.trimWorkMessages(work.id, AGENT_TASK_CONTEXT_TURNS)
+      if (removed > 0) log.info('agent task context trimmed', { task_id: task.id, removed_messages: removed })
+    } catch (error) {
+      // Trimming is best-effort: a failure must not turn a healthy run into a failed one.
+      log.warn('agent task context trim failed', { task_id: task.id, error_type: error instanceof Error ? error.name : 'UnknownError' })
+    }
+  }
 
   // 2. Create execution record (pending)
   const execution = store.createTaskExecution(task.id, work.id)

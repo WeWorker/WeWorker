@@ -746,6 +746,25 @@ export function deleteMessages(messageIds: string[]): void {
   db().prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...messageIds)
 }
 
+/**
+ * 只保留最近 keepUserTurns 个用户轮次（含其后的全部消息），更早的消息删除。
+ * 用于定时任务的持久会话：每轮执行会追加「执行 + 总结」两条用户消息，不截断的话
+ * 高频任务的历史会无限累积，最终撑爆模型上下文（Prompt is too long）。
+ */
+export function trimWorkMessages(workId: string, keepUserTurns: number): number {
+  const turns = Math.max(1, Math.floor(Number(keepUserTurns) || 1))
+  const rows = db().prepare('SELECT id, role FROM messages WHERE work_id = ? ORDER BY created_at ASC, rowid ASC')
+    .all(workId) as Array<{ id: string; role: string }>
+  const userIndexes = rows
+    .map((row, index) => (row.role === 'user' ? index : -1))
+    .filter((index) => index >= 0)
+  if (userIndexes.length <= turns) return 0
+  const cutoff = userIndexes[userIndexes.length - turns]
+  const removeIds = rows.slice(0, cutoff).map((row) => row.id)
+  deleteMessages(removeIds)
+  return removeIds.length
+}
+
 export function getOrCreateChannelWork(
   channelType: string,
   externalUserId: string,
