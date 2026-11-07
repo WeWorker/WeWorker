@@ -84,13 +84,15 @@ function sendSystemNotification(payload: NotificationPayload): void {
 // 通道通知 — 尝试通过消息通道发送通知
 // ---------------------------------------------------------------------------
 
-function formatNotificationMessage(payload: NotificationPayload): string {
+export function formatNotificationMessage(payload: NotificationPayload): string {
   const statusText = payload.status === 'completed' ? '✅ 执行完成' : '❌ 执行失败'
   let msg = `[定时任务] ${payload.taskTitle}\n${statusText}`
-  if (payload.summary) {
-    msg += `\n摘要: ${payload.summary}`
-  } else if (payload.fullText) {
+  // 通道正文始终是原始执行结果：表格、列表原样保留；摘要只追加在后面做补充，不能替换正文。
+  if (payload.fullText) {
     msg += `\n\n${payload.fullText}`
+    if (payload.summary) msg += `\n\n摘要: ${payload.summary}`
+  } else if (payload.summary) {
+    msg += `\n摘要: ${payload.summary}`
   }
   if (payload.error) {
     msg += `\n错误: ${payload.error}`

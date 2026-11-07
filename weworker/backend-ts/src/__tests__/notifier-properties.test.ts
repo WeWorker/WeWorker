@@ -43,6 +43,7 @@ vi.mock('../agent.js', () => ({ streamChat: vi.fn() }))
 // Import module under test AFTER mocks are set up
 // ---------------------------------------------------------------------------
 import {
+  formatNotificationMessage,
   notify,
   registerSSEClient,
   unregisterSSEClient,
@@ -143,7 +144,7 @@ describe('Property 9: 通知分发', () => {
     )
   })
 
-  it('uses the separately generated summary as the channel notification body', async () => {
+  it('sends the original execution text and appends the summary for channels', async () => {
     const sendNotification = vi.fn()
     mockGetStatuses.mockReturnValue({ wecom: { status: 'connected' } })
     mockGetChannel.mockReturnValue({ sendNotification })
@@ -158,8 +159,11 @@ describe('Property 9: 通知分发', () => {
       workId: 'fixture-work',
     }, ['wecom'])
 
+    // 原始执行结果（可能含表格）必须在正文里，摘要只做补充。
+    expect(sendNotification).toHaveBeenCalledWith(expect.stringContaining('Long original execution output'))
     expect(sendNotification).toHaveBeenCalledWith(expect.stringContaining('Concise notification summary'))
-    expect(sendNotification).not.toHaveBeenCalledWith(expect.stringContaining('Long original execution output'))
+    const sent = String(sendNotification.mock.calls[0][0])
+    expect(sent.indexOf('Long original execution output')).toBeLessThan(sent.indexOf('Concise notification summary'))
   })
 
   // -------------------------------------------------------------------------
@@ -242,5 +246,38 @@ describe('Property 9: 通知分发', () => {
       ),
       { numRuns: 100 },
     )
+  })
+})
+
+describe('通知正文保留原始执行结果', () => {
+  const base = {
+    taskId: 'task-1',
+    taskTitle: '查看到期待办',
+    executionId: 'exec-1',
+    workId: 'work-1',
+    status: 'completed' as const,
+  }
+  const table = [
+    '| 工单号 | 标题 | 到期时间 |',
+    '| --- | --- | --- |',
+    '| 10135662 | 测试环境 log4j | 2026-11-30 |',
+  ].join('\n')
+
+  it('summary 只追加在 fullText 后面，不替换正文', () => {
+    const message = formatNotificationMessage({ ...base, fullText: table, summary: '共 1 条，最早 11-30 到期。' })
+    expect(message).toContain('| 工单号 | 标题 | 到期时间 |')
+    expect(message).toContain('摘要: 共 1 条，最早 11-30 到期。')
+    expect(message.indexOf(table)).toBeLessThan(message.indexOf('摘要:'))
+  })
+
+  it('没有 fullText 时才单独使用 summary', () => {
+    const message = formatNotificationMessage({ ...base, summary: '共 1 条。' })
+    expect(message).toContain('摘要: 共 1 条。')
+  })
+
+  it('没有 summary 时正文就是 fullText', () => {
+    const message = formatNotificationMessage({ ...base, fullText: table })
+    expect(message).toContain(table)
+    expect(message).not.toContain('摘要:')
   })
 })
