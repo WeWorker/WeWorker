@@ -169,6 +169,28 @@ export function insertBatch(db, body) {
  * @param {{by?:string, since?:string, kind?:string, top?:number}} opts
  *   - by="user"：按用户聚合，返回 user×domain 二维分布（扁平 rows [{user,domain,calls}]）
  */
+// 非 adapter 的噪音工具首段（CLI 管理命令 / 误解析名）。与 webcli/metrics.js
+// 的语义保持一致：这类调用不进 adapter 统计口径。
+export const NOISE_FIRST_SEGMENTS = new Set([
+  "skill", "skills", "tool", "tools", "adapter", "adapters", "adapterhub",
+  "service", "call", "route", "routes", "trace", "traces", "install", "list",
+  "completion", "mcp", "mcp-logs", "browser", "login", "auth", "extension-path",
+  "stats", "webcli", "help", "mode", "profiles", "capabilities", "tabs",
+  "list_sites", "inspect_page_state", "evaluate_in_page", "version", "doctor",
+]);
+/** 噪音排除（SQL 侧）：flag 误用（'-' 开头）与 CLI 管理命令首段的调用不计入统计。 */
+export function noiseExcludeClause() {
+  const domains = [...NOISE_FIRST_SEGMENTS].map((s) => `'${s}'`).join(",");
+  return ` AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN (${domains})`;
+}
+
+
+/** 聚合查询的噪音排除片段（WHERE 追加）。 */
+function noiseClauseFor() {
+  const domains = [...NOISE_FIRST_SEGMENTS].map((s) => `'${s}'`).join(",");
+  return ` AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN (${domains})`;
+}
+
 export function queryStats(db, { by = "domain", since = "30d", kind = null, top = null } = {}) {
   // 按用户聚合：user × domain 二维分布，结构不同于单维聚合，单独处理
   // 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组
@@ -183,6 +205,7 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
   const params = [cutoff];
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
+  const noiseClause = noiseClauseFor();
 
   const rows = db
     .prepare(
@@ -192,6 +215,7 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
               CAST(AVG(ms) AS INTEGER) AS avg_ms
        FROM metrics
        WHERE ts >= ? ${kindClause}
+         AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN ('skill','skills','tool','tools','adapter','adapters','adapterhub','service','call','route','routes','trace','traces','install','list','completion','mcp','mcp-logs','browser','login','auth','extension-path','stats','webcli','wecli','help','mode','profiles','capabilities','tabs','list_sites','inspect_page_state','evaluate_in_page','version','doctor')
        GROUP BY ${col}
        ORDER BY calls DESC`
     )
@@ -233,8 +257,9 @@ function queryByErr(db, { since = "30d", top = null } = {}) {
               COUNT(DISTINCT user)                            AS users,
               MIN(tool)                                       AS sampleTool
        FROM metrics
-       WHERE ts >= ? AND ok = 0
+       WHERE ts >= ? AND ok = 0${noiseExcludeClause()}
          AND err IS NOT NULL AND err != ''
+         AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN ('skill','skills','tool','tools','adapter','adapters','adapterhub','service','call','route','routes','trace','traces','install','list','completion','mcp','mcp-logs','browser','login','auth','extension-path','stats','webcli','wecli','help','mode','profiles','capabilities','tabs','list_sites','inspect_page_state','evaluate_in_page','version','doctor')
        GROUP BY err
        ORDER BY calls DESC`
     )
@@ -264,6 +289,7 @@ function queryByUser(db, { since = "30d", kind = null, top = null } = {}) {
       `SELECT COALESCE(NULLIF(user, ''), '(unknown)') AS user, domain, COUNT(*) AS calls
        FROM metrics
        WHERE ts >= ? ${kindClause}
+         AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN ('skill','skills','tool','tools','adapter','adapters','adapterhub','service','call','route','routes','trace','traces','install','list','completion','mcp','mcp-logs','browser','login','auth','extension-path','stats','webcli','wecli','help','mode','profiles','capabilities','tabs','list_sites','inspect_page_state','evaluate_in_page','version','doctor')
        GROUP BY COALESCE(NULLIF(user, ''), '(unknown)'), domain
        ORDER BY user, calls DESC`
     )
