@@ -1,0 +1,27 @@
+[
+  {
+    "id": "ctrip.com-1",
+    "siteId": "ctrip.com",
+    "text": "帮我在携程查询明天从北京到上海的高铁票"
+  },
+  {
+    "id": "bilibili.com-1",
+    "siteId": "bilibili.com",
+    "text": "帮我在 B 站搜索开源项目介绍相关视频"
+  },
+  {
+    "id": "mail-invoices",
+    "siteId": "mail.qq.com",
+    "text": "打开QQ邮箱，下载我本月收到的发票"
+  },
+  {
+    "id": "mail.163.com-1",
+    "siteId": "mail.163.com",
+    "text": "帮我查看网易邮箱的未读邮件"
+  },
+  {
+    "id": "mail.google.com-1",
+    "siteId": "mail.google.com",
+    "text": "帮我在 Gmail 搜索最近收到的发票邮件"
+  }
+]
