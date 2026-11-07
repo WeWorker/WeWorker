@@ -6,9 +6,9 @@
 .website-exploration p:not(.chat-view *) { margin:8px 0;overflow-wrap:anywhere;white-space:pre-wrap; }
 .website-exploration small:not(.chat-view *),.wx-muted { color:var(--wx-muted); }
 .website-exploration .wx-required { color:var(--error); }
-.website-exploration button:not(.chat-view *) { font:inherit;line-height:1.4;background:transparent;border:1px solid transparent;border-radius:5px;padding:6px 9px;color:var(--text-primary);cursor:pointer; }
-.website-exploration button:not(.chat-view *):hover:not(:disabled) { background:var(--bg-hover); }
-.website-exploration button:not(.chat-view *):disabled { opacity:.5;cursor:not-allowed; }
+.website-exploration button:not(.chat-view *, .chat-input-action) { font:inherit;line-height:1.4;background:transparent;border:1px solid transparent;border-radius:5px;padding:6px 9px;color:var(--text-primary);cursor:pointer; }
+.website-exploration button:not(.chat-view *, .chat-input-action):hover:not(:disabled) { background:var(--bg-hover); }
+.website-exploration button:not(.chat-view *, .chat-input-action):disabled { opacity:.5;cursor:not-allowed; }
 .website-exploration :is(button,input,textarea,select,summary):not(.chat-view *):focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
 .website-exploration .wx-primary { color:#fff;background:#1675d1;border-color:transparent; }
 .website-exploration .wx-primary:hover:not(:disabled) { background:#1266b9; }
@@ -111,10 +111,6 @@
 .website-exploration .wx-development-prompt textarea { display:block;border:0;border-radius:0;background:var(--bg-primary); }
 .wx-development-prompt-footer { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 10px;min-height:38px;border-top:1px solid var(--border);background:var(--bg-secondary); }
 .wx-development-prompt-footer>.wx-muted { font-size:12px; }
-.website-exploration .wx-development-send { flex:none;width:30px;height:30px;border-radius:8px;border:0;padding:0;display:flex;align-items:center;justify-content:center;font-size:0;color:var(--bg-secondary);background:var(--text-primary); }
-.website-exploration .wx-development-send:hover:not(:disabled) { background:var(--text-primary); }
-.website-exploration .wx-development-send:disabled { background:#8f8f93;opacity:.9; }
-.website-exploration .wx-development-send.chat-input-action-stop,.website-exploration .wx-development-send.chat-input-action-stop:hover { background:#8f8f93;color:#fff; }
 .website-exploration .wx-code-editor { min-height:320px;margin:12px 0;font:12px/1.7 ui-monospace,monospace;white-space:pre;tab-size:4; }
 .wx-run { margin-top:16px; }
 .wx-verify { padding:20px; }
@@ -157,10 +153,9 @@
 .wx-chat-controls { display:flex;align-items:center;gap:4px;margin-left:auto; }
 .website-exploration .wx-chat-control { font-size:12px;border-radius:8px;white-space:nowrap; }
 .website-exploration .wx-chat-control:disabled { color:var(--text-muted);opacity:.45; }
-.website-exploration .wx-chat-send { flex:none;width:30px;height:30px;border-radius:8px;border:0;padding:0;position:relative;display:flex;align-items:center;justify-content:center;font-size:0;color:var(--bg-secondary);background:var(--text-primary); }
-.website-exploration .wx-chat-send:hover:not(:disabled) { background:var(--text-primary); }
-.website-exploration .wx-chat-send.chat-input-action-stop,.website-exploration .wx-chat-send.chat-input-action-stop:hover:not(:disabled) { background:#8f8f93;color:#fff; }
-.website-exploration .wx-chat-send:disabled { background:#8f8f93;opacity:.9; }
+.website-exploration :is(.wx-chat-send,.wx-development-send) { flex:none;border:0;padding:0;display:flex;align-items:center;justify-content:center;font-size:0;color:var(--bg-secondary);background:var(--text-primary);cursor:pointer; }
+.website-exploration :is(.wx-chat-send,.wx-development-send).chat-input-action-stop { background:#8f8f93;color:#fff; }
+.website-exploration :is(.wx-chat-send,.wx-development-send):disabled { background:#8f8f93;opacity:.9;cursor:not-allowed; }
 .wx-replay-status { display:flex;align-items:center;gap:8px;color:var(--text-secondary); }
 @container (max-width:1099px) { .wx-explore .wx-history { width:180px; } }
 @container (max-width:799px) {

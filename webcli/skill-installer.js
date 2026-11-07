@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { copyFile, readFile, writeFile } from "fs/promises";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
-import { generateSkillContent } from "./skill-writer.js";
+import { generateSkillContent, toolExampleLines } from "./skill-writer.js";
 import { loadAdapterTools } from "./adapter-cli.js";
 import { resolveAdaptersDir, resolveUserAdaptersDir, resolveAdapterPaths } from "./paths.js";
 import { managedAdapterViews } from './adapter-views.js';
@@ -82,7 +82,7 @@ function formatDirectToolAppendix(tool) {
     }
     lines.push("");
   }
-  lines.push("```bash", `webcli call ${tool.name} --args '{}'`, "```", "");
+  lines.push(...toolExampleLines(tool), "");
   return lines;
 }
 

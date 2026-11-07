@@ -5,7 +5,7 @@ description: 基于网站探索agent的 input.json 和实时 Adapter 目录，�
 
 # Adapter 开发
 
-读取 input.json 的 instruction、site、source_exploration 和可选 target，提取业务目标与验收条件。输入不要求 toolkit/tool；目标由你结合实时目录确定。代码及对象 Schema 直接作为 CLI 参数提交，不生成候选 JSON 或代码中间文件供工具读取。
+读取 input.json 的 instruction、site、source_exploration 和可选 target，提取业务目标与验收条件。输入不要求 toolkit/tool；目标由你结合实时目录确定。普通参数每项写成一个 --key=value。数组、对象、多行代码和必须为整数的版本号使用 UTF-8 JSON 参数文件（--args-file）；文件仅用于传参，不手工生成候选包。
 
 ## 先发现，再确定目标
 
@@ -25,9 +25,7 @@ if (-not $workspaces.ok) { throw '工作区查询失败，不能当作空目录'
 # 以下示例假定已判断目标是 example.com；digest 必须来自当前目录。
 $selected = @($installed | Where-Object { $_.id -eq 'example.com' })
 if ($selected.Count -ne 1) { throw '目标不唯一或不存在，重新判断' }
-$prepared = webcli call development.prepare --args (@{
-  adapter_id=$selected[0].id; expected_digest=$selected[0].digest
-} | ConvertTo-Json -Compress) | ConvertFrom-Json
+$prepared = webcli call development.prepare "--adapter_id=$($selected[0].id)" "--expected_digest=$($selected[0].digest)" | ConvertFrom-Json
 if (-not $prepared.ok) { throw '准备失败，先处理歧义或版本冲突' }
 # 修改时使用 $prepared.data.editable_tools 中的 tool_id；新增时使用
 # $prepared.data.toolkit_id 与 $prepared.data.allowed_domains，不自行另建同名包。
@@ -49,20 +47,19 @@ if (-not $prepared.ok) { throw '准备失败，先处理歧义或版本冲突' }
 
 ## 调用示例
 
-下面为新建 Adapter 的合成只读示例；替换为本次判断出的工具标识和业务内容。若扩展已有 Adapter，使用 prepare 返回的工作区和域名，而不是照抄新 ID。在 PowerShell 中用 ConvertTo-Json 生成一个参数，不写中间文件；其他 shell 按其安全的参数传递方式处理引号和换行，不能把业务代码当作 shell 执行。
+下面为新建 Adapter 的合成只读示例；替换为本次判断出的工具标识和业务内容。若扩展已有 Adapter，使用 prepare 返回的工作区和域名，而不是照抄新 ID。以下 PowerShell 示例在本次任务的独立工作区运行。ConvertTo-Json 只用于写 UTF-8 参数文件，不把 JSON 字符串拼进命令行。文件中保留原生数字、布尔、数组、对象及源码换行。
 
 已有 Tool 先 inspect；仅在完成目标判断且 Tool 不存在时，根据探索目标构造定义并 create。create 不覆盖已有 Tool，不扩大现有 Toolkit 域名。探索输入不携带旧 base_slot；先 inspect，再据当前槽位决定如何修改。
 
 ```powershell
-webcli call development.create --args (@{
+@{
   toolkit_id='example_tools'; tool_id='get_page_title'
   allowed_domains=@('example.com'); goal='读取页面标题'
   start_url='https://example.com/'; expected_effect='返回页面标题'
-} | ConvertTo-Json -Depth 20 -Compress)
+} | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./create-args.json
+webcli call development.create --args-file=./create-args.json
 
-$current = webcli call development.inspect --args (@{
-  toolkit_id='example_tools'; tool_id='get_page_title'
-} | ConvertTo-Json -Compress) | ConvertFrom-Json
+$current = webcli call development.inspect --toolkit_id=example_tools --tool_id=get_page_title | ConvertFrom-Json
 if (-not $current.ok) { throw '读取失败，先处理错误' }
 
 $submission = @{
@@ -73,12 +70,14 @@ $submission = @{
   parameters_schema=@{type='object'; properties=@{}; required=@(); additionalProperties=$false}
   result_schema=@{type='object'; properties=@{title=@{type='string'}}; required=@('title'); additionalProperties=$false}
 }
-$saved = webcli call development.save --args ($submission | ConvertTo-Json -Depth 30 -Compress) | ConvertFrom-Json
+$submission | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./save-args.json
+$saved = webcli call development.save --args-file=./save-args.json | ConvertFrom-Json
 if (-not $saved.ok) { throw '保存失败，依据 error 修复；版本冲突先重新 inspect' }
 
-$built = webcli call development.build --args (@{
+@{
   toolkit_id='example_tools'; expected_revision=$saved.data.revision
-} | ConvertTo-Json -Compress) | ConvertFrom-Json
+} | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./build-args.json
+$built = webcli call development.build --args-file=./build-args.json | ConvertFrom-Json
 if (-not $built.ok) { throw '候选包校验失败' }
 ```
 
@@ -91,15 +90,14 @@ build 校验并返回 save 已生成的标准 Adapter v2 快照，含 package_pa
 只有用户已授权本次执行时才能传 confirmed=true。该字段是确认声明，不代替授权；发送、修改、删除等不得以“调试”为由自动执行或重放。
 
 ```powershell
-$run = webcli call development.debug --args (@{
+@{
   toolkit_id='example_tools'; tool_id='get_page_title'
   expected_revision=$built.data.revision; expected_digest=$built.data.digest
   parameters=@{}; confirmed=$true; timeout_seconds=60
-} | ConvertTo-Json -Depth 20 -Compress) | ConvertFrom-Json
+} | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./debug-args.json
+$run = webcli call development.debug --args-file=./debug-args.json | ConvertFrom-Json
 if (-not $run.ok) { throw '未确认调试启动，检查状态而非自动重试' }
-webcli call development.debug-get --args (@{
-  debug_run_id=$run.data.debug_run_id
-} | ConvertTo-Json -Compress)
+webcli call development.debug-get "--debug_run_id=$($run.data.debug_run_id)"
 ```
 
 - debug 锁定包哈希，复用已有隔离 WebCLI catalog，通过 `webcli call <adapter-id>.<tool-id>` 和 Toolkit Runtime 执行，不覆盖用户安装。内部记录沿用 formal 调试渠道，表示包级调用，不表示发布或安装。
@@ -118,17 +116,12 @@ webcli call development.debug-get --args (@{
 3. 获得本次审查的授权后，传回原 review_id 和 digest。需要来源切换、权限增加、降级或覆盖更新版本时，必须单独确认这些变化才能设置 accept_changes=true，不能默认开启。
 
 ```powershell
-$review = webcli call development.review --args (@{
-  toolkit_id='example_tools'; expected_digest=$built.data.digest
-} | ConvertTo-Json -Compress) | ConvertFrom-Json
+$review = webcli call development.review --toolkit_id=example_tools "--expected_digest=$($built.data.digest)" | ConvertFrom-Json
 if (-not $review.ok) { throw '审查失败，先检查状态' }
 $review.data | ConvertTo-Json -Depth 20
 
 # 在向用户展示审查并取得授权后执行；这里没有默认同意额外变化。
-$applied = webcli call development.apply --args (@{
-  toolkit_id='example_tools'; expected_digest=$built.data.digest
-  review_id=$review.data.review_id; confirmed=$true; accept_changes=$false
-} | ConvertTo-Json -Compress) | ConvertFrom-Json
+$applied = webcli call development.apply --toolkit_id=example_tools "--expected_digest=$($built.data.digest)" "--review_id=$($review.data.review_id)" --confirmed=true --accept_changes=false | ConvertFrom-Json
 if (-not $applied.ok) { throw '应用未完全完成，检查 error 和 data，不盲目重复安装' }
 ```
 

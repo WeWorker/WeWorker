@@ -86,9 +86,18 @@ Bridge 缺少凭据、能力或端口冲突时，先检查服务状态和归属�
 已知公开/鉴权 API 或 OpenAPI 文档时，直接创建 HTTP 任务。start 不发请求；可选 auth 只声明环境名与准确 origin，值由 Bridge 的宿主环境提供。Cookie 来源仍须使用浏览器任务。
 
 ```bash
-webcli call exploration.start --args '{"mode":"http","origin":"https://example.com","goal":"读取公开条目","requestId":"example-http-task"}'
-webcli call exploration.discover --args '{"taskId":"<start 返回的 http- ID>","url":"https://example.com/openapi.json","reason":"检查已知接口文档"}'
-webcli call exploration.request --args '{"taskId":"<同一任务 ID>","request":{"url":"https://example.com/api/items?limit=2"},"reason":"验证文档中的读取接口"}'
+webcli call exploration.start --mode=http --origin=https://example.com --goal=读取公开条目 --requestId=example-http-task
+webcli call exploration.discover "--taskId=<start 返回的 http- ID>" --url=https://example.com/openapi.json --reason=检查已知接口文档
+```
+
+UTF-8 文件 `request-args.json`（按当前任务填写）：
+
+```json
+{"request":{"url":"https://example.com/api/items?limit=2"}}
+```
+
+```bash
+webcli call exploration.request "--taskId=<同一任务 ID>" --reason=验证文档中的读取接口 --args-file=./request-args.json
 ```
 
 - discover 只取显式 URL 的 OpenAPI 3.0/3.1 或 Swagger 2 JSON，返回结构化操作、参数、pathParameters 段位、响应 schema 和 warnings；不执行端点、不自动授权、不爬取外部 `$ref`，不支持 YAML。server variables、组合 schema 和未解析/循环引用需作者处理，不猜测。最多 200 操作、3000 schema 节点、8 层；不保留描述、示例/default。
@@ -106,11 +115,17 @@ webcli call exploration.request --args '{"taskId":"<同一任务 ID>","request":
 4. 没有足够证据时：`actions` 查看安全搜索/筛选/分页候选，再用 `probe --candidateId=... --value=...` 探测。每个候选只能用于当前页面快照，任务最多三次。用户自行操作后可以 `collect` 补采，无需重载。需要登录/验证码时请用户完成，不绕过。
 5. 从观察到的成功读取接口中选择目标，每草稿最多 50 个命令。默认 generate 仍仅自动选最多两个 GET；更多目标、POST JSON/form、GraphQL query 由 Agent 提供 plan。POST 工具必须填写 readReason 说明读取语义；mutation、subscription、未解析的持久 GraphQL 查询不会自动放行。写明策略理由、参数含义与结果结构，例如：
 
-```bash
-webcli call exploration.generate --args '{"taskId":"example-task","plan":{"tools":[{"name":"search_items","purpose":"查询列表","risk":"read","sourceApiKind":"list","sourceApiIndexes":[0]}]}}'
+UTF-8 文件 `generate-args.json`（按当前任务填写）：
+
+```json
+{"plan":{"tools":[{"name":"search_items","purpose":"查询列表","risk":"read","sourceApiKind":"list","sourceApiIndexes":[0]}]}}
 ```
 
-6. `draft-read` 列文件，再用 `--file=manifest.json` 或返回的源码文件读取内容及 hash。检查参数、响应包装层、空态、分页与业务错误。用 `draft-write` 的 content 与 expectedHash 修改现有文件；draft-add 可添加 Extension helper/command 文件或 guidance.md，不能覆盖已有文件。增加 command 后同步 manifest 和原计划，未计划的工具会被静态校验拒绝。复杂内容经 `--args` 正确引用，不将捕获值作为默认参数，不将只读计划改成写操作；明确的写任务走下方独立闭环。工具不会自动替你分析/修复代码。
+```bash
+webcli call exploration.generate --taskId=example-task --args-file=./generate-args.json
+```
+
+6. `draft-read` 列文件，再用 `--file=manifest.json` 或返回的源码文件读取内容及 hash。检查参数、响应包装层、空态、分页与业务错误。用 `draft-write` 的 content 与 expectedHash 修改现有文件；draft-add 可添加 Extension helper/command 文件或 guidance.md，不能覆盖已有文件。增加 command 后同步 manifest 和原计划，未计划的工具会被静态校验拒绝。复杂内容经 `--args-file` 传入，不将捕获值作为默认参数，不将只读计划改成写操作；明确的写任务走下方独立闭环。工具不会自动替你分析/修复代码。
 7. 编写验证：`verification-read --taskId=... --tool=example.com.search-items` 返回当前 cases/hash，再 `verification-write` 提交 cases 和 expectedHash。每工具支持 1–10 组真实参数，写清关键词/页码、必需字段、类型、非空、格式、精确值和行数。只保存作者明确提供的公开测试参数，不使用捕获的用户数据或凭据作为 fixture。`validate` 运行静态检查和对应 HTTP、Extension 后台或页面运行器的真实只读验证，超过五组会分批执行；`get` 返回失败的 tool/caseId/path。失败时检查当前页面与草稿，修复后重跑，最多三轮。达到上限就报告具体阻塞；不能把跳过测试当成功。
 8. `review` 获取当前包、权限、工具参数与 reviewId。在用户授权范围内执行本地安装；已明确授权全流程验收时不重复询问。缺少安装授权时先展示具体内容取得同意，然后 `install --taskId=... --reviewId=... --confirmed=true`。reviewId 必须对应当前内容，草稿/安装状态变化后重新审阅；实质性超出原授权范围时再确认。安装不代表授权任何业务写操作。
 9. 查询 installed 状态后，用常规 `webcli call <adapter>.<command>` 执行用户需要的查询，报告实际验证范围。
@@ -192,10 +207,34 @@ replan 用于尚未安装的新工具草稿；已安装/取消任务不可重置
 
 已有可靠的页面语义锚点时，可选择 UI_SELECTOR 或 DOM_STATE，不必伪造 API 证据。先用 browser.state/find/eval 检查当前页面，再在生成草稿前调用 observe。插件必须提供 page_sources_v1。
 
+UTF-8 文件 `observe-args.json`（按当前任务填写）：
+
+```json
+{"source":{"strategy":"UI_SELECTOR","selector":".item","emptySelector":"#empty","fields":{"title":{"selector":"h3"},"url":{"selector":"a","attribute":"href"}},"limit":200}}
+```
+
 ```bash
-webcli call exploration.observe --args '{"taskId":"example-task","source":{"strategy":"UI_SELECTOR","selector":".item","emptySelector":"#empty","fields":{"title":{"selector":"h3"},"url":{"selector":"a","attribute":"href"}},"limit":200},"reason":"读取公开列表中的标题和链接"}'
-webcli call exploration.observe --args '{"taskId":"example-task","source":{"strategy":"DOM_STATE","path":["exampleState","items"]},"reason":"读取公开列表状态"}'
-webcli call exploration.observe --args '{"taskId":"example-task","source":{"strategy":"DOM_STATE","jsonSelector":"#public-data","path":["items"]},"reason":"读取页面 JSON 数据脚本"}'
+webcli call exploration.observe --taskId=example-task --reason=读取公开列表中的标题和链接 --args-file=./observe-args.json
+```
+
+UTF-8 文件 `observe-args.json`（按当前任务填写）：
+
+```json
+{"source":{"strategy":"DOM_STATE","path":["exampleState","items"]}}
+```
+
+```bash
+webcli call exploration.observe --taskId=example-task --reason=读取公开列表状态 --args-file=./observe-args.json
+```
+
+UTF-8 文件 `observe-args.json`（按当前任务填写）：
+
+```json
+{"source":{"strategy":"DOM_STATE","jsonSelector":"#public-data","path":["items"]}}
+```
+
+```bash
+webcli call exploration.observe --taskId=example-task "--reason=读取页面 JSON 数据脚本" --args-file=./observe-args.json
 ```
 
 get 等待 evidence_ready 后，evidence.pageSources 返回结构、路由和稳定 ID，省略数据值。plan.tools 使用 `{"name":"read_items","risk":"read","strategy":"UI_SELECTOR","sourcePageId":"<实际返回的 ID>","readReason":"只读取页面列表","purpose":"读取当前列表"}`，不填 sourceApiKind/sourceApiIndexes。一个计划可以混合 API 和页面来源。
@@ -210,8 +249,14 @@ get 等待 evidence_ready 后，evidence.pageSources 返回结构、路由和稳
 
 当接口依赖页面生成的临时请求签名，且已经观察到明确的搜索、筛选或下一页控件时，调用 `exploration.intercept`。不要把捕获的 Cookie、签名、CSRF 值写进草稿。先通过 evidence 选取成功的只读 JSON GET/POST 端点，当前只支持固定 pathname。
 
+UTF-8 文件 `intercept-args.json`（按当前任务填写）：
+
+```json
+{"source":{"sourceApiIndex":0,"trigger":{"kind":"search","selector":"#search","submitSelector":"#search-submit","parameter":"keyword","description":"公开查询关键词"},"matchQuery":{"q":"keyword"},"timeoutMs":10000},"values":{"keyword":"Example"}}
+```
+
 ```bash
-webcli call exploration.intercept --args '{"taskId":"example-task","source":{"sourceApiIndex":0,"trigger":{"kind":"search","selector":"#search","submitSelector":"#search-submit","parameter":"keyword","description":"公开查询关键词"},"matchQuery":{"q":"keyword"},"timeoutMs":10000},"values":{"keyword":"Example"},"reason":"搜索控件只读，由页面生成临时请求签名"}'
+webcli call exploration.intercept --taskId=example-task --reason=搜索控件只读，由页面生成临时请求签名 --args-file=./intercept-args.json
 ```
 
 - `trigger.kind` 可选 search（text/search input）、filter（原生 select）、pagination（下一页按钮/链接）。必须依据当前页面实际 CSS selector 与语义，不能猜测。搜索可指定 submitSelector 或 pressEnter=true，不能同时使用；省略时由 input/change 触发查询。
@@ -224,8 +269,14 @@ webcli call exploration.intercept --args '{"taskId":"example-task","source":{"so
 
 搜索会整页导航，或结果来自 DOM/公开状态时，用 `exploration.query`。先观察实际查询控件、结果路径与数据来源；默认模式执行一次查询，多步流程用下文 mode=workflow。插件需要 page_query_v1。
 
+UTF-8 文件 `query-args.json`（按当前任务填写）：
+
+```json
+{"source":{"trigger":{"kind":"search","selector":"#search","submitSelector":"#search-submit","parameter":"keyword","description":"公开查询关键词"},"result":{"strategy":"UI_SELECTOR","selector":".item","fields":{"title":{"selector":"h3"}}},"resultPathname":"/results","matchQuery":{"q":"keyword"},"timeoutMs":20000},"values":{"keyword":"Example"}}
+```
+
 ```bash
-webcli call exploration.query --args '{"taskId":"example-task","source":{"trigger":{"kind":"search","selector":"#search","submitSelector":"#search-submit","parameter":"keyword","description":"公开查询关键词"},"result":{"strategy":"UI_SELECTOR","selector":".item","fields":{"title":{"selector":"h3"}}},"resultPathname":"/results","matchQuery":{"q":"keyword"},"timeoutMs":20000},"values":{"keyword":"Example"},"reason":"搜索表单跳转到结果页，读取新列表"}'
+webcli call exploration.query --taskId=example-task --reason=搜索表单跳转到结果页，读取新列表 --args-file=./query-args.json
 ```
 
 - trigger 与 INTERCEPT 相同。result 使用 observe 的 UI_SELECTOR 或 DOM_STATE 格式。resultPathname 必须为同源固定路径；带参数的查询必须以 matchQuery 关联结果 URL 中的公开参数，不支持跨源跳转、动态路径或无 URL 关联的筛选。
@@ -238,8 +289,14 @@ webcli call exploration.query --args '{"taskId":"example-task","source":{"trigge
 
 已知一个只读详情路由、希望按公开 ID 打开页面并读取 DOM/公开状态时，使用 query 的 `mode=navigate`。这是明确导航，会替换选定标签页；先确认目标页面和路径语义、处理未保存输入。插件需要 `page_navigation_v1`，旧插件拒绝执行。
 
+UTF-8 文件 `query-args.json`（按当前任务填写）：
+
+```json
+{"source":{"mode":"navigate","resultPathname":"/items/:id","pathParameters":[{"segmentIndex":1,"name":"itemId","description":"公开条目 ID"}],"result":{"strategy":"UI_SELECTOR","selector":"article.item","fields":{"title":{"selector":"h1"}}},"timeoutMs":20000},"values":{"itemId":"007"}}
+```
+
 ```bash
-webcli call exploration.query --args '{"taskId":"example-task","source":{"mode":"navigate","resultPathname":"/items/:id","pathParameters":[{"segmentIndex":1,"name":"itemId","description":"公开条目 ID"}],"result":{"strategy":"UI_SELECTOR","selector":"article.item","fields":{"title":{"selector":"h1"}}},"timeoutMs":20000},"values":{"itemId":"007"},"reason":"只读详情页，按公开条目标识导航后读取"}'
+webcli call exploration.query --taskId=example-task --reason=只读详情页，按公开条目标识导航后读取 --args-file=./query-args.json
 ```
 
 - result 使用 observe 的 UI_SELECTOR 或 DOM_STATE；生成计划仍为 strategy=UI_SELECTOR、sourcePageId。每个 :id 必须绑定唯一 segmentIndex/name/description；值为必填字符串，保留前导零和 Unicode，拒绝斜杠、百分号、点路径、控制字符和明显写操作路径，不把观察 ID 写成默认值。
@@ -392,8 +449,14 @@ types 支持 object/array/string/number/integer/boolean/null 及 `|` 联合；eq
 
 普通命令失败后，先核对当前页面与错误；不要修改安装目录中的文件。`repair-info --site=example.com` 返回当前包摘要、命令定义和历史 cases/过期提示。新建探索任务并采集当前接口证据，然后用 repair 的 plan 指定**已有 canonical kebab-case 命令 ID**，不采用新增命令的自动改名：
 
+UTF-8 文件 `repair-args.json`（按当前任务填写）：
+
+```json
+{"plan":{"tools":[{"name":"search-items","purpose":"修复查询结果字段映射","risk":"read","sourceApiKind":"list","sourceApiIndexes":[0]}]}}
+```
+
 ```bash
-webcli call exploration.repair --args '{"taskId":"example-task","site":"example.com","expectedDigest":"<repair-info 返回的 digest>","plan":{"tools":[{"name":"search-items","purpose":"修复查询结果字段映射","risk":"read","sourceApiKind":"list","sourceApiIndexes":[0]}]}}'
+webcli call exploration.repair --taskId=example-task --site=example.com "--expectedDigest=<repair-info 返回的 digest>" --args-file=./repair-args.json
 ```
 
 返回 editableFiles 限定可改文件。只修改选中的命令模块、manifest 中该命令的 schema/description；其他命令、共享文件、权限、路由和命令身份必须保留，不增加文件。需要修改已有共享文件时，显式选择下方 sharedFiles 流程。任务复制的是当前包，尚未覆盖已安装命令。
