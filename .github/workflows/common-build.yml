@@ -81,12 +81,13 @@ jobs:
       matrix:
         include: ${{ fromJSON(inputs.build_matrix) }}
     runs-on: ${{ matrix.os }}
-    # Metrics upload is injected entirely from repository secrets so the public
-    # repository never carries the endpoint or the token. A fork build without
-    # the secrets resolves WEBCLI_METRICS_UPLOAD to '' and stays disabled.
+    # The public metrics endpoint is stable and safe to keep in source. Upload
+    # remains opt-in and the client credential is still injected from secrets.
+    # A fork build without the secrets resolves WEBCLI_METRICS_UPLOAD to '' and
+    # stays disabled.
     env:
       WEBCLI_METRICS_UPLOAD: ${{ secrets.WEWORKER_METRICS_UPLOAD }}
-      WEBCLI_METRICS_ENDPOINT: ${{ secrets.WEWORKER_METRICS_ENDPOINT }}
+      WEBCLI_METRICS_ENDPOINT: https://weworker.cc/v1/metrics/batch
       WEBCLI_METRICS_CLIENT_TOKEN: ${{ secrets.WEWORKER_METRICS_CLIENT_TOKEN }}
     steps:
       - name: Check out source
