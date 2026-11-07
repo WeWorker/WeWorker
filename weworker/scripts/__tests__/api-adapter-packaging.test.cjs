@@ -29,10 +29,9 @@ test('packaged Extension and WebCLI preserve the certified API Adapter scope', a
   assert.ok(extensionResource)
   assert.equal(extensionResource.from, 'build/extension-dist/')
   assert.equal(packageJson.build.nsis.include, 'installer.nsh')
-  assert.match(installerScript, /!macro customRemoveFiles/)
-  assert.match(installerScript, /taskkill \/F \/T \/IM WeWorker\.exe/)
-  assert.match(installerScript, /taskkill \/F \/T \/IM Webwright\.exe/)
-  assert.match(installerScript, /RMDir \/r \"\$INSTDIR\"/)
+  assert.match(installerScript, /!macro customCheckAppRunning/)
+  assert.match(installerScript, /stop-installed-app\.ps1/)
+  assert.doesNotMatch(installerScript, /!macro customRemoveFiles|taskkill|RMDir/)
 
   for (const buildCommand of [packageJson.scripts['build:mac'], packageJson.scripts['build:win']]) {
     assert.ok(buildCommand.startsWith('node scripts/prepare-build.cjs &&'))
