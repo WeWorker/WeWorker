@@ -11,6 +11,14 @@ it('recognizes bare follow only for browser console/network without coercing bus
   expect(runIndexHelper(`m.resolveCliInvocation(['call', 'example.query', '--follow=true'])`).flagArgs.follow).toBe(true)
 })
 
+it('explains a missing confirmation value without inventing confirmation', () => {
+  const error = captureIndexHelperError(`m.resolveCliInvocation(['call', 'example.write', '--__confirmed', '--id=123'])`)
+  expect(error.status).toBe(42)
+  expect(error.stderr).toContain('Use --__confirmed=true')
+  expect(runIndexHelper(`m.resolveCliInvocation(['call', 'example.write', '--id=00123', '--__confirmed=true'])`).flagArgs)
+    .toEqual({ id: '00123', __confirmed: true })
+})
+
 function runIndexHelper(expression) {
   const script = `
     import('./index.js')

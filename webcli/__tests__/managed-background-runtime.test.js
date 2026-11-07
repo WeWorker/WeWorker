@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import vm from 'node:vm';
 import { createManagedBackgroundRuntime } from '../../extension/background/managed-background-runtime.js';
 import { extractFlagArgs } from '../index.js';
+import { invokeHostCli } from '../host-cli-runtime.js';
+import { authorizeHostCliWrite } from '../host-cli-write-authorization.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function fixture({ source, timeoutMs = 1000, failAttach = false, documents = [] } = {}) {
   const manifest = { name: 'demo', match: ['example.com'], commands: [{ id: 'run', runtime: 'extension', safety: 'write',
@@ -33,6 +38,38 @@ function fixture({ source, timeoutMs = 1000, failAttach = false, documents = [] 
 }
 
 describe('managed background execution lifecycle', () => {
+  it('executes CLI flags, inline JSON and file JSON through real runtime validation with identical host write arguments', async () => {
+    const schema = { type: 'object', properties: {
+      productId: { type: 'integer' }, id: { type: 'string' }, action: { type: 'string' },
+      verbose: { type: 'boolean', default: false }, ids: { type: 'array', items: { type: 'integer' } },
+    }, required: ['productId', 'id'], additionalProperties: false };
+    const source = `__webcliRegisterCommand('run', args => __webmcpWecliRuntime.requestPrivileged('host_cli_call', {args: __webmcpWecliRuntime.validateArgs(args, ${JSON.stringify(schema)})}));`;
+    const json = { productId: 123, id: '00456', action: 'start', ids: [7, 8], __confirmed: true };
+    const dir = mkdtempSync(join(tmpdir(), 'host-args-'));
+    const file = join(dir, 'args.json');
+    writeFileSync(file, '\uFEFF' + JSON.stringify(json));
+    try {
+      for (const argv of [['--productId=123', '--id=00456', '--action=start', '--ids=7,8', '--__confirmed=true'],
+        ['--args', JSON.stringify(json)], ['--args-file', file]]) {
+        const args = extractFlagArgs(argv).args;
+        const snapshot = { name: 'example.com', digest: 'a'.repeat(64), profile: 'public' }, ws = {};
+        const pending = { ws, controller: new AbortController(), hostCall: { originalArgs: args, snapshot, toolName: 'example.com.run' } };
+        const f = fixture({ source });
+        f.manifest.commands[0].schema = schema;
+        const execute = vi.fn(async ({ args: actual, markWriteDispatched }) => { markWriteDispatched(); return actual; });
+        const approve = vi.fn(authorizeHostCliWrite);
+        f.request.mockImplementation((_action, payload) => invokeHostCli({ parentId: 'call', ws, payload,
+          pendingRequests: new Map([['call', pending]]), resolveAdapterCall: () => ({ snapshot, adapter: { source: 'builtin' }, command: f.manifest.commands[0] }),
+          execute, authorizeWrite: approve, credentials: async () => { throw Error('No live credentials'); } }));
+        const expected = { productId: 123, id: '00456', action: 'start', ids: [7, 8], verbose: false };
+        expect(await f.run(args)).toEqual(expected);
+        expect(approve.mock.calls[0][0].args).toEqual(expected);
+        expect(execute).toHaveBeenCalledTimes(1);
+        expect(pending.hostWriteDispatched).toBe(true);
+        if (!argv.includes('--args') && !argv.includes('--args-file')) expect(args.productId).toBe('123');
+      }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   it('does not expose the host invocation identity to Adapter code', async () => {
     const f = fixture({ source: '__webcliRegisterCommand("run", () => window.__webmcpWecliRuntime.getContext());' });
     const result = await f.runtime.execute(f.manifest, f.manifest.commands[0], { __confirmed: true },
