@@ -171,6 +171,8 @@ export function insertBatch(db, body) {
  */
 export function queryStats(db, { by = "domain", since = "30d", kind = null, top = null } = {}) {
   // 按用户聚合：user × domain 二维分布，结构不同于单维聚合，单独处理
+  // 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组
+  if (by === "err") return queryByErr(db, { since, top });
   if (by === "user") return queryByUser(db, { since, kind, top });
 
   // 路由决策埋点：route_* 事件聚合（命中率 + 分 kind 延迟），结构不同于单维聚合
@@ -213,6 +215,33 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
   const totalCalls = result.reduce((s, r) => s + r.calls, 0);
   const sliced = top ? result.slice(0, top) : result;
   return { rows: sliced, totalCalls };
+}
+
+/**
+ * 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组。
+ * 返回 [{ err, calls, tools, users, sampleTool }]，按 calls 倒序。
+ * @param {DatabaseSync} db
+ * @param {{since?:string, top?:number}} opts
+ */
+function queryByErr(db, { since = "30d", top = null } = {}) {
+  const cutoff = Date.now() - parseDuration(since);
+  const rows = db
+    .prepare(
+      `SELECT err,
+              COUNT(*)                                        AS calls,
+              COUNT(DISTINCT tool)                            AS tools,
+              COUNT(DISTINCT user)                            AS users,
+              MIN(tool)                                       AS sampleTool
+       FROM metrics
+       WHERE ts >= ? AND ok = 0
+         AND err IS NOT NULL AND err != ''
+       GROUP BY err
+       ORDER BY calls DESC`
+    )
+    .all(cutoff);
+  const sliced = top ? rows.slice(0, top) : rows;
+  const totalFailed = rows.reduce((s, r) => s + r.calls, 0);
+  return { rows: sliced, totalFailed };
 }
 
 /**
