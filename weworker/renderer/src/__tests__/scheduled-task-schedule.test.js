@@ -27,6 +27,23 @@ test('weekday preset selection restores from saved cron expressions', () => {
   assert.equal(parseCron('0 9 * * 1,3,5').weekdayPreset, null)
 })
 
+for (const day of [0, 1, 2, 3, 4, 5, 6, 7]) {
+  test(`weekly weekday ${day} restores its filter when a saved task is reopened`, () => {
+    const normalizedDay = day % 7
+    const saved = `0 9 * * ${day}`
+    const reopened = parseCron(saved)
+    assert.equal(reopened.frequency, 'weekly')
+    assert.equal(reopened.weekday, String(normalizedDay))
+    assert.deepEqual(reopened.weekdays, [normalizedDay])
+    assert.equal(reopened.weekdayPreset, null)
+    const savedAgain = buildCron(reopened)
+    assert.equal(savedAgain, `0 9 * * ${normalizedDay}`)
+    assert.deepEqual(parseCron(savedAgain).weekdays, [normalizedDay])
+    const runs = getNextRuns(reopened, 3, new Date(2026, 10, 7, 12, 0))
+    assert.deepEqual(runs.map(run => run.getDay()), [normalizedDay, normalizedDay, normalizedDay])
+  })
+}
+
 test('weekday filters become a cron weekday list and survive editing', () => {
   const schedule = {
     frequency: 'daily',

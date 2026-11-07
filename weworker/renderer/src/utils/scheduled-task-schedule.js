@@ -128,7 +128,7 @@ export function parseCron(expression) {
   }
 
   if (/^\d+$/.test(min) && /^\d+$/.test(hr) && /^\d$/.test(dow)) {
-    return { ...fallback, frequency: 'weekly', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekday: String(Number(dow) % 7) }
+    return { ...fallback, frequency: 'weekly', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekday: String(Number(dow) % 7), weekdays, weekdayPreset: getWeekdayPreset(weekdays) }
   }
 
   if (/^\d+$/.test(min) && /^\d+$/.test(hr)) {
