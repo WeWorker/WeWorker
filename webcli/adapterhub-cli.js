@@ -660,7 +660,7 @@ async function cmdUpgrade(args, emit = value => console.log(JSON.stringify(value
       if (json) plan[plan.length - 1].installedAt = join(installDir(), pkg.manifest.name);
     } else if (cmp < 0) {
       plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "local-newer" });
-      newer++; if (!json) console.log(`- ${id}: 本地 v${local.version} 比线上 v${remote.version} 新，跳过（可用 install <名称>@<版本> 降级）`);
+      newer++; if (!json) console.log(`- ${id}: 本地 v${local.version} 比线上 v${remote.version} 新，跳过（可用 install <name>@<version> 降级）`);
     } else {
       plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "up-to-date" });
       upToDate++;
@@ -828,16 +828,16 @@ function help() {
 用法: webcli adapterhub <命令> [参数]；参数详情: webcli adapterhub <命令> --help
 
   list [--installed[=false]] [--origin …] [--sort …]   列出线上 Adapter（标记/过滤安装状态）
-  search <关键词>                                      按名称、域名、用途检索
+  search <keyword>                                    按名称、域名、用途检索
   info <adapter> [--versions]                          详情（含命令清单；--versions 版本历史）
-  install <adapter>[@<版本>] | <本地.adapt>            安装/升级 Adapter
+  install <adapter>[@<version>] | <local.adapt>       安装/升级 Adapter
   upgrade [<adapter>|--all]                            检查并升级已安装 Adapter
   remove <adapter>                                     卸载 Adapter
-  validate <文件.adapt>                                离线校验包结构与哈希
-  pack <目录> [-o <文件.adapt>]                        将目录打包为 .adapt
+  validate <file.adapt>                               离线校验包结构与哈希
+  pack <dir> [-o <file.adapt>]                        将目录打包为 .adapt
   init [PAT]                                           安全保存发布 PAT（省略 PAT 时交互输入）
   status                                               查看 PAT 是否已配置
-  publish <目录或.adapt> [--yes]                       发布/更新到 Hub
+  publish <dir> | <file.adapt> [--yes]                发布/更新到 Hub
 
 说明:
   - 发布需 PAT：webcli adapterhub init ahp_xxx（Hub 网页「令牌」处创建）`);
@@ -853,15 +853,15 @@ const SUBCOMMAND_HELP = {
   --origin official|user     按来源过滤
   --runtime extension|wewright  按运行时过滤
   --sort favorites|downloads|recent|name  排序（默认收藏）
-  --q <关键词>               过滤关键词`,
-  search: `webcli adapterhub search <关键词>
+  --q <keyword>              过滤关键词`,
+  search: `webcli adapterhub search <keyword>
 
   按名称、域名、用途检索线上 Adapter。`,
   info: `webcli adapterhub info <adapter> [--versions]
 
   查看详情：元数据、匹配域名、命令清单、推荐提示词。
   --versions   追加版本历史`,
-  install: `webcli adapterhub install <adapter>[@<版本>] | <本地.adapt>
+  install: `webcli adapterhub install <adapter>[@<version>] | <local.adapt>
 
   安装/升级整个 Adapter（从 Hub 或本地 .adapt 包）：
   指定什么装什么（同版本幂等重装、@旧版本 可降级），
@@ -869,14 +869,14 @@ const SUBCOMMAND_HELP = {
   upgrade: `webcli adapterhub upgrade [<adapter>|--all]
 
   检查并升级自装的 Adapter（内置随包升级；本地比线上新则跳过，
-  降级用 install <名称>@<版本>）。`,
+  降级用 install <name>@<version>）。`,
   remove: `webcli adapterhub remove <adapter>
 
   卸载自装 Adapter（内置 Adapter 随包管理，不可卸载）；卸载后自动热重载扩展。`,
-  validate: `webcli adapterhub validate <文件.adapt>
+  validate: `webcli adapterhub validate <file.adapt>
 
   离线校验 .adapt 包结构与哈希（pack/publish 也会自动校验）。`,
-  pack: `webcli adapterhub pack <目录> [-o <文件.adapt>]
+  pack: `webcli adapterhub pack <dir> [-o <file.adapt>]
 
   将 Adapter 目录打包为 .adapt（打包后立即校验）。`,
   init: `webcli adapterhub init [PAT]
@@ -886,7 +886,7 @@ const SUBCOMMAND_HELP = {
   status: `webcli adapterhub status
 
   查看 PAT 是否已配置（不显示令牌）。`,
-  publish: `webcli adapterhub publish <目录或.adapt> [--yes]
+  publish: `webcli adapterhub publish <dir> | <file.adapt> [--yes]
 
   发布/更新 Adapter 到 Hub（需 PAT：adapterhub init 配置）。
   --yes   跳过交互确认（非交互环境必须）`,
