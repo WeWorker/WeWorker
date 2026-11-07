@@ -185,7 +185,6 @@ export async function invoke(name, input) {
   const command = commands.get(name);
   if (!command) throw new ArgumentError('Unknown Xiaohongshu command');
   const args = normalizeArgs(command, input);
-  if (command.access === 'write' && args.__confirmed !== true) throw new CliError('CONFIRMATION_REQUIRED', 'This command requires confirmation');
   const page = new Page(command, args);
   try {
     if (name === 'download') await resolveDownloadLink(args);

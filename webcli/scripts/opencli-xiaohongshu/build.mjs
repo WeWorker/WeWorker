@@ -84,7 +84,6 @@ const legacy = manifest.commands.filter(c => ['like-note', 'favorite-note', 'nav
 manifest.commands = commands.map(command => ({
   id: command.name, runtime: 'extension', module: `extension/commands/${command.name}.js`, routeDomain: command.domain,
   description: command.description, safety: command.access || 'read',
-  ...(command.access === 'write' ? { requires_confirmation: true } : {}),
   schema: { type: 'object', properties: Object.fromEntries((command.args || []).map(a => [a.name, {
     type: ['bool', 'boolean'].includes(a.type) ? 'boolean' : a.type === 'int' ? 'integer' : 'string',
     description: a.help || a.name, ...(a.default !== undefined ? { default: a.default } : {}), ...(a.choices ? { enum: a.choices } : {}),

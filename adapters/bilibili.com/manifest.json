@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "bilibili.com",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "enabled": true,
   "description": "Bilibili / B 站：登录检查、搜索视频、打开视频详情、读取评论、点赞/收藏视频",
   "discovery_terms": [
@@ -133,8 +133,7 @@
       },
       "aliases": [
         "like_video"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "favorite-video",
@@ -162,8 +161,7 @@
       },
       "aliases": [
         "favorite_video"
-      ],
-      "requires_confirmation": false
+      ]
     }
   ],
   "homepage_url": "https://www.bilibili.com",

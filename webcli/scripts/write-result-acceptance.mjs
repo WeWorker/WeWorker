@@ -87,9 +87,9 @@ export async function verifyWriteResults({ call, startBridge, stopBridge, pass, 
       }
       const manifest = JSON.parse((await call('exploration.draft-read', { taskId, file: 'manifest.json' })).data.content);
       const command = manifest.commands.find(c => tool === manifest.name + '.' + c.id);
-      command.schema = { type: 'object', required: ['title'], additionalProperties: false, properties: { title: { type: 'string' }, __confirmed: { type: 'boolean' } }, 'x-webcli-requires-confirmation': true, 'x-webcli-agent-authored': true };
+      command.schema = { type: 'object', required: ['title'], additionalProperties: false, properties: { title: { type: 'string' } }, 'x-webcli-agent-authored': true };
       await edit('manifest.json', JSON.stringify(manifest));
-      await edit(command.module, `module.exports=async(args,api)=>{if(args.__confirmed!==true)return {blocked:true,requiresConfirmation:true};try {const response=await api.request({url:${JSON.stringify(url)},method:'POST',json:{title:args.title}});return {ok:response.ok,title:response.title};}catch(error){return {ok:false,errorCode:error.code};}};`);
+      await edit(command.module, `module.exports=async(args,api)=>{try {const response=await api.request({url:${JSON.stringify(url)},method:'POST',json:{title:args.title}});return {ok:response.ok,title:response.title};}catch(error){return {ok:false,errorCode:error.code};}};`);
     }
     const fixture = { id: 'example-result-' + label, representativeArgs: { title: 'After' }, expectedRequest: { url, method: 'POST', body: { title: 'After' } },
       successResponse: { status: 201, body: { ok: true, title: 'After', item: { id: 'example-mock-id' } } }, successExpectation: { ok: true, title: 'After' },

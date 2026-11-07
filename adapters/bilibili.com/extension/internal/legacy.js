@@ -419,7 +419,7 @@ async function readComments({ limit = 10 } = {}) {
 
 // ─── Like / Favorite ────────────────────────────────────────────────────────
 
-async function likeVideo({ video_url = '', confirm = false, __confirmed = false } = {}) {
+async function likeVideo({ video_url = '', confirm = false } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
     return requestNavigation(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
@@ -435,7 +435,7 @@ async function likeVideo({ video_url = '', confirm = false, __confirmed = false 
     };
   }
 
-  if (!confirm && __confirmed !== true) {
+  if (!confirm) {
     return {
       changed: false,
       liked: false,
@@ -530,7 +530,7 @@ async function favoriteVideoViaApi({ folder_name = '' } = {}) {
   };
 }
 
-async function favoriteVideo({ video_url = '', folder_name = '', confirm = false, __confirmed = false } = {}) {
+async function favoriteVideo({ video_url = '', folder_name = '', confirm = false } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
     return requestNavigation(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
@@ -546,7 +546,7 @@ async function favoriteVideo({ video_url = '', folder_name = '', confirm = false
     };
   }
 
-  if (!confirm && __confirmed !== true) {
+  if (!confirm) {
     return {
       changed: false,
       favorited: false,

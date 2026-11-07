@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "xiaohongshu.com",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "enabled": true,
   "description": "小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理",
   "match": [
@@ -18,7 +18,6 @@
       "routeDomain": "www.xiaohongshu.com",
       "description": "Ask 小红书点点 and return the answer with citation sources.",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -178,7 +177,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "删除小红书已发布笔记 (creator center UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -229,7 +227,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "清空小红书本地草稿",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -254,7 +251,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "删除一条小红书本地草稿",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -348,7 +344,6 @@
       "routeDomain": "www.xiaohongshu.com",
       "description": "关注小红书用户 (profile UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -436,7 +431,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "小红书发布图文笔记 (creator center UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -585,7 +579,6 @@
       "routeDomain": "www.xiaohongshu.com",
       "description": "取消关注小红书用户 (profile UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -644,7 +637,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "打开创作者中心登录页；完成登录后调用 whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},
@@ -838,8 +830,7 @@
       },
       "aliases": [
         "like_note"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "favorite-note",
@@ -866,8 +857,7 @@
       },
       "aliases": [
         "favorite_note"
-      ],
-      "requires_confirmation": false
+      ]
     }
   ],
   "homepage_url": "https://www.xiaohongshu.com",

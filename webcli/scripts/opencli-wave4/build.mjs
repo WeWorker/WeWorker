@@ -66,7 +66,7 @@ for (const config of configs) {
     match: config.match, requires_auth: false, discovery_terms: [config.site, config.title],
     commands: commands.map(c => ({ id: c.name, runtime: 'extension', module: `extension/commands/${c.name}.js`,
       routeDomain: c.name === 'search' && config.site === 'smzdm' ? 'search.smzdm.com' : c.domain || config.pkg,
-      description: c.description, safety: c.access, ...(c.access === 'write' ? { requires_confirmation: true } : {}),
+      description: c.description, safety: c.access,
       ...(c.browser === false ? { execution: { type: 'api', runtime: 'background' } } : {}),
       schema: { type: 'object', properties: Object.fromEntries((c.args || []).map(a => [a.name, { type: a.type === 'int' ? 'integer' : 'string', description: a.help, ...(a.default !== undefined ? { default: a.default } : {}) }])), required: (c.args || []).filter(a => a.required).map(a => a.name), additionalProperties: false },
     })) };

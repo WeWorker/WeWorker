@@ -1,3 +1,4 @@
+import { businessArgs } from './business-args.js';
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
@@ -64,6 +65,7 @@ async function webcliVersion() {
 }
 
 export async function runToolkitTool(match, parameters, options = {}) {
+  parameters = businessArgs(parameters);
   const runtime = options.runtimePath || resolveToolkitRuntime(options);
   // Historical exports carried their own launcher. Updating the host cannot
   // replace those frozen sources, so reject known uncoordinated runtimes.

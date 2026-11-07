@@ -322,12 +322,12 @@ navigate 可加 `hashNavigation:{template:"items/:id",pathParameters:[{segmentIn
 ### HTTP／Extension 写命令与效果回查
 
 - HTTP 写工具支持 PUBLIC_API/COOKIE_API/AUTH_API；声明式 Extension PAGE_FETCH 写见下文。使用已成功观察的 write 候选，或 `declare-write` 显式传 taskId/url/method/bodyKeys/reason；声明零请求，不能当作成功证据。仅支持 POST/PUT/PATCH/DELETE，任务 origin 必须已声明。
-- generate 显式计划使用 `risk:"write"`、`sourceApiKind:"action"`、一个 sourceApiIndexes、HTTP strategy 和 writeReason/strategyNote。骨架不会猜测写语义；Agent 编辑 schema/模块，保留确认保护并设置 `x-webcli-agent-authored:true`。`__confirmed` 省略/false 时必须返回 `{blocked:true,requiresConfirmation:true}`，零请求；true 才发送一次请求。
+- generate 显式计划使用 `risk:"write"`、`sourceApiKind:"action"`、一个 sourceApiIndexes、HTTP strategy 和 writeReason/strategyNote。骨架不会猜测写语义；Agent 编辑 schema/模块，设置 `x-webcli-agent-authored:true`。普通工具不生成通用确认门禁，使用业务参数发送一次请求；真实探索验收仍需独立的 review/confirmed 流程。
 - `write-verification-read/write` 读取 hash、更新 fixture；支持单个公开测试用例或上方 W03 的多组 cases，单例字段为 id、representativeArgs、expectedRequest、successResponse/successExpectation、failureResponse/failureExpectation、effect。expectedRequest 为精确 method/url/body 和可选 content-type headers。effect 为独立 GET 的 readback:{url}、before/after 严格断言；同一非通配标量路径必须有不同 equals 值。代表参数不得包含 __confirmed 或凭据。
 - 例：representativeArgs 为 `{"title":"After"}`，expectedRequest 为 `{"method":"PUT","url":"https://example.com/items/example","body":{"title":"After"}}`；effect 为 `{"readback":{"url":"https://example.com/items/example"},"before":{"equals":{"title":"Before"}},"after":{"equals":{"title":"After"}}}`。mock successResponse 为 `{"status":200,"body":{"ok":true,"title":"After"}}`，successExpectation 为 `{"ok":true,"title":"After"}`；failureResponse 为 `{"status":409,"body":{}}`，失败解释按作者代码明确断言。鉴权仍通过 HTTP 契约。
 - 普通 validate 只跑写 mock 和真实只读用例，返回 write_review_ready。write-review 返回完整参数/请求/回查/鉴权声明与综合摘要。已有用户授权覆盖该目标和副作用时，调用 `write-verify --tool=... --reviewId=... --confirmed=true`；否则先展示这份具体审阅并取得授权。安装授权不自动授权远端写测试。
 - 实际验证先 GET 核对 before，再一次写请求，再 GET 核对 after；总预算 30 秒。reviewId 在派发前持久化并消耗，同一任务重复调用/取消/重启均不重发。失败后先查看 writeExecutions；uncertain 表示可能已有副作用，使用 write-readback 仅回查，不能把它当成重新通过验证或自动重试理由。无自动回滚。
-- 全部当前读/写验证通过后才能 review/install；安装只重跑 mock。普通 HTTP write 仍需 __confirmed=true，最多一次请求、拒绝重定向。普通 call 没有探索 reviewId 去重；失败应先检查效果。新声明、修改文件或 fixture 需要重新验证与审阅，不要为了重试而机械改 fixture id。
+- 全部当前读/写验证通过后才能 review/install；安装只重跑 mock。普通 HTTP write 仅传业务参数，最多一次请求、拒绝重定向。普通 call 没有探索 reviewId 去重；失败应先检查效果。新声明、修改文件或 fixture 需要重新验证与审阅，不要为了重试而机械改 fixture id。
 - 声明式控件、任务内有限序列、多 ID/header/响应 URL 回查使用上方 W01–W04 契约。任意作者页面 JS、任意第三方控件脚本和自动幂等键协商仍未支持；单个用例只证明本次明确场景。
 
 ### 写响应 ID 的只读回查
@@ -352,7 +352,7 @@ navigate 可加 `hashNavigation:{template:"items/:id",pathParameters:[{segmentIn
 - **只有目标服务端明确保证幂等键去重时才填写该声明**。Chromium 响应丢失时可能重发请求；一次 fetch 不等于一次网络发送。支持 idempotency-key/x-idempotency-key，不自动探测或协商，不能凭空声称服务端已支持。
 - 生成固定注册模块及 manifest.pageWrite，参数映射直接在计划/manifest 中声明；不要编辑模块为自定义 JS。每工具写 fixture 沿用上述格式，失败解释为 `{ok:false,errorCode:"PAGE_WRITE_HTTP_STATUS"}`，成功返回原始 JSON。validate 只跑 mock；write-review 明列路由、请求、回查和实际幂等 header/key。
 - 用户授权覆盖目标副作用后 write-verify；相同 review 消耗后不再派发。浏览器同源 Cookie/HttpOnly 保留在浏览器，before/write/after 必须同一文档，取消/断线阻止后续步骤，已派发请求可能完成。响应丢失仍 uncertain，独立只读 readback 不会放行安装。
-- 普通 call 需 `__confirmed:true`，每次显式调用有新幂等键，不能把重复 call 当成安全重试。PAGE_FETCH 仍要求服务端幂等保证；页面 hidden/CSRF、控件提交、有限写序列和多 ID 使用上方各自的显式契约，不推导任意签名或任意正文/结果映射。
+- 普通 call 仅传业务参数，每次显式调用有新幂等键，不能把重复 call 当成安全重试。PAGE_FETCH 仍要求服务端幂等保证；页面 hidden/CSRF、控件提交、有限写序列和多 ID 使用上方各自的显式契约，不推导任意签名或任意正文/结果映射。
 
 ### 多步只读网站流程（UI_SELECTOR workflow）
 

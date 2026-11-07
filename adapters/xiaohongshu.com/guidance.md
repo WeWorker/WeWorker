@@ -8,7 +8,7 @@
 
 创作者分析：先 `creator-profile`／`creator-stats --period=seven` 或 thirty，再 `creator-notes`，取得准确作品 ID 后使用 `creator-note-detail`／`creator-notes-summary`。宿主总预算 105 秒，包内预算 95 秒；summary 的上游 timeout 默认 180 在这里受 95 秒上限约束，建议先取 1–3 篇。不足字段按来源返回，不推断不存在的数据。
 
-写操作须先取得用户对具体内容、目标和动作的确认，再传 `__confirmed=true`。发布为图文（不是视频上传）：title 最多 20 字符，content 必填，images 最多 9 张，或 card-text 文字配图；多卡用 `|||` 分隔。图片每张最多 8 MiB、合计 32 MiB。draft=true 表示保存草稿；topics 支持站点话题选择，找不到不能用普通 #文本冒充。首次写调用若返回 ready_to_retry，表示只打开了目标页，尚未执行操作；使用相同已确认参数重新调用，写操作不会自动重放。写调用超时或中断时先检查页面，避免重复发布。
+仅执行用户明确要求的写操作；目标和内容不明确时先澄清。按各命令说明使用业务参数。发布为图文（不是视频上传）：title 最多 20 字符，content 必填，images 最多 9 张，或 card-text 文字配图；多卡用 `|||` 分隔。图片每张最多 8 MiB、合计 32 MiB。draft=true 表示保存草稿；topics 支持站点话题选择，找不到不能用普通 #文本冒充。首次写调用若返回 ready_to_retry，表示只打开了目标页，尚未执行操作；核对目标页后使用相同业务参数重新调用，写操作不会自动重放。写调用超时或中断时先检查页面，避免重复发布。
 
 `delete-note`、`draft-delete`、`draft-clear` 默认 execute=false，只检查目标或统计；execute=true 才删除。草稿是当前浏览器、当前创作者 origin 的 IndexedDB 本地草稿，不代表云端草稿。draft-open 返回最多 500 字符预览，不是完整正文。
 

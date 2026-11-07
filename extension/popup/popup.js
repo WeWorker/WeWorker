@@ -262,16 +262,6 @@ function parseToolFieldValue(input) {
   return rawValue;
 }
 
-function toolRequiresConfirmation(tool) {
-  return Boolean(tool?.parameters?.["x-webcli-requires-confirmation"]);
-}
-
-function confirmToolExecution(tool, args) {
-  if (!toolRequiresConfirmation(tool)) return true;
-  const message = tool.parameters?.["x-webcli-confirmation-message"] || "该工具会触发真实业务动作，请确认参数无误后继续。";
-  const payload = Object.keys(args || {}).length ? JSON.stringify(args, null, 2) : "无参数";
-  return window.confirm(`${message}\n\n将提交的参数：\n${payload}`);
-}
 
 // ── Tool Test Modal ───────────────────────────────────────────────────────────
 
@@ -346,8 +336,6 @@ async function executeCurrentTool() {
         args[key] = value;
       }
     }
-    if (!confirmToolExecution(currentTool, args)) return;
-    if (toolRequiresConfirmation(currentTool)) args.__confirmed = true;
 
     btnExecute.disabled = true;
     btnExecute.textContent = "执行中...";

@@ -124,7 +124,7 @@ it('refuses a revision that changes a managed draft into the historical publicat
   expect(buildAdapterCatalog().effective).toEqual([]);
 });
 
-it('keeps missing mock fixtures and write skeletons from passing; verifies authored handlers separately from the bootstrap gate', async () => {
+it('keeps missing mock fixtures and write skeletons from passing; verifies authored handlers with business arguments', async () => {
   const draft = create({ ...memory, listApiCandidates: [], actionApiCandidates: [{ url: 'https://example.com/api/submit', method: 'POST', actionName: 'submit', toolName: 'example.com.submit_draft' }] },
     { plan: { tools: [{ name: 'submit_request', risk: 'write', sourceApiIndexes: [0] }] } });
   const commandPath = path.join(draft.adapterDir, 'extension/commands/submit-request.js');
@@ -134,7 +134,7 @@ it('keeps missing mock fixtures and write skeletons from passing; verifies autho
   manifest.commands.find(command => command.id === 'submit-request').schema['x-webcli-agent-authored'] = true;
   fs.writeFileSync(draft.files.manifest, JSON.stringify(manifest));
   const handler = `window.__webcliRegisterCommand('submit-request', async args => {
-    if (args.__confirmed !== true) return { blocked: true, requiresConfirmation: true };
+
     const response = await fetch('https://example.com/api/submit', { method: 'POST', body: JSON.stringify({ title: args.title }) });
     const body = JSON.parse(await response.text()); return { ok: response.ok && body.code === 0 };
   });`;
@@ -145,8 +145,8 @@ it('keeps missing mock fixtures and write skeletons from passing; verifies autho
   await tools.find(tool => tool.name === 'write_generation_fixture').execute({ commandId: 'submit-request', fixture });
   expect(validateAdapterDraft({ adapterDir: draft.adapterDir, expectedToolNames: draft.toolNames }).errors).toEqual([]);
   expect(await verifyGeneratedWriteTools({ adapterDir: draft.adapterDir, expectedSiteKey: memory.siteKey })).toMatchObject({ passed: true, writeToolCount: 1 });
-  fs.writeFileSync(commandPath, handler.replace('args.__confirmed !== true', 'false'));
-  expect((await verifyGeneratedWriteTools({ adapterDir: draft.adapterDir, expectedSiteKey: memory.siteKey })).errors[0].code).toBe('WRITE_IO_BEFORE_CONFIRMATION');
+  fs.writeFileSync(commandPath, handler.replace('const response =', 'if (!args.__confirmed) return {blocked:true}; const response ='));
+  expect((await verifyGeneratedWriteTools({ adapterDir: draft.adapterDir, expectedSiteKey: memory.siteKey })).errors[0].code).toBe('WRITE_REQUEST_MISMATCH');
 });
 
 it('preserves dropped source in task evidence, keeps a closed package and protects evidence paths', () => {

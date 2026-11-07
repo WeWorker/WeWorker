@@ -1429,25 +1429,10 @@ function buildActionToolModules(siteKey, candidate, semanticConfig) {
             'x-webcli-agent-authored': false
         }
         : buildCapturedFieldsSchema(defaults, '查询参数', parameterDescriptions, candidate?.sourceEvidence?.queryKeys || []);
-    const schema = markActionSchemaForConfirmation(applySemanticParameterUiHints(baseSchema, parameterUiHints), candidate, isSideEffectingAction);
+    const schema = applySemanticParameterUiHints(baseSchema, parameterUiHints);
     const handlerName = `run_${toSafeIdentifier(candidate.toolName)}`;
     const description = semanticConfig?.getDescription(sourceToolName, buildActionToolDescription(candidate, transport)) || buildActionToolDescription(candidate, transport);
     const functionSource = isSideEffectingAction ? `  async function ${handlerName}(args = {}) {
-    const {
-      __confirmed = false,
-      ...semanticArgs
-    } = args || {};
-    if (!Boolean(__confirmed)) {
-      return {
-        ok: false,
-        blocked: true,
-        requiresConfirmation: true,
-        actionToolName: ${serializeJsValue(candidate.toolName)},
-        semanticArgs,
-        warnings: ['missing_confirmation'],
-        confirmationHint: '该工具会触发真实业务动作，请由当前客户端或 Agent 宿主确认参数后再提交。',
-      };
-    }
     throw new Error('AGENT_AUTHORED_WRITE_REQUIRED');
   }` : `  async function ${handlerName}(args = {}) {
     return fetchGet(${serializeJsValue(stripRequestUrlQuery(candidate.url))}, args || {});
@@ -2032,7 +2017,7 @@ function buildKnowledgeTools(toolDefinitions, actionHints) {
         description: truncateKnowledgeText(tool.description || '', 400),
         parameters: summarizeKnowledgeToolParameters(tool.parameters),
         backingApis: inferKnowledgeBackingApis(tool.name, actionHints),
-        sideEffect: Boolean(tool.parameters?.['x-webcli-requires-confirmation']),
+        sideEffect: tool.access === 'write',
         notes: buildKnowledgeToolNotes(tool, actionHints?.[tool.name])
     })).slice(0, 80);
 }
@@ -2052,7 +2037,6 @@ function summarizeKnowledgeToolParameters(schema) {
 
 function buildKnowledgeToolNotes(tool, hint) {
     const notes = [];
-    if (tool.parameters?.['x-webcli-requires-confirmation']) notes.push('该工具可能触发真实业务动作，调用前需要确认。');
     if (hint?.responseHints?.listPath) notes.push(`响应列表路径：${hint.responseHints.listPath}`);
     if (hint?.planningHints?.resourceLookupToolNames?.length) notes.push(`可先调用资源查询工具：${hint.planningHints.resourceLookupToolNames.join(', ')}`);
     return notes;
@@ -3016,14 +3000,6 @@ function stripSchemaDefaults(value) {
 }
 function buildConfirmedActionToolSchema(schema) {
     return stripSchemaDefaults(schema);
-}
-function markActionSchemaForConfirmation(schema, candidate, shouldConfirm) {
-    if (!shouldConfirm) return schema;
-    return {
-        ...schema,
-        'x-webcli-requires-confirmation': true,
-        'x-webcli-confirmation-message': `将执行 ${candidate.actionName || '当前动作'}，并调用真实业务接口。请确认参数无误后继续。`
-    };
 }
 function inferJsonSchema(value) {
     if (Array.isArray(value)) {

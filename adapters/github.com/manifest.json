@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "github.com",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "enabled": true,
   "description": "GitHub：Trending 仓库读取、登录检查、仓库搜索、仓库详情、Issue/PR 详情和 Star 仓库",
   "match": [
@@ -158,7 +158,6 @@
       "module": "extension/commands/star-current-repository.js",
       "description": "对当前 GitHub 仓库执行 Star；如果已经 Star 则返回已 Star，不执行取消。必须显式传入 confirm=true 才会修改当前账号状态。",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {

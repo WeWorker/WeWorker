@@ -126,10 +126,10 @@ export async function verifyUiWrites({ cli, record, passed, stopBridge, startBri
     passed('UI native fields, no input/change events, one submit, exact review and input-correlated independent GET effect');
     const review=(await cli('exploration.review',{taskId:args.taskId})).data; assert.ok(review.permissions.some(v=>v.startsWith('ui-write:')));
     await cli('exploration.install',{taskId:args.taskId,reviewId:review.reviewId,confirmed:true}); assert.equal((await settle(args.taskId)).status,'installed');
-    assert.equal((await cli(args.tool,f.representativeArgs,false)).code,'CONFIRMATION_REQUIRED'); assert.equal(count('success'),1);
-    const ordinary=await cli(args.tool,{...f.representativeArgs,marker:'ordinary-example',__confirmed:true});
+
+    const ordinary=await cli(args.tool,{...f.representativeArgs,marker:'ordinary-example'});
     assert.equal(ordinary.confirmationMatched,true); assert.equal(ordinary.effectVerified,false); assert.equal(count('success'),2); assert.equal(values.get('success').marker,'ordinary-example');
-    const duplicate=await cli(args.tool,{...f.representativeArgs,marker:'ordinary-example',__confirmed:true}); assert.equal(duplicate.ok,false); assert.equal(count('success'),2);
+    const duplicate=await cli(args.tool,{...f.representativeArgs,marker:'ordinary-example'}); assert.equal(duplicate.ok,false); assert.equal(count('success'),2);
     const knowledge=(await cli('exploration.knowledge-read',{site:review.name})).data;
     const oldMapping = { meaning: 'Public item title', source: 'Declared form title input' };
     await cli('exploration.knowledge-save',{taskId:args.taskId,expectedHash:knowledge.hash,fields:{title:oldMapping}});
@@ -207,7 +207,7 @@ export async function verifyUiWrites({ cli, record, passed, stopBridge, startBri
       await cli('exploration.install', { taskId: f.args.taskId, reviewId: review.reviewId, confirmed: true });
       assert.equal((await settle(f.args.taskId)).status, 'installed');
       const before = requests.length;
-      const ordinary = await cli(f.args.tool, { ...f.representativeArgs, marker: 'ordinary-' + label, __confirmed: true });
+      const ordinary = await cli(f.args.tool, { ...f.representativeArgs, marker: 'ordinary-' + label });
       assert.equal(ordinary.resultId, resultIds.get(label)); assert.equal(ordinary.effectVerified, false);
       assert.deepEqual(requests.slice(before).filter(v => v.label === label).map(v => v.method), ['POST']);
       assert.equal(count(label), 2); // Installation may reload the page and reset its counters.

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "weibo.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "微博：热搜、搜索、微博/评论读取、收藏列表、发布和登录检查",
   "homepage_url": "https://weibo.com/",
@@ -103,7 +103,6 @@
       "routeDomain": "weibo.com",
       "description": "Open the weibo login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},
@@ -144,7 +143,6 @@
       "routeDomain": "weibo.com",
       "description": "Delete one of my Weibo posts by id",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -266,7 +264,6 @@
       "routeDomain": "weibo.com",
       "description": "Publish a new Weibo post immediately (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {

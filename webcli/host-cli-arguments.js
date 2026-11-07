@@ -10,7 +10,7 @@ export function hostArgumentError(reason, argument, expected) {
     && !/key|cookie|authorization|password|secret|token/i.test(argument)) details.argument = argument;
   if (expected) details.expected = expected;
   const message = reason === 'changed'
-    ? 'Write arguments differ from the confirmed invocation. No write was dispatched.'
+    ? 'Write arguments differ from the original invocation. No write was dispatched.'
     : 'Invalid argument' + (details.argument ? `: ${details.argument}` : '')
       + (expected ? ` (expected ${expected})` : '') + '. No write was dispatched.';
   const error = Object.assign(new Error(message), { code: 'HOST_CLI_INVALID_ARGUMENT' });

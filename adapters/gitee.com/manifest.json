@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "gitee.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "Gitee：仓库搜索、推荐项目、用户资料和登录检查",
   "homepage_url": "https://gitee.com/",
@@ -149,7 +149,6 @@
       "routeDomain": "gitee.com",
       "description": "Open the gitee login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},

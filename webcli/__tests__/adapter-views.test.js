@@ -86,7 +86,7 @@ describe('effective Adapter CLI views and generated Skills', () => {
     const output = success(['adapter', 'skill', 'demo', '--regenerate', '--overwrite']);
     expect(output).toContain(installed.digest);
     expect(output).toContain('webcli call demo.list');
-    expect(output).toContain('__confirmed: true');
+    expect(output).not.toContain('__confirmed');
     expect(output).toContain('Input JSON Schema:');
     expect(output).toContain('webcli call demo.list --key=value');
     expect(output).not.toContain("--args '<JSON object>'");

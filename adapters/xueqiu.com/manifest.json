@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "xueqiu.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "雪球：股票搜索/行情、热门动态、自选组合、基金持仓和登录检查",
   "homepage_url": "https://xueqiu.com/",
@@ -93,7 +93,6 @@
       "routeDomain": "xueqiu.com",
       "description": "Open the xueqiu login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},

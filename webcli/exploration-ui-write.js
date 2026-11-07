@@ -16,7 +16,7 @@ export function validateUiWrite(command) {
   if (!exact(spec, ['version', 'url', 'method', 'form', 'inputs', 'submit', 'confirmation', 'inputMode', ...(spec?.result !== undefined ? ['result'] : []),
     ...(enhanced && spec?.hiddenFields !== undefined ? ['hiddenFields'] : []), ...(enhanced && spec?.shadowRoots !== undefined ? ['shadowRoots'] : []), ...(enhanced && spec?.frames !== undefined ? ['frames'] : []), ...(enhanced && spec?.navigation !== undefined ? ['navigation'] : [])]) || ![1, 2].includes(spec.version)
     || !(enhanced ? ['native-setter-no-events', 'native-input-change'] : ['native-setter-no-events']).includes(spec.inputMode) || spec.method !== 'POST'
-    || command.runtime !== 'extension' || command.safety !== 'write' || command.requires_confirmation === false
+    || command.runtime !== 'extension' || command.safety !== 'write'
     || command.pageWrite || command.execution || command.pageWorkflow || command.pageStrategy || !exact(route, ['origin', 'pathname'])) fail('UI writes require a fixed foreground route, explicit confirmation and a native form contract.');
   let url, page;
   if (spec.frames !== undefined) { try { normalizeWorkflowFrames(spec.frames); } catch { fail('Declare an exact retained frame owner chain.'); } }
@@ -56,14 +56,13 @@ export function validateUiWrite(command) {
     || !(enhanced ? ['string','integer','signed-integer','decimal'] : ['string', 'integer']).includes(spec.result.idType) || !/^data-[a-z][a-z0-9-]{0,63}$/.test(spec.result.attribute)
     || !publicName(spec.result.attribute.slice(5).replaceAll('-', '_')) || spec.result.attribute === spec.confirmation.attribute)) fail('UI results require a distinct public ID attribute on the same receipt and an explicit ID type.');
   const names = spec.inputs.map(v => v.parameter).sort(), schema = command.schema;
-  if (!schema || schema.type !== 'object' || schema.additionalProperties !== false || schema['x-webcli-requires-confirmation'] !== true
-    || JSON.stringify(Object.keys(schema.properties || {}).sort()) !== JSON.stringify([...names, '__confirmed'].sort())
-    || schema.properties.__confirmed?.type !== 'boolean' || JSON.stringify([...(schema.required || [])].sort()) !== JSON.stringify(names)
+  if (!schema || schema.type !== 'object' || schema.additionalProperties !== false
+    || JSON.stringify(Object.keys(schema.properties || {}).filter(key => key !== '__confirmed').sort()) !== JSON.stringify([...names].sort())
+    || JSON.stringify([...(schema.required || [])].filter(key => key !== '__confirmed').sort()) !== JSON.stringify(names)
     || names.some(name => schema.properties[name]?.type !== 'string' || Object.hasOwn(schema.properties[name], 'default'))) fail('UI write parameters must be required strings without defaults.');
 }
 export function resolveUiWrite(command, args) {
   validateUiWrite(command);
-  if (args?.__confirmed !== true) throw Object.assign(new Error('Explicit confirmation is required.'), { code: 'CONFIRMATION_REQUIRED' });
   const names = command.uiWrite.inputs.map(v => v.parameter);
   if (!object(args) || Object.keys(args).some(key => key !== '__confirmed' && !names.includes(key))
     || names.some(name => typeof args[name] !== 'string' || args[name].length > 10000 || /[\r\n\0]/.test(args[name]))
@@ -73,12 +72,11 @@ export function resolveUiWrite(command, args) {
 }
 export function uiWriteModule(id) {
   return `(function () { window.__webcliRegisterCommand(${JSON.stringify(id)}, function (args = {}) {
-  if (args.__confirmed !== true) return {blocked:true, requiresConfirmation:true};
   throw new Error('UI_WRITE_DISPATCH_REQUIRED');
 }); })();\n`;
 }
 export function assertUiWriteModule(command, files) {
-  if (command.uiWrite && files.get(command.module)?.toString('utf8') !== uiWriteModule(command.id)) fail('UI write modules are fixed registration stubs.');
+  if (command.uiWrite && files.get(command.module)?.toString('utf8').replace('  if (args.__confirmed !== true) return {blocked:true, requiresConfirmation:true};\n', '') !== uiWriteModule(command.id)) fail('UI write modules are fixed registration stubs.');
 }
 export function buildUiWriteTool(site, tool, candidate, origin) {
   if (typeof tool.name !== 'string' || !/^[a-z][a-z0-9_-]*$/.test(tool.name)) fail('UI write names must be portable identities.');
@@ -86,11 +84,11 @@ export function buildUiWriteTool(site, tool, candidate, origin) {
   const names = (uiWrite.inputs || []).map(v => v.parameter);
   if (JSON.stringify((uiWrite.inputs || []).map(v => v.name).sort()) !== JSON.stringify([...(candidate.requestEvidence?.bodyKeys || [])].sort())) fail('Input names must match the source declaration.');
   const schema = { type: 'object', additionalProperties: false, required: names,
-    properties: { ...Object.fromEntries(names.map(name => [name, { type: 'string', maxLength: 10000 }])), __confirmed: { type: 'boolean' } },
-    'x-webcli-requires-confirmation': true, 'x-webcli-agent-authored': true };
+    properties: { ...Object.fromEntries(names.map(name => [name, { type: 'string', maxLength: 10000 }])) },
+    'x-webcli-agent-authored': true };
   const command = { runtime: 'extension', safety: 'write', uiWrite, pageRoute: { origin, pathname: tool.pagePathname }, schema };
   validateUiWrite(command);
-  return { toolDefinition: { name: site + '.' + tool.name, access: 'write', description: tool.purpose || 'Submit one confirmed native form and correlate its page acknowledgement.',
+  return { toolDefinition: { name: site + '.' + tool.name, access: 'write', description: tool.purpose || 'Submit one native form and correlate its page acknowledgement.',
     uiWrite, pageRoute: command.pageRoute, parameters: schema,
     generationSource: { ...buildApiSourceEvidence(candidate, { sourceKind: candidate.declared ? 'authored_ui_write_declaration' : 'observed_write' }), risk: { level: 'write', confidence: 1 } } },
     v2Content: uiWriteModule(tool.name.replaceAll('_', '-')) };

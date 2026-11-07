@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "toutiao.com",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "enabled": true,
   "description": "今日头条：热榜、推荐流、创作者文章和登录检查",
   "match": [
@@ -150,7 +150,6 @@
       "routeDomain": "mp.toutiao.com",
       "description": "打开头条号登录页；人工完成后调用 whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},

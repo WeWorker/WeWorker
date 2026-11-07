@@ -1,7 +1,9 @@
+import { businessSchema } from './business-args.js';
 /** Shared Adapter help rendered from the effective catalog. */
 import { formatCallOutput } from './output-format.js';
 
 function schemaToParams(schema) {
+  schema = businessSchema(schema);
   const properties = schema?.properties || {};
   const required = new Set(Array.isArray(schema?.required) ? schema.required : []);
   return Object.entries(properties).map(([name, property]) => ({
@@ -36,7 +38,6 @@ export function toAdapterHelpModel(adapter, source = "v1-extension") {
         aliases: [...(c.aliases || []).map((alias) => adapter.name + '.' + alias), ...(c.legacyNames || [])],
         description: c.description || "",
         safety: c.safety || "read",
-        requires_confirmation: c.requires_confirmation ?? c.safety === "write",
         runtime: c.runtime,
         execution: c.execution,
         params: schemaToParams(c.schema),
@@ -61,7 +62,7 @@ export function toAdapterHelpModel(adapter, source = "v1-extension") {
         description: t.description || "",
         safety: t.safety || "read",
         runtime: "toolkit",
-        params: t.params?.length ? t.params : schemaToParams(t.parameters),
+        params: t.params?.length ? t.params.filter(param => param.name !== '__confirmed') : schemaToParams(t.parameters),
       })),
     };
   }
@@ -82,7 +83,7 @@ export function toAdapterHelpModel(adapter, source = "v1-extension") {
         description: t.description || "",
         safety: t.safety || "read",
         runtime: "extension",
-        params: t.params?.length ? t.params : schemaToParams(t.parameters),
+        params: t.params?.length ? t.params.filter(param => param.name !== '__confirmed') : schemaToParams(t.parameters),
       })),
     };
   }
@@ -102,7 +103,7 @@ export function toAdapterHelpModel(adapter, source = "v1-extension") {
       description: t.description || "",
       safety: t.safety || "read",
       runtime: "toolkit",
-      params: t.params?.length ? t.params : schemaToParams(t.parameters),
+      params: t.params?.length ? t.params.filter(param => param.name !== '__confirmed') : schemaToParams(t.parameters),
     })),
   };
 }
@@ -148,7 +149,6 @@ export function renderCommandHelp(adapterModel, command) {
   });
   lines.push(`  ${'-h, --help'.padEnd(width)}  Show help`);
   if (command.safety && command.safety !== 'read') lines.push('', `Safety: ${command.safety}`);
-  if (command.requires_confirmation !== undefined) lines.push(`Confirmation: ${command.requires_confirmation ? 'required' : 'not required'}`);
   lines.push(`Runtime: ${RUNTIME_LABEL[command.runtime] || command.runtime}`);
   if (command.execution?.runtime === 'background') lines.push('Execution: background API');
   lines.push('', 'Examples:', `  webcli call ${command.name}${params.filter(p => p.required).map(p => ` --${p.name}=<${p.type}>`).join('')}`);
