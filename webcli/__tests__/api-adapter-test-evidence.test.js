@@ -14,15 +14,15 @@ describe('API Adapter executable test evidence', () => {
       '✔ example.read maps overview rows (2.5ms)',
       '✖ example.read maps authentication errors (3ms)',
       'ℹ tests 2',
-    ].join('\n'), 'aiep.test.mjs')).toEqual([
+    ].join('\n'), 'example.test.mjs')).toEqual([
       {
-        file: 'aiep.test.mjs',
+        file: 'example.test.mjs',
         title: 'example.read maps overview rows',
         category: 'success',
         status: 'PASS',
       },
       {
-        file: 'aiep.test.mjs',
+        file: 'example.test.mjs',
         title: 'example.read maps authentication errors',
         category: 'error',
         status: 'FAIL',

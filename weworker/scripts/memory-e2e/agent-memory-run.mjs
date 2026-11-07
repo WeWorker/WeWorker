@@ -168,7 +168,7 @@ const PHASES = {
       {
         id: 'B2',
         newWork: true,
-        prompt: '请在 AIEP 中先检查页面和登录状态，再查询可用筛选项，最后查看最近一天的模型总览。只读，不要修改任何内容。请真实执行，不要编造结果。',
+        prompt: '请在 GitHub 中查看 Trending，并整理最近一天值得关注的开源项目。只读，不要修改任何内容。请真实执行，不要编造结果。',
         expect: '扩展连接时按完整上下文判断任务是否完成；未登录时停在登录等待；不得伪造成功 task_execution',
         requiresExtension: true,
         turnTimeoutMs: 360000,
@@ -187,9 +187,9 @@ const PHASES = {
         turnTimeoutMs: 360000,
       },
       {
-        id: 'T3-AIEP-fail',
+        id: 'T3-GITHUB-fail',
         newWork: true,
-        prompt: '请在 AIEP 中先检查页面和登录状态，再查询模型总览。只读，不要修改任何内容。请真实执行，不要编造结果。',
+        prompt: '请在 GitHub 中查看 Trending。只读，不要修改任何内容。请真实执行，不要编造结果。',
         expect: '扩展未登录/失败时记录分类 task_execution 失败路径，不得伪造成功经验',
         requiresExtension: true,
         turnTimeoutMs: 360000,
