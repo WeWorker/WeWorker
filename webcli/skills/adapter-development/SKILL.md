@@ -128,3 +128,9 @@ if (-not $applied.ok) { throw '应用未完全完成，检查 error 和 data，�
 成功必须同时满足 installed=true、refreshed=true、acknowledged=true、applied=true：宿主已安装并激活该包、刷新目录与 Skill，并将精确版本回写为正式版本。之后可用 `webcli call <adapter-id>.<tool-id>` 普通调用；写命令仍需相应授权。
 
 STALE_PACKAGE / STALE_REVIEW 时重新审查并重新确认，不自动接受新内容。APPLY_INCOMPLETE 表示包已安装但刷新或正式状态回写未完成，不可误报未安装或完整成功；先 review / inspect，明确已安装的 digest 后继续恢复。OUTCOME_UNKNOWN 时也先检查已安装目录和当前审查，不能自动重放。安装失败不授权删除、回滚或重建候选包。
+
+## 安装成功后询问是否上传到 AdapterHub
+
+本次开发或修改的版本通过业务验证，且同一 digest 已完整安装后，在开发对话中询问一次：「〈名称〉v〈版本〉已验证通过，现在可以在这台电脑上使用了。AdapterHub 是分享适配器的地方。要把这个版本分享到那里，让其他人也能安装使用吗？」用实际名称和版本替换占位符。有 `ask_user` 时提供「分享给其他人」「仅在本机使用」两个选项；否则直接在对话中提问并等待回答。验证未通过、安装未完成或结果不明时不提示发布。
+
+只有用户明确选择分享，才对与安装回执匹配的 build 产物运行 `webcli adapterhub publish "<package_path>" --yes --json`。首次上传和更新远端都用 `publish`；`adapterhub update` 用于更新本机。用户跳过或未答复就保留本机安装；发布失败时分别报告安装和发布结果。
