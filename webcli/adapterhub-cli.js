@@ -803,8 +803,13 @@ function cmdPack(args, emit = value => console.log(JSON.stringify(value, null, 2
 }
 
 async function cmdInit(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
-  const p = parseArgs(args, { flags: ["json"], maxPositional: 0 });
-  const token = await readHiddenToken();
+  const p = parseArgs(args, { flags: ["json"], positionalUsage: "[PAT]", maxPositional: 1 });
+  const provided = p.positionals[0];
+  if (provided !== undefined && !/^ahp_[A-Za-z0-9_-]{16,}$/.test(provided)) {
+    throw new UsageError("PAT 格式无效：应以 ahp_ 开头（AdapterHub 网页「令牌」处创建）。");
+  }
+  // 位置参数直接保存（非交互/脚本场景）；省略时保持隐藏输入交互。
+  const token = provided !== undefined ? provided : await readHiddenToken();
   const file = await saveAdapterHubToken(token);
   if (p.flags.has("json")) return emit({ configured: true, source: "windows-dpapi" });
   console.log("✓ AdapterHub PAT 已使用 Windows DPAPI 加密保存。后续 publish 无需重复设置。");
@@ -867,8 +872,17 @@ async function cmdPublish(args, emit = value => console.log(JSON.stringify(value
 
 // ─── help / dispatch ─────────────────────────────────────────────────────────
 
+/** help/usage 展示用：端点未配置或非法时不抛错，显示占位（帮助应永远可用）。 */
+function endpointLabel() {
+  try { return resolveEndpoint() || "端点未配置"; } catch { return "端点未配置"; }
+}
+
+function endpointOrNull() {
+  try { return resolveEndpoint() || null; } catch { return null; }
+}
+
 function help() {
-  console.log(`webcli adapterhub — Adapter 目录与分发（${resolveEndpoint()}）
+  console.log(`webcli adapterhub — Adapter 目录与分发（${endpointLabel()}）
 
 用法:
   webcli adapterhub list [--origin official|user] [--runtime extension|wewright] [--sort …] [--json]
@@ -890,7 +904,7 @@ function help() {
     --allow-permission-change                             接受新增权限
   webcli adapterhub installed [--json]                   列出本地已安装 Adapter
   webcli adapterhub remove <adapter> [--reload] [--json] 卸载 Adapter
-  webcli adapterhub init [--json]                       一次性安全保存发布 PAT（Windows DPAPI）
+  webcli adapterhub init [PAT] [--json]                 安全保存发布 PAT（Windows DPAPI；省略 PAT 时交互输入）
   webcli adapterhub status [--json]                     查看 PAT 是否已配置（不显示令牌）
   webcli adapterhub logout [--json]                     删除已保存 PAT
   webcli adapterhub publish <目录或.adapt> [--yes] [--json]  发布/更新 Adapter
@@ -902,6 +916,7 @@ function help() {
   - install 支持 ./xxx.adapt 本地包离线安装
   - install/update 覆盖本地已有版本时会做版本比对确认
   - 首次发布前运行 adapterhub init；PAT 使用 Windows DPAPI 加密保存
+  - 非交互/脚本场景可 webcli adapterhub init ahp_xxx 直接保存 PAT
   - ADAPTERHUB_TOKEN 仅作为临时覆盖，优先于已保存凭据`);
 }
 
@@ -928,7 +943,7 @@ export async function runAdapterHubCli(args, { outputFormat } = {}) {
   try {
     if (command === undefined || ["--help", "-h", "help"].includes(command)) {
       if (explicitFormat !== undefined || rest.includes('--json')) return emit({
-        usage: 'webcli adapterhub <command> [options]', endpoint: resolveEndpoint(),
+        usage: 'webcli adapterhub <command> [options]', endpoint: endpointOrNull(),
         commands: Object.keys(COMMANDS), formats: ['json', 'markdown', 'table', 'plain', 'csv', 'yaml'],
         confirmation: 'Output format does not grant installation permissions or confirm publication.',
       });
