@@ -1,0 +1,126 @@
+name: Publish WebCLI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already committed in webcli/package.json
+        required: true
+        type: string
+      dist_tag:
+        description: npm distribution tag
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - next
+  push:
+    tags:
+      - webcli-v*
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-webcli
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  WEBCLI_METRICS_UPLOAD: 'on'
+  WEBCLI_METRICS_ENDPOINT: https://weworker.cc/v1/metrics/batch
+
+jobs:
+  publish:
+    name: Publish npm package
+    if: github.repository == 'WeWorker/WeWorker'
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            webcli/package-lock.json
+            weworker/package-lock.json
+
+      - name: Install npm CLI with trusted publishing support
+        run: npm install --global npm@11
+
+      - name: Install WebCLI dependencies
+        working-directory: webcli
+        run: npm ci
+
+      - name: Install WeWorker build dependencies
+        working-directory: weworker
+        run: npm ci
+
+      - name: Prepare public Adapter resources
+        run: node weworker/scripts/prepare-build.cjs
+
+      - name: Validate version and registry state
+        id: release
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+          DISPATCH_DIST_TAG: ${{ inputs.dist_tag }}
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./webcli/package.json').version")"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            requested_version="${GITHUB_REF_NAME#webcli-v}"
+            [[ "$GITHUB_REF_NAME" == "webcli-v${requested_version}" ]]
+            dist_tag=latest
+          else
+            [[ "$GITHUB_REF_NAME" == release-* ]] || {
+              echo 'Manual npm publishing must select a release-* branch' >&2
+              exit 1
+            }
+            requested_version="$DISPATCH_VERSION"
+            dist_tag="$DISPATCH_DIST_TAG"
+          fi
+
+          [[ "$requested_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "Invalid WebCLI version: $requested_version" >&2
+            exit 1
+          }
+          test "$requested_version" = "$package_version"
+          test "$(node -p "require('./webcli/version.json').version")" = "$package_version"
+          test "$(node -p "require('./webcli/.claude-plugin/plugin.json').version")" = "$package_version"
+          test "$(sed -n 's/^version:[[:space:]]*//p' webcli/skills/webcli/SKILL.md | head -1)" = "$package_version"
+
+          npm view weworker-webcli versions --json > "$RUNNER_TEMP/webcli-versions.json"
+          if node -e "const versions=require(process.argv[1]); process.exit(versions.includes(process.argv[2]) ? 0 : 1)" \
+            "$RUNNER_TEMP/webcli-versions.json" "$package_version"; then
+            echo "weworker-webcli@$package_version is already published" >&2
+            exit 1
+          fi
+
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Run WebCLI tests
+        working-directory: webcli
+        run: npm run test:ci
+
+      - name: Scan and preview package
+        shell: bash
+        env:
+          WEBCLI_METRICS_CLIENT_TOKEN: ${{ secrets.WEWORKER_METRICS_CLIENT_TOKEN }}
+        run: bash webcli/publish.sh --dry-run --skip-tests "${{ steps.release.outputs.version }}"
+
+      - name: Publish to npm with provenance
+        working-directory: webcli
+        env:
+          WEBCLI_METRICS_CLIENT_TOKEN: ${{ secrets.WEWORKER_METRICS_CLIENT_TOKEN }}
+        run: npm publish --access public --provenance --tag "${{ steps.release.outputs.dist_tag }}"
