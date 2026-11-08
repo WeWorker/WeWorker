@@ -1,8 +1,9 @@
 import fs from 'node:fs'
-import { parseAllAdapters, type ParsedAdapter, type StaticToolDef } from '../adapter-parser.js'
+import { parseAllAdapters } from '../adapter-parser.js'
 import { findAdaptersDirectory, resolveToolsForAdapter } from '../adapter-tool-list.js'
 import { getSiteEnabled } from '../config.js'
 import { runWebcliCall } from '../webcli-runner.js'
+import { isDirectTool } from '../api-query-router/tool-catalog.js'
 import * as store from '../works-store.js'
 
 export type QueryRouteMatchConfig = {
@@ -40,6 +41,9 @@ export type QueryRouteCatalogTool = {
   adapterId: string
   toolName: string
   directCapable: boolean
+  /** Missing safety is unknown, not read-only. */
+  safety?: string
+  requiresConfirmation?: boolean
 }
 
 export type QueryRouteDeps = {
@@ -129,8 +133,8 @@ export function createConfiguredQueryRoute(
       context.log?.(`query-route skipped unavailable tool: ${route.tool}`)
       return false
     }
-    if (!tool.directCapable) {
-      context.log?.(`query-route skipped non-direct tool: ${route.tool}`)
+    if (!tool.directCapable || tool.safety !== 'read' || tool.requiresConfirmation === true) {
+      context.log?.(`query-route skipped ineligible tool: ${route.tool}`)
       return false
     }
 
@@ -188,18 +192,13 @@ export function listDefaultCatalogTools(): QueryRouteCatalogTool[] {
       result.push({
         adapterId: adapter.id,
         toolName,
-        directCapable: isDirectCapable(adapter, tool),
+        directCapable: isDirectTool(adapter, tool),
+        safety: tool.safety,
+        requiresConfirmation: tool.requiresConfirmation === true,
       })
     }
   }
   return result
-}
-
-function isDirectCapable(adapter: ParsedAdapter, tool: StaticToolDef): boolean {
-  const execution = adapter.toolExecution?.[tool.name] ?? tool.execution
-  return execution?.type === 'api' && execution?.runtime === 'background'
-    || tool.directCapable === true
-    || tool.executionMode === 'direct'
 }
 
 function routeMatches(route: QueryRouteConfigEntry, message: string): boolean {
