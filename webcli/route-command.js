@@ -13,6 +13,9 @@ Arguments:
 
 Options:
   --json        Output the routing result as JSON
+  --context ID  Resolve a follow-up using up to three previous conversation rounds
+  --new-context Generate a UUID for a new independently callable conversation
+  --reply-to ID Answer the exact clarification returned for this conversation
   -v, --verbose Print stage timings to stderr
   -h, --help    Show this help
   --            Treat the remaining words as request text

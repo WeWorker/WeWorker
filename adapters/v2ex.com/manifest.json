@@ -86,7 +86,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看主题",
+              "command": "topic",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "replies",
+              "label": "查看回复",
+              "command": "replies",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "latest",
@@ -110,7 +139,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看主题",
+              "command": "topic",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "replies",
+              "label": "查看回复",
+              "command": "replies",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "topic",
@@ -127,7 +185,10 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Topic ID"
           }
         },
@@ -135,7 +196,36 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看回复",
+              "command": "replies",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "member",
+              "args": {
+                "username": {
+                  "from": "item.member"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "member",
@@ -160,7 +250,26 @@
           "username"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "username",
+          "titleField": "username",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户发帖",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.username"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "node",
@@ -190,7 +299,36 @@
           "name"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看主题",
+              "command": "topic",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "replies",
+              "label": "查看回复",
+              "command": "replies",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "nodes",
@@ -214,7 +352,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "name",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看节点话题",
+              "command": "node",
+              "args": {
+                "name": {
+                  "from": "item.name"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "replies",
@@ -231,7 +388,10 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Topic ID"
           },
           "limit": {
@@ -244,7 +404,26 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "author",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看回复作者",
+              "command": "member",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user",
@@ -274,7 +453,36 @@
           "username"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看主题",
+              "command": "topic",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "replies",
+              "label": "查看回复",
+              "command": "replies",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "me",
@@ -288,7 +496,38 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "username",
+          "titleField": "username",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户发帖",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.username"
+                }
+              }
+            },
+            {
+              "id": "notifications",
+              "label": "查看提醒",
+              "command": "notifications",
+              "args": {}
+            },
+            {
+              "id": "daily",
+              "label": "签到",
+              "command": "daily",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "notifications",
@@ -308,7 +547,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看主题",
+              "command": "topic",
+              "args": {
+                "id": {
+                  "from": "item.topic_id"
+                }
+              }
+            },
+            {
+              "id": "replies",
+              "label": "查看回复",
+              "command": "replies",
+              "args": {
+                "id": {
+                  "from": "item.topic_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "daily",
@@ -336,7 +604,32 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "username",
+          "titleField": "username",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户发帖",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.username"
+                }
+              }
+            },
+            {
+              "id": "notifications",
+              "label": "查看提醒",
+              "command": "notifications",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",

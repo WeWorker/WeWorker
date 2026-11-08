@@ -36,6 +36,7 @@ var __xhsOpenCLI = (() => {
   var commands = /* @__PURE__ */ new Map();
   var Strategy = { COOKIE: "cookie", INTERCEPT: "intercept" };
   function cli(command9) {
+    if (command9.name === "download") command9 = { ...command9, access: "write" };
     commands.set(command9.name, command9);
     return command9;
   }

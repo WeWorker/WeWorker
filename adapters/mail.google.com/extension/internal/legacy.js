@@ -308,10 +308,11 @@ async function getUnreadEmails(limit = 20) {
 async function openEmail(emailId) {
   try {
     // Thread ID lives on a child span inside the row, not on the <tr> itself
-    const threadSpan = document.querySelector(
-      `[data-legacy-thread-id="${emailId}"]`
-    );
-    const row = threadSpan?.closest('tr.zA');
+    const matches = [...new Set(Array.from(document.querySelectorAll('[data-legacy-thread-id]'))
+      .filter(span => span.getAttribute('data-legacy-thread-id') === emailId)
+      .map(span => span.closest('tr.zA')).filter(Boolean))];
+    if (matches.length > 1) return { error: 'Ambiguous email ID', emailId };
+    const row = matches[0];
     if (!row) {
       return {
         error: 'Email not found',

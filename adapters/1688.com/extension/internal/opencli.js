@@ -789,6 +789,7 @@ var __wave5 = (() => {
     return {
       offer_id: offerId,
       title: cleanText(payload.offerTitle) || cleanText(payload.title) || null,
+      display_title: cleanText(payload.offerTitle) || cleanText(payload.title) || itemUrl,
       item_url: itemUrl,
       main_images: mainImages,
       sku_images: skuImages,
@@ -1072,6 +1073,7 @@ var __wave5 = (() => {
       member_id: memberId,
       shop_id: shopId,
       title: cleanText(payload.offerTitle) || stripAlibabaSuffix(payload.title) || firstNonEmptyLine(bodyText) || null,
+      display_title: cleanText(payload.offerTitle) || stripAlibabaSuffix(payload.title) || firstNonEmptyLine(bodyText) || detailUrl,
       item_url: detailUrl,
       main_images: images,
       price_text: priceRange.price_text || null,
@@ -1251,6 +1253,7 @@ var __wave5 = (() => {
       member_id: extractMemberId(canonicalSellerUrl ?? "") ?? null,
       shop_id: extractShopId(canonicalSellerUrl ?? "") ?? null,
       title: cleanText(candidate.title) || firstWord(containerText) || null,
+      display_title: cleanText(candidate.title) || firstWord(containerText) || canonicalItemUrl,
       item_url: canonicalItemUrl,
       seller_name: cleanText(candidate.seller_name) || null,
       seller_url: canonicalSellerUrl,

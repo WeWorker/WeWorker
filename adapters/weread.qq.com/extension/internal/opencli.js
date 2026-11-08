@@ -780,13 +780,14 @@ var __wave5 = (() => {
     args: [
       { name: "book-id", positional: true, required: true, help: "Book ID from search or shelf results" }
     ],
-    columns: ["title", "author", "publisher", "intro", "category", "rating"],
+    columns: ["bookId", "title", "author", "publisher", "intro", "category", "rating"],
     func: async (page, args) => {
       const bookId = String(args["book-id"] || "").trim();
       try {
         const data = await fetchPrivateApi(page, "/book/info", { bookId });
         const rating = data.newRating ? `${(data.newRating / 10).toFixed(1)}%` : "-";
         return [{
+          bookId: args["book-id"],
           title: data.title ?? "",
           author: data.author ?? "",
           publisher: data.publisher ?? "",
@@ -812,6 +813,7 @@ var __wave5 = (() => {
           throw error;
         }
         return [{
+          bookId: args["book-id"],
           title: data.title,
           author: data.author,
           publisher: data.publisher,

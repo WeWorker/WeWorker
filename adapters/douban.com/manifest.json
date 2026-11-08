@@ -53,7 +53,52 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看条目详情",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "value": "movie"
+                }
+              }
+            },
+            {
+              "id": "photos",
+              "label": "查看海报",
+              "command": "photos",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载海报",
+              "command": "download",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "book-hot",
@@ -73,7 +118,29 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看条目详情",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "value": "book"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "subject",
@@ -87,7 +154,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "豆瓣条目 ID"
+            "description": "豆瓣条目 ID",
+            "minLength": 1
           },
           "type": {
             "type": "string",
@@ -103,7 +171,49 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "photos",
+              "label": "查看海报",
+              "command": "photos",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载海报",
+              "command": "download",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            }
+          ],
+          "when": {
+            "type": "movie"
+          }
+        },
+        {
+          "when": {
+            "type": "book"
+          },
+          "actions": [],
+          "reason": "Book detail is terminal: no book reviews, purchase or author-detail command; movie photos cannot receive a book ID."
+        }
+      ]
     },
     {
       "id": "search",
@@ -139,7 +249,62 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看条目详情",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "value": "movie"
+                }
+              }
+            }
+          ],
+          "when": {
+            "type": "movie"
+          }
+        },
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看条目详情",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "value": "book"
+                }
+              }
+            }
+          ],
+          "when": {
+            "type": "book"
+          }
+        },
+        {
+          "when": {
+            "type": "music"
+          },
+          "actions": [],
+          "reason": "Music search has no music subject-detail or music playback command. Movie/book detail must not receive music IDs."
+        }
+      ]
     },
     {
       "id": "photos",
@@ -153,7 +318,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "电影 subject ID"
+            "description": "电影 subject ID",
+            "minLength": 1
           },
           "type": {
             "type": "string",
@@ -170,7 +336,48 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "photo_id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "download",
+              "label": "下载图片",
+              "command": "download",
+              "args": {
+                "id": {
+                  "from": "item.subject_id"
+                },
+                "photo-id": {
+                  "from": "item.photo_id"
+                },
+                "type": {
+                  "from": "query.type"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            },
+            {
+              "id": "subject",
+              "label": "查看电影",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.subject_id"
+                },
+                "type": {
+                  "value": "movie"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "marks",
@@ -205,7 +412,29 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "movieId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看条目详情",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.movieId"
+                },
+                "type": {
+                  "value": "movie"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "reviews",
@@ -234,7 +463,29 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "reviewId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "movie",
+              "label": "查看电影",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.movieId"
+                },
+                "type": {
+                  "value": "movie"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "top250",
@@ -254,7 +505,52 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看条目详情",
+              "command": "subject",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "value": "movie"
+                }
+              }
+            },
+            {
+              "id": "photos",
+              "label": "查看海报",
+              "command": "photos",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载海报",
+              "command": "download",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -268,7 +564,36 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "uid",
+          "titleField": "uid",
+          "actions": [
+            {
+              "id": "marks",
+              "label": "查看我的标记",
+              "command": "marks",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              }
+            },
+            {
+              "id": "reviews",
+              "label": "查看我的影评",
+              "command": "reviews",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -295,13 +620,14 @@
       "module": "extension/commands/download.js",
       "routeDomain": "movie.douban.com",
       "description": "下载电影海报/剧照图片",
-      "safety": "read",
+      "safety": "write",
       "schema": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "description": "电影 subject ID"
+            "description": "电影 subject ID",
+            "minLength": 1
           },
           "type": {
             "type": "string",

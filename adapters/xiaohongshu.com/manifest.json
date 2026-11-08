@@ -201,7 +201,7 @@
       "module": "extension/commands/download.js",
       "routeDomain": "www.xiaohongshu.com",
       "description": "下载小红书笔记中的图片和视频",
-      "safety": "read",
+      "safety": "write",
       "schema": {
         "type": "object",
         "properties": {

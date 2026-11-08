@@ -30,6 +30,8 @@ const run=async (kwargs) => {
             jobs = jobs.filter((j) => j.encryptJobId === filterJobId);
         }
         const results = jobs.map((j) => ({
+            result_id: j.encryptJobId ? 'job:' + j.encryptJobId : null,
+            followup_job_id: j.encryptJobId || null,
             job_name: j.jobName || '',
             salary: j.salaryDesc || '',
             city: j.address || '',
@@ -41,6 +43,8 @@ const run=async (kwargs) => {
         }));
         if (!filterJobId && results.length > 0) {
             results.push({
+                result_id: 'summary',
+                followup_job_id: null,
                 job_name: '--- 总计 ---',
                 salary: '',
                 city: '',

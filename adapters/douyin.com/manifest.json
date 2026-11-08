@@ -33,7 +33,34 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "uid",
+          "titleField": "nickname",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看本人作品",
+              "command": "videos",
+              "args": {}
+            },
+            {
+              "id": "drafts",
+              "label": "查看本人草稿",
+              "command": "drafts",
+              "args": {}
+            },
+            {
+              "id": "collections",
+              "label": "查看本人合集",
+              "command": "collections",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "videos",
@@ -63,7 +90,62 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "aweme_id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看作品统计",
+              "command": "stats",
+              "args": {
+                "aweme_id": {
+                  "from": "item.aweme_id"
+                }
+              }
+            },
+            {
+              "id": "caption",
+              "label": "修改作品描述",
+              "command": "update",
+              "args": {
+                "aweme_id": {
+                  "from": "item.aweme_id"
+                }
+              },
+              "inputs": [
+                "caption"
+              ]
+            },
+            {
+              "id": "reschedule",
+              "label": "修改发布时间",
+              "command": "update",
+              "args": {
+                "aweme_id": {
+                  "from": "item.aweme_id"
+                }
+              },
+              "inputs": [
+                "reschedule"
+              ]
+            },
+            {
+              "id": "delete",
+              "label": "删除作品",
+              "command": "delete",
+              "args": {
+                "aweme_id": {
+                  "from": "item.aweme_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "drafts",
@@ -82,7 +164,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Draft rows identify unpublished drafts. No draft-detail, edit, publish or draft-delete command exists; the published-work delete and stats commands must not be used for draft IDs."
+        }
+      ]
     },
     {
       "id": "collections",
@@ -101,7 +189,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Creator mix metadata is returned. No collection-items, collection-detail or collection-edit command accepts mix_id; video IDs must not be substituted for mix IDs."
+        }
+      ]
     },
     {
       "id": "activities",
@@ -115,7 +209,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Activity metadata is returned. No activity-detail or enrollment command accepts activity_id; participation is an unavailable downstream capability."
+        }
+      ]
     },
     {
       "id": "location",
@@ -140,7 +240,13 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "POI suggestions are returned. No POI-detail, map or publish-with-location command accepts poi_id; coordinates or video identities cannot be invented."
+        }
+      ]
     },
     {
       "id": "hashtag",
@@ -180,7 +286,26 @@
           "action"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "search",
+              "label": "搜索相关视频",
+              "command": "search",
+              "args": {
+                "query": {
+                  "from": "item.name"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "stats",
@@ -194,14 +319,22 @@
         "properties": {
           "aweme_id": {
             "type": "string",
-            "description": "抖音作品 ID（aweme_id，可从作品 URL 末尾获取）"
+            "description": "抖音作品 ID（aweme_id，可从作品 URL 末尾获取）",
+            "minLength": 16,
+            "pattern": "^\\d{16,20}$"
           }
         },
         "required": [
           "aweme_id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "The selected owned work metrics are already returned in full. No per-metric detail command exists; a metric name is not an aweme_id."
+        }
+      ]
     },
     {
       "id": "update",
@@ -215,17 +348,21 @@
         "properties": {
           "aweme_id": {
             "type": "string",
-            "description": "抖音作品 ID（aweme_id，可从作品 URL 末尾获取）"
+            "description": "抖音作品 ID（aweme_id，可从作品 URL 末尾获取）",
+            "minLength": 16,
+            "pattern": "^\\d{16,20}$"
           },
           "reschedule": {
             "type": "string",
             "description": "新的发布时间（ISO8601 或 Unix 秒）",
-            "default": ""
+            "default": "",
+            "minLength": 1
           },
           "caption": {
             "type": "string",
             "description": "新的正文内容",
-            "default": ""
+            "default": "",
+            "minLength": 1
           }
         },
         "required": [
@@ -268,7 +405,13 @@
           "sec_uid"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Public user videos and optional top comments are returned. No public video-detail, selected-video comments or download command exists; owned-work stats/update/delete cannot be applied to another user videos."
+        }
+      ]
     },
     {
       "id": "search",
@@ -294,7 +437,13 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Public video cards contain video URLs and display names only. No public video-detail or selected-video comments command exists, and author names are not sec_uid. Creator stats/update/delete are not valid public-card follow-ups."
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -308,7 +457,28 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "uid",
+          "titleField": "nickname",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看本人资料",
+              "command": "profile",
+              "args": {}
+            },
+            {
+              "id": "videos",
+              "label": "查看本人作品",
+              "command": "videos",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -341,7 +511,9 @@
         "properties": {
           "aweme_id": {
             "type": "string",
-            "description": "作品 ID / item_id"
+            "description": "作品 ID / item_id",
+            "minLength": 16,
+            "pattern": "^\\d{16,20}$"
           }
         },
         "required": [

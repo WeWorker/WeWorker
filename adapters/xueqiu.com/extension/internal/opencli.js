@@ -513,7 +513,7 @@ var __wave5 = (() => {
         if (!r.ok) return { _err: r.status };
         try { return await r.json(); } catch { return { _err: 'parse' }; }
       };
-      const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
+      const n = (v) => { if (v == null || typeof v === 'string' && !v.trim()) return null; const x = Number(v); return Number.isFinite(x) ? x : null; };
 
       const gain = await f(${JSON.stringify(GAIN_URL)});
       if (gain._err) return { _httpError: gain._err };

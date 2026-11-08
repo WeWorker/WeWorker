@@ -75,7 +75,6 @@ vm.createContext(ctx); vm.runInContext(bundled, ctx);
 const commands = [...ctx.__xhsOpenCLI.commands.values()];
 const manifestPath = path.join(pkg, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath));
-manifest.version = '2.0.1';
 manifest.description = '小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理';
 manifest.match = ['xiaohongshu.com', 'www.xiaohongshu.com', 'creator.xiaohongshu.com'];
 manifest.runtime_allowed_hosts = ['xiaohongshu.com', 'xhscdn.com', 'xhslink.com'];

@@ -108,6 +108,7 @@ const run=async (kwargs) => {
             throw new Error('无法获取简历面板: ' + resumeInfo.error);
         }
         return [{
+                encrypt_uid: kwargs.uid,
                 name: resumeInfo.name || friend.name || '',
                 gender: resumeInfo.gender || '',
                 age: resumeInfo.age || '',

@@ -76,7 +76,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Host login diagnostic only; not a selectable business entity."
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -90,7 +96,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Account diagnostic; no own-item inventory, account-profile or account-settings command. Inbox is a separate query."
+        }
+      ]
     },
     {
       "id": "login",
@@ -118,11 +130,13 @@
         "properties": {
           "item_id": {
             "type": "string",
-            "description": "闲鱼商品 item_id"
+            "description": "闲鱼商品 item_id",
+            "minLength": 1
           },
           "user_id": {
             "type": "string",
-            "description": "聊一聊对方的 user_id / peerUserId"
+            "description": "聊一聊对方的 user_id / peerUserId",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -164,7 +178,55 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "peer_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看聊天记录",
+              "command": "messages",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                },
+                "user_id": {
+                  "from": "item.peer_user_id"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复消息",
+              "command": "reply",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                },
+                "user_id": {
+                  "from": "item.peer_user_id"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "item",
+              "label": "查看商品",
+              "command": "item",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "item",
@@ -178,14 +240,40 @@
         "properties": {
           "item_id": {
             "type": "string",
-            "description": "闲鱼商品 item_id"
+            "description": "闲鱼商品 item_id",
+            "minLength": 1
           }
         },
         "required": [
           "item_id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "item_id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "chat",
+              "label": "联系卖家",
+              "command": "chat",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                },
+                "user_id": {
+                  "from": "item.seller_id"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "messages",
@@ -199,11 +287,13 @@
         "properties": {
           "item_id": {
             "type": "string",
-            "description": "闲鱼商品 item_id"
+            "description": "闲鱼商品 item_id",
+            "minLength": 1
           },
           "user_id": {
             "type": "string",
-            "description": "聊一聊对方的 user_id / peerUserId"
+            "description": "聊一聊对方的 user_id / peerUserId",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -218,7 +308,42 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "index",
+          "titleField": "peer_name",
+          "actions": [
+            {
+              "id": "reply",
+              "label": "回复消息",
+              "command": "reply",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                },
+                "user_id": {
+                  "from": "item.peer_user_id"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "item",
+              "label": "查看商品",
+              "command": "item",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "publish",
@@ -281,11 +406,13 @@
         "properties": {
           "item_id": {
             "type": "string",
-            "description": "闲鱼商品 item_id"
+            "description": "闲鱼商品 item_id",
+            "minLength": 1
           },
           "user_id": {
             "type": "string",
-            "description": "聊一聊对方的 user_id / peerUserId"
+            "description": "聊一聊对方的 user_id / peerUserId",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -343,7 +470,26 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "item_id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看商品详情",
+              "command": "item",
+              "args": {
+                "item_id": {
+                  "from": "item.item_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

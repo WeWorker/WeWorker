@@ -252,7 +252,8 @@ var __wave5 = (() => {
           language: normalizeText(getFirstText(fields.langs)) || "",
           description: normalizeText(getFirstText(fields.description)) || "",
           stars: normalizeStars(fields["count.star"]),
-          url: repoUrl
+          url: repoUrl,
+          owner: new URL(repoUrl).pathname.split('/')[1]
         });
       }
       if (rows.length === 0) {
@@ -808,6 +809,7 @@ var __wave5 = (() => {
       }
       const projects = rawProjects.map(toProject).filter((project) => project !== null).map((project) => mergeCapturedProject(project, projectsFromCapture.get(project.url))).map((project) => ({
         ...project,
+        owner: new URL(project.url).pathname.split('/')[1],
         description: compactDescription(project.description)
       })).slice(0, limit);
       if (projects.length === 0) {

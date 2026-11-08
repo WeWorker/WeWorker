@@ -6,9 +6,65 @@ import { validateV2AdapterDir } from "../adapter-package-v2.js";
 import { extractFlagArgs } from "../index.js";
 import { createHostAdapterRuntime } from '../../extension/background/host-adapter-runtime.js';
 import { buildV2Bootstrap } from "../../extension/background/v2-loader.js";
+import { compileResultBindings } from '../result-bindings.js';
+import { captureResult } from '../context-profile.js';
+import { newState, beginRound, commitRound, registerDisplay } from '../context-model.js';
+import { routeContext } from '../context-router.js';
 
 const root = resolve(import.meta.dirname, "../../adapters/ctrip.com");
 const adapter = validateV2AdapterDir(root);
+
+function captured(command, args, raw) {
+  const entries = adapter.commands.map(item => ({ ...item, adapterId: 'ctrip.com', sourceFingerprint: 'test-package' }));
+  const catalog = { tools: {}, resultBindings: compileResultBindings(entries) }, state = newState(1000);
+  beginRound(state, null, 1000);
+  const snapshot = captureResult(state, { tool: `ctrip.com.${command}`, args, raw, exitCode: 0, now: 1000, catalog, roundId: state.activeRound.roundId });
+  commitRound(state);
+  registerDisplay(state, { epoch: state.sessionEpoch, revision: state.revision, roundId: snapshot.sourceRoundId, snapshotId: snapshot.snapshotId,
+    order: snapshot.entities.map(e => e.entityRef).reverse(), completeness: 'unknown', delivered: true });
+  return { state, catalog, snapshot };
+}
+
+it.each(['search', 'hotel-suggest'])('Ctrip %s distinguishes hotel/city/station IDs and executes the selected hotel detail', async command => {
+  const payload = { Response: { searchResults: [
+    { id: '38', type: 'City', cityId: 38, displayName: 'Example city' },
+    { id: '42', type: 'Hotel', cityId: 38, displayName: 'Example hotel' },
+    { id: '123', type: 'RailwayStation', cityId: 38, displayName: 'Example station' },
+  ] } };
+  const source = setup({ payload }), args = { query: 'Example' }, raw = await source.handlers.get(`ctrip.com.${command}`)(args);
+  const { state, catalog, snapshot } = captured(command, args, raw);
+  expect(snapshot.entities[2].bindings.detail.ready).toBe(false);
+  expect(snapshot.entities[2].bindings.hotels.args.city).toBeNull();
+  const result = await routeContext(state, '查看第二条', { catalog, now: 1001 });
+  expect(result.steps[0].args).toEqual({ id: '42' });
+  const target = setup({ url: 'https://hotels.ctrip.com/hotels/detail/?hotelid=42', runtimeRequest: async () => ({ value: { hotelBaseInfo: { masterHotelId: 42, nameInfo: { name: 'Example hotel' } } } }) });
+  expect(await target.handlers.get('ctrip.com.hotel')(result.steps[0].args)).toMatchObject([{ hotelId: '42', name: 'Example hotel' }]);
+  const missing = await routeContext(state, '查询酒店第三条', { catalog, now: 1002 });
+  expect(missing.missingFields).toEqual(['arguments.checkin', 'arguments.checkout']);
+  const continued = await routeContext(state, '{"checkin":"2026-11-08","checkout":"2026-11-09"}', { catalog, now: 1003, replyTo: missing.clarificationId });
+  expect(continued.steps[0].args).toEqual({ city: 38, checkin: '2026-11-08', checkout: '2026-11-09' });
+  const list = setup({ url: 'https://hotels.ctrip.com/hotels/list?city=38&checkin=2026-11-08&checkout=2026-11-09', runtimeRequest: async () => ({ value: [
+    { hotelInfo: { summary: { hotelId: 42 }, nameInfo: { name: 'Example hotel' } } },
+  ] }) });
+  const hotels = await list.handlers.get('ctrip.com.hotel-search')(continued.steps[0].args);
+  const next = captured('hotel-search', continued.steps[0].args, hotels);
+  const detail = await routeContext(next.state, '查看第一条', { catalog: next.catalog, now: 1001 });
+  expect(detail.steps[0].args).toEqual({ id: '42' });
+  expect(await target.handlers.get('ctrip.com.hotel')(detail.steps[0].args)).toMatchObject([{ hotelId: '42' }]);
+});
+it('Ctrip destination follow-ups keep destination and hotel-city IDs distinct', async () => {
+  const url = 'https://m.ctrip.com/restapi/h5api/globalsearch/search?action=gsonline&source=globalonline&keyword=Example';
+  const source = setup({ payload: { data: [{ type: 'district', id: 33, cityId: 38, word: 'Example' }] }, responseUrl: url });
+  const args = { query: 'Example' }, raw = await source.handlers.get('ctrip.com.destination-search')(args);
+  const { state, catalog } = captured('destination-search', args, raw), result = await routeContext(state, '查看第一条', { catalog, now: 1001 });
+  expect(result.steps[0].args).toEqual({ city: 33 });
+  const sight = node('Example Sight 4.8分 12条点评', { attrs: { href: '/sight/example33/99.html' } });
+  const target = setup({ url: 'https://you.ctrip.com/place/dest33.html', documentAll: { 'a[href*="/sight/"]': [sight, sight, sight] } });
+  expect(await target.handlers.get('ctrip.com.attraction')(result.steps[0].args)).toMatchObject([{ name: 'Example Sight' }]);
+  const question = await routeContext(state, '查询酒店第一条', { catalog, now: 1002 });
+  const continued = await routeContext(state, '{"checkin":"2026-11-08","checkout":"2026-11-09"}', { catalog, now: 1003, replyTo: question.clarificationId });
+  expect(continued.steps[0].args.city).toBe(38);
+});
 
 function node(text = "", { one = {}, all = {}, attrs = {}, childNodes = [] } = {}) {
   return {

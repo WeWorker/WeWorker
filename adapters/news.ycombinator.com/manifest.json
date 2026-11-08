@@ -42,7 +42,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "best",
@@ -66,7 +95,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "new",
@@ -90,7 +148,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "ask",
@@ -114,7 +201,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "show",
@@ -138,7 +254,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "jobs",
@@ -162,7 +307,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "search",
@@ -201,7 +375,36 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "read",
@@ -218,7 +421,10 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "HN 条目数字 ID（例如 39847301），来自 top/new/search 等命令的返回值，不接受猜测 ID"
           },
           "limit": {
@@ -246,7 +452,36 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "row_ref",
+          "titleField": "selection_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子或评论",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.item_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user",
@@ -264,14 +499,21 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "HN 用户名（字母/数字/连字符/下划线）"
+            "description": "HN 用户名（字母/数字/连字符/下划线）",
+            "minLength": 1
           }
         },
         "required": [
           "username"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "当前命令只返回用户资料（username/karma/created/about）；现有包不提供按用户列帖子、用户详情下钻或用户写操作。"
+        }
+      ]
     }
   ]
 }

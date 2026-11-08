@@ -370,7 +370,14 @@ function scrollToCommentArea() {
   return false;
 }
 
-async function readComments({ limit = 10 } = {}) {
+async function readComments({ limit = 10, video_url = '' } = {}) {
+  if (video_url) {
+    const target = new URL(normalizeVideoUrl(video_url));
+    if (target.origin !== 'https://www.bilibili.com' || target.username || target.password || !/^\/video\/(?:BV[0-9A-Za-z]+|av\d+)\/?$/i.test(target.pathname)) {
+      throw new Error('Use a Bilibili video URL or video ID.');
+    }
+    if (!isSamePage(target.href)) return requestNavigation(target.href, '正在打开所选视频的评论。', true);
+  }
   if (!isBilibiliVideoPath()) {
     return {
       ok: false,

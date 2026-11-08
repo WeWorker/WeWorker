@@ -889,6 +889,7 @@ async function ensureBridgeRunning() {
 
 async function cmdCall(toolName, argsStr, options = {}) {
   const verbose = !!options.verbose;
+  const returnResult = options.returnResult === true;
   const flagArgs = options.flagArgs || {};
   let outputFormat;
   try {
@@ -916,6 +917,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
   // renderer as Adapter calls, without changing the transport envelope.
   const printManagement = value => console.log(formatCallOutput(value, options.outputFormat === undefined ? 'json' : outputFormat));
 
+  if (returnResult && /^(?:development|profile|browser|exploration)\./.test(toolName)) throw new Error('context_unsupported_command');
   if (toolName.startsWith('development.')) {
     const command = toolName.slice('development.'.length);
     const { developmentHelp } = await import('./development-commands.js');
@@ -983,17 +985,22 @@ async function cmdCall(toolName, argsStr, options = {}) {
   const { resolveToolkitTool } = await import("./adapter-registry.js");
   const { resolveAdapterCall } = await import("./adapter-host.js");
   const v2Match = resolveAdapterCall(toolName);
+  if (options.executionSnapshot && (!v2Match || ['name', 'digest', 'profile'].some(key => v2Match.snapshot?.[key] !== options.executionSnapshot[key]))) {
+    throw new Error('context_tool_profile_unavailable');
+  }
   if (v2Match) {
     args = businessArgs(args);
     if (v2Match.command.runtime === 'http' && !v2Match.command.http.cookies) {
       try {
         const { runHttpTool } = await import('./http-runner.js');
         const completed = await runHttpTool(v2Match, args);
+        if (returnResult) return { raw: completed.result, traceID: completed.traceID, exitCode: completed.exitCode ?? 0 };
         const value = completed.result;
         const output = value && typeof value === 'object' && !Array.isArray(value)
           ? { ...value, trace_id: completed.traceID } : { result: value, trace_id: completed.traceID };
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
       } catch (error) {
+        if (returnResult) return { raw: { error: error.message, code: error.code }, exitCode: 1 };
         console.log(formatCallOutput({ error: error.message, code: error.code || 'HTTP_COMMAND_FAILED', trace_id: null }, outputFormat));
         process.exitCode = 1;
       }
@@ -1008,6 +1015,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
           tool: { id: v2Match.command.id, name: toolName },
         };
         const completed = await runToolkitTool(toolkitMatch, args);
+        if (returnResult) return { raw: completed.result, traceID: completed.traceID, exitCode: completed.exitCode ?? 0 };
         const isPlainObject = completed.result && typeof completed.result === "object" && !Array.isArray(completed.result);
         const output = isPlainObject
           ? { ...completed.result, trace_id: completed.traceID }
@@ -1015,6 +1023,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
         process.exitCode = completed.exitCode;
       } catch (error) {
+        if (returnResult) return { raw: { error: error.message, code: error.code }, exitCode: 1 };
         console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
         process.exitCode = 1;
       }
@@ -1038,6 +1047,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
     try {
       const { runToolkitTool } = await import("./toolkit-runner.js");
       const completed = await runToolkitTool(toolkitMatch, args);
+      if (returnResult) return { raw: completed.result, traceID: completed.traceID, exitCode: completed.exitCode ?? 0 };
       const isPlainObject = completed.result && typeof completed.result === "object" && !Array.isArray(completed.result);
       const output = isPlainObject
         ? { ...completed.result, trace_id: completed.traceID }
@@ -1045,6 +1055,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
       console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
       process.exitCode = completed.exitCode;
     } catch (error) {
+      if (returnResult) return { raw: { error: error.message, code: error.code }, exitCode: 1 };
       console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
       process.exitCode = 1;
     }
@@ -1068,9 +1079,20 @@ async function cmdCall(toolName, argsStr, options = {}) {
     args.adapter = site;
   }
 
+  let settle, settled = false;
+  const completion = returnResult ? new Promise(resolve => { settle = resolve; }) : undefined;
+  const finish = completed => {
+    if (!returnResult) return false;
+    if (!settled) {
+      settled = true; responseReceived = true;
+      clearTimeout(timeout); ws.close(); settle(completed);
+    }
+    return true;
+  };
   let requestSent = false;
   let responseReceived = false;
   const onTimeout = () => {
+    if (finish({ raw: interruptedCallResult(v2Match?.command, requestSent, true), exitCode: 1, dispatched: requestSent })) return;
     console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent, true), outputFormat));
     ws.terminate();
     process.exit(1);
@@ -1093,7 +1115,16 @@ async function cmdCall(toolName, argsStr, options = {}) {
     }));
 
     ws.on("message", async (data) => {
-      const msg = JSON.parse(data.toString());
+      let msg;
+      try {
+        msg = JSON.parse(data.toString());
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) throw new Error('Invalid envelope');
+      } catch {
+        const raw = { error: 'Invalid Bridge response.', code: 'INVALID_BRIDGE_RESPONSE' };
+        if (finish({ raw, exitCode: 1, dispatched: requestSent })) return;
+        console.log(formatCallOutput(raw, outputFormat));
+        ws.terminate(); process.exit(1); return;
+      }
       // The Bridge runs the login flow for this site: report progress, and allow the login time.
       if (msg.type === "auth_event" && site && msg.site === site) {
         printAuthEvent(msg);
@@ -1108,6 +1139,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
       clearTimeout(timeout);
       if (msg.contextId) options.profile = msg.contextId;
       if (msg.type === "call_tool_result") {
+        if (finish({ raw: msg.result, traceID, exitCode: 0, dispatched: true })) return;
         const isPlainObject = msg.result && typeof msg.result === "object" && !Array.isArray(msg.result);
         const output = isPlainObject
           ? { ...msg.result, trace_id: traceID }
@@ -1128,6 +1160,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
           hint: argumentDetails ? '参数校验失败，尚未派发写入。请核对参数名称和类型；无需重新登录，也不要反复提交相同参数。'
             : `用 webcli trace ${traceID} 查看完整链路日志${dedicatedBrowserHint()}`,
         };
+        if (finish({ raw: output, traceID, exitCode: 1, dispatched: true })) return;
         console.log(formatCallOutput(output, outputFormat));
         await printVerboseTrace(traceID, verbose, options.profile);
         ws.close();
@@ -1139,15 +1172,18 @@ async function cmdCall(toolName, argsStr, options = {}) {
   ws.on("error", () => {
     if (responseReceived) return;
     clearTimeout(timeout);
+    if (finish({ raw: interruptedCallResult(v2Match?.command, requestSent), exitCode: 1, dispatched: requestSent })) return;
     console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent), outputFormat));
     process.exit(1);
   });
   ws.on("close", () => {
     if (!requestSent || responseReceived) return;
     clearTimeout(timeout);
+    if (finish({ raw: interruptedCallResult(v2Match?.command, true), exitCode: 1, dispatched: true })) return;
     console.log(formatCallOutput(interruptedCallResult(v2Match?.command, true), outputFormat));
     process.exit(1);
   });
+  return completion;
 }
 
 // ─── Command: trace <traceID> ─────────────────────────────────────────────────
@@ -1502,6 +1538,50 @@ async function runProgressiveHelp(args, outputFormat) {
 }
 
 async function main() {
+  const { extractContextFlags } = await import('./context-cli-flags.js');
+  const controls = extractContextFlags(process.argv.slice(2));
+  if (controls.context || controls.args[0] === 'context') {
+    const { ContextError, fail } = await import('./context-model.js');
+    try {
+      const { runContextRoute, runContextCall, runContextMaintenance } = await import('./context-command.js');
+      const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(controls.args);
+      if (args[0] === 'context') {
+        if (controls.context) fail('context_usage', 2);
+        console.log(JSON.stringify(await runContextMaintenance(args.slice(1))));
+      } else if (controls.args[0] === 'route') {
+        console.log(JSON.stringify(await runContextRoute(args.slice(1), controls)));
+      } else if (args[0] === 'call') {
+        const invocation = resolveCliInvocation(args);
+        if (!invocation.toolName) fail('context_invalid_arguments', 2);
+        const businessArgs = { ...invocation.flagArgs, ...parseArgsJson(invocation.argsJson) };
+        const format = resolveOutputFormat(outputFormat);
+        const mapping = format === 'markdown' ? (await import('./column-mappings.js')).lookupColumnMapping(invocation.toolName) : undefined;
+        const render = completed => {
+          const raw = completed.raw;
+          const output = raw && typeof raw === 'object' && !Array.isArray(raw)
+            ? { ...raw, trace_id: completed.traceID } : { result: raw, trace_id: completed.traceID };
+          return formatCallOutput(output, format, { mapping });
+        };
+        let delivered = false;
+        const deliver = process.stdout.isTTY && format === 'markdown' ? async completed => {
+          delivered = true;
+          await new Promise((resolve, reject) => process.stdout.write(render(completed) + '\n', error => error ? reject(error) : resolve()));
+        } : undefined;
+        const completed = await runContextCall({ id: controls.context, tool: invocation.toolName, args: businessArgs,
+          decision: controls.decision, step: controls.step, deliver,
+          invoke: (tool, params, binding) => cmdCall(tool, JSON.stringify(params), { verbose, profile, loginWaitSeconds,
+            executionSnapshot: binding?.executionSnapshot, returnResult: true, outputFormat: 'json' }) });
+        if (!delivered) console.log(render(completed));
+        process.stderr.write('WEBCLI_CONTEXT ' + JSON.stringify(completed.receipt) + '\n');
+        process.exitCode = completed.contextExitCode || completed.exitCode;
+      } else fail('context_unsupported_command', 2);
+    } catch (error) {
+      const safe = error instanceof ContextError ? error : new ContextError('context_storage_or_call_failed');
+      console.error(JSON.stringify({ error: safe.code }));
+      process.exitCode = safe.exitCode;
+    }
+    return;
+  }
   // Route has its own natural-language argument parser, including a literal --.
   if (process.argv[2] === 'route') {
     const { runRouteCommand } = await import('./route-command.js');
@@ -1771,7 +1851,7 @@ const isDirectExecution = isDirectCliExecution();
 if (isDirectExecution) {
   main().catch(e => {
     process.stderr.write(`[WebCLI] Fatal: ${e.message}\n`);
-    process.exitCode = 1;
+    process.exitCode = [2, 3, 4].includes(e.exitCode) ? e.exitCode : 1;
   });
 }
 

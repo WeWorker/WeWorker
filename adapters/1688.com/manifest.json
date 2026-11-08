@@ -104,7 +104,36 @@
           "input"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "offer_id",
+          "titleField": "display_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "item",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "列出下载链接",
+              "command": "download",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -118,7 +147,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Returns authenticated account identity only. There is no account-detail, purchase-history or account-edit command; public product search is an independent query."
+        }
+      ]
     },
     {
       "id": "login",
@@ -153,7 +188,13 @@
           "input"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Returns media URLs and suggested filenames only. No command in this package saves a media file or opens an individual media asset; download-to-disk requires a separate capability."
+        }
+      ]
     },
     {
       "id": "item",
@@ -174,7 +215,46 @@
           "input"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "offer_id",
+          "titleField": "display_title",
+          "actions": [
+            {
+              "id": "assets",
+              "label": "查看素材",
+              "command": "assets",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "列出下载链接",
+              "command": "download",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            },
+            {
+              "id": "store",
+              "label": "查看店铺",
+              "command": "store",
+              "args": {
+                "input": {
+                  "from": "item.seller_url"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "search",
@@ -200,7 +280,56 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "item_url",
+          "titleField": "display_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "item",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            },
+            {
+              "id": "assets",
+              "label": "查看素材",
+              "command": "assets",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "列出下载链接",
+              "command": "download",
+              "args": {
+                "input": {
+                  "from": "item.item_url"
+                }
+              }
+            },
+            {
+              "id": "store",
+              "label": "查看店铺",
+              "command": "store",
+              "args": {
+                "input": {
+                  "from": "item.seller_url"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "store",
@@ -221,7 +350,13 @@
           "input"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Returns supplier profile and contact fields. This package has no shop-scoped product listing or contact-seller operation; keyword search cannot represent shop inventory."
+        }
+      ]
     }
   ]
 }

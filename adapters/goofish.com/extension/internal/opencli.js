@@ -255,7 +255,7 @@ var __wave5 = (() => {
   }
   function normalizeRank(value) {
     const raw = String(value ?? "").trim();
-    if (!raw) return 0;
+    if (!raw || raw === "0") return 0;
     if (!/^\d+$/.test(raw)) {
       throw new ArgumentError("xianyu rank must be a positive integer from xianyu inbox");
     }

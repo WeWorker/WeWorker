@@ -84,7 +84,22 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "user_id",
+          "titleField": "user_id",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看自选分组",
+              "command": "groups",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -124,7 +139,13 @@
           "symbol"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+        }
+      ]
     },
     {
       "id": "earnings-date",
@@ -155,7 +176,13 @@
           "symbol"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回财报发布日期和状态，当前包没有财报正文或按财报事件下钻的命令。"
+        }
+      ]
     },
     {
       "id": "feed",
@@ -180,7 +207,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+        }
+      ]
     },
     {
       "id": "fund-holdings",
@@ -200,7 +233,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Fund holding detail is already returned; no fund-detail, fund purchase/redemption or position-management command. Fund codes must not be used as stock symbols."
+        }
+      ]
     },
     {
       "id": "fund-snapshot",
@@ -214,7 +253,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Aggregate already includes complete returned account and holding fields; no individual account-detail or account-management command. fund-holdings is a separate filtered query over the same holdings."
+        }
+      ]
     },
     {
       "id": "groups",
@@ -228,7 +273,26 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "pid",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看分组股票",
+              "command": "watchlist",
+              "args": {
+                "pid": {
+                  "from": "item.pid"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "hot",
@@ -248,7 +312,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+        }
+      ]
     },
     {
       "id": "hot-stock",
@@ -273,7 +343,56 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "symbol",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看行情",
+              "command": "stock",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看讨论",
+              "command": "comments",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "kline",
+              "label": "查看K线",
+              "command": "kline",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "earnings",
+              "label": "查看财报日期",
+              "command": "earnings-date",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "kline",
@@ -299,7 +418,13 @@
           "symbol"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回按日K线时间序列，当前包没有单个交易日详情或针对该日期的操作。股票的其他查询须使用原symbol。"
+        }
+      ]
     },
     {
       "id": "search",
@@ -325,7 +450,56 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "symbol",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看行情",
+              "command": "stock",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看讨论",
+              "command": "comments",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "kline",
+              "label": "查看K线",
+              "command": "kline",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "earnings",
+              "label": "查看财报日期",
+              "command": "earnings-date",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "stock",
@@ -346,7 +520,46 @@
           "symbol"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "symbol",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看讨论",
+              "command": "comments",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "kline",
+              "label": "查看K线",
+              "command": "kline",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "earnings",
+              "label": "查看财报日期",
+              "command": "earnings-date",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "watchlist",
@@ -371,7 +584,56 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "symbol",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看行情",
+              "command": "stock",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看讨论",
+              "command": "comments",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "kline",
+              "label": "查看K线",
+              "command": "kline",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            },
+            {
+              "id": "earnings",
+              "label": "查看财报日期",
+              "command": "earnings-date",
+              "args": {
+                "symbol": {
+                  "from": "item.symbol"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

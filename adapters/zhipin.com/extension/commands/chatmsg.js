@@ -4,10 +4,11 @@
     1: '文本', 2: '图片', 3: '招呼', 4: '简历', 5: '系统',
     6: '名片', 7: '语音', 8: '视频', 9: '表情',
 };
-function mapBossMsg(m, friend) {
+function mapBossMsg(m, friend, index) {
     const fromObj = m.from || {};
     const isSelf = typeof fromObj === 'object' ? fromObj.uid !== friend.uid : false;
     return {
+        message_ref: index + 1,
         from: isSelf ? '我' : (typeof fromObj === 'object' ? fromObj.name : friend.name),
         type: TYPE_MAP[m.type] || `其他(${m.type})`,
         text: m.text || m.body?.text || '',
@@ -40,7 +41,7 @@ async function bossChatMsg(kwargs, existingFriend) {
     if (messages.length === 0) {
         throw new EmptyResultError('boss chatmsg', 'Boss returned no messages for this chat.');
     }
-    return messages.map((m) => mapBossMsg(m, friend));
+    return messages.map((m, index) => mapBossMsg(m, friend, index));
 }
 async function geekChatMsg(kwargs, encryptSystemId) {
     const friend = await findGeekFriendByUid(kwargs.uid, { encryptSystemId });

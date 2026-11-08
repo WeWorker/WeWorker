@@ -526,7 +526,7 @@ var __wave5 = (() => {
         const __twGetStatusIdFromHref = (href) => {
             try {
                 const parsed = new URL(href, window.location.origin);
-                if (parsed.protocol !== 'https:' || !__twIsTwitterHost(parsed.hostname.toLowerCase())) {
+                if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port || !__twIsTwitterHost(parsed.hostname.toLowerCase())) {
                     return null;
                 }
                 return parsed.pathname.match(__twTweetPathRe)?.[1] || null;
@@ -534,8 +534,10 @@ var __wave5 = (() => {
                 return null;
             }
         };
-        const __twHasLinkToTarget = (root) => Array.from(root.querySelectorAll('a[href*="/status/"]'))
-            .some((link) => __twGetStatusIdFromHref(link.href) === tweetId);
+        const __twHasLinkToTarget = (root) => {
+            const link = root.querySelector('a[href*="/status/"] time')?.closest('a[href]');
+            return Boolean(link && __twGetStatusIdFromHref(link.href) === tweetId);
+        };
         const findTargetArticle = () => Array.from(document.querySelectorAll('article'))
             .find(__twHasLinkToTarget);
     `;
@@ -1699,7 +1701,7 @@ var __wave5 = (() => {
       return null;
     seen.add(tw.rest_id);
     const user = tw.core?.user_results?.result;
-    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "unknown";
+    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "";
     const displayName = user?.legacy?.name || user?.core?.name || "";
     const noteText = tw.note_tweet?.note_tweet_results?.result?.text;
     return {
@@ -3018,43 +3020,22 @@ var __wave5 = (() => {
   async function downloadSingleTweet(page, tweetUrl) {
     const target = parseTweetUrl(tweetUrl);
     await page.goto(target.url);
-    await page.wait(3);
-    const items = unwrapBrowserResult(await page.evaluate(`
-      (() => {
-        const out = [];
-        document.querySelectorAll('img[src*="pbs.twimg.com/media"]').forEach(img => {
-          let src = img.src || '';
-          src = src.replace(/&name=\\w+$/, '&name=large');
-          if (!src.includes('&name=')) src = src + '&name=large';
-          out.push({ type: 'image', url: src });
-        });
-        document.querySelectorAll('video').forEach(video => {
-          const src = video.src || '';
-          if (src) out.push({ type: 'video', url: src });
-        });
-        document.querySelectorAll('[data-testid="videoPlayer"]').forEach(player => {
-          const tweetLink = player.closest('article')?.querySelector('a[href*="/status/"]');
-          const href = tweetLink?.getAttribute('href') || '';
-          if (href) out.push({ type: 'video-tweet', url: 'https://x.com' + href });
-        });
-        return out;
-      })()
-    `));
-    if (!Array.isArray(items)) {
-      throw new CommandExecutionError("Twitter tweet media extraction returned malformed payload");
-    }
-    if (items.length === 0) {
-      throw new EmptyResultError(`twitter download ${target.id}`, "No media found in the tweet");
-    }
-    const seen = /* @__PURE__ */ new Set();
-    const unique = items.filter((m) => {
-      if (seen.has(m.url)) return false;
-      seen.add(m.url);
-      return true;
-    }).map((m) => {
-      return { ...m, tweet_id: target.id };
-    });
-    return listTwitterMedia(unique);
+    const cookies = await page.getCookies({ url: 'https://x.com' });
+    const ct0 = cookies.find(cookie => cookie.name === 'ct0')?.value;
+    if (!ct0) throw new AuthRequiredError('x.com', 'Not logged into x.com (no ct0 cookie)');
+    const headers = { Authorization: 'Bearer ' + decodeURIComponent(TWITTER_BEARER_TOKEN), 'X-Csrf-Token': ct0,
+      'X-Twitter-Auth-Type': 'OAuth2Session', 'X-Twitter-Active-User': 'yes' };
+    const response = await page.evaluate(async (url, headers) => {
+      const r = await fetch(url, { headers, credentials: 'include' });
+      return { ok: r.ok, status: r.status, payload: await r.json() };
+    }, buildTweetDetailUrl(target.id, null), headers);
+    const payload = requireFetchPayload(response, 'TweetDetail');
+    if (Array.isArray(payload.errors) && payload.errors.length) throw new CommandExecutionError('Twitter media query returned GraphQL errors');
+    const row = parseTweetDetail(payload, new Set()).tweets.find(tweet => tweet.id === target.id);
+    if (!row) throw new EmptyResultError('twitter download ' + target.id, 'Requested tweet was not present in the response');
+    const items = [...new Set(row.media_urls || [])].map(url => ({ tweet_id: target.id, url, type: classifyMediaUrl(url) }));
+    if (!items.length) throw new EmptyResultError('twitter download ' + target.id, 'No media found in the tweet');
+    return listTwitterMedia(items);
   }
 
   // webcli/scripts/opencli-wave5/upstream/twitter/follow.js
@@ -3420,7 +3401,7 @@ var __wave5 = (() => {
           throw new CommandExecutionError("Twitter followers interceptor returned malformed responses");
         }
         for (const request of requests) {
-          const { data, users, nextCursor } = parseFollowers(request);
+          const { data, users, nextCursor } = parseFollowers(request.data);
           const graphqlError = twitterGraphqlError(data);
           if (graphqlError)
             throw new CommandExecutionError(graphqlError);
@@ -3949,7 +3930,7 @@ var __wave5 = (() => {
       return null;
     seen.add(tw.rest_id);
     const user = tw.core?.user_results?.result;
-    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "unknown";
+    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "";
     const displayName = user?.legacy?.name || user?.core?.name || "";
     const noteText = tw.note_tweet?.note_tweet_results?.result?.text;
     return {
@@ -5340,7 +5321,7 @@ async function fetchJsonOrLoginWall(input, init) {
       return null;
     seen.add(tw.rest_id);
     const user = tw.core?.user_results?.result;
-    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "unknown";
+    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "";
     const displayName = user?.legacy?.name || user?.core?.name || "";
     const bio = user?.legacy?.description || "";
     const noteText = tw.note_tweet?.note_tweet_results?.result?.text;
@@ -5688,6 +5669,8 @@ async function fetchJsonOrLoginWall(input, init) {
       let results = [];
       const seen = /* @__PURE__ */ new Set();
       for (const req of requests) {
+        if (Array.isArray(req.data?.errors) && req.data.errors.length) throw new CommandExecutionError('Twitter notifications returned GraphQL errors');
+        const data = req.data?.data || req.data;
         try {
           let processNotificationItem = function(itemContent, entryId) {
             if (!itemContent)
@@ -5738,12 +5721,12 @@ async function fetchJsonOrLoginWall(input, init) {
             });
           };
           let instructions = [];
-          if (req.data?.viewer?.timeline_response?.timeline?.instructions) {
-            instructions = req.data.viewer.timeline_response.timeline.instructions;
-          } else if (req.data?.viewer_v2?.user_results?.result?.notification_timeline?.timeline?.instructions) {
-            instructions = req.data.viewer_v2.user_results.result.notification_timeline.timeline.instructions;
-          } else if (req.data?.timeline?.instructions) {
-            instructions = req.data.timeline.instructions;
+          if (data?.viewer?.timeline_response?.timeline?.instructions) {
+            instructions = data.viewer.timeline_response.timeline.instructions;
+          } else if (data?.viewer_v2?.user_results?.result?.notification_timeline?.timeline?.instructions) {
+            instructions = data.viewer_v2.user_results.result.notification_timeline.timeline.instructions;
+          } else if (data?.timeline?.instructions) {
+            instructions = data.timeline.instructions;
           }
           let addEntries = instructions.find((i) => i.type === "TimelineAddEntries");
           if (!addEntries) {
@@ -7208,7 +7191,7 @@ async function fetchJsonOrLoginWall(input, init) {
     seen.add(tw.rest_id);
     const u = tw.core?.user_results?.result;
     const noteText = tw.note_tweet?.note_tweet_results?.result?.text;
-    const screenName = u?.legacy?.screen_name || u?.core?.screen_name || "unknown";
+    const screenName = u?.legacy?.screen_name || u?.core?.screen_name || "";
     const bio = u?.legacy?.description || "";
     return {
       id: tw.rest_id,
@@ -7375,7 +7358,7 @@ async function fetchJsonOrLoginWall(input, init) {
       return null;
     seen.add(tw.rest_id);
     const u = tw.core?.user_results?.result;
-    const screenName = u?.legacy?.screen_name || u?.core?.screen_name || "unknown";
+    const screenName = u?.legacy?.screen_name || u?.core?.screen_name || "";
     const bio = u?.legacy?.description || "";
     const noteText = tw.note_tweet?.note_tweet_results?.result?.text;
     const views = tw.views?.count ? parseInt(tw.views.count, 10) : 0;
@@ -7566,7 +7549,7 @@ async function fetchJsonOrLoginWall(input, init) {
     if (!tw.rest_id || seen.has(tw.rest_id)) return null;
     seen.add(tw.rest_id);
     const user = tw.core?.user_results?.result;
-    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "unknown";
+    const screenName = user?.legacy?.screen_name || user?.core?.screen_name || "";
     const displayName = user?.legacy?.name || user?.core?.name || "";
     const noteText = tw.note_tweet?.note_tweet_results?.result?.text;
     const isRetweet = Boolean(legacy.retweeted_status_result || legacy.full_text?.startsWith("RT @"));
@@ -8173,9 +8156,9 @@ async function fetchJsonOrLoginWall(input, init) {
       this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write" } };
       throw new CommandExecutionError("Navigation required");
     }
-    async evaluate(source) {
+    async evaluate(source, ...args) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
-      const expression = `(async () => { const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
+      const expression = `(async () => { const result = (${source}); return typeof result === 'function' ? await result(...${JSON.stringify(args)}) : await result; })()`;
       const result = await helper("main_world_eval", { expression });
       if (!result || !Object.hasOwn(result, "value")) throw new CommandExecutionError("Missing page evaluation result");
       return result.value;
@@ -8296,7 +8279,7 @@ async function fetchJsonOrLoginWall(input, init) {
       }
       if (spec.type === "int") {
         if (typeof value === "string" && /^\d+$/.test(value)) value = Number(value);
-        const zeroAllowed = value === 0 && spec.default === 0;
+        const zeroAllowed = value === 0 && (spec.default === 0 || command2.site === 'twitter' && ['tweets', 'collection'].includes(command2.name) && spec.name === 'page-delay');
         if (!Number.isSafeInteger(value) || value < 0 || value < 1 && !zeroAllowed) throw new ArgumentError(`${spec.name} must be a positive integer`);
       } else if (spec.type === "float") {
         if (typeof value === "string" && /^\d+(?:\.\d{1,2})?$/.test(value.trim())) value = Number(value.trim());
@@ -8479,6 +8462,19 @@ async function fetchJsonOrLoginWall(input, init) {
     }
     return data;
   }
+  function contextTwitterRow(row, index, commandName) {
+    let postId = null;
+    const sourceId = commandName === 'download' ? row.tweet_id : commandName === 'notifications' ? null : row.id;
+    if (typeof sourceId === 'string' && /^[0-9]+$/.test(sourceId)) postId = sourceId;
+    if (!postId && typeof row.url === 'string') {
+      try { const url = new URL(row.url); if (url.protocol === 'https:' && ['x.com', 'twitter.com'].includes(url.hostname) && !url.username && !url.password && !url.port) postId = url.pathname.match(/^\/(?:[A-Za-z0-9_]+|i)\/status\/([0-9]+)\/?$/)?.[1] || null; } catch {}
+    }
+    const author = typeof row.author === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(row.author) ? row.author : null;
+    return { ...row, context_ref: index + 1,
+      context_title: Array.from(String(row.title || row.text || row.name || row.topic || row.action || row.id || row.url || '').replace(/\s+/g, ' ').trim()).slice(0, 60).join(''),
+      context_username: typeof row.screen_name === 'string' && /^[A-Za-z0-9_]{1,15}$/.test(row.screen_name) ? row.screen_name : null,
+      context_post_id: postId, context_post_url: postId ? 'https://x.com/i/status/' + postId : null, context_author: author };
+  }
   async function invoke(key, input = {}) {
     const command2 = commands.get(key);
     if (!command2) throw new ArgumentError("Unknown command");
@@ -8487,7 +8483,11 @@ async function fetchJsonOrLoginWall(input, init) {
     const page = new Page(command2);
     try {
       if (command2.browser !== false && typeof command2.navigateBefore === "string") await page.goto(command2.navigateBefore);
-      return command2.browser === false ? await command2.func(args) : await command2.func(page, args);
+      const result = command2.browser === false ? await command2.func(args) : await command2.func(page, args);
+      if (command2.site !== 'twitter' || command2.access !== 'read') return result;
+      if (Array.isArray(result)) return result.map((row, index) => contextTwitterRow(row, index, command2.name));
+      if (command2.name === 'collection' && Array.isArray(result?.posts)) return { ...result, posts: result.posts.map((row, index) => contextTwitterRow(row, index, command2.name)) };
+      return result;
     } catch (error) {
       if (page.pending) return page.pending;
       throw error;

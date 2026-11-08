@@ -75,7 +75,10 @@
         "type": "object",
         "properties": {
           "book-id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Book ID (from shelf or search results)"
           },
           "limit": {
@@ -98,7 +101,13 @@
           "book-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回大纲正文或结构化大纲行；当前包没有章节正文读取或大纲节点操作命令。"
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -112,7 +121,22 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "user_id",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看书架",
+              "command": "shelf",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -139,7 +163,10 @@
         "type": "object",
         "properties": {
           "book-id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Book ID from search or shelf results"
           }
         },
@@ -147,7 +174,69 @@
           "book-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "bookId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "notes",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "highlights",
+              "label": "查看划线",
+              "command": "highlights",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "outline",
+              "label": "查看大纲",
+              "command": "ai-outline",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "search",
+              "label": "书内搜索",
+              "command": "book-search",
+              "args": {
+                "book": {
+                  "from": "item.bookId"
+                }
+              },
+              "inputs": [
+                "query"
+              ]
+            },
+            {
+              "id": "book",
+              "label": "查看书籍",
+              "command": "book",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "book-search",
@@ -164,7 +253,10 @@
         "type": "object",
         "properties": {
           "book": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Book title keyword, numeric bookId, or reader URL"
           },
           "query": {
@@ -197,7 +289,13 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回书内命中片段；当前包没有按章节或命中位置读取正文的命令，不把片段当作全文。"
+        }
+      ]
     },
     {
       "id": "highlights",
@@ -210,7 +308,10 @@
         "type": "object",
         "properties": {
           "book-id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Book ID (from shelf or search results)"
           },
           "limit": {
@@ -223,7 +324,13 @@
           "book-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回该书划线文本；当前包没有单条划线下钻、编辑或删除命令。"
+        }
+      ]
     },
     {
       "id": "notebooks",
@@ -237,7 +344,69 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "bookId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "notes",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "highlights",
+              "label": "查看划线",
+              "command": "highlights",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "outline",
+              "label": "查看大纲",
+              "command": "ai-outline",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "search",
+              "label": "书内搜索",
+              "command": "book-search",
+              "args": {
+                "book": {
+                  "from": "item.bookId"
+                }
+              },
+              "inputs": [
+                "query"
+              ]
+            },
+            {
+              "id": "book",
+              "label": "查看书籍",
+              "command": "book",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "notes",
@@ -250,7 +419,10 @@
         "type": "object",
         "properties": {
           "book-id": {
-            "type": "string",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "Book ID (from shelf or search results)"
           },
           "limit": {
@@ -263,7 +435,13 @@
           "book-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回该书的笔记全文；当前包没有单条笔记下钻、编辑或删除命令。"
+        }
+      ]
     },
     {
       "id": "ranking",
@@ -292,7 +470,69 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "bookId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看书籍",
+              "command": "book",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "highlights",
+              "label": "查看划线",
+              "command": "highlights",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "outline",
+              "label": "查看大纲",
+              "command": "ai-outline",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "search",
+              "label": "书内搜索",
+              "command": "book-search",
+              "args": {
+                "book": {
+                  "from": "item.bookId"
+                }
+              },
+              "inputs": [
+                "query"
+              ]
+            },
+            {
+              "id": "notes",
+              "label": "查看笔记",
+              "command": "notes",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "search",
@@ -322,7 +562,69 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "bookId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看书籍",
+              "command": "book",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "highlights",
+              "label": "查看划线",
+              "command": "highlights",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "outline",
+              "label": "查看大纲",
+              "command": "ai-outline",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "search",
+              "label": "书内搜索",
+              "command": "book-search",
+              "args": {
+                "book": {
+                  "from": "item.bookId"
+                }
+              },
+              "inputs": [
+                "query"
+              ]
+            },
+            {
+              "id": "notes",
+              "label": "查看笔记",
+              "command": "notes",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "shelf",
@@ -342,7 +644,69 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "bookId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看书籍",
+              "command": "book",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "highlights",
+              "label": "查看划线",
+              "command": "highlights",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "outline",
+              "label": "查看大纲",
+              "command": "ai-outline",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            },
+            {
+              "id": "search",
+              "label": "书内搜索",
+              "command": "book-search",
+              "args": {
+                "book": {
+                  "from": "item.bookId"
+                }
+              },
+              "inputs": [
+                "query"
+              ]
+            },
+            {
+              "id": "notes",
+              "label": "查看笔记",
+              "command": "notes",
+              "args": {
+                "book-id": {
+                  "from": "item.bookId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

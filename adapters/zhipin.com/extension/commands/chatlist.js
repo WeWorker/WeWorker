@@ -6,6 +6,7 @@
 }
 function mapBossRow(f) {
     return {
+        identity_side: 'boss',
         name: f.name || '',
         company: '',
         job: f.jobName || '',
@@ -29,6 +30,7 @@ async function buildGeekRows(limit) {
     return slicedLabels.map((f) => {
         const e = enrichMap.get(String(f.friendId)) || {};
         return {
+            identity_side: 'geek',
             name: e.name || f.name || '',
             company: e.brandName || f.brandName || '',
             job: e.jobName || f.jobName || '',

@@ -311,6 +311,7 @@ var __wave5 = (() => {
           const item = {
             rank: i + 1,
             author: c.user?.screen_name || '',
+            author_uid: c.user?.idstr || (typeof c.user?.id === 'string' || Number.isSafeInteger(c.user?.id) ? String(c.user.id) : null),
             text: strip(c.text || ''),
             likes: c.like_count || 0,
             replies: c.total_number || 0,
@@ -549,7 +550,8 @@ var __wave5 = (() => {
       likes,
       comments,
       reposts,
-      url: card?.url || favUrl
+      url: card?.url || favUrl,
+      post_key: String(card?.url || '').match(/^https:\/\/(?:www\.)?weibo\.com\/\d+\/([A-Za-z0-9]+)(?:[?#/]|$)/)?.[1] || null
     };
   }
   function dedupeFavorites(items, favUrl) {
@@ -578,7 +580,8 @@ ${item.time}`;
     columns: ["author", "text", "time", "source", "likes", "comments", "reposts", "url"],
     func: async (page, kwargs) => {
       const limit = parsePositiveInt(kwargs.limit, "limit", DEFAULT_LIMIT);
-      await page.goto("https://weibo.com");
+      const current = new URL(location.href);
+      if (!['weibo.com', 'www.weibo.com'].includes(current.hostname) || !/^\/u\/page\/fav\/\d+\/?$/.test(current.pathname)) await page.goto("https://weibo.com");
       await page.wait(2);
       const uid = await getSelfUid(page);
       const favUrl = "https://www.weibo.com/u/page/fav/" + uid;
@@ -620,7 +623,7 @@ ${item.time}`;
       if (uniqueItems.length === 0) {
         throw new CommandExecutionError("Failed to parse visible Weibo favorites");
       }
-      return uniqueItems.slice(0, limit);
+      return uniqueItems.slice(0, limit).map((row, index) => ({ ...row, rank: index + 1 }));
     }
   });
 
@@ -669,7 +672,9 @@ ${item.time}`;
         return (data.statuses || []).slice(0, count).map(s => {
           const u = s.user || {};
           const item = {
-            id: s.mblogid || s.idstr || String(s.id || ''),
+            id: s.mblogid || s.idstr || (typeof s.id === 'string' || Number.isSafeInteger(s.id) ? String(s.id) : ''),
+            post_id: s.idstr || (typeof s.id === 'string' || Number.isSafeInteger(s.id) ? String(s.id) : null),
+            author_uid: u.idstr || (typeof u.id === 'string' || Number.isSafeInteger(u.id) ? String(u.id) : null),
             author: u.screen_name || '',
             text: (s.text_raw || strip(s.text || '')).substring(0, 200),
             reposts: s.reposts_count || 0,
@@ -758,7 +763,7 @@ ${item.time}`;
         if (u && u.id) {
           return {
             screen_name: u.screen_name,
-            uid: u.id,
+            uid: u.idstr || (typeof u.id === 'string' || Number.isSafeInteger(u.id) ? String(u.id) : null),
             followers: u.followers_count,
             following: u.friends_count,
             statuses: u.statuses_count,
@@ -779,7 +784,7 @@ ${item.time}`;
         if (!p) return {error: 'User data not found'};
         return {
           screen_name: p.screen_name,
-          uid: p.id,
+          uid: p.idstr || (typeof p.id === 'string' || Number.isSafeInteger(p.id) ? String(p.id) : null),
           followers: p.followers_count,
           following: p.friends_count,
           statuses: p.statuses_count,
@@ -808,7 +813,7 @@ ${item.time}`;
     args: [
       { name: "id", required: true, positional: true, help: "Post ID (numeric idstr or mblogid from URL)" }
     ],
-    columns: ["field", "value"],
+    columns: ["id", "author", "text", "comments", "likes", "url"],
     func: async (page, kwargs) => {
       await page.goto("https://weibo.com");
       await page.wait(2);
@@ -822,6 +827,8 @@ ${item.time}`;
         if (!resp.ok) return {error: 'HTTP ' + resp.status};
         const s = await resp.json();
         if (!s.ok && !s.idstr) return {error: 'Post not found'};
+        const postId = s.idstr || (typeof s.id === 'string' || Number.isSafeInteger(s.id) ? String(s.id) : '');
+        if (!postId || !/^[0-9]+$/.test(postId)) return {error: 'Post returned no exact numeric identity'};
 
         // Fetch long text if needed
         let fullText = s.text_raw || strip(s.text || '');
@@ -837,9 +844,10 @@ ${item.time}`;
 
         const u = s.user || {};
         const result = {
-          id: s.idstr || String(s.id),
+          id: postId,
           mblogid: s.mblogid,
           author: u.screen_name || '',
+          author_uid: u.idstr || (typeof u.id === 'string' || Number.isSafeInteger(u.id) ? String(u.id) : null),
           text: fullText,
           created_at: s.created_at,
           source: strip(s.source || ''),
@@ -861,10 +869,7 @@ ${item.time}`;
     `)), "weibo post");
       if (data.error)
         throw new CommandExecutionError(String(data.error));
-      return Object.entries(data).map(([field, value]) => ({
-        field,
-        value: String(value)
-      }));
+      return [data];
     }
   });
 
@@ -1162,7 +1167,7 @@ ${item.time}`;
 
         return {
           screen_name: u.screen_name,
-          uid: u.id,
+          uid: u.idstr || (typeof u.id === 'string' || Number.isSafeInteger(u.id) ? String(u.id) : null),
           followers: u.followers_count,
           following: u.friends_count,
           statuses: u.statuses_count,
@@ -1756,7 +1761,10 @@ ${item.time}`;
     const page = new Page(command);
     try {
       if (command.browser !== false && typeof command.navigateBefore === "string") await page.goto(command.navigateBefore);
-      return command.browser === false ? await command.func(args) : await command.func(page, args);
+      const result = command.browser === false ? await command.func(args) : await command.func(page, args);
+      if (command.site === 'weibo' && Array.isArray(result)) return result.map(row => ({ ...row,
+        context_title: Array.from(String(row.title || row.text || row.author || row.id || '').replace(/\s+/g, ' ').trim()).slice(0, 60).join('') }));
+      return result;
     } catch (error) {
       if (page.pending) return page.pending;
       throw error;
