@@ -14,10 +14,18 @@ function match(runtime) {
     command: { id: 'list', module: runtime + '/commands/list.js', runtime, safety: 'read', http: {} } };
 }
 beforeEach(() => {
+  vi.stubEnv('WEBCLI_HOST_ENDPOINT', undefined); vi.stubEnv('WEBCLI_HOST_TOKEN', undefined);
   output = vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('Unexpected process exit'); });
 });
-afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); process.exitCode = 0; });
+it('rejects context capture through an embedding host before resolving or dispatching a local package', async () => {
+  vi.stubEnv('WEBCLI_HOST_ENDPOINT', 'http://127.0.0.1:1/webcli/v1');
+  await expect(cmdCall('example.com.list', '{}', { returnResult: true })).rejects.toThrow('context_host_unsupported');
+  expect(resolveAdapterCall).not.toHaveBeenCalled();
+  expect(runHttpTool).not.toHaveBeenCalled(); expect(runToolkitTool).not.toHaveBeenCalled();
+  expect(output).not.toHaveBeenCalled();
+});
+afterEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllEnvs(); process.exitCode = 0; });
 
 it.each(['http', 'wewright'])('returns actual %s Runner results before formatting or process exit', async runtime => {
   resolveAdapterCall.mockReturnValue(match(runtime));

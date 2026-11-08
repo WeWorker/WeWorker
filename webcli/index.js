@@ -36,6 +36,8 @@ import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readBrowserMode } from "./dedicated-browser.js";
 import { bridgeUrl, resolveBridgeInstance } from "./bridge-instance.js";
 
+import { hasHostConfiguration } from './host-client.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = dirname(__filename);
 
@@ -913,6 +915,19 @@ async function cmdCall(toolName, argsStr, options = {}) {
   catch (error) { console.error(`Error: ${error.message}`); process.exit(1); }
   // 合并 --key=value 标志参数（优先级低于 --args 中的同名字段）
   args = { ...flagArgs, ...args };
+  if (hasHostConfiguration()) {
+    if (returnResult || options.executionSnapshot) throw new Error('context_host_unsupported');
+    try {
+      const { callHost } = await import('./host-call.js');
+      if (options.profile) throw Object.assign(new Error('Browser profiles are owned by the embedding host.'), { code: 'HOST_UNSUPPORTED_PROFILE' });
+      const result = await callHost(toolName, args);
+      console.log(formatCallOutput({ schemaVersion: 1, ok: true, result: result ?? null }, options.outputFormat ?? 'json'));
+    } catch (error) {
+      console.log(formatCallOutput({ schemaVersion: 1, ok: false, error: { code: error.code || 'HOST_CALL_FAILED', message: error.message } }, options.outputFormat ?? 'json'));
+      process.exitCode = 1;
+    }
+    return;
+  }
   // Management defaults remain machine-readable; explicit formats use the same
   // renderer as Adapter calls, without changing the transport envelope.
   const printManagement = value => console.log(formatCallOutput(value, options.outputFormat === undefined ? 'json' : outputFormat));
@@ -1538,11 +1553,20 @@ async function runProgressiveHelp(args, outputFormat) {
 }
 
 async function main() {
+  if (hasHostConfiguration() && !['call', '--version', '-v', '--help', '-h'].includes(process.argv[2])) {
+    throw new Error('Host mode only supports webcli call; service and browser lifecycle belong to the embedding host.');
+  }
+  if (hasHostConfiguration() && ['--help', '-h'].includes(process.argv[2])) {
+    console.log('Browser host mode: use webcli call browser.help for capabilities, or webcli call host.catalog for installed Adapters.');
+    return;
+  }
+
   const { extractContextFlags } = await import('./context-cli-flags.js');
   const controls = extractContextFlags(process.argv.slice(2));
   if (controls.context || controls.args[0] === 'context') {
     const { ContextError, fail } = await import('./context-model.js');
     try {
+      if (hasHostConfiguration()) fail('context_host_unsupported', 2);
       const { runContextRoute, runContextCall, runContextMaintenance } = await import('./context-command.js');
       const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(controls.args);
       if (args[0] === 'context') {
@@ -1596,6 +1620,10 @@ async function main() {
   const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(process.argv.slice(2));
   const cmd  = args[0];
   const sub  = args[1];
+  if (hasHostConfiguration() && cmd === 'call' && args.some(arg => ['--help', '-h'].includes(arg))) {
+    await cmdCall('browser.help', '{}', { outputFormat });
+    return;
+  }
   if (cmd === '--internal-browser-control') {
     const { runBrowserControlStdio } = await import('./shared-browser-client.js');
     await runBrowserControlStdio({ ensureBridgeRunning, checkRunning: checkPortListening });
