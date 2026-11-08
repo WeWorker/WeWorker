@@ -110,10 +110,20 @@ function toRoutedTiming(event: Record<string, unknown>): RoutedTiming | null {
  */
 export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnResult> {
   const miss: RoutedTurnResult = { handled: false, text: '', timing: null, directRoute: { status: 'miss' } }
+  const turnId = input.turnId ?? randomUUID().slice(0, 8)
+  const complete = (status: 'handled' | 'miss' | 'skipped' | 'failed' | 'partial_visible', reason: string, visible = false): void => {
+    appendWorkLog(input.workId, 'route_diagnostic', {
+      phase: 'route_complete', engine: 'deterministic', status, reason, fallback: status === 'handled' || visible ? 'none' : 'llm', visible,
+    }, turnId)
+  }
 
-  if (!input.message?.trim()) return { ...miss, directRoute: { status: 'skipped', reason: 'no_text' } }
+  if (!input.message?.trim()) {
+    complete('skipped', 'no_text')
+    return { ...miss, directRoute: { status: 'skipped', reason: 'no_text' } }
+  }
   if (isQaOnly(input.channelPermissionMode)) {
     input.log?.('routed turn skipped: qa_only channel cannot dispatch tools')
+    complete('skipped', 'qa_only')
     return { ...miss, directRoute: { status: 'skipped', reason: 'qa_only' } }
   }
 
@@ -121,7 +131,6 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
   let timing: RoutedTiming | null = null
   /** 是否已经把可见输出推给调用方（正文或 turn_end）。推过之后就不许再落回，否则同一条消息答两遍。 */
   let visible = false
-  const turnId = input.turnId ?? randomUUID().slice(0, 8)
   appendWorkLog(input.workId, 'route_input', { message: input.message, history: input.history }, turnId)
 
   const send = (event: object): void => {
@@ -157,19 +166,23 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
     // 会让用户看到两条答案。这里保留已产出的正文，由调用方照常收尾。
     if (visible) {
       input.log?.(`routed turn failed after output: ${reason} → keep routed answer, no LLM fallback`)
+      complete('partial_visible', 'direct_route_error', true)
       return { handled: true, text, timing }
     }
     input.log?.(`routed turn failed: ${reason} → fall back to LLM`)
     miss.directRoute = { status: 'failed', reason: 'direct_route_error' }
+    complete('failed', 'direct_route_error')
     return miss
   }
 
   if (!handled) {
     appendWorkLog(input.workId, 'route_end', { handled: false }, turnId)
+    complete(miss.directRoute?.status === 'failed' ? 'failed' : miss.directRoute?.status === 'skipped' ? 'skipped' : 'miss', miss.directRoute?.reason ?? 'no_eligible_candidate')
     // 落回时清掉半成品，避免调用方误以为有答案（级联某些层可能已推过流）。
     return miss
   }
   appendWorkLog(input.workId, 'route_end', { handled: true }, turnId)
+  complete('handled', 'route_answered', visible)
   return { handled: true, text, timing }
 }
 

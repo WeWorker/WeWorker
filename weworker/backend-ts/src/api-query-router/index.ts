@@ -433,7 +433,7 @@ async function dispatchAndRender(args: {
   } catch (error) {
     if (error instanceof RouteDispatchError) {
       routeDiagnostic(ctx, 'dispatch_failed', { tool, category: error.kind, fallback: 'llm' })
-      ctx.onFallback?.({ status: 'failed', reason: error.kind })
+      ctx.onFallback?.({ status: 'failed', reason: error.kind === 'authentication' ? 'authentication_required' : error.kind })
       return 'fallback'
     }
     throw error

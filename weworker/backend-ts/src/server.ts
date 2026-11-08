@@ -3223,6 +3223,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // Dedicated agents skip profile routes: those may answer with other websites.
   if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
     appendWorkLog(workId, 'route_diagnostic', { phase: 'legacy_profile_handled', reason: 'profile_route_before_intelligent_engine' }, turnId)
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_complete', engine: 'legacy_profile', status: 'handled', reason: 'route_answered', fallback: 'none', visible: true }, turnId)
     finished = true
     res.off('close', onClose)
     broadcastSSE({ type: 'works_changed', workId })
@@ -3264,9 +3265,11 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       return
     }
   } else {
-    const reason = desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
+    const reason = dedicatedAgent ? 'dedicated_agent'
+      : desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
       : retryCompaction === true ? 'compaction_retry' : 'empty_message'
     appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_complete', engine: 'deterministic', status: 'skipped', reason, fallback: 'llm', visible: false }, turnId)
     chatLog.info(`${tag} route diagnostic route_skipped reason=${reason}`)
   }
 

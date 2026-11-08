@@ -43,6 +43,29 @@ describe('route dispatch fallback', () => {
     expect(input.send).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['HTTP 200 auth code', '{"code":401,"msg":"login required","data":null}'],
+    ['extension auth code', '{"error":"login required","code":"AUTH_REQUIRED"}'],
+    ['wrapped auth error', '{"result":{"code":4001,"msg":"请先登录","data":null},"trace_id":"example-trace"}'],
+    ['CLI auth envelope', '{"error":"Authentication credentials were not provided.","code":"FETCH_ERROR"}'],
+  ])('%s is diagnosed as authentication and hands off once', async (_name, raw) => {
+    const onFallback = vi.fn()
+    const dispatch = vi.fn(async () => raw)
+    const input = { ...ctx(), onFallback }
+    expect(await executeRoutePlan(plan, input, { engine, dispatch })).toBe(false)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(onFallback).toHaveBeenCalledWith({ status: 'failed', reason: 'authentication_required' })
+    expect(input.send).not.toHaveBeenCalled()
+  })
+
+  it('does not diagnose a successful payload mentioning login as authentication', async () => {
+    const input = { ...ctx(), onFallback: vi.fn() }
+    expect(await executeRoutePlan(plan, input, {
+      engine, dispatch: async () => '{"items":[{"note":"login required for another feature"}]}', persistAssistantMessage: vi.fn(),
+    })).toBe(true)
+    expect(input.onFallback).not.toHaveBeenCalled()
+  })
+
   it('unavailable spill falls back without trying another layer', async () => {
     const mocked = vi.fn(async () => '{"type":"large_output","file":"missing"}')
     const input = ctx()
