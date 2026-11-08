@@ -62,7 +62,6 @@
         "to": "backend-ts",
         "filter": [
           "server.cjs",
-          "query-routes.json",
           "router-config/**",
           "api-exploration-skills/**",
           "node_modules/**"

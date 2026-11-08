@@ -21,7 +21,7 @@ import { rehydratePointer } from '../webcli-result-cache.js'
 import * as store from '../works-store.js'
 import { getSettings } from '../config.js'
 import { createLogger } from '../logger.js'
-import { looksLikeAuthFailure, looksLikeMissingArg } from '../query-router/configurable-query-route.js'
+import { looksLikeAuthFailure, looksLikeMissingArg } from './legacy-error-hints.js'
 import {
   advanceAfterFailure,
   isLayerSkipped,
