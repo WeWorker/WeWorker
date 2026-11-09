@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { executeRoutePlan, type RouteEngine } from '../api-query-router/index.js'
-import { dispatchOnce, isUnrenderableAnswer } from '../api-query-router/route-dispatch.js'
+import { classifyDispatchPayload, dispatchOnce, isConfirmedEmptyListPayload, isUnrenderableAnswer } from '../api-query-router/route-dispatch.js'
+import { renderGeneric } from '../api-query-router/generic-renderer.js'
 import type { CascadePlan } from '../api-query-router/cascade.js'
 
 const tool = 'example.list'
@@ -74,7 +75,7 @@ describe('route dispatch fallback', () => {
 
   it.each([
     ['empty items', '{"items":[]}'],
-    ['empty data', '{"code":200,"data":[]}'],
+    ['empty data without success marker', '{"data":[]}'],
     ['bare empty array', '[]'],
     ['wrapped empty result', '{"result":{"items":[]},"trace_id":"example-trace"}'],
   ])('%s falls back to LLM without emitting an empty-result answer', async (_name, raw) => {
@@ -87,6 +88,44 @@ describe('route dispatch fallback', () => {
     expect(mocked).toHaveBeenCalledTimes(1)
     expect(input.send).not.toHaveBeenCalled()
     expect(persistAssistantMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    '{"ok":true,"items":[]}',
+    '{"success":true,"data":{"items":[],"count":0}}',
+    '{"code":200,"data":[]}',
+    '{"result":{"items":[]},"ok":true,"trace_id":"example-trace"}',
+  ])('emits a final no-records answer only for confirmed empty list %s', async (raw) => {
+    const input = ctx()
+    const persistAssistantMessage = vi.fn()
+    expect(isConfirmedEmptyListPayload(raw)).toBe(true)
+    expect(classifyDispatchPayload(raw)).toBeNull()
+    expect(await executeRoutePlan(plan, input, { engine, dispatch: async () => raw, persistAssistantMessage })).toBe(true)
+    expect(input.send).toHaveBeenCalledWith({ type: 'text_delta', content: '未查询到相关数据。' })
+    expect(persistAssistantMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    '{"items":[]}', '[]', '{"result":{"items":[]},"trace_id":"example-trace"}',
+    '{"ok":true,"items":[],"total":3}', '{"success":true,"items":[],"tickets":[]}',
+    '{"ok":true,"items":[],"error":"request failed"}',
+    '{"ok":true,"items":[],"code":401}',
+    '{"ok":true,"items":[],"msg":"请先登录"}',
+    '{"ok":true,"data":{"items":[],"total":2}}',
+  ])('rejects unconfirmed, conflicting or failed empty results %s', (raw) => {
+    expect(isConfirmedEmptyListPayload(raw)).toBe(false)
+    expect(classifyDispatchPayload(raw)).not.toBeNull()
+  })
+
+  it('ignores a declarative schema emptyMessage for a confirmed empty result', async () => {
+    const raw = '{"ok":true,"items":[]}'
+    const schema = { id: 'example', dataSource: 'items', emptyMessage: '已找到匹配记录。' }
+    expect(renderGeneric(raw, undefined, { schemaId: 'example' }, { lookupSchema: () => schema })).toBe('未查询到相关数据。')
+    const input = ctx()
+    const schemaEngine = { ...engine, bundle: { renderers: { schemas: { example: schema } } } } as unknown as RouteEngine
+    const schemaPlan = { ...plan, steps: [{ ...plan.steps[0], decision: { ...plan.steps[0].decision, render: { schemaId: 'example' } } }] } as CascadePlan
+    expect(await executeRoutePlan(schemaPlan, input, { engine: schemaEngine, dispatch: async () => raw, persistAssistantMessage: vi.fn() })).toBe(true)
+    expect(input.send).toHaveBeenCalledWith({ type: 'text_delta', content: '未查询到相关数据。' })
   })
 
   it('falls back when a declarative renderer produces only an empty-result message', () => {

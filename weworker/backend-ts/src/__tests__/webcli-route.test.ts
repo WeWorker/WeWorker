@@ -76,6 +76,17 @@ describe('per-turn routing context', () => {
     const result = await prepareAgentRouting({ message: 'wait', enabled: false, direct: { status: 'miss' } })
     expect(result).toMatchObject({ direct: { status: 'miss' }, webcli: { status: 'disabled' } })
   })
+  it('defers route authentication failure to the Agent rather than prompting immediately', async () => {
+    const direct = { status: 'failed' as const, reason: 'authentication_required' }
+    const result = await prepareAgentRouting({ message: 'search', enabled: false, direct })
+    expect(result).toEqual({ direct, webcli: { status: 'disabled' } })
+    const prompt = withRoutingContext('user request', result)
+    expect(prompt).toContain('authentication_required')
+    expect(prompt).toContain('不是要求立即让用户登录的证据')
+    expect(prompt).toContain('只有 Agent 最终仍无法完成用户请求')
+    expect(prompt).toContain('本轮最终回复')
+    expect(prompt).toContain('user request')
+  })
   it('passes the recommendation alongside a failed direct query without hiding the failure', async () => {
     const result = await prepareAgentRouting({ message: 'search', enabled: true, direct: { status: 'failed', reason: 'timeout' } })
     expect(result).toMatchObject({ direct: { status: 'failed', reason: 'timeout' }, webcli: { status: 'recommended' } })

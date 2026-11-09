@@ -14,6 +14,7 @@ import path from 'node:path'
 import { parseAllAdapters, type ParsedAdapter, type StaticToolDef } from '../adapter-parser.js'
 import { findAdaptersDirectory, resolveToolsForAdapter } from '../adapter-tool-list.js'
 import { getSiteEnabled } from '../config.js'
+import { clearDesktopAdapterCatalogCache } from '../adapter-catalog-cache.js'
 
 export type CatalogTool = {
   /** 全名 `<adapterId>.<tool>` */
@@ -123,13 +124,20 @@ export function buildCatalog(adaptersDir: string | null = findAdaptersDirectory(
   }
 }
 
-/** adapters 目录签名（mtime+size），用于热重载失效判定。 */
+/** Per-manifest stats detect in-place edits without hashing every package file each turn. */
 function adaptersSignature(adaptersDir: string | null): string {
   if (!adaptersDir) return '-'
   try {
-    const stat = fs.statSync(adaptersDir)
     const names = fs.readdirSync(adaptersDir).sort()
-    return `${adaptersDir}:${stat.mtimeMs}:${names.length}:${names.join(',')}`
+    const parts = names.map((name) => {
+      try {
+        const stat = fs.statSync(path.join(adaptersDir, name, 'manifest.json'))
+        return `${name}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
+      } catch {
+        return `${name}:-`
+      }
+    })
+    return `${adaptersDir}:${parts.join('|')}`
   } catch {
     return `${adaptersDir}:-`
   }
@@ -144,6 +152,9 @@ let cache: { signature: string; catalog: ToolCatalog } | null = null
 export function getCatalog(adaptersDir: string | null = findAdaptersDirectory()): ToolCatalog {
   const signature = adaptersSignature(adaptersDir)
   if (cache && cache.signature === signature) return cache.catalog
+  // Built-in packages are pinned by profile metadata in the desktop snapshot. A
+  // changed manifest must invalidate that snapshot before parsing the new tools.
+  if (cache && cache.signature !== signature) clearDesktopAdapterCatalogCache()
   const catalog = buildCatalog(adaptersDir)
   cache = { signature, catalog }
   return catalog

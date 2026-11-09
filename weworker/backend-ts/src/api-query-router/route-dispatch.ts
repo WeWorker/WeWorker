@@ -25,6 +25,48 @@
 
 import { detectMainArray } from '../webcli-result-project.js'
 
+/** An empty list is a final answer only when the adapter explicitly confirms success. */
+export function isConfirmedEmptyListPayload(raw: string): boolean {
+  let parsed: unknown
+  try { parsed = JSON.parse(raw) } catch { return false }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+  let record = parsed as Record<string, unknown>
+  let confirmed = false
+  // WebCLI can wrap an adapter response; retain the outer success marker, but reject
+  // wrappers that carry unrelated fields or conflicting status/error indicators.
+  for (let depth = 0; depth < 3; depth++) {
+    const message = record.msg ?? record.message
+    if (typeof message === 'string' && AUTH_MESSAGE_RE.test(message)) return false
+    if (record.error || record.ok === false || record.success === false || record.status === 401 || record.status === 403
+      || record.status === '401' || record.status === '403') return false
+    if ('code' in record && record.code !== 200 && record.code !== '200') return false
+    if ('status' in record && record.status !== 200 && record.status !== '200') return false
+    if (record.ok === true || record.success === true || record.code === 200 || record.code === '200'
+      || record.status === 200 || record.status === '200') confirmed = true
+    if ('result' in record && record.result && typeof record.result === 'object' && !Array.isArray(record.result)
+      && Object.keys(record).every((key) => ['result', 'trace_id', 'ok', 'success', 'code', 'status'].includes(key))) {
+      record = record.result as Record<string, unknown>
+      continue
+    }
+    break
+  }
+  if (!confirmed || (record.count != null && record.count !== 0) || (record.total != null && record.total !== 0)) return false
+  const data = record.data
+  const lists = [record.items, record.tickets, Array.isArray(data) ? data : undefined]
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    const nested = data as Record<string, unknown>
+    if ((nested.count != null && nested.count !== 0) || (nested.total != null && nested.total !== 0)) return false
+    lists.push(nested.items, nested.tickets, nested.data)
+  }
+  const actualLists = lists.filter(Array.isArray)
+  // An additional array (including an unknown list key) makes the result shape ambiguous.
+  const allArrays = Object.values(record).filter(Array.isArray).length
+    + (data && typeof data === 'object' && !Array.isArray(data)
+      ? Object.values(data).filter(Array.isArray).length : 0)
+  return actualLists.length === 1 && allArrays === 1 && actualLists[0].length === 0
+}
+
+
 /** 路由派发失败的四类来源（日志与测试断言用，不含用户数据）。 */
 export type RouteDispatchFailure = 'timeout' | 'thrown' | 'error_payload' | 'process_error' | 'empty'
 
@@ -108,7 +150,15 @@ export function classifyDispatchPayload(raw: string): { kind: RouteDispatchFailu
   // Let the caller continue with the ordinary model turn without emitting an empty-result notice.
   if (Array.isArray(parsed) && parsed.length === 0) return { kind: 'empty', detail: 'empty result array' }
   const main = detectMainArray(parsed)
-  if (main && main.array.length === 0) return { kind: 'empty', detail: 'empty result array' }
+  const nested = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>).data : undefined
+  const nestedMain = nested && typeof nested === 'object' && !Array.isArray(nested) ? detectMainArray(nested) : null
+  const wrapped = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>).result : undefined
+  const wrappedMain = wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped) ? detectMainArray(wrapped) : null
+  if (((main && main.array.length === 0) || (nestedMain && nestedMain.array.length === 0)
+    || (wrappedMain && wrappedMain.array.length === 0))
+    && !isConfirmedEmptyListPayload(text)) return { kind: 'empty', detail: 'empty result array' }
 
   if (typeof parsed === 'string' && AUTH_MESSAGE_RE.test(parsed)) {
     return { kind: 'error_payload', detail: parsed.slice(0, 200) }

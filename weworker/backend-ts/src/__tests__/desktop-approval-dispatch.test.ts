@@ -36,6 +36,9 @@ describe.each([
       desktopPermission: resolveDesktopChatPermission(mode), dedicatedAgent: null,
       settings: { webcli_route_enabled: webcliRouteEnabled },
       message: 'Public fixture request', workId: 'fixture-work', turnId: 'fixture-turn', chatStartTime: 0,
+      // The shared routing branch reads these request-scoped values; keep the
+      // fixture attachment-free so the scenario hint stays disabled.
+      modelInputMessage: 'Public fixture request', importedAttachments: [], scenario: undefined,
       send: vi.fn(), appendWorkLog: vi.fn(), chatLog: { info: vi.fn() }, tag: 'fixture', getSettings: () => ({}),
       finished: false, res: { off: vi.fn(), end: vi.fn() }, onClose: vi.fn(), broadcastSSE: vi.fn(),
       retryCompaction: false, workWithMessages: { messages: [] }, savedUserMessage: undefined,

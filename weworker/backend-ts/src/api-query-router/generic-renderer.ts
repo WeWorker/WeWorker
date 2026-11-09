@@ -15,6 +15,7 @@ import { detectMainArray, projectResult } from '../webcli-result-project.js'
 import { hasTitleHeading, renderFromSchema, type RenderSchemaContext } from './declarative-renderer.js'
 import type { RouterRenderSchema } from '../router-config/types.js'
 import { createLogger } from '../logger.js'
+import { isConfirmedEmptyListPayload } from './route-dispatch.js'
 
 const log = createLogger('api-query-router')
 const TABLE_MAX_COLS = 8
@@ -140,6 +141,9 @@ function renderGenericBody(
 
   const parsed = tryParseJson(raw)
   if (typeof parsed === 'string') return parsed.trim()
+  // An explicit successful empty-list response is factual; a schema's custom emptyMessage
+  // must not replace it with an unrelated (or misleading) claim.
+  if (isConfirmedEmptyListPayload(raw)) return renderEmptyResult()
 
   const record = parsed as Record<string, unknown> | null
   if (record && record.type === 'large_output') {

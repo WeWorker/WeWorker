@@ -58,6 +58,7 @@ import {
   classifyDispatchPayload,
   createGuardedDispatch,
   isUnrenderableAnswer,
+  isConfirmedEmptyListPayload,
   resolveDispatchTimeoutMs,
   RouteDispatchError,
   type RouteDispatchFn,
@@ -90,7 +91,7 @@ export type RouteEngineDeps = {
 
 let engineCache: { signature: string; engine: RouteEngine } | null = null
 
-function configSignature(bundle: RouterConfigBundle, adapterIds: ReadonlySet<string>): string {
+function configSignature(bundle: RouterConfigBundle, adapterIds: ReadonlySet<string>, scenarioRoutes: readonly CompiledScenarioRoute[]): string {
   // 用各层 JSON 的字符串指纹参与缓存键：改一行配置即重建 matcher（热重载）。
   return JSON.stringify([
     bundle.routes,
@@ -100,8 +101,7 @@ function configSignature(bundle: RouterConfigBundle, adapterIds: ReadonlySet<str
     bundle.plans,
     bundle.renderers,
     bundle.planTerminals,
-    bundle.scenarioRoutes?.generatedAt ?? '',
-    bundle.scenarioRoutes?.routes?.length ?? 0,
+    scenarioRoutes,
     [...adapterIds].sort(),
     getCatalog().tools.map((tool) => `${tool.name}:${tool.safety ?? ''}:${tool.direct ? 1 : 0}`),
   ])
@@ -114,7 +114,8 @@ export function getRouteEngine(deps: RouteEngineDeps = {}): RouteEngine {
   const catalog = getCatalog()
   const adapterIds = deps.adapterIds ?? catalog.adapterIds
   const bundle = deps.bundle ?? loadScopedBundle(adapterIds)
-  const signature = configSignature(bundle, adapterIds)
+  const scenarioRoutes = filterScenarioRoutesInScope(adapterIds)
+  const signature = configSignature(bundle, adapterIds, scenarioRoutes)
   if (engineCache && engineCache.signature === signature) return engineCache.engine
 
   const routableTools = new Set<string>()
@@ -122,7 +123,6 @@ export function getRouteEngine(deps: RouteEngineDeps = {}): RouteEngine {
     if (tool.direct && isReadOnlyTool(tool)) routableTools.add(tool.name)
   }
   // 只读但不可直调的工具（需页面上下文）不进路由面——不在 routableTools 里，天然拒绝。
-  const scenarioRoutes = filterScenarioRoutesInScope(adapterIds)
   const routeMatcher = buildRouteMatcher(bundle.routes?.routes)
   const patternMatcher = buildPatternMatcher(bundle.patterns, { allowedTools: routableTools })
   const shortcutMatcher = buildShortcutMatcher(bundle.shortcuts?.shortcuts)
@@ -490,8 +490,12 @@ async function dispatchAndRender(args: {
     ctx.onFallback?.({ status: 'failed', reason: 'render_failed' })
     return 'fallback'
   }
+  // Only the explicitly successful empty-list contract can finish with a no-records answer.
+  // Generic/schema empty messages without that contract remain unusable.
+  const confirmedEmpty = isConfirmedEmptyListPayload(renderRaw)
+  if (confirmedEmpty) text = args.render.title ? `### ${args.render.title}\n\n未查询到相关数据。` : '未查询到相关数据。'
   // 渲染不出可展示内容（渲染器吞掉异常或投影为空）→ 同为「没答出来」，落回 LLM。
-  if (isUnrenderableAnswer(text)) {
+  if (isUnrenderableAnswer(text) && !confirmedEmpty) {
     routeDiagnostic(ctx, 'render_failed', { tool, category: 'no_renderable_data', fallback: 'llm' })
     ctx.log?.(`route render produced no answer: ${tool} → fall back to LLM`)
     ctx.onFallback?.({ status: 'failed', reason: 'empty_answer' })

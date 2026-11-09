@@ -1,0 +1,16 @@
+.fast-routes { padding: 12px 20px 28px; max-width: 900px; }
+.fast-routes__intro { color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+.fast-routes__section { display: grid; gap: 12px; }
+.fast-routes__section h4 { margin: 12px 0 0; }
+.fast-routes__section > p { color: var(--text-muted); }
+.fast-routes__card { padding: 16px; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.fast-routes__card h5 { font-size: 14px; margin: 0 0 8px; }
+.fast-routes__card p { color: var(--text-muted); font-size: 13px; margin: 5px 0; overflow-wrap: anywhere; }
+.fast-routes__card .fast-routes__warning { color: var(--error, #c2410c); }
+.fast-routes__badge { font-size: 11px; font-weight: normal; color: var(--text-muted); margin-left: 8px; }
+.fast-routes__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.fast-routes__preview { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; overflow-wrap: anywhere; }
+.fast-routes__preview > .message-item { padding: 8px 0 !important; }
+.fast-routes__fields { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.fast-routes__fields legend { font-size: 12px; color: var(--text-muted); }
+.fast-routes__fields label { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }

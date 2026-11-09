@@ -25,6 +25,10 @@ import { projectResult } from './webcli-result-project.js'
 import { checkFileEncryptionCached } from './encryption-check-cache.js'
 import { createLogger } from './logger.js'
 import { runWeWorkerPowerShell } from './powershell-runner.js'
+import { getCatalog } from './api-query-router/tool-catalog.js'
+import { classifyDispatchPayload } from './api-query-router/route-dispatch.js'
+import { runWebcliCall } from './webcli-runner.js'
+import { issueReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, type ReadQueryScope } from './read-query-receipts.js'
 
 const log = createLogger('tools')
 
@@ -233,6 +237,8 @@ interface McpServerContext {
   userMedia?: () => UserMediaSink | null
   /** Dedicated Agent identity comes from the trusted runtime, never model input. */
   dedicatedAgent?: { agentId: string; ownerUserId: string; actorUserId?: string; taskId?: string }
+  /** Trusted per-turn binding; never populated from model-supplied arguments. */
+  readQueryScope?: () => ReadQueryScope | null
 }
 
 /** Names only: used by the context inspector, never sent as an extra prompt. */
@@ -240,6 +246,7 @@ export function getMcpToolDefinitionSummary(mode: ChannelPermissionMode = 'full'
   if (mode === 'qa_only') return ''
   const names = [
     'webcli_result',
+    'weworker_read_query',
     'weworker_powershell',
     'ask_user',
     'create_scheduled_task',
@@ -329,7 +336,88 @@ export function buildMcpServer(opts?: McpServerContext) {
     })
   }
 
+  const readQueryTool = (channelPermissionMode === 'full' || channelPermissionMode === 'workspace')
+    && !dedicatedAgent && opts?.readQueryScope
+    ? [tool(
+      'weworker_read_query',
+      '执行已启用 Adapter 的只读直调查询（非 Shell）。只传完整工具名及符合当前工具 JSON Schema 的 args；查询成功会返回可信回执供后端学习。其他 WebCLI 命令仍使用原生命令工具。',
+      {
+        name: z.string().min(3).max(200).describe('当前已启用 Adapter 的完整工具名，例如 public.example.list'),
+        args: z.record(z.string(), z.unknown()).describe('工具的 JSON 对象参数，不接受命令行字符串'),
+      },
+      async ({ name, args }) => {
+        const scope = opts.readQueryScope?.()
+        if (!scope?.workId || !scope.turnId || currentWorkId() !== scope.workId || abortSignal?.aborted) {
+          return toolText({ error: 'Read query is not available for this turn' })
+        }
+        const selected = getCatalog().byName.get(name)
+        if (!selected || !selected.direct || selected.safety !== 'read' || selected.requiresConfirmation
+          || selected.navigateBefore || !getCatalog().adapterIds.has(selected.adapterId)) {
+          return toolText({ error: 'Tool is not an enabled read-only direct query' })
+        }
+        // Fail closed for incomplete/unsupported JSON schemas; do not coerce values,
+        // remove unknown keys, or accept flags that could override WebCLI options.
+        const schema = selected.parameters
+        if (schema.type !== 'object' || !schema.properties || typeof schema.properties !== 'object'
+          || Array.isArray(schema.properties) || schema.additionalProperties !== false
+          || !args || typeof args !== 'object' || Array.isArray(args)
+          || Object.keys(args).some((key) => key.startsWith('-') || key === '__proto__' || key === 'constructor' || key === 'prototype')) {
+          return toolText({ error: 'Unsupported query arguments schema' })
+        }
+        let validator: z.ZodType
+        try { validator = z.fromJSONSchema(schema) } catch { return toolText({ error: 'Unsupported query arguments schema' }) }
+        const valid = validator.safeParse(args)
+        if (!valid.success) return toolText({ error: 'Query arguments do not match current tool schema' })
+        // No results or args ever enter the receipt. Keep only primitive, bounded,
+        // explicitly declared fields and discard potential secrets/identifiers.
+        const fixedArgs: Record<string, string | number | boolean> = {}
+        const properties = schema.properties as Record<string, unknown>
+        let learnableArgs = true
+        for (const [key, value] of Object.entries(args)) {
+          const field = properties[key] as Record<string, unknown> | undefined
+          const isSafeNumber = typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 1000
+            && /^(page|pageSize|limit|offset|size|count|perPage)$/i.test(key)
+          const isSafeBoolean = typeof value === 'boolean' && /^(ascending|descending|includeArchived|includeClosed)$/i.test(key)
+          if (!field || (!isSafeNumber && !isSafeBoolean)) { learnableArgs = false; break }
+          fixedArgs[key] = value as number | boolean
+        }
+        try {
+          const raw = await runWebcliCall(name, JSON.stringify(args), scope.workId, { timeoutMs: 30_000 })
+          if (abortSignal?.aborted || opts.readQueryScope?.()?.turnId !== scope.turnId || currentWorkId() !== scope.workId) {
+            return toolText({ error: 'Read query turn expired' })
+          }
+          // Shell exit code is not business success. Reject any uncertain shape,
+          // including cached large-output pointers and ambiguous empty arrays.
+          let parsed: unknown
+          try { parsed = JSON.parse(raw) } catch { return toolText({ error: 'Read query returned non-JSON output' }) }
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+            || (parsed as Record<string, unknown>).type === 'large_output'
+            || classifyDispatchPayload(raw)) return toolText({ result: parsed ?? raw })
+          const record = parsed as Record<string, unknown>
+          if (record.error || record.ok === false || record.success === false
+            || ('code' in record && record.code !== 200 && record.code !== '200')
+            || ('status' in record && record.status !== 200 && record.status !== '200')
+            || (record.ok !== true && record.success !== true && record.code !== 200 && record.code !== '200'
+              && record.status !== 200 && record.status !== '200')) return toolText({ result: parsed })
+          // The learner must never replay an incomplete args subset or a bare
+          // success flag with no actual data. An ordinary query can still answer
+          // the Agent when it isn't safely reusable for learning.
+          const hasData = ['data', 'result', 'items', 'list', 'records', 'rows', 'tickets'].some((key) => {
+            const value = record[key]
+            return Array.isArray(value) ? value.length > 0 : value != null && typeof value === 'object' && Object.keys(value).length > 0
+          })
+          if (!learnableArgs || !hasData) return toolText({ result: parsed })
+          const token = issueReadQueryReceipt(scope, { tool: name, fixedArgs })
+          if (!token) return toolText({ result: parsed })
+          return toolText({ result: parsed, [READ_QUERY_RECEIPT_FIELD]: token })
+        } catch {
+          return toolText({ error: 'Read query failed' })
+        }
+      },
+    )] : []
+
   const systemTools = [
+    ...readQueryTool,
     tool(
       'webcli_result',
       `读取 webcli 工具落盘的大结果（large_output 指针）并按需投影成精简文本，避免大模型直接读取超大 JSON。当 webcli 工具返回 type="large_output" 的指针时，用本工具查具体内容。缓存有 ${Math.round(WEBCLI_RESULT_CACHE_TTL_MS / 60000)} 分钟有效期，过期会提示重新调用原查询刷新。`,
