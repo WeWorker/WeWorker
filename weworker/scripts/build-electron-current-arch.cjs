@@ -50,8 +50,10 @@ function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) 
   return targetPath
 }
 
-function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2)) {
   if (argv.length !== 1) throw new Error('Usage: node scripts/build-electron-current-arch.cjs --mac|--win')
+  buildElectronArgs(argv[0])
+  if (argv[0] === '--win') await require('./prepare-node-runtime.cjs').prepareNodeRuntime()
   const configPath = createElectronBuilderConfig()
   const { executable, args } = buildElectronCommand(argv[0], process.platform, process.arch, process.execPath, require.resolve('electron-builder/cli.js'), configPath)
   const result = spawnSync(executable, args, { cwd: path.resolve(__dirname, '..'), stdio: 'inherit', shell: false })
@@ -60,12 +62,10 @@ function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) {
-  try {
-    main()
-  } catch (error) {
+  main().catch(error => {
     console.error(`[build] ${error.message}`)
     process.exitCode = 1
-  }
+  })
 }
 
 module.exports = { buildElectronArgs, buildElectronCommand, createElectronBuilderConfig }

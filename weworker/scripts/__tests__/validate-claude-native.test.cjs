@@ -41,7 +41,8 @@ test('recognizes Mach-O target architectures and universal binaries', () => {
 test('Windows packaging cannot skip validation and macOS checks before signing', () => {
   const calls = []
   const context = { arch: 1, electronPlatformName: 'win32', appOutDir: '/fixture', packager: { appInfo: { productFilename: 'WeWorker' } } }
-  afterPack(context, () => assert.fail('Windows must not codesign'), (...args) => calls.push(args))
+  afterPack(context, () => assert.fail('Windows must not codesign'), (...args) => calls.push(args), (...args) => calls.push(args))
   assert.deepEqual(calls[0], [path.join('/fixture', 'resources'), 'win32', 'x64'])
+  assert.deepEqual(calls[1], calls[0])
   assert.throws(() => afterPack({ ...context, electronPlatformName: 'darwin' }, () => assert.fail('Must validate before signing'), () => { throw new Error('invalid native binary') }), /invalid native binary/)
 })
