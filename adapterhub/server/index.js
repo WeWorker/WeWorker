@@ -13,7 +13,7 @@
 import { createServer } from 'node:http'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { openCatalog } from './db.js'
 import { createHandler } from './app.js'
 import { nullAuth } from './auth.js'
@@ -30,7 +30,10 @@ const db = openCatalog(process.env.ADAPTERHUB_DB || path.join(DATA_DIR, 'adapter
 
 let auth = nullAuth
 if (process.env.ADAPTERHUB_AUTH_MODULE) {
-  const mod = await import(process.env.ADAPTERHUB_AUTH_MODULE)
+  const spec = path.isAbsolute(process.env.ADAPTERHUB_AUTH_MODULE)
+    ? pathToFileURL(process.env.ADAPTERHUB_AUTH_MODULE).href
+    : process.env.ADAPTERHUB_AUTH_MODULE
+  const mod = await import(spec)
   const provider = mod.createAuthProvider ? await mod.createAuthProvider({ db }) : mod.default
   if (!provider || typeof provider.handleRoute !== 'function' || typeof provider.attachUser !== 'function') {
     throw new Error('ADAPTERHUB_AUTH_MODULE 必须导出 createAuthProvider({db})，返回 { handleRoute, attachUser, sendMe, configured }')
