@@ -41,7 +41,9 @@ export function isNoiseTool(name) {
  * 请求 stats。走同域 /api/stats(Vite proxy / Nginx 注入 token)。
  * @param {{by?:string, since?:string, kind?:string, top?:number, from?:string|null, to?:string|null}} opts
  *   from/to:YYYY-MM-DD(UTC 日界),仅自定义时间窗时传
- * @returns {Promise<{rows:Array, totalCalls:number}>}
+ * @returns {Promise<{rows:Array, totalCalls?:number, totalFailed?:number, mau?:number, unavailable?:boolean}>}
+ *   by=tool/domain → {rows, totalCalls};by=err → {rows, totalFailed};by=active → {rows, mau};
+ *   代理未接入(非 JSON 响应)→ {rows:[], totalCalls:0, unavailable:true}
  */
 export async function fetchStats({ by = 'tool', since = '7d', kind = 'adapter', top = null, from = null, to = null } = {}) {
   const params = new URLSearchParams({ by, since })
@@ -129,5 +131,13 @@ export function groupByUser(rows) {
  */
 export async function fetchActiveUsers({ since = '30d', from = null, to = null, kind = 'adapter' } = {}) {
   const data = await fetchStats({ by: 'active', since, kind, from, to })
-  return { rows: data.rows || [], mau: data.mau || 0, unavailable: Boolean(data.unavailable) }
+  const rows = data.rows || []
+  // 旧 server 无 by=active(回落 domain 聚合,rows 是 {key,...} 形状)→ 视为未接入,
+  // 让页面走「用户活跃统计暂未接入」分支而不是渲染垃圾表。
+  const supported = rows.length === 0 || rows[0].day != null
+  return {
+    rows: supported ? rows : [],
+    mau: supported ? data.mau || 0 : 0,
+    unavailable: Boolean(data.unavailable) || !supported,
+  }
 }

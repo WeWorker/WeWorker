@@ -5,8 +5,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause } from "../db.js";
+import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause, NOISE_FIRST_SEGMENTS } from "../db.js";
 import { checkAuth, dayParam, handle } from "../handler.js";
+import { isNoiseTool } from "../../officialWeb/src/lib/stats.js";
 
 function freshDb() {
   return openDb(":memory:");
@@ -511,4 +512,15 @@ test("queryStats by=active:kind+from/to 组合占位符钉死", () => {
   assert.deepEqual(rows, [{ day: "2026-01-05", dau: 1 }]);
   // MAU 与窗口解耦:u1 在近30天 → 1(即使 from/to 窗口是 1 月)
   assert.equal(mau, 1);
+});
+
+test("officialWeb isNoiseTool 与 server NOISE_FIRST_SEGMENTS 无漂移", () => {
+  for (const s of NOISE_FIRST_SEGMENTS) {
+    assert.equal(isNoiseTool(s), true, `名单项 ${s}(无点)应被 isNoiseTool 排除`);
+    assert.equal(isNoiseTool(`${s}.x`), true, `名单项 ${s}(首段)应被 isNoiseTool 排除`);
+  }
+  // 反向:非名单相似名不应误判
+  assert.equal(isNoiseTool("skillx.foo.bar"), false);
+  assert.equal(isNoiseTool("mail.163.com.get"), false);
+  assert.equal(isNoiseTool("tickets.example.com.search_tickets"), false);
 });
