@@ -879,7 +879,12 @@ class ProcessManager:
                 raise InvalidStateError(f"Task is not waiting for user: {status}")
             output_dir = Path(task["output_dir"]).resolve()
             trajectory_path = output_dir / "trajectory.json"
-            if not trajectory_path.is_file():
+            has_trajectory = trajectory_path.is_file()
+            restart_before_first_step = (
+                not has_trajectory and task.get("activity_type") == "exploration"
+                and status == TaskStatus.CANCELLED.value
+            )
+            if not has_trajectory and not restart_before_first_step:
                 raise InvalidStateError("Task has no trajectory.json to resume from.")
             model_config_file, model_overrides, env_extra = self._resolve_model()
             run_id = make_run_id()
@@ -905,6 +910,19 @@ class ProcessManager:
                 "toolkit_id": task.get("toolkit_id", ""),
                 "tool_id": task.get("tool_id", ""),
             }
+            if restart_before_first_step:
+                # No saved actions to resume. Keep the original page, scope and all
+                # instructions, including any earlier turns stopped before startup.
+                prior_spec = json.loads(self.store.spec_path(task_id).read_text(encoding="utf-8"))
+                spec.update(
+                    mode="start", target_id=task.get("active_target_id", ""),
+                    resume_target_id="", resume_from=None, followup=None,
+                    instruction=f"{prior_spec['instruction']}\n\n{followup}",
+                )
+                spec["config_spec"].extend(
+                    item for item in prior_spec["config_spec"]
+                    if item.startswith("environment.allowed_domains=")
+                )
             atomic_write_json(self.store.spec_path(task_id), spec)
             process = self._spawn(
                 self.launcher.worker_command(
@@ -942,26 +960,6 @@ class ProcessManager:
             self.active_run_id = run_id
             self._start_watcher(kind="task", active_id=task_id, task_id=task_id, process=process)
             return record
-
-    def pause_task(self, task_id: str, *, reason: str = "") -> dict[str, Any]:
-        with self.lock:
-            task = self._read_task_or_raise(task_id)
-            if not self._active_running_locked() or self.active_kind != "task" or self.active_task_id != task_id:
-                raise InvalidStateError("Task is not currently running.")
-            payload = {
-                "run_id": self.active_run_id,
-                "action": "pause",
-                "reason": reason,
-                "created_at": now_iso(),
-            }
-            atomic_write_json(self.store.control_path(task_id), payload)
-            return self.store.update_task(
-                task_id,
-                status=TaskStatus.PAUSE_REQUESTED.value,
-                error="",
-                error_code="",
-                error_stage="",
-            )
 
     def cancel_task(self, task_id: str, *, force: bool = False, reason: str = "") -> dict[str, Any]:
         with self.lock:

@@ -196,10 +196,10 @@ def test_history_compaction_receives_latest_complete_action_json(tmp_path: Path)
     assert json.loads(assistant_message["content"])["python_code"] == "print('page')"
 
 
-def test_default_agent_pause_control_file_writes_paused_exit(tmp_path: Path) -> None:
+def test_default_agent_cancel_control_file_writes_cancelled_exit(tmp_path: Path) -> None:
     control_path = tmp_path / "control.json"
     control_path.write_text(
-        json.dumps({"run_id": "run-1", "action": "pause"}),
+        json.dumps({"run_id": "run-1", "action": "cancel"}),
         encoding="utf-8",
     )
     output_path = tmp_path / "trajectory.json"
@@ -215,10 +215,10 @@ def test_default_agent_pause_control_file_writes_paused_exit(tmp_path: Path) -> 
 
     result = agent.run("demo")
 
-    assert result["exit_status"] == AgentExitStatus.PAUSED.value
+    assert result["exit_status"] == AgentExitStatus.CANCELLED.value
     saved = json.loads(output_path.read_text(encoding="utf-8"))
-    assert saved["info"]["exit_status"] == AgentExitStatus.PAUSED.value
-    assert saved["messages"][-1]["content"] == "Task paused by server."
+    assert saved["info"]["exit_status"] == AgentExitStatus.CANCELLED.value
+    assert saved["messages"][-1]["content"] == "Task cancelled by server."
 
 
 def test_default_agent_saves_initial_observation_and_action_checkpoint_before_execute(
@@ -259,7 +259,7 @@ def test_default_agent_saves_initial_observation_and_action_checkpoint_before_ex
 def test_default_agent_ignores_mismatched_control_run_id(tmp_path: Path) -> None:
     control_path = tmp_path / "control.json"
     control_path.write_text(
-        json.dumps({"run_id": "old-run", "action": "pause"}),
+        json.dumps({"run_id": "old-run", "action": "cancel"}),
         encoding="utf-8",
     )
     agent = DefaultAgent(
