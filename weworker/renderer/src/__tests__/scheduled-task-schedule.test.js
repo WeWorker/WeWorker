@@ -44,6 +44,31 @@ for (const day of [0, 1, 2, 3, 4, 5, 6, 7]) {
   })
 }
 
+test('weekly Tuesday and Wednesday selection survives save and reopen', () => {
+  const weekly = { ...parseCron('0 9 * * *'), frequency: 'weekly' }
+  const selected = toggleWeekday(toggleWeekday(weekly, 2), 3)
+  assert.equal(buildCron(selected), '0 9 * * 2,3')
+  const reopened = parseCron(buildCron(selected))
+  assert.equal(reopened.frequency, 'weekly')
+  assert.deepEqual(reopened.weekdays, [2, 3])
+  assert.equal(reopened.weekdayPreset, null)
+  assert.equal(buildCron(reopened), '0 9 * * 2,3')
+})
+
+test('weekly preview includes each selected day and advances past the current run', () => {
+  const selected = { frequency: 'weekly', hour: 9, minute: 0, weekday: '1', weekdays: [2, 3], weekdayPreset: null }
+  const runs = getNextRuns(selected, 4, new Date(2026, 10, 10, 9, 0, 0))
+  assert.deepEqual(runs.map(run => [run.getMonth(), run.getDate(), run.getHours(), run.getMinutes()]), [
+    [10, 11, 9, 0], [10, 17, 9, 0], [10, 18, 9, 0], [10, 24, 9, 0],
+  ])
+})
+
+test('weekly custom days do not discard additional days when the dropdown day is included', () => {
+  const selected = { frequency: 'weekly', hour: 0, minute: 0, weekday: '1', weekdays: [1, 2], weekdayPreset: null }
+  assert.equal(buildCron(selected), '0 0 * * 1,2')
+  assert.deepEqual(parseCron(buildCron(selected)).weekdays, [1, 2])
+})
+
 test('weekday filters become a cron weekday list and survive editing', () => {
   const schedule = {
     frequency: 'daily',
