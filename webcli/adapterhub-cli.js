@@ -620,55 +620,125 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
   }
 }
 
+/** 本地 Adapter 集合（内置 ∪ 自装，重名自装优先），供 check/upgrade 比对。 */
+function collectLocalAdapters() {
+  const installedIds = localAdapterIds();
+  return [
+    ...builtinAdapterIds()
+      .filter((id) => !installedIds.includes(id))
+      .map((id) => ({ name: id, version: readBuiltinManifestVersion(id), source: "builtin" })),
+    ...installedIds.map((id) => ({ name: id, version: readLocalManifest(id)?.version || "?", source: "installed" })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * 本地集合 × Hub 目录的版本比对（check 与 upgrade 共用）。
+ * 一次拉全量列表（本地包名不进任何 URL），逐条分类：
+ * update-available / up-to-date / local-newer / delisted / placeholder / unknown。
+ */
+async function compareLocalWithHub(local) {
+  const { items: hubItems } = await listAllAdapters();
+  const hubByName = new Map(hubItems.map((item) => [String(item.name || "").toLowerCase(), item]));
+  return local.map((entry) => {
+    const hub = hubByName.get(entry.name.toLowerCase());
+    if (!hub) return { ...entry, action: "delisted" };
+    if (hub.installable === false) return { ...entry, hubVersion: hub.version, action: "placeholder" };
+    let cmp;
+    try { cmp = compareVersions(String(hub.version), String(entry.version)); }
+    catch { return { ...entry, hubVersion: hub.version, action: "unknown" }; }
+    const action = cmp > 0 ? "update-available" : cmp < 0 ? "local-newer" : "up-to-date";
+    return { ...entry, hubVersion: hub.version, action };
+  });
+}
+
+async function cmdCheck(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
+  const p = parseArgs(args, { flags: ["json"], maxPositional: 0 });
+  const local = collectLocalAdapters();
+  const results = await compareLocalWithHub(local);
+  const counts = {};
+  for (const row of results) counts[row.action] = (counts[row.action] || 0) + 1;
+  if (p.flags.has("json")) return emit({ summary: { local: local.length, ...counts }, items: results });
+  console.log(`Adapter 版本检查（本地 ${local.length} 个）：\n`);
+  for (const row of results) {
+    const sourceTag = row.source === "builtin" ? "[内置]" : "[自装]";
+    if (row.action === "update-available") {
+      const hint = row.source === "builtin" ? `install ${row.name}` : `upgrade ${row.name}`;
+      console.log(`  ↑ ${row.name.padEnd(30)} v${row.version} → v${row.hubVersion}  ${sourceTag} 可更新（${hint}）`);
+    } else if (row.action === "delisted") {
+      console.log(`  × ${row.name.padEnd(30)} v${row.version}  ${sourceTag} 已下架（保留本地）`);
+    } else if (row.action === "placeholder") {
+      console.log(`  - ${row.name.padEnd(30)} v${row.version}  ${sourceTag} 线上暂无制品`);
+    } else if (row.action === "local-newer") {
+      console.log(`  - ${row.name.padEnd(30)} v${row.version} > v${row.hubVersion}  ${sourceTag} 本地更新`);
+    } else if (row.action === "unknown") {
+      console.log(`  ? ${row.name.padEnd(30)} v${row.version}  ${sourceTag} 版本无法比较`);
+    } else {
+      console.log(`  - ${row.name.padEnd(30)} v${row.version}  ${sourceTag} 已最新`);
+    }
+  }
+  const summary = `可更新 ${counts["update-available"] || 0} · 已最新 ${counts["up-to-date"] || 0}`
+    + `${counts["local-newer"] ? ` · 本地更新 ${counts["local-newer"]}` : ""}`
+    + `${counts.delisted ? ` · 已下架 ${counts.delisted}` : ""}`
+    + `${counts.placeholder ? ` · 暂无制品 ${counts.placeholder}` : ""}`;
+  console.log(`\n${summary}`);
+}
+
 async function cmdUpgrade(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
   const p = parseArgs(args, { flags: ["all", "json"], positionalUsage: "adapter 名称或 --all", maxPositional: 1 });
   const json = p.flags.has("json");
   const target = p.positionals[0] || null;
   if (!p.flags.has("all") && !target) throw new UsageError("请指定 Adapter 或使用 --all。用法: webcli adapterhub upgrade [<目标>|--all]");
-  const installed = target ? [findLocalAdapterByTarget(target)].filter(Boolean) : localAdapterIds();
-  if (target && !installed.length) throw new Error(`本地未安装 "${target}"。`);
+  const local = collectLocalAdapters();
+  const selected = target
+    ? local.filter((entry) => entry.name === target || entry.name.toLowerCase() === target.toLowerCase())
+    : local;
+  if (target && !selected.length) throw new Error(`本地未安装 "${target}"。`);
+  const origin = { kind: "hub", service: resolveEndpoint() };
   let upToDate = 0, updated = 0, newer = 0, delisted = 0, skipped = 0;
   const plan = [];
-  for (const id of installed) {
-    const local = readLocalManifest(id);
-    if (!local) continue;
-    const origin = { kind: "hub", service: resolveEndpoint() };
-    if (local.origin?.kind !== "hub") {
-      if (target) throw new Error("This Adapter has no Hub update source; explicitly install from a Hub to change its source.");
-      plan.push({ name: id, action: "skipped-local-source" }); skipped++; continue;
+  // 一次全量比对（列表接口），仅对需要升级的条目请求详情与下载
+  for (const row of await compareLocalWithHub(selected)) {
+    if (row.action === "delisted") {
+      plan.push({ name: row.name, action: "delisted-kept" }); delisted++;
+      if (!json) console.log(`- ${row.name}: 线上已下架，保留本地版本`);
+      continue;
     }
-    // Check before requesting metadata: a changed endpoint must not learn private package names.
-    assertInstalledAdapterOrigin(id, origin);
-    let remote;
-    try {
-      remote = await getAdapter(id);
-    } catch (err) {
-      if (err.status === 404) { plan.push({ name: id, action: "delisted-kept" }); delisted++; if (!json) console.log(`- ${id}: 线上已下架，保留本地版本`); continue; }
-      throw err;
+    if (row.action === "placeholder" || row.action === "unknown") {
+      plan.push({ name: row.name, action: "skipped-placeholder" }); skipped++;
+      if (!json) console.log(`- ${row.name}: 暂无可下载制品或版本不可比，跳过`);
+      continue;
     }
-    if (remote.installable === false) { plan.push({ name: id, action: "skipped-placeholder" }); skipped++; if (!json) console.log(`- ${id}: 暂无可下载制品（官方占位），跳过`); continue; }
-    const cmp = compareVersions(remote.version, local.version);
-    if (cmp > 0) {
-      plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "upgrade" });
-      if (!json) console.log(`↑ ${id}: v${local.version} → v${remote.version}`);
+    if (row.source === "installed") {
+      const record = readLocalManifest(row.name);
+      if (record?.origin?.kind !== "hub") {
+        if (target) throw new Error("This Adapter has no Hub update source; explicitly install from a Hub to change its source.");
+        plan.push({ name: row.name, action: "skipped-local-source" }); skipped++; continue;
+      }
+      // Check before requesting metadata: a changed endpoint must not learn private package names.
+      assertInstalledAdapterOrigin(row.name, origin);
+    }
+    if (row.action === "update-available") {
+      plan.push({ name: row.name, source: row.source, localVersion: row.version, remoteVersion: row.hubVersion, action: "upgrade" });
+      if (!json) console.log(`↑ ${row.name}: v${row.version} → v${row.hubVersion}${row.source === "builtin" ? "（内置，升级为自装副本）" : ""}`);
+      const remote = await getAdapter(row.name);
       const expectedSha = String(remote.artifact?.sha256 || "").replace("sha256:", "");
-      const { buffer } = await downloadAdapter(id);
-      const { pkg } = installAdapterPackage(buffer, { name: id, version: remote.version, sha256hex: expectedSha }, {
+      const { buffer } = await downloadAdapter(row.name);
+      const { pkg } = installAdapterPackage(buffer, { name: row.name, version: row.hubVersion, sha256hex: expectedSha }, {
         origin, allowDowngrade: true, allowPermissionChange: true,
       });
       updated++;
       if (json) plan[plan.length - 1].installedAt = join(installDir(), pkg.manifest.name);
-    } else if (cmp < 0) {
-      plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "local-newer" });
-      newer++; if (!json) console.log(`- ${id}: 本地 v${local.version} 比线上 v${remote.version} 新，跳过（可用 install <name>@<version> 降级）`);
+    } else if (row.action === "local-newer") {
+      plan.push({ name: row.name, localVersion: row.version, remoteVersion: row.hubVersion, action: "local-newer" });
+      newer++; if (!json) console.log(`- ${row.name}: 本地 v${row.version} 比线上 v${row.hubVersion} 新，跳过（可用 install <name>@<version> 降级）`);
     } else {
-      plan.push({ name: id, localVersion: local.version, remoteVersion: remote.version, action: "up-to-date" });
+      plan.push({ name: row.name, localVersion: row.version, remoteVersion: row.hubVersion, action: "up-to-date" });
       upToDate++;
     }
   }
   const summary = { updated, upToDate, newer, delisted, skipped };
   if (json) return emit({ summary, plan });
-  console.log(`\n完成：${updated} 更新 · ${upToDate} 已最新${newer ? ` · ${newer} 本地更新` : ""}${delisted ? ` · ${delisted} 已下架` : ""}${skipped ? ` · ${skipped} 占位跳过` : ""}`);
+  console.log(`\n完成：${updated} 更新 · ${upToDate} 已最新${newer ? ` · ${newer} 本地更新` : ""}${delisted ? ` · ${delisted} 已下架` : ""}${skipped ? ` · ${skipped} 跳过` : ""}`);
 }
 
 async function cmdRemove(args, emit = value => console.log(JSON.stringify(value, null, 2))) {
@@ -831,7 +901,8 @@ function help() {
   search <keyword>                                    按名称、域名、用途检索
   info <adapter> [--versions]                          详情（含命令清单；--versions 版本历史）
   install <adapter>[@<version>] | <local.adapt>       安装/升级 Adapter
-  upgrade [<adapter>|--all]                            检查并升级已安装 Adapter
+  check                                                检查本地与 Hub 的版本差异（不落盘）
+  upgrade [<adapter>|--all]                            检查并升级本地 Adapter
   remove <adapter>                                     卸载 Adapter
   validate <file.adapt>                               离线校验包结构与哈希
   pack <dir> [-o <file.adapt>]                        将目录打包为 .adapt
@@ -866,6 +937,10 @@ const SUBCOMMAND_HELP = {
   安装/升级整个 Adapter（从 Hub 或本地 .adapt 包）：
   指定什么装什么（同版本幂等重装、@旧版本 可降级），
   权限变化照装并在输出中提示，装完自动热重载扩展（失败则提示手动重载）。`,
+  check: `webcli adapterhub check
+
+  连接 Hub 比对全部本地 Adapter（内置 ∪ 自装）的版本差异，只报告不落盘：
+  可更新（内置提示 install、自装提示 upgrade）/ 已最新 / 本地更新 / 已下架 / 暂无制品。`,
   upgrade: `webcli adapterhub upgrade [<adapter>|--all]
 
   检查并升级自装的 Adapter（内置随包升级；本地比线上新则跳过，
@@ -896,6 +971,7 @@ const COMMANDS = {
   list: cmdList, search: cmdFind, find: cmdFind, info: cmdInfo,
   validate: cmdValidate, pack: cmdPack,
   install: cmdInstall, upgrade: cmdUpgrade, remove: cmdRemove, uninstall: cmdRemove,
+  check: cmdCheck,
   init: cmdInit, login: cmdInit, status: cmdAuthStatus, publish: cmdPublish,
 };
 
