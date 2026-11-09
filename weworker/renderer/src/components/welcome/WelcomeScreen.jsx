@@ -16,7 +16,9 @@ import AnimatedCollapse from '../common/AnimatedCollapse.jsx'
 import { normalizeSiteScenarios, getScenarioPromptText } from '../../utils/site-scenarios.js'
 import { buildPromptFromTemplate, hasPromptTemplateVars } from '../../utils/prompt-template.js'
 import { getSiteDragId, hasSiteDragData, setSiteDragData } from '../../utils/site-drag.js'
+import { getFixedWelcomePrompts } from '../../utils/default-sites.js'
 import FeaturedSiteActions from './FeaturedSiteActions.jsx'
+import WelcomePromptShortcuts from './WelcomePromptShortcuts.jsx'
 import { ClosePanelIcon, EyeIcon, EyeOffIcon, FourSquaresIcon, ListIcon, RobotIcon, TrialChatIcon } from './WelcomeIcons.jsx'
 import { AppstoreAddOutlined, SearchOutlined } from '@ant-design/icons'
 import {
@@ -37,6 +39,7 @@ import {
   readFeaturedSquareCards,
   readFeaturedVisibleCount,
   readConversationExampleVisible,
+  scrollFeaturedSitesHorizontally,
   userPromptTemplate,
 } from './welcome-utils.js'
 import { FEATURED_GRID_COLUMN_GAP, useWelcomeResponsiveLayout } from './welcome-responsive.js'
@@ -237,7 +240,7 @@ function ScenarioPickerListItem({
   )
 }
 
-export default function WelcomeScreen({ onFillInput, children }) {
+export default function WelcomeScreen({ onFillInput }) {
   const sites = useSitesStore((s) => s.sites)
   const loadSites = useSitesStore((s) => s.load)
   const toggleSiteVisibility = useSitesStore((s) => s.toggleVisibility)
@@ -251,7 +254,6 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
   const sectionRef = useRef(null)
   const welcomeScrollRef = useRef(null)
-  const composerSeatRef = useRef(null)
   const featuredToolbarRef = useRef(null)
   const featuredSearchRef = useRef(null)
   const featuredGridRef = useRef(null)
@@ -298,33 +300,6 @@ export default function WelcomeScreen({ onFillInput, children }) {
   const bumpFeaturedGridLayout = useCallback(() => {
     setFeaturedGridLayoutEpoch((current) => current + 1)
   }, [])
-  const hasInlineComposer = Boolean(children)
-
-  useLayoutEffect(() => {
-    const scrollNode = welcomeScrollRef.current
-    if (!scrollNode || detailRow) return undefined
-    const composer = composerSeatRef.current
-    const toolbar = featuredToolbarRef.current
-    const updateStickyOffsets = () => {
-      scrollNode.style.setProperty('--welcome-viewport-height', `${scrollNode.clientHeight}px`)
-      scrollNode.style.setProperty('--welcome-composer-height', `${composer?.getBoundingClientRect().height || 0}px`)
-      scrollNode.style.setProperty('--welcome-toolbar-height', `${toolbar?.getBoundingClientRect().height || 0}px`)
-    }
-    updateStickyOffsets()
-    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateStickyOffsets) : null
-    observer?.observe(scrollNode)
-    if (composer) observer?.observe(composer)
-    if (toolbar) observer?.observe(toolbar)
-    window.addEventListener('resize', updateStickyOffsets)
-    return () => {
-      observer?.disconnect()
-      window.removeEventListener('resize', updateStickyOffsets)
-      scrollNode.style.removeProperty('--welcome-viewport-height')
-      scrollNode.style.removeProperty('--welcome-composer-height')
-      scrollNode.style.removeProperty('--welcome-toolbar-height')
-    }
-  }, [hasInlineComposer, detailRow])
-
   useEffect(() => {
     if (sites.length === 0) loadSites()
   }, [])
@@ -361,6 +336,14 @@ export default function WelcomeScreen({ onFillInput, children }) {
     observer.observe(grid)
     return () => observer.disconnect()
   }, [featuredSquareCards, bumpFeaturedGridLayout])
+
+  useEffect(() => {
+    const grid = featuredGridRef.current
+    if (!grid || !featuredSquareCards || detailRow) return undefined
+    const onWheel = (event) => scrollFeaturedSitesHorizontally(event, grid)
+    grid.addEventListener('wheel', onWheel, { passive: false })
+    return () => grid.removeEventListener('wheel', onWheel)
+  }, [featuredSquareCards, detailRow])
 
   useEffect(() => {
     window.addEventListener('resize', bumpFeaturedGridLayout)
@@ -519,8 +502,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
         FLOATING_PICKER_MARGIN,
         scrollRect?.top ?? sectionRect?.top ?? FLOATING_PICKER_MARGIN,
       )
-      // The welcome composer sits above the cards; only a bottom chat dock
-      // limits the space below a picker.
+      // Keep the picker clear of a composer or chat dock below the website strip.
       const bottomLimit = Math.min(
         window.innerHeight - FLOATING_PICKER_MARGIN,
         scrollRect?.bottom ?? window.innerHeight - FLOATING_PICKER_MARGIN,
@@ -950,7 +932,6 @@ export default function WelcomeScreen({ onFillInput, children }) {
             setDetailRow(null)
           }}
         />
-        {children}
       </div>
     )
   }
@@ -974,12 +955,13 @@ export default function WelcomeScreen({ onFillInput, children }) {
       }}
     >
       <section ref={sectionRef} className="welcome-workspace" style={welcomeSectionStyle}>
+        <div className="welcome-overview">
         <header className="welcome-introduction">
           <span className="welcome-wordmark">WeWorker <span>AI 网页助理</span></span>
           <h1>今天，我们一起完成什么？</h1>
           <p>查询信息、操作网页、整理文件，从一句话开始。</p>
         </header>
-        {children && <div ref={composerSeatRef} className="welcome-composer-seat">{children}</div>}
+        <WelcomePromptShortcuts prompts={getFixedWelcomePrompts(sites)} onSelect={onFillInput} />
 
         {showShowcase && (
         <div
@@ -1041,7 +1023,9 @@ export default function WelcomeScreen({ onFillInput, children }) {
           ) : null}
         </div>
         )}
+        </div>
 
+        <div className="welcome-featured-section">
         <div ref={featuredToolbarRef} className="welcome-featured-toolbar" style={featuredHeaderStyle}>
           <div className="welcome-featured-title-row" style={featuredHeaderTitleRowStyle}>
             <span>常用网站</span>
@@ -1130,6 +1114,16 @@ export default function WelcomeScreen({ onFillInput, children }) {
           tabIndex={0}
           className={featuredSquareCards ? 'featured-websites-grid' : 'featured-websites-list'}
           style={featuredSquareCards ? featuredSquareGridStyle : featuredGridStyle}
+          onScroll={(event) => {
+            if (event.target !== event.currentTarget) return
+            const anchorId = scenarioPickerSiteId || skillsScenariosPickerSiteId || (addPickerOpen ? ADD_FEATURED_DROP_TARGET : null)
+            const anchor = featuredLayoutRefs.current.get(anchorId)?.getBoundingClientRect()
+            const strip = event.currentTarget.getBoundingClientRect()
+            if (!anchor || (anchor.right > strip.left && anchor.left < strip.right && anchor.bottom > strip.top && anchor.top < strip.bottom)) return
+            setScenarioPickerSiteId(null)
+            setSkillsScenariosPickerSiteId(null)
+            setAddPickerOpen(false)
+          }}
         >
           {featuredSearchQuery.trim() && filteredFeaturedSites.length === 0 && (
             <div className="welcome-featured-search-empty" role="status">没有匹配的已添加站点</div>
@@ -1140,7 +1134,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
             const isPicking = scenarioPickerSiteId === site.id
             const isScenarioPickerMounted = mountedScenarioPickerSiteId === site.id
             const isScenarioPickerClosing = floatingPickerClosing && isScenarioPickerMounted
-            const showCardActions = isSelected || isPicking || skillsScenariosPickerSiteId === site.id
+            const showCardActions = isHovered || isSelected || isPicking || skillsScenariosPickerSiteId === site.id
             const isCardFocused = isSelected || isPicking || isScenarioPickerMounted || skillsScenariosPickerSiteId === site.id
             const isDropTarget = (draggingSiteId || isDraggingSiteFromPanel) && draggingSiteId !== site.id && dragOverSiteId === site.id
             const filteredScenarios = filterScenarios(scenarios, scenarioPickerQuery)
@@ -1242,7 +1236,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
                       }}
                     >
                       <span style={featuredSquareCardIconStyle} data-featured-card-icon>
-                        <SiteIcon site={site} size={34} />
+                        <SiteIcon site={site} size={20} />
                       </span>
                       <span className="featured-site-copy" data-featured-card-title>
                         <span className="featured-site-name">{featuredSiteName(site)}</span>
@@ -1250,7 +1244,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
                       </span>
                       <FeaturedSiteActions
                         {...actionProps}
-                        layout="column"
+                        layout="chip"
                         compact
                         showActions={showCardActions}
                       />
@@ -1300,7 +1294,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
                     }}
                     onClick={handleFeaturedCardClick}
                   >
-                    <span style={featuredIconStyle} data-featured-card-icon><SiteIcon site={site} size={34} /></span>
+                    <span style={featuredIconStyle} data-featured-card-icon><SiteIcon site={site} size={20} /></span>
                     <span style={featuredCopyStyle} data-featured-card-title>
                       <span className="featured-site-name">{featuredSiteName(site)}</span>
                       <span className="featured-site-summary" title={featuredSiteSummary(site, scenarios)}>{featuredSiteSummary(site, scenarios)}</span>
@@ -1527,6 +1521,7 @@ export default function WelcomeScreen({ onFillInput, children }) {
               )}
             </div>
           )}
+        </div>
         </div>
 
       </section>

@@ -120,7 +120,7 @@ describe('project persistence', () => {
     expect(fs.existsSync(task.workspace_directory!)).toBe(true)
   })
 
-  it('moves legacy scheduled task workspaces under the shared project directory', () => {
+  it('keeps legacy scheduled task projects and workspaces at their recorded locations', () => {
     const task = store.createScheduledTask({
       title: 'Legacy fixture task',
       cron_expression: '0 9 * * *',
@@ -143,13 +143,12 @@ describe('project persistence', () => {
     store.createTaskExecution(task.id, work.id)
 
     const history = store.ensureScheduledTaskHistoryProject(10)
-    const sharedDirectory = path.join(fixtureRoot, 'projects', 'scheduled-tasks')
-
     expect(history.project?.id).toBe(project.id)
-    expect(store.getProject(project.id)?.folder_path).toBe(sharedDirectory)
-    expect(store.getScheduledTask(task.id)?.workspace_directory).toBe(sharedDirectory)
-    expect(store.getWork(work.id)?.workspace_directory).toBe(sharedDirectory)
-    expect(fs.readFileSync(path.join(sharedDirectory, 'legacy-project', 'project-file.txt'), 'utf8')).toBe('preserved')
+    expect(store.getProject(project.id)?.folder_path).toBe(legacyProjectDirectory)
+    expect(store.getScheduledTask(task.id)?.workspace_directory).toBe(legacyTaskDirectory)
+    expect(store.ensureScheduledTaskWorkspace(task.id)).toBe(legacyTaskDirectory)
+    expect(store.getWork(work.id)?.workspace_directory).toBe(legacyProjectDirectory)
+    expect(fs.readFileSync(path.join(legacyProjectDirectory, 'project-file.txt'), 'utf8')).toBe('preserved')
     expect(fs.readFileSync(path.join(legacyTaskDirectory, 'task-file.txt'), 'utf8')).toBe('preserved')
   })
 
@@ -255,7 +254,7 @@ describe('project persistence', () => {
     expect(history.prunedIds).toEqual([oldest.id])
     expect(store.getWork(oldest.id)).toBeNull()
     expect(store.getWorkWithMessages(newest.id)?.project_id).toBe(project.id)
-    expect(store.getWorkWithMessages(newest.id)?.workspace_directory).toBe(path.join(fixtureRoot, 'projects', 'scheduled-tasks'))
+    expect(store.getWorkWithMessages(newest.id)?.workspace_directory).toBe(newest.workspace_directory)
     expect(store.getWorkWithMessages(newest.id)?.messages).toHaveLength(1)
     expect(store.listTaskExecutions(task.id).map((execution) => execution.work_id)).toEqual([newest.id])
     expect(() => store.renameProject(project.id, 'Other')).toThrow('定时任务项目不能重命名')
@@ -306,79 +305,5 @@ describe('project persistence', () => {
     expect(store.getWork(durable.id)).not.toBeNull()
     expect(store.getWork(newest.id)).not.toBeNull()
     expect(store.getWork(unrelated.id)).not.toBeNull()
-  })
-
-  it('moves only legacy project workspaces under user-files/projects and rewrites attachment paths', () => {
-    const project = store.createProject('Legacy project')
-    const work = store.createWork('Legacy conversation', project.id)
-    const oldDirectory = path.join(fixtureRoot, 'Legacy project')
-    const keepFile = path.join(fixtureRoot, 'ordinary-user-file.txt')
-    const originalProjectDirectory = store.getProject(project.id)!.folder_path
-    fs.writeFileSync(path.join(originalProjectDirectory, 'report.txt'), 'fixture attachment')
-    fs.writeFileSync(keepFile, 'keep in user-files')
-    store.appendMessage(work.id, 'user', [{
-      type: 'file_attachment',
-      name: 'report.txt',
-      path: path.join(oldDirectory, 'report.txt'),
-    }])
-
-    fs.renameSync(originalProjectDirectory, oldDirectory)
-    const database = store._getTestDb()
-    database.prepare('UPDATE projects SET folder_path = ? WHERE id = ?').run(oldDirectory, project.id)
-    database.prepare('UPDATE works SET workspace_directory = ? WHERE id = ?').run(oldDirectory, work.id)
-
-    store.migrateLegacyWorkspacePaths(
-      database,
-      fixtureRoot,
-      path.join(fixtureRoot, '.weworker', 'projects'),
-      path.join(fixtureRoot, 'projects'),
-    )
-    store.migrateLegacyWorkspacePaths(
-      database,
-      fixtureRoot,
-      path.join(fixtureRoot, '.weworker', 'projects'),
-      path.join(fixtureRoot, 'projects'),
-    )
-
-    const nextDirectory = path.join(fixtureRoot, 'projects', 'Legacy project')
-    expect(store.getProject(project.id)?.folder_path).toBe(nextDirectory)
-    expect(store.getWork(work.id)?.workspace_directory).toBe(nextDirectory)
-    expect(store.getWorkWithMessages(work.id)?.messages[0].content).toEqual([{
-      type: 'file_attachment',
-      name: 'report.txt',
-      path: path.join(nextDirectory, 'report.txt'),
-    }])
-    expect(fs.readFileSync(path.join(nextDirectory, 'report.txt'), 'utf8')).toBe('fixture attachment')
-    expect(fs.readFileSync(keepFile, 'utf8')).toBe('keep in user-files')
-  })
-
-  it('recovers project files from the temporary .weworker/projects root without replacing user-files', () => {
-    const project = store.createProject('Temporary root project')
-    const work = store.createWork('Legacy conversation', project.id)
-    const temporaryRoot = path.join(fixtureRoot, '.weworker', 'projects')
-    const oldDirectory = path.join(temporaryRoot, 'Temporary root project')
-    const keepFile = path.join(fixtureRoot, 'ordinary-user-file.txt')
-    fs.mkdirSync(temporaryRoot, { recursive: true })
-    const originalProjectDirectory = store.getProject(project.id)!.folder_path
-    fs.renameSync(originalProjectDirectory, oldDirectory)
-    fs.writeFileSync(path.join(oldDirectory, 'notes.txt'), 'recoverable fixture')
-    fs.writeFileSync(keepFile, 'keep in user-files')
-    store.appendMessage(work.id, 'user', [{
-      type: 'file_attachment',
-      name: 'notes.txt',
-      path: path.join(oldDirectory, 'notes.txt'),
-    }])
-    const database = store._getTestDb()
-    database.prepare('UPDATE projects SET folder_path = ? WHERE id = ?').run(oldDirectory, project.id)
-    database.prepare('UPDATE works SET workspace_directory = ? WHERE id = ?').run(oldDirectory, work.id)
-
-    store.migrateLegacyWorkspacePaths(database, fixtureRoot, temporaryRoot, path.join(fixtureRoot, 'projects'))
-
-    const nextDirectory = path.join(fixtureRoot, 'projects', 'Temporary root project')
-    expect(store.getProject(project.id)?.folder_path).toBe(nextDirectory)
-    expect(store.getWork(work.id)?.workspace_directory).toBe(nextDirectory)
-    expect(fs.readFileSync(path.join(nextDirectory, 'notes.txt'), 'utf8')).toBe('recoverable fixture')
-    expect(fs.readFileSync(keepFile, 'utf8')).toBe('keep in user-files')
-    expect(fs.existsSync(fixtureRoot)).toBe(true)
   })
 })

@@ -143,23 +143,19 @@ Adapters:
   adapter install --file <path.adapt>      安装 v2 归档（旧式 .js 仍兼容）
   adapter remove  <id>  [--reload]         移除 adapter
 
-AdapterHub:
-  adapterhub list [--origin official|user] [--installed] [--json]   列出线上 / 本地已安装 Adapter
-  adapterhub find <keyword> [--json]                   按名称、域名、用途检索
-  adapterhub info <adapter> [--json]                  查看 Adapter 详情（含推荐提示词）
-  adapterhub versions <adapter> [--json]              查看版本历史
-  adapterhub commands <adapter> [--json]              查看命令清单与参数
-  adapterhub download <adapter>[@<版本>] [-o <file>] [--json]  下载 .adapt 包
+AdapterHub（参数详情: webcli adapterhub <命令> --help）:
+  adapterhub list [--installed[=false]] [--origin …] [--sort …]  列出线上 Adapter（标记/过滤安装状态）
+  adapterhub search <keyword>                          按名称、域名、用途检索
+  adapterhub info <adapter> [--versions]             详情（含命令清单；--versions 版本历史）
+  adapterhub install <adapter>[@<version>] | <local.adapt>
+                                                       安装/升级 Adapter
+  adapterhub upgrade [<adapter>|--all]               检查并升级已安装 Adapter
+  adapterhub remove <adapter>                        卸载 Adapter
   adapterhub validate <file.adapt>                    离线校验包结构与哈希
-  adapterhub pack <目录> [-o <file.adapt>] [--json]   将目录打包为 .adapt
-  adapterhub install <adapter>[@<版本>] | <本地.adapt> [--force] [--reload] [--json]
-                                                       安装/升级整个 Adapter
-  adapterhub update [<adapter>|--all] [--force] [--dry-run] [--json]
-                                                       检查并更新已安装 Adapter
-  adapterhub installed [--json]                       列出本地已安装 Adapter
-  adapterhub remove <adapter> [--reload] [--json]     卸载 Adapter
-  adapterhub publish <目录或.adapt> [--yes] [--json]  发布/更新 Adapter（需 ADAPTERHUB_TOKEN）
-  adapterhub endpoint [--json]                        打印当前 AdapterHub 端点
+  adapterhub pack <dir> [-o <file.adapt>]            将目录打包为 .adapt
+  adapterhub init [PAT]                              安全保存发布 PAT（Windows DPAPI）
+  adapterhub status                                  查看 PAT 是否已配置
+  adapterhub publish <dir> | <file.adapt> [--yes]    发布/更新 Adapter（需 PAT）
 
 Tools:
   skills list | skills read <skill[/path]>  列出或读取随包 Skill（不安装、不执行）

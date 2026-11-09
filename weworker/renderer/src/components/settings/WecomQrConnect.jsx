@@ -3,14 +3,20 @@ import { QrcodeOutlined, LoadingOutlined } from '@ant-design/icons'
 import QRCode from 'qrcode'
 import { backendFetch } from '../../api/http.js'
 import { requestBotQr } from '../../utils/wecom-qr-request.js'
+import { WecomPairingGuide } from './WecomOwnerBinding.jsx'
 
-export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChange, disabled = false }) {
+export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChange, disabled = false, bindingConfig }) {
   const name = { wecom: '企业微信', qq: 'QQ', feishu: '飞书' }[channel]
   const [state, setState] = useState({ status: 'idle', message: '', image: '' })
+  const [guidedBotId, setGuidedBotId] = useState('')
   const runRef = useRef(null)
   const onImportRef = useRef(onImport)
   onImportRef.current = onImport
   const busy = state.status === 'loading' || state.status === 'waiting' || state.status === 'saving'
+  const showPairingGuide = channel === 'wecom' && !disabled && bindingConfig?.enabled && bindingConfig?.bot_id && bindingConfig?.has_secret
+    && ['idle', 'confirmed'].includes(state.status)
+    && (state.status === 'confirmed' || (bindingConfig.pairing_code && !bindingConfig.owner_user_id) || guidedBotId === bindingConfig.bot_id)
+  useEffect(() => { if (showPairingGuide) setGuidedBotId(bindingConfig.bot_id) }, [showPairingGuide, bindingConfig?.bot_id])
 
   const cancelRun = () => {
     const run = runRef.current
@@ -60,7 +66,7 @@ export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChan
             }
             if (runRef.current !== run) return
             cancelRun()
-            setState({ status: 'confirmed', image: '', message: '机器人已关联并保存，可切换页面。主人 ID 可通过 /myid 获取。' })
+            setState({ status: 'confirmed', image: '', message: channel === 'wecom' ? '机器人已关联并保存。请私聊机器人发送下方绑定指令，完成主人绑定。' : '机器人已关联并保存，可切换页面。主人 ID 可通过 /myid 获取。' })
           } else if (result.status === 'expired') {
             cancelRun(); setState({ status: 'expired', image: '', message: '二维码已过期，请重新获取' })
           } else if (result.status === 'error') {
@@ -84,10 +90,10 @@ export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChan
         {state.status === 'loading' ? <LoadingOutlined spin aria-hidden="true" /> : <QrcodeOutlined aria-hidden="true" />} {state.status === 'expired' || state.status === 'error' ? '重新获取二维码' : channel === 'qq' ? '扫码绑定机器人' : '扫码创建机器人'}
       </button>
       {busy && state.status !== 'saving' && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { cancelRun(); setState({ status: 'idle', message: '', image: '' }) }}>取消扫码</button>}
-      {!state.message && <span>扫码确认后自动保存并启用，也可在下方手动填写</span>}
+      {!state.message && !showPairingGuide && <span>扫码确认后自动保存并启用，也可在下方手动填写</span>}
     </div>
     {channel === 'qq' && <p>还没有机器人？<a href="https://q.qq.com/qqbot/openclaw/login.html" target="_blank" rel="noreferrer">扫码创建 QQ 机器人</a>，完成后返回这里扫码绑定。</p>}
     {state.image && <img width="200" height="200" src={state.image} alt={`${name}机器人二维码`} />}
-    {state.message && <p role="status" className={state.status === 'error' ? 'is-error' : state.status === 'confirmed' ? 'is-success' : ''}>{state.message}</p>}
+    {showPairingGuide ? <WecomPairingGuide config={bindingConfig} /> : state.message && <p role="status" className={state.status === 'error' ? 'is-error' : state.status === 'confirmed' ? 'is-success' : ''}>{state.message}</p>}
   </div>
 }

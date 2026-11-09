@@ -81,7 +81,10 @@ test('final backend bundle contains the prompt loader and all embedded prompts',
   const buildStartedAt = Date.now()
   bundleBackend({ outDir, outFile: bundlePath })
 
+  // A fresh output must not contain the retired profile configuration.
+  assert.equal(fs.existsSync(path.join(outDir, 'query-routes.json')), false)
   const bundleSource = fs.readFileSync(bundlePath, 'utf8')
+  assert.doesNotMatch(bundleSource, /profile-query-route|WEWORKER_QUERY_ROUTES_CONFIG/)
   const builtAt = Number(bundleSource.match(/SKILL_BUILD_TIME = true \? ([\d.e+]+)/)?.[1])
   assert.ok(builtAt >= buildStartedAt && builtAt <= Date.now(), 'final bundle must embed this compilation timestamp')
   assert.doesNotMatch(bundleSource, /typeof __BUILD_TIMESTAMP__/)

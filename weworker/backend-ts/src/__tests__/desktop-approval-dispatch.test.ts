@@ -23,7 +23,8 @@ function dispatchBranch(condition: string): string {
 }
 
 describe.each([
-  ['profile query', 'tryBackendProfileQueryRoute'],
+  // The legacy profile-query branch is retired; retired-profile-route.test.ts
+  // asserts it is no longer wired into server.ts.
   ['deterministic query', 'message?.trim()'],
   ['website exploration', 'exploration.dispatch'],
 ])('desktop %s dispatch', (_name, condition) => {
@@ -38,7 +39,6 @@ describe.each([
       send: vi.fn(), appendWorkLog: vi.fn(), chatLog: { info: vi.fn() }, tag: 'fixture', getSettings: () => ({}),
       finished: false, res: { off: vi.fn(), end: vi.fn() }, onClose: vi.fn(), broadcastSSE: vi.fn(),
       retryCompaction: false, workWithMessages: { messages: [] }, savedUserMessage: undefined,
-      tryBackendProfileQueryRoute: dispatch,
       tryRoutedTurn: async () => ({ handled: await dispatch() }),
       exploration: { dispatch: true, startUrl: 'https://example.com', query: 'Public query', reason: 'explicit' },
       siteGate: { reason: 'covered' }, abortController: new AbortController(),
