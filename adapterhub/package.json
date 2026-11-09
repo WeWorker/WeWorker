@@ -1,0 +1,17 @@
+{
+  "name": "adapterhub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AdapterHub — Adapter 目录与分发服务（Node 原生 http + node:sqlite，无框架）",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/*.test.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  }
+}
