@@ -955,6 +955,7 @@ export default function WelcomeScreen({ onFillInput }) {
       }}
     >
       <section ref={sectionRef} className="welcome-workspace" style={welcomeSectionStyle}>
+        <div className="welcome-overview">
         <header className="welcome-introduction">
           <span className="welcome-wordmark">WeWorker <span>AI 网页助理</span></span>
           <h1>今天，我们一起完成什么？</h1>
@@ -1022,6 +1023,7 @@ export default function WelcomeScreen({ onFillInput }) {
           ) : null}
         </div>
         )}
+        </div>
 
         <div className="welcome-featured-section">
         <div ref={featuredToolbarRef} className="welcome-featured-toolbar" style={featuredHeaderStyle}>
@@ -1117,7 +1119,7 @@ export default function WelcomeScreen({ onFillInput }) {
             const anchorId = scenarioPickerSiteId || skillsScenariosPickerSiteId || (addPickerOpen ? ADD_FEATURED_DROP_TARGET : null)
             const anchor = featuredLayoutRefs.current.get(anchorId)?.getBoundingClientRect()
             const strip = event.currentTarget.getBoundingClientRect()
-            if (!anchor || (anchor.right > strip.left && anchor.left < strip.right)) return
+            if (!anchor || (anchor.right > strip.left && anchor.left < strip.right && anchor.bottom > strip.top && anchor.top < strip.bottom)) return
             setScenarioPickerSiteId(null)
             setSkillsScenariosPickerSiteId(null)
             setAddPickerOpen(false)
