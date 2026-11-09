@@ -5,8 +5,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDb, insertBatch, queryStats, pickWhitelist, validRecord } from "../db.js";
-import { checkAuth } from "../handler.js";
+import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause, NOISE_FIRST_SEGMENTS } from "../db.js";
+import { checkAuth, dayParam, handle } from "../handler.js";
+import { isNoiseTool, NOISE_FIRST_SEGMENTS as FRONT_NOISE } from "../../officialWeb/src/lib/stats.js";
 
 function freshDb() {
   return openDb(":memory:");
@@ -263,4 +264,282 @@ test("queryStats by=err：空 err 的失败不计入", () => {
   });
   const { rows } = queryStats(db, { by: "err", since: "1d" });
   assert.equal(rows.length, 0);
+});
+
+test("queryStats by=err：空 user 失败归 (unknown)，与 by=user 口径一致", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.now(), traceID: "eu1", ok: false, ms: 10, err: "HTTP_ERROR" }),
+      rec({ ts: Date.now(), traceID: "eu2", ok: false, ms: 10, err: "HTTP_ERROR" }),
+    ],
+  });
+  const { rows } = queryStats(db, { by: "err", since: "1d" });
+  assert.equal(rows[0].users, 1); // 空用户归 (unknown) 计 1,不因 whoami 失败漏计
+});
+
+test("resolveWindow:默认 since 相对窗,无上界", () => {
+  const { start, end } = resolveWindow({ since: "7d" });
+  const expected = Date.now() - 7 * 86400000;
+  assert.ok(Math.abs(start - expected) < 1000); // 允许毫秒级时钟差
+  assert.equal(end, null);
+});
+
+test("resolveWindow:from/to 自定义窗,UTC 日界,to 含当天", () => {
+  const { start, end } = resolveWindow({ from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(start, Date.parse("2026-01-05T00:00:00Z"));
+  assert.equal(end, Date.parse("2026-01-08T00:00:00Z")); // to 次日 00:00
+});
+
+test("resolveWindow:只给 to → 下界为 since 相对窗", () => {
+  const { start, end } = resolveWindow({ since: "7d", to: "2026-01-07" });
+  assert.equal(end, Date.parse("2026-01-08T00:00:00Z"));
+  assert.ok(Math.abs(start - (Date.now() - 7 * 86400000)) < 1000);
+});
+
+test("resolveWindow:只给 from → 上界不设", () => {
+  const { start, end } = resolveWindow({ from: "2026-01-05" });
+  assert.equal(start, Date.parse("2026-01-05T00:00:00Z"));
+  assert.equal(end, null);
+});
+
+test("queryStats:噪音工具(flag 误用 / 名单首段含 wecli)不计入", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: now, traceID: "n1", tool: "-flag.misuse", domain: "-flag" }),
+      rec({ ts: now, traceID: "n2", tool: "skill.list", domain: "skill" }),
+      rec({ ts: now, traceID: "n3", tool: "wecli.mgmt.call", domain: "wecli.mgmt" }),
+      rec({ ts: now, traceID: "ok1", tool: "mail.163.com.get", domain: "mail.163.com" }),
+    ],
+  });
+  const { rows } = queryStats(db, { by: "domain", since: "1d" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].key, "mail.163.com");
+});
+
+test("noiseExcludeClause:由 NOISE_FIRST_SEGMENTS 生成,含 wecli 与 flag 排除", () => {
+  const clause = noiseExcludeClause();
+  assert.ok(clause.includes("'wecli'"));
+  assert.ok(clause.includes("NOT LIKE '-%'"));
+});
+
+test("queryStats by=domain:from/to 按 UTC 日界过滤", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "w1" }),
+      rec({ ts: Date.parse("2026-01-06T10:00:00Z"), traceID: "w2" }),
+      rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "w3" }), // to 外
+    ],
+  });
+  const { totalCalls } = queryStats(db, { by: "domain", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(totalCalls, 2);
+});
+
+test("queryStats by=err:from/to 生效", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "f1", ok: false, ms: 100, err: "HTTP_ERROR" }),
+      rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "f2", ok: false, ms: 100, err: "HTTP_ERROR" }),
+    ],
+  });
+  const { totalFailed } = queryStats(db, { by: "err", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(totalFailed, 1);
+});
+
+test("queryStats by=user:from/to 生效", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "v1" })],
+  });
+  insertBatch(db, {
+    clientId: "c2", user: "u2",
+    batch: [rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "v2" })],
+  });
+  const { rows } = queryStats(db, { by: "user", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].user, "u1");
+});
+
+test("queryVisits:from/to 生效", () => {
+  const db = freshDb();
+  insertVisit(db, { ip: "10.0.0.1", ts: Date.parse("2026-01-05T10:00:00Z") });
+  insertVisit(db, { ip: "10.0.0.2", ts: Date.parse("2026-01-09T10:00:00Z") });
+  const { totalPv, totalUv } = queryVisits(db, { since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(totalPv, 1);
+  assert.equal(totalUv, 1);
+});
+
+test("queryStats by=active:逐日 DAU(按 UTC 天,空 user 归 unknown)", () => {
+  const db = freshDb();
+  const d = (day, h = "10") => Date.parse(`${day}T${h}:00:00Z`);
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [rec({ ts: d("2026-01-05"), traceID: "a1" }), rec({ ts: d("2026-01-05", "15"), traceID: "a2" })],
+  }); // 同一天 u1 两次 → dau 1
+  insertBatch(db, { clientId: "c2", user: "u2", batch: [rec({ ts: d("2026-01-05"), traceID: "a3" })] });
+  insertBatch(db, { clientId: "c3", user: "u3", batch: [rec({ ts: d("2026-01-06"), traceID: "a4" })] });
+  insertBatch(db, { clientId: "c4", batch: [rec({ ts: d("2026-01-06"), traceID: "a5" })] }); // 无 user → (unknown)
+
+  const { rows } = queryStats(db, { by: "active", since: "30d", from: "2026-01-01", to: "2026-01-07" });
+  assert.deepEqual(rows, [
+    { day: "2026-01-05", dau: 2 }, // u1 + u2
+    { day: "2026-01-06", dau: 2 }, // u3 + (unknown)
+  ]);
+});
+
+test("queryStats by=active:MAU 固定近30天,不随窗口漂移", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, { clientId: "c1", user: "recent1", batch: [rec({ ts: now - 86400000, traceID: "m1" })] });
+  insertBatch(db, { clientId: "c2", user: "recent2", batch: [rec({ ts: now - 2 * 86400000, traceID: "m2" })] });
+  // 31 天前的用户不算 MAU
+  insertBatch(db, { clientId: "c3", user: "stale", batch: [rec({ ts: now - 31 * 86400000, traceID: "m3" })] });
+
+  const { mau } = queryStats(db, { by: "active", since: "1d" });
+  assert.equal(mau, 2);
+});
+
+test("queryStats by=active:kind 过滤与噪音排除生效", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: now, traceID: "b1" }),
+      rec({ ts: now, traceID: "b2", tool: "open_browser", domain: "open_browser", kind: "builtin" }),
+      rec({ ts: now, traceID: "b3", tool: "skill.list", domain: "skill" }),
+    ],
+  });
+  const { rows, mau } = queryStats(db, { by: "active", since: "1d", kind: "adapter" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dau, 1);
+  assert.equal(mau, 1);
+});
+
+test("queryStats kind+from/to 组合:占位符顺序端到端钉死", () => {
+  // P2 审查指出:kind 与 windowSql 组合的占位符顺序靠人工约定,错位时 SQLite 静默出错数据。
+  // 本用例把 [start, end, kind] 的绑定顺序在聚合层钉死。
+  const db = freshDb();
+  const d = (day, h = "10") => Date.parse(`${day}T${h}:00:00Z`);
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: d("2026-01-05"), traceID: "k1" }),                              // 窗内 adapter → 计入
+      rec({ ts: d("2026-01-05"), traceID: "k2", tool: "open_browser", domain: "open_browser", kind: "builtin" }), // 窗内 builtin → kind 过滤掉
+      rec({ ts: d("2026-01-20"), traceID: "k3" }),                              // 窗外 adapter → 时间过滤掉
+    ],
+  });
+  const { rows, totalCalls } = queryStats(db, { by: "domain", since: "30d", from: "2026-01-01", to: "2026-01-07", kind: "adapter" });
+  assert.equal(totalCalls, 1);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].key, "tickets.example.com");
+  assert.equal(rows[0].topTool, "tickets.example.com.search_tickets");
+});
+
+test("dayParam:合法日期返回原值,未提供返回 null,非法抛 code=400", () => {
+  const ok = new URL("http://x/v1/stats?from=2026-01-05&to=2026-02-01");
+  assert.equal(dayParam(ok, "from"), "2026-01-05");
+  assert.equal(dayParam(ok, "to"), "2026-02-01");
+  assert.equal(dayParam(new URL("http://x/v1/stats"), "from"), null);
+  assert.throws(() => dayParam(new URL("http://x/v1/stats?from=20260105"), "from"), (e) => e.code === 400);
+  assert.throws(() => dayParam(new URL("http://x/v1/stats?from=2026-13-99"), "from"), (e) => e.code === 400);
+  // V8 对日在当月长度之外的 ISO 串是 rollover 而非 NaN(2026-02-30 → 3月2日),回读校验须拒绝
+  assert.throws(() => dayParam(new URL("http://x/v1/stats?from=2026-02-30"), "from"), (e) => e.code === 400);
+});
+
+/** handle() 的内存 stub:返回 {status, body}。 */
+function captureHandle(method, url, db) {
+  return new Promise((resolve) => {
+    const req = { method, url, headers: {} };
+    const res = {
+      status: 0,
+      writeHead(s) { this.status = s; },
+      end(body) { resolve({ status: this.status, body: JSON.parse(body) }); },
+    };
+    handle(req, res, { db, token: "" });
+  });
+}
+
+test("handle:GET /v1/stats 非法 from → 400", async () => {
+  const db = freshDb();
+  const res = await captureHandle("GET", "/v1/stats?from=bad", db);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /invalid from/);
+});
+
+test("handle:GET /v1/stats?by=active 返回 rows+mau", async () => {
+  const db = freshDb();
+  insertBatch(db, { clientId: "c1", user: "u1", batch: [rec({ traceID: "h1" })] });
+  const res = await captureHandle("GET", "/v1/stats?by=active&since=1d", db);
+  assert.equal(res.status, 200);
+  assert.equal(Array.isArray(res.body.rows), true);
+  assert.equal(typeof res.body.mau, "number");
+  assert.equal(res.body.mau, 1);
+});
+
+test("handle:GET /v1/stats 非法 to → 400", async () => {
+  const db = freshDb();
+  const res = await captureHandle("GET", "/v1/stats?to=bad", db);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /invalid to/);
+});
+
+test("handle:GET /v1/visits from/to 透传", async () => {
+  const db = freshDb();
+  insertVisit(db, { ip: "10.0.0.1", ts: Date.parse("2026-01-05T10:00:00Z") });
+  const res = await captureHandle("GET", "/v1/visits?from=2026-01-05&to=2026-01-06", db);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.totalPv, 1);
+});
+
+test("handle:GET /v1/visits 非法 from → 400", async () => {
+  const db = freshDb();
+  const res = await captureHandle("GET", "/v1/visits?from=bad", db);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /invalid from/);
+});
+
+test("queryStats by=active:kind+from/to 组合占位符钉死", () => {
+  // P3 审查遗留:queryActiveUsers 自建 [start, end, kind] 顺序,该组合此前只钉了 by=domain 路径。
+  const db = freshDb();
+  const d = (day, h = "10") => Date.parse(`${day}T${h}:00:00Z`);
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: d("2026-01-05"), traceID: "ac1" }),                                                            // 窗内 adapter → 计 DAU
+      rec({ ts: d("2026-01-05"), traceID: "ac2", tool: "open_browser", domain: "open_browser", kind: "builtin" }), // 窗内 builtin → kind 滤掉
+      rec({ ts: d("2026-01-20"), traceID: "ac3" }),                                                            // 窗外 adapter → 时间滤掉
+      rec({ traceID: "ac4" }),                                                                                  // 近30天(默认 ts=now)→ 计 MAU;在 from/to 窗外 → 不计 DAU
+    ],
+  });
+  const { rows, mau } = queryStats(db, { by: "active", since: "30d", from: "2026-01-01", to: "2026-01-07", kind: "adapter" });
+  assert.deepEqual(rows, [{ day: "2026-01-05", dau: 1 }]);
+  // MAU 与窗口解耦:u1 在近30天 → 1(即使 from/to 窗口是 1 月)
+  assert.equal(mau, 1);
+});
+
+test("officialWeb isNoiseTool 与 server NOISE_FIRST_SEGMENTS 无漂移", () => {
+  for (const s of NOISE_FIRST_SEGMENTS) {
+    assert.equal(isNoiseTool(s), true, `名单项 ${s}(无点)应被 isNoiseTool 排除`);
+    assert.equal(isNoiseTool(`${s}.x`), true, `名单项 ${s}(首段)应被 isNoiseTool 排除`);
+  }
+  // 反向:非名单相似名不应误判
+  assert.equal(isNoiseTool("skillx.foo.bar"), false);
+  assert.equal(isNoiseTool("mail.163.com.get"), false);
+  assert.equal(isNoiseTool("tickets.example.com.search_tickets"), false);
+});
+
+test("officialWeb NOISE_FIRST_SEGMENTS 与 server 名单双向一致", () => {
+  // 正向(上测)防 server 多、前端漏;本测防前端多、server 漏——前端私自加名会
+  // 静默隐藏合法调用,双向 deepEqual 把两侧名单钉成一体。
+  assert.deepEqual([...NOISE_FIRST_SEGMENTS].sort(), [...FRONT_NOISE].sort());
 });
