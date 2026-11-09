@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause } from "../db.js";
-import { checkAuth } from "../handler.js";
+import { checkAuth, dayParam, handle } from "../handler.js";
 
 function freshDb() {
   return openDb(":memory:");
@@ -429,4 +429,72 @@ test("queryStats kind+from/to 组合:占位符顺序端到端钉死", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].key, "tickets.example.com");
   assert.equal(rows[0].topTool, "tickets.example.com.search_tickets");
+});
+
+test("dayParam:合法日期返回原值,未提供返回 null,非法抛 code=400", () => {
+  const ok = new URL("http://x/v1/stats?from=2026-01-05&to=2026-02-01");
+  assert.equal(dayParam(ok, "from"), "2026-01-05");
+  assert.equal(dayParam(ok, "to"), "2026-02-01");
+  assert.equal(dayParam(new URL("http://x/v1/stats"), "from"), null);
+  assert.throws(() => dayParam(new URL("http://x/v1/stats?from=20260105"), "from"), (e) => e.code === 400);
+  assert.throws(() => dayParam(new URL("http://x/v1/stats?from=2026-13-99"), "from"), (e) => e.code === 400);
+  // V8 对日在当月长度之外的 ISO 串是 rollover 而非 NaN(2026-02-30 → 3月2日),回读校验须拒绝
+  assert.throws(() => dayParam(new URL("http://x/v1/stats?from=2026-02-30"), "from"), (e) => e.code === 400);
+});
+
+/** handle() 的内存 stub:返回 {status, body}。 */
+function captureHandle(method, url, db) {
+  return new Promise((resolve) => {
+    const req = { method, url, headers: {} };
+    const res = {
+      status: 0,
+      writeHead(s) { this.status = s; },
+      end(body) { resolve({ status: this.status, body: JSON.parse(body) }); },
+    };
+    handle(req, res, { db, token: "" });
+  });
+}
+
+test("handle:GET /v1/stats 非法 from → 400", async () => {
+  const db = freshDb();
+  const res = await captureHandle("GET", "/v1/stats?from=bad", db);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /invalid from/);
+});
+
+test("handle:GET /v1/stats?by=active 返回 rows+mau", async () => {
+  const db = freshDb();
+  insertBatch(db, { clientId: "c1", user: "u1", batch: [rec({ traceID: "h1" })] });
+  const res = await captureHandle("GET", "/v1/stats?by=active&since=1d", db);
+  assert.equal(res.status, 200);
+  assert.equal(Array.isArray(res.body.rows), true);
+  assert.equal(typeof res.body.mau, "number");
+  assert.equal(res.body.mau, 1);
+});
+
+test("handle:GET /v1/visits from/to 透传", async () => {
+  const db = freshDb();
+  insertVisit(db, { ip: "10.0.0.1", ts: Date.parse("2026-01-05T10:00:00Z") });
+  const res = await captureHandle("GET", "/v1/visits?from=2026-01-05&to=2026-01-06", db);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.totalPv, 1);
+});
+
+test("queryStats by=active:kind+from/to 组合占位符钉死", () => {
+  // P3 审查遗留:queryActiveUsers 自建 [start, end, kind] 顺序,该组合此前只钉了 by=domain 路径。
+  const db = freshDb();
+  const d = (day, h = "10") => Date.parse(`${day}T${h}:00:00Z`);
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: d("2026-01-05"), traceID: "ac1" }),                                                            // 窗内 adapter → 计 DAU
+      rec({ ts: d("2026-01-05"), traceID: "ac2", tool: "open_browser", domain: "open_browser", kind: "builtin" }), // 窗内 builtin → kind 滤掉
+      rec({ ts: d("2026-01-20"), traceID: "ac3" }),                                                            // 窗外 adapter → 时间滤掉
+      rec({ traceID: "ac4" }),                                                                                  // 近30天(默认 ts=now)→ 计 MAU;在 from/to 窗外 → 不计 DAU
+    ],
+  });
+  const { rows, mau } = queryStats(db, { by: "active", since: "30d", from: "2026-01-01", to: "2026-01-07", kind: "adapter" });
+  assert.deepEqual(rows, [{ day: "2026-01-05", dau: 1 }]);
+  // MAU 与窗口解耦:u1 在近30天 → 1(即使 from/to 窗口是 1 月)
+  assert.equal(mau, 1);
 });

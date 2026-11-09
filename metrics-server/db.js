@@ -322,7 +322,7 @@ function queryActiveUsers(db, { since = "30d", from = null, to = null, kind = nu
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
 
-  // node:sqlite 返回 null 原型行对象,这里归一为普通对象,保证 rows 形状即文档所载 {day, dau}
+  // 归一为普通对象:测试用 assert/strict deepEqual 断言整个数组,对 null 原型行敏感
   const rows = db
     .prepare(
       `SELECT date(ts / 1000, 'unixepoch') AS day,
@@ -337,7 +337,7 @@ function queryActiveUsers(db, { since = "30d", from = null, to = null, kind = nu
 
   // MAU 固定近 30 天窗口,与 DAU 查询窗解耦(独立 params,不共享绑定参数)
   const mauParams = [];
-  const mauWhere = windowSql(Date.now() - 30 * 86400000, null, mauParams);
+  const mauWhere = windowSql(Date.now() - parseDuration("30d"), null, mauParams);
   let mauKind = "";
   if (kind) { mauKind = "AND kind = ?"; mauParams.push(kind); }
   const mau = db

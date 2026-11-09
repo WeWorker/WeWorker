@@ -3,14 +3,34 @@
  *
  * 路由：
  *   POST /v1/metrics/batch   接收上报（鉴权 + 限尺 + 校验 + 脱敏 + 幂等落库）
- *   GET  /v1/stats           聚合查询
+ *   GET  /v1/stats           聚合查询（by=domain|tool|err|user|route|active）
+ *   GET  /v1/visits          站点访问 PV/UV
  *   GET  /v1/healthz         健康检查
+ *   stats/visits 均支持 from/to=YYYY-MM-DD（UTC 日界）自定义窗，非法值 → 400
  */
 
 import { insertBatch, queryStats, insertVisit, queryVisits } from "./db.js";
 
 const MAX_BODY_BYTES = 1 << 20; // 1MB
 const MAX_BATCH = 500;
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 解析 YYYY-MM-DD 日期查询参数(UTC 日界)。
+ * 未提供返回 null;格式非法抛 {code:400},由路由层转 400 响应。
+ */
+export function dayParam(url, name) {
+  const v = url.searchParams.get(name);
+  if (v == null || v === "") return null;
+  // V8 对「日在当月长度之外」的 ISO 串(如 2026-02-30)是 rollover 成 3 月 2 日而非 NaN,
+  // 除正则与 Date.parse 有限性外,还回读 toISOString 校验该日历日真实存在。
+  const ts = Date.parse(`${v}T00:00:00Z`);
+  if (!DAY_RE.test(v) || !Number.isFinite(ts) || new Date(ts).toISOString().slice(0, 10) !== v) {
+    throw Object.assign(new Error(`invalid ${name}, expect YYYY-MM-DD`), { code: 400 });
+  }
+  return v;
+}
 
 /** 校验 Bearer token。未配置 token（空）时视为开放（仅建议内网/测试用） */
 export function checkAuth(req, token) {
@@ -83,13 +103,21 @@ export async function handle(req, res, ctx) {
     if (!checkAuth(req, ctx.token)) return send(res, 401, { error: "unauthorized" });
     const byRaw = url.searchParams.get("by");
     const by =
-      byRaw === "tool" ? "tool" : byRaw === "err" ? "err" : byRaw === "user" ? "user" : byRaw === "route" ? "route" : "domain";
+      byRaw === "tool" ? "tool" : byRaw === "err" ? "err" : byRaw === "user" ? "user" : byRaw === "route" ? "route" : byRaw === "active" ? "active" : "domain";
     const since = url.searchParams.get("since") || "30d";
     const kind = url.searchParams.get("kind") || null;
     const topRaw = url.searchParams.get("top");
     const top = topRaw ? parseInt(topRaw, 10) : null;
+    let from;
+    let to;
     try {
-      const data = queryStats(ctx.db, { by, since, kind, top });
+      from = dayParam(url, "from");
+      to = dayParam(url, "to");
+    } catch (e) {
+      return send(res, e.code || 400, { error: e.message });
+    }
+    try {
+      const data = queryStats(ctx.db, { by, since, from, to, kind, top });
       return send(res, 200, data);
     } catch (e) {
       return send(res, 500, { error: "query failed" });
@@ -126,8 +154,16 @@ export async function handle(req, res, ctx) {
   if (route === "GET /v1/visits") {
     if (!checkAuth(req, ctx.token)) return send(res, 401, { error: "unauthorized" });
     const since = url.searchParams.get("since") || "30d";
+    let from;
+    let to;
     try {
-      const data = queryVisits(ctx.db, { since });
+      from = dayParam(url, "from");
+      to = dayParam(url, "to");
+    } catch (e) {
+      return send(res, e.code || 400, { error: e.message });
+    }
+    try {
+      const data = queryVisits(ctx.db, { since, from, to });
       return send(res, 200, data);
     } catch (e) {
       return send(res, 500, { error: "visits query failed" });
