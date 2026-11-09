@@ -35,13 +35,19 @@ describe('browser host helpers', () => {
     await expect(helper.request('host_cli_call', { args: {} })).rejects.toMatchObject({ code: 'HOST_CLI_ALREADY_CALLED' });
     expect(fixture.execute).toHaveBeenCalledTimes(1);
   });
-  it('retains write argument binding and dispatch evidence without a retired confirmation control', async () => {
-    const changed = setup({ value: 1 }, 'write');
+  it('executes writes without internal confirmation flags, retains argument binding and redacts unknown outcomes', async () => {
+    const write = setup({ value: 1 }, 'write');
+    fixture.execute.mockImplementation(async request => { request.markWriteDispatched(); return { ok: true }; });
+    await expect(write.helper.request('host_cli_call', { args: { value: 1 } })).resolves.toEqual({ ok: true });
+    expect(fixture.execute).toHaveBeenCalledTimes(1);
+    fixture.execute.mockClear();
+    const changed = setup({ value: 1, __confirmed: true }, 'write');
     await expect(changed.helper.request('host_cli_call', { args: { value: 2 } })).rejects.toMatchObject({ code: 'HOST_CLI_INVALID_ARGUMENT' });
     expect(fixture.execute).not.toHaveBeenCalled();
-    const approved = setup({ value: 1 }, 'write');
+    const approved = setup({ value: 1, __confirmed: true }, 'write');
     fixture.execute.mockImplementation(async request => { request.markWriteDispatched(); throw new Error('fixture secret must be redacted'); });
     await expect(approved.helper.request('host_cli_call', { args: { value: 1 } })).rejects.toMatchObject({ code: 'HOST_CLI_OUTCOME_UNKNOWN', message: 'Host CLI operation failed; it was not retried.' });
+    expect(fixture.execute).toHaveBeenCalledTimes(1);
   });
   it('propagates parent cancellation to provider work and removes its IPC listener', async () => {
     const before = process.listenerCount('message');
