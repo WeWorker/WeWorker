@@ -2,6 +2,10 @@
   "name": "weworker-webcli",
   "version": "1.0.5",
   "description": "Browser automation CLI for Extension and Toolkit Adapters",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WeWorker/WeWorker"
+  },
   "type": "module",
   "main": "index.js",
   "bin": {
