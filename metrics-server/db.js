@@ -74,26 +74,28 @@ export function insertVisit(db, { day, ip, path, ua, ts } = {}) {
  * - PV = 每天访问次数（COUNT(*)）
  * - UV = 每天独立访客数（COUNT(DISTINCT ip)）
  * @param {DatabaseSync} db
- * @param {{since?:string}} opts  since: 1d/7d/30d
+ * @param {{since?:string, from?:string|null, to?:string|null}} opts  since: 1d/7d/30d;from/to:YYYY-MM-DD(UTC 日界)
  * @returns {{rows:Array<{day:string, pv:number, uv:number}>, totalPv:number, totalUv:number}}
  */
-export function queryVisits(db, { since = "30d" } = {}) {
-  const cutoff = Date.now() - parseDuration(since);
+export function queryVisits(db, { since = "30d", from = null, to = null } = {}) {
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
   const rows = db
     .prepare(
       `SELECT day,
               COUNT(*) AS pv,
               COUNT(DISTINCT ip) AS uv
        FROM visits
-       WHERE ts >= ?
+       WHERE ${where}
        GROUP BY day
        ORDER BY day ASC`
     )
-    .all(cutoff);
+    .all(...params);
   const totalPv = rows.reduce((s, r) => s + r.pv, 0);
   const totalUv = db
-    .prepare(`SELECT COUNT(DISTINCT ip) AS uv FROM visits WHERE ts >= ? AND ip IS NOT NULL`)
-    .get(cutoff).uv;
+    .prepare(`SELECT COUNT(DISTINCT ip) AS uv FROM visits WHERE ${where} AND ip IS NOT NULL`)
+    .get(...params).uv;
   return { rows, totalPv, totalUv: totalUv || 0 };
 }
 
@@ -166,7 +168,7 @@ export function insertBatch(db, body) {
  * 聚合查询。返回与客户端 stats.aggregate 同构的 rows。
  * SQLite 无原生 percentile，用 NTILE 窗口近似 p50/p95。
  * @param {DatabaseSync} db
- * @param {{by?:string, since?:string, kind?:string, top?:number}} opts
+ * @param {{by?:string, since?:string, from?:string|null, to?:string|null, kind?:string, top?:number}} opts
  *   - by="user"：按用户聚合，返回 user×domain 二维分布（扁平 rows [{user,domain,calls}]）
  */
 // 非 adapter 的噪音工具首段（CLI 管理命令 / 误解析名）。与 webcli/metrics.js
@@ -185,18 +187,19 @@ export function noiseExcludeClause() {
   return ` AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN (${domains})`;
 }
 
-export function queryStats(db, { by = "domain", since = "30d", kind = null, top = null } = {}) {
+export function queryStats(db, { by = "domain", since = "30d", from = null, to = null, kind = null, top = null } = {}) {
   // 按用户聚合：user × domain 二维分布，结构不同于单维聚合，单独处理
   // 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组
-  if (by === "err") return queryByErr(db, { since, top });
-  if (by === "user") return queryByUser(db, { since, kind, top });
+  if (by === "err") return queryByErr(db, { since, from, to, top });
+  if (by === "user") return queryByUser(db, { since, from, to, kind, top });
 
-  // 路由决策埋点：route_* 事件聚合（命中率 + 分 kind 延迟），结构不同于单维聚合
-  if (by === "route") return queryRouteStats(db, { since });
+  // 路由决策埋点：route_* 事件聚合,结构不同于单维聚合
+  if (by === "route") return queryRouteStats(db, { since, from, to });
 
   const col = by === "tool" ? "tool" : "domain";
-  const cutoff = Date.now() - parseDuration(since);
-  const params = [cutoff];
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
 
@@ -207,7 +210,8 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
               SUM(ok) AS oks,
               CAST(AVG(ms) AS INTEGER) AS avg_ms
        FROM metrics
-       WHERE ts >= ? ${kindClause}${noiseExcludeClause()}
+       WHERE ${where} ${kindClause}
+         ${noiseExcludeClause()}
        GROUP BY ${col}
        ORDER BY calls DESC`
     )
@@ -215,8 +219,8 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
 
   // 百分位：对每个 key 单独取 ms 序列算（数据量不大时简单可靠）
   const result = rows.map((r) => {
-    const p = percentilesFor(db, col, r.key, cutoff, kind);
-    const topTool = topToolFor(db, col, r.key, cutoff, kind);
+    const p = percentilesFor(db, col, r.key, start, end, kind);
+    const topTool = topToolFor(db, col, r.key, start, end, kind);
     return {
       key: r.key,
       calls: r.calls,
@@ -237,10 +241,12 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
  * 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组。
  * 返回 [{ err, calls, tools, users, sampleTool }]，按 calls 倒序。
  * @param {DatabaseSync} db
- * @param {{since?:string, top?:number}} opts
+ * @param {{since?:string, from?:string|null, to?:string|null, top?:number}} opts
  */
-function queryByErr(db, { since = "30d", top = null } = {}) {
-  const cutoff = Date.now() - parseDuration(since);
+function queryByErr(db, { since = "30d", from = null, to = null, top = null } = {}) {
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
   const rows = db
     .prepare(
       `SELECT err,
@@ -249,12 +255,12 @@ function queryByErr(db, { since = "30d", top = null } = {}) {
               COUNT(DISTINCT user)                            AS users,
               MIN(tool)                                       AS sampleTool
        FROM metrics
-       WHERE ts >= ? AND ok = 0${noiseExcludeClause()}
+       WHERE ${where} AND ok = 0${noiseExcludeClause()}
          AND err IS NOT NULL AND err != ''
        GROUP BY err
        ORDER BY calls DESC`
     )
-    .all(cutoff);
+    .all(...params);
   const sliced = top ? rows.slice(0, top) : rows;
   const totalFailed = rows.reduce((s, r) => s + r.calls, 0);
   return { rows: sliced, totalFailed };
@@ -265,11 +271,12 @@ function queryByErr(db, { since = "30d", top = null } = {}) {
  *   [{ user, domain, calls }]，按 user、calls 倒序排列。
  * 调用方可前端再按 user 分组：user → [{domain, calls}]
  * @param {DatabaseSync} db
- * @param {{since?:string, kind?:string, top?:number}} opts
+ * @param {{since?:string, from?:string|null, to?:string|null, kind?:string, top?:number}} opts
  */
-function queryByUser(db, { since = "30d", kind = null, top = null } = {}) {
-  const cutoff = Date.now() - parseDuration(since);
-  const params = [cutoff];
+function queryByUser(db, { since = "30d", from = null, to = null, kind = null, top = null } = {}) {
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
 
@@ -279,7 +286,7 @@ function queryByUser(db, { since = "30d", kind = null, top = null } = {}) {
     .prepare(
       `SELECT COALESCE(NULLIF(user, ''), '(unknown)') AS user, domain, COUNT(*) AS calls
        FROM metrics
-       WHERE ts >= ? ${kindClause}${noiseExcludeClause()}
+       WHERE ${where} ${kindClause} ${noiseExcludeClause()}
        GROUP BY COALESCE(NULLIF(user, ''), '(unknown)'), domain
        ORDER BY user, calls DESC`
     )
@@ -305,20 +312,24 @@ function queryByUser(db, { since = "30d", kind = null, top = null } = {}) {
  * 外加总命中率（route_hit.* / 全部 route_*）。kind 形如 route_hit.alias/override/llm、
  * route_miss、route_fallback.auth/missing_arg。结构独立于单维聚合。
  */
-function queryRouteStats(db, { since = "30d" } = {}) {
-  const cutoff = Date.now() - parseDuration(since);
+function queryRouteStats(db, { since = "30d", from = null, to = null } = {}) {
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
   const rows = db
     .prepare(
       `SELECT kind, COUNT(*) AS calls, CAST(AVG(ms) AS INTEGER) AS avg_ms
-       FROM metrics WHERE ts >= ? AND kind LIKE 'route_%'
+       FROM metrics WHERE ${where} AND kind LIKE 'route_%'
        GROUP BY kind ORDER BY calls DESC`
     )
-    .all(cutoff);
+    .all(...params);
 
   const byKind = rows.map((r) => {
+    const p = [r.kind];
+    const kindWhere = windowSql(start, end, p);
     const times = db
-      .prepare(`SELECT ms FROM metrics WHERE kind = ? AND ts >= ? AND ms IS NOT NULL ORDER BY ms`)
-      .all(r.kind, cutoff)
+      .prepare(`SELECT ms FROM metrics WHERE kind = ? AND ${kindWhere} AND ms IS NOT NULL ORDER BY ms`)
+      .all(...p)
       .map((x) => x.ms);
     return { kind: r.kind, calls: r.calls, p50: percentile(times, 50), p95: percentile(times, 95) };
   });
@@ -331,25 +342,27 @@ function queryRouteStats(db, { since = "30d" } = {}) {
   return { total, hitRate, byKind };
 }
 
-function percentilesFor(db, col, key, cutoff, kind) {
-  const params = [key, cutoff];
+function percentilesFor(db, col, key, start, end, kind) {
+  const params = [key];
+  const where = windowSql(start, end, params);
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
   const times = db
-    .prepare(`SELECT ms FROM metrics WHERE ${col} = ? AND ts >= ? ${kindClause} AND ms IS NOT NULL ORDER BY ms`)
+    .prepare(`SELECT ms FROM metrics WHERE ${col} = ? AND ${where} ${kindClause} AND ms IS NOT NULL ORDER BY ms`)
     .all(...params)
     .map((r) => r.ms);
   return { p50: percentile(times, 50), p95: percentile(times, 95) };
 }
 
-function topToolFor(db, col, key, cutoff, kind) {
-  const params = [key, cutoff];
+function topToolFor(db, col, key, start, end, kind) {
+  const params = [key];
+  const where = windowSql(start, end, params);
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
   const row = db
     .prepare(
       `SELECT tool, COUNT(*) AS calls FROM metrics
-       WHERE ${col} = ? AND ts >= ? ${kindClause}
+       WHERE ${col} = ? AND ${where} ${kindClause}
        GROUP BY tool ORDER BY calls DESC LIMIT 1`
     )
     .get(...params);
@@ -373,6 +386,16 @@ export function resolveWindow({ since = "30d", from = null, to = null } = {}) {
   const start = from ? Date.parse(`${from}T00:00:00Z`) : Date.now() - parseDuration(since);
   const end = to ? Date.parse(`${to}T00:00:00Z`) + 86400000 : null;
   return { start, end };
+}
+
+/** 时间窗 WHERE 片段：`ts >= ? [AND ts < ?]`，参数按序 push 进 params。 */
+function windowSql(start, end, params) {
+  params.push(start);
+  if (end != null) {
+    params.push(end);
+    return "ts >= ? AND ts < ?";
+  }
+  return "ts >= ?";
 }
 
 export function parseDuration(str) {

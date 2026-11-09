@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDb, insertBatch, queryStats, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause } from "../db.js";
+import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause } from "../db.js";
 import { checkAuth } from "../handler.js";
 
 function freshDb() {
@@ -311,4 +311,55 @@ test("noiseExcludeClause:由 NOISE_FIRST_SEGMENTS 生成,含 wecli 与 flag 排�
   const clause = noiseExcludeClause();
   assert.ok(clause.includes("'wecli'"));
   assert.ok(clause.includes("NOT LIKE '-%'"));
+});
+
+test("queryStats by=domain:from/to 按 UTC 日界过滤", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "w1" }),
+      rec({ ts: Date.parse("2026-01-06T10:00:00Z"), traceID: "w2" }),
+      rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "w3" }), // to 外
+    ],
+  });
+  const { totalCalls } = queryStats(db, { by: "domain", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(totalCalls, 2);
+});
+
+test("queryStats by=err:from/to 生效", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "f1", ok: false, ms: 100, err: "HTTP_ERROR" }),
+      rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "f2", ok: false, ms: 100, err: "HTTP_ERROR" }),
+    ],
+  });
+  const { totalFailed } = queryStats(db, { by: "err", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(totalFailed, 1);
+});
+
+test("queryStats by=user:from/to 生效", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "v1" })],
+  });
+  insertBatch(db, {
+    clientId: "c2", user: "u2",
+    batch: [rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "v2" })],
+  });
+  const { rows } = queryStats(db, { by: "user", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].user, "u1");
+});
+
+test("queryVisits:from/to 生效", () => {
+  const db = freshDb();
+  insertVisit(db, { ip: "10.0.0.1", ts: Date.parse("2026-01-05T10:00:00Z") });
+  insertVisit(db, { ip: "10.0.0.2", ts: Date.parse("2026-01-09T10:00:00Z") });
+  const { totalPv, totalUv } = queryVisits(db, { since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(totalPv, 1);
+  assert.equal(totalUv, 1);
 });
