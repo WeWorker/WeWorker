@@ -15,6 +15,7 @@ import Tooltip from '../Tooltip.jsx'
 import AnimatedCollapse from '../common/AnimatedCollapse.jsx'
 import { normalizeSiteScenarios, getScenarioPromptText } from '../../utils/site-scenarios.js'
 import { buildPromptFromTemplate, hasPromptTemplateVars } from '../../utils/prompt-template.js'
+import { scenarioHintForCard } from '../../utils/scenario-hint.js'
 import { getSiteDragId, hasSiteDragData, setSiteDragData } from '../../utils/site-drag.js'
 import { getFixedWelcomePrompts } from '../../utils/default-sites.js'
 import FeaturedSiteActions from './FeaturedSiteActions.jsx'
@@ -629,7 +630,7 @@ export default function WelcomeScreen({ onFillInput }) {
 
   const fillScenario = (item) => {
     if (item?.prompt) {
-      onFillInput?.(item.prompt)
+      onFillInput?.(item.prompt, scenarioHintForCard(item.site, item.scenario, item.prompt, item.template || userPromptTemplate(item.scenario), item.values))
     }
   }
 
@@ -922,11 +923,13 @@ export default function WelcomeScreen({ onFillInput }) {
           site={detailRow.site}
           scenarios={detailRow.scenarios}
           onClose={() => setDetailRow(null)}
-          onUseScenario={(scenario, editedPrompt) => {
+          onUseScenario={(scenario, editedPrompt, values) => {
             const item = {
               site: detailRow.site,
               scenario,
               prompt: editedPrompt || getScenarioPromptText(detailRow.site, scenario),
+              template: userPromptTemplate(scenario),
+              values,
             }
             fillScenario(item)
             setDetailRow(null)
@@ -1358,6 +1361,8 @@ export default function WelcomeScreen({ onFillInput }) {
                                 site,
                                 scenario,
                                 prompt: buildScenarioPickerPrompt(site, scenario, scenarioItemKey),
+                                template: userPromptTemplate(scenario),
+                                values: scenarioPromptValues[scenarioItemKey] || {},
                               })
                               setScenarioPickerSiteId(null)
                               setSelectedFeaturedSiteId(null)

@@ -89,6 +89,16 @@ describe('tryRoutedTurn', () => {
     vi.clearAllMocks()
   })
 
+  it('passes untrusted card hints only to the route engine without persisting them as input', async () => {
+    mocks.tryIntelligentQueryRoute.mockResolvedValue(false)
+    const scenario = { adapterId: 'example.com', scenarioId: 'read', slots: { category: 'sample' } }
+    expect((await tryRoutedTurn({ ...baseInput, scenario })).handled).toBe(false)
+    expect(mocks.tryIntelligentQueryRoute).toHaveBeenCalledWith(
+      expect.objectContaining({ message: baseInput.message, scenario }),
+      expect.any(Object),
+    )
+  })
+
   it('distinguishes direct misses from failures for the Agent handoff', async () => {
     mocks.tryIntelligentQueryRoute.mockResolvedValue(false)
     expect((await tryRoutedTurn(baseInput)).directRoute).toEqual({ status: 'miss' })

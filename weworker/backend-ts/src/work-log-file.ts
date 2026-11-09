@@ -14,6 +14,11 @@ export function configureWorkLogs(logDirectory: string | undefined): void {
   directory = logDirectory
 }
 
+/** Internal read-only access for the allowlisted route diagnostic projection. */
+export function getWorkLogDirectory(): string | undefined {
+  return directory
+}
+
 function logPath(workId: string): string {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(workId)) throw new Error('Invalid work ID')
   if (!directory) throw new Error('Work log directory is not configured')

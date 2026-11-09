@@ -40,6 +40,30 @@ describe('智能路由接线', () => {
     expect(sources.wecom).toContain('tryRoutedTurn({')
   })
 
+  it('desktop forwards only an unmodified, attachment-free card hint', () => {
+    expect(sources.server).toContain('scenario?: unknown;')
+    expect(sources.server).toContain('scenario: importedAttachments.length === 0 && modelInputMessage === message ? scenario : undefined,')
+    expect(sources.server).toContain("desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()")
+  })
+
+  it('desktop exact-route learning stays unverified without a structured execution receipt', () => {
+    expect(sources.server).toContain("const learningEligible = plainDesktopQuestion && directRoute.status === 'miss'")
+    expect(sources.server).toContain('observation?.event({ type: ev.type, id: ev.id, name: ev.name, args: ev.args })')
+    expect(sources.server).toContain('observation?.finish({ completed: turnSucceeded')
+    expect(sources.server).not.toContain('observation?.structuredIdentity(')
+    expect(sources.server).toContain('verification: \'identity_only_unverified\', runnableArgs: null')
+    expect(sources.server).toContain("res.status(409).json({ detail: '候选缺少可信固定参数")
+  })
+
+  it('approved exact routes are scoped, revalidated and fall back before visible output', () => {
+    expect(sources.server).toContain('workWithMessages.workspace_directory')
+    expect(sources.server).toContain('localFastRoutes.execute(match.route, { workId, isReserved: fastRouteReserved })')
+    expect(sources.server).toContain("directRoute = { status: 'failed', reason: 'local_route_failed' }")
+    expect(sources.server.indexOf("store.appendMessage(workId, 'assistant', [{ type: 'text', text: answer }")).toBeLessThan(
+      sources.server.indexOf("send({ type: 'text_delta', content: answer })"),
+    )
+  })
+
   it('桌面端保持自己落库，其它入口自己写', () => {
     // 桌面 /chat 的持久化行为必须与下沉前逐字一致。
     expect(sources.server).toContain('persist: true')

@@ -127,11 +127,11 @@ export default function SiteDetailModal({ site, scenarios, onClose, onUseScenari
                   key={scenario.id || scenario.title}
                   role="button"
                   tabIndex={0}
-                  onClick={() => onUseScenario(scenario, buildScenarioPrompt(scenario, prompt, scenarioKey))}
+                  onClick={() => onUseScenario(scenario, buildScenarioPrompt(scenario, prompt, scenarioKey), scenarioPromptValues[scenarioKey] || {})}
                   onKeyDown={(event) => {
                     if (event.key !== 'Enter' && event.key !== ' ') return
                     event.preventDefault()
-                    onUseScenario(scenario, buildScenarioPrompt(scenario, prompt, scenarioKey))
+                    onUseScenario(scenario, buildScenarioPrompt(scenario, prompt, scenarioKey), scenarioPromptValues[scenarioKey] || {})
                   }}
                   style={detailScenarioCardStyle}
                 >

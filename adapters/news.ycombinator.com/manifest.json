@@ -12,6 +12,22 @@
     "hn.algolia.com"
   ],
   "requires_auth": false,
+  "scenarios": [
+    {
+      "id": "top-stories",
+      "title": "热门榜单",
+      "summary": "读取 Hacker News 热门帖子",
+      "tool_names": ["top"],
+      "prompts": [
+        { "text": "查看 Hacker News 热门榜单" },
+        { "text": "查看 HN 热门帖子" }
+      ],
+      "route": {
+        "tool": "top",
+        "args": { "limit": 20 }
+      }
+    }
+  ],
   "discovery_terms": [
     "Hacker News",
     "hackernews",
