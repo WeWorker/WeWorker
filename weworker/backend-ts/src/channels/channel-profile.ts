@@ -37,7 +37,7 @@ export function parseChannelCommand(text: string): ChannelCommand | null {
 
 export type ChannelAccessDecision =
   | { kind: 'allow'; mode: ChannelPermissionMode }
-  | { kind: 'reply'; text: string }
+  | { kind: 'reply'; text: string; ownerPaired?: boolean }
 
 type StreamChatOptions = NonNullable<Parameters<typeof streamChat>[3]>
 
@@ -61,7 +61,7 @@ export interface ChannelProfile {
   /** Greeting for channels that report "user entered the chat" (企业微信). */
   welcomeText(): string
   /** Called before any other handling. A reply short-circuits the message. */
-  authorize(userId: string, text: string): ChannelAccessDecision
+  authorize(userId: string, text: string, context?: { chatType: string }): ChannelAccessDecision
   memoryScope(userId: string): MemoryScope
   /** May prepare per-turn resources (e.g. an isolated skills directory). */
   chatOptions(userId: string): ChannelProfileChatOptions

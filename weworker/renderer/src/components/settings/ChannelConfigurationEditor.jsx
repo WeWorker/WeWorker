@@ -7,6 +7,7 @@ import { backendFetch } from '../../api/http.js'
 import { EditOutlined, MessageOutlined } from '@ant-design/icons'
 import { CHANNEL_TYPES } from '../../utils/channel-configurations.js'
 import WecomQrConnect from './WecomQrConnect.jsx'
+import WecomOwnerBinding from './WecomOwnerBinding.jsx'
 import AppBotQrSetup from './AppBotQrSetup.jsx'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { ChannelProbeButton, ChannelProbeChecklist, useChannelProbe } from './ChannelProbe.jsx'
@@ -87,6 +88,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
   const changeAppBotQrBusy = useCallback((channel, busy) => setAppBotQrBusy(current => current[channel] === busy ? current : { ...current, [channel]: busy }), [])
   const appBotQrActive = Object.values(appBotQrBusy).some(Boolean) || Object.values(appBotQrPending).some(Boolean)
   const [wecomQrBusy, setWecomQrBusy] = useState(false)
+  const [wecomPairingBusy, setWecomPairingBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveMessage, setSaveMessage] = useState(null)
   const [ownerIdErrors, setOwnerIdErrors] = useState({ qq: '', weixin: '', wecom: '', feishu: '' })
@@ -103,7 +105,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
   const unregisterQrCancelRef = useRef(null)
   const canvasRef = useRef(null)
 
-  useEffect(() => { onBusyChange(saving || nameSaving || wxQrBusy || wecomQrBusy || appBotQrActive); return () => onBusyChange(false) }, [saving, nameSaving, wxQrBusy, wecomQrBusy, appBotQrActive, onBusyChange])
+  useEffect(() => { onBusyChange(saving || nameSaving || wxQrBusy || wecomQrBusy || wecomPairingBusy || appBotQrActive); return () => onBusyChange(false) }, [saving, nameSaving, wxQrBusy, wecomQrBusy, wecomPairingBusy, appBotQrActive, onBusyChange])
   const stopPolling = useCallback(() => {
     qrRunRef.current = null
     unregisterQrCancelRef.current?.()
@@ -145,8 +147,6 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
       ...current,
       enabled: wecom.enabled ?? false,
       bot_id: wecom.bot_id ?? '',
-      owner_user_id: wecom.owner_user_id ?? '',
-      owner_permission_level: getOwnerPermissionSelection(wecom.owner_user_id, wecom.owner_permission_level),
     }))
     setFeishuForm((current) => ({
       ...current,
@@ -155,7 +155,12 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
       owner_user_id: feishu.owner_user_id ?? '',
       owner_permission_level: getOwnerPermissionSelection(feishu.owner_user_id, feishu.owner_permission_level),
     }))
-  }, [qq.enabled, qq.app_id, qq.owner_user_id, qq.owner_permission_level, weixin.enabled, weixin.base_url, weixin.owner_user_id, weixin.owner_permission_level, wecom.enabled, wecom.bot_id, wecom.owner_user_id, wecom.owner_permission_level, feishu.enabled, feishu.app_id, feishu.owner_user_id, feishu.owner_permission_level])
+  }, [qq.enabled, qq.app_id, qq.owner_user_id, qq.owner_permission_level, weixin.enabled, weixin.base_url, weixin.owner_user_id, weixin.owner_permission_level, wecom.enabled, wecom.bot_id, feishu.enabled, feishu.app_id, feishu.owner_user_id, feishu.owner_permission_level])
+
+  // Binding polls must not discard unsaved credentials or enable/disable edits.
+  useEffect(() => {
+    setWecomForm(current => ({ ...current, owner_user_id: wecom.owner_user_id ?? '', owner_permission_level: getOwnerPermissionSelection(wecom.owner_user_id, wecom.owner_permission_level) }))
+  }, [wecom.owner_user_id, wecom.owner_permission_level])
 
   // Render QR code to canvas when data changes
   useEffect(() => {
@@ -230,7 +235,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
     const nextErrors = {
       qq: validateOwnerUserId('qq', form.owner_user_id) || '',
       weixin: validateOwnerUserId('weixin', wxForm.owner_user_id) || '',
-      wecom: validateOwnerUserId('wecom', wecomForm.owner_user_id) || '',
+      wecom: '',
       feishu: validateOwnerUserId('feishu', feishuForm.owner_user_id) || '',
     }
     setOwnerIdErrors(nextErrors)
@@ -258,7 +263,6 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
       wecom: {
         enabled: wecomForm.enabled,
         bot_id: wecomForm.bot_id,
-        owner_user_id: normalizeOwnerUserId(wecomForm.owner_user_id),
         owner_permission_level: normalizeOwnerUserId(wecomForm.owner_user_id) ? wecomForm.owner_permission_level : 'qa_only',
       },
       feishu: {
@@ -281,14 +285,14 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
       const configured = []
       if (payload.qq.owner_user_id) configured.push('QQ')
       if (payload.weixin.owner_user_id) configured.push('微信')
-      if (payload.wecom.owner_user_id) configured.push('企业微信')
+      if (wecom.owner_user_id) configured.push('企业微信')
       if (payload.feishu.owner_user_id) configured.push('飞书')
       setSaved(true)
       setSaveMessage({
         ok: true,
         text: configured.length
           ? `已保存。${configured.join('、')} 的主人 ID 已生效，下方权限级别对该 ID 生效。`
-          : '已保存。未配置主人 ID 时，所有用户仅有问答权限。',
+          : type === 'wecom' ? '已保存。请发送下方绑定指令完成主人绑定。' : '已保存。未配置主人 ID 时，所有用户仅有问答权限。',
       })
       setTimeout(() => setSaved(false), 2000)
     } catch (err) {
@@ -316,7 +320,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
           </h4>
           {currentChannel && <div className="channel-settings-toolbar-actions">
           <ChannelProbeButton state={probeState} disabled={saving || appBotQrBusy[currentChannel.id] || !!appBotQrPending[currentChannel.id] || (currentChannel.id === 'weixin' && wxQrBusy) || (currentChannel.id === 'wecom' && (wecomQrBusy || !!wecomQrPending))} onClick={() => channelProbe.run(currentChannel.id)} />
-          <button data-app-button="action" type="button" onClick={handleSave} disabled={saving || wxQrBusy || wecomQrBusy || !!wecomQrPending || appBotQrActive} className="settings-btn settings-btn-primary">
+          <button data-app-button="action" type="button" onClick={handleSave} disabled={saving || wxQrBusy || wecomQrBusy || wecomPairingBusy || !!wecomQrPending || appBotQrActive} className="settings-btn settings-btn-primary">
             {saving ? '保存中…' : saved ? '已保存' : '保存配置'}
           </button></div>}
         </header>
@@ -503,7 +507,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
             catch (error) { setSaveMessage({ ok: false, text: error.message }) }
           }}>重试保存</button>}
         </div>}
-        <WecomQrConnect disabled={!!wecomQrPending} onBusyChange={setWecomQrBusy} onImport={async credentials => {
+        <WecomQrConnect bindingConfig={wecom} disabled={!!wecomQrPending || wecomPairingBusy || saving} onBusyChange={setWecomQrBusy} onImport={async credentials => {
           setSaveMessage(null)
           try {
             await saveWecomQr(credentials)
@@ -518,30 +522,27 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
         <Field label="Secret" hint={wecom.has_secret ? '已设置（留空保持不变）' : '未设置'}>
           <input className="settings-input" type="password" disabled={wecomQrBusy || !!wecomQrPending} value={wecomForm.secret} onChange={e => setWecomForm(f => ({ ...f, secret: e.target.value }))} placeholder={wecom.has_secret || wecomQrPending ? '••••••••••••' : '输入长连接专用 Secret'} />
         </Field>
-        <OwnerIdField
-          channel="wecom"
-          savedConfig={wecom}
-          label="主人 ID"
-          hint="留空则所有用户仅有问答权限"
-          value={wecomForm.owner_user_id}
-          error={ownerIdErrors.wecom}
-          permissionLevel={wecomForm.owner_permission_level}
-          onChange={(owner_user_id) => {
-            setOwnerIdErrors((current) => ({ ...current, wecom: '' }))
-            setWecomForm((f) => ({ ...f, owner_user_id, owner_permission_level: getOwnerPermissionSelection(owner_user_id, f.owner_permission_level) }))
-          }}
-        />
+        {type === 'wecom' && <WecomOwnerBinding
+          profileId={profileId}
+          config={wecom}
+          active={store.channels.active_ids?.wecom === profileId}
+          disabled={saving || wecomQrBusy || !!wecomQrPending || wecomForm.bot_id.trim() !== (wecom.bot_id || '') || !!wecomForm.secret || wecomForm.enabled !== !!wecom.enabled}
+          onBusyChange={setWecomPairingBusy}
+          onAction={action => store.channelProfileAction('wecom', action, profileId)}
+          onRefresh={() => store.refreshChannelOwnerBinding(profileId)}
+        />}
         <OwnerPermissionLevelField
           name="wecom-owner-permission-level"
           value={wecomForm.owner_permission_level}
           disabled={!wecomForm.owner_user_id.trim()}
+          disabledHint="请先发送绑定码完成主人绑定；未绑定时所有用户仅有问答权限"
           onChange={(owner_permission_level) => setWecomForm((f) => ({ ...f, owner_permission_level }))}
         />
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
           在 <a href="https://work.weixin.qq.com/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>企业微信管理后台</a> 创建智能机器人，开启长连接 API 模式后获取 BotID 和 Secret。
-          用户在企业微信中 @ 机器人或私聊即可对话，发送 /new 开启新对话，发送 /myid 查看用户 ID。
-          未配置主人 ID 时所有用户仅有问答权限；配置后可为主人选择权限级别。
+          主人绑定：私聊机器人发送上方绑定指令，成功后无需填写用户 ID。发送 /new 开启新对话。
+          未绑定时所有用户仅有问答权限；绑定后可为主人选择权限级别。
         </div>
       </div>
 
@@ -578,11 +579,11 @@ function OwnerIdField({ channel, label, hint, value, error, permissionLevel, sav
   )
 }
 
-function OwnerPermissionLevelField({ value, onChange, disabled }) {
+function OwnerPermissionLevelField({ value, onChange, disabled, disabledHint }) {
   const selectedValue = disabled ? 'qa_only' : value
   const selected = OWNER_PERMISSION_OPTIONS.find(option => option.value === selectedValue) || OWNER_PERMISSION_OPTIONS[0]
   return (
-    <Field label="主人拥有的权限级别" hint={disabled ? '请先填写主人 ID；留空保存后所有用户仅有问答权限' : undefined}>
+    <Field label="主人拥有的权限级别" hint={disabled ? (disabledHint || '请先填写主人 ID；留空保存后所有用户仅有问答权限') : undefined}>
       <AppDropdownSelect
         ariaLabel="主人权限级别"
         className="channel-permission-select"

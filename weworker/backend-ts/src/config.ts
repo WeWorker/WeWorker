@@ -143,6 +143,9 @@ export interface WecomChannelConfig {
 
   owner_permission_level: OwnerPermissionLevel
 
+  /** One-time owner binding code; cleared after successful pairing. */
+  pairing_code?: string
+
 }
 
 export interface FeishuChannelConfig {
@@ -547,9 +550,7 @@ function readRawSettingsFile(): Record<string, unknown> | null {
     const data = JSON.parse(raw)
 
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null
-    const settings = data as Record<string, unknown>
-    migrateLegacyProjectsDirectory(settings)
-    return settings
+    return data as Record<string, unknown>
 
   } catch (error) {
     return null
@@ -557,24 +558,6 @@ function readRawSettingsFile(): Record<string, unknown> | null {
   }
 
 }
-
-function migrateLegacyProjectsDirectory(settings: Record<string, unknown>): void {
-  const configured = typeof settings.user_directory === 'string'
-    ? path.resolve(expandHomePath(settings.user_directory))
-    : path.resolve(DEFAULT_USER_DIRECTORY)
-  const previousProjectsRoot = path.join(CONFIG_DIR, 'projects')
-  if (!samePath(configured, previousProjectsRoot)) return
-  settings.user_directory = DEFAULT_USER_DIRECTORY
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
-}
-
-function samePath(left: string, right: string): boolean {
-  const a = path.resolve(left)
-  const b = path.resolve(right)
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
-}
-
-
 
 function normalizeOwnerPermissionLevel(value: unknown, ownerId: string): OwnerPermissionLevel {
   if (!ownerId?.trim()) return 'qa_only'
@@ -822,6 +805,7 @@ export function getSettings(): Settings {
 export function updateSettings(updates: Partial<Settings>): Settings {
 
   getSettings() // Ensure the persisted settings have been loaded.
+  const previousSettings = _settings
   // Merge the stored state, not the runtime projection containing deployment credentials.
   _settings = deepMerge(_settings!, updates) as Settings
   // Model configuration operations supply the complete collection. Deep merging
@@ -877,7 +861,13 @@ export function updateSettings(updates: Partial<Settings>): Settings {
 
   _settings.added_providers = normalizeAddedProviders(_settings.added_providers)
 
-  persistSettingsToDisk(_settings)
+  try {
+    persistSettingsToDisk(_settings)
+  } catch (error) {
+    // A failed save must not grant a new owner permissions only in memory.
+    _settings = previousSettings
+    throw error
+  }
 
   _settingsInitialized = true
 

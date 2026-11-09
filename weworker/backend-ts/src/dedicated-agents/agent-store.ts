@@ -9,7 +9,9 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { randomInt, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { generatePairingCode } from '../channels/pairing-code.js'
+export { generatePairingCode } from '../channels/pairing-code.js'
 import { getConfigDirectory } from '../config.js'
 import { assertAllowedWeixinBaseUrl } from '../channel-egress.js'
 import { decryptSecret, encryptSecret, isSecretStoreReady } from '../secret-store.js'
@@ -161,10 +163,6 @@ function writeFile(data: StoreFile): void {
   const temporary = `${file}.${randomUUID()}.tmp`
   fs.writeFileSync(temporary, JSON.stringify(data, null, 2), { mode: 0o600 })
   fs.renameSync(temporary, file)
-}
-
-export function generatePairingCode(): string {
-  return String(randomInt(100000, 1000000))
 }
 
 function cleanText(value: unknown, max: number): string {

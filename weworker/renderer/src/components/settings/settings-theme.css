@@ -1407,6 +1407,21 @@
 .wecom-qr-connect p { margin: 8px 0 0; }
 .wecom-qr-connect p.is-error { color: var(--error); }
 .wecom-qr-connect p.is-success { color: var(--success); }
+.wecom-pairing-guide { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); }
+.wecom-pairing-guide__title { margin-bottom: 12px; color: var(--text-primary); font-size: var(--font-size-subtitle); font-weight: 600; }
+.wecom-pairing-guide__instruction { margin-bottom: 12px; color: var(--text-primary); font-size: var(--font-size-body); line-height: 1.6; }
+.wecom-pairing-guide__command { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.wecom-pairing-code { user-select: text; }
+.wecom-pairing-guide__hint { color: var(--text-muted); font-size: var(--font-size-caption); line-height: 1.6; }
+.wecom-pairing-guide.is-paired .wecom-pairing-guide__title, .wecom-owner-binding__status .is-paired { color: var(--success, #22c55e); }
+.wecom-owner-binding .channel-settings-field__label { padding-top: 0; }
+.wecom-owner-binding__status { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-height: 22px; color: var(--text-secondary); font-size: 12px; }
+.wecom-owner-binding__action { padding: 0; border: 0; background: none; color: var(--text-muted); font: inherit; cursor: pointer; }
+.wecom-owner-binding__action:hover:not(:disabled) { color: var(--text-primary); text-decoration: underline; }
+.wecom-owner-binding__action:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+.wecom-owner-binding__action:disabled { opacity: 0.5; cursor: default; }
+.wecom-owner-binding__hint { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.wecom-owner-binding__error { margin-top: 8px; color: var(--error, #ef4444); font-size: 12px; }
 .channel-settings-empty { padding: 70px 12px; color: var(--text-muted); text-align: center; }
 .channel-settings-empty > .anticon { font-size: 28px; }
 .channel-settings-empty h4 { color: var(--text-secondary); font-size: var(--font-size-label); margin: 16px 0 8px; }

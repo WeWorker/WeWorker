@@ -105,7 +105,7 @@ export default function InputBar({
   const bangFilesLoadRequestedRef = useRef(false)
   const fillSeq = useChatInputFillStore((s) => s.seq)
   const isWelcome = variant === 'welcome'
-  const maxTaHeight = isWelcome ? 220 : 120
+  const maxTaHeight = 120
   const hasAttachments = attachments.length > 0
   const attachmentLimit = Math.max(1, Number(maxAttachments) || DEFAULT_MAX_ATTACHMENTS)
   const pasteTextAttachmentThreshold = useSettingsStore((s) => s.pasteTextAttachmentThreshold)
@@ -749,26 +749,16 @@ export default function InputBar({
         flexDirection: 'column',
         justifyContent: 'center',
       }
-    : isWelcome
-      ? {
-          padding: '12px 20px 16px',
-          borderTop: 'none',
-          background: 'transparent',
-          maxWidth: 680,
-          width: '100%',
-          margin: '0 auto',
-          flexShrink: 0,
-        }
-      : {
-          padding: '12px 32px 16px',
-          borderTop: 'none',
-          background: 'transparent',
-          maxWidth: 1184,
-          width: '100%',
-          margin: '0 auto',
-          boxSizing: 'border-box',
-          pointerEvents: 'none',
-        }
+    : {
+        padding: '12px var(--workspace-content-gutter, 36px) 16px',
+        borderTop: 'none',
+        background: 'transparent',
+        maxWidth: 'calc(var(--workspace-content-width, 760px) + 2 * var(--workspace-content-gutter, 36px))',
+        width: '100%',
+        margin: '0 auto',
+        boxSizing: 'border-box',
+        pointerEvents: 'none',
+      }
 
   const innerStyle = {
     display: 'flex',
