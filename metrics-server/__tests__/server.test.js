@@ -363,3 +363,70 @@ test("queryVisits:from/to 生效", () => {
   assert.equal(totalPv, 1);
   assert.equal(totalUv, 1);
 });
+
+test("queryStats by=active:逐日 DAU(按 UTC 天,空 user 归 unknown)", () => {
+  const db = freshDb();
+  const d = (day, h = "10") => Date.parse(`${day}T${h}:00:00Z`);
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [rec({ ts: d("2026-01-05"), traceID: "a1" }), rec({ ts: d("2026-01-05", "15"), traceID: "a2" })],
+  }); // 同一天 u1 两次 → dau 1
+  insertBatch(db, { clientId: "c2", user: "u2", batch: [rec({ ts: d("2026-01-05"), traceID: "a3" })] });
+  insertBatch(db, { clientId: "c3", user: "u3", batch: [rec({ ts: d("2026-01-06"), traceID: "a4" })] });
+  insertBatch(db, { clientId: "c4", batch: [rec({ ts: d("2026-01-06"), traceID: "a5" })] }); // 无 user → (unknown)
+
+  const { rows } = queryStats(db, { by: "active", since: "30d", from: "2026-01-01", to: "2026-01-07" });
+  assert.deepEqual(rows, [
+    { day: "2026-01-05", dau: 2 }, // u1 + u2
+    { day: "2026-01-06", dau: 2 }, // u3 + (unknown)
+  ]);
+});
+
+test("queryStats by=active:MAU 固定近30天,不随窗口漂移", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, { clientId: "c1", user: "recent1", batch: [rec({ ts: now - 86400000, traceID: "m1" })] });
+  insertBatch(db, { clientId: "c2", user: "recent2", batch: [rec({ ts: now - 2 * 86400000, traceID: "m2" })] });
+  // 31 天前的用户不算 MAU
+  insertBatch(db, { clientId: "c3", user: "stale", batch: [rec({ ts: now - 31 * 86400000, traceID: "m3" })] });
+
+  const { mau } = queryStats(db, { by: "active", since: "1d" });
+  assert.equal(mau, 2);
+});
+
+test("queryStats by=active:kind 过滤与噪音排除生效", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: now, traceID: "b1" }),
+      rec({ ts: now, traceID: "b2", tool: "open_browser", domain: "open_browser", kind: "builtin" }),
+      rec({ ts: now, traceID: "b3", tool: "skill.list", domain: "skill" }),
+    ],
+  });
+  const { rows, mau } = queryStats(db, { by: "active", since: "1d", kind: "adapter" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dau, 1);
+  assert.equal(mau, 1);
+});
+
+test("queryStats kind+from/to 组合:占位符顺序端到端钉死", () => {
+  // P2 审查指出:kind 与 windowSql 组合的占位符顺序靠人工约定,错位时 SQLite 静默出错数据。
+  // 本用例把 [start, end, kind] 的绑定顺序在聚合层钉死。
+  const db = freshDb();
+  const d = (day, h = "10") => Date.parse(`${day}T${h}:00:00Z`);
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: d("2026-01-05"), traceID: "k1" }),                              // 窗内 adapter → 计入
+      rec({ ts: d("2026-01-05"), traceID: "k2", tool: "open_browser", domain: "open_browser", kind: "builtin" }), // 窗内 builtin → kind 过滤掉
+      rec({ ts: d("2026-01-20"), traceID: "k3" }),                              // 窗外 adapter → 时间过滤掉
+    ],
+  });
+  const { rows, totalCalls } = queryStats(db, { by: "domain", since: "30d", from: "2026-01-01", to: "2026-01-07", kind: "adapter" });
+  assert.equal(totalCalls, 1);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].key, "tickets.example.com");
+  assert.equal(rows[0].topTool, "tickets.example.com.search_tickets");
+});

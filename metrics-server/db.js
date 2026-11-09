@@ -192,8 +192,9 @@ export function queryStats(db, { by = "domain", since = "30d", from = null, to =
   // 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组
   if (by === "err") return queryByErr(db, { since, from, to, top });
   if (by === "user") return queryByUser(db, { since, from, to, kind, top });
+  if (by === "active") return queryActiveUsers(db, { since, from, to, kind });
 
-  // 路由决策埋点：route_* 事件聚合,结构不同于单维聚合
+  // 路由决策埋点：route_* 事件聚合（命中率 + 分 kind 延迟），结构不同于单维聚合
   if (by === "route") return queryRouteStats(db, { since, from, to });
 
   const col = by === "tool" ? "tool" : "domain";
@@ -305,6 +306,49 @@ function queryByUser(db, { since = "30d", from = null, to = null, kind = null, t
     });
   }
   return { rows: sliced, totalCalls };
+}
+
+/**
+ * 用户活跃聚合（by=active）：逐日 DAU + 近 30 天 MAU。
+ * DAU 跟随查询窗；MAU 固定近 30 天，不随窗口漂移（语义保持「月活」）。
+ * 空 user 归 (unknown)，与 by=user 口径一致；噪音排除与 kind 过滤两者都生效。
+ * @param {DatabaseSync} db
+ * @param {{since?:string, from?:string|null, to?:string|null, kind?:string}} opts
+ */
+function queryActiveUsers(db, { since = "30d", from = null, to = null, kind = null } = {}) {
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
+  let kindClause = "";
+  if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
+
+  // node:sqlite 返回 null 原型行对象,这里归一为普通对象,保证 rows 形状即文档所载 {day, dau}
+  const rows = db
+    .prepare(
+      `SELECT date(ts / 1000, 'unixepoch') AS day,
+              COUNT(DISTINCT COALESCE(NULLIF(user, ''), '(unknown)')) AS dau
+       FROM metrics
+       WHERE ${where} ${kindClause} ${noiseExcludeClause()}
+       GROUP BY day
+       ORDER BY day ASC`
+    )
+    .all(...params)
+    .map((r) => ({ day: r.day, dau: r.dau }));
+
+  // MAU 固定近 30 天窗口,与 DAU 查询窗解耦(独立 params,不共享绑定参数)
+  const mauParams = [];
+  const mauWhere = windowSql(Date.now() - 30 * 86400000, null, mauParams);
+  let mauKind = "";
+  if (kind) { mauKind = "AND kind = ?"; mauParams.push(kind); }
+  const mau = db
+    .prepare(
+      `SELECT COUNT(DISTINCT COALESCE(NULLIF(user, ''), '(unknown)')) AS mau
+       FROM metrics
+       WHERE ${mauWhere} ${mauKind} ${noiseExcludeClause()}`
+    )
+    .get(...mauParams).mau;
+
+  return { rows, mau };
 }
 
 /**
