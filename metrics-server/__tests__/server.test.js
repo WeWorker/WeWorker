@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDb, insertBatch, queryStats, pickWhitelist, validRecord } from "../db.js";
+import { openDb, insertBatch, queryStats, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause } from "../db.js";
 import { checkAuth } from "../handler.js";
 
 function freshDb() {
@@ -263,4 +263,40 @@ test("queryStats by=err：空 err 的失败不计入", () => {
   });
   const { rows } = queryStats(db, { by: "err", since: "1d" });
   assert.equal(rows.length, 0);
+});
+
+test("resolveWindow:默认 since 相对窗,无上界", () => {
+  const { start, end } = resolveWindow({ since: "7d" });
+  const expected = Date.now() - 7 * 86400000;
+  assert.ok(Math.abs(start - expected) < 1000); // 允许毫秒级时钟差
+  assert.equal(end, null);
+});
+
+test("resolveWindow:from/to 自定义窗,UTC 日界,to 含当天", () => {
+  const { start, end } = resolveWindow({ from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(start, Date.parse("2026-01-05T00:00:00Z"));
+  assert.equal(end, Date.parse("2026-01-08T00:00:00Z")); // to 次日 00:00
+});
+
+test("resolveWindow:只给 to → 下界为 since 相对窗", () => {
+  const { start, end } = resolveWindow({ since: "7d", to: "2026-01-07" });
+  assert.equal(end, Date.parse("2026-01-08T00:00:00Z"));
+  assert.ok(Math.abs(start - (Date.now() - 7 * 86400000)) < 1000);
+});
+
+test("queryStats:噪音工具(flag 误用 / 名单首段含 wecli)不计入", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: now, traceID: "n1", tool: "-flag.misuse", domain: "-flag" }),
+      rec({ ts: now, traceID: "n2", tool: "skill.list", domain: "skill" }),
+      rec({ ts: now, traceID: "n3", tool: "wecli.mgmt.call", domain: "wecli.mgmt" }),
+      rec({ ts: now, traceID: "ok1", tool: "mail.163.com.get", domain: "mail.163.com" }),
+    ],
+  });
+  const { rows } = queryStats(db, { by: "domain", since: "1d" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].key, "mail.163.com");
 });

@@ -175,18 +175,12 @@ export const NOISE_FIRST_SEGMENTS = new Set([
   "skill", "skills", "tool", "tools", "adapter", "adapters", "adapterhub",
   "service", "call", "route", "routes", "trace", "traces", "install", "list",
   "completion", "mcp", "mcp-logs", "browser", "login", "auth", "extension-path",
-  "stats", "webcli", "help", "mode", "profiles", "capabilities", "tabs",
+  // "wecli"：与 PR #326 曾内联在聚合 SQL 里的噪音清单对齐（历史内联版比集合多此一项）
+  "stats", "webcli", "wecli", "help", "mode", "profiles", "capabilities", "tabs",
   "list_sites", "inspect_page_state", "evaluate_in_page", "version", "doctor",
 ]);
 /** 噪音排除（SQL 侧）：flag 误用（'-' 开头）与 CLI 管理命令首段的调用不计入统计。 */
 export function noiseExcludeClause() {
-  const domains = [...NOISE_FIRST_SEGMENTS].map((s) => `'${s}'`).join(",");
-  return ` AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN (${domains})`;
-}
-
-
-/** 聚合查询的噪音排除片段（WHERE 追加）。 */
-function noiseClauseFor() {
   const domains = [...NOISE_FIRST_SEGMENTS].map((s) => `'${s}'`).join(",");
   return ` AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN (${domains})`;
 }
@@ -205,7 +199,6 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
   const params = [cutoff];
   let kindClause = "";
   if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
-  const noiseClause = noiseClauseFor();
 
   const rows = db
     .prepare(
@@ -214,8 +207,7 @@ export function queryStats(db, { by = "domain", since = "30d", kind = null, top 
               SUM(ok) AS oks,
               CAST(AVG(ms) AS INTEGER) AS avg_ms
        FROM metrics
-       WHERE ts >= ? ${kindClause}
-         AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN ('skill','skills','tool','tools','adapter','adapters','adapterhub','service','call','route','routes','trace','traces','install','list','completion','mcp','mcp-logs','browser','login','auth','extension-path','stats','webcli','wecli','help','mode','profiles','capabilities','tabs','list_sites','inspect_page_state','evaluate_in_page','version','doctor')
+       WHERE ts >= ? ${kindClause}${noiseExcludeClause()}
        GROUP BY ${col}
        ORDER BY calls DESC`
     )
@@ -259,7 +251,6 @@ function queryByErr(db, { since = "30d", top = null } = {}) {
        FROM metrics
        WHERE ts >= ? AND ok = 0${noiseExcludeClause()}
          AND err IS NOT NULL AND err != ''
-         AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN ('skill','skills','tool','tools','adapter','adapters','adapterhub','service','call','route','routes','trace','traces','install','list','completion','mcp','mcp-logs','browser','login','auth','extension-path','stats','webcli','wecli','help','mode','profiles','capabilities','tabs','list_sites','inspect_page_state','evaluate_in_page','version','doctor')
        GROUP BY err
        ORDER BY calls DESC`
     )
@@ -288,8 +279,7 @@ function queryByUser(db, { since = "30d", kind = null, top = null } = {}) {
     .prepare(
       `SELECT COALESCE(NULLIF(user, ''), '(unknown)') AS user, domain, COUNT(*) AS calls
        FROM metrics
-       WHERE ts >= ? ${kindClause}
-         AND tool NOT LIKE '-%' AND substr(tool, 1, instr(tool || '.', '.') - 1) NOT IN ('skill','skills','tool','tools','adapter','adapters','adapterhub','service','call','route','routes','trace','traces','install','list','completion','mcp','mcp-logs','browser','login','auth','extension-path','stats','webcli','wecli','help','mode','profiles','capabilities','tabs','list_sites','inspect_page_state','evaluate_in_page','version','doctor')
+       WHERE ts >= ? ${kindClause}${noiseExcludeClause()}
        GROUP BY COALESCE(NULLIF(user, ''), '(unknown)'), domain
        ORDER BY user, calls DESC`
     )
@@ -369,6 +359,19 @@ function topToolFor(db, col, key, cutoff, kind) {
 export function percentile(arr, p) {
   if (arr.length === 0) return 0;
   return arr[Math.max(0, Math.ceil((arr.length * p) / 100) - 1)];
+}
+
+/**
+ * 解析查询时间窗。
+ * @param {{since?:string, from?:string|null, to?:string|null}} opts
+ *   - from/to:YYYY-MM-DD(UTC 日界);任一出现即自定义窗,缺 from 不设下界、缺 to 不设上界
+ *   - 都不出现:since 相对窗(start = now - parseDuration(since),无上界)
+ * @returns {{start:number, end:number|null}} end 为 null 表示不设上界
+ */
+export function resolveWindow({ since = "30d", from = null, to = null } = {}) {
+  const start = from ? Date.parse(`${from}T00:00:00Z`) : Date.now() - parseDuration(since);
+  const end = to ? Date.parse(`${to}T00:00:00Z`) + 86400000 : null;
+  return { start, end };
 }
 
 export function parseDuration(str) {
