@@ -168,9 +168,10 @@ export class BridgeManager {
       const env = { ...bridgeEnv }
       delete env.ELECTRON_RUN_AS_NODE
       this._process = spawn(executable, [
-        ...bridgeExecArgv, path.join(process.resourcesPath, 'bridge', 'bridge.cjs'), 'service', 'start',
+        ...bridgeExecArgv, '--require', path.join(process.resourcesPath, 'bridge', 'bridge-parent.cjs'),
+        path.join(process.resourcesPath, 'bridge', 'bridge.cjs'), 'service', 'start',
       ], {
-        stdio: ['ignore', 'pipe', 'pipe'], detached: false, windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: false, windowsHide: true,
         env,
       })
       for (const stream of [this._process.stdout, this._process.stderr]) {

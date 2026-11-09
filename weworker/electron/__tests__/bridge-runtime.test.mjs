@@ -36,6 +36,8 @@ test('Windows starts only the packaged Node runtime and compiled Bridge', async 
   assert.equal(manager.getStatus(), 'running')
   assert.equal(calls[0].exe, path.resolve('fixture/resources/node-runtime/node.exe'))
   assert.ok(calls[0].args.includes(path.resolve('fixture/resources/bridge/bridge.cjs')))
+  assert.ok(calls[0].args.includes(path.resolve('fixture/resources/bridge/bridge-parent.cjs')))
+  assert.deepEqual(Array.from(calls[0].options.stdio), ['ignore', 'pipe', 'pipe', 'ipc'])
   assert.deepEqual(calls[0].args.slice(-2), ['service', 'start'])
   assert.equal(calls[0].options.env.ELECTRON_RUN_AS_NODE, undefined)
   assert.equal(calls[0].options.env.WEWORKER_BUILD_PROFILE, 'fixture')
