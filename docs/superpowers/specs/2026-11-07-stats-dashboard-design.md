@@ -73,7 +73,7 @@ PR #326 留下的三处内联噪音 SQL 长串与 `NOISE_FIRST_SEGMENTS` 有漂�
 - `fetchStats`/`fetchVisits` 增加 `from`/`to` 透传;仅自定义日期时携带,预设窗不携带。
 - 新增 `isNoiseTool()` 名单兜底(名单对齐 `metrics-server/db.js` 的 `NOISE_FIRST_SEGMENTS`,
   注释注明来源),在 `groupByDomain` / `groupByUser` 入口过滤——旧版 server 未升级时也不展示噪音。
-  `by=err` 是新接口,只有新 server 才有,不做兜底。
+  `by=err` 基线(dev-1.1.0 @ ceb9129)已支持,1.1.0 配套部署即有,无需兜底。
 - `fetchActiveUsers` 改打 `by=active`,返回 `{rows, mau}`(替换工作区现有 WIP 实现)。
 
 ### 页面(src/pages/Stats.jsx)
