@@ -1,5 +1,5 @@
 {
-  "status": "ready_for_public_pr_review",
+  "status": "public_pr_created_awaiting_manual_acceptance",
   "source": "e8b77b8c",
   "baseline": "e3b7380f",
   "branch": "codex/webcli-context-dev110-latest",
@@ -34,5 +34,6 @@
     "HTML visual acceptance"
   ],
   "localReportUrl": "http://127.0.0.1:62241/redesign-product.html",
-  "pr": null
+  "pr": "https://github.com/WeWorker/WeWorker/pull/344",
+  "headRepository": "eddiezywang/WeWorker-contributions"
 }
