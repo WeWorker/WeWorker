@@ -125,10 +125,13 @@ export default function Stats() {
 
   const fmt = (n) => Number(n).toLocaleString()
 
+  const isErr = view === 'err'
   const isUser = view === 'user'
-  const cols = isUser
-    ? 'grid-cols-[1fr_100px_40px]'
-    : 'grid-cols-[1fr_80px_80px_80px_80px_40px]'
+  const cols = isErr
+    ? 'grid-cols-[1fr_90px_80px_80px_1fr]'
+    : isUser
+      ? 'grid-cols-[1fr_100px_40px]'
+      : 'grid-cols-[1fr_80px_80px_80px_80px_40px]'
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-28 pb-16">
@@ -173,7 +176,7 @@ export default function Stats() {
                     : 'text-muted hover:text-[rgb(var(--color-text))]'
                 }`}
               >
-                {v === 'user' ? '按用户' : '按 Adapter'}
+                {v === 'err' ? '按错误' : v === 'user' ? '按用户' : '按 Adapter'}
               </button>
             ))}
           </div>
@@ -235,10 +238,18 @@ export default function Stats() {
             </div>
           </div>
         )}
-        {!loading && !error && groups.length > 0 && (
-          <div className="text-muted ml-auto">
-            {isUser ? `${groups.length} 个用户` : `${groups.length} 个 adapter`} · {fmt(totalCalls)} 次调用
-          </div>
+        {!loading && !error && !statsUnavailable && (
+          view === 'err'
+            ? errRows.length > 0 && (
+                <div className="text-muted ml-auto">
+                  {errRows.length} 类错误 · {fmt(totalFailed)} 次失败
+                </div>
+              )
+            : groups.length > 0 && (
+                <div className="text-muted ml-auto">
+                  {isUser ? `${groups.length} 个用户` : `${groups.length} 个 adapter`} · {fmt(totalCalls)} 次调用
+                </div>
+              )
         )}
       </div>
 
@@ -333,107 +344,143 @@ export default function Stats() {
       )}
 
       {/* Empty */}
-      {!loading && !error && !statsUnavailable && groups.length === 0 && (
+      {!loading && !error && !statsUnavailable && !isErr && groups.length === 0 && (
         <div className="text-center py-16">
           <div className="text-[rgb(var(--color-text))] mb-2">暂无埋点数据。</div>
         </div>
       )}
 
       {/* Table */}
-      {!loading && !error && !statsUnavailable && groups.length > 0 && (
-        <div className="bg-surface border border-border rounded-xl overflow-hidden">
-          {/* Header row */}
-          <div className={`grid ${cols} gap-3 px-4 py-3 text-xs text-muted border-b border-border bg-bg/40`}>
-            <div>{isUser ? '用户' : '域名'}</div>
-            <div className="text-right">调用次数</div>
-            {!isUser && <div className="text-right">成功率</div>}
-            {!isUser && <div className="text-right">p50(ms)</div>}
-            {!isUser && <div className="text-right">p95(ms)</div>}
-            <div></div>
-          </div>
-
-          {groups.map((g) => {
-            const key = isUser ? g.user : g.domain
-            const isOpen = expanded.has(key)
-            return (
-              <div key={key} className="border-b border-border last:border-b-0">
-                {/* Summary row */}
-                <button
-                  onClick={() => toggle(key)}
-                  className={`w-full grid ${cols} gap-3 px-4 py-3 text-sm hover:bg-bg/40 transition-colors text-left`}
-                >
-                  <div className="text-[rgb(var(--color-text))] font-medium truncate flex items-center gap-2">
-                    <svg
-                      className={`text-muted transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`}
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M9 18l6-6-6-6" />
-                    </svg>
-                    {key}
-                  </div>
-                  <div className="text-right text-[rgb(var(--color-text))] tabular-nums">{fmt(g.calls)}</div>
-                  {!isUser && (
-                    <div className={`text-right tabular-nums ${okColor(g.okRate)}`}>
-                      {g.okRate != null ? `${g.okRate.toFixed(1)}%` : '—'}
-                    </div>
-                  )}
-                  {!isUser && <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">{g.p50}</div>}
-                  {!isUser && <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">{g.p95}</div>}
-                  <div></div>
-                </button>
-
-                {/* Detail (expanded) */}
-                {isOpen && (
-                  <div className="bg-bg/40 px-4 py-2">
-                    {isUser
-                      ? g.domains.length === 0
-                        ? <div className="text-muted text-sm py-2 pl-6">无调用。</div>
-                        : g.domains.map((d) => (
-                            <div
-                              key={d.domain}
-                              className={`grid ${cols} gap-3 py-2 text-sm border-t border-border/60 first:border-t-0`}
-                            >
-                              <div className="text-[rgb(var(--color-text-soft))] truncate pl-6" title={d.domain}>
-                                {d.domain}
-                              </div>
-                              <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">
-                                {fmt(d.calls)}
-                              </div>
-                              <div></div>
-                            </div>
-                          ))
-                      : g.tools.length === 0
-                        ? <div className="text-muted text-sm py-2 pl-6">无工具调用。</div>
-                        : g.tools.map((tool) => (
-                            <div
-                              key={tool.tool}
-                              className={`grid ${cols} gap-3 py-2 text-sm border-t border-border/60 first:border-t-0`}
-                            >
-                              <div className="text-[rgb(var(--color-text-soft))] truncate pl-6" title={tool.tool}>
-                                {tool.tool}
-                              </div>
-                              <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">
-                                {fmt(tool.calls)}
-                              </div>
-                              <div className={`text-right tabular-nums ${okColor(tool.okRate)}`}>
-                                {tool.okRate != null ? `${tool.okRate.toFixed(1)}%` : '—'}
-                              </div>
-                              <div className="text-right text-[rgb(var(--color-text-faint))] tabular-nums">{tool.p50}</div>
-                              <div className="text-right text-[rgb(var(--color-text-faint))] tabular-nums">{tool.p95}</div>
-                              <div></div>
-                            </div>
-                          ))}
-                  </div>
-                )}
+      {!loading && !error && !statsUnavailable && (
+        isErr ? (
+          errRows.length > 0 ? (
+            <div className="bg-surface border border-border rounded-xl overflow-hidden">
+              <div className={`grid ${cols} gap-3 px-4 py-3 text-xs text-muted border-b border-border bg-bg/40`}>
+                <div>错误类型</div>
+                <div className="text-right">调用次数</div>
+                <div className="text-right">涉及工具</div>
+                <div className="text-right">涉及用户</div>
+                <div>样例工具</div>
               </div>
-            )
-          })}
-        </div>
+              {errRows.map((r) => (
+                <div
+                  key={r.err}
+                  className={`grid ${cols} gap-3 px-4 py-3 text-sm border-b border-border last:border-b-0 items-center`}
+                >
+                  <div className="text-[rgb(var(--color-text))] font-medium truncate" title={r.err}>
+                    {r.err}
+                  </div>
+                  <div className="text-right tabular-nums text-red-500">{fmt(r.calls)}</div>
+                  <div className="text-right tabular-nums text-[rgb(var(--color-text-soft))]">{fmt(r.tools)}</div>
+                  <div className="text-right tabular-nums text-[rgb(var(--color-text-soft))]">{fmt(r.users)}</div>
+                  <div className="text-muted truncate" title={r.sampleTool}>
+                    {r.sampleTool}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-16">
+              <div className="text-[rgb(var(--color-text))] mb-2">该时间窗内无失败调用。</div>
+            </div>
+          )
+        ) : (
+          groups.length > 0 && (
+            <div className="bg-surface border border-border rounded-xl overflow-hidden">
+              {/* Header row */}
+              <div className={`grid ${cols} gap-3 px-4 py-3 text-xs text-muted border-b border-border bg-bg/40`}>
+                <div>{isUser ? '用户' : '域名'}</div>
+                <div className="text-right">调用次数</div>
+                {!isUser && <div className="text-right">成功率</div>}
+                {!isUser && <div className="text-right">p50(ms)</div>}
+                {!isUser && <div className="text-right">p95(ms)</div>}
+                <div></div>
+              </div>
+
+              {groups.map((g) => {
+                const key = isUser ? g.user : g.domain
+                const isOpen = expanded.has(key)
+                return (
+                  <div key={key} className="border-b border-border last:border-b-0">
+                    {/* Summary row */}
+                    <button
+                      onClick={() => toggle(key)}
+                      className={`w-full grid ${cols} gap-3 px-4 py-3 text-sm hover:bg-bg/40 transition-colors text-left`}
+                    >
+                      <div className="text-[rgb(var(--color-text))] font-medium truncate flex items-center gap-2">
+                        <svg
+                          className={`text-muted transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`}
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M9 18l6-6-6-6" />
+                        </svg>
+                        {key}
+                      </div>
+                      <div className="text-right text-[rgb(var(--color-text))] tabular-nums">{fmt(g.calls)}</div>
+                      {!isUser && (
+                        <div className={`text-right tabular-nums ${okColor(g.okRate)}`}>
+                          {g.okRate != null ? `${g.okRate.toFixed(1)}%` : '—'}
+                        </div>
+                      )}
+                      {!isUser && <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">{g.p50}</div>}
+                      {!isUser && <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">{g.p95}</div>}
+                      <div></div>
+                    </button>
+
+                    {/* Detail (expanded) */}
+                    {isOpen && (
+                      <div className="bg-bg/40 px-4 py-2">
+                        {isUser
+                          ? g.domains.length === 0
+                            ? <div className="text-muted text-sm py-2 pl-6">无调用。</div>
+                            : g.domains.map((d) => (
+                                <div
+                                  key={d.domain}
+                                  className={`grid ${cols} gap-3 py-2 text-sm border-t border-border/60 first:border-t-0`}
+                                >
+                                  <div className="text-[rgb(var(--color-text-soft))] truncate pl-6" title={d.domain}>
+                                    {d.domain}
+                                  </div>
+                                  <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">
+                                    {fmt(d.calls)}
+                                  </div>
+                                  <div></div>
+                                </div>
+                              ))
+                          : g.tools.length === 0
+                            ? <div className="text-muted text-sm py-2 pl-6">无工具调用。</div>
+                            : g.tools.map((tool) => (
+                                <div
+                                  key={tool.tool}
+                                  className={`grid ${cols} gap-3 py-2 text-sm border-t border-border/60 first:border-t-0`}
+                                >
+                                  <div className="text-[rgb(var(--color-text-soft))] truncate pl-6" title={tool.tool}>
+                                    {tool.tool}
+                                  </div>
+                                  <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">
+                                    {fmt(tool.calls)}
+                                  </div>
+                                  <div className={`text-right tabular-nums ${okColor(tool.okRate)}`}>
+                                    {tool.okRate != null ? `${tool.okRate.toFixed(1)}%` : '—'}
+                                  </div>
+                                  <div className="text-right text-[rgb(var(--color-text-faint))] tabular-nums">{tool.p50}</div>
+                                  <div className="text-right text-[rgb(var(--color-text-faint))] tabular-nums">{tool.p95}</div>
+                                  <div></div>
+                                </div>
+                              ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        )
       )}
     </div>
   )
