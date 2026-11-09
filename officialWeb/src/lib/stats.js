@@ -19,7 +19,8 @@ export function domainOf(tool) {
 // 噪音工具首段名单 —— 与 metrics-server/db.js 的 NOISE_FIRST_SEGMENTS 对齐(含 'wecli')。
 // classifyTool 把带 '.' 的工具一律标成 kind="adapter",kind 筛选挡不住噪音
 //(skill.list 等带着 adapter 标签入库);名单兜底保证旧版 server 未升级时也不展示。
-const NOISE_FIRST_SEGMENTS = new Set([
+// 导出供 metrics-server 的漂移守卫测试做双向比对,改动名单必须两侧同步。
+export const NOISE_FIRST_SEGMENTS = new Set([
   'skill', 'skills', 'tool', 'tools', 'adapter', 'adapters', 'adapterhub',
   'service', 'call', 'route', 'routes', 'trace', 'traces', 'install', 'list',
   'completion', 'mcp', 'mcp-logs', 'browser', 'login', 'auth', 'extension-path',
@@ -131,13 +132,14 @@ export function groupByUser(rows) {
  */
 export async function fetchActiveUsers({ since = '30d', from = null, to = null, kind = 'adapter' } = {}) {
   const data = await fetchStats({ by: 'active', since, kind, from, to })
-  const rows = data.rows || []
-  // 旧 server 无 by=active(回落 domain 聚合,rows 是 {key,...} 形状)→ 视为未接入,
-  // 让页面走「用户活跃统计暂未接入」分支而不是渲染垃圾表。
-  const supported = rows.length === 0 || rows[0].day != null
+  const rows = Array.isArray(data.rows) ? data.rows : []
+  // 旧 server 无 by=active:回落 domain 聚合,响应不含 mau 字段(rows 形状也可能是
+  // {key,...})。以「响应带数值型 mau」为支持判据——空数据的新 server 也返回 mau:0,
+  // 而空 rows 的旧 server 会被误判为支持、显示假 0 月活。
+  const supported = typeof data.mau === 'number' && (rows.length === 0 || rows[0].day != null)
   return {
     rows: supported ? rows : [],
-    mau: supported ? data.mau || 0 : 0,
+    mau: supported ? data.mau : 0,
     unavailable: Boolean(data.unavailable) || !supported,
   }
 }

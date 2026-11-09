@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause, NOISE_FIRST_SEGMENTS } from "../db.js";
 import { checkAuth, dayParam, handle } from "../handler.js";
-import { isNoiseTool } from "../../officialWeb/src/lib/stats.js";
+import { isNoiseTool, NOISE_FIRST_SEGMENTS as FRONT_NOISE } from "../../officialWeb/src/lib/stats.js";
 
 function freshDb() {
   return openDb(":memory:");
@@ -264,6 +264,19 @@ test("queryStats by=err：空 err 的失败不计入", () => {
   });
   const { rows } = queryStats(db, { by: "err", since: "1d" });
   assert.equal(rows.length, 0);
+});
+
+test("queryStats by=err：空 user 失败归 (unknown)，与 by=user 口径一致", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: Date.now(), traceID: "eu1", ok: false, ms: 10, err: "HTTP_ERROR" }),
+      rec({ ts: Date.now(), traceID: "eu2", ok: false, ms: 10, err: "HTTP_ERROR" }),
+    ],
+  });
+  const { rows } = queryStats(db, { by: "err", since: "1d" });
+  assert.equal(rows[0].users, 1); // 空用户归 (unknown) 计 1,不因 whoami 失败漏计
 });
 
 test("resolveWindow:默认 since 相对窗,无上界", () => {
@@ -523,4 +536,10 @@ test("officialWeb isNoiseTool 与 server NOISE_FIRST_SEGMENTS 无漂移", () => 
   assert.equal(isNoiseTool("skillx.foo.bar"), false);
   assert.equal(isNoiseTool("mail.163.com.get"), false);
   assert.equal(isNoiseTool("tickets.example.com.search_tickets"), false);
+});
+
+test("officialWeb NOISE_FIRST_SEGMENTS 与 server 名单双向一致", () => {
+  // 正向(上测)防 server 多、前端漏;本测防前端多、server 漏——前端私自加名会
+  // 静默隐藏合法调用,双向 deepEqual 把两侧名单钉成一体。
+  assert.deepEqual([...NOISE_FIRST_SEGMENTS].sort(), [...FRONT_NOISE].sort());
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchStats, groupByDomain, groupByUser, fetchActiveUsers } from '../lib/stats'
 import { fetchVisits } from '../lib/visits'
 
@@ -42,6 +42,12 @@ export default function Stats() {
   const [errRows, setErrRows] = useState([])
   const [totalFailed, setTotalFailed] = useState(0)
 
+  // 请求代次守卫:筛选快速切换(视图/时间窗/自定义日期)时,先发出的旧请求
+  // 可能后返回,不得覆盖新状态——响应落地前比对代次,过期即丢弃。
+  const loadSeq = useRef(0)
+  const visitsSeq = useRef(0)
+  const activeSeq = useRef(0)
+
   // 网站访问量（PV/UV）
   const [visits, setVisits] = useState(null)
   const [visitsLoading, setVisitsLoading] = useState(true)
@@ -54,17 +60,20 @@ export default function Stats() {
   const [activeUnavailable, setActiveUnavailable] = useState(false)
 
   const loadActive = useCallback(async () => {
+    const seq = ++activeSeq.current
     setActiveLoading(true)
     setActiveError(null)
     setActiveUnavailable(false)
     try {
       const data = await fetchActiveUsers({ since: effSince, from: apiFrom, to: apiTo, kind })
+      if (seq !== activeSeq.current) return // 已被更新的请求取代,丢弃旧响应
       setActiveUnavailable(Boolean(data.unavailable))
       setActive(data)
     } catch (e) {
+      if (seq !== activeSeq.current) return
       setActiveError(e.message)
     } finally {
-      setActiveLoading(false)
+      if (seq === activeSeq.current) setActiveLoading(false)
     }
   }, [effSince, apiFrom, apiTo, kind])
 
@@ -73,17 +82,20 @@ export default function Stats() {
   }, [loadActive])
 
   const loadVisits = useCallback(async () => {
+    const seq = ++visitsSeq.current
     setVisitsLoading(true)
     setVisitsError(null)
     setVisitsUnavailable(false)
     try {
       const data = await fetchVisits({ since: effSince, from: apiFrom, to: apiTo })
+      if (seq !== visitsSeq.current) return // 已被更新的请求取代,丢弃旧响应
       setVisitsUnavailable(Boolean(data.unavailable))
       setVisits(data)
     } catch (e) {
+      if (seq !== visitsSeq.current) return
       setVisitsError(e.message)
     } finally {
-      setVisitsLoading(false)
+      if (seq === visitsSeq.current) setVisitsLoading(false)
     }
   }, [effSince, apiFrom, apiTo])
 
@@ -92,28 +104,35 @@ export default function Stats() {
   }, [loadVisits])
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current
     setLoading(true)
     setError(null)
     setStatsUnavailable(false)
     try {
       const by = view === 'user' ? 'user' : view === 'err' ? 'err' : 'tool'
       const data = await fetchStats({ by, since: effSince, kind, from: apiFrom, to: apiTo })
+      if (seq !== loadSeq.current) return // 已被更新的请求取代,丢弃旧响应
       setStatsUnavailable(Boolean(data.unavailable))
       const rows = data.rows || []
       if (view === 'err') {
         setErrRows(rows)
         setTotalFailed(data.totalFailed || 0)
         setGroups([])
+        setTotalCalls(0)
       } else {
-        setGroups(view === 'user' ? groupByUser(rows) : groupByDomain(rows))
+        // 汇总数从过滤后的分组累计:前端噪音兜底会丢弃行(旧 server 场景),
+        // 后端 totalCalls 含噪音,直接用会让汇总大于可见行合计。
+        const grouped = view === 'user' ? groupByUser(rows) : groupByDomain(rows)
+        setGroups(grouped)
         setErrRows([])
         setTotalFailed(0)
+        setTotalCalls(grouped.reduce((s, g) => s + g.calls, 0))
       }
-      setTotalCalls(data.totalCalls || 0)
     } catch (e) {
+      if (seq !== loadSeq.current) return
       setError(e.message)
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [view, effSince, kind, apiFrom, apiTo])
 
@@ -156,6 +175,10 @@ export default function Stats() {
     : isUser
       ? 'grid-cols-[1fr_100px_40px]'
       : 'grid-cols-[1fr_80px_80px_80px_80px_40px]'
+
+  // 条形宽度基准:渲染前一次性计算,避免逐行全量扫描(90d/自定义窗行数较多时是 O(n²))
+  const maxDau = active && active.rows.length ? Math.max(...active.rows.map((x) => x.dau || 0), 1) : 1
+  const maxPv = visits && visits.rows.length ? Math.max(...visits.rows.map((x) => x.pv || 0), 1) : 1
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-28 pb-16">
@@ -228,7 +251,11 @@ export default function Stats() {
                 type="date"
                 value={customFrom}
                 max={customTo || undefined}
-                onChange={(e) => setCustomFrom(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value
+                  // min/max 只是约束校验,手输越界值仍会提交:越界时钳回边界,保证 from<=to
+                  setCustomFrom(customTo && v && v > customTo ? customTo : v)
+                }}
                 className="px-2 py-1.5 rounded-lg border border-border bg-surface text-[rgb(var(--color-text))] text-sm"
               />
               <span className="text-muted">至</span>
@@ -236,7 +263,10 @@ export default function Stats() {
                 type="date"
                 value={customTo}
                 min={customFrom || undefined}
-                onChange={(e) => setCustomTo(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setCustomTo(customFrom && v && v < customFrom ? customFrom : v)
+                }}
                 className="px-2 py-1.5 rounded-lg border border-border bg-surface text-[rgb(var(--color-text))] text-sm"
               />
             </div>
@@ -319,7 +349,6 @@ export default function Stats() {
               <div className="text-right">UV</div>
             </div>
             {visits.rows.map((r) => {
-              const maxPv = Math.max(...visits.rows.map((x) => x.pv), 1)
               return (
                 <div key={r.day} className="grid grid-cols-[1fr_100px_100px] gap-3 px-4 py-2.5 text-sm border-b border-border/60 last:border-b-0 items-center">
                   <div className="flex items-center gap-3">
@@ -378,7 +407,6 @@ export default function Stats() {
               <div className="text-right">DAU</div>
             </div>
             {active.rows.map((r) => {
-              const maxDau = Math.max(...active.rows.map((x) => x.dau), 1)
               return (
                 <div key={r.day} className="grid grid-cols-[1fr_120px] gap-3 px-4 py-2.5 text-sm border-b border-border/60 last:border-b-0 items-center">
                   <div className="flex items-center gap-3">

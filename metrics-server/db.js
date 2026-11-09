@@ -253,7 +253,7 @@ function queryByErr(db, { since = "30d", from = null, to = null, top = null } = 
       `SELECT err,
               COUNT(*)                                        AS calls,
               COUNT(DISTINCT tool)                            AS tools,
-              COUNT(DISTINCT user)                            AS users,
+              COUNT(DISTINCT COALESCE(NULLIF(user, ''), '(unknown)')) AS users,
               MIN(tool)                                       AS sampleTool
        FROM metrics
        WHERE ${where} AND ok = 0${noiseExcludeClause()}
