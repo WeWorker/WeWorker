@@ -425,6 +425,7 @@ export function percentile(arr, p) {
  *   - 都不出现:since 相对窗(start = now - parseDuration(since),无上界)
  * @returns {{start:number, end:number|null}} end 为 null 表示不设上界
  * 非法格式的 from/to 会产生 NaN 边界(SQL 匹配零行),由 handler 层 dayParam 保证格式
+ * from > to 产生空窗(SQL 匹配零行)而非报错,由前端日期输入 min/max 约束(策略已定:不做后端 400)
  */
 export function resolveWindow({ since = "30d", from = null, to = null } = {}) {
   const start = from ? Date.parse(`${from}T00:00:00Z`) : Date.now() - parseDuration(since);

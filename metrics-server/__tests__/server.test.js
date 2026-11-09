@@ -472,12 +472,26 @@ test("handle:GET /v1/stats?by=active 返回 rows+mau", async () => {
   assert.equal(res.body.mau, 1);
 });
 
+test("handle:GET /v1/stats 非法 to → 400", async () => {
+  const db = freshDb();
+  const res = await captureHandle("GET", "/v1/stats?to=bad", db);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /invalid to/);
+});
+
 test("handle:GET /v1/visits from/to 透传", async () => {
   const db = freshDb();
   insertVisit(db, { ip: "10.0.0.1", ts: Date.parse("2026-01-05T10:00:00Z") });
   const res = await captureHandle("GET", "/v1/visits?from=2026-01-05&to=2026-01-06", db);
   assert.equal(res.status, 200);
   assert.equal(res.body.totalPv, 1);
+});
+
+test("handle:GET /v1/visits 非法 from → 400", async () => {
+  const db = freshDb();
+  const res = await captureHandle("GET", "/v1/visits?from=bad", db);
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /invalid from/);
 });
 
 test("queryStats by=active:kind+from/to 组合占位符钉死", () => {
