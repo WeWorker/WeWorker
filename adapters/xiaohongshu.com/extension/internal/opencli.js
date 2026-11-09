@@ -10,11 +10,11 @@ var __xhsOpenCLI = (() => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
   };
-  var __copyProps = (to, from, except, desc) => {
-    if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
+  var __copyProps = (to, from2, except, desc) => {
+    if (from2 && typeof from2 === "object" || typeof from2 === "function") {
+      for (let key of __getOwnPropNames(from2))
         if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+          __defProp(to, key, { get: () => from2[key], enumerable: !(desc = __getOwnPropDesc(from2, key)) || desc.enumerable });
     }
     return to;
   };
@@ -98,12 +98,12 @@ var __xhsOpenCLI = (() => {
     "conversation_id"
   ];
   function parseBoundedInteger(raw, defaultValue, min, max, label) {
-    const value = raw ?? defaultValue;
+    const value2 = raw ?? defaultValue;
     let parsed;
-    if (typeof value === "number") {
-      parsed = value;
-    } else if (typeof value === "string" && /^\d+$/.test(value)) {
-      parsed = Number(value);
+    if (typeof value2 === "number") {
+      parsed = value2;
+    } else if (typeof value2 === "string" && /^\d+$/.test(value2)) {
+      parsed = Number(value2);
     } else {
       throw new ArgumentError(`${label} must be an integer between ${min} and ${max}, got ${JSON.stringify(raw)}`);
     }
@@ -118,28 +118,28 @@ var __xhsOpenCLI = (() => {
   function parseAskLimit(raw) {
     return parseBoundedInteger(raw, 10, 1, 50, "--source-limit");
   }
-  function cleanText(value) {
-    return String(value ?? "").replace(/<[^>]+>/g, "").replace(/\u200b/g, "").replace(/\r\n/g, "\n").trim();
+  function cleanText(value2) {
+    return String(value2 ?? "").replace(/<[^>]+>/g, "").replace(/\u200b/g, "").replace(/\r\n/g, "\n").trim();
   }
-  function compactSingleLine(value) {
-    return cleanText(value).replace(/\s+/g, " ").trim();
+  function compactSingleLine(value2) {
+    return cleanText(value2).replace(/\s+/g, " ").trim();
   }
   function firstNonEmpty(...values) {
-    for (const value of values) {
-      const text = compactSingleLine(value);
+    for (const value2 of values) {
+      const text = compactSingleLine(value2);
       if (text) return text;
     }
     return "";
   }
-  function parseCount(value) {
-    if (value === null || value === void 0 || value === "") return null;
+  function parseCount(value2) {
+    if (value2 === null || value2 === void 0 || value2 === "") return null;
     const toSafeCount = (number) => Number.isSafeInteger(number) && number >= 0 ? number : null;
-    if (typeof value === "number") return toSafeCount(value);
-    const text = String(value).trim();
-    const compact = text.match(/^(\d+(?:\.\d+)?)\s*(万|[wW]|亿)\+?$/);
-    if (compact) {
-      const number = Number(compact[1]);
-      const multiplier = compact[2] === "\u4EBF" ? 1e8 : 1e4;
+    if (typeof value2 === "number") return toSafeCount(value2);
+    const text = String(value2).trim();
+    const compact2 = text.match(/^(\d+(?:\.\d+)?)\s*(万|[wW]|亿)\+?$/);
+    if (compact2) {
+      const number = Number(compact2[1]);
+      const multiplier = compact2[2] === "\u4EBF" ? 1e8 : 1e4;
       return Number.isFinite(number) ? toSafeCount(Math.round(number * multiplier)) : null;
     }
     const plain = text.replace(/,/g, "").replace(/\+$/, "");
@@ -148,16 +148,16 @@ var __xhsOpenCLI = (() => {
     }
     return null;
   }
-  function parseUrlMaybe(value) {
-    if (!value) return null;
+  function parseUrlMaybe(value2) {
+    if (!value2) return null;
     try {
-      return new URL(String(value));
+      return new URL(String(value2));
     } catch {
       return null;
     }
   }
-  function parseTrustedSourceLink(value) {
-    const raw = String(value || "").trim();
+  function parseTrustedSourceLink(value2) {
+    const raw = String(value2 || "").trim();
     if (!raw) return null;
     const xhsDiscoverMatch = raw.match(/^xhsdiscover:\/\/item\/([0-9a-f]{24})(?=[?#/]|$)/i);
     if (xhsDiscoverMatch) {
@@ -194,9 +194,9 @@ var __xhsOpenCLI = (() => {
     }
     return "";
   }
-  function buildNoteUrl(noteId, xsecToken) {
-    if (!/^[0-9a-f]{24}$/i.test(String(noteId || ""))) return "";
-    const url = new URL(`https://${XHS_WEB_HOST}/explore/${noteId}`);
+  function buildNoteUrl(noteId2, xsecToken) {
+    if (!/^[0-9a-f]{24}$/i.test(String(noteId2 || ""))) return "";
+    const url = new URL(`https://${XHS_WEB_HOST}/explore/${noteId2}`);
     if (xsecToken) {
       url.searchParams.set("xsec_token", xsecToken);
       url.searchParams.set("xsec_source", "");
@@ -216,14 +216,14 @@ var __xhsOpenCLI = (() => {
   }
   function normalizeAskSource(source, index) {
     const trustedLink = [source?.textLink, source?.link, source?.url].map(parseTrustedSourceLink).find(Boolean);
-    const noteId = extractNoteId(source);
+    const noteId2 = extractNoteId(source);
     const xsecToken = trustedLink?.xsecToken || "";
     const normalized = {
       rank: index + 1,
       type: "note",
       title: firstNonEmpty(source?.title, source?.displayTitle, source?.name),
-      url: buildNoteUrl(noteId, xsecToken),
-      note_id: noteId,
+      url: buildNoteUrl(noteId2, xsecToken),
+      note_id: noteId2,
       xsec_token: xsecToken,
       author: firstNonEmpty(source?.nickName, source?.nickname, source?.author, source?.userName)
     };
@@ -488,8 +488,8 @@ var __xhsOpenCLI = (() => {
   });
 
   // webcli/scripts/opencli-xiaohongshu/upstream/user-helpers.js
-  function toCleanString(value) {
-    return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+  function toCleanString(value2) {
+    return typeof value2 === "string" ? value2.trim() : value2 == null ? "" : String(value2).trim();
   }
   function normalizeXhsUserId(input) {
     const trimmed = toCleanString(input);
@@ -517,9 +517,9 @@ var __xhsOpenCLI = (() => {
     }
     return notes;
   }
-  function buildXhsNoteUrl(userId, noteId, xsecToken, webHost = "www.xiaohongshu.com") {
+  function buildXhsNoteUrl(userId, noteId2, xsecToken, webHost = "www.xiaohongshu.com") {
     const cleanUserId = toCleanString(userId);
-    const cleanNoteId = toCleanString(noteId);
+    const cleanNoteId = toCleanString(noteId2);
     if (!cleanUserId || !cleanNoteId)
       return "";
     const url = new URL(`https://${webHost}/user/profile/${cleanUserId}/${cleanNoteId}`);
@@ -538,21 +538,21 @@ var __xhsOpenCLI = (() => {
       const noteCard = entry?.noteCard ?? entry?.note_card ?? entry;
       if (!noteCard || typeof noteCard !== "object")
         continue;
-      const noteId = toCleanString(noteCard.noteId ?? noteCard.note_id ?? entry?.noteId ?? entry?.note_id ?? entry?.id);
-      if (!noteId || seen.has(noteId))
+      const noteId2 = toCleanString(noteCard.noteId ?? noteCard.note_id ?? entry?.noteId ?? entry?.note_id ?? entry?.id);
+      if (!noteId2 || seen.has(noteId2))
         continue;
-      seen.add(noteId);
+      seen.add(noteId2);
       const userId = toCleanString(noteCard.user?.userId ?? noteCard.user?.user_id ?? fallbackUserId);
       const xsecToken = toCleanString(entry?.xsecToken ?? entry?.xsec_token ?? noteCard.xsecToken ?? noteCard.xsec_token);
       const likes = toCleanString(noteCard.interactInfo?.likedCount ?? noteCard.interact_info?.liked_count ?? 0) || "0";
       const cover = toCleanString(noteCard.cover?.urlDefault ?? noteCard.cover?.urlPre ?? noteCard.cover?.url ?? "");
       rows.push({
-        id: noteId,
+        id: noteId2,
         title: toCleanString(noteCard.displayTitle ?? noteCard.display_title ?? noteCard.title),
         type: toCleanString(noteCard.type),
         likes,
         cover,
-        url: buildXhsNoteUrl(userId || fallbackUserId, noteId, xsecToken, webHost)
+        url: buildXhsNoteUrl(userId || fallbackUserId, noteId2, xsecToken, webHost)
       });
     }
     return rows;
@@ -571,11 +571,11 @@ var __xhsOpenCLI = (() => {
     url.searchParams.set("subTab", "note");
     return url.toString();
   }
-  function toCleanString2(value) {
-    return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+  function toCleanString2(value2) {
+    return typeof value2 === "string" ? value2.trim() : value2 == null ? "" : String(value2).trim();
   }
-  function isObject(value) {
-    return value && typeof value === "object" && !Array.isArray(value);
+  function isObject(value2) {
+    return value2 && typeof value2 === "object" && !Array.isArray(value2);
   }
   function unwrapBrowserResult(payload) {
     if (isObject(payload) && "session" in payload && "data" in payload) {
@@ -597,8 +597,8 @@ var __xhsOpenCLI = (() => {
     if (!isObject(entry))
       return null;
     const noteCard = entry.note_card ?? entry.noteCard ?? entry;
-    const noteId = toCleanString2(entry.note_id ?? entry.noteId ?? entry.id ?? noteCard.note_id ?? noteCard.noteId ?? noteCard.id);
-    if (!noteId)
+    const noteId2 = toCleanString2(entry.note_id ?? entry.noteId ?? entry.id ?? noteCard.note_id ?? noteCard.noteId ?? noteCard.id);
+    if (!noteId2)
       return null;
     const user = noteCard.user ?? entry.user ?? {};
     const userId = toCleanString2(user.user_id ?? user.userId ?? "");
@@ -606,9 +606,9 @@ var __xhsOpenCLI = (() => {
     if (!xsecToken)
       return null;
     const interact = noteCard.interact_info ?? noteCard.interactInfo ?? entry.interact_info ?? entry.interactInfo ?? {};
-    const url = userId ? buildXhsNoteUrl(userId, noteId, xsecToken) : `https://www.xiaohongshu.com/explore/${encodeURIComponent(noteId)}?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_user`;
+    const url = userId ? buildXhsNoteUrl(userId, noteId2, xsecToken) : `https://www.xiaohongshu.com/explore/${encodeURIComponent(noteId2)}?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_user`;
     return {
-      id: noteId,
+      id: noteId2,
       title: toCleanString2(noteCard.display_title ?? noteCard.displayTitle ?? noteCard.title ?? entry.title ?? entry.display_title),
       author: toCleanString2(user.nickname ?? user.nick_name ?? user.name),
       likes: toCleanString2(interact.liked_count ?? interact.likedCount ?? 0) || "0",
@@ -924,10 +924,10 @@ var __xhsOpenCLI = (() => {
       return fallback;
     return Math.max(1, Math.min(Math.floor(n), 50));
   }
-  function parseXhsLikeCountText(value) {
+  function parseXhsLikeCountText(value2) {
     const integerRe = /^(?:\d+|\d{1,3}(?:[,，]\d{3})+)\+?$/u;
     const shortformRe = /^((?:\d+|\d{1,3}(?:[,，]\d{3})+)(?:\.\d+)?)([wWkK万千])\+?$/u;
-    const raw = String(value ?? "").replace(/\s+/g, "");
+    const raw = String(value2 ?? "").replace(/\s+/g, "");
     if (!raw)
       return 0;
     if (integerRe.test(raw))
@@ -942,22 +942,22 @@ var __xhsOpenCLI = (() => {
     const multiplier = unit === "w" || unit === "\u4E07" ? 1e4 : 1e3;
     return Math.round(numeric * multiplier);
   }
-  function normalizeOptionalString(value, field, commandName) {
-    if (value == null)
+  function normalizeOptionalString(value2, field, commandName) {
+    if (value2 == null)
       return "";
-    if (typeof value !== "string") {
+    if (typeof value2 !== "string") {
       throw new CommandExecutionError(`${commandName}: malformed comment row ${field}`);
     }
-    return value;
+    return value2;
   }
-  function normalizeCommentImages(value, commandName) {
-    if (value == null)
+  function normalizeCommentImages(value2, commandName) {
+    if (value2 == null)
       return [];
-    if (!Array.isArray(value)) {
+    if (!Array.isArray(value2)) {
       throw new CommandExecutionError(`${commandName}: malformed comment row images`);
     }
     const urls = [];
-    for (const raw of value) {
+    for (const raw of value2) {
       if (typeof raw !== "string") {
         throw new CommandExecutionError(`${commandName}: malformed comment row image URL`);
       }
@@ -977,13 +977,13 @@ var __xhsOpenCLI = (() => {
     }
     return urls;
   }
-  function normalizeCommentRows(value, commandName = "xiaohongshu/comments") {
-    if (value == null)
+  function normalizeCommentRows(value2, commandName = "xiaohongshu/comments") {
+    if (value2 == null)
       return [];
-    if (!Array.isArray(value)) {
+    if (!Array.isArray(value2)) {
       throw new CommandExecutionError(`${commandName}: malformed comments payload`);
     }
-    return value.map((row, index) => {
+    return value2.map((row, index) => {
       if (!row || typeof row !== "object" || Array.isArray(row)) {
         throw new CommandExecutionError(`${commandName}: malformed comment row at index ${index}`);
       }
@@ -1168,7 +1168,7 @@ var __xhsOpenCLI = (() => {
       const limit = parseCommentLimit(kwargs.limit);
       const withReplies = Boolean(kwargs["with-replies"]);
       const raw = String(kwargs["note-id"]);
-      const noteId = parseNoteId(raw);
+      const noteId2 = parseNoteId(raw);
       const data = await readXhsDetailPage(page, {
         url: buildNoteUrl2(raw, { commandName: "xiaohongshu comments" }),
         extractJs: buildCommentsExtractJs(withReplies, limit),
@@ -1180,7 +1180,7 @@ var __xhsOpenCLI = (() => {
       if (data.loginWall) {
         throw new AuthRequiredError("www.xiaohongshu.com", "Note comments require login");
       }
-      void noteId;
+      void noteId2;
       if (!Array.isArray(data.results)) throw new CommandExecutionError("Missing comment results payload");
       const all = normalizeCommentRows(data.results, "xiaohongshu/comments");
       const enrich = (c, i) => ({
@@ -1255,7 +1255,7 @@ var __xhsOpenCLI = (() => {
     return "";
   }
   function findMetricValue(lines, startIndex) {
-    let value = "";
+    let value2 = "";
     let extra = "";
     for (let i = startIndex + 1; i < lines.length; i++) {
       const line = lines[i];
@@ -1265,8 +1265,8 @@ var __xhsOpenCLI = (() => {
         break;
       if (NOTE_DETAIL_NOISE_LINES.has(line) || line.startsWith("\u6570\u636E\u66F4\u65B0\u81F3") || line.startsWith("\u90E8\u5206\u6570\u636E\u7EDF\u8BA1\u4E2D"))
         continue;
-      if (!value) {
-        value = line;
+      if (!value2) {
+        value2 = line;
         continue;
       }
       if (!extra && line.startsWith("\u7C89\u4E1D")) {
@@ -1277,18 +1277,18 @@ var __xhsOpenCLI = (() => {
         break;
       }
     }
-    return { value, extra };
+    return { value: value2, extra };
   }
   function findPublishedAt(text) {
     const match = text.match(/\b\d{4}-\d{2}-\d{2} \d{2}:\d{2}\b/);
     return match?.[0] ?? "";
   }
-  function parseCreatorNoteDetailText(bodyText, noteId) {
+  function parseCreatorNoteDetailText(bodyText, noteId2) {
     const lines = bodyText.split("\n").map((line) => line.trim()).filter(Boolean);
     const title = findNoteTitle(lines);
     const publishedAt = lines.find((line) => NOTE_DETAIL_DATETIME_RE.test(line)) ?? "";
     const rows = [
-      { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "note_id", value: noteId, extra: "" },
+      { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "note_id", value: noteId2, extra: "" },
       { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "title", value: title, extra: "" },
       { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "published_at", value: publishedAt, extra: "" }
     ];
@@ -1296,24 +1296,24 @@ var __xhsOpenCLI = (() => {
       const index = lines.indexOf(metric.label);
       if (index < 0)
         continue;
-      const { value, extra } = findMetricValue(lines, index);
+      const { value: value2, extra } = findMetricValue(lines, index);
       rows.push({
         section: metric.section,
         metric: metric.label,
-        value,
+        value: value2,
         extra
       });
     }
     return rows;
   }
-  function parseCreatorNoteDetailDomData(dom, noteId) {
+  function parseCreatorNoteDetailDomData(dom, noteId2) {
     if (!dom)
       return [];
     const title = typeof dom.title === "string" ? dom.title.trim() : "";
     const infoText = typeof dom.infoText === "string" ? dom.infoText : "";
     const sections = Array.isArray(dom.sections) ? dom.sections : [];
     const rows = [
-      { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "note_id", value: noteId, extra: "" },
+      { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "note_id", value: noteId2, extra: "" },
       { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "title", value: title, extra: "" },
       { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "published_at", value: findPublishedAt(infoText), extra: "" }
     ];
@@ -1334,8 +1334,8 @@ var __xhsOpenCLI = (() => {
     const hasMetric = rows.some((row) => row.section !== "\u7B14\u8BB0\u4FE1\u606F" && row.value);
     return hasMetric ? rows : [];
   }
-  function toPercentString(value) {
-    return value == null ? "" : `${value}%`;
+  function toPercentString(value2) {
+    return value2 == null ? "" : `${value2}%`;
   }
   function appendAudienceSourceRows(rows, payload) {
     const sourceItems = payload?.audienceSource?.source ?? [];
@@ -1384,7 +1384,7 @@ var __xhsOpenCLI = (() => {
       return "";
     const CST_OFFSET_MS = 8 * 60 * 60 * 1e3;
     const cstDate = new Date(ts + CST_OFFSET_MS);
-    const pad = (value) => String(value).padStart(2, "0");
+    const pad = (value2) => String(value2).padStart(2, "0");
     if (granularity === "hour") {
       return `${pad(cstDate.getUTCMonth() + 1)}-${pad(cstDate.getUTCDate())} ${pad(cstDate.getUTCHours())}:00`;
     }
@@ -1395,8 +1395,8 @@ var __xhsOpenCLI = (() => {
       return "";
     return points.map((point) => {
       const label = formatTrendTimestamp(point.date, granularity);
-      const value = point.count_with_double ?? point.count;
-      return label && value != null ? `${label}=${value}` : "";
+      const value2 = point.count_with_double ?? point.count;
+      return label && value2 != null ? `${label}=${value2}` : "";
     }).filter(Boolean).join(" | ");
   }
   var TREND_SERIES_CONFIG = [
@@ -1459,8 +1459,8 @@ var __xhsOpenCLI = (() => {
   function findCapturedUrl(captureMap, suffix) {
     return Object.keys(captureMap).find((url) => detailApiEndpointForUrl(url)?.suffix === suffix);
   }
-  function isPlainObject(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
+  function isPlainObject(value2) {
+    return value2 !== null && typeof value2 === "object" && !Array.isArray(value2);
   }
   function assertOptionalArray(payload, key, suffix) {
     if (key in payload && !Array.isArray(payload[key])) {
@@ -1565,10 +1565,10 @@ var __xhsOpenCLI = (() => {
     window.XMLHttpRequest = HookedXHR;
   })()`);
   }
-  async function captureNoteDetailPayload(page, noteId) {
+  async function captureNoteDetailPayload(page, noteId2) {
     await installXhsFetchCaptureHook(page);
     await page.evaluate(`(() => {
-    const target = '/statistics/note-detail?noteId=' + ${JSON.stringify(noteId)};
+    const target = '/statistics/note-detail?noteId=' + ${JSON.stringify(noteId2)};
     history.pushState({}, '', target);
     window.dispatchEvent(new PopStateEvent('popstate'));
   })()`);
@@ -1627,14 +1627,14 @@ var __xhsOpenCLI = (() => {
       return null;
     return result;
   }
-  async function fetchCreatorNoteDetailRows(page, noteId) {
+  async function fetchCreatorNoteDetailRows(page, noteId2) {
     await page.goto("https://creator.xiaohongshu.com/statistics");
-    const apiPayload = await captureNoteDetailPayload(page, noteId);
+    const apiPayload = await captureNoteDetailPayload(page, noteId2);
     const domData = await captureNoteDetailDomData(page).catch(() => null);
-    let rows = parseCreatorNoteDetailDomData(domData, noteId);
+    let rows = parseCreatorNoteDetailDomData(domData, noteId2);
     if (rows.length === 0) {
       const bodyText = await page.evaluate("() => document.body.innerText");
-      rows = parseCreatorNoteDetailText(typeof bodyText === "string" ? bodyText : "", noteId);
+      rows = parseCreatorNoteDetailText(typeof bodyText === "string" ? bodyText : "", noteId2);
     }
     appendTrendRows(rows, apiPayload ?? void 0);
     appendAudienceRows(rows, apiPayload ?? void 0);
@@ -1654,8 +1654,8 @@ var __xhsOpenCLI = (() => {
     ],
     columns: ["section", "metric", "value", "extra"],
     func: async (page, kwargs) => {
-      const noteId = kwargs["note-id"];
-      const rows = await fetchCreatorNoteDetailRows(page, noteId);
+      const noteId2 = kwargs["note-id"];
+      const rows = await fetchCreatorNoteDetailRows(page, noteId2);
       const hasCoreMetric = rows.some((row) => row.section !== "\u7B14\u8BB0\u4FE1\u606F" && row.value);
       if (!hasCoreMetric) {
         throw new EmptyResultError("xiaohongshu creator-note-detail", "No note detail data found. Check note_id and login status for creator.xiaohongshu.com.");
@@ -1690,14 +1690,14 @@ var __xhsOpenCLI = (() => {
   var CAPTURE_POLL_INTERVAL_S2 = 0.5;
   var NOTE_DETAIL_PAGE_URL = "https://creator.xiaohongshu.com/statistics/note-detail";
   var NOTE_ID_HTML_RE = /&quot;noteId&quot;:&quot;([0-9a-f]{24})&quot;/g;
-  function buildNoteDetailUrl(noteId) {
-    return noteId ? `${NOTE_DETAIL_PAGE_URL}?noteId=${encodeURIComponent(noteId)}` : "";
+  function buildNoteDetailUrl(noteId2) {
+    return noteId2 ? `${NOTE_DETAIL_PAGE_URL}?noteId=${encodeURIComponent(noteId2)}` : "";
   }
   function formatPostTime(ts) {
     if (!ts)
       return "";
     const date = new Date(ts + 8 * 36e5);
-    const pad = (value) => String(value).padStart(2, "0");
+    const pad = (value2) => String(value2).padStart(2, "0");
     return `${date.getUTCFullYear()}\u5E74${pad(date.getUTCMonth() + 1)}\u6708${pad(date.getUTCDate())}\u65E5 ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
   }
   function parseCreatorNotesText(bodyText) {
@@ -2383,7 +2383,7 @@ var __xhsOpenCLI = (() => {
       return pathMatch[1].toLowerCase();
     throw new ArgumentError("xiaohongshu/delete-note: note URL must contain a 24-character note ID");
   }
-  function buildLocateAndMaybeDeleteScript(noteId, shouldClick) {
+  function buildLocateAndMaybeDeleteScript(noteId2, shouldClick) {
     return `
       (cfg => {
         const { targetId, shouldClick } = cfg;
@@ -2413,10 +2413,10 @@ var __xhsOpenCLI = (() => {
           }
         }
         return { ok: false, kind: 'not_found', visibleRows: notes.length };
-      })(${JSON.stringify({ targetId: noteId, shouldClick })})
+      })(${JSON.stringify({ targetId: noteId2, shouldClick })})
     `;
   }
-  function buildVerifyGoneScript(noteId) {
+  function buildVerifyGoneScript(noteId2) {
     return `
         (targetId => {
           const matchesNoteId = (impressionRaw) => {
@@ -2431,7 +2431,7 @@ var __xhsOpenCLI = (() => {
           };
           const notes = Array.from(document.querySelectorAll('.note'));
           return notes.some((n) => matchesNoteId(n.getAttribute('data-impression')));
-        })(${JSON.stringify(noteId)})
+        })(${JSON.stringify(noteId2)})
       `;
   }
   cli({
@@ -2460,7 +2460,7 @@ var __xhsOpenCLI = (() => {
     columns: ["status", "note_id", "message"],
     func: async (page, kwargs) => {
       try {
-        const noteId = normalizeNoteId(kwargs["note-id"]);
+        const noteId2 = normalizeNoteId(kwargs["note-id"]);
         const execute = kwargs.execute === true;
         await page.goto(NOTE_MANAGER_URL);
         await page.wait({ time: ROW_SETTLE_MS / 1e3 });
@@ -2485,18 +2485,18 @@ var __xhsOpenCLI = (() => {
           throw new CommandExecutionError("xiaohongshu/delete-note: \u5DF2\u53D1\u5E03 tab not found on note-manager; xhs creator UI may have changed.");
         }
         await page.wait({ time: ROW_SETTLE_MS / 1e3 });
-        const initResult = requireActionResult(unwrapEvaluateResult(await page.evaluate(buildLocateAndMaybeDeleteScript(noteId, execute))), "locate-note");
+        const initResult = requireActionResult(unwrapEvaluateResult(await page.evaluate(buildLocateAndMaybeDeleteScript(noteId2, execute))), "locate-note");
         if (!initResult?.ok) {
           if (initResult?.kind === "not_found") {
-            throw new EmptyResultError("xiaohongshu/delete-note", `Note ${noteId} not visible in the \u5DF2\u53D1\u5E03 tab. Verify the note belongs to the logged-in account and has cleared review (\u5BA1\u6838\u4E2D / \u672A\u901A\u8FC7 rows have no web delete entry).`);
+            throw new EmptyResultError("xiaohongshu/delete-note", `Note ${noteId2} not visible in the \u5DF2\u53D1\u5E03 tab. Verify the note belongs to the logged-in account and has cleared review (\u5BA1\u6838\u4E2D / \u672A\u901A\u8FC7 rows have no web delete entry).`);
           }
           if (initResult?.kind === "no_delete_action") {
-            throw new CommandExecutionError(`xiaohongshu/delete-note: note ${noteId} row found but no delete action visible; xhs creator UI may have changed.`);
+            throw new CommandExecutionError(`xiaohongshu/delete-note: note ${noteId2} row found but no delete action visible; xhs creator UI may have changed.`);
           }
           throw new CommandExecutionError("xiaohongshu/delete-note: failed to locate note row");
         }
         if (!execute) {
-          return [{ status: "dry-run", note_id: noteId, message: "Target note row and delete action verified. Re-run with --execute to delete." }];
+          return [{ status: "dry-run", note_id: noteId2, message: "Target note row and delete action verified. Re-run with --execute to delete." }];
         }
         await page.wait({ time: MODAL_SETTLE_MS / 1e3 });
         const confirmResult = requireActionResult(unwrapEvaluateResult(await page.evaluate(`
@@ -2518,16 +2518,16 @@ var __xhsOpenCLI = (() => {
         let stillPresent = true;
         for (let i = 0; i < VERIFY_ITERATIONS; i++) {
           await page.wait({ time: VERIFY_POLL_MS / 1e3 });
-          const probe = requireEvaluateBoolean(unwrapEvaluateResult(await page.evaluate(buildVerifyGoneScript(noteId))), "verify-gone");
+          const probe = requireEvaluateBoolean(unwrapEvaluateResult(await page.evaluate(buildVerifyGoneScript(noteId2))), "verify-gone");
           if (probe === false) {
             stillPresent = false;
             break;
           }
         }
         if (stillPresent) {
-          throw new CommandExecutionError(`xiaohongshu/delete-note: note ${noteId} still visible after confirm click; deletion may not have committed.`);
+          throw new CommandExecutionError(`xiaohongshu/delete-note: note ${noteId2} still visible after confirm click; deletion may not have committed.`);
         }
-        return [{ status: "deleted", note_id: noteId, message: "Delete confirmed and note row disappeared." }];
+        return [{ status: "deleted", note_id: noteId2, message: "Delete confirmed and note row disappeared." }];
       } catch (err) {
         if (err instanceof CliError)
           throw err;
@@ -2535,6 +2535,83 @@ var __xhsOpenCLI = (() => {
       }
     }
   });
+
+  // webcli/scripts/opencli-xiaohongshu/context-results.js
+  var from = (path) => ({ from: "item." + path });
+  var value = (value2) => ({ value: value2 });
+  var action = (id, label, command9, args) => ({ id, label, command: command9, args });
+  var rule = (actions) => [{ itemsPath: "$", idField: "context_ref", titleField: "context_title", actions }];
+  var variants = (item, when) => ({ id: item.id, label: item.label, variants: [{ when, command: item.command, args: item.args }] });
+  var noteActions = [
+    action("detail", "\u67E5\u770B\u7B14\u8BB0", "note", { "note-id": from("context_note_url") }),
+    action("comments", "\u67E5\u770B\u8BC4\u8BBA", "comments", { "note-id": from("context_note_url") }),
+    action("download", "\u4E0B\u8F7D\u5A92\u4F53", "download", { "note-id": from("context_note_url") }),
+    action("like", "\u70B9\u8D5E", "like-note", { id: from("context_note_id"), url: from("context_note_url"), confirm: value(true) }),
+    action("favorite", "\u6536\u85CF", "favorite-note", { id: from("context_note_id"), url: from("context_note_url"), confirm: value(true) })
+  ];
+  var authorActions = [
+    action("detail", "\u67E5\u770B\u4F5C\u8005", "user", { id: from("context_user_id") }),
+    action("follow", "\u5173\u6CE8\u4F5C\u8005", "follow", { "user-id": from("context_user_id") }),
+    action("unfollow", "\u53D6\u6D88\u5173\u6CE8\u4F5C\u8005", "unfollow", { "user-id": from("context_user_id") })
+  ];
+  var draftActions = [
+    action("detail", "\u67E5\u770B\u8349\u7A3F", "draft-open", { id: from("id"), type: from("type") }),
+    action("delete", "\u5220\u9664\u8349\u7A3F", "draft-delete", { id: from("id"), type: from("type"), execute: value(true) })
+  ];
+  var ownDelete = action("delete", "\u5220\u9664\u4F5C\u54C1", "delete-note", { "note-id": from("context_note_id"), execute: value(true) });
+  var noActions = (reason) => [{ actions: [], reason }];
+  var resultMetadata = {
+    ...Object.fromEntries(["feed", "search", "search-notes", "liked", "saved", "user"].map((name) => [name, rule(noteActions)])),
+    ...Object.fromEntries(["note", "open-note"].map((name) => [name, rule([
+      ...noteActions.filter((a) => a.id !== "detail").map((a) => variants(a, { field: "title" }))
+    ])])),
+    ...Object.fromEntries(["comments", "read-comments"].map((name) => [name, rule(authorActions)])),
+    "creator-notes": rule([action("detail", "\u67E5\u770B\u4F5C\u54C1\u6570\u636E", "creator-note-detail", { "note-id": from("context_note_id") }), ownDelete]),
+    "creator-notes-summary": rule([action("detail", "\u67E5\u770B\u4F5C\u54C1\u6570\u636E", "creator-note-detail", { "note-id": from("context_note_id") }), ownDelete]),
+    "creator-note-detail": rule([variants(ownDelete, { section: "\u7B14\u8BB0\u4FE1\u606F", metric: "note_id" })]),
+    drafts: rule(draftActions),
+    "draft-open": rule(draftActions.filter((a) => a.id !== "detail")),
+    notifications: rule(authorActions),
+    ...Object.fromEntries(["whoami", "check-login-status"].map((name) => [name, [{ itemPath: "$", idField: "site", titleField: "context_title", actions: [
+      action("detail", "\u67E5\u770B\u672C\u4EBA\u4F5C\u54C1", "creator-notes", {}),
+      action("profile", "\u67E5\u770B\u8D26\u53F7\u8D44\u6599", "creator-profile", {}),
+      action("stats", "\u67E5\u770B\u8D26\u53F7\u7EDF\u8BA1", "creator-stats", {}),
+      action("drafts", "\u67E5\u770B\u672C\u4EBA\u8349\u7A3F", "drafts", {})
+    ] }]])),
+    "creator-profile": noActions("\u8FD4\u56DE\u5B8C\u6574\u8D26\u53F7\u8D44\u6599\u53CA\u6C47\u603B\u5B57\u6BB5\uFF0C\u4E0D\u542B\u53EF\u9009\u62E9\u7684\u4F5C\u54C1\u6216\u7528\u6237ID\uFF1B\u4F5C\u54C1\u5217\u8868\u5E94\u72EC\u7ACB\u8C03\u7528creator-notes\uFF0C\u4E0D\u5C06\u5B57\u6BB5\u884C\u6620\u5C04\u4E3A\u4F5C\u54C1\u64CD\u4F5C\u3002"),
+    "creator-stats": noActions("\u8FD4\u56DE\u6240\u9009\u5468\u671F\u7684\u8D26\u53F7\u6307\u6807\u53CA\u8D8B\u52BF\uFF1B\u6307\u6807\u4E0D\u662F\u7B14\u8BB0\u5BF9\u8C61\uFF0C\u5F53\u524D\u65E0\u6309\u6307\u6807\u4E0B\u94BB\u6216\u4FEE\u6539\u6307\u6807\u7684\u547D\u4EE4\u3002"),
+    "navigate-to-homepage": noActions("\u4EC5\u5BFC\u822A\u56DE\u9996\u9875\u7684\u56DE\u6267\uFF0C\u4E0D\u8FD4\u56DE\u5019\u9009\u5BF9\u8C61\uFF1B\u9700\u8981\u63A8\u8350\u5217\u8868\u65F6\u8C03\u7528feed\u3002")
+  };
+  var compact = (text) => Array.from(String(text ?? "").replace(/\s+/g, " ").trim()).slice(0, 60).join("");
+  var noteId = (value2) => typeof value2 === "string" && /^[a-f0-9]{24}$/i.test(value2) ? value2 : null;
+  function signedNote(raw, expected) {
+    try {
+      const url = new URL(raw);
+      const id = url.pathname.match(/^\/(?:explore|search_result|note|discovery\/item)\/([a-f0-9]{24})\/?$/i)?.[1] || url.pathname.match(/^\/user\/profile\/[a-f0-9]{24}\/([a-f0-9]{24})\/?$/i)?.[1];
+      if (url.protocol === "https:" && url.hostname === "www.xiaohongshu.com" && !url.username && !url.password && !url.port && id && (!expected || id === expected) && url.searchParams.get("xsec_token")?.trim()) return { id, url: url.href };
+    } catch {
+    }
+    return null;
+  }
+  function decorateResults(name, args, result) {
+    if (name === "whoami" && result?.logged_in === true) return { ...result, context_title: compact(result.username) };
+    if (!Array.isArray(result) || !resultMetadata[name]) return result;
+    return result.map((row, index) => {
+      const detail = name === "note";
+      const own = ["creator-notes", "creator-notes-summary", "creator-note-detail"].includes(name);
+      const id = noteId(own && name === "creator-note-detail" ? args["note-id"] : row.id);
+      const target = signedNote(detail ? args["note-id"] : row.url, id);
+      const user = row.userId;
+      return {
+        ...row,
+        context_ref: String(index + 1),
+        context_title: compact(row.title || row.text || row.content || row.author || row.metric || (row.field === "title" ? row.value : row.field) || row.action || row.id),
+        context_note_id: own ? id : target?.id ?? null,
+        context_note_url: target?.url ?? null,
+        context_user_id: typeof user === "string" && /^[a-f0-9]{24}$/i.test(user) ? user : null
+      };
+    });
+  }
 
   // webcli/scripts/opencli-xiaohongshu/files.js
   var files = /* @__PURE__ */ new Map();
@@ -2563,7 +2640,7 @@ var __xhsOpenCLI = (() => {
   var WEB = "www.xiaohongshu.com";
   var CREATOR = "creator.xiaohongshu.com";
   var runtime = () => window.__webmcpWecliRuntime;
-  var helper = (action, payload) => runtime().requestPrivileged(action, payload);
+  var helper = (action2, payload) => runtime().requestPrivileged(action2, payload);
   function trustedUrl(raw, media = false) {
     let url;
     try {
@@ -2582,7 +2659,7 @@ var __xhsOpenCLI = (() => {
         version: 1,
         url,
         resume: !write,
-        ...write ? { result: { status: "ready_to_retry", executed: false, message: "\u76EE\u6807\u9875\u9762\u5DF2\u6253\u5F00\uFF0C\u5C1A\u672A\u6267\u884C\u4E1A\u52A1\u64CD\u4F5C\u3002\u8BF7\u7528\u76F8\u540C\u53C2\u6570\u91CD\u65B0\u8C03\u7528\uFF1B\u5199\u64CD\u4F5C\u4E0D\u81EA\u52A8\u91CD\u653E\u3002" } } : {}
+        ...write ? { phase: "prepare", result: { status: "ready_to_retry", executed: false, message: "\u76EE\u6807\u9875\u9762\u5DF2\u6253\u5F00\uFF0C\u5C1A\u672A\u6267\u884C\u4E1A\u52A1\u64CD\u4F5C\u3002\u8BF7\u7528\u76F8\u540C\u53C2\u6570\u91CD\u65B0\u8C03\u7528\uFF1B\u5199\u64CD\u4F5C\u4E0D\u81EA\u52A8\u91CD\u653E\u3002" } } : {}
       } };
     }
   };
@@ -2630,8 +2707,8 @@ var __xhsOpenCLI = (() => {
         this.pending = new Navigation(target.href, false);
         throw this.pending;
       }
-      const noteId = (url) => url.pathname.match(/^\/(?:explore|search_result|note|discovery\/item)\/([a-f0-9]+)\/?$/i)?.[1];
-      const sameNote = ["note", "comments", "download"].includes(this.command.name) && noteId(target) && noteId(current) === noteId(target);
+      const noteId2 = (url) => url.pathname.match(/^\/(?:explore|search_result|note|discovery\/item)\/([a-f0-9]+)\/?$/i)?.[1];
+      const sameNote = ["note", "comments", "download"].includes(this.command.name) && noteId2(target) && noteId2(current) === noteId2(target);
       const equal = current.origin === target.origin && (sameNote || current.pathname === target.pathname && [...target.searchParams].every(([k, v]) => current.searchParams.get(k) === v));
       if (equal) {
         sessionStorage.removeItem("__ww_xhs_navigation");
@@ -2727,20 +2804,20 @@ var __xhsOpenCLI = (() => {
   function normalizeArgs(command9, input = {}) {
     const args = { ...input };
     for (const field of command9.args || []) {
-      let value = args[field.name];
-      if (value === void 0) value = field.default;
-      if (field.required && (value === void 0 || value === null || String(value).trim() === "")) throw new ArgumentError(`${field.name} is required`);
-      if (value === void 0) continue;
+      let value2 = args[field.name];
+      if (value2 === void 0) value2 = field.default;
+      if (field.required && (value2 === void 0 || value2 === null || String(value2).trim() === "")) throw new ArgumentError(`${field.name} is required`);
+      if (value2 === void 0) continue;
       if (["bool", "boolean"].includes(field.type)) {
-        if (value === "true") value = true;
-        else if (value === "false") value = false;
-        if (typeof value !== "boolean") throw new ArgumentError(`${field.name} must be true or false`);
+        if (value2 === "true") value2 = true;
+        else if (value2 === "false") value2 = false;
+        if (typeof value2 !== "boolean") throw new ArgumentError(`${field.name} must be true or false`);
       } else if (field.type === "int") {
-        if (typeof value === "string" && /^\d+$/.test(value)) value = Number(value);
-        if (!Number.isSafeInteger(value) || value < 1 || value > (field.name === "timeout" ? 180 : 100)) throw new ArgumentError(`${field.name} must be a positive bounded integer`);
-      } else if (typeof value !== "string") throw new ArgumentError(`${field.name} must be a string`);
-      if (field.choices && !field.choices.includes(value)) throw new ArgumentError(`Invalid ${field.name}`);
-      args[field.name] = value;
+        if (typeof value2 === "string" && /^\d+$/.test(value2)) value2 = Number(value2);
+        if (!Number.isSafeInteger(value2) || value2 < 1 || value2 > (field.name === "timeout" ? 180 : 100)) throw new ArgumentError(`${field.name} must be a positive bounded integer`);
+      } else if (typeof value2 !== "string") throw new ArgumentError(`${field.name} must be a string`);
+      if (field.choices && !field.choices.includes(value2)) throw new ArgumentError(`Invalid ${field.name}`);
+      args[field.name] = value2;
     }
     return args;
   }
@@ -2798,7 +2875,7 @@ var __xhsOpenCLI = (() => {
       capturedCount = captures.length;
       capturedKeys = captures.map((x) => Object.keys(x?.data || {}));
       const result = captures.find((x) => Array.isArray(x?.data?.message_list));
-      if (result) return result.data.message_list.slice(0, args.limit).map((item, index) => ({ rank: index + 1, user: item.user_info?.nickname ?? "", action: item.title ?? "", content: item.comment_info?.content ?? "", note: item.item_info?.content ?? "", time: item.time ?? null }));
+      if (result) return result.data.message_list.slice(0, args.limit).map((item, index) => ({ rank: index + 1, user: item.user_info?.nickname ?? "", userId: item.user_info?.user_id ?? null, action: item.title ?? "", content: item.comment_info?.content ?? "", note: item.item_info?.content ?? "", time: item.time ?? null }));
       await page.wait(1);
     }
     throw new CommandExecutionError(`No notification message_list captured (${capturedCount} responses; data fields: ${JSON.stringify(capturedKeys)})`);
@@ -2813,7 +2890,7 @@ var __xhsOpenCLI = (() => {
       if (name === "publish") await preloadImages(args);
       const result = name === "notifications" ? await notifications(page, args) : await command9.func(page, args);
       if (page.pending) return page.pending.result;
-      return result;
+      return decorateResults(name, args, result);
     } catch (error) {
       if (page.pending) return page.pending.result;
       throw error;
@@ -2852,12 +2929,12 @@ var __xhsOpenCLI = (() => {
   }
 
   // webcli/scripts/opencli-xiaohongshu/upstream/download.js
-  function buildDownloadExtractJs(noteId) {
+  function buildDownloadExtractJs(noteId2) {
     return `
       (() => {
         const bodyText = document.body?.innerText || '';
         const result = {
-          noteId: '${noteId}',
+          noteId: '${noteId2}',
           pageUrl: location.href,
           securityBlock: /\u5B89\u5168\u9650\u5236|\u8BBF\u95EE\u94FE\u63A5\u5F02\u5E38/.test(bodyText)
             || /website-login\\/error|error_code=300017|error_code=300031/.test(location.href),
@@ -2910,7 +2987,7 @@ var __xhsOpenCLI = (() => {
           const state = window.__INITIAL_STATE__;
           const noteData = state?.note?.noteDetailMap || state?.note?.note || {};
           if (!noteData || typeof noteData !== 'object') return [];
-          const currentIds = [...new Set([result.noteId, '${noteId}'].filter(Boolean))];
+          const currentIds = [...new Set([result.noteId, '${noteId2}'].filter(Boolean))];
           const notes = [];
           for (const id of currentIds) {
             const entry = noteData[id];
@@ -3052,10 +3129,10 @@ var __xhsOpenCLI = (() => {
     func: async (page, kwargs) => {
       const rawInput = String(kwargs["note-id"]);
       const output = kwargs.output;
-      const noteId = parseNoteId(rawInput);
+      const noteId2 = parseNoteId(rawInput);
       const data = await readXhsDetailPage(page, {
         url: buildNoteUrl2(rawInput, { allowShortLink: true, commandName: "xiaohongshu download" }),
-        extractJs: buildDownloadExtractJs(noteId),
+        extractJs: buildDownloadExtractJs(noteId2),
         securityHelp: /^https?:\/\//.test(rawInput) ? "The page may be temporarily restricted. Try again later or from a different session." : "Try using a full URL from search results (with xsec_token) instead of a bare note ID.",
         settleMinS: 1,
         settleMaxS: 3
@@ -3067,7 +3144,7 @@ var __xhsOpenCLI = (() => {
         throw new EmptyResultError("xiaohongshu download", "No downloadable media found on this note.");
       }
       const cookies = formatCookieHeader(await page.getCookies({ domain: "xiaohongshu.com" }));
-      const resolvedNoteId = typeof data.noteId === "string" && data.noteId.trim() ? data.noteId.trim() : noteId;
+      const resolvedNoteId = typeof data.noteId === "string" && data.noteId.trim() ? data.noteId.trim() : noteId2;
       return downloadMedia(data.media, {
         output,
         subdir: resolvedNoteId,
@@ -3087,14 +3164,14 @@ var __xhsOpenCLI = (() => {
     article: "article-draft",
     audio: "audio-draft"
   };
-  function unwrapBrowserResult2(value) {
-    if (value && typeof value === "object" && typeof value.session === "string" && Object.prototype.hasOwnProperty.call(value, "data")) {
-      return value.data;
+  function unwrapBrowserResult2(value2) {
+    if (value2 && typeof value2 === "object" && typeof value2.session === "string" && Object.prototype.hasOwnProperty.call(value2, "data")) {
+      return value2.data;
     }
-    return value;
+    return value2;
   }
-  function normalizeDraftType(value, { allowAll = false } = {}) {
-    const raw = String(value ?? "image").trim().toLowerCase();
+  function normalizeDraftType(value2, { allowAll = false } = {}) {
+    const raw = String(value2 ?? "image").trim().toLowerCase();
     if (allowAll && raw === "all") return raw;
     if (!STORE_NAME_MAP[raw]) {
       const choices = allowAll ? "image, video, article, audio, all" : Object.keys(STORE_NAME_MAP).join(", ");
@@ -3102,8 +3179,8 @@ var __xhsOpenCLI = (() => {
     }
     return raw;
   }
-  function normalizeDraftId(value) {
-    const id = String(value ?? "").trim();
+  function normalizeDraftId(value2) {
+    const id = String(value2 ?? "").trim();
     if (!id) throw new ArgumentError("Draft id is required");
     return id;
   }
@@ -3475,8 +3552,8 @@ var __xhsOpenCLI = (() => {
     };
   })()
 `;
-  function toCleanString3(value) {
-    return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+  function toCleanString3(value2) {
+    return typeof value2 === "string" ? value2.trim() : value2 == null ? "" : String(value2).trim();
   }
   function buildFeedNoteUrl(webHost, id, xsecToken) {
     const cleanId = toCleanString3(id);
@@ -3820,7 +3897,7 @@ var __xhsOpenCLI = (() => {
     columns: ["field", "value"],
     func: async (page, kwargs) => {
       const raw = String(kwargs["note-id"]);
-      const noteId = parseNoteId(raw);
+      const noteId2 = parseNoteId(raw);
       const url = buildNoteUrl2(raw, { commandName: "xiaohongshu note" });
       const data = await readXhsDetailPage(page, {
         url,
@@ -3834,7 +3911,7 @@ var __xhsOpenCLI = (() => {
         throw new AuthRequiredError("www.xiaohongshu.com", "Note content requires login");
       }
       if (data.notFound) {
-        throw new EmptyResultError("xiaohongshu/note", `Note ${noteId} not found or unavailable \u2014 it may have been deleted or restricted`);
+        throw new EmptyResultError("xiaohongshu/note", `Note ${noteId2} not found or unavailable \u2014 it may have been deleted or restricted`);
       }
       const d = data;
       const numOrZero = (v) => /^\d+/.test(v) ? v : "0";
@@ -3973,11 +4050,11 @@ var __xhsOpenCLI = (() => {
     ".gif": "image/gif",
     ".webp": "image/webp"
   };
-  function unwrapBrowserResult3(value) {
-    if (value && typeof value === "object" && typeof value.session === "string" && Object.prototype.hasOwnProperty.call(value, "data")) {
-      return value.data;
+  function unwrapBrowserResult3(value2) {
+    if (value2 && typeof value2 === "object" && typeof value2.session === "string" && Object.prototype.hasOwnProperty.call(value2, "data")) {
+      return value2.data;
     }
-    return value;
+    return value2;
   }
   function validateImagePaths(filePaths) {
     return filePaths.map((filePath) => {
@@ -5173,8 +5250,8 @@ var __xhsOpenCLI = (() => {
       return "";
     return new Date((ts + 8 * 3600) * 1e3).toISOString().slice(0, 10);
   }
-  function stripXhsAuthorDateSuffix(value) {
-    const text = (value || "").replace(/\s+/g, " ").trim();
+  function stripXhsAuthorDateSuffix(value2) {
+    const text = (value2 || "").replace(/\s+/g, " ").trim();
     const stripped = text.replace(/\s*(?:\d{1,2}天前|\d+小时前|\d+分钟前|\d+秒前|刚刚|昨天|前天|\d+周前|\d+个月前|\d{1,2}-\d{1,2}|\d{4}-\d{1,2}-\d{1,2})$/u, "").trim();
     return stripped || text;
   }
@@ -5191,7 +5268,7 @@ var __xhsOpenCLI = (() => {
         return "";
       }
     };
-    const cleanText2 = (value) => (value || "").replace(/\s+/g, " ").trim();
+    const cleanText2 = (value2) => (value2 || "").replace(/\s+/g, " ").trim();
     const isVisibleNote = (el) => {
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0)
@@ -5299,17 +5376,17 @@ var __xhsOpenCLI = (() => {
   }
   function resolveSearchFilters(kwargs) {
     return SEARCH_FILTERS.map((definition) => {
-      const value = kwargs[definition.arg] ?? definition.defaultValue;
-      const option = typeof value === "string" ? definition.options[value] : void 0;
+      const value2 = kwargs[definition.arg] ?? definition.defaultValue;
+      const option = typeof value2 === "string" ? definition.options[value2] : void 0;
       if (!option) {
         throw new ArgumentError(
-          `--${definition.arg} must be one of: ${Object.keys(definition.options).join(", ")}, got ${JSON.stringify(value)}`
+          `--${definition.arg} must be one of: ${Object.keys(definition.options).join(", ")}, got ${JSON.stringify(value2)}`
         );
       }
       return {
         group: definition.group,
         option,
-        capability: value === definition.defaultValue ? "" : definition.arg === "location" ? "location" : definition.arg === "scope" ? "account" : ""
+        capability: value2 === definition.defaultValue ? "" : definition.arg === "location" ? "location" : definition.arg === "scope" ? "account" : ""
       };
     });
   }

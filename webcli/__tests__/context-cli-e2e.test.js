@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 
 let root, server, env;
 const calls = [];
+beforeEach(() => { calls.length = 0; });
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'webcli-context-cli-'));
   const builtin = join(root, 'builtin'), adapter = join(builtin, 'example.com');
@@ -34,6 +35,9 @@ beforeAll(async () => {
     if (request.args.key === 'invalid-json') { socket.send('invalid fixture response'); return; }
     if (request.args.key === 'error') {
       socket.send(JSON.stringify({ id: request.id, type: 'call_tool_error', error: 'Fixture failure', code: 'FIXTURE_FAILURE' })); return;
+    }
+    if (request.toolName.endsWith('.edit') && request.args.key === 'prepare-once' && calls.filter(c => c.toolName === request.toolName && c.args.key === 'prepare-once').length === 1) {
+      socket.send(JSON.stringify({ id: request.id, type: 'call_tool_result', result: { status: 'prepared' }, execution: { phase: 'prepared' } })); return;
     }
     const result = request.toolName.endsWith('.list') ? { rows: request.args.count === 100
       ? Array.from({ length: 100 }, (_, index) => ({ id: `record-${index}`, title: `Record ${index}` }))
@@ -65,6 +69,18 @@ function receipt(result) {
   const line = result.stderr.split(/\r?\n/).find(line => line.startsWith('WEBCLI_CONTEXT '));
   expect(line, result.stderr).toBeDefined(); return JSON.parse(line.slice('WEBCLI_CONTEXT '.length));
 }
+it('allows a second real CLI call after an envelope preparation receipt and blocks a third dispatched write', async () => {
+  const args = JSON.stringify({ key: 'prepare-once', body: 'Example text' });
+  const first = await cli('call', 'example.com.edit', '--new-context', '--args', args);
+  expect(first.code, first.stderr).toBe(0);
+  const context = receipt(first);
+  expect(context.toolOutcome).toBe('prepared'); expect(context.retryDisposition).toBe('safe_to_retry_before_dispatch');
+  const second = await cli('call', 'example.com.edit', '--context', context.contextId, '--args', args);
+  expect(second.code, second.stderr).toBe(0); expect(receipt(second).toolOutcome).toBe('acknowledged');
+  const third = await cli('call', 'example.com.edit', '--context', context.contextId, '--args', args);
+  expect(third.code).toBe(4); expect(third.stderr).toContain('context_operation_unresolved');
+  expect(calls.filter(c => c.args.key === 'prepare-once')).toHaveLength(2);
+}, 240000);
 it('persists an automatic UUID across real CLI processes, opens the displayed second record, executes explicit writes and blocks replay', async () => {
   const first = await cli('call', 'example.com.list', '--new-context', '--output-format=json');
   expect(first.code, first.stderr).toBe(0);

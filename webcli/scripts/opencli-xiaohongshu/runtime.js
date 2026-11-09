@@ -1,4 +1,5 @@
 import { commands } from './registry.js';
+import { decorateResults } from './context-results.js';
 import { files } from './files.js';
 import { CliError, ArgumentError, AuthRequiredError, CommandExecutionError, TimeoutError } from './errors.js';
 
@@ -17,7 +18,7 @@ class Navigation extends CommandExecutionError {
   constructor(url, write) {
     super('Page navigation required');
     this.result = { __webcli_navigation: { version: 1, url, resume: !write,
-      ...(write ? { result: { status: 'ready_to_retry', executed: false, message: '目标页面已打开，尚未执行业务操作。请用相同参数重新调用；写操作不自动重放。' } } : {}) } };
+      ...(write ? { phase: 'prepare', result: { status: 'ready_to_retry', executed: false, message: '目标页面已打开，尚未执行业务操作。请用相同参数重新调用；写操作不自动重放。' } } : {}) } };
   }
 }
 export class Page {
@@ -176,7 +177,7 @@ async function notifications(page, args) {
     capturedCount = captures.length;
     capturedKeys = captures.map(x => Object.keys(x?.data || {}));
     const result = captures.find(x => Array.isArray(x?.data?.message_list));
-    if (result) return result.data.message_list.slice(0, args.limit).map((item, index) => ({ rank: index + 1, user: item.user_info?.nickname ?? '', action: item.title ?? '', content: item.comment_info?.content ?? '', note: item.item_info?.content ?? '', time: item.time ?? null }));
+    if (result) return result.data.message_list.slice(0, args.limit).map((item, index) => ({ rank: index + 1, user: item.user_info?.nickname ?? '', userId: item.user_info?.user_id ?? null, action: item.title ?? '', content: item.comment_info?.content ?? '', note: item.item_info?.content ?? '', time: item.time ?? null }));
     await page.wait(1);
   }
   throw new CommandExecutionError(`No notification message_list captured (${capturedCount} responses; data fields: ${JSON.stringify(capturedKeys)})`);
@@ -191,7 +192,7 @@ export async function invoke(name, input) {
     if (name === 'publish') await preloadImages(args);
     const result = name === 'notifications' ? await notifications(page, args) : await command.func(page, args);
     if (page.pending) return page.pending.result;
-    return result;
+    return decorateResults(name, args, result);
   } catch (error) {
     if (page.pending) return page.pending.result;
     throw error;

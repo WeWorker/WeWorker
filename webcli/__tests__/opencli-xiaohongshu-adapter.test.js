@@ -80,8 +80,8 @@ describe('Xiaohongshu v2 migration contracts', () => {
   it('keeps signed URLs and returns note interaction fields', async () => {
     const s = setup(NOTE, [{ title: 'Fixture', author: 'Fixture author', desc: 'Body', likes: '12', collects: '收藏', comments: '3', tags: ['fixture'] }]);
     const rows = await s.run('note', { 'note-id': NOTE });
-    expect(rows).toContainEqual({ field: 'collects', value: '0' });
-    expect(rows).toContainEqual({ field: 'tags', value: 'fixture' });
+    expect(rows).toContainEqual(expect.objectContaining({ field: 'collects', value: '0' }));
+    expect(rows).toContainEqual(expect.objectContaining({ field: 'tags', value: 'fixture' }));
   });
   it('retains signed feed URLs and refuses malformed empty-store payloads', async () => {
     const s = setup(WEB + '/explore', [{ items: [{ id: ID, title: 'Fixture', author: 'Fixture', xsecToken: 'fixture-token', likes: '0' }] }]);
@@ -273,7 +273,7 @@ describe('Xiaohongshu v2 migration contracts', () => {
   it('accepts canonical note redirects without matching tracking parameters', async () => {
     const s = setup(WEB + '/explore/' + ID, [{ title: 'Fixture', author: 'Fixture', desc: 'Body' }]);
     const result = await s.run('note', { 'note-id': WEB + '/search_result/' + ID + '?xsec_token=fixture-token&xsec_source=pc_search' });
-    expect(result).toContainEqual({ field: 'title', value: 'Fixture' });
+    expect(result).toContainEqual(expect.objectContaining({ field: 'title', value: 'Fixture' }));
   });
   it('does not treat a success acknowledgement without creator notes as an empty list', () => {
     const key = '/api/galaxy/creator/datacenter/note/analyze/list';

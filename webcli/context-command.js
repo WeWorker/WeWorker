@@ -86,10 +86,12 @@ export async function runContextCall({ id, tool, args, decision, step, invoke, d
         if (!write) throw e;
         completed = { raw: { error: 'context_dispatch_unknown' }, exitCode: 1, dispatched: true };
       }
-      const outcome = untracked ? 'untracked' : write ? completed.dispatched === false ? 'failed' : readSucceeded(completed) ? 'acknowledged' : 'unknown'
+      const prepared = write && completed.dispatched === false && completed.prepared === true && readSucceeded(completed);
+      const businessPreparation = ['prepared', 'ready_to_retry'].includes(completed.raw?.status);
+      const outcome = untracked ? 'untracked' : write ? prepared ? 'prepared' : completed.dispatched === false ? 'failed' : businessPreparation || completed.prepared ? 'unknown' : readSucceeded(completed) ? 'acknowledged' : 'unknown'
         : readSucceeded(completed) ? 'read_success' : 'failed';
       toolOutcome = outcome;
-      if (guard) guard.status = outcome;
+      if (guard) guard.status = prepared ? 'failed' : outcome;
       let snapshot;
       try {
         snapshot = captureResult(s, { tool, args, raw: completed.raw, exitCode: completed.exitCode, now: store.now(), catalog, roundId });
@@ -98,7 +100,7 @@ export async function runContextCall({ id, tool, args, decision, step, invoke, d
         }
         if (snapshot && deliver) registerDisplay(s, { epoch: s.sessionEpoch, revision: s.revision, roundId,
           snapshotId: snapshot.snapshotId, order: snapshot.entities.map(e => e.entityRef), completeness: snapshot.completeness, delivered: true });
-        if (matched) matched.outcome = outcome;
+        if (matched && !(write && completed.dispatched === false)) matched.outcome = outcome;
         else commitRound(s);
       } catch (e) {
         // The known business result must survive a capture/size failure.

@@ -1154,7 +1154,8 @@ async function cmdCall(toolName, argsStr, options = {}) {
       clearTimeout(timeout);
       if (msg.contextId) options.profile = msg.contextId;
       if (msg.type === "call_tool_result") {
-        if (finish({ raw: msg.result, traceID, exitCode: 0, dispatched: true })) return;
+        const prepared = v2Match?.command.safety === 'write' && msg.execution?.phase === 'prepared';
+        if (finish({ raw: msg.result, traceID, exitCode: 0, dispatched: !prepared, ...(prepared ? { prepared: true } : {}) })) return;
         const isPlainObject = msg.result && typeof msg.result === "object" && !Array.isArray(msg.result);
         const output = isPlainObject
           ? { ...msg.result, trace_id: traceID }

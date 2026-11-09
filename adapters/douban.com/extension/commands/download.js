@@ -24,7 +24,7 @@
     const id=normalizeDoubanSubjectId(String(args.id||'')),limit=integer(args.limit,120,500),type=String(args.type||'Rb');
     const output=args.output??'./douban-downloads';if(typeof output!=='string'||!output.trim()||output.includes('\0'))throw new ArgumentError('output must be a nonempty directory');
     const photoId=String(args['photo-id']||'').trim();if(photoId&&!/^\d+$/.test(photoId))throw new ArgumentError('photo-id must be numeric');
-    const target='https://movie.douban.com/subject/'+id+'/photos?type='+encodeURIComponent(type);if(!same(target))return {__webcli_navigation:{version:1,url:target,resume:false,result:{status:'prepared',message:'海报页已准备，尚未下载；请核对后重新调用。'}}};guard();
+    const target='https://movie.douban.com/subject/'+id+'/photos?type='+encodeURIComponent(type);if(!same(target))return {__webcli_navigation:{version:1,url:target,resume:false,phase:'prepare',result:{status:'prepared',message:'海报页已准备，尚未下载；请核对后重新调用。'}}};guard();
     const data=await loadDoubanSubjectPhotos(id,photoId?{type,targetPhotoId:photoId}:{type,limit});
     const photos=photoId?data.photos.filter(p=>p.photoId===photoId):data.photos;
     if(!photos.length)throw new CommandExecutionError(photoId?'Photo was not found under the selected subject':'No photos extracted; download not performed');
