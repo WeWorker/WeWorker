@@ -135,7 +135,7 @@ export class BridgeManager {
       args = [
         ...(process.platform === 'win32' ? ['--use-system-ca'] : []),
         ...bridgeExecArgv,
-        path.resolve(__dirname, '../../webcli/index.js'),
+        path.resolve(__dirname, '../build/webcli-dist/webcli.cjs'),
         'service',
         'start',
       ]
@@ -157,6 +157,35 @@ export class BridgeManager {
         }
       })
       this._process.on('exit', (code) => this._handleBridgeExit(code))
+    } else if (process.platform === 'win32') {
+      // Use the checksum-pinned runtime shipped in this Windows distribution.
+      // Never fall back to PATH or Electron when installation is incomplete.
+      const executable = path.join(process.resourcesPath, 'node-runtime', 'node.exe')
+      if (!fs.existsSync(executable)) {
+        this._status = 'error'
+        throw new Error('Bundled Node runtime is missing; reinstall the application.')
+      }
+      const env = { ...bridgeEnv }
+      delete env.ELECTRON_RUN_AS_NODE
+      this._process = spawn(executable, [
+        ...bridgeExecArgv, path.join(process.resourcesPath, 'bridge', 'bridge.cjs'), 'service', 'start',
+      ], {
+        stdio: ['ignore', 'pipe', 'pipe'], detached: false, windowsHide: true,
+        env,
+      })
+      for (const stream of [this._process.stdout, this._process.stderr]) {
+        stream?.on('data', d => {
+          for (const line of d.toString().split('\n')) {
+            const text = line.trimEnd()
+            if (text) this._log(`[bridge] ${text}`)
+          }
+        })
+      }
+      this._process.on('exit', code => this._handleBridgeExit(code))
+      this._process.on('error', error => {
+        this._status = 'error'
+        this._log(`[bridge] bundled Node startup failed: ${error.message}`)
+      })
     } else {
       // Use Electron's utilityProcess to run bridge.cjs in a Node.js context
       const bridgeScript = path.join(process.resourcesPath, 'bridge', 'bridge.cjs')

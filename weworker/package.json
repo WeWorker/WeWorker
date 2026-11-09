@@ -159,6 +159,15 @@
           "filter": [
             "sd_decrypt.exe"
           ]
+        },
+        {
+          "from": "build/node-runtime/",
+          "to": "node-runtime",
+          "filter": [
+            "node.exe",
+            "LICENSE",
+            "provenance.json"
+          ]
         }
       ],
       "target": [
