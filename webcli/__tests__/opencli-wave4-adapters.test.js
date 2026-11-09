@@ -5,9 +5,29 @@ import { describe, it, expect } from 'vitest';
 import { validateV2AdapterDir } from '../adapter-package-v2.js';
 import { buildV2Bootstrap } from '../../extension/background/v2-loader.js';
 import { managedAdapterSkill } from '../adapter-views.js';
+import { compileResultBindings } from '../result-bindings.js';
+import { captureResult } from '../context-profile.js';
+import { newState, beginRound, commitRound, registerDisplay } from '../context-model.js';
+import { routeContext } from '../context-router.js';
 const root = resolve(import.meta.dirname, '../..');
 const entry = `<entry><id>http://arxiv.org/abs/2401.00001v2</id><title>Fixture &amp; &#x3B1;</title><author><name>Example Author</name></author><summary><![CDATA[Text <entry> &amp; literal]]></summary><published>2024-01-01T00:00:00Z</published><category term="cs.CL"/><arxiv:primary_category term="cs.CL"/><link href="http://arxiv.org/pdf/2401.00001v2" type="application/pdf" rel="related"/></entry>`;
 const feed = content => `<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">${content}</feed>`;
+it('arXiv paper author lookup asks for an explicit author name and runs the real author handler', async () => {
+  const s = setup('arxiv.org', feed(entry)), raw = await s.run('paper', { id: '2401.00001' });
+  const entries = s.pkg.commands.map(command => ({ ...command, adapterId: s.pkg.name, sourceFingerprint: 'test-package' }));
+  const catalog = { tools: {}, resultBindings: compileResultBindings(entries) }, state = newState(1000);
+  beginRound(state, null, 1000);
+  const snapshot = captureResult(state, { tool: 'arxiv.org.paper', args: {}, raw, exitCode: 0, now: 1000, catalog, roundId: state.activeRound.roundId });
+  commitRound(state);
+  registerDisplay(state, { epoch: state.sessionEpoch, revision: state.revision, roundId: snapshot.sourceRoundId, snapshotId: snapshot.snapshotId,
+    order: ['e1'], completeness: 'unknown', delivered: true });
+  const question = await routeContext(state, '查看作者第一条', { catalog, now: 1001 });
+  expect(question.missingFields).toEqual(['arguments.author']);
+  const result = await routeContext(state, 'Example Author', { catalog, now: 1002, replyTo: question.clarificationId });
+  expect(result.steps[0].args).toEqual({ author: 'Example Author' });
+  expect(await s.run('author', result.steps[0].args)).toMatchObject([{ authors: 'Example Author' }]);
+  expect(new URL(s.calls.at(-1).url).searchParams.get('search_query')).toBe('au:"Example Author"');
+});
 function setup(id, payload, options = {}) {
   const pkg = validateV2AdapterDir(resolve(root, 'adapters', id)), handlers = new Map(), calls = [], storage = new Map();
   const ctx = { URL, console, fetch: options.fetch, setTimeout: fn => { fn(); return 1; }, clearTimeout() {},

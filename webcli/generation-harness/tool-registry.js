@@ -1,6 +1,7 @@
 import { GenerationHarnessError } from './errors.js';
 
 function valueMatchesType(value, type) {
+  if (Array.isArray(type)) return type.some(candidate => valueMatchesType(value, candidate));
   if (type === 'array') return Array.isArray(value);
   if (type === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value);
   if (type === 'integer') return Number.isInteger(value);
@@ -18,6 +19,9 @@ function validateSchema(value, schema = {}, path = '$') {
   if (schema.enum && !schema.enum.includes(value)) {
     errors.push(`${path} must be one of: ${schema.enum.join(', ')}`);
   }
+  if (typeof value === 'number' && typeof schema.minimum === 'number' && value < schema.minimum) errors.push(`${path} must be at least ${schema.minimum}`);
+  if (typeof value === 'string' && Number.isInteger(schema.minLength) && [...value].length < schema.minLength) errors.push(`${path} requires at least ${schema.minLength} characters`);
+  if (Array.isArray(value) && Number.isInteger(schema.minItems) && value.length < schema.minItems) errors.push(`${path} requires at least ${schema.minItems} items`);
   if (schema.type === 'object' && value && typeof value === 'object' && !Array.isArray(value)) {
     const properties = schema.properties || {};
     for (const requiredKey of schema.required || []) {

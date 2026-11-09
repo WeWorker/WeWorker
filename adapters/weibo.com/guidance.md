@@ -1,3 +1,5 @@
 # 微博
 
-feed/hot/search/user/user-posts/post/comments/favorites/me 为浏览器读取（时间线、热搜、搜索、用户页、单条微博与评论），访问 weibo.com；publish/delete 为写操作需确认：publish 发布纯文本微博（本运行时无文件系统，不支持图片上传），delete 删除指定微博，均通过页面 UI 自动化完成且不自动重放。whoami 校验登录并读取身份；login 仅打开登录页（写操作需确认，打开后人工完成登录再用 whoami 验证，不轮询登录状态）。登录墙、风控验证或页面结构变化时报错而非空结果；缺字段保留 null/空串，不补造 0 或空列表。
+feed/hot/search/user/user-posts/post/comments/favorites/me 为浏览器读取（时间线、热搜、搜索、用户页、单条微博与评论），访问 weibo.com；publish/delete 为写操作需确认：publish 发布纯文本微博（本运行时无文件系统，不支持图片上传），delete 删除指定微博，publish 通过页面 UI 执行，delete 解析真实帖子 ID 后调用接口并核验删除结果；不自动重放。whoami 校验登录并读取身份；login 仅打开登录页（写操作需确认，打开后人工完成登录再用 whoami 验证，不轮询登录状态）。登录墙、风控验证或页面结构变化时报错而非空结果；缺字段保留 null/空串，不补造 0 或空列表。
+
+多轮查询：feed/search/favorites/user-posts 绑定真实微博入口；评论读取绑定精确数字 ID，作者读取绑定真实 uid，不用昵称推断。收藏卡片没有真实微博链接时保留原始结果但不可执行“查看”。post 返回单条结构化帖子数组，保留完整正文和原有字段，不再返回 field/value 行，以支持继续查看评论/作者或明确删除。该 JSON 形状变化需要调用方验收。热搜可继续搜索相关话题；评论目前没有逐条回复命令，不映射到发布新微博。缺少精确身份的动作不可用，删除权限仍由站点接口约束。

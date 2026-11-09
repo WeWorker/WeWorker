@@ -78,6 +78,9 @@
       return {
         rank: index + 1,
         id: item.id ? String(item.id) : null,
+        resultId: item.type && (item.id || item.cityId) ? `${item.type}:${item.id || item.cityId}` : null,
+        hotelId: item.type === 'Hotel' && item.id ? String(item.id) : null,
+        hotelCityId: item.type === 'City' ? numberOrNull(item.cityId) : null,
         type: item.type ? String(item.type) : null,
         displayType: item.displayType ? String(item.displayType).trim() : null,
         name,

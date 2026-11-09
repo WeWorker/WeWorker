@@ -67,7 +67,39 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "repo",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "get-repository-detail",
+              "args": {
+                "repository_url": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "star",
+              "label": "收藏",
+              "command": "star-current-repository",
+              "args": {
+                "repository_url": {
+                  "from": "item.url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "check-login-status",
@@ -82,6 +114,12 @@
       },
       "aliases": [
         "check_login_status"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "Diagnostic login state; no per-account detail or settings command exists. Repository search is a separate user query."
+        }
       ]
     },
     {
@@ -106,6 +144,38 @@
       },
       "aliases": [
         "search_repositories"
+      ],
+      "results": [
+        {
+          "itemsPath": "$.repositories",
+          "idField": "url",
+          "titleField": "full_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "get-repository-detail",
+              "args": {
+                "repository_url": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "star",
+              "label": "收藏",
+              "command": "star-current-repository",
+              "args": {
+                "repository_url": {
+                  "from": "item.url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -126,6 +196,48 @@
       },
       "aliases": [
         "get_repository_detail"
+      ],
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "code_url",
+          "titleField": "full_name",
+          "actions": [
+            {
+              "id": "star",
+              "label": "收藏",
+              "command": "star-current-repository",
+              "args": {
+                "repository_url": {
+                  "from": "item.code_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "issue",
+              "label": "查看首个Issue",
+              "command": "get-issue-or-pr-detail",
+              "args": {
+                "issue_url": {
+                  "from": "item.issues_url"
+                }
+              }
+            },
+            {
+              "id": "pull",
+              "label": "查看首个PR",
+              "command": "get-issue-or-pr-detail",
+              "args": {
+                "issue_url": {
+                  "from": "item.pulls_url"
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -150,6 +262,25 @@
       },
       "aliases": [
         "get_issue_or_pr_detail"
+      ],
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "url",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "repository",
+              "label": "查看仓库",
+              "command": "get-repository-detail",
+              "args": {
+                "repository_url": {
+                  "from": "item.repository_url"
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {

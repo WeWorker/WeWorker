@@ -2903,9 +2903,11 @@ async function handleNativeMessageInternal(msg) {
           sendToNative({ type: 'call_tool_result', id: msg.id, result: reply.ok ? reply.value : { ok: false, errorCode: reply.error.code }, traceID });
           return;
         }
+        let prepared = false;
         const result = await getHostAdapterRuntime().execute(tab.id, selected.manifest, tab.url,
-          (remainingMs, continuation) => callToolInTab(tab.id, selected.manifest.name + '.' + selected.command.id, args || {}, traceID, false, remainingMs, continuation), selected.command, traceID);
-        sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID });
+          (remainingMs, continuation) => callToolInTab(tab.id, selected.manifest.name + '.' + selected.command.id, args || {}, traceID, false, remainingMs, continuation), selected.command, traceID,
+          { onPrepared: () => { prepared = true; } });
+        sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID, ...(prepared ? { execution: { phase: 'prepared' } } : {}) });
         return;
       }
       if (isLegacyWecliHandlerName(toolName)) {

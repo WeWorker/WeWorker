@@ -55,7 +55,26 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "shop_id",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "shop",
+              "args": {
+                "shop_id": {
+                  "from": "item.shop_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "shop",
@@ -79,6 +98,12 @@
       },
       "aliases": [
         "detail"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "Shop profile fields have no per-review, menu, reservation or purchase command in this package; these require additional Adapter capabilities."
+        }
       ]
     },
     {
@@ -93,7 +118,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Account diagnostic only; there is no member-profile or account-settings command. Shop search is a separate query."
+        }
+      ]
     },
     {
       "id": "login",

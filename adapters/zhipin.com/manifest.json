@@ -46,7 +46,112 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "encrypt_uid",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看简历",
+              "command": "resume",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              }
+            },
+            {
+              "id": "history",
+              "label": "查看聊天记录",
+              "command": "chatmsg",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                },
+                "side": {
+                  "value": "boss"
+                }
+              }
+            },
+            {
+              "id": "send",
+              "label": "发送消息",
+              "command": "send",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "mark",
+              "label": "添加标签",
+              "command": "mark",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "label"
+              ]
+            },
+            {
+              "id": "exchange",
+              "label": "交换联系方式",
+              "command": "exchange",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "type"
+              ]
+            },
+            {
+              "id": "invite",
+              "label": "面试邀请",
+              "command": "invite",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "time",
+                "address",
+                "contact"
+              ]
+            },
+            {
+              "id": "greet",
+              "label": "发送招呼",
+              "command": "greet",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                },
+                "security-id": {
+                  "from": "item.security_id"
+                },
+                "job-id": {
+                  "from": "item.encrypt_job_id"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "joblist",
@@ -60,7 +165,63 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "encrypt_job_id",
+          "titleField": "job_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看职位详情",
+              "command": "detail",
+              "args": {
+                "security-id": {
+                  "from": "item.encrypt_job_id"
+                }
+              }
+            },
+            {
+              "id": "stats",
+              "label": "查看职位统计",
+              "command": "stats",
+              "args": {
+                "job-id": {
+                  "from": "item.encrypt_job_id"
+                }
+              }
+            },
+            {
+              "id": "chats",
+              "label": "查看职位聊天",
+              "command": "chatlist",
+              "args": {
+                "job-id": {
+                  "from": "item.encrypt_job_id"
+                },
+                "side": {
+                  "value": "boss"
+                }
+              }
+            },
+            {
+              "id": "batchgreet",
+              "label": "批量发送招呼",
+              "command": "batchgreet",
+              "args": {
+                "job-id": {
+                  "from": "item.encrypt_job_id"
+                }
+              },
+              "inputs": [
+                "limit",
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "chatlist",
@@ -100,7 +261,142 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "uid",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看聊天记录",
+              "command": "chatmsg",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                },
+                "side": {
+                  "from": "item.identity_side"
+                }
+              }
+            },
+            {
+              "id": "resume",
+              "label": "查看简历",
+              "command": "resume",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              }
+            },
+            {
+              "id": "send",
+              "label": "发送消息",
+              "command": "send",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "mark",
+              "label": "添加标签",
+              "command": "mark",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              },
+              "inputs": [
+                "label"
+              ]
+            },
+            {
+              "id": "exchange",
+              "label": "交换联系方式",
+              "command": "exchange",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              },
+              "inputs": [
+                "type"
+              ]
+            },
+            {
+              "id": "invite",
+              "label": "面试邀请",
+              "command": "invite",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                }
+              },
+              "inputs": [
+                "time",
+                "address",
+                "contact"
+              ]
+            }
+          ],
+          "when": {
+            "side": "boss"
+          }
+        },
+        {
+          "itemsPath": "$",
+          "idField": "uid",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看聊天记录",
+              "command": "chatmsg",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                },
+                "side": {
+                  "from": "item.identity_side"
+                }
+              }
+            }
+          ],
+          "when": {
+            "side": "auto"
+          }
+        },
+        {
+          "itemsPath": "$",
+          "idField": "uid",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看聊天记录",
+              "command": "chatmsg",
+              "args": {
+                "uid": {
+                  "from": "item.uid"
+                },
+                "side": {
+                  "from": "item.identity_side"
+                }
+              }
+            }
+          ],
+          "when": {
+            "side": "geek"
+          }
+        }
+      ]
     },
     {
       "id": "chatmsg",
@@ -114,7 +410,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID (from chatlist)"
+            "description": "Encrypted UID (from chatlist)",
+            "minLength": 1
           },
           "page": {
             "type": "integer",
@@ -136,7 +433,46 @@
           "uid"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "message_ref",
+          "titleField": "from",
+          "actions": [
+            {
+              "id": "send",
+              "label": "回复消息",
+              "command": "send",
+              "args": {
+                "uid": {
+                  "from": "query.uid"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ],
+          "when": {
+            "side": "boss"
+          }
+        },
+        {
+          "when": {
+            "side": "auto"
+          },
+          "actions": [],
+          "reason": "Read history may resolve either identity side; send supports recruiters only. Requery with side=boss before preparing a recruiter reply."
+        },
+        {
+          "when": {
+            "side": "geek"
+          },
+          "actions": [],
+          "reason": "No job-seeker send or individual message-detail command; recruiter send must not receive a job-seeker conversation UID."
+        }
+      ]
     },
     {
       "id": "resume",
@@ -150,14 +486,91 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID of the candidate (from chatlist)"
+            "description": "Encrypted UID of the candidate (from chatlist)",
+            "minLength": 1
           }
         },
         "required": [
           "uid"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "encrypt_uid",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "history",
+              "label": "查看聊天记录",
+              "command": "chatmsg",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                },
+                "side": {
+                  "value": "boss"
+                }
+              }
+            },
+            {
+              "id": "send",
+              "label": "发送消息",
+              "command": "send",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "mark",
+              "label": "添加标签",
+              "command": "mark",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "label"
+              ]
+            },
+            {
+              "id": "exchange",
+              "label": "交换联系方式",
+              "command": "exchange",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "type"
+              ]
+            },
+            {
+              "id": "invite",
+              "label": "面试邀请",
+              "command": "invite",
+              "args": {
+                "uid": {
+                  "from": "item.encrypt_uid"
+                }
+              },
+              "inputs": [
+                "time",
+                "address",
+                "contact"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "stats",
@@ -177,7 +590,29 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "result_id",
+          "titleField": "job_name",
+          "actions": [
+            {
+              "id": "chats",
+              "label": "查看职位聊天",
+              "command": "chatlist",
+              "args": {
+                "job-id": {
+                  "from": "item.followup_job_id"
+                },
+                "side": {
+                  "value": "boss"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "mark",
@@ -191,7 +626,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID of the candidate"
+            "description": "Encrypted UID of the candidate",
+            "minLength": 1
           },
           "label": {
             "type": "string",
@@ -222,7 +658,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID of the candidate"
+            "description": "Encrypted UID of the candidate",
+            "minLength": 1
           },
           "type": {
             "type": "string",
@@ -252,7 +689,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID of the candidate"
+            "description": "Encrypted UID of the candidate",
+            "minLength": 1
           },
           "time": {
             "type": "string",
@@ -288,11 +726,13 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID of the candidate (from recommend)"
+            "description": "Encrypted UID of the candidate (from recommend)",
+            "minLength": 1
           },
           "security-id": {
             "type": "string",
-            "description": "Security ID of the candidate"
+            "description": "Security ID of the candidate",
+            "minLength": 1
           },
           "job-id": {
             "type": "string",
@@ -354,7 +794,8 @@
         "properties": {
           "uid": {
             "type": "string",
-            "description": "Encrypted UID of the candidate (from chatlist)"
+            "description": "Encrypted UID of the candidate (from chatlist)",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -380,14 +821,21 @@
         "properties": {
           "security-id": {
             "type": "string",
-            "description": "Security ID from search results (security_id field)"
+            "description": "Security ID from search results (security_id field)",
+            "minLength": 1
           }
         },
         "required": [
           "security-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Public job detail has no application or recruiter-contact target. Candidate greet requires unrelated recruiter-side candidate IDs."
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -401,7 +849,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Local-cookie login diagnostic, not verified account identity; do not bind account actions."
+        }
+      ]
     },
     {
       "id": "login",
@@ -479,7 +933,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "security_id",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看职位详情",
+              "command": "detail",
+              "args": {
+                "security-id": {
+                  "from": "item.security_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

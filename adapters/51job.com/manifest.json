@@ -80,7 +80,36 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "jobId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看职位",
+              "command": "detail",
+              "args": {
+                "jobId": {
+                  "from": "item.jobId"
+                }
+              }
+            },
+            {
+              "id": "company",
+              "label": "查看公司",
+              "command": "company",
+              "args": {
+                "encCoId": {
+                  "from": "item.encCoId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "hot",
@@ -115,7 +144,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "jobId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看职位",
+              "command": "detail",
+              "args": {
+                "jobId": {
+                  "from": "item.jobId"
+                }
+              }
+            },
+            {
+              "id": "company",
+              "label": "查看公司",
+              "command": "company",
+              "args": {
+                "encCoId": {
+                  "from": "item.encCoId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "detail",
@@ -129,14 +187,34 @@
         "properties": {
           "jobId": {
             "type": "string",
-            "description": "职位 ID（search 返回的 jobId）"
+            "description": "职位 ID（search 返回的 jobId）",
+            "minLength": 6
           }
         },
         "required": [
           "jobId"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "jobId",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "company",
+              "label": "查看公司",
+              "command": "company",
+              "args": {
+                "encCoId": {
+                  "from": "item.encCoId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "company",
@@ -150,7 +228,8 @@
         "properties": {
           "encCoId": {
             "type": "string",
-            "description": "加密公司 ID（search 返回的 encCoId）"
+            "description": "加密公司 ID（search 返回的 encCoId）",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -162,7 +241,26 @@
           "encCoId"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "resultId",
+          "titleField": "resultTitle",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看职位",
+              "command": "detail",
+              "args": {
+                "jobId": {
+                  "from": "item.jobId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

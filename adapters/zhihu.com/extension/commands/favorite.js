@@ -110,7 +110,7 @@
   var fetch2 = window.__zhihu.safeFetch;
   __webcliRegisterCommand("favorite", async (args = {}) => {
     requireExecute(args);
-    if (location.hostname !== "www.zhihu.com" || /signin|login/.test(location.pathname)) return { __webcli_navigation: { version: 1, url: "https://www.zhihu.com/", resume: false, result: { status: "prepared", message: "\u9875\u9762\u5DF2\u51C6\u5907\uFF1B\u4EBA\u5DE5\u767B\u5F55\u5E76\u518D\u6B21\u786E\u8BA4\u540E\u8C03\u7528\uFF0C\u5C1A\u672A\u6267\u884C\u4E1A\u52A1\u5199\u5165\u3002" } } };
+    if (location.hostname !== "www.zhihu.com" || /signin|login/.test(location.pathname)) return { __webcli_navigation: { version: 1, url: "https://www.zhihu.com/", resume: false, phase: 'prepare', result: { status: "prepared", message: "\u9875\u9762\u5DF2\u51C6\u5907\uFF1B\u4EBA\u5DE5\u767B\u5F55\u5E76\u518D\u6B21\u786E\u8BA4\u540E\u8C03\u7528\uFF0C\u5C1A\u672A\u6267\u884C\u4E1A\u52A1\u5199\u5165\u3002" } } };
     return (async (kwargs) => {
       requireExecute(kwargs);
       const rawTarget = String(kwargs.target);

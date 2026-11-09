@@ -5,7 +5,8 @@ import { renderCommandHelp } from './progressive-help.js';
 export const ROUTE_HELP = `Usage: webcli route [options] [<adapter-id>] <request...>
 
 Recommend an available Adapter command for a natural-language request.
-The recommendation does not execute the command or fill its arguments.
+Without context, the recommendation does not execute the command or fill its arguments.
+With context, bind declared actions to delivered objects; execution remains a separate call.
 
 Arguments:
   <adapter-id>  Optional exact Adapter ID; skip site selection
@@ -13,6 +14,9 @@ Arguments:
 
 Options:
   --json        Output the routing result as JSON
+  --context ID  Resolve a follow-up using up to three previous conversation rounds
+  --new-context Generate a UUID for a new independently callable conversation
+  --reply-to ID Answer the exact clarification returned for this conversation
   -v, --verbose Print stage timings to stderr
   -h, --help    Show this help
   --            Treat the remaining words as request text

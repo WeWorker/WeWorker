@@ -47,3 +47,7 @@
 - package 按产品卡片 productType 筛选明确标为自由行/目的地自由行的条目，私家团、跟团游不能当作自由行。当前页少于 limit 时只展示实际条数，明确当前页范围；不换类型凑数、不把不足三条解释为全站只有这些。departureCity 是卡片原文，departureCityId 是页面上下文，两者都不是用户确认的出发地。
 
 - ferry 若报告页面“无航次信息”，仅说明当前站点查询未取得列表；该页面也可能由上游请求失败触发，不能宣称航线不存在、当天停航或无票。不要以相同参数自动重复重试，也不要记为永久不支持。
+
+## 多轮结果与后续动作
+
+search/hotel-suggest 区分 City、Hotel 与 Station 等建议类型；只有 Hotel ID 能打开酒店详情，只有 City 的 hotelCityId 能进入酒店查询。destination-search 的 destinationId 用于景点，hotelCityId 用于酒店，不能混用。hotel-search 返回的酒店 ID 可直接查看详情；缺入住/退房日期时显式补参。当前没有选定航班/车次/旅游产品的预订或付款命令，不从报价列表推导交易动作。

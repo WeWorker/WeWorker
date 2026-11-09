@@ -30,14 +30,14 @@ it('fails closed for a changed file identity or size and closes its handle',()=>
   const fstat=fs.fstatSync.bind(fs);
   const read=vi.spyOn(fs,'readFileSync'), close=vi.spyOn(fs,'closeSync');
   const mismatch=vi.spyOn(fs,'fstatSync').mockImplementation((fd,...args)=>{
-    const info=fstat(fd,...args);return Object.assign(Object.create(info),{size:info.size+1});
+    const info=fstat(fd,...args);return Object.assign(Object.create(info),{size:info.size+(typeof info.size==='bigint'?1n:1)});
   });
   try{
     read.mockClear();close.mockClear();
     expect(()=>inspectLocalUpload([file])).toThrow(expect.objectContaining({code:'UPLOAD_FILE_VIEW_MISMATCH'}));
     expect(()=>inspectLocalUpload([folder],true)).toThrow(expect.objectContaining({code:'UPLOAD_FILE_VIEW_MISMATCH'}));
     expect(read).not.toHaveBeenCalled();expect(close).toHaveBeenCalledTimes(2);
-    mismatch.mockImplementation((fd,...args)=>{const info=fstat(fd,...args);return Object.assign(Object.create(info),{ino:info.ino ? info.ino+1 : 2});});
+    mismatch.mockImplementation((fd,...args)=>{const info=fstat(fd,...args);return Object.assign(Object.create(info),{ino:info.ino ? info.ino+(typeof info.ino==='bigint'?1n:1) : 2});});
     const info=fs.lstatSync(file);
     if(info.ino)expect(()=>inspectLocalUpload([file])).toThrow(expect.objectContaining({code:'UPLOAD_FILE_VIEW_MISMATCH'}));
   } finally {mismatch.mockRestore();read.mockRestore();close.mockRestore();}
@@ -62,4 +62,16 @@ it('fails closed and closes a handle if fstat fails',()=>{
   const close=vi.spyOn(fs,'closeSync'),stat=vi.spyOn(fs,'fstatSync').mockImplementation(()=>{throw new Error('fixture failure')});
   try{expect(()=>inspectLocalUpload([file])).toThrow(expect.objectContaining({code:'FILE_UNAVAILABLE'}));expect(close).toHaveBeenCalledTimes(1);}
   finally{stat.mockRestore();close.mockRestore();}
+});
+it('distinguishes adjacent file identities above the JavaScript safe integer range',()=>{
+  const folder=root(),file=path.join(folder,'example.json');fs.writeFileSync(file,'example');
+  const stat=fs.lstatSync.bind(fs),fstat=fs.fstatSync.bind(fs),identity=9007199254740992n;
+  const pathname=vi.spyOn(fs,'lstatSync').mockImplementation((name,options)=>{
+    const info=stat(name,options);return Object.assign(Object.create(info),{ino:options?.bigint?identity:Number(identity)});
+  });
+  const handle=vi.spyOn(fs,'fstatSync').mockImplementation((fd,options)=>{
+    const info=fstat(fd,options);return Object.assign(Object.create(info),{ino:options?.bigint?identity+1n:Number(identity+1n)});
+  });
+  try{expect(()=>inspectLocalUpload([file])).toThrow(expect.objectContaining({code:'UPLOAD_FILE_VIEW_MISMATCH'}));}
+  finally{pathname.mockRestore();handle.mockRestore();}
 });

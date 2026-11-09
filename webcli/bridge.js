@@ -1111,8 +1111,10 @@ export class WebSocketBridge extends EventEmitter {
       process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 收到调用: ${toolName}\n`);
 
       try {
-        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId });
-        this._reply(ws, { type: 'call_tool_result', id, result, traceID });
+        let prepared = false;
+        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId,
+          onPrepared: () => { prepared = true; } });
+        this._reply(ws, { type: 'call_tool_result', id, result, traceID, ...(prepared ? { execution: { phase: 'prepared' } } : {}) });
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用成功: ${toolName} (${callTiming ? Date.now() - callTiming.entry.receivedAt : '?'}ms)\n`);
       } catch (err) {
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用失败: ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
@@ -1856,7 +1858,7 @@ export class WebSocketBridge extends EventEmitter {
     this._scheduleLoginWatchdog(toolName, options);
     const workId = options.workId || null;
     const pinnedRoute = this._route?.getStore() || null;
-    const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot, workId);
+    const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot, workId, options.onPrepared);
     // Login may span an extension reconnect. Re-resolve the socket by the same
     // contextId for the safe post-login retry; never select another profile.
     const run = () => {
@@ -2107,7 +2109,7 @@ export class WebSocketBridge extends EventEmitter {
     }
   }
 
-  async _callToolInner(toolName, args, traceID = null, adapterSnapshot = null, workId = null) {
+  async _callToolInner(toolName, args, traceID = null, adapterSnapshot = null, workId = null, onPrepared = null) {
     if (isLegacyWecliHandlerName(toolName)) {
       throw new Error(`"${toolName}" is an internal handler name. Use the public WebCLI command name without "wecli_".`);
     }
@@ -2192,7 +2194,11 @@ export class WebSocketBridge extends EventEmitter {
     if (selected?.command.pageWrite && !this._extensionCapabilities?.includes('page_write_v1')) throw new Error('Reload the browser extension before calling page writes.');
     if (selected?.command.pageStrategy === 'INTERCEPT' && !this._extensionCapabilities?.includes('intercept_read_v1')) throw new Error('Reload the browser extension before calling intercepted page queries.');
     const timeout = resolveToolCallTimeout(toolName);
-    return this._request({ type: "call_tool", toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) }, timeout, traceID);
+    const request = { type: 'call_tool', toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) };
+    if (typeof onPrepared !== 'function') return this._request(request, timeout, traceID);
+    const response = await this._request(request, timeout, traceID, true);
+    if (selected?.command.safety === 'write' && response.execution?.phase === 'prepared') onPrepared();
+    return response.result;
   }
 
   async getPageState(tabId = null) {

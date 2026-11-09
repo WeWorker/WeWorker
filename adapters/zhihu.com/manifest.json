@@ -39,14 +39,264 @@
             "type": "string",
             "description": "Result type: all, answer, article, or question",
             "default": "all",
-            "enum": "TYPES"
+            "enum": [
+              "all",
+              "answer",
+              "article",
+              "question"
+            ]
           }
         },
         "required": [
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "answer-detail",
+                  "args": {
+                    "id": {
+                      "from": "item.url"
+                    }
+                  }
+                },
+                {
+                  "when": {
+                    "type": "question"
+                  },
+                  "command": "question",
+                  "args": {
+                    "id": {
+                      "from": "item.question_id"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "answer-comments",
+                  "args": {
+                    "id": {
+                      "from": "item.url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "like",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "like",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "favorite",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "collection"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "favorite",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "collection"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "comment",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "comment",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "download",
+                  "args": {
+                    "url": {
+                      "from": "item.url"
+                    }
+                  },
+                  "inputs": [
+                    "output"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "download",
+                  "args": {
+                    "url": {
+                      "from": "item.url"
+                    }
+                  },
+                  "inputs": [
+                    "output"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "follow",
+              "label": "关注问题",
+              "variants": [
+                {
+                  "when": {
+                    "type": "question"
+                  },
+                  "command": "follow",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "answer",
+              "label": "提交回答",
+              "variants": [
+                {
+                  "when": {
+                    "type": "question"
+                  },
+                  "command": "answer",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "recommend",
@@ -66,7 +316,252 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "answer-detail",
+                  "args": {
+                    "id": {
+                      "from": "item.url"
+                    }
+                  }
+                },
+                {
+                  "when": {
+                    "type": "question"
+                  },
+                  "command": "question",
+                  "args": {
+                    "id": {
+                      "from": "item.question_id"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "answer-comments",
+                  "args": {
+                    "id": {
+                      "from": "item.url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "like",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "like",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "favorite",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "collection"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "favorite",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "collection"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "comment",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "comment",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "download",
+                  "args": {
+                    "url": {
+                      "from": "item.url"
+                    }
+                  },
+                  "inputs": [
+                    "output"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "download",
+                  "args": {
+                    "url": {
+                      "from": "item.url"
+                    }
+                  },
+                  "inputs": [
+                    "output"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "follow",
+              "label": "关注问题",
+              "variants": [
+                {
+                  "when": {
+                    "type": "question"
+                  },
+                  "command": "follow",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "answer",
+              "label": "提交回答",
+              "variants": [
+                {
+                  "when": {
+                    "type": "question"
+                  },
+                  "command": "answer",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "question",
@@ -80,7 +575,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Question ID (numeric)"
+            "description": "Question ID (numeric)",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -101,7 +597,94 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看回答详情",
+              "command": "answer-detail",
+              "args": {
+                "id": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "answer-comments",
+              "args": {
+                "id": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "collection"
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "command": "comment",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "command": "download",
+              "args": {
+                "url": {
+                  "from": "item.url"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "answer-detail",
@@ -115,7 +698,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Answer ID, full Zhihu answer URL, or typed target (answer:<qid>:<aid>)"
+            "description": "Answer ID, full Zhihu answer URL, or typed target (answer:<qid>:<aid>)",
+            "minLength": 1
           },
           "max-content": {
             "type": "integer",
@@ -127,7 +711,104 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "answer-comments",
+              "args": {
+                "id": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "target": {
+                  "from": "item.context_write_target"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite",
+              "args": {
+                "target": {
+                  "from": "item.context_write_target"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "collection"
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "command": "comment",
+              "args": {
+                "target": {
+                  "from": "item.context_write_target"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "command": "download",
+              "args": {
+                "url": {
+                  "from": "item.url"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            },
+            {
+              "id": "question",
+              "label": "查看原问题",
+              "command": "question",
+              "args": {
+                "id": {
+                  "from": "item.question_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "user": {
+                  "from": "item.author_token"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "answer-comments",
@@ -141,7 +822,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Answer ID, full Zhihu answer URL, or typed target (answer:<qid>:<aid>)"
+            "description": "Answer ID, full Zhihu answer URL, or typed target (answer:<qid>:<aid>)",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -167,7 +849,36 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "answer",
+              "label": "查看回答",
+              "command": "answer-detail",
+              "args": {
+                "id": {
+                  "from": "item.answer_url"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "user": {
+                  "from": "item.author_token"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "collections",
@@ -187,7 +898,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "collection_id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看收藏夹",
+              "command": "collection",
+              "args": {
+                "id": {
+                  "from": "item.collection_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "collection",
@@ -201,7 +931,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "收藏夹 ID (数字，可从收藏夹 URL 中获取)"
+            "description": "收藏夹 ID (数字，可从收藏夹 URL 中获取)",
+            "minLength": 1
           },
           "offset": {
             "type": "integer",
@@ -218,7 +949,198 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "answer-detail",
+                  "args": {
+                    "id": {
+                      "from": "item.url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "answer-comments",
+                  "args": {
+                    "id": {
+                      "from": "item.url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "like",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "like",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "favorite",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "collection"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "favorite",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "collection"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "comment",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "comment",
+                  "args": {
+                    "target": {
+                      "from": "item.url"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  },
+                  "inputs": [
+                    "text"
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "variants": [
+                {
+                  "when": {
+                    "type": "answer"
+                  },
+                  "command": "download",
+                  "args": {
+                    "url": {
+                      "from": "item.url"
+                    }
+                  },
+                  "inputs": [
+                    "output"
+                  ]
+                },
+                {
+                  "when": {
+                    "type": "article"
+                  },
+                  "command": "download",
+                  "args": {
+                    "url": {
+                      "from": "item.url"
+                    }
+                  },
+                  "inputs": [
+                    "output"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user",
@@ -232,14 +1154,87 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "User url_token or people URL, e.g. wen-jie-16-47"
+            "description": "User url_token or people URL, e.g. wen-jie-16-47",
+            "minLength": 1
           }
         },
         "required": [
           "user"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url_token",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "user-answers",
+              "label": "查看回答列表",
+              "command": "user-answers",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "user-articles",
+              "label": "查看文章列表",
+              "command": "user-articles",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "followers",
+              "label": "查看粉丝",
+              "command": "followers",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "following",
+              "label": "查看关注",
+              "command": "following",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "pins",
+              "label": "查看想法",
+              "command": "pins",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注用户",
+              "command": "follow",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user-answers",
@@ -253,7 +1248,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "User url_token or people URL"
+            "description": "User url_token or people URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -265,7 +1261,94 @@
           "user"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看回答详情",
+              "command": "answer-detail",
+              "args": {
+                "id": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "answer-comments",
+              "args": {
+                "id": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "collection"
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "command": "comment",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "command": "download",
+              "args": {
+                "url": {
+                  "from": "item.url"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user-articles",
@@ -279,7 +1362,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "User url_token or people URL"
+            "description": "User url_token or people URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -291,7 +1375,74 @@
           "user"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "collection"
+              ]
+            },
+            {
+              "id": "comment",
+              "label": "发表评论",
+              "command": "comment",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "download",
+              "label": "导出文件",
+              "command": "download",
+              "args": {
+                "url": {
+                  "from": "item.url"
+                }
+              },
+              "inputs": [
+                "output"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "followers",
@@ -305,7 +1456,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "User url_token or people URL"
+            "description": "User url_token or people URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -317,7 +1469,39 @@
           "user"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url_token",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户资料",
+              "command": "user",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注用户",
+              "command": "follow",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "following",
@@ -331,7 +1515,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "User url_token or people URL"
+            "description": "User url_token or people URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -343,7 +1528,39 @@
           "user"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url_token",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户资料",
+              "command": "user",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注用户",
+              "command": "follow",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "pins",
@@ -357,7 +1574,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "User url_token or people URL"
+            "description": "User url_token or people URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -369,7 +1587,13 @@
           "user"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "No individual pin-detail, pin-reply or pin-like command. Answer/article operations must not receive a pin ID."
+        }
+      ]
     },
     {
       "id": "hot",
@@ -389,7 +1613,55 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "question_id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看问题详情",
+              "command": "question",
+              "args": {
+                "id": {
+                  "from": "item.question_id"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注问题",
+              "command": "follow",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "answer",
+              "label": "提交回答",
+              "command": "answer",
+              "args": {
+                "target": {
+                  "from": "item.url"
+                },
+                "execute": {
+                  "value": true
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -403,7 +1675,76 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "id",
+          "titleField": "url_token",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看我的资料",
+              "command": "user",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "user-answers",
+              "label": "查看回答列表",
+              "command": "user-answers",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "user-articles",
+              "label": "查看文章列表",
+              "command": "user-articles",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "followers",
+              "label": "查看粉丝",
+              "command": "followers",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "following",
+              "label": "查看关注",
+              "command": "following",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            },
+            {
+              "id": "pins",
+              "label": "查看想法",
+              "command": "pins",
+              "args": {
+                "user": {
+                  "from": "item.url_token"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -436,7 +1777,8 @@
         "properties": {
           "target": {
             "type": "string",
-            "description": "Zhihu target URL or typed target"
+            "description": "Zhihu target URL or typed target",
+            "minLength": 1
           },
           "execute": {
             "type": "boolean",
@@ -461,7 +1803,8 @@
         "properties": {
           "target": {
             "type": "string",
-            "description": "Zhihu target URL or typed target"
+            "description": "Zhihu target URL or typed target",
+            "minLength": 1
           },
           "execute": {
             "type": "boolean",
@@ -486,11 +1829,13 @@
         "properties": {
           "target": {
             "type": "string",
-            "description": "Zhihu target URL or typed target"
+            "description": "Zhihu target URL or typed target",
+            "minLength": 1
           },
           "collection": {
             "type": "string",
-            "description": "Collection name"
+            "description": "Collection name",
+            "minLength": 1
           },
           "collection-id": {
             "type": "string",
@@ -519,7 +1864,8 @@
         "properties": {
           "target": {
             "type": "string",
-            "description": "Zhihu target URL or typed target"
+            "description": "Zhihu target URL or typed target",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -552,7 +1898,8 @@
         "properties": {
           "target": {
             "type": "string",
-            "description": "Zhihu question URL or typed target"
+            "description": "Zhihu question URL or typed target",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -579,13 +1926,14 @@
       "module": "extension/commands/download.js",
       "routeDomain": "www.zhihu.com",
       "description": "导出知乎专栏文章或回答为 Markdown 格式",
-      "safety": "read",
+      "safety": "write",
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "Column article URL, answer ID, typed target, or answer URL"
+            "description": "Column article URL, answer ID, typed target, or answer URL",
+            "minLength": 1
           },
           "output": {
             "type": "string",

@@ -36,7 +36,13 @@
           "url"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Returns public shared-note text, summary and keywords. This package has no per-block, attachment, edit or delete operation; share URL resolution remains part of this read."
+        }
+      ]
     }
   ]
 }

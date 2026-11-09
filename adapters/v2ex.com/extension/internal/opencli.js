@@ -259,13 +259,14 @@ var __wave5 = (() => {
         help: "Number of topics (API returns max 20)"
       }
     ],
-    columns: ["rank", "title", "author", "replies", "url"],
+    columns: ["id", "rank", "title", "author", "replies", "url"],
     pipeline: [
       { fetch: {
         url: "https://www.v2ex.com/api/topics/show.json",
         params: { node_name: "${{ args.name }}" }
       } },
       { map: {
+        id: "${{ item.id }}",
         rank: "${{ index + 1 }}",
         title: "${{ item.title }}",
         author: "${{ item.member.username }}",
@@ -316,13 +317,14 @@ var __wave5 = (() => {
       { name: "id", required: true, positional: true, help: "Topic ID" },
       { name: "limit", type: "int", default: 20, help: "Number of replies" }
     ],
-    columns: ["floor", "author", "content"],
+    columns: ["id", "floor", "author", "content"],
     pipeline: [
       { fetch: {
         url: "https://www.v2ex.com/api/replies/show.json",
         params: { topic_id: "${{ args.id }}" }
       } },
       { map: {
+        id: "${{ item.id }}",
         floor: "${{ index + 1 }}",
         author: "${{ item.member.username }}",
         content: "${{ item.content }}"
@@ -349,13 +351,14 @@ var __wave5 = (() => {
         help: "Number of topics (API returns max 20)"
       }
     ],
-    columns: ["rank", "title", "node", "replies", "url"],
+    columns: ["id", "rank", "title", "node", "replies", "url"],
     pipeline: [
       { fetch: {
         url: "https://www.v2ex.com/api/topics/show.json",
         params: { username: "${{ args.username }}" }
       } },
       { map: {
+        id: "${{ item.id }}",
         rank: "${{ index + 1 }}",
         title: "${{ item.title }}",
         node: "${{ item.node.title }}",
@@ -473,7 +476,7 @@ var __wave5 = (() => {
     args: [
       { name: "limit", type: "int", default: 20, help: "Number of notifications" }
     ],
-    columns: ["type", "content", "time"],
+    columns: ["id", "title", "topic_id", "type", "content", "time"],
     func: async (page, kwargs) => {
       if (!page)
         throw new CommandExecutionError("Browser page required");
@@ -528,7 +531,10 @@ var __wave5 = (() => {
             }
           }
 
-          return { type, content, time };
+          const topicLink = item.querySelector('a[href^="/t/"]');
+          const topicMatch = (topicLink?.getAttribute('href') || '').match(/^\\/t\\/(\\d{1,12})(?:[?#]|$)/);
+          return { id: item.id, title: topicLink?.textContent?.trim().slice(0, 80) || type,
+            topic_id: topicMatch ? topicMatch[1] : null, type, content, time };
         });
       }
     `);
@@ -772,11 +778,14 @@ var __wave5 = (() => {
       }
       if (previous?.url === target.href && Date.now() - previous.at < 105e3) throw new CommandExecutionError("Site redirected the requested page; check login or site verification");
       sessionStorage.setItem(markerKey, JSON.stringify({ url: target.href, at: Date.now() }));
-      this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write" } };
+      // A page evaluation may already have written; only untouched invocations can promise preparation.
+      this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write",
+        ...(this.command.access === "write" && !this.pageEvaluated ? { phase: "prepare", result: { status: "prepared", executed: false } } : {}) } };
       throw new CommandExecutionError("Navigation required");
     }
     async evaluate(source) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
+      this.pageEvaluated = true;
       const expression = `(async () => { const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
       const result = await helper("main_world_eval", { expression });
       if (!result || !Object.hasOwn(result, "value")) throw new CommandExecutionError("Missing page evaluation result");
@@ -784,6 +793,7 @@ var __wave5 = (() => {
     }
     async evaluateWithArgs(source, args = {}) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
+      this.pageEvaluated = true;
       const bindings = Object.entries(args).map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`).join("");
       const expression = `(async () => { ${bindings} const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
       const result = await helper("main_world_eval", { expression });

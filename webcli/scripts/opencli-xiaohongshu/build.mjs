@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { resultMetadata } from './context-results.js';
 import { createRequire } from 'node:module';
 const root = path.resolve(import.meta.dirname, '../..');
 const dir = import.meta.dirname;
@@ -75,7 +76,6 @@ vm.createContext(ctx); vm.runInContext(bundled, ctx);
 const commands = [...ctx.__xhsOpenCLI.commands.values()];
 const manifestPath = path.join(pkg, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath));
-manifest.version = '2.0.1';
 manifest.description = '小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理';
 manifest.match = ['xiaohongshu.com', 'www.xiaohongshu.com', 'creator.xiaohongshu.com'];
 manifest.runtime_allowed_hosts = ['xiaohongshu.com', 'xhscdn.com', 'xhslink.com'];
@@ -103,6 +103,12 @@ for (const id of ['search-notes', 'open-note', 'read-comments', 'check-login-sta
   manifest.commands.push(command);
 }
 manifest.commands.push(...legacy);
+for (const command of manifest.commands) {
+  if (resultMetadata[command.id]) command.results = resultMetadata[command.id];
+  for (const key of ['id', 'note-id', 'user-id', 'url']) {
+    if (command.schema.properties[key]?.type === 'string') command.schema.properties[key].minLength = 1;
+  }
+}
 manifest.i18n.zh.description = manifest.description;
 fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
 fs.writeFileSync(path.join(pkg, 'extension/internal/opencli.js'), bundled + '\nwindow.__xhsOpenCLI = __xhsOpenCLI;\n');

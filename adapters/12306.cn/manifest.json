@@ -50,7 +50,30 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "code",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "trains",
+              "label": "查询出发车次",
+              "command": "trains",
+              "args": {
+                "from": {
+                  "from": "item.code"
+                }
+              },
+              "inputs": [
+                "to",
+                "date"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "trains",
@@ -86,7 +109,54 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "train_no",
+          "titleField": "code",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看经停",
+              "command": "train",
+              "args": {
+                "train-no": {
+                  "from": "item.train_no"
+                },
+                "from": {
+                  "from": "item.from_code"
+                },
+                "to": {
+                  "from": "item.to_code"
+                },
+                "date": {
+                  "from": "query.date"
+                }
+              }
+            },
+            {
+              "id": "price",
+              "label": "查看票价",
+              "command": "price",
+              "args": {
+                "train-no": {
+                  "from": "item.train_no"
+                },
+                "from": {
+                  "from": "item.from_code"
+                },
+                "to": {
+                  "from": "item.to_code"
+                },
+                "date": {
+                  "from": "query.date"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "train",
@@ -122,7 +192,32 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "station_no",
+          "titleField": "station_name",
+          "actions": [
+            {
+              "id": "trains",
+              "label": "查询出发车次",
+              "command": "trains",
+              "args": {
+                "from": {
+                  "from": "item.station_name"
+                },
+                "date": {
+                  "from": "query.date"
+                }
+              },
+              "inputs": [
+                "to"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "price",
@@ -163,7 +258,13 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Seat prices are terminal values; this package has no booking or seat-specific detail command. Booking is an unsupported capability, not a missing identifier mapping."
+        }
+      ]
     },
     {
       "id": "me",
@@ -183,7 +284,28 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "username",
+          "titleField": "username",
+          "actions": [
+            {
+              "id": "passengers",
+              "label": "查看乘车人",
+              "command": "passengers",
+              "args": {}
+            },
+            {
+              "id": "orders",
+              "label": "查看订单",
+              "command": "orders",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "passengers",
@@ -208,7 +330,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Saved passenger records have no per-passenger detail, edit, delete or booking command in this package. Do not persist masked identity fields as executable identifiers."
+        }
+      ]
     },
     {
       "id": "orders",
@@ -228,7 +356,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Order summaries have no order-detail, cancel or payment command in this package; train_code is a public service code and cannot substitute for internal train_no. These follow-ups require new Adapter capabilities."
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -242,7 +376,34 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "user_name",
+          "titleField": "user_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看账号",
+              "command": "me",
+              "args": {}
+            },
+            {
+              "id": "passengers",
+              "label": "查看乘车人",
+              "command": "passengers",
+              "args": {}
+            },
+            {
+              "id": "orders",
+              "label": "查看订单",
+              "command": "orders",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",

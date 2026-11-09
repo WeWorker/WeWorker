@@ -82,21 +82,30 @@
       const question = content.question || {};
       title = question.title || "";
       excerpt = stripHtml(content.content || "").substring(0, 150);
-      url = content.url || `https://www.zhihu.com/question/${question.id}/answer/${content.id}`;
+      url = question.id && content.id ? `https://www.zhihu.com/question/${question.id}/answer/${content.id}` : '';
       author = content.author?.name || "\u533F\u540D\u7528\u6237";
       votes = content.voteup_count || 0;
     } else if (type === "article") {
       title = content.title || "";
       excerpt = stripHtml(content.content || "").substring(0, 150);
-      url = content.url || `https://zhuanlan.zhihu.com/p/${content.id}`;
+      url = content.id ? `https://zhuanlan.zhihu.com/p/${content.id}` : '';
       author = content.author?.name || "\u533F\u540D\u7528\u6237";
       votes = content.voteup_count || 0;
     } else if (type === "pin") {
       title = "\u60F3\u6CD5";
       excerpt = stripHtml((content.content || []).map((c) => c.content || "").join(" ")).substring(0, 150);
-      url = content.url || `https://www.zhihu.com/pin/${content.id}`;
+      url = content.id ? `https://www.zhihu.com/pin/${content.id}` : '';
       author = content.author?.name || "\u533F\u540D\u7528\u6237";
       votes = content.reaction_count || 0;
+    }
+    if (!url && typeof content.url === 'string') {
+      try {
+        const candidate = new URL(content.url);
+        const valid = type === 'answer' ? candidate.hostname === 'www.zhihu.com' && /^\/question\/\d+\/answer\/\d+\/?$/.test(candidate.pathname) :
+          type === 'article' ? candidate.hostname === 'zhuanlan.zhihu.com' && /^\/p\/\d+\/?$/.test(candidate.pathname) :
+          candidate.hostname === 'www.zhihu.com' && /^\/pin\/\d+\/?$/.test(candidate.pathname);
+        if (valid && candidate.protocol === 'https:' && !candidate.username && !candidate.password && !candidate.port) url = candidate.origin + candidate.pathname;
+      } catch {}
     }
     if (!String(title || "").trim() || !String(url || "").trim() || url.includes("undefined")) {
       throw new CommandExecutionError(
@@ -108,6 +117,7 @@
       rank,
       type,
       title: stripHtml(title).substring(0, 100),
+      context_title: window.__zhihu.contextTitle(stripHtml(title)),
       author,
       votes,
       excerpt,

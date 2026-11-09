@@ -264,16 +264,31 @@ describe("Toolkit Runner", () => {
             description: 'Read fixture', safety: 'read', schema: { type: 'object', properties: {} } }],
         }));
       }
-      const runtime = join(fixture.root, 'fake-runtime');
+      const runtime = join(fixture.root, process.platform === 'win32' ? 'fake-runtime.exe' : 'fake-runtime');
       const text = '示例'.repeat(200000);
-      writeFileSync(runtime, `#!/usr/bin/env node
+      if (process.platform === 'win32') {
+        // Windows CreateProcess cannot execute a shebang fixture; use a real console executable.
+        const source = join(fixture.root, 'fake-runtime.cs');
+        writeFileSync(source, `using System; using System.Text;
+class Fixture { static int Main() {
+  Console.InputEncoding = Encoding.UTF8; Console.OutputEncoding = new UTF8Encoding(false);
+  Console.In.ReadToEnd();
+  Console.Write("{\\\"ok\\\":${exitCode === 0},\\\"data\\\":\\\"");
+  for (int i = 0; i < 200000; i++) Console.Write("示例");
+  Console.WriteLine("\\\"}"); Console.Out.Flush(); return ${exitCode};
+} }`);
+        await execFileAsync(join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe'),
+          ['/nologo', '/target:exe', '/out:' + runtime, source]);
+      } else {
+        writeFileSync(runtime, `#!/usr/bin/env node
 process.stdin.resume();
 process.stdin.on('end', () => {
   console.log(JSON.stringify({ok: ${exitCode === 0}, data: '示例'.repeat(200000)}));
   process.exitCode = ${exitCode};
 });
 `);
-      chmodSync(runtime, 0o755);
+        chmodSync(runtime, 0o755);
+      }
       let completed;
       try {
         completed = await execFileAsync(process.execPath, [cliPath, 'call',

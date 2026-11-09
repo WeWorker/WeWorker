@@ -33,6 +33,12 @@
       },
       "aliases": [
         "check_login_status"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+        }
       ]
     },
     {
@@ -48,6 +54,12 @@
       },
       "aliases": [
         "navigate_to_inbox"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+        }
       ]
     },
     {
@@ -68,6 +80,25 @@
       },
       "aliases": [
         "search_emails"
+      ],
+      "results": [
+        {
+          "itemsPath": "$.emails",
+          "idField": "id",
+          "titleField": "subject",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看邮件",
+              "command": "open-email",
+              "args": {
+                "emailId": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -88,6 +119,25 @@
       },
       "aliases": [
         "get_unread_emails"
+      ],
+      "results": [
+        {
+          "itemsPath": "$.emails",
+          "idField": "id",
+          "titleField": "subject",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看邮件",
+              "command": "open-email",
+              "args": {
+                "emailId": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -110,6 +160,28 @@
       },
       "aliases": [
         "open_email"
+      ],
+      "results": [
+        {
+          "itemsPath": "$.detail.attachments",
+          "idField": "name",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "download",
+              "label": "下载附件",
+              "command": "download-attachment",
+              "args": {
+                "attachmentName": {
+                  "from": "item.name"
+                },
+                "emailId": {
+                  "from": "query.emailId"
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -124,6 +196,10 @@
           "attachmentName": {
             "type": "string",
             "description": "要下载的附件名称（例如：'发票.pdf'），或使用'all'打包下载所有附件"
+          },
+          "emailId": {
+            "type": "string",
+            "description": "Source email ID. When provided, open this exact email before downloading its attachment."
           }
         },
         "required": [
@@ -147,6 +223,12 @@
       },
       "aliases": [
         "get_current_page_info"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+        }
       ]
     },
     {

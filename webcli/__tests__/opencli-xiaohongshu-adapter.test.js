@@ -6,6 +6,8 @@ import { validateV2AdapterDir } from '../adapter-package-v2.js';
 import { buildV2Bootstrap } from '../../extension/background/v2-loader.js';
 import { managedAdapterSkill } from '../adapter-views.js';
 import { validateCreatorCaptures } from '../scripts/opencli-xiaohongshu/creator-capture.js';
+import { runContextCall } from '../context-command.js';
+import { newState } from '../context-model.js';
 const root = resolve(import.meta.dirname, '../..');
 const base = resolve(root, 'adapters/xiaohongshu.com');
 const WEB = 'https://www.xiaohongshu.com';
@@ -78,8 +80,8 @@ describe('Xiaohongshu v2 migration contracts', () => {
   it('keeps signed URLs and returns note interaction fields', async () => {
     const s = setup(NOTE, [{ title: 'Fixture', author: 'Fixture author', desc: 'Body', likes: '12', collects: '收藏', comments: '3', tags: ['fixture'] }]);
     const rows = await s.run('note', { 'note-id': NOTE });
-    expect(rows).toContainEqual({ field: 'collects', value: '0' });
-    expect(rows).toContainEqual({ field: 'tags', value: 'fixture' });
+    expect(rows).toContainEqual(expect.objectContaining({ field: 'collects', value: '0' }));
+    expect(rows).toContainEqual(expect.objectContaining({ field: 'tags', value: 'fixture' }));
   });
   it('retains signed feed URLs and refuses malformed empty-store payloads', async () => {
     const s = setup(WEB + '/explore', [{ items: [{ id: ID, title: 'Fixture', author: 'Fixture', xsecToken: 'fixture-token', likes: '0' }] }]);
@@ -127,6 +129,26 @@ describe('Xiaohongshu v2 migration contracts', () => {
     expect(rows[0]).toMatchObject({ status: 'saved', size: 3 });
     expect(s.calls.find(c => c.action === 'backend_fetch').options).toMatchObject({ redirect: 'manual', responseEncoding: 'base64' });
     expect(s.calls.find(c => c.action === 'backend_file_write')).toMatchObject({ content: '/9j/', encoding: 'base64' });
+  });
+  it('classifies download as a write in the package and bundled registry and only prepares a different page', async () => {
+    const s = setup();
+    expect(s.pkg.commands.find(c => c.id === 'download').safety).toBe('write');
+    expect(s.ctx.__xhsOpenCLI.commands.get('download').access).toBe('write');
+    expect(await s.run('download', { 'note-id': NOTE })).toMatchObject({ __webcli_navigation: { resume: false, url: NOTE, result: { executed: false } } });
+    expect(s.calls.some(c => ['backend_fetch', 'backend_file_write'].includes(c.action))).toBe(false);
+  });
+  it('records the actual mock download before dispatch and blocks the same context write from replaying', async () => {
+    const media = { noteId: ID, media: [{ type: 'image', url: 'https://sns-img.xhscdn.com/fixture.jpg' }] };
+    const s = setup(NOTE, [media], action => action === 'backend_fetch' ? { ok: true, status: 200, bodyEncoding: 'base64', body: '/9j/', size: 3, headers: { 'content-type': 'image/jpeg' } } : action === 'backend_file_write' ? { path: 'fixture-output/image.jpg' } : undefined);
+    const state = newState(1000), catalog = { entries: s.pkg.commands, tools: {}, resultBindings: new Map() };
+    const store = { now: () => 1001, transaction: async (_id, fn) => fn(state, { persist: async () => {} }) };
+    const call = () => runContextCall({ id: 'fixture-session', tool: 'xiaohongshu.com.download', args: { 'note-id': NOTE }, invoke: async (_tool, args) => {
+      expect(state.operationGuards.at(-1).status).toBe('dispatching');
+      return { raw: await s.run('download', args), exitCode: 0 };
+    } }, { store, catalog });
+    expect((await call()).receipt.toolOutcome).toBe('acknowledged');
+    await expect(call()).rejects.toThrow('context_operation_unresolved');
+    expect(s.calls.filter(c => c.action === 'backend_file_write')).toHaveLength(1);
   });
   it.each(['https://example.org/image.jpg', 'https://xhscdn.com.example.org/image.jpg', 'http://sns-img.xhscdn.com/image.jpg'])('rejects media host %s', async url => {
     const s = setup(NOTE, [{ noteId: ID, media: [{ type: 'image', url }] }]);
@@ -251,7 +273,7 @@ describe('Xiaohongshu v2 migration contracts', () => {
   it('accepts canonical note redirects without matching tracking parameters', async () => {
     const s = setup(WEB + '/explore/' + ID, [{ title: 'Fixture', author: 'Fixture', desc: 'Body' }]);
     const result = await s.run('note', { 'note-id': WEB + '/search_result/' + ID + '?xsec_token=fixture-token&xsec_source=pc_search' });
-    expect(result).toContainEqual({ field: 'title', value: 'Fixture' });
+    expect(result).toContainEqual(expect.objectContaining({ field: 'title', value: 'Fixture' }));
   });
   it('does not treat a success acknowledgement without creator notes as an empty list', () => {
     const key = '/api/galaxy/creator/datacenter/note/analyze/list';

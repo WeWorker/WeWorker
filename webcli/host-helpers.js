@@ -21,7 +21,6 @@ export function createHostHelpers(match, args, send, controller = new AbortContr
     if (action === 'host_cli_call') {
       try {
         return await invokeHostCli({ parentId, ws, payload, pendingRequests, resolveAdapterCall, execute: executeHostCli,
-          authorizeWrite: async request => request.originalConfirmed === true,
           credentials: async request => {
             let url;
             try { url = new URL(request?.url); } catch { throw hostError('HOST_CLI_CONTEXT_INVALID', 'Invalid credential scope.'); }

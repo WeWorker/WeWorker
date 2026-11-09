@@ -76,7 +76,26 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "paper",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "paper",
@@ -101,7 +120,25 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "author",
+              "args": {},
+              "inputs": [
+                "author"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "author",
@@ -131,7 +168,26 @@
           "author"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "paper",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "recent",
@@ -161,7 +217,26 @@
           "category"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "paper",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

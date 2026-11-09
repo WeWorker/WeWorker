@@ -94,7 +94,36 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "user_id",
+          "titleField": "screen_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看本人资料",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.user_id"
+                }
+              }
+            },
+            {
+              "id": "posts",
+              "label": "查看本人微博",
+              "command": "user-posts",
+              "args": {
+                "id": {
+                  "from": "item.user_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -122,7 +151,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Post ID (numeric idstr)"
+            "description": "Post ID (numeric idstr)",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -134,7 +164,36 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "post",
+              "label": "查看原微博",
+              "command": "post",
+              "args": {
+                "id": {
+                  "from": "query.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.author_uid"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "delete",
@@ -148,7 +207,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Post ID (numeric idstr or mblogid from URL / weibo me / weibo post output)"
+            "description": "Post ID (numeric idstr or mblogid from URL / weibo me / weibo post output)",
+            "minLength": 1
           }
         },
         "required": [
@@ -175,7 +235,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看微博",
+              "command": "post",
+              "args": {
+                "id": {
+                  "from": "item.post_key"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "feed",
@@ -200,7 +279,56 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看微博",
+              "command": "post",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "id": {
+                  "from": "item.post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.author_uid"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除微博",
+              "command": "delete",
+              "args": {
+                "id": {
+                  "from": "item.post_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "hot",
@@ -220,7 +348,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "word",
+          "actions": [
+            {
+              "id": "search",
+              "label": "搜索话题",
+              "command": "search",
+              "args": {
+                "keyword": {
+                  "from": "item.word"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "me",
@@ -234,7 +381,26 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "uid",
+          "titleField": "screen_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户微博",
+              "command": "user-posts",
+              "args": {
+                "id": {
+                  "from": "item.uid"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "post",
@@ -248,14 +414,54 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Post ID (numeric idstr or mblogid from URL)"
+            "description": "Post ID (numeric idstr or mblogid from URL)",
+            "minLength": 1
           }
         },
         "required": [
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.author_uid"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除微博",
+              "command": "delete",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "publish",
@@ -302,7 +508,26 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看微博",
+              "command": "post",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user",
@@ -316,14 +541,34 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "User ID (numeric uid) or screen name"
+            "description": "User ID (numeric uid) or screen name",
+            "minLength": 1
           }
         },
         "required": [
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "uid",
+          "titleField": "screen_name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户微博",
+              "command": "user-posts",
+              "args": {
+                "id": {
+                  "from": "item.uid"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user-posts",
@@ -337,7 +582,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "User ID (numeric uid) or screen name"
+            "description": "User ID (numeric uid) or screen name",
+            "minLength": 1
           },
           "start": {
             "type": "string",
@@ -362,7 +608,56 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看微博",
+              "command": "post",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.uid"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除微博",
+              "command": "delete",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
