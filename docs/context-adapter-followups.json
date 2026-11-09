@@ -1,0 +1,678 @@
+{
+  "scope": "33 public source packages only; future capability priorities do not certify real-site behavior.",
+  "counts": {
+    "terminal_read": 17,
+    "new_capability_required": 34,
+    "diagnostic": 23
+  },
+  "existingMappingOmissions": 0,
+  "publicUserIntegrationBlockers": 0,
+  "commands": [
+    {
+      "command": "12306.cn.price",
+      "classification": "terminal_read",
+      "reason": [
+        "Seat prices are terminal values; this package has no booking or seat-specific detail command. Booking is an unsupported capability, not a missing identifier mapping."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "12306.cn.passengers",
+      "classification": "new_capability_required",
+      "reason": [
+        "Saved passenger records have no per-passenger detail, edit, delete or booking command in this package. Do not persist masked identity fields as executable identifiers."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "12306.cn.orders",
+      "classification": "new_capability_required",
+      "reason": [
+        "Order summaries have no order-detail, cancel or payment command in this package; train_code is a public service code and cannot substitute for internal train_no. These follow-ups require new Adapter capabilities."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "1688.com.whoami",
+      "classification": "diagnostic",
+      "reason": [
+        "Returns authenticated account identity only. There is no account-detail, purchase-history or account-edit command; public product search is an independent query."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "1688.com.download",
+      "classification": "new_capability_required",
+      "reason": [
+        "Returns media URLs and suggested filenames only. No command in this package saves a media file or opens an individual media asset; download-to-disk requires a separate capability."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "1688.com.store",
+      "classification": "new_capability_required",
+      "reason": [
+        "Returns supplier profile and contact fields. This package has no shop-scoped product listing or contact-seller operation; keyword search cannot represent shop inventory."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "36kr.com.article",
+      "classification": "new_capability_required",
+      "reason": [
+        "Article fields include an explicitly capped body; there is no full-text, author-profile or comment command. Opening the returned URL is an Agent/browser handoff, not an invented Adapter action."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "bilibili.com.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "Login diagnostic only; this package has no user profile, account settings or account-history command."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "bilibili.com.read-comments",
+      "classification": "new_capability_required",
+      "reason": [
+        "Comment summaries have no stable comment IDs and this package has no comment-detail, reply or author-profile command. These require new Adapter capabilities."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.whoami",
+      "classification": "diagnostic",
+      "reason": [
+        "Account diagnostic only; no profile-detail, order-history or account-edit command exists."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.hotel",
+      "classification": "new_capability_required",
+      "reason": [
+        "Hotel profile is terminal in this package; no room-list, room-detail, reservation or payment command exists."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.train",
+      "classification": "new_capability_required",
+      "reason": [
+        "Train service candidates have no train-detail, fare-detail or booking command in this package. Public train numbers are not 12306 internal train_no identifiers."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.bus",
+      "classification": "new_capability_required",
+      "reason": [
+        "Bus candidates have no departure-detail, seat selection or booking command in this package."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.ferry",
+      "classification": "new_capability_required",
+      "reason": [
+        "Ferry candidates have no sailing-detail, cabin selection or booking command in this package."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.flight",
+      "classification": "new_capability_required",
+      "reason": [
+        "Flight candidates have no itinerary-detail, seat selection or booking command in this package; flight-round is a separate route/date query, not detail for this row."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.flight-round",
+      "classification": "new_capability_required",
+      "reason": [
+        "Round-trip combinations have no combination-detail, seat selection or booking command in this package; a one-way search would discard the selected combination and quote scope."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.attraction",
+      "classification": "new_capability_required",
+      "reason": [
+        "Attraction candidates have no sight-detail, review or ticket command in this package."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.cruise",
+      "classification": "new_capability_required",
+      "reason": [
+        "Cruise candidates have no route-detail, cabin-detail or booking command in this package."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.tour",
+      "classification": "new_capability_required",
+      "reason": [
+        "Tour product candidates have no product-detail or booking command in this package. A keyword query cannot represent the selected product."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "ctrip.com.package",
+      "classification": "new_capability_required",
+      "reason": [
+        "Package candidates have no product-detail or booking command in this package. Another keyword query cannot verify this exact package price or inclusions."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "dianping.com.shop",
+      "classification": "new_capability_required",
+      "reason": [
+        "Shop profile fields have no per-review, menu, reservation or purchase command in this package; these require additional Adapter capabilities."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "dianping.com.whoami",
+      "classification": "diagnostic",
+      "reason": [
+        "Account diagnostic only; there is no member-profile or account-settings command. Shop search is a separate query."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.drafts",
+      "classification": "new_capability_required",
+      "reason": [
+        "Draft rows identify unpublished drafts. No draft-detail, edit, publish or draft-delete command exists; the published-work delete and stats commands must not be used for draft IDs."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.collections",
+      "classification": "new_capability_required",
+      "reason": [
+        "Creator mix metadata is returned. No collection-items, collection-detail or collection-edit command accepts mix_id; video IDs must not be substituted for mix IDs."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.activities",
+      "classification": "new_capability_required",
+      "reason": [
+        "Activity metadata is returned. No activity-detail or enrollment command accepts activity_id; participation is an unavailable downstream capability."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.location",
+      "classification": "new_capability_required",
+      "reason": [
+        "POI suggestions are returned. No POI-detail, map or publish-with-location command accepts poi_id; coordinates or video identities cannot be invented."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.stats",
+      "classification": "terminal_read",
+      "reason": [
+        "The selected owned work metrics are already returned in full. No per-metric detail command exists; a metric name is not an aweme_id."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.user-videos",
+      "classification": "new_capability_required",
+      "reason": [
+        "Public user videos and optional top comments are returned. No public video-detail, selected-video comments or download command exists; owned-work stats/update/delete cannot be applied to another user videos."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "douyin.com.search",
+      "classification": "new_capability_required",
+      "reason": [
+        "Public video cards contain video URLs and display names only. No public video-detail or selected-video comments command exists, and author names are not sec_uid. Creator stats/update/delete are not valid public-card follow-ups."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "gitee.com.user",
+      "classification": "terminal_read",
+      "reason": [
+        "Profile metrics are terminal in this package; there is no username-scoped repository list, follower list or account-edit command. Keyword repository search is not an owner-scoped list."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "github.com.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "Diagnostic login state; no per-account detail or settings command exists. Repository search is a separate user query."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "goofish.com.get-login-qrcode",
+      "classification": "diagnostic",
+      "reason": [
+        "Host login diagnostic only; not a selectable business entity."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "goofish.com.whoami",
+      "classification": "diagnostic",
+      "reason": [
+        "Account diagnostic; no own-item inventory, account-profile or account-settings command. Inbox is a separate query."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "jd.com.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "Host login/navigation diagnostic only; not a selectable business result."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "jd.com.get-login-qrcode",
+      "classification": "diagnostic",
+      "reason": [
+        "Host login/navigation diagnostic only; not a selectable business result."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "jd.com.navigate-to-homepage",
+      "classification": "diagnostic",
+      "reason": [
+        "Host login/navigation diagnostic only; not a selectable business result."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "jd.com.view-orders",
+      "classification": "new_capability_required",
+      "reason": [
+        "Order records are terminal: no order-detail, cancellation or selected-order payment command. Product details are nested and must not be guessed from an order ID."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "juejin.cn.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "Diagnostic login state; it is not a content object and has no account-detail command."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "juejin.cn.list-detail-candidates",
+      "classification": "new_capability_required",
+      "reason": [
+        "The current source is an inspect_only stub returning empty candidate arrays unconditionally. Candidate discovery and content reading need implementation; do not claim that actual content has no follow-up actions."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.163.com.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.163.com.get-login-qrcode",
+      "classification": "diagnostic",
+      "reason": [
+        "返回登录二维码/提示，登录须由用户在页面完成；不把验证码、二维码或临时凭证保存为对象。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.163.com.navigate-to-inbox",
+      "classification": "diagnostic",
+      "reason": [
+        "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.163.com.get-current-page-info",
+      "classification": "diagnostic",
+      "reason": [
+        "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.google.com.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.google.com.navigate-to-inbox",
+      "classification": "diagnostic",
+      "reason": [
+        "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.google.com.get-current-page-info",
+      "classification": "diagnostic",
+      "reason": [
+        "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.qq.com.check-login-status",
+      "classification": "diagnostic",
+      "reason": [
+        "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.qq.com.navigate-to-inbox",
+      "classification": "diagnostic",
+      "reason": [
+        "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "mail.qq.com.get-current-page-info",
+      "classification": "diagnostic",
+      "reason": [
+        "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "news.ycombinator.com.user",
+      "classification": "terminal_read",
+      "reason": [
+        "当前命令只返回用户资料（username/karma/created/about）；现有包不提供按用户列帖子、用户详情下钻或用户写操作。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "note.youdao.com.note",
+      "classification": "terminal_read",
+      "reason": [
+        "Returns public shared-note text, summary and keywords. This package has no per-block, attachment, edit or delete operation; share URL resolution remains part of this read."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "smzdm.com.search",
+      "classification": "new_capability_required",
+      "reason": [
+        "This package contains only search. Result links cannot become detail, comment, purchase or save actions until those Adapter commands exist."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "tieba.baidu.com.read",
+      "classification": "terminal_read",
+      "reason": [
+        "返回当前主题页的正文和回复；现有 Adapter 无单条回复详情、作者或回复写操作。翻页使用 read 的显式 page 参数。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "toutiao.com.hot",
+      "classification": "new_capability_required",
+      "reason": [
+        "Public headline candidates have no article-detail command in this package. Creator articles is the signed-in account management list, not a public article reader."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "toutiao.com.recommend",
+      "classification": "new_capability_required",
+      "reason": [
+        "Public feed candidates have no article-detail command in this package. Do not route their group IDs into the unrelated creator management list."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "toutiao.com.articles",
+      "classification": "new_capability_required",
+      "reason": [
+        "Creator rows contain title/date/metrics but no stable article ID or detail/edit/publish command. Both source identity extraction and target capabilities would be required for per-article actions."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "weread.qq.com.ai-outline",
+      "classification": "terminal_read",
+      "reason": [
+        "返回大纲正文或结构化大纲行；当前包没有章节正文读取或大纲节点操作命令。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "weread.qq.com.book-search",
+      "classification": "terminal_read",
+      "reason": [
+        "返回书内命中片段；当前包没有按章节或命中位置读取正文的命令，不把片段当作全文。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "weread.qq.com.highlights",
+      "classification": "terminal_read",
+      "reason": [
+        "返回该书划线文本；当前包没有单条划线下钻、编辑或删除命令。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "weread.qq.com.notes",
+      "classification": "terminal_read",
+      "reason": [
+        "返回该书的笔记全文；当前包没有单条笔记下钻、编辑或删除命令。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "wikipedia.org.page",
+      "classification": "terminal_read",
+      "reason": [
+        "Plain-text article extract is terminal in this package; no section, linked-page list, category or edit command exists. Re-reading with another paragraph limit is a new explicit query, not an object action."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xiaohongshu.com.creator-profile",
+      "classification": "terminal_read",
+      "reason": [
+        "返回完整账号资料及汇总字段，不含可选择的作品或用户ID；作品列表应独立调用creator-notes，不将字段行映射为作品操作。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xiaohongshu.com.creator-stats",
+      "classification": "terminal_read",
+      "reason": [
+        "返回所选周期的账号指标及趋势；指标不是笔记对象，当前无按指标下钻或修改指标的命令。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xiaohongshu.com.navigate-to-homepage",
+      "classification": "diagnostic",
+      "reason": [
+        "仅导航回首页的回执，不返回候选对象；需要推荐列表时调用feed。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.comments",
+      "classification": "new_capability_required",
+      "reason": [
+        "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.earnings-date",
+      "classification": "terminal_read",
+      "reason": [
+        "返回财报发布日期和状态，当前包没有财报正文或按财报事件下钻的命令。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.feed",
+      "classification": "new_capability_required",
+      "reason": [
+        "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.fund-holdings",
+      "classification": "terminal_read",
+      "reason": [
+        "Fund holding detail is already returned; no fund-detail, fund purchase/redemption or position-management command. Fund codes must not be used as stock symbols."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.fund-snapshot",
+      "classification": "terminal_read",
+      "reason": [
+        "Aggregate already includes complete returned account and holding fields; no individual account-detail or account-management command. fund-holdings is a separate filtered query over the same holdings."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.hot",
+      "classification": "new_capability_required",
+      "reason": [
+        "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "xueqiu.com.kline",
+      "classification": "terminal_read",
+      "reason": [
+        "返回按日K线时间序列，当前包没有单个交易日详情或针对该日期的操作。股票的其他查询须使用原symbol。"
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "zhihu.com.pins",
+      "classification": "new_capability_required",
+      "reason": [
+        "No individual pin-detail, pin-reply or pin-like command. Answer/article operations must not receive a pin ID."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "zhipin.com.detail",
+      "classification": "new_capability_required",
+      "reason": [
+        "Public job detail has no application or recruiter-contact target. Candidate greet requires unrelated recruiter-side candidate IDs."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    },
+    {
+      "command": "zhipin.com.whoami",
+      "classification": "diagnostic",
+      "reason": [
+        "Local-cookie login diagnostic, not verified account identity; do not bind account actions."
+      ],
+      "existingMappingMissing": false,
+      "userIntegrationRequired": false
+    }
+  ]
+}
