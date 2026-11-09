@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchStats, groupByDomain, groupByUser } from '../lib/stats'
+import { fetchStats, groupByDomain, groupByUser, fetchActiveUsers } from '../lib/stats'
 import { fetchVisits } from '../lib/visits'
 
 const SINCE_OPTIONS = [
@@ -47,6 +47,30 @@ export default function Stats() {
   const [visitsLoading, setVisitsLoading] = useState(true)
   const [visitsError, setVisitsError] = useState(null)
   const [visitsUnavailable, setVisitsUnavailable] = useState(false)
+
+  const [active, setActive] = useState(null)
+  const [activeLoading, setActiveLoading] = useState(true)
+  const [activeError, setActiveError] = useState(null)
+  const [activeUnavailable, setActiveUnavailable] = useState(false)
+
+  const loadActive = useCallback(async () => {
+    setActiveLoading(true)
+    setActiveError(null)
+    setActiveUnavailable(false)
+    try {
+      const data = await fetchActiveUsers({ since: effSince, from: apiFrom, to: apiTo, kind })
+      setActiveUnavailable(Boolean(data.unavailable))
+      setActive(data)
+    } catch (e) {
+      setActiveError(e.message)
+    } finally {
+      setActiveLoading(false)
+    }
+  }, [effSince, apiFrom, apiTo, kind])
+
+  useEffect(() => {
+    loadActive()
+  }, [loadActive])
 
   const loadVisits = useCallback(async () => {
     setVisitsLoading(true)
@@ -142,7 +166,7 @@ export default function Stats() {
           <p className="text-muted">全团队 adapter 调用频次、成功率与耗时分布。</p>
         </div>
         <button
-          onClick={() => { load(); loadVisits(); }}
+          onClick={() => { load(); loadVisits(); loadActive(); }}
           disabled={loading}
           className="px-4 py-2.5 rounded-lg border border-accent/40 bg-accent/5 text-accent hover:bg-accent/10 text-sm font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
         >
@@ -309,6 +333,61 @@ export default function Stats() {
                   </div>
                   <div className="text-right text-[rgb(var(--color-text))] tabular-nums">{fmt(r.pv)}</div>
                   <div className="text-right text-[rgb(var(--color-text-soft))] tabular-nums">{fmt(r.uv)}</div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 用户活跃（DAU/MAU） */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-[rgb(var(--color-text))]">用户活跃</h2>
+          {!activeLoading && !activeError && !activeUnavailable && active && (
+            <div className="text-muted text-sm">MAU（近30天）{fmt(active.mau)}</div>
+          )}
+        </div>
+
+        {activeLoading && (
+          <div className="bg-surface border border-border rounded-xl p-4 animate-pulse">
+            <div className="h-4 bg-subtle/40 rounded w-1/2" />
+          </div>
+        )}
+
+        {activeError && (
+          <div className="bg-surface border border-border rounded-xl p-4 text-sm text-red-500">
+            用户活跃加载失败：{activeError}
+          </div>
+        )}
+
+        {!activeLoading && !activeError && activeUnavailable && (
+          <div className="bg-surface border border-border rounded-xl p-4 text-sm text-muted">
+            用户活跃统计暂未接入；页面可正常使用。
+          </div>
+        )}
+
+        {!activeLoading && !activeError && !activeUnavailable && active && active.rows.length === 0 && (
+          <div className="bg-surface border border-border rounded-xl p-4 text-muted text-sm">暂无活跃数据。</div>
+        )}
+
+        {!activeLoading && !activeError && !activeUnavailable && active && active.rows.length > 0 && (
+          <div className="bg-surface border border-border rounded-xl overflow-hidden">
+            <div className="grid grid-cols-[1fr_120px] gap-3 px-4 py-3 text-xs text-muted border-b border-border bg-bg/40">
+              <div>日期</div>
+              <div className="text-right">DAU</div>
+            </div>
+            {active.rows.map((r) => {
+              const maxDau = Math.max(...active.rows.map((x) => x.dau), 1)
+              return (
+                <div key={r.day} className="grid grid-cols-[1fr_120px] gap-3 px-4 py-2.5 text-sm border-b border-border/60 last:border-b-0 items-center">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[rgb(var(--color-text))] font-medium shrink-0">{r.day}</span>
+                    <div className="h-1.5 bg-subtle/40 rounded-full flex-1 overflow-hidden">
+                      <div className="h-full bg-accent/70 rounded-full" style={{ width: `${(r.dau / maxDau) * 100}%` }} />
+                    </div>
+                  </div>
+                  <div className="text-right text-[rgb(var(--color-text))] tabular-nums">{fmt(r.dau)}</div>
                 </div>
               )
             })}
