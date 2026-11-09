@@ -5,7 +5,8 @@ import { renderCommandHelp } from './progressive-help.js';
 export const ROUTE_HELP = `Usage: webcli route [options] [<adapter-id>] <request...>
 
 Recommend an available Adapter command for a natural-language request.
-The recommendation does not execute the command or fill its arguments.
+Without context, the recommendation does not execute the command or fill its arguments.
+With context, bind declared actions to delivered objects; execution remains a separate call.
 
 Arguments:
   <adapter-id>  Optional exact Adapter ID; skip site selection

@@ -169,6 +169,58 @@ describe('BOSS context execution', () => {
     expect(typed).toEqual(['Example greeting']); expect(clicked).toEqual(['candidate', 'send']);
     expect(output[0].status).toBe('已点击发送，送达未验证');
   });
+  it.each([
+    ['mark', '添加标签第二条', '收藏', 'label/addMark', { friendId: '10001', labelId: '11' }],
+    ['exchange', '交换联系方式第二条', 'wechat', 'exchange/request', { uniqueId: '10001', type: '2' }],
+    ['invite', '面试邀请第二条', '{"time":"2026-11-20 14:00","address":"Example office","contact":"Example contact"}', 'interview/invite.json', { uid: '10001', address: 'Example office', contactName: 'Example contact' }],
+  ])('selected candidate %s runs its real write handler after correlated input', async (command, text, answer, endpoint, expected) => {
+    const s = boss(), writes = [], Original = s.context.XMLHttpRequest;
+    s.context.XMLHttpRequest = class extends Original {
+      send(body) { if (this.method === 'POST' || this.url.includes('label/addMark')) writes.push({ url: this.url, method: this.method, body }); super.send(body); }
+    };
+    const raw = await s.run('recommend'), { state, catalog } = contextFor(s, 'recommend', {}, raw);
+    const question = await routeContext(state, text, { catalog, now: 1001 });
+    expect(question.kind).toBe('needs_input');
+    const result = await routeContext(state, answer, { catalog, now: 1002, replyTo: question.clarificationId });
+    expect(result).toMatchObject({ kind: 'resolved', executionEligibility: 'write_allowed' });
+    expect(result.steps[0]).toMatchObject({ tool: 'zhipin.com.' + command, args: { uid: 'candidate-10001' } });
+    await s.run(command, result.steps[0].args);
+    expect(writes).toHaveLength(1); expect(writes[0].url).toContain(endpoint);
+    const params = new URLSearchParams(writes[0].body || new URL(writes[0].url).search);
+    for (const [key, value] of Object.entries(expected)) expect(params.get(key)).toBe(value);
+    expect([...params.values()]).not.toContain('10002');
+  });
+  it.each(['mark', 'exchange', 'invite'])('%s never writes when the selected encrypted candidate is absent', async command => {
+    const s = boss(), Original = s.context.XMLHttpRequest, writes = [];
+    s.context.XMLHttpRequest = class extends Original {
+      send(body) { if (this.method === 'POST' || /label\/(?:addMark|deleteMark)/.test(this.url)) writes.push(this.url); super.send(body); }
+    };
+    await expect(s.run(command, { uid: 'missing-candidate', label: '收藏', type: 'phone', time: '2026-11-20 14:00' })).rejects.toThrow();
+    expect(writes).toEqual([]);
+  });
+  it('interview rejects an invalid time before any POST', async () => {
+    const s = boss(), Original = s.context.XMLHttpRequest, writes = [];
+    s.context.XMLHttpRequest = class extends Original { send(body) { if (this.method === 'POST') writes.push(this.url); super.send(body); } };
+    await expect(s.run('invite', { uid: 'candidate-10001', time: 'not-a-time' })).rejects.toThrow(/时间格式错误/);
+    expect(writes).toEqual([]);
+  });
+  it('job-bound batch greeting applies explicit limit/text only to recommendations for the selected job', async () => {
+    const s = boss(), raw = await s.run('joblist'), { state, catalog } = contextFor(s, 'joblist', {}, raw);
+    const question = await routeContext(state, '批量发送招呼第二条', { catalog, now: 1001 });
+    const result = await routeContext(state, '{"limit":2,"text":"Example batch greeting"}', { catalog, now: 1002, replyTo: question.clarificationId });
+    expect(result.steps[0].args).toEqual({ 'job-id': 'job-10001', limit: 2, text: 'Example batch greeting' });
+    const clicks = [], typed = [];
+    s.context.Event = class {};
+    s.context.document.execCommand = (_cmd, _flag, text) => typed.push(text);
+    const editor = { offsetParent: {}, focus() {}, dispatchEvent() {} };
+    s.context.document.querySelector = selector => selector === '#_10001-0' ? { click: () => clicks.push('10001') }
+      : selector === '.chat-conversation[data-uid="10001"]' ? {} : selector === '.chat-editor [contenteditable="true"]' ? editor
+      : selector === '.conversation-editor .submit' ? { click: () => clicks.push('send') } : null;
+    const output = await s.run('batchgreet', result.steps[0].args);
+    expect(clicks).toEqual(['10001', 'send']); expect(typed).toEqual(['Example batch greeting']);
+    expect(output).toMatchObject([{ name: 'Example 10001', status: '已点击发送，送达未验证' }]);
+  });
+
 });
 
 describe('Douban context execution', () => {

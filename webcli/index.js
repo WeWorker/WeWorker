@@ -203,13 +203,22 @@ Extension:
   extension-path                 输出扩展目录路径
 
 Routing:
-  route [<adapter>] <request>    用自然语言推荐命令（不执行）
+  route [<adapter>] <request>    用自然语言推荐命令（不执行）；带 context 时解析已展示对象及动作
+
+Context:
+  route/call ... --new-context   自动生成 UUID；后续使用 --context <id> 关联会话
+  context status <id>            查看脱敏状态
+  context recover <id>           保守恢复死亡进程遗留的锁；未知写结果不重放
+  context prune --dry-run        预览可回收状态，不删除文件
+  context display <id> ...       宿主报告实际展示顺序；详见 Adapter 结果声明合同
 
 Tracing:
   trace <traceID>                按 traceID 查询服务日志
 
 Options:
   --version        显示版本（兼容：单独执行 webcli -v）
+  --context <id>   route/call 关联同一会话，最多追溯三轮
+  --new-context    route/call 自动生成新的 UUID
   --profile <id|alias>  选择浏览器（优先于 WEBCLI_PROFILE 和保存的默认值）
   -v, --verbose    调用工具时输出 trace 日志
   --output-format=json|markdown|table|plain|csv|yaml  调用工具输出格式（终端默认 markdown，管道/脚本默认 json）
@@ -239,7 +248,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
       usage: "webcli <command> [options]",
       description: "WeWorker 网站工具 CLI：调用浏览器站点自动化工具，管理适配器与统计",
       commands: [
-        { name: "call <tool>", usage: "webcli call <tool_name> [--key=value ...]", description: "调用站点工具" },
+        { name: "call <tool>", usage: "webcli call <tool_name> [--key=value ...] [--new-context|--context <id>]", description: "调用站点工具，可关联会话并采集结果" },
         { name: "completion", usage: "webcli completion bash|zsh|fish", description: "输出 shell 补全脚本" },
         { name: "skills", usage: "webcli skills list | read <skill[/path]>", description: "读取随包 Skill 和参考文件" },
         { name: "profile", usage: "webcli call profile.help", description: "浏览器连接、别名和默认选择" },
@@ -252,7 +261,8 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "auth", usage: "webcli auth <status|check|save|forget|autologin>", description: "网站登录状态与自动登录" },
         { name: "stats", usage: "webcli stats", description: "调用频次统计" },
         { name: "install --skills", usage: "webcli install --skills [adapter-id]", description: "安装 adapter skills" },
-        { name: "route", usage: "webcli route [<adapter>] <request>", description: "用自然语言推荐命令（不执行）" },
+        { name: "route", usage: "webcli route [<adapter>] <request> [--new-context|--context <id>]", description: "单轮推荐或基于已展示对象的多轮决策（不执行）" },
+        { name: "context", usage: "webcli context status <id> | recover <id> | prune --dry-run | display <id> ...", description: "脱敏状态、保守恢复、清理预览与宿主展示登记" },
         { name: "trace <id>", usage: "webcli trace <traceID>", description: "按 traceID 查日志" },
         { name: "extension-path", usage: "webcli extension-path", description: "输出扩展目录路径" },
       ],
