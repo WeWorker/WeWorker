@@ -66,6 +66,8 @@ jobs:
         run: npm ci
 
       - name: Prepare public Adapter resources
+        env:
+          WEBCLI_METRICS_CLIENT_TOKEN: ${{ secrets.WEWORKER_METRICS_CLIENT_TOKEN }}
         run: node weworker/scripts/prepare-build.cjs
 
       - name: Validate version and registry state
