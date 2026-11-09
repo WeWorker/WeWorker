@@ -21,9 +21,6 @@ const PROMPT_FILES = {
 const NO_VARIABLE_PROMPTS = new Set(['agent-qa-only', 'terminal'])
 const EXACT_PROMPT_PLACEHOLDER = /^{{([a-z][a-z0-9]*(?:_[a-z0-9]+)*)}}$/
 const PROMPT_BRACE_EXPRESSION = /{+[^{}]*}+/g
-const QUERY_ROUTES_CONFIG = process.env.WEWORKER_QUERY_ROUTES_CONFIG
-  ? path.resolve(process.env.WEWORKER_QUERY_ROUTES_CONFIG)
-  : path.resolve(__dirname, '../query-routes.public.json')
 // 智能路由分层配置：随包默认目录，可被 Profile Overlay 指向内部配置目录
 const ROUTER_CONFIG_DIR = process.env.WEWORKER_ROUTER_CONFIG_DIR
   ? path.resolve(process.env.WEWORKER_ROUTER_CONFIG_DIR)
@@ -156,11 +153,8 @@ function bundleBackend(options = {}) {
 
   copyKeyringNativeDeps(outDir)
 
-  if (fs.existsSync(QUERY_ROUTES_CONFIG)) {
-    fs.copyFileSync(QUERY_ROUTES_CONFIG, path.join(outDir, 'query-routes.json'))
-    console.log(`[bundle-backend-ts] Copied query routes: ${QUERY_ROUTES_CONFIG}`)
-  }
-
+  // An incremental build can leave a legacy query-routes.json in outDir. Do not
+  // remove files implicitly: package.json excludes it from shipped resources.
   // 分层配置文件与 server.cjs 同目录，运行时按 MODULE_DIR/router-config 命中
   if (fs.existsSync(ROUTER_CONFIG_DIR)) {
     const routerOutDir = path.join(outDir, 'router-config')

@@ -6,8 +6,7 @@
  * - 按 adapter 目录 mtime 失效重建（改 manifest → 下次路由决策即生效，不重启进程）；
  * - 路由面准入硬门：**写操作不得进路由面**，只读性只认工具自述的 safety，缺省即不放行。
  *
- * 与既有 `query-router/configurable-query-route.ts` 的 `listDefaultCatalogTools()` 保持一致：
- * 两者共用同一「可直调」判据，避免同仓出现两套口径。
+ * 旧 profile 路由已退出桌面调用链；工具准入仅由共享路由引擎使用。
  */
 
 import fs from 'node:fs'
@@ -53,7 +52,7 @@ const EMPTY_CATALOG: ToolCatalog = {
 
 /**
  * 可直调判据：三选一即成立。
- * 与 `configurable-query-route.ts` 的 `isDirectCapable` 同口径。
+ * 只有可直调工具才可能进入后续只读路由准入。
  */
 export function isDirectTool(adapter: ParsedAdapter, tool: StaticToolDef): boolean {
   const execution = adapter.toolExecution?.[tool.name] ?? tool.execution

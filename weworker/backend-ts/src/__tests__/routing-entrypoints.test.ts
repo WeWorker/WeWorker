@@ -49,8 +49,9 @@ describe('智能路由接线', () => {
   })
 
   it('WeWorker Bot 的四条路径都跳过路由', () => {
-    // 桌面：profile 路由与确定性级联都不接WeWorker Bot。
-    expect(sources.server).toMatch(/if \([^\n]*!dedicatedAgent && await tryBackendProfileQueryRoute\(/)
+    // 桌面：唯一确定性入口跳过专属 Agent，旧 profile 入口已退役。
+    expect(sources.server).toContain('if (!dedicatedAgent && desktopPermission.channelPermissionMode')
+    expect(sources.server).not.toContain('tryBackendProfileQueryRoute(')
     // 定时任务：agent 任务不进路由。
     expect(sources.taskExecutor).toContain('const routed = agent')
     // 企微 / 微信：由 profile 上的WeWorker Bot 标记决定。

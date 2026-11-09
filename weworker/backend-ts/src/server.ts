@@ -108,7 +108,6 @@ import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveS
 import * as store from './works-store.js'
 import { listArchivedWorkIds } from './conversation-archive.js'
 import { getCompactionStatus } from './compaction-status.js'
-import { tryBackendProfileQueryRoute } from './profile-query-route.js'
 import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
 import { matchSiteAdapter, resolveSiteToolkitPrompt } from './site-gate.js'
@@ -3218,20 +3217,8 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   const tag = `[${workId}][${turnId}]`
 
-  // Optional product profiles may answer a query before the normal LLM route.
-  // The public profile has no registered route and always falls through.
-  // Ask mode must use the model's per-tool confirmation path. Direct dispatch
-  // does not expose operation approvals, even for read-only queries.
-  // Dedicated agents skip profile routes: those may answer with other websites.
-  if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
-    appendWorkLog(workId, 'route_diagnostic', { phase: 'legacy_profile_handled', reason: 'profile_route_before_intelligent_engine' }, turnId)
-    finished = true
-    res.off('close', onClose)
-    broadcastSSE({ type: 'works_changed', workId })
-    res.end()
-    return
-  }
-
+  // All configured direct routes now use the shared router safety and fallback gates.
+  // The retired profile hook no longer preempts card or explicit-alias routing.
   // Deterministic routing layers (weworker/router-config, see
   // docs/intelligent_routing_architecture.md). Every layer answers "not mine" when
   // unsure and the shared entry returns `handled: false`, so a message that no
