@@ -547,9 +547,7 @@ function readRawSettingsFile(): Record<string, unknown> | null {
     const data = JSON.parse(raw)
 
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null
-    const settings = data as Record<string, unknown>
-    migrateLegacyProjectsDirectory(settings)
-    return settings
+    return data as Record<string, unknown>
 
   } catch (error) {
     return null
@@ -557,24 +555,6 @@ function readRawSettingsFile(): Record<string, unknown> | null {
   }
 
 }
-
-function migrateLegacyProjectsDirectory(settings: Record<string, unknown>): void {
-  const configured = typeof settings.user_directory === 'string'
-    ? path.resolve(expandHomePath(settings.user_directory))
-    : path.resolve(DEFAULT_USER_DIRECTORY)
-  const previousProjectsRoot = path.join(CONFIG_DIR, 'projects')
-  if (!samePath(configured, previousProjectsRoot)) return
-  settings.user_directory = DEFAULT_USER_DIRECTORY
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
-}
-
-function samePath(left: string, right: string): boolean {
-  const a = path.resolve(left)
-  const b = path.resolve(right)
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
-}
-
-
 
 function normalizeOwnerPermissionLevel(value: unknown, ownerId: string): OwnerPermissionLevel {
   if (!ownerId?.trim()) return 'qa_only'
