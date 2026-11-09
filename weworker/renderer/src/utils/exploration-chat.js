@@ -1,5 +1,5 @@
 // Keep UI capabilities aligned with the exploration service's single-runner contract.
-const runningStatuses = ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']
+const runningStatuses = ['queued', 'pending', 'starting', 'starting_browser', 'running', 'cancel_requested']
 const resumableStatuses = ['paused', 'waiting_for_user']
 const finishedStatuses = ['succeeded', 'failed', 'cancelled']
 
@@ -17,21 +17,18 @@ export function explorationControls({ status, timeline = [], disabled = false, b
   const idle = !globalBusy && !replayActive && !running
   return {
     resumable,
-    canPause: !locked && !replayActive && status === 'running',
-    canResume: !locked && modelReady && idle && resumable,
-    canCancel: !locked && !replayActive && status !== 'cancel_requested' && (running || resumable),
+    canStop: !locked && !replayActive && status !== 'cancel_requested' && running,
     canSend: !locked && modelReady && idle && (resumable || finishedStatuses.includes(status)),
     canReplay: !locked && idle && (resumable || finishedStatuses.includes(status)) && timeline.some(item => item.type === 'agent_step'),
   }
 }
 
 export function explorationComposerMode(status, submitting = false) {
-  if (submitting || runningStatuses.includes(status)) return 'pause'
-  return resumableStatuses.includes(status) ? 'resume' : 'send'
+  return submitting || runningStatuses.includes(status) ? 'stop' : 'send'
 }
 
 export function shouldSubmitExploration(event, actionMode = 'send') {
-  return actionMode !== 'pause' && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent?.isComposing && !event.isComposing && event.keyCode !== 229
+  return actionMode === 'send' && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent?.isComposing && !event.isComposing && event.keyCode !== 229
 }
 
 

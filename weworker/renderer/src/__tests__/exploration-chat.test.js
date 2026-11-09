@@ -18,31 +18,27 @@ test('only a non-composing unshifted Enter sends a message', () => {
   assert.equal(shouldSubmitExploration({ key: 'Enter' }), true)
   for (const event of [{ key: 'Enter', shiftKey: true }, { key: 'Enter', nativeEvent: { isComposing: true } }, { key: 'Enter', isComposing: true }, { key: 'Enter', keyCode: 229 }, { key: 'a' }]) assert.equal(shouldSubmitExploration(event), false)
 })
-test('running exploration permits pause/cancel, never concurrent sends/replay', () => {
-  assert.deepEqual(controls('running', { globalBusy: true }), { resumable: false, canPause: true, canResume: false, canCancel: true, canSend: false, canReplay: false })
-  for (const status of ['queued', 'pending', 'starting', 'pause_requested', 'cancel_requested']) {
+test('running exploration permits stopping, never concurrent sends/replay', () => {
+  assert.deepEqual(controls('running', { globalBusy: true }), { resumable: false, canStop: true, canSend: false, canReplay: false })
+  for (const status of ['queued', 'pending', 'starting', 'cancel_requested']) {
     const value = controls(status)
-    assert.equal(value.canPause, false)
     assert.equal(value.canSend, false)
     assert.equal(value.canReplay, false)
-    assert.equal(value.canCancel, status !== 'cancel_requested')
+    assert.equal(value.canStop, status !== 'cancel_requested')
   }
 })
 test('waiting and completed runs can continue only when the runner is free', () => {
   for (const status of ['paused', 'waiting_for_user', 'succeeded', 'failed', 'cancelled']) {
     assert.equal(controls(status).canSend, true)
     assert.equal(controls(status).canReplay, true)
-    assert.equal(controls(status).canResume, ['paused', 'waiting_for_user'].includes(status))
     for (const extra of [{ globalBusy: true }, { replayActive: true }, { disabled: true }, { busy: true }]) {
       assert.equal(controls(status, extra).canSend, false)
       assert.equal(controls(status, extra).canReplay, false)
-      assert.equal(controls(status, extra).canResume, false)
     }
   }
   assert.equal(controls('succeeded', { timeline: [] }).canReplay, false)
   assert.equal(controls('succeeded', { modelReady: false }).canSend, false)
-  assert.equal(controls('running', { modelReady: false }).canCancel, true)
-  assert.equal(controls('running', { modelReady: false }).canPause, true)
+  assert.equal(controls('running', { modelReady: false }).canStop, true)
   assert.equal(controls(undefined).canSend, false)
 })
 
@@ -58,15 +54,16 @@ test('composer renders the main chat send icon and lower-right controls without 
   assert.match(html, /chat-input-action-send/)
   assert.match(html, /aria-label="发送消息"[^>]+disabled/)
   assert.doesNotMatch(html, /追加指令|发送指令/)
-  assert.ok(html.indexOf('wx-chat-toolbar') < html.indexOf('回放'))
+  assert.doesNotMatch(html, /回放/)
+  assert.equal((html.match(/<button/g) || []).length, 1)
   assert.doesNotMatch(html, />暂停<|>继续</)
-  assert.match(html, /title="取消本次探索">取消/)
+  assert.doesNotMatch(html, /取消本次探索|>取消</)
 })
-test('only replay and cancel remain beside the merged composer action', () => {
+test('replay is hidden unless an existing replay needs to be stopped', () => {
   const empty = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls(undefined) }))
-  assert.equal((empty.match(/disabled=""/g) || []).length, 2)
+  assert.equal(empty, '')
   const paused = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls('waiting_for_user') }))
-  assert.doesNotMatch(paused, /继续探索|暂停探索/)
+  assert.equal(paused, '')
   const replay = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls('succeeded', { replayActive: true }), replayActive: true, cancelReplayDisabled: false }))
   assert.match(replay, /title="停止当前回放">停止回放/)
 })
@@ -98,27 +95,27 @@ test('exploration messages have no visible role labels, matching the main conver
 
 
 test('composer switches immediately on submit and follows all exploration lifecycle states', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) assert.equal(explorationComposerMode(status), 'pause')
-  for (const status of ['paused', 'waiting_for_user']) assert.equal(explorationComposerMode(status), 'resume')
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) assert.equal(explorationComposerMode(status), 'stop')
+  for (const status of ['paused', 'waiting_for_user']) assert.equal(explorationComposerMode(status), 'send')
   for (const status of [undefined, 'succeeded', 'failed', 'cancelled']) {
     assert.equal(explorationComposerMode(status), 'send')
-    assert.equal(explorationComposerMode(status, true), 'pause')
+    assert.equal(explorationComposerMode(status, true), 'stop')
   }
-  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'pause'), false, 'typing Enter must never pause the agent')
-  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'resume'), true)
+  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'stop'), false, 'typing Enter must never stop the agent')
+  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'send'), true)
 })
 
-test('a single primary button morphs between send, pause square, and resume arrow', () => {
+test('a single primary button morphs between send arrow and stop square', () => {
   const render = (actionMode, value = '', actionDisabled = false) => renderToStaticMarkup(React.createElement(components.ExplorationComposer, { value, onChange() {}, onAction() {}, actionMode, actionDisabled }))
-  const running = render('pause', 'draft retained while running')
+  const running = render('stop', 'draft retained while running')
   assert.match(running, /chat-input-action-stop/)
-  assert.match(running, /aria-label="暂停探索"/)
+  assert.match(running, /aria-label="停止探索"/)
   assert.doesNotMatch(running, /chat-input-action-send/)
   assert.equal((running.match(/<button/g) || []).length, 1)
-  assert.match(render('pause', '', true), /aria-label="暂停探索"[^>]+disabled/)
-  assert.match(render('resume'), /chat-input-action-send/)
-  assert.match(render('resume'), /aria-label="继续探索"/)
-  assert.match(render('resume', 'continue with this goal'), /aria-label="发送消息"/)
+  assert.match(render('stop', '', true), /aria-label="停止探索"[^>]+disabled/)
+  assert.match(render('send'), /chat-input-action-send/)
+  assert.match(render('send'), /aria-label="发送消息"/)
+  assert.match(render('send', 'continue with this goal'), /aria-label="发送消息"/)
   assert.match(render('send'), /aria-label="发送消息"/)
 })
 
@@ -139,7 +136,7 @@ test('running exploration sorts first, then displayed creation time newest first
 })
 
 test('queued and transitioning runs remain pinned; idle records, ties and missing times have stable ordering', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) {
     assert.equal(sortExplorations([{ exploration_id: 'new', status: 'succeeded', created_at_timestamp: 20 }, { exploration_id: 'active', status, created_at_timestamp: 1 }])[0].exploration_id, 'active')
   }
   const records = [
@@ -226,7 +223,7 @@ test('entry opens new exploration when there are no actively running records, re
 })
 
 test('entry prefers the managed active exploration, then a running record rather than newer history', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) {
     const records = [{ exploration_id: 'history', status: 'succeeded', created_at_timestamp: 200 }, { exploration_id: 'ongoing', status, created_at_timestamp: 100 }]
     assert.equal(explorationEntryId(records), 'ongoing')
     assert.equal(explorationEntryId(records, 'managed-active'), 'managed-active')
@@ -266,7 +263,7 @@ test('adapter generation uses non-development wording in every completion state'
 
 
 test('in-progress indicator follows the same activity signals as list pinning', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) {
     assert.equal(isExplorationInProgress({ exploration_id: 'exp', status }), true)
   }
   for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {

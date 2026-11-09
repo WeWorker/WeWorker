@@ -7,7 +7,6 @@ class TaskStatus(str, Enum):
     QUEUED = "queued"
     STARTING_BROWSER = "starting_browser"
     RUNNING = "running"
-    PAUSE_REQUESTED = "pause_requested"
     WAITING_FOR_USER = "waiting_for_user"
     CANCEL_REQUESTED = "cancel_requested"
     SUCCEEDED = "succeeded"
@@ -102,22 +101,18 @@ STREAM_TASK_STATUSES = (
     TaskStatus.QUEUED.value,
     TaskStatus.STARTING_BROWSER.value,
     TaskStatus.RUNNING.value,
-    TaskStatus.PAUSE_REQUESTED.value,
     TaskStatus.CANCEL_REQUESTED.value,
 )
-PAUSABLE_TASK_STATUSES = (TaskStatus.RUNNING.value,)
 RESUMABLE_TASK_STATUSES = (
     TaskStatus.WAITING_FOR_USER.value,
 )
 CANCELLABLE_TASK_STATUSES = (
     TaskStatus.RUNNING.value,
-    TaskStatus.PAUSE_REQUESTED.value,
     TaskStatus.CANCEL_REQUESTED.value,
 )
 
 TASK_STATUS_EVENTS = {
     TaskStatus.RUNNING.value: "task_started",
-    TaskStatus.PAUSE_REQUESTED.value: "pause_requested",
     TaskStatus.CANCEL_REQUESTED.value: "cancel_requested",
     TaskStatus.WAITING_FOR_USER.value: "waiting_for_user",
     TaskStatus.SUCCEEDED.value: "task_succeeded",
@@ -126,7 +121,6 @@ TASK_STATUS_EVENTS = {
 }
 EXPLORATION_STATUS_EVENTS = {
     TaskStatus.RUNNING.value: "exploration_started",
-    TaskStatus.PAUSE_REQUESTED.value: "pause_requested",
     TaskStatus.CANCEL_REQUESTED.value: "cancel_requested",
     TaskStatus.WAITING_FOR_USER.value: "waiting_for_user",
     TaskStatus.SUCCEEDED.value: "exploration_succeeded",
@@ -170,7 +164,6 @@ DEVELOPMENT_RUN_DOC_EVENTS = tuple(DEVELOPMENT_RUN_STATUS_EVENTS.values())
 
 TASK_STREAM_EVENTS = (
     "task_started",
-    "pause_requested",
     "cancel_requested",
     "step_finished",
     "waiting_for_user",
@@ -190,7 +183,6 @@ TASK_DOC_EVENTS = ("task_created", *TASK_STREAM_EVENTS)
 EXPLORATION_DOC_EVENTS = (
     "exploration_created",
     "exploration_started",
-    "pause_requested",
     "cancel_requested",
     "step_finished",
     "waiting_for_user",

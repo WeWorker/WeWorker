@@ -196,16 +196,12 @@ export function createExploration(toolkitId, toolId, instruction, targetId) {
   return post(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations`, { instruction, target_id: targetId });
 }
 
-export function pauseExploration(explorationId) {
-  return post(`/api/explorations/${encode(explorationId)}/pause`, { reason: "User requested pause" });
-}
-
 export function resumeExploration(explorationId, note = "") {
   return post(`/api/explorations/${encode(explorationId)}/resume`, { note });
 }
 
-export function cancelExploration(explorationId) {
-  return post(`/api/explorations/${encode(explorationId)}/cancel?force=true`, { reason: "User cancelled Exploration" });
+export function stopExploration(explorationId) {
+  return post(`/api/explorations/${encode(explorationId)}/cancel`, { reason: "User stopped exploration" });
 }
 
 export function sendExplorationFollowup(explorationId, content) {

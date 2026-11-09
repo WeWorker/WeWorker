@@ -176,6 +176,16 @@ def test_ui_endpoints_are_removed(tmp_path: Path) -> None:
     assert client.get("/web/app.js").status_code == 404
 
 
+def test_pause_endpoints_are_removed(tmp_path: Path) -> None:
+    app = create_app(paths=_paths(tmp_path))
+    client = app.test_client()
+    paths = client.get("/api/openapi.json").get_json()["paths"]
+    for resource, key in (("tasks", "task_id"), ("explorations", "exploration_id")):
+        assert client.post(f"/api/{resource}/demo/pause").status_code == 404
+        assert f"/api/{resource}/{{{key}}}/pause" not in paths
+        assert f"/api/{resource}/{{{key}}}/resume" in paths
+
+
 def test_docs_endpoint(tmp_path: Path) -> None:
     app = create_app(paths=_paths(tmp_path))
     client = app.test_client()

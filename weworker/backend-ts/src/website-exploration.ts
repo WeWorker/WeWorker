@@ -21,7 +21,7 @@ const rules: [string, RegExp][] = [
   ['GET', new RegExp(`^/api/toolkits/${id}/(export-status|export)$`)],
   ['GET', new RegExp(`^/api/(explorations|debug-runs|development-runs|replays)/${id}$`)],
   ['GET', new RegExp(`^/api/explorations/${id}/(timeline|steps|messages|events)$`)],
-  ['POST', new RegExp(`^/api/explorations/${id}/(messages|pause|resume|cancel|replay)$`)],
+  ['POST', new RegExp(`^/api/explorations/${id}/(messages|resume|cancel|replay)$`)],
   ['GET', new RegExp(`^/api/(debug-runs|replays)/${id}/events$`)],
   ['POST', new RegExp(`^/api/(debug-runs|replays)/${id}/cancel$`)],
   ['GET', new RegExp(`^/api/(explorations|debug-runs|development-runs)/${id}/files/[A-Za-z0-9_./-]+$`)],
