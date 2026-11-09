@@ -206,6 +206,42 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
     steps.push(step)
   }
 
+  // An explicit alias is the user's choice: do not let broad or configured routes preempt it.
+  if (aliasPrefixed) {
+    const aliasHit = safe(() => matchers.alias(message), log, 'alias')
+    if (!aliasHit) return { steps: [], suppressed, blocked: { gate: 'alias_gate' } }
+    push({
+      layer: 'alias',
+      decision: {
+        kind: 'tool', tool: aliasHit.tool, args: aliasHit.args, source: 'alias',
+        render: { schemaId: aliasHit.render?.type === 'schema' ? aliasHit.render.schemaId : undefined },
+        label: `alias ${aliasHit.id}`,
+      },
+      onFailure: { action: 'stop', reason: STOP_REASON.alias },
+    })
+    // Even an unavailable alias must not be answered by an unrelated route.
+    return steps.length ? { steps, suppressed } : { steps: [], suppressed, blocked: { gate: 'alias_gate' } }
+  }
+
+  // A validated single-tool card outranks P. A stale/unsafe card falls through
+  // to the old text-only plan; the tool eligibility guard above remains mandatory.
+  // A sequential request must not be truncated into the card's single read.
+  const payload = input.scenarioPayload ?? null
+  if (payload && !sequential) {
+    const directHit = safe(() => matchers.scenario.matchDirect(payload, message), log, 'scenario-a')
+    if (directHit && guards.isRoutableTool(directHit.tool)) {
+      push({
+        layer: 'scenario-a',
+        decision: {
+          kind: 'tool', tool: directHit.tool, args: directHit.args, source: 'scenario-a', render: {},
+          label: `scenario-a ${payload.adapterId}:${payload.scenarioId}`,
+        },
+        onFailure: { action: 'stop', reason: 'scenario_a_failed' },
+      })
+      return { steps, suppressed }
+    }
+  }
+
   // ── 层 P ────────────────────────────────────────────────────────────────
   const routeHit = sequential ? null : safe(() => matchers.route(message), log, 'route')
   if (routeHit) {
@@ -228,40 +264,9 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
     })
   }
 
-  // ── 第 0 层形态 A（客户端结构化直连，身份最明确）────────────────────────
-  const payload = input.scenarioPayload ?? null
-  if (payload) {
-    const directHit = safe(() => matchers.scenario.matchDirect(payload, message), log, 'scenario-a')
-    if (directHit) {
-      push({
-        layer: 'scenario-a',
-        decision: {
-          kind: 'tool',
-          tool: directHit.tool,
-          args: directHit.args,
-          source: 'scenario-a',
-          render: {},
-          label: `scenario-a ${payload.adapterId}:${payload.scenarioId}`,
-        },
-        // 卡片已认领该消息：失败后不让 Tier -1 降级接管（会换一个工具作答，比落回更糟）。
-        onFailure: { action: 'continue', prune: ['pattern'] },
-      })
-    }
-    const directPlan = safe(() => matchers.scenario.matchPlanDirect(payload, message), log, 'scenario-a-plan')
-    if (directPlan) {
-      push({
-        layer: 'scenario-a-plan',
-        decision: {
-          kind: 'plan',
-          hit: directPlan,
-          source: 'scenario-a',
-          render: {},
-          label: `scenario-a plan ${payload.adapterId}:${payload.scenarioId}`,
-        },
-        onFailure: { action: 'continue', prune: ['pattern'] },
-      })
-    }
-  }
+  // Structured multi-hop card hints are not promoted in the A/B self-service
+  // phase: plan steps need per-hop read-only eligibility before broad activation.
+  // Existing text-based plan matching below remains unchanged.
 
   // ── Tier -2：manifest 模板直达（锚定全等，零推断）───────────────────────
   // 逐字全等无推断成分，故豁免讨论态守卫与硬门②；但 `!` 别名必须先让位（硬约束②）。
@@ -358,28 +363,6 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
     } else {
       log(`plan gate: no adapter keyword for ${terminalTool} → skip`)
     }
-  }
-
-  // ── 第 11 层：`!` 别名 → 守卫式短路 ────────────────────────────────────
-  // 别名在前：用户显式点名优先于作者的通用正则；别名天然豁免硬门②（`!a.b.tool` 含 adapter 名）。
-  const aliasHit = safe(() => matchers.alias(message), log, 'alias')
-  if (aliasHit) {
-    push({
-      layer: 'alias',
-      decision: {
-        kind: 'tool',
-        tool: aliasHit.tool,
-        args: aliasHit.args,
-        source: 'alias',
-        render: { schemaId: aliasHit.render?.type === 'schema' ? aliasHit.render.schemaId : undefined },
-        label: `alias ${aliasHit.id}`,
-      },
-      onFailure: { action: 'stop', reason: STOP_REASON.alias },
-    })
-  } else if (aliasPrefixed) {
-    // `!` 开头但没有任何别名匹配：这是用户显式指令却无人承接，绝不降级到宽泛层猜。
-    // 清空已规划的步骤，保证 `blocked ⇒ steps 为空`（否则调用方漏判 blocked 就会照跑）。
-    return { steps: [], suppressed, blocked: { gate: 'alias_gate' } }
   }
 
   const shortcutHit = safe(() => matchers.shortcut(message), log, 'shortcut')
