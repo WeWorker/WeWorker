@@ -42,8 +42,8 @@ PR #326 在 metrics-server 三处聚合的 WHERE 里加了噪音排除(flag 误�
 新增 `resolveWindow({since, from, to})` → `{start, end}`:
 
 - `from`/`to` 为 `YYYY-MM-DD` 字符串(UTC):`start` = from 当日 00:00,`end` = to 次日 00:00(含 to 当天)。
-- 给了 `from` 或 `to` 任一即视为自定义窗:缺 `from` = 不设下界(从最早数据起),缺 `to` = 不设上界(到 now);
-  只为出现的边界加 SQL 条件。
+- 给了 `from` 或 `to` 任一即视为自定义窗:缺 `from` 时下界沿用 `since` 相对窗,缺 `to` 时上界不设(end=null);
+  只为出现的边界加 SQL 条件。非法格式由 handler 层校验(400),db 层 NaN 边界匹配零行不崩溃。
 - 都不给时维持现状:`start = now - parseDuration(since)`,无上界。
 - 非法格式(`\d{4}-\d{2}-\d{2}` 之外)由 handler 返回 400。
 
