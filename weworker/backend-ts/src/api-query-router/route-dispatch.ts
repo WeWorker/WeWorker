@@ -68,7 +68,7 @@ export function isConfirmedEmptyListPayload(raw: string): boolean {
 
 
 /** 路由派发失败的四类来源（日志与测试断言用，不含用户数据）。 */
-export type RouteDispatchFailure = 'timeout' | 'thrown' | 'error_payload' | 'process_error' | 'empty'
+export type RouteDispatchFailure = 'timeout' | 'thrown' | 'authentication' | 'error_payload' | 'process_error' | 'empty'
 
 export type DispatchOutcome =
   | { ok: true; raw: string; ms: number }
@@ -127,21 +127,28 @@ export function classifyDispatchPayload(raw: string): { kind: RouteDispatchFailu
     const failureValue = record.error
     const failedFlag = record.ok === false || record.success === false
     const apiCode = record.code
-    const apiFailure = (typeof apiCode === 'number' || typeof apiCode === 'string')
-      && /^(?:4001|401|403|UNAUTHORIZED|AUTH_ERROR|NOT_LOGGED_IN)$/i.test(String(apiCode))
     const status = record.status
-    const authStatus = status === 401 || status === 403 || status === '401' || status === '403'
+    const authStatus = record.ok !== true && record.success !== true
+      && (status === 401 || status === 403 || status === '401' || status === '403')
     const authMessage = record.msg ?? record.message
-    const missingLogin = (record.level === 'error' || record.data == null)
+    const missingLogin = record.ok !== true && record.success !== true && (record.level === 'error' || record.data == null)
       && typeof authMessage === 'string' && AUTH_MESSAGE_RE.test(authMessage)
-    if (failureValue || failedFlag || apiFailure || authStatus || missingLogin) {
+    // Only a structured failure may classify an authentication error. A successful
+    // business payload can legitimately contain words such as "login required".
+    const authCode = record.ok !== true && record.success !== true
+      && /^(?:4001|401|403|UNAUTHORIZED|AUTH_ERROR|AUTH_REQUIRED|NOT_LOGGED_IN)$/i.test(String(apiCode ?? ''))
+    const authDetail = typeof failureValue === 'string' ? failureValue : authMessage
+    const authFailure = authCode || authStatus || (record.ok !== true && record.success !== true && (missingLogin
+      || ((failedFlag || !!failureValue) && typeof authDetail === 'string' && AUTH_MESSAGE_RE.test(authDetail))))
+    if (failureValue || failedFlag || authStatus || missingLogin || authCode) {
       const message =
         typeof failureValue === 'string'
           ? failureValue
           : failureValue
             ? JSON.stringify(failureValue)
             : String(record.msg ?? record.message ?? apiCode ?? 'failed')
-      const kind: RouteDispatchFailure = TIMEOUT_MESSAGE_RE.test(message) ? 'timeout' : 'error_payload'
+      const kind: RouteDispatchFailure = authFailure ? 'authentication'
+        : TIMEOUT_MESSAGE_RE.test(message) ? 'timeout' : 'error_payload'
       return { kind, detail: message.slice(0, 200) }
     }
   }

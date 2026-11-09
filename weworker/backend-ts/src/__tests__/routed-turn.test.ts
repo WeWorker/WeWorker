@@ -89,6 +89,38 @@ describe('tryRoutedTurn', () => {
     vi.clearAllMocks()
   })
 
+  it('writes one metadata-only route_complete for each shared entry outcome', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'routed-complete-'))
+    configureWorkLogs(directory)
+    try {
+      const completed = () => readWorkLog({ id: baseInput.workId, messages: [] }).split('\n')
+        .filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+        .filter(entry => entry.type === 'route_diagnostic' && entry.data?.phase === 'route_complete')
+      mocks.tryIntelligentQueryRoute.mockResolvedValue(false)
+      await tryRoutedTurn({ ...baseInput, turnId: 'miss-turn' })
+      mocks.tryIntelligentQueryRoute.mockImplementation(async (ctx) => {
+        ctx.onFallback?.({ status: 'failed', reason: 'authentication_required' })
+        return false
+      })
+      await tryRoutedTurn({ ...baseInput, turnId: 'failed-turn' })
+      await tryRoutedTurn({ ...baseInput, message: ' ', turnId: 'empty-turn' })
+      await tryRoutedTurn({ ...baseInput, channelPermissionMode: 'qa_only', turnId: 'qa-turn' })
+      mocks.tryIntelligentQueryRoute.mockImplementation(async (ctx) => { emitRoutedAnswer(ctx); return true })
+      await tryRoutedTurn({ ...baseInput, turnId: 'handled-turn', persist: false })
+      expect(completed().map(entry => [entry.turnId, entry.data.status, entry.data.reason])).toEqual([
+        ['miss-turn', 'miss', 'no_eligible_candidate'],
+        ['failed-turn', 'failed', 'authentication_required'],
+        ['empty-turn', 'skipped', 'no_text'],
+        ['qa-turn', 'skipped', 'qa_only'],
+        ['handled-turn', 'handled', 'route_answered'],
+      ])
+      expect(JSON.stringify(completed())).not.toContain(baseInput.message)
+    } finally {
+      configureWorkLogs(undefined)
+      fs.rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it('passes untrusted card hints only to the route engine without persisting them as input', async () => {
     mocks.tryIntelligentQueryRoute.mockResolvedValue(false)
     const scenario = { adapterId: 'example.com', scenarioId: 'read', slots: { category: 'sample' } }

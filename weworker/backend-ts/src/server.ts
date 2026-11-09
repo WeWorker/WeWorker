@@ -3343,9 +3343,11 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       return
     }
   } else {
-    const reason = desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
+    const reason = dedicatedAgent ? 'dedicated_agent'
+      : desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
       : retryCompaction === true ? 'compaction_retry' : 'empty_message'
     appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_complete', engine: 'deterministic', status: 'skipped', reason, fallback: 'llm', visible: false }, turnId)
     chatLog.info(`${tag} route diagnostic route_skipped reason=${reason}`)
   }
 
