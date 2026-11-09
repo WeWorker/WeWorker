@@ -2653,13 +2653,13 @@ var __xhsOpenCLI = (() => {
     return url;
   }
   var Navigation = class extends CommandExecutionError {
-    constructor(url, write) {
+    constructor(url, write, prepared = false) {
       super("Page navigation required");
       this.result = { __webcli_navigation: {
         version: 1,
         url,
         resume: !write,
-        ...write ? { phase: "prepare", result: { status: "ready_to_retry", executed: false, message: "\u76EE\u6807\u9875\u9762\u5DF2\u6253\u5F00\uFF0C\u5C1A\u672A\u6267\u884C\u4E1A\u52A1\u64CD\u4F5C\u3002\u8BF7\u7528\u76F8\u540C\u53C2\u6570\u91CD\u65B0\u8C03\u7528\uFF1B\u5199\u64CD\u4F5C\u4E0D\u81EA\u52A8\u91CD\u653E\u3002" } } : {}
+        ...write && prepared ? { phase: "prepare", result: { status: "ready_to_retry", executed: false, message: "\u76EE\u6807\u9875\u9762\u5DF2\u6253\u5F00\uFF0C\u5C1A\u672A\u6267\u884C\u4E1A\u52A1\u64CD\u4F5C\u3002\u8BF7\u7528\u76F8\u540C\u53C2\u6570\u91CD\u65B0\u8C03\u7528\uFF1B\u5199\u64CD\u4F5C\u4E0D\u81EA\u52A8\u91CD\u653E\u3002" } } : {}
       } };
     }
   };
@@ -2679,6 +2679,7 @@ var __xhsOpenCLI = (() => {
     }
     async evaluate(source) {
       this.check();
+      this.pageEvaluated = true;
       const code = typeof source === "function" ? source.toString() : String(source);
       const result = await helper("main_world_eval", { expression: `(async () => { try { const candidate = (${code}); const value = typeof candidate === 'function' ? await candidate() : await candidate; return { ok: true, value }; } catch (e) { return { ok: false, message: e?.message || String(e) }; } })()` });
       this.check();
@@ -2735,7 +2736,7 @@ var __xhsOpenCLI = (() => {
           sessionStorage.setItem("__ww_xhs_capture_pattern", JSON.stringify(marker));
         }
       }
-      this.pending = new Navigation(target.href, this.command.access === "write");
+      this.pending = new Navigation(target.href, this.command.access === "write", !this.pageEvaluated);
       throw this.pending;
     }
     async wait(arg) {

@@ -161,3 +161,9 @@ it.each(['followers', 'notifications'])('%s also routes a captured response that
 it.each(['followers', 'notifications'])('%s reports captured GraphQL errors instead of an empty successful result', async command => {
   const s = setup({ captureError: true }); await expect(s.read(command, command === 'followers' ? { user: username } : {})).rejects.toThrow(/GraphQL/);
 });
+
+it('selected X like prepares its target page before any write or evaluation', async () => {
+  const s = setup(), result = await s.run('like', { url: `https://x.com/i/status/${ids[0]}` });
+  expect(result).toMatchObject({ __webcli_navigation: { url: `https://x.com/i/status/${ids[0]}`, resume: false, phase: 'prepare', result: { executed: false } } });
+  expect(s.clicks).toEqual([]); expect(s.helpers).toEqual([]);
+});

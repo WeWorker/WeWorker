@@ -15,10 +15,10 @@ export function trustedUrl(raw, media = false) {
   return url;
 }
 class Navigation extends CommandExecutionError {
-  constructor(url, write) {
+  constructor(url, write, prepared = false) {
     super('Page navigation required');
     this.result = { __webcli_navigation: { version: 1, url, resume: !write,
-      ...(write ? { phase: 'prepare', result: { status: 'ready_to_retry', executed: false, message: '目标页面已打开，尚未执行业务操作。请用相同参数重新调用；写操作不自动重放。' } } : {}) } };
+      ...(write && prepared ? { phase: 'prepare', result: { status: 'ready_to_retry', executed: false, message: '目标页面已打开，尚未执行业务操作。请用相同参数重新调用；写操作不自动重放。' } } : {}) } };
   }
 }
 export class Page {
@@ -26,6 +26,8 @@ export class Page {
   check() { if (this.pending) throw this.pending; if (Date.now() >= this.deadline) throw new TimeoutError(this.command.name, 95, 'Do not blindly retry writes; inspect the site first.'); }
   async evaluate(source) {
     this.check();
+    // Page evaluation may already write; only untouched invocations can promise preparation.
+    this.pageEvaluated = true;
     const code = typeof source === 'function' ? source.toString() : String(source);
     const result = await helper('main_world_eval', { expression: `(async () => { try { const candidate = (${code}); const value = typeof candidate === 'function' ? await candidate() : await candidate; return { ok: true, value }; } catch (e) { return { ok: false, message: e?.message || String(e) }; } })()` });
     this.check();
@@ -69,7 +71,7 @@ export class Page {
       const marker = JSON.parse(sessionStorage.getItem('__ww_xhs_capture_pattern') || 'null');
       if (marker) { marker.target = target.href; sessionStorage.setItem('__ww_xhs_capture_pattern', JSON.stringify(marker)); }
     }
-    this.pending = new Navigation(target.href, this.command.access === 'write');
+    this.pending = new Navigation(target.href, this.command.access === 'write', !this.pageEvaluated);
     throw this.pending;
   }
   async wait(arg) {
