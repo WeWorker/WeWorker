@@ -35,7 +35,7 @@ function buildElectronCommand(
   }
 }
 
-function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) {
+function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath, platform = process.platform } = {}) {
   const packagePath = path.join(root, 'package.json')
   const deploymentPath = path.join(root, 'deployment.json')
   const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
@@ -43,6 +43,11 @@ function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) 
   const config = {
     ...packageJson.build,
     publish: [{ provider: 'generic', url: deployment.updateSources[0].url }],
+  }
+  if (platform === 'win32') {
+    config.extraResources = config.extraResources.map(resource => resource.to === 'webwright'
+      ? { ...resource, filter: [...(resource.filter || ['**/*']), '!_internal/playwright/driver/node.exe'] }
+      : resource)
   }
   const targetPath = outputPath || path.join(root, 'build', '.electron-builder-config.json')
   fs.mkdirSync(path.dirname(targetPath), { recursive: true })

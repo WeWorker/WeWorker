@@ -9,6 +9,7 @@ const { buildElectronArgs, buildElectronCommand, createElectronBuilderConfig } =
 const { mergeMacMetadata } = require('../merge-mac-update-metadata.cjs')
 const afterPack = require('../after-pack.cjs')
 const packageJson = require('../../package.json')
+const { configureSharedPlaywrightNode } = require('../shared-playwright-node.cjs')
 
 test('component check treats Webwright as a normal source directory', () => {
   const messages = []
@@ -91,6 +92,57 @@ test('electron packaging derives its publish URL from deployment.json', (t) => {
     JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'deployment.json'), 'utf8')),
   )
   assert.deepEqual(config.publish, [{ provider: 'generic', url: deployment.updateSources[0].url }])
+})
+
+test('only final Windows packages exclude the duplicate Playwright Node', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-node-config-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  for (const platform of ['win32', 'darwin']) {
+    const config = JSON.parse(fs.readFileSync(createElectronBuilderConfig({ platform, outputPath: path.join(root, platform + '.json') }), 'utf8'))
+    const resource = config.extraResources.find(r => r.to === 'webwright')
+    if (platform === 'win32') assert.deepEqual(resource.filter, ['**/*', '!_internal/playwright/driver/node.exe'])
+    else assert.equal(resource.filter, undefined)
+  }
+  assert.equal(packageJson.build.extraResources.find(r => r.to === 'webwright').filter, undefined)
+})
+
+function sharedNodeFixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-node-package-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  for (const file of ['node-runtime/node.exe', 'webwright/Webwright.exe', 'webwright/_internal/playwright/driver/package/cli.js']) {
+    const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, 'fixture')
+  }
+  fs.writeFileSync(path.join(root, 'webwright/webwright-runtime.json'), JSON.stringify({ mode: 'embedded', platform: 'win32', arch: 'x64', entrypoint: 'Webwright.exe', build_id: 'fixture' }))
+  return root
+}
+
+test('Windows packaging marks shared Node and probes the actual frozen entry', t => {
+  const root = sharedNodeFixture(t)
+  let calls = 0
+  configureSharedPlaywrightNode(root, 'win32', 'x64', (command, args, options) => {
+    calls++
+    assert.equal(command, path.join(root, 'webwright/Webwright.exe'))
+    assert.equal(args[0], '--internal-script')
+    assert.equal(args[2], path.join(root, 'node-runtime/node.exe'))
+    assert.match(fs.readFileSync(args[1], 'utf8'), /async_playwright/)
+    assert.notEqual(options.env.PLAYWRIGHT_NODEJS_PATH, args[2])
+    assert.equal(options.windowsHide, true)
+    assert.equal(options.timeout, 30000)
+    return 'Shared Node runtime ready\n'
+  })
+  assert.equal(calls, 1)
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'webwright/webwright-runtime.json')))
+  assert.equal(manifest.node_runtime, 'shared')
+  assert.equal(manifest.build_id, 'fixture')
+})
+
+test('duplicate Node and a failed frozen probe stop package acceptance', t => {
+  const root = sharedNodeFixture(t)
+  assert.throws(() => configureSharedPlaywrightNode(root, 'win32', 'x64', () => { throw new Error('driver failed') }), /driver failed/)
+  assert.throws(() => configureSharedPlaywrightNode(root, 'win32', 'x64', () => ''), /did not complete/)
+  fs.writeFileSync(path.join(root, 'webwright/_internal/playwright/driver/node.exe'), 'duplicate')
+  assert.throws(() => configureSharedPlaywrightNode(root, 'win32', 'x64', () => assert.fail('unexpected probe')), /Duplicate/)
+  configureSharedPlaywrightNode('/unused', 'darwin', 'arm64', () => assert.fail('macOS is unchanged'))
 })
 
 test('deployment config separates the website, download page, and ordered update sources', () => {
