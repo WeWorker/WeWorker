@@ -364,9 +364,10 @@ export function percentile(arr, p) {
 /**
  * 解析查询时间窗。
  * @param {{since?:string, from?:string|null, to?:string|null}} opts
- *   - from/to:YYYY-MM-DD(UTC 日界);任一出现即自定义窗,缺 from 不设下界、缺 to 不设上界
+ *   - from/to:YYYY-MM-DD(UTC 日界);任一出现即自定义窗;缺 from 时下界沿用 since 相对窗,缺 to 时上界不设(end=null)
  *   - 都不出现:since 相对窗(start = now - parseDuration(since),无上界)
  * @returns {{start:number, end:number|null}} end 为 null 表示不设上界
+ * 非法格式的 from/to 会产生 NaN 边界(SQL 匹配零行),由 handler 层 dayParam 保证格式
  */
 export function resolveWindow({ since = "30d", from = null, to = null } = {}) {
   const start = from ? Date.parse(`${from}T00:00:00Z`) : Date.now() - parseDuration(since);

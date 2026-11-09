@@ -284,6 +284,12 @@ test("resolveWindow:只给 to → 下界为 since 相对窗", () => {
   assert.ok(Math.abs(start - (Date.now() - 7 * 86400000)) < 1000);
 });
 
+test("resolveWindow:只给 from → 上界不设", () => {
+  const { start, end } = resolveWindow({ from: "2026-01-05" });
+  assert.equal(start, Date.parse("2026-01-05T00:00:00Z"));
+  assert.equal(end, null);
+});
+
 test("queryStats:噪音工具(flag 误用 / 名单首段含 wecli)不计入", () => {
   const db = freshDb();
   const now = Date.now();
@@ -299,4 +305,10 @@ test("queryStats:噪音工具(flag 误用 / 名单首段含 wecli)不计入", ()
   const { rows } = queryStats(db, { by: "domain", since: "1d" });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].key, "mail.163.com");
+});
+
+test("noiseExcludeClause:由 NOISE_FIRST_SEGMENTS 生成,含 wecli 与 flag 排除", () => {
+  const clause = noiseExcludeClause();
+  assert.ok(clause.includes("'wecli'"));
+  assert.ok(clause.includes("NOT LIKE '-%'"));
 });
