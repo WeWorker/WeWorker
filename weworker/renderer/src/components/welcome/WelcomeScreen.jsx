@@ -853,7 +853,7 @@ export default function WelcomeScreen({ onFillInput }) {
     setSelectedFeaturedSiteId(sourceId)
   }
 
-  const insertFeaturedSiteAtVisibleEnd = (sourceId) => {
+  const insertFeaturedSiteAtStart = (sourceId) => {
     if (!sourceId) return
     const ids = orderedRows.map((row) => row.site.id)
     const sourceIndex = ids.indexOf(sourceId)
@@ -861,9 +861,9 @@ export default function WelcomeScreen({ onFillInput }) {
     const wasVisible = sourceIndex < visibleFeaturedCount
     const next = [...ids]
     const [moved] = next.splice(sourceIndex, 1)
-    const insertIndex = wasVisible ? Math.max(0, visibleFeaturedCount - 1) : visibleFeaturedCount
-    next.splice(Math.min(insertIndex, next.length), 0, moved)
+    next.unshift(moved)
     persistFeaturedOrder(next)
+    if (featuredGridRef.current) featuredGridRef.current.scrollLeft = 0
     if (!wasVisible) {
       persistFeaturedVisibleCount(Math.min(maxVisibleFeaturedCount, visibleFeaturedCount + 1))
     }
@@ -891,10 +891,11 @@ export default function WelcomeScreen({ onFillInput }) {
     if (sourceIndex < 0) return
     const next = [...ids]
     const [selected] = next.splice(sourceIndex, 1)
-    next.splice(visibleFeaturedCount, 0, selected)
+    next.unshift(selected)
     const nextCount = featuredAvailability.nextVisibleCount
     persistFeaturedOrder(next)
     persistFeaturedVisibleCount(nextCount)
+    if (featuredGridRef.current) featuredGridRef.current.scrollLeft = 0
     focusSitePreview(siteId)
     setSelectedFeaturedSiteId(siteId)
     setAddPickerOpen(false)
@@ -1127,6 +1128,144 @@ export default function WelcomeScreen({ onFillInput }) {
         >
           {featuredSearchQuery.trim() && filteredFeaturedSites.length === 0 && (
             <div className="welcome-featured-search-empty" role="status">没有匹配的已添加站点</div>
+          )}
+          {(canAddFeaturedSite || featuredSiteLimitReached || allAvailableFeaturedSitesShown) && (
+            <div
+              ref={bindFeaturedLayoutNode(ADD_FEATURED_DROP_TARGET)}
+              style={{
+                ...featuredSiteWrapStyle,
+                ...(addPickerOpen || mountedAddPickerOpen ? featuredSiteWrapActiveStyle : null),
+              }}
+              onDragOver={(e) => {
+                const canDropSite = Boolean(draggingSiteId) || hasSiteDragData(e.dataTransfer)
+                if (canDropSite) {
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  setIsDraggingSiteFromPanel(!draggingSiteId && hasSiteDragData(e.dataTransfer))
+                  setDragOverSiteId(ADD_FEATURED_DROP_TARGET)
+                }
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) {
+                  setDragOverSiteId((current) => (current === ADD_FEATURED_DROP_TARGET ? null : current))
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                const sourceId = getSiteDragId(e.dataTransfer) || draggingSiteId
+                insertFeaturedSiteAtStart(sourceId)
+                setDraggingSiteId(null)
+                setIsDraggingSiteFromPanel(false)
+                setDragOverSiteId(null)
+              }}
+            >
+              {((draggingSiteId || isDraggingSiteFromPanel) && dragOverSiteId === ADD_FEATURED_DROP_TARGET) && (
+                <span style={dropInsertIndicatorStyle} />
+              )}
+              <button
+                data-welcome-picker
+                className="featured-add-website"
+                type="button"
+                disabled={!canAddFeaturedSite}
+                title={addFeaturedLimitTitle}
+                onMouseEnter={() => {
+                  if (canAddFeaturedSite) setAddTriggerHovered(true)
+                }}
+                onMouseLeave={() => setAddTriggerHovered(false)}
+                onFocus={() => {
+                  if (canAddFeaturedSite) setAddTriggerHovered(true)
+                }}
+                onBlur={() => setAddTriggerHovered(false)}
+                onClick={canAddFeaturedSite ? handleAddFeaturedSite : undefined}
+                style={{
+                  ...addFeaturedCardStyle,
+                  ...(featuredSquareCards ? featuredSquareAddCardStyle : null),
+                  justifyContent: featuredSquareCards ? 'center' : 'flex-start',
+                  background: canAddFeaturedSite && (addTriggerHovered || addPickerOpen || dragOverSiteId === ADD_FEATURED_DROP_TARGET)
+                    ? 'color-mix(in srgb, var(--bg-tertiary) 64%, var(--bg-primary))'
+                    : (featuredSquareCards ? 'transparent' : addFeaturedCardStyle.background),
+                  boxShadow: addFeaturedCardStyle.boxShadow,
+                  opacity: canAddFeaturedSite ? 1 : 0.45,
+                  cursor: canAddFeaturedSite ? 'pointer' : 'not-allowed',
+                }}
+              >
+                <span
+                  style={{
+                    ...(featuredSquareCards ? featuredSquareAddIconStyle : addFeaturedIconStyle),
+                    color: addTriggerHovered || addPickerOpen ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                >
+                  <AppstoreAddOutlined aria-hidden="true" />
+                </span>
+                <span className="featured-site-copy">
+                  <span className="featured-site-name">添加网站</span>
+                  <span className="featured-site-summary">选择常用的网站</span>
+                </span>
+              </button>
+
+              {mountedAddPickerOpen && createPortal(
+                <div
+                  data-welcome-picker
+                  className={floatingPickerClosing ? 'motion-popover-exit' : 'motion-popover-enter'}
+                  style={{
+                    ...floatingPickerStyle(floatingPickerPlacement, featuredAdaptivePickerFrameStyle(floatingPickerPlacement)),
+                    pointerEvents: floatingPickerClosing ? 'none' : 'auto',
+                  }}
+                >
+                  <div style={pickerHeaderRowStyle}>
+                    <div style={pickerSearchWrapStyle}>
+                      <input
+                        type="search"
+                        value={addPickerQuery}
+                        onChange={(e) => setAddPickerQuery(e.target.value)}
+                        placeholder="搜索网站或场景..."
+                        aria-label="搜索网站或场景"
+                        style={pickerSearchInputStyle}
+                      />
+                    </div>
+                  </div>
+                  <div style={addPickerListShellStyle}>
+                    <div
+                      className="scrollbar-hover-only"
+                      style={{
+                      ...addPickerListScrollStyle,
+                      maxHeight: floatingPickerPlacement.maxListHeight,
+                    }}>
+                    {filteredHiddenFeaturedSites.map(({ site, scenarios }) => {
+                      const isAddHovered = hoveredAddSiteId === site.id
+                      return (
+                        <button
+                          key={site.id}
+                          type="button"
+                          title={site.name}
+                          onMouseEnter={() => setHoveredAddSiteId(site.id)}
+                          onMouseLeave={() => setHoveredAddSiteId((current) => (current === site.id ? null : current))}
+                          onFocus={() => setHoveredAddSiteId(site.id)}
+                          onBlur={() => setHoveredAddSiteId((current) => (current === site.id ? null : current))}
+                          onClick={() => selectFeaturedSite(site.id)}
+                          style={{
+                            ...addPickerItemStyle,
+                            background: isAddHovered ? 'var(--bg-hover)' : 'transparent',
+                          }}
+                        >
+                          <SiteIcon site={site} size={28} />
+                          <span style={addPickerItemCopyStyle}>
+                            <span style={addPickerItemTitleStyle}>{site.name}</span>
+                            <span style={addPickerItemSummaryStyle}>{clampText(site.description, 42)}</span>
+                          </span>
+                          <span style={addPickerItemCountStyle}>{scenarios.length} 场景</span>
+                        </button>
+                      )
+                    })}
+                    {filteredHiddenFeaturedSites.length === 0 && (
+                      <div style={pickerEmptyStyle}>没有匹配的网站</div>
+                    )}
+                    </div>
+                  </div>
+                </div>,
+                document.body,
+              )}
+            </div>
           )}
           {filteredFeaturedSites.map(({ site, scenarios }) => {
             const isHovered = hoveredSiteId === site.id
@@ -1383,144 +1522,6 @@ export default function WelcomeScreen({ onFillInput }) {
               </div>
             )
           })}
-          {(canAddFeaturedSite || featuredSiteLimitReached || allAvailableFeaturedSitesShown) && (
-            <div
-              ref={bindFeaturedLayoutNode(ADD_FEATURED_DROP_TARGET)}
-              style={{
-                ...featuredSiteWrapStyle,
-                ...(addPickerOpen || mountedAddPickerOpen ? featuredSiteWrapActiveStyle : null),
-              }}
-              onDragOver={(e) => {
-                const canDropSite = Boolean(draggingSiteId) || hasSiteDragData(e.dataTransfer)
-                if (canDropSite) {
-                  e.preventDefault()
-                  e.dataTransfer.dropEffect = 'move'
-                  setIsDraggingSiteFromPanel(!draggingSiteId && hasSiteDragData(e.dataTransfer))
-                  setDragOverSiteId(ADD_FEATURED_DROP_TARGET)
-                }
-              }}
-              onDragLeave={(e) => {
-                if (!e.currentTarget.contains(e.relatedTarget)) {
-                  setDragOverSiteId((current) => (current === ADD_FEATURED_DROP_TARGET ? null : current))
-                }
-              }}
-              onDrop={(e) => {
-                e.preventDefault()
-                const sourceId = getSiteDragId(e.dataTransfer) || draggingSiteId
-                insertFeaturedSiteAtVisibleEnd(sourceId)
-                setDraggingSiteId(null)
-                setIsDraggingSiteFromPanel(false)
-                setDragOverSiteId(null)
-              }}
-            >
-              {((draggingSiteId || isDraggingSiteFromPanel) && dragOverSiteId === ADD_FEATURED_DROP_TARGET) && (
-                <span style={dropInsertIndicatorStyle} />
-              )}
-              <button
-                data-welcome-picker
-                className="featured-add-website"
-                type="button"
-                disabled={!canAddFeaturedSite}
-                title={addFeaturedLimitTitle}
-                onMouseEnter={() => {
-                  if (canAddFeaturedSite) setAddTriggerHovered(true)
-                }}
-                onMouseLeave={() => setAddTriggerHovered(false)}
-                onFocus={() => {
-                  if (canAddFeaturedSite) setAddTriggerHovered(true)
-                }}
-                onBlur={() => setAddTriggerHovered(false)}
-                onClick={canAddFeaturedSite ? handleAddFeaturedSite : undefined}
-                style={{
-                  ...addFeaturedCardStyle,
-                  ...(featuredSquareCards ? featuredSquareAddCardStyle : null),
-                  justifyContent: featuredSquareCards ? 'center' : 'flex-start',
-                  background: canAddFeaturedSite && (addTriggerHovered || addPickerOpen || dragOverSiteId === ADD_FEATURED_DROP_TARGET)
-                    ? 'color-mix(in srgb, var(--bg-tertiary) 64%, var(--bg-primary))'
-                    : (featuredSquareCards ? 'transparent' : addFeaturedCardStyle.background),
-                  boxShadow: addFeaturedCardStyle.boxShadow,
-                  opacity: canAddFeaturedSite ? 1 : 0.45,
-                  cursor: canAddFeaturedSite ? 'pointer' : 'not-allowed',
-                }}
-              >
-                <span
-                  style={{
-                    ...(featuredSquareCards ? featuredSquareAddIconStyle : addFeaturedIconStyle),
-                    color: addTriggerHovered || addPickerOpen ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}
-                >
-                  <AppstoreAddOutlined aria-hidden="true" />
-                </span>
-                <span className="featured-site-copy">
-                  <span className="featured-site-name">添加网站</span>
-                  <span className="featured-site-summary">选择常用的网站</span>
-                </span>
-              </button>
-
-              {mountedAddPickerOpen && createPortal(
-                <div
-                  data-welcome-picker
-                  className={floatingPickerClosing ? 'motion-popover-exit' : 'motion-popover-enter'}
-                  style={{
-                    ...floatingPickerStyle(floatingPickerPlacement, featuredAdaptivePickerFrameStyle(floatingPickerPlacement)),
-                    pointerEvents: floatingPickerClosing ? 'none' : 'auto',
-                  }}
-                >
-                  <div style={pickerHeaderRowStyle}>
-                    <div style={pickerSearchWrapStyle}>
-                      <input
-                        type="search"
-                        value={addPickerQuery}
-                        onChange={(e) => setAddPickerQuery(e.target.value)}
-                        placeholder="搜索网站或场景..."
-                        aria-label="搜索网站或场景"
-                        style={pickerSearchInputStyle}
-                      />
-                    </div>
-                  </div>
-                  <div style={addPickerListShellStyle}>
-                    <div
-                      className="scrollbar-hover-only"
-                      style={{
-                      ...addPickerListScrollStyle,
-                      maxHeight: floatingPickerPlacement.maxListHeight,
-                    }}>
-                    {filteredHiddenFeaturedSites.map(({ site, scenarios }) => {
-                      const isAddHovered = hoveredAddSiteId === site.id
-                      return (
-                        <button
-                          key={site.id}
-                          type="button"
-                          title={site.name}
-                          onMouseEnter={() => setHoveredAddSiteId(site.id)}
-                          onMouseLeave={() => setHoveredAddSiteId((current) => (current === site.id ? null : current))}
-                          onFocus={() => setHoveredAddSiteId(site.id)}
-                          onBlur={() => setHoveredAddSiteId((current) => (current === site.id ? null : current))}
-                          onClick={() => selectFeaturedSite(site.id)}
-                          style={{
-                            ...addPickerItemStyle,
-                            background: isAddHovered ? 'var(--bg-hover)' : 'transparent',
-                          }}
-                        >
-                          <SiteIcon site={site} size={28} />
-                          <span style={addPickerItemCopyStyle}>
-                            <span style={addPickerItemTitleStyle}>{site.name}</span>
-                            <span style={addPickerItemSummaryStyle}>{clampText(site.description, 42)}</span>
-                          </span>
-                          <span style={addPickerItemCountStyle}>{scenarios.length} 场景</span>
-                        </button>
-                      )
-                    })}
-                    {filteredHiddenFeaturedSites.length === 0 && (
-                      <div style={pickerEmptyStyle}>没有匹配的网站</div>
-                    )}
-                    </div>
-                  </div>
-                </div>,
-                document.body,
-              )}
-            </div>
-          )}
         </div>
         </div>
 
