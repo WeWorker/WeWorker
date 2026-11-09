@@ -34,7 +34,7 @@ Toolkit 产品升级在现有工程上技术可行，整体可行性高，属于
 
 - 模型 backend 和 `DefaultAgent` 基础循环。
 - `local_browser + local_cdp` 探索执行链。
-- Follow-up、暂停、人工接管和原始步骤 replay。
+- Follow-up、停止、人工接管和原始步骤 replay。
 - 浏览器启动、标签页查询、target 激活和真实 CDP identity 映射。
 - 子进程执行、进程取消、状态 watcher 和 SSE 推送。
 - steps、trajectory、截图和错误产物。
@@ -898,7 +898,6 @@ POST /api/toolkits/{toolkit_id}/tools/{tool_id}/explorations
 GET  /api/explorations/{exploration_id}
 GET  /api/explorations/{exploration_id}/timeline
 POST /api/explorations/{exploration_id}/messages
-POST /api/explorations/{exploration_id}/pause
 POST /api/explorations/{exploration_id}/resume
 POST /api/explorations/{exploration_id}/cancel
 POST /api/explorations/{exploration_id}/replay
@@ -1217,7 +1216,7 @@ src/webwright/
 - API Key 管理。
 - 浏览器启动和本地 Profile。
 - Exploration 的模型调用协议。
-- Follow-up、暂停和人工接管。
+- Follow-up、停止和人工接管。
 - 原始步骤、截图和 trajectory。
 - Exploration replay。
 - Windows 浏览器启动适配。

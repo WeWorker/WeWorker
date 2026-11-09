@@ -40,7 +40,13 @@
       "aliases": [
         "check_login_status"
       ],
-      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
+      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
+      "results": [
+        {
+          "actions": [],
+          "reason": "Host login/navigation diagnostic only; not a selectable business result."
+        }
+      ]
     },
     {
       "id": "get-login-qrcode",
@@ -52,7 +58,13 @@
         "type": "object",
         "properties": {},
         "required": []
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Host login/navigation diagnostic only; not a selectable business result."
+        }
+      ]
     },
     {
       "id": "search-products",
@@ -81,7 +93,26 @@
       "aliases": [
         "search_products"
       ],
-      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
+      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
+      "results": [
+        {
+          "itemsPath": "$.products",
+          "idField": "sku",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看商品详情",
+              "command": "open-product",
+              "args": {
+                "sku": {
+                  "from": "item.sku"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "navigate-to-homepage",
@@ -97,7 +128,13 @@
       "aliases": [
         "navigate_to_homepage"
       ],
-      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
+      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
+      "results": [
+        {
+          "actions": [],
+          "reason": "Host login/navigation diagnostic only; not a selectable business result."
+        }
+      ]
     },
     {
       "id": "view-cart",
@@ -113,7 +150,26 @@
       "aliases": [
         "view_cart"
       ],
-      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
+      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
+      "results": [
+        {
+          "itemsPath": "$.items",
+          "idField": "sku",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看商品详情",
+              "command": "open-product",
+              "args": {
+                "sku": {
+                  "from": "item.sku"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "view-orders",
@@ -141,7 +197,13 @@
         "view_orders"
       ],
       "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
-      "routeDomain": "order.jd.com"
+      "routeDomain": "order.jd.com",
+      "results": [
+        {
+          "actions": [],
+          "reason": "Order records are terminal: no order-detail, cancellation or selected-order payment command. Product details are nested and must not be guessed from an order ID."
+        }
+      ]
     },
     {
       "id": "open-product",
@@ -158,7 +220,8 @@
           },
           "sku": {
             "type": "string",
-            "description": "商品 SKU（搜索结果中的 sku），与 url 二选一"
+            "description": "商品 SKU（搜索结果中的 sku），与 url 二选一",
+            "minLength": 1
           }
         },
         "required": []
@@ -166,17 +229,42 @@
       "aliases": [
         "open_product"
       ],
-      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com"
+      "excludeTabDomain": "pc-settlement-lite-pro.pf.jd.com",
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "sku",
+          "titleField": "productUrl",
+          "actions": [
+            {
+              "id": "buy",
+              "label": "立即购买",
+              "command": "buy-now",
+              "args": {
+                "sku": {
+                  "from": "item.sku"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "buy-now",
       "runtime": "extension",
       "module": "extension/commands/buy-now.js",
-      "description": "在当前商品页点击该商品的「立即购买」，并打开京东结算页（此时尚未下单、未支付）。需先用 jd.com.open-product 打开商品页；商品需要预约、到货通知或先选规格时会返回页面上的按钮说明。完成后用 jd.com.pay-now 支付。",
+      "description": "在当前商品页点击该商品的「立即购买」，并打开京东结算页（此时尚未下单、未支付）。需先用 jd.com.open-product 打开商品页；商品需要预约、到货通知或先选规格时会返回页面上的按钮说明。完成后用 jd.com.pay-now 支付。 传 sku 时校验当前商品身份，页面切换后拒绝点击。",
       "safety": "write",
       "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "sku": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Expected selected SKU; reject before clicking if the current product page differs."
+          }
+        },
         "required": []
       },
       "aliases": [

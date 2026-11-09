@@ -1,4 +1,5 @@
 import { commands } from './registry.js';
+import { decorateResults } from './context-results.js';
 import { files } from './files.js';
 import { CliError, ArgumentError, AuthRequiredError, CommandExecutionError, TimeoutError } from './errors.js';
 
@@ -14,10 +15,10 @@ export function trustedUrl(raw, media = false) {
   return url;
 }
 class Navigation extends CommandExecutionError {
-  constructor(url, write) {
+  constructor(url, write, prepared = false) {
     super('Page navigation required');
     this.result = { __webcli_navigation: { version: 1, url, resume: !write,
-      ...(write ? { result: { status: 'ready_to_retry', executed: false, message: '目标页面已打开，尚未执行业务操作。请用相同参数重新调用；写操作不自动重放。' } } : {}) } };
+      ...(write && prepared ? { phase: 'prepare', result: { status: 'ready_to_retry', executed: false, message: '目标页面已打开，尚未执行业务操作。请用相同参数重新调用；写操作不自动重放。' } } : {}) } };
   }
 }
 export class Page {
@@ -25,6 +26,8 @@ export class Page {
   check() { if (this.pending) throw this.pending; if (Date.now() >= this.deadline) throw new TimeoutError(this.command.name, 95, 'Do not blindly retry writes; inspect the site first.'); }
   async evaluate(source) {
     this.check();
+    // Page evaluation may already write; only untouched invocations can promise preparation.
+    this.pageEvaluated = true;
     const code = typeof source === 'function' ? source.toString() : String(source);
     const result = await helper('main_world_eval', { expression: `(async () => { try { const candidate = (${code}); const value = typeof candidate === 'function' ? await candidate() : await candidate; return { ok: true, value }; } catch (e) { return { ok: false, message: e?.message || String(e) }; } })()` });
     this.check();
@@ -68,7 +71,7 @@ export class Page {
       const marker = JSON.parse(sessionStorage.getItem('__ww_xhs_capture_pattern') || 'null');
       if (marker) { marker.target = target.href; sessionStorage.setItem('__ww_xhs_capture_pattern', JSON.stringify(marker)); }
     }
-    this.pending = new Navigation(target.href, this.command.access === 'write');
+    this.pending = new Navigation(target.href, this.command.access === 'write', !this.pageEvaluated);
     throw this.pending;
   }
   async wait(arg) {
@@ -176,7 +179,7 @@ async function notifications(page, args) {
     capturedCount = captures.length;
     capturedKeys = captures.map(x => Object.keys(x?.data || {}));
     const result = captures.find(x => Array.isArray(x?.data?.message_list));
-    if (result) return result.data.message_list.slice(0, args.limit).map((item, index) => ({ rank: index + 1, user: item.user_info?.nickname ?? '', action: item.title ?? '', content: item.comment_info?.content ?? '', note: item.item_info?.content ?? '', time: item.time ?? null }));
+    if (result) return result.data.message_list.slice(0, args.limit).map((item, index) => ({ rank: index + 1, user: item.user_info?.nickname ?? '', userId: item.user_info?.user_id ?? null, action: item.title ?? '', content: item.comment_info?.content ?? '', note: item.item_info?.content ?? '', time: item.time ?? null }));
     await page.wait(1);
   }
   throw new CommandExecutionError(`No notification message_list captured (${capturedCount} responses; data fields: ${JSON.stringify(capturedKeys)})`);
@@ -191,7 +194,7 @@ export async function invoke(name, input) {
     if (name === 'publish') await preloadImages(args);
     const result = name === 'notifications' ? await notifications(page, args) : await command.func(page, args);
     if (page.pending) return page.pending.result;
-    return result;
+    return decorateResults(name, args, result);
   } catch (error) {
     if (page.pending) return page.pending.result;
     throw error;

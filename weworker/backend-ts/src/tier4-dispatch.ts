@@ -346,7 +346,7 @@ export async function* runWebwrightTaskTurn(input: {
         yield { type: 'text_delta', content: `\n\n任务未完成（${detail}）。\n可在以下入口查看，或换一种问法再让我处理：\n${link}` }
         return
       }
-      // pause_requested / cancel_requested / 其他中间态：不打扰用户，继续等待。
+      // cancel_requested / 其他中间态：不打扰用户，继续等待。
     }
     // 用户中止：静默返回（对齐 streamChat 的 AbortError 语义），取消交给 finally。
     if (input.abortSignal?.aborted) return

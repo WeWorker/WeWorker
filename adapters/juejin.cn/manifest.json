@@ -62,6 +62,12 @@
       },
       "aliases": [
         "check_login_status"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "Diagnostic login state; it is not a content object and has no account-detail command."
+        }
       ]
     },
     {
@@ -112,6 +118,12 @@
       },
       "aliases": [
         "list_detail_candidates"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "The current source is an inspect_only stub returning empty candidate arrays unconditionally. Candidate discovery and content reading need implementation; do not claim that actual content has no follow-up actions."
+        }
       ]
     }
   ],

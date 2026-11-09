@@ -55,6 +55,8 @@ export interface RoutedTurnResult {
 export interface RoutedTurnInput {
   /** 本轮用户输入原文（定时任务是 `prompt_template`，渠道是最后一条 user 消息）。 */
   message: string
+  /** Untrusted card hint; only the server-side compiled template and tool gates may admit it. */
+  scenario?: unknown
   workId: string
   /** 与调用方 `turnTiming` 同一个起点，保证 `totalMs` 口径与普通回合一致。 */
   chatStartTime: number
@@ -147,6 +149,7 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
     handled = await tryIntelligentQueryRoute(
       {
         message: input.message,
+        scenario: input.scenario,
         workId: input.workId,
         turnId,
         chatStartTime: input.chatStartTime,

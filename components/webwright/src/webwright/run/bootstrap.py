@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from webwright.runtime_launcher import WORKER_MODULES
+from webwright.shared_node import configure_shared_node
 
 
 def _run_internal_worker(arguments: list[str]) -> int:
@@ -48,6 +49,7 @@ def _run_internal_script(arguments: list[str]) -> int:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    configure_shared_node()
     arguments = sys.argv[1:]
     if arguments[:1] == ["--internal-worker"]:
         raise SystemExit(_run_internal_worker(arguments))

@@ -14,6 +14,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
 import { appendWorkLog, configureWorkLogs, readWorkLog, recordWorkLogStream } from './work-log-file.js'
+import { readRouteDiagnostics } from './route-diagnostics-projection.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
 import { createAdapterStateRefreshHandler } from './adapter-state-refresh.js'
@@ -108,7 +109,6 @@ import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveS
 import * as store from './works-store.js'
 import { listArchivedWorkIds } from './conversation-archive.js'
 import { getCompactionStatus } from './compaction-status.js'
-import { tryBackendProfileQueryRoute } from './profile-query-route.js'
 import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
 import { matchSiteAdapter, resolveSiteToolkitPrompt } from './site-gate.js'
@@ -119,6 +119,14 @@ import { checkWebwrightHealth, fetchWebwrightTask } from './webwright-client.js'
 import { graduationHint, recordTier4HostUsage, shouldSuggestGraduation } from './tier4-graduation.js'
 import { computeRoutableSitesFromConfig, getScopedRouterConfig } from './router-config/index.js'
 import { listAliasTexts } from './api-query-router/aliases.js'
+import { createLocalApprovedRouteService, LocalRouteError } from './api-query-router/local-approved-routes.js'
+import { DesktopRouteCandidateStore } from './desktop-route-candidates.js'
+import { redeemReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
+import { getCatalog } from './api-query-router/tool-catalog.js'
+import type { LocalRouteInput } from './api-query-router/local-approved-routes.js'
+import { getRouteEngine, planRouteDecision } from './api-query-router/index.js'
+import { loadScenarioRoutes } from './api-query-router/scenario-routes.js'
+import { isFollowUpMessage } from './api-query-router/gates.js'
 import { tryRoutedTurn } from './routed-turn.js'
 import type { DirectRouteOutcome } from './webcli-route.js'
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
@@ -997,6 +1005,7 @@ app.post('/settings/provider/probe', async (req, res) => {
 registerExplorationModelRoutes(app, { getSettings, updateSettings })
 
 app.get('/settings/channels', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   res.json(publicChannelSettings(getSettings()))
 })
 
@@ -1045,6 +1054,7 @@ async function mutateChannelProfile(type: ChannelType, action: string, id: unkno
 }
 
 app.post('/settings/channels/configuration', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   const { channel, action, id, config = {}, name } = req.body || {}
   if (!isChannelType(channel) || !config || typeof config !== 'object' || Array.isArray(config)) return res.status(400).json({ detail: '机器人配置格式无效' })
   try { res.json(await mutateChannelProfile(channel, action, id, action === 'rename' ? { name } : config)) }
@@ -1529,6 +1539,83 @@ app.get('/router/aliases', (_req, res) => {
   } catch (error) {
     log.warn('router aliases unavailable', error)
     res.json({ aliases: [] })
+  }
+})
+
+// A work ID is resolved on the server; the client cannot nominate another workspace.
+const pendingFastRoutes = new DesktopRouteCandidateStore()
+const localFastRoutes = createLocalApprovedRouteService()
+function fastRouteScope(req: express.Request): { workId: string; workspaceId: string } | null {
+  const workId = typeof req.query.workId === 'string' ? req.query.workId : ''
+  const work = workId ? store.getWork(workId) : null
+  return work ? { workId, workspaceId: work.workspace_directory } : null
+}
+function candidateInput(scope: { workId: string; workspaceId: string }, candidateId: string, keys: unknown): LocalRouteInput | null {
+  const verified = pendingFastRoutes.getVerified(scope.workspaceId, candidateId)
+  if (!verified || verified.candidate.workId !== scope.workId || !Array.isArray(keys)
+    || keys.length < 1 || keys.length > 8 || keys.some(key => typeof key !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/.test(key))
+    || new Set(keys).size !== keys.length) return null
+  const toolName = `${verified.candidate.tool.adapterId}.${verified.candidate.tool.toolId}`
+  return { workspaceId: scope.workspaceId, question: verified.candidate.question,
+    tool: toolName, args: { ...verified.args },
+    display: { columns: keys.map(key => ({ key, type: 'text' as const })), maxRows: 10 } }
+}
+function fastRouteReserved(question: string): boolean {
+  try {
+    const { plan } = planRouteDecision({ message: question, workId: 'local-route-check' })
+    return !!plan.blocked || plan.steps.length > 0
+  } catch { return true }
+}
+app.get('/router/fast-routes', (req, res) => {
+  const scope = fastRouteScope(req)
+  if (!scope) { res.status(400).json({ detail: '请先打开一个对话工作区' }); return }
+  const local = localFastRoutes.list(scope.workspaceId, { isReserved: fastRouteReserved })
+  const candidates = pendingFastRoutes.list(scope.workspaceId).map(candidate => ({
+    id: candidate.id, title: candidate.question, siteName: candidate.tool.adapterId,
+    description: '尚无可信的固定参数执行回执，不能测试或启用',
+    verification: 'identity_only_unverified', runnableArgs: null, displayFields: [],
+  }))
+  const system = loadScenarioRoutes()
+  const engine = getRouteEngine()
+  const configured = engine.bundle.routes?.routes ?? []
+  const aliases = engine.bundle.aliases?.aliases ?? []
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ candidates, routes: [
+    ...configured.filter(route => route.enabled !== false).map(route => ({
+      id: route.id, title: route.title || route.id, siteName: route.tool.split('.').slice(0, -1).join('.'), source: 'system' as const,
+    })),
+    ...aliases.filter(route => route.enabled !== false).map(route => ({
+      id: route.id, title: route.alias || `!${route.id}`, siteName: route.tool.split('.').slice(0, -1).join('.'), source: 'system' as const,
+    })),
+    ...system.filter(route => route.enabled !== false && !route.optout).map(route => ({
+      id: `${route.adapter}:${route.scenarioId}`, title: route.scenarioId,
+      siteName: route.adapter, source: 'system' as const,
+    })),
+    ...local.routes.map(({ route, status }) => ({ id: route.id, title: route.question,
+      siteName: route.tool.split('.').slice(0, -1).join('.'), source: 'local' as const, status })),
+  ], status: local.status })
+})
+app.post('/router/fast-routes/candidates/:id/test', (req, res) => {
+  // Shell tool-use events have no trustworthy fixed-argument execution receipt.
+  // Never guess an executable command from their text or replay unverified data.
+  res.status(409).json({ detail: '候选缺少可信固定参数，无法安全测试；不会自动启用' })
+})
+app.post('/router/fast-routes/candidates/:id/approve', (_req, res) => {
+  res.status(409).json({ detail: '候选缺少可信固定参数和只读测试，无法启用' })
+})
+app.post('/router/fast-routes/candidates/:id/ignore', (req, res) => {
+  const scope = fastRouteScope(req)
+  if (!scope) { res.status(400).json({ detail: '请先打开一个对话工作区' }); return }
+  res.json({ ok: pendingFastRoutes.ignore(scope.workspaceId, req.params.id) })
+})
+app.delete('/router/fast-routes/local/:id', (req, res) => {
+  const scope = fastRouteScope(req)
+  if (!scope) { res.status(400).json({ detail: '请先打开一个对话工作区' }); return }
+  try {
+    localFastRoutes.remove(req.params.id, scope.workspaceId, localFastRoutes.snapshot().revision)
+    res.json({ ok: true })
+  } catch (error) {
+    res.status(error instanceof LocalRouteError && error.reason === 'unavailable' ? 404 : 409).json({ detail: '本地路由不存在或状态已变化' })
   }
 })
 
@@ -3035,10 +3122,11 @@ app.post('/works/:id/chat', async (req, res) => {
 
 async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController, requestTurnId?: string) {
   const workId = req.params.id
-  const { message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode } = req.body as {
+  const { message, modelMessage, attachments, scenario, retryCompaction, thinkingEffort, permissionMode } = req.body as {
     message: string;
     modelMessage?: string;
     attachments?: Array<{ path?: string; name?: string }>;
+    scenario?: unknown;
     retryCompaction?: boolean;
     thinkingEffort?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     permissionMode?: 'ask' | 'workspace' | 'full';
@@ -3216,21 +3304,8 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   const tag = `[${workId}][${turnId}]`
 
-  // Optional product profiles may answer a query before the normal LLM route.
-  // The public profile has no registered route and always falls through.
-  // Ask mode must use the model's per-tool confirmation path. Direct dispatch
-  // does not expose operation approvals, even for read-only queries.
-  // Dedicated agents skip profile routes: those may answer with other websites.
-  if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
-    appendWorkLog(workId, 'route_diagnostic', { phase: 'legacy_profile_handled', reason: 'profile_route_before_intelligent_engine' }, turnId)
-    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_complete', engine: 'legacy_profile', status: 'handled', reason: 'route_answered', fallback: 'none', visible: true }, turnId)
-    finished = true
-    res.off('close', onClose)
-    broadcastSSE({ type: 'works_changed', workId })
-    res.end()
-    return
-  }
-
+  // All configured direct routes now use the shared router safety and fallback gates.
+  // The retired profile hook no longer preempts card or explicit-alias routing.
   // Deterministic routing layers (weworker/router-config, see
   // docs/intelligent_routing_architecture.md). Every layer answers "not mine" when
   // unsure and the shared entry returns `handled: false`, so a message that no
@@ -3246,6 +3321,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   if (!dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
     const routed = await tryRoutedTurn({
       message,
+      // A hint is never authority: the compiled server-side template must reconstruct
+      // this exact user-visible message, then normal read-only tool gates still apply.
+      scenario: importedAttachments.length === 0 && modelInputMessage === message ? scenario : undefined,
       workId,
       turnId,
       chatStartTime,
@@ -3272,6 +3350,52 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     appendWorkLog(workId, 'route_diagnostic', { phase: 'route_complete', engine: 'deterministic', status: 'skipped', reason, fallback: 'llm', visible: false }, turnId)
     chatLog.info(`${tag} route diagnostic route_skipped reason=${reason}`)
   }
+
+  // Locally approved exact questions are a last deterministic option, never a
+  // replacement for a blocked gate, attachment, explicit alias or system route.
+  const plainDesktopQuestion = !dedicatedAgent && retryCompaction !== true
+    && process.env.WEWORKER_API_QUERY_ROUTE !== '0'
+    && desktopPermission.channelPermissionMode !== 'ask' && importedAttachments.length === 0
+    && modelInputMessage === message && !!message.trim() && !scenario
+    && !isFollowUpMessage(message, workWithMessages.messages.filter(msg => msg.id !== savedUserMessage?.id))
+  if (plainDesktopQuestion && directRoute.status === 'miss' && !fastRouteReserved(message)) {
+    const workspaceId = workWithMessages.workspace_directory
+    const match = localFastRoutes.lookup(message, workspaceId, { isReserved: fastRouteReserved })
+    if (match.route) {
+      const began = Date.now()
+      const answer = await localFastRoutes.execute(match.route, { workId, isReserved: fastRouteReserved })
+      if (answer && !abortController.signal.aborted) {
+        const totalMs = Date.now() - chatStartTime
+        const timing = { totalMs, llmMs: 0, execMs: Date.now() - began, steps: 1,
+          routeTool: match.route.tool, routeSource: 'local-approved' }
+        // Commit before any visible output: a storage failure must not yield a
+        // partial routed answer followed by an independent Agent answer.
+        store.appendMessage(workId, 'assistant', [{ type: 'text', text: answer }, { type: 'timing', ...timing }])
+        send({ type: 'turn_start', turnId, workId })
+        send({ type: 'text_delta', content: answer })
+        appendWorkLog(workId, 'route_diagnostic', { phase: 'render_succeeded', source: 'local-approved', tool: match.route.tool }, turnId)
+        appendWorkLog(workId, 'route_diagnostic', { phase: 'route_finished', handled: true, fallback: 'none' }, turnId)
+        send({ type: 'turn_end', turnId, workId, ...timing })
+        finished = true
+        res.off('close', onClose)
+        broadcastSSE({ type: 'works_changed', workId })
+        res.end()
+        return
+      }
+      directRoute = { status: 'failed', reason: 'local_route_failed' }
+      appendWorkLog(workId, 'route_diagnostic', { phase: 'dispatch_failed', category: 'local_route_failed', fallback: 'llm' }, turnId)
+    }
+  }
+
+  // Conservative observer: this turn is a provable router miss only if planning
+  // itself produced no candidates. The SDK Shell event stream supplies no trusted
+  // webcli argument receipt; never synthesize one from command text or output.
+  const learningEligible = plainDesktopQuestion && directRoute.status === 'miss'
+    && !fastRouteReserved(message) && !localFastRoutes.lookup(message, workWithMessages.workspace_directory).route
+  const observation = learningEligible ? pendingFastRoutes.begin({
+    source: 'desktop', workspaceKey: workWithMessages.workspace_directory, workId, turnId,
+    question: message, directRoute, plainQuestion: true, eligibleAgentTurn: true,
+  }) : null
 
   const unsubscribeTerminalEvents = onTerminalEvent((event) => {
     if (event.workId !== workId) return
@@ -3398,6 +3522,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       reuseSession: true,
       ...(dedicatedAgentOptions ?? {}),
     })) {
+      if (ev.type === 'tool_call_start') observation?.event({ type: ev.type, id: ev.id, name: ev.name, args: ev.args })
+      else if (ev.type === 'tool_call_result') observation?.event({ type: ev.type, id: ev.id, isError: ev.isError, result: ev.result })
+      else if (ev.type === 'tool_call_image') observation?.event({ type: ev.type, id: ev.id })
+      else if (ev.type === 'error') observation?.event({ type: ev.type, content: ev.content })
       if (ev.type === 'skill_context' && ev.skillContext) {
         assistantContent.push(ev.skillContext)
       } else if (ev.type === 'text_delta' && ev.content) {
@@ -3554,6 +3682,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       segments.refresh(index)
     }
   }
+
+  // No trusted backend receipt is currently correlated with an SDK tool-use ID.
+  // finish() therefore records no candidate; a Shell exit code is not proof.
+  observation?.finish({ completed: turnSucceeded, finalAnswerVisible: !!currentText.trim(), cancelled: abortController.signal.aborted })
 
   // Persist assistant message
   if (assistantContent.length > 0) {
@@ -3852,6 +3984,18 @@ app.get('/logs', (req, res) => {
     res.json({ lines: tail, path: LOG_FILE, total: allLines.length })
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+// Only the allowlisted projection is exposed to the in-chat diagnostics panel.
+app.get('/works/:id/route-diagnostics', (req, res) => {
+  const work = store.getWork(req.params.id)
+  if (!work) { res.status(404).json({ detail: 'Not found' }); return }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(readRouteDiagnostics(work.id))
+  } catch {
+    res.status(500).json({ detail: '路由诊断暂不可用' })
   }
 })
 

@@ -1,5 +1,7 @@
 # GitHub Trending 使用指导
 
+多轮入口：仓库列表可查看详情或 Star；仓库详情可 Star、查看首个 Issue 或首个 PR。后两个命令读取列表页中的首个详情，不代表返回完整列表。Issue/PR 详情保留仓库地址，可返回仓库。用户明确选择 Star 后，声明动作携带该业务处理器要求的 confirm=true；不使用 __confirmed 授权标记。已 Star 的仓库不会被取消，写操作不能自动重放。只读导航由宿主续执行。
+
 本包的 OpenCLI 对齐范围为 github-trending/repos；另保留仓库搜索、仓库详情和 Issue/PR 等页面工具，不代表全部仓库管理命令已对齐。
 - get-issue-or-pr-detail 接受具体 Issue/PR URL，或 issues/pulls 列表 URL（选取首个匹配详情链接）。宿主在同次只读调用内完成导航续读；只有取得有效详情内容才返回结果，未加载、404 或登录限制会明确失败。正文可能合法为空；max_comments=0 不读取评论。不要把列表标题、needs_retry 或 ok=true 单独当作详情成功。
 - 后台只读读取官方Trending页面，仍需已连接的扩展和Bridge；无需登录或业务标签页。

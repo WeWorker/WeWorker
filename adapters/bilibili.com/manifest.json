@@ -45,6 +45,12 @@
       },
       "aliases": [
         "check_login_status"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "Login diagnostic only; this package has no user profile, account settings or account-history command."
+        }
       ]
     },
     {
@@ -69,6 +75,61 @@
       },
       "aliases": [
         "search_videos"
+      ],
+      "results": [
+        {
+          "itemsPath": "$.videos",
+          "idField": "url",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "open-video-detail",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "read-comments",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-video",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-video",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -89,6 +150,51 @@
       },
       "aliases": [
         "open_video_detail"
+      ],
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "read-comments",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-video",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-video",
+              "args": {
+                "video_url": {
+                  "from": "item.url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -103,12 +209,22 @@
           "limit": {
             "type": "number",
             "description": "最多返回评论数量，1-20"
+          },
+          "video_url": {
+            "type": "string",
+            "description": "Video URL or BV/av ID; when specified, read comments from this exact video."
           }
         },
         "required": []
       },
       "aliases": [
         "read_comments"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "Comment summaries have no stable comment IDs and this package has no comment-detail, reply or author-profile command. These require new Adapter capabilities."
+        }
       ]
     },
     {

@@ -85,6 +85,8 @@
           rank: i + 1,
           type: target.type || item.type || "",
           title: normalizeTitle(item),
+          context_title: window.__zhihu.contextTitle(normalizeTitle(item)),
+          question_id: target.type === 'question' && target.id != null ? String(target.id) : target.question?.id == null ? null : String(target.question.id),
           author: target.author?.name || "",
           votes: target.voteup_count ?? target.reaction?.statistics?.like_count ?? null,
           url: normalizeUrl(item)

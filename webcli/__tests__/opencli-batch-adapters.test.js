@@ -6,10 +6,24 @@ import { describe, it, expect } from 'vitest';
 import { validateV2AdapterDir } from '../adapter-package-v2.js';
 import { buildV2Bootstrap } from '../../extension/background/v2-loader.js';
 import { managedAdapterSkill } from '../adapter-views.js';
+import { compileResultBindings } from '../result-bindings.js';
+import { captureResult } from '../context-profile.js';
+import { newState, beginRound, commitRound, registerDisplay } from '../context-model.js';
+import { routeContext } from '../context-router.js';
 
 const root = resolve(import.meta.dirname, '../..');
 const sites = ['12306.cn', 'zhihu.com', 'note.youdao.com', '51job.com', 'zhipin.com', 'dianping.com', 'douban.com', 'douyin.com'];
 const inventory = JSON.parse(readFileSync(resolve(root,'docs/opencli_batch_inventory.json'),'utf8'));
+function contextFor(s, command, args, raw) {
+  const entries = s.pkg.commands.map(c => ({ ...c, adapterId: s.pkg.name, sourceFingerprint: 'test-package' }));
+  const catalog = { entries, tools: {}, resultBindings: compileResultBindings(entries) }, state = newState(1000);
+  beginRound(state, null, 1000);
+  const snapshot = captureResult(state, { tool: `${s.pkg.name}.${command}`, args, raw, exitCode: 0, now: 1000, catalog, roundId: state.activeRound.roundId });
+  commitRound(state);
+  registerDisplay(state, { epoch: state.sessionEpoch, revision: state.revision, roundId: snapshot.sourceRoundId, snapshotId: snapshot.snapshotId,
+    order: snapshot.entities.map(e => e.entityRef).reverse(), completeness: 'unknown', delivered: true });
+  return { state, catalog };
+}
 function setup(site, { url, payload = {}, bodyText = '', one = {}, all = {}, privileged } = {}) {
   const pkg = validateV2AdapterDir(resolve(root, 'adapters', site));
   const handlers = new Map(), requests = [], calls = [], store = new Map();
@@ -46,7 +60,7 @@ describe('OpenCLI batch v2 contracts', () => {
       for(const arg of original.args||[]) {
         const schema=command.schema.properties[arg.name];expect(schema).toBeDefined();
         if(arg.default!==undefined)expect(schema.default).toEqual(arg.default);
-        if(arg.choices)expect(schema.enum).toEqual(arg.choices);
+        if(arg.choices)expect(schema.enum).toEqual(site === 'zhihu.com' && command.id === 'search' && arg.choices === 'TYPES' ? ['all', 'answer', 'article', 'question'] : arg.choices);
       }
     }
   });
@@ -74,6 +88,229 @@ describe('OpenCLI batch v2 contracts', () => {
   it.each(['12306.cn','zhihu.com','zhipin.com','dianping.com','douban.com','douyin.com'])('%s login uses terminal navigation without automatic write replay',async site=>{
     const s=setup(site); expect(await s.run('login',{__confirmed:true,timeout:'300'})).toMatchObject({__webcli_navigation:{version:1,resume:false}});
     expect(s.requests).toHaveLength(0);
+  });
+});
+
+describe('BOSS context execution', () => {
+  const friends = ['10001', '10002'].map(uid => ({ uid, encryptUid: `candidate-${uid}`, name: `Example ${uid}`, securityId: `security-${uid}`, encryptJobId: `job-${uid}` }));
+  const jobs = friends.map(f => ({ jobName: f.name, encryptJobId: f.encryptJobId }));
+  function boss() {
+    const payload = url => ({ code: 0, zpData: url.includes('chatted/jobList') ? jobs : url.includes('search/joblist') ? { jobList: jobs.map(j => ({ ...j, brandName: 'Example company' })), hasMore: false } :
+      url.includes('historyMsg') ? { messages: [{ from: { uid: '10001', name: 'Example peer' }, text: 'Example message', type: 1 }] } : url.includes('/label/get') ? { labels: [] } : { friendList: friends } });
+    const s = setup('zhipin.com', { url: 'https://www.zhipin.com/web/chat/index', payload });
+    s.context.setTimeout = callback => { callback(); return 1; };
+    return s;
+  }
+  it('search and published-job rows execute selected public job details without using a candidate UID', async () => {
+    for (const command of ['search', 'joblist']) {
+      const s = boss(), args = command === 'search' ? { query: 'Example', limit: 2 } : {};
+      if (command === 'search') s.context.location = new URL('https://www.zhipin.com/web/geek/jobs?query=Example&city=101010100&page=1');
+      const raw = await s.run(command, args), { state, catalog } = contextFor(s, command, args, raw);
+      const result = await routeContext(state, '查看第二条', { catalog, now: 1001 });
+      expect(result.steps[0].args).toEqual({ 'security-id': 'job-10001' });
+      const nav = await s.run('detail', result.steps[0].args);
+      expect(nav.__webcli_navigation.url).toBe('https://www.zhipin.com/job_detail/job-10001.html');
+      s.context.location = new URL(nav.__webcli_navigation.url); s.context.document.title = 'Example_Example company招聘-BOSS直聘';
+      s.context.document.querySelector = selector => selector === '.job-primary .name h1' ? { textContent: 'Example job' } : selector.includes('job-sec-text') ? { textContent: 'Example description' } : null;
+      expect(await s.run('detail', result.steps[0].args)).toMatchObject([{ name: 'Example job', company: 'Example company', url: nav.__webcli_navigation.url }]);
+    }
+  });
+  it('recruiter chatlist preserves the actual side, executes message history, and reply binds the original encrypted candidate UID', async () => {
+    const s = boss(), args = { side: 'boss' }, raw = await s.run('chatlist', args), { state, catalog } = contextFor(s, 'chatlist', args, raw);
+    const result = await routeContext(state, '查看第二条', { catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ uid: 'candidate-10001', side: 'boss' });
+    const messages = await s.run('chatmsg', result.steps[0].args);
+    expect(messages).toMatchObject([{ message_ref: 1, text: 'Example message' }]);
+    const followup = contextFor(s, 'chatmsg', result.steps[0].args, messages);
+    const question = await routeContext(followup.state, '回复消息第一条', { catalog, now: 1001 });
+    const reply = await routeContext(followup.state, 'Example reply', { catalog, now: 1002, replyTo: question.clarificationId });
+    expect(reply.steps[0]).toMatchObject({ tool: 'zhipin.com.send', args: { uid: 'candidate-10001', text: 'Example reply' } });
+  });
+  it('auto chatlist uses the resolved recruiter side; geek and auto histories never expose recruiter-only send', async () => {
+    const s = boss(), raw = await s.run('chatlist'), { state, catalog } = contextFor(s, 'chatlist', {}, raw);
+    const result = await routeContext(state, '查看第二条', { catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ uid: 'candidate-10001', side: 'boss' });
+    for (const side of ['auto', 'geek']) expect(catalog.resultBindings.get('zhipin.com.chatmsg').results.find(r => r.when.side === side).actions).toEqual([]);
+    expect(catalog.resultBindings.get('zhipin.com.chatlist').results.find(r => r.when.side === 'geek').actions.map(a => a.tool)).toEqual(['zhipin.com.chatmsg']);
+  });
+  it('recommendation executes the actual resume handler and preserves identity for subsequent candidate actions', async () => {
+    const s = boss(), raw = await s.run('recommend'), { state, catalog } = contextFor(s, 'recommend', {}, raw);
+    const result = await routeContext(state, '查看第二条', { catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ uid: 'candidate-10001' });
+    const container = { querySelector: selector => selector === '.base-name' ? { textContent: 'Example candidate' } : null };
+    s.context.document.querySelector = selector => selector === '#_10001-0' ? { click() {} } : selector === '.base-info-single-container' ? container : null;
+    const resume = await s.run('resume', result.steps[0].args);
+    expect(resume).toMatchObject([{ name: 'Example candidate', encrypt_uid: 'candidate-10001' }]);
+    const selected = contextFor(s, 'resume', result.steps[0].args, resume);
+    const history = await routeContext(selected.state, '查看聊天记录第一条', { catalog, now: 1001 });
+    expect(history.steps[0].args).toEqual({ uid: 'candidate-10001', side: 'boss' });
+    expect(await s.run('chatmsg', history.steps[0].args)).toMatchObject([{ text: 'Example message' }]);
+  });
+  it('job statistics summary is not a job and cannot trigger an unfiltered chat query', async () => {
+    const s = boss(), raw = await s.run('stats'), { state, catalog } = contextFor(s, 'stats', {}, raw);
+    expect(raw.at(-1)).toMatchObject({ result_id: 'summary', followup_job_id: null });
+    expect((await routeContext(state, '查看职位聊天第一条', { catalog, now: 1001 })).steps).toBeUndefined();
+    const selected = contextFor(s, 'stats', {}, raw);
+    const result = await routeContext(selected.state, '查看职位聊天第三条', { catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ 'job-id': 'job-10001', side: 'boss' });
+    await s.run('chatlist', result.steps[0].args);
+    expect(s.requests.at(-1).url).toContain('jobId=job-10001');
+  });
+  it('recommendation greeting binds all source IDs, asks for message text, and actual handler sends to the verified numeric recipient', async () => {
+    const s = boss(), raw = await s.run('recommend'), { state, catalog } = contextFor(s, 'recommend', {}, raw);
+    const question = await routeContext(state, '发送招呼第二条', { catalog, now: 1001 });
+    const result = await routeContext(state, 'Example greeting', { catalog, now: 1002, replyTo: question.clarificationId });
+    expect(result.steps[0].args).toEqual({ uid: 'candidate-10001', 'security-id': 'security-10001', 'job-id': 'job-10001', text: 'Example greeting' });
+    const typed = [], clicked = [], editor = { offsetParent: {}, focus() {}, value: '', dispatchEvent() {} };
+    s.context.Event = class {};
+    s.context.document.execCommand = (_cmd, _flag, text) => typed.push(text);
+    s.context.document.querySelector = selector => selector === '#_10001-0' ? { click: () => clicked.push('candidate') } : selector === '.chat-conversation[data-uid="10001"]' ? {} : selector === '.chat-editor [contenteditable="true"]' ? editor : selector === '.conversation-editor .submit' ? { click: () => clicked.push('send') } : null;
+    const output = await s.run('greet', result.steps[0].args);
+    expect(typed).toEqual(['Example greeting']); expect(clicked).toEqual(['candidate', 'send']);
+    expect(output[0].status).toBe('已点击发送，送达未验证');
+  });
+  it.each([
+    ['mark', '添加标签第二条', '收藏', 'label/addMark', { friendId: '10001', labelId: '11' }],
+    ['exchange', '交换联系方式第二条', 'wechat', 'exchange/request', { uniqueId: '10001', type: '2' }],
+    ['invite', '面试邀请第二条', '{"time":"2026-11-20 14:00","address":"Example office","contact":"Example contact"}', 'interview/invite.json', { uid: '10001', address: 'Example office', contactName: 'Example contact' }],
+  ])('selected candidate %s runs its real write handler after correlated input', async (command, text, answer, endpoint, expected) => {
+    const s = boss(), writes = [], Original = s.context.XMLHttpRequest;
+    s.context.XMLHttpRequest = class extends Original {
+      send(body) { if (this.method === 'POST' || this.url.includes('label/addMark')) writes.push({ url: this.url, method: this.method, body }); super.send(body); }
+    };
+    const raw = await s.run('recommend'), { state, catalog } = contextFor(s, 'recommend', {}, raw);
+    const question = await routeContext(state, text, { catalog, now: 1001 });
+    expect(question.kind).toBe('needs_input');
+    const result = await routeContext(state, answer, { catalog, now: 1002, replyTo: question.clarificationId });
+    expect(result).toMatchObject({ kind: 'resolved', executionEligibility: 'write_allowed' });
+    expect(result.steps[0]).toMatchObject({ tool: 'zhipin.com.' + command, args: { uid: 'candidate-10001' } });
+    await s.run(command, result.steps[0].args);
+    expect(writes).toHaveLength(1); expect(writes[0].url).toContain(endpoint);
+    const params = new URLSearchParams(writes[0].body || new URL(writes[0].url).search);
+    for (const [key, value] of Object.entries(expected)) expect(params.get(key)).toBe(value);
+    expect([...params.values()]).not.toContain('10002');
+  });
+  it.each(['mark', 'exchange', 'invite'])('%s never writes when the selected encrypted candidate is absent', async command => {
+    const s = boss(), Original = s.context.XMLHttpRequest, writes = [];
+    s.context.XMLHttpRequest = class extends Original {
+      send(body) { if (this.method === 'POST' || /label\/(?:addMark|deleteMark)/.test(this.url)) writes.push(this.url); super.send(body); }
+    };
+    await expect(s.run(command, { uid: 'missing-candidate', label: '收藏', type: 'phone', time: '2026-11-20 14:00' })).rejects.toThrow();
+    expect(writes).toEqual([]);
+  });
+  it('interview rejects an invalid time before any POST', async () => {
+    const s = boss(), Original = s.context.XMLHttpRequest, writes = [];
+    s.context.XMLHttpRequest = class extends Original { send(body) { if (this.method === 'POST') writes.push(this.url); super.send(body); } };
+    await expect(s.run('invite', { uid: 'candidate-10001', time: 'not-a-time' })).rejects.toThrow(/时间格式错误/);
+    expect(writes).toEqual([]);
+  });
+  it('job-bound batch greeting applies explicit limit/text only to recommendations for the selected job', async () => {
+    const s = boss(), raw = await s.run('joblist'), { state, catalog } = contextFor(s, 'joblist', {}, raw);
+    const question = await routeContext(state, '批量发送招呼第二条', { catalog, now: 1001 });
+    const result = await routeContext(state, '{"limit":2,"text":"Example batch greeting"}', { catalog, now: 1002, replyTo: question.clarificationId });
+    expect(result.steps[0].args).toEqual({ 'job-id': 'job-10001', limit: 2, text: 'Example batch greeting' });
+    const clicks = [], typed = [];
+    s.context.Event = class {};
+    s.context.document.execCommand = (_cmd, _flag, text) => typed.push(text);
+    const editor = { offsetParent: {}, focus() {}, dispatchEvent() {} };
+    s.context.document.querySelector = selector => selector === '#_10001-0' ? { click: () => clicks.push('10001') }
+      : selector === '.chat-conversation[data-uid="10001"]' ? {} : selector === '.chat-editor [contenteditable="true"]' ? editor
+      : selector === '.conversation-editor .submit' ? { click: () => clicks.push('send') } : null;
+    const output = await s.run('batchgreet', result.steps[0].args);
+    expect(clicks).toEqual(['10001', 'send']); expect(typed).toEqual(['Example batch greeting']);
+    expect(output).toMatchObject([{ name: 'Example 10001', status: '已点击发送，送达未验证' }]);
+  });
+
+});
+
+describe('Douban context execution', () => {
+  function douban(type = 'movie') {
+    const node = (text, href = '') => ({ textContent: text, href, getAttribute: key => key === 'href' ? href : '', querySelector: () => null });
+    const cards = ['10001', '10002'].map(id => ({ querySelector: selector => {
+      if (['.pl2 a', 'a', 'h2 a[href*="/subject/"]', '.title-text, .title a, .title h3 a, h3 a, a[title]', '.info a[href*="/subject/"]'].includes(selector)) return node(`Example ${id}`, `https://${type}.douban.com/subject/${id}/`);
+      if (['.title', '.pic em'].includes(selector)) return node(`Example ${id}`);
+      return null;
+    }, querySelectorAll: () => [] }));
+    const photos = ['20001', '20002'].map(id => ({ querySelector: selector => selector === 'a[href*="/photos/photo/"]' ? { getAttribute: key => key === 'href' ? `https://movie.douban.com/photos/photo/${id}/` : `Example ${id}` } :
+      selector === 'img' ? { getAttribute: key => key === 'src' ? `https://img3.doubanio.com/view/photo/s/public/p${id}.webp` : '' } : null }));
+    const s = setup('douban.com', { url: `https://${type}.douban.com/`, one: {}, all: {} });
+    s.context.setTimeout = callback => { callback(); return 1; };
+    s.context.document.querySelector = selector => ['span[property="v:itemreviewed"]', 'h1 span', '#content h1'].includes(selector) ? node('Example subject') : selector.includes('.item-root .title-text') ? node('Ready') : null;
+    s.context.document.querySelectorAll = selector => ['.item', '.media.clearfix', '.item-root, .result-list .result-item'].includes(selector) ? cards : selector === '.poster-col3 li, .poster-col3l li, .article li' ? photos : [];
+    s.context.document.createElement = () => ({}); s.context.document.head = { prepend() {} };
+    s.context.DOMParser = class { parseFromString() { return s.context.document; } };
+    return s;
+  }
+  async function follow(s, command, args) {
+    let result = await s.run(command, args);
+    if (result.__webcli_navigation?.resume) { s.context.location = new URL(result.__webcli_navigation.url); result = await s.run(command, args); }
+    return result;
+  }
+  it.each(['movie-hot', 'top250', 'book-hot'])('%s executes displayed second subject with the correct movie/book namespace', async command => {
+    const type = command === 'book-hot' ? 'book' : 'movie', s = douban(type), args = { limit: 2 }, raw = await follow(s, command, args);
+    const { state, catalog } = contextFor(s, command, args, raw), result = await routeContext(state, '查看第二条', { catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ id: '10001', type });
+    expect(await follow(s, 'subject', result.steps[0].args)).toMatchObject([{ id: '10001', type, title: 'Example subject' }]);
+    if (type === 'book') expect(catalog.resultBindings.get('douban.com.subject').results.find(r => r.when.type === 'book').actions).toEqual([]);
+  });
+  it.each(['movie', 'book', 'music'])('search %s preserves the query namespace; unsupported music detail is not guessed', async type => {
+    const s = douban(type), args = { keyword: 'Example', type }, raw = await follow(s, 'search', args);
+    const entries = s.pkg.commands.map(c => ({ ...c, adapterId: s.pkg.name })), catalog = { entries, resultBindings: compileResultBindings(entries) };
+    if (type === 'music') { expect(catalog.resultBindings.get('douban.com.search').results.find(r => r.when.type === type).actions).toEqual([]); return; }
+    const bound = contextFor(s, 'search', args, raw), result = await routeContext(bound.state, '查看第二条', { catalog: bound.catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ id: '10001', type });
+    expect(await follow(s, 'subject', result.steps[0].args)).toMatchObject([{ id: '10001', type }]);
+  });
+  it('movie subject opens its own gallery and a displayed photo prepares exactly one file download with explicit output', async () => {
+    const s = douban(), args = { id: '10001', type: 'movie' }, subject = await follow(s, 'subject', args), bound = contextFor(s, 'subject', args, subject);
+    const result = await routeContext(bound.state, '查看海报第一条', { catalog: bound.catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ id: '10001' });
+    const photos = await follow(s, 'photos', result.steps[0].args), selected = contextFor(s, 'photos', result.steps[0].args, photos);
+    const question = await routeContext(selected.state, '下载图片第二条', { catalog: selected.catalog, now: 1001 });
+    expect(question.missingFields).toEqual(['arguments.output']);
+    const download = await routeContext(selected.state, './example-output', { catalog: selected.catalog, now: 1002, replyTo: question.clarificationId });
+    expect(download.executionEligibility).toBe('write_allowed');
+    expect(download.steps[0].args).toEqual({ id: '10001', 'photo-id': '20001', type: 'Rb', output: './example-output' });
+    const writes = [];
+    s.context.__webmcpWecliRuntime.requestPrivileged = async (action, p) => {
+      if (action === 'backend_fetch') return { status: 200, bodyEncoding: 'base64', body: 'UklGRg==', size: 4, headers: { 'content-type': 'image/webp' } };
+      if (action === 'backend_file_write') { writes.push(p); return { path: p.path }; }
+      throw new Error(`Unexpected helper ${action}`);
+    };
+    expect(await s.run('download', download.steps[0].args)).toMatchObject([{ photo_id: '20001', status: 'success' }]);
+    expect(writes).toHaveLength(1); expect(writes[0].path).toContain('./example-output/10001/'); expect(writes[0].path).toContain('20001');
+  });
+  it('download is a write, only prepares navigation on another page, and performs no file transfer before explicit reinvocation', async () => {
+    const s = douban();
+    expect(s.pkg.commands.find(c => c.id === 'download').safety).toBe('write');
+    expect(await s.run('download', { id: '10001' })).toMatchObject({ __webcli_navigation: { resume: false, result: { status: 'prepared' } } });
+    expect(s.calls).toHaveLength(0);
+  });
+  it('marks and reviews bind movie IDs; a review is never replaced with its movie by a generic detail request', async () => {
+    const s = douban(), link = { href: 'https://movie.douban.com/subject/10001/', textContent: 'Example movie', getAttribute: () => '', querySelector: () => null };
+    s.context.document.querySelectorAll = selector => selector === '.item' ? [{ querySelector: selector => selector.startsWith('.info a') ? link : null }] :
+      selector === '.tlst' ? [{ querySelector: selector => selector === '.ilst a' ? link : selector === '.nlst a[title]' ? { href: 'https://movie.douban.com/review/30001/', textContent: 'Example review' } : null }] : [];
+    for (const command of ['marks', 'reviews']) {
+      const args = { uid: 'example-user', limit: 2 }, raw = await s.run(command, args), { state, catalog } = contextFor(s, command, args, raw);
+      if (command === 'reviews') {
+        expect(raw[0].reviewId).toBe('30001');
+        expect((await routeContext(state, '查看第一条', { catalog, now: 1001 })).steps).toBeUndefined();
+      }
+      const bound = contextFor(s, command, args, raw), result = await routeContext(bound.state, command === 'reviews' ? '查看电影第一条' : '查看第一条', { catalog, now: 1001 });
+      expect(result.steps[0].args).toEqual({ id: '10001', type: 'movie' });
+      expect(await follow(s, 'subject', result.steps[0].args)).toMatchObject([{ id: '10001', type: 'movie' }]);
+    }
+  });
+  it('verified account identity can query its own marks and reviews without relying on another active account', async () => {
+    const s = douban(); s.context.__DATA__ = { uid: 'example-user' };
+    const raw = await s.run('whoami'), { state, catalog } = contextFor(s, 'whoami', {}, raw);
+    const result = await routeContext(state, '查看我的标记第一条', { catalog, now: 1001 });
+    expect(result.steps[0].args).toEqual({ uid: 'example-user' });
+    s.context.document.querySelectorAll = selector => selector === '.item' ? [{ querySelector: selector => selector.startsWith('.info a') ? {
+      href: 'https://movie.douban.com/subject/10001/', textContent: 'Example movie', querySelector: () => null,
+    } : null }] : [];
+    expect(await s.run('marks', result.steps[0].args)).toMatchObject([{ movieId: '10001' }]);
+    expect(s.requests.at(-1).url).toContain('/people/example-user/collect');
   });
 });
 

@@ -1,6 +1,8 @@
 const { execFileSync } = require('child_process')
 const path = require('path')
 const { validatePackagedClaude } = require('./validate-claude-native.cjs')
+const { validatePackagedNode } = require('./prepare-node-runtime.cjs')
+const { configureSharedPlaywrightNode } = require('./shared-playwright-node.cjs')
 
 function buildAdHocSignCommands(appPath) {
   return [
@@ -9,13 +11,15 @@ function buildAdHocSignCommands(appPath) {
   ]
 }
 
-function afterPack(context, run = execFileSync, validate = validatePackagedClaude) {
+function afterPack(context, run = execFileSync, validate = validatePackagedClaude, validateNode = validatePackagedNode, configureNode = configureSharedPlaywrightNode) {
   const arch = typeof context.arch === 'string'
     ? context.arch : { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[context.arch]
   const resourcesPath = context.electronPlatformName === 'darwin'
     ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
     : path.join(context.appOutDir, 'resources')
   validate(resourcesPath, context.electronPlatformName, arch)
+  validateNode(resourcesPath, context.electronPlatformName, arch)
+  configureNode(resourcesPath, context.electronPlatformName, arch)
   if (context.electronPlatformName !== 'darwin') return
 
   const appPath = path.join(

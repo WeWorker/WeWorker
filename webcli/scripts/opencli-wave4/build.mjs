@@ -61,12 +61,15 @@ for (const config of configs) {
   const context = { console, URL }; context.window = context; vm.createContext(context); vm.runInContext(bundled, context);
   const commands = [...context.__wave4.commands.values()];
   const pkg = path.join(repo, 'adapters', config.pkg);
+  const previousManifest = fs.existsSync(path.join(pkg, 'manifest.json')) ? JSON.parse(fs.readFileSync(path.join(pkg, 'manifest.json'), 'utf8')) : null;
   fs.mkdirSync(path.join(pkg,'extension/internal'), { recursive: true }); fs.mkdirSync(path.join(pkg,'extension/commands'), { recursive: true });
   const manifest = { schema_version: 2, name: config.pkg, version: config.site === 'toutiao' ? '0.1.1' : '0.1.0', description: config.title + '：OpenCLI 对齐能力',
     match: config.match, requires_auth: false, discovery_terms: [config.site, config.title],
     commands: commands.map(c => ({ id: c.name, runtime: 'extension', module: `extension/commands/${c.name}.js`,
       routeDomain: c.name === 'search' && config.site === 'smzdm' ? 'search.smzdm.com' : c.domain || config.pkg,
       description: c.description, safety: c.access,
+      ...(previousManifest?.commands?.find(command => command.id === c.name)?.results !== undefined
+        ? { results: previousManifest.commands.find(command => command.id === c.name).results } : {}),
       ...(c.browser === false ? { execution: { type: 'api', runtime: 'background' } } : {}),
       schema: { type: 'object', properties: Object.fromEntries((c.args || []).map(a => [a.name, { type: a.type === 'int' ? 'integer' : 'string', description: a.help, ...(a.default !== undefined ? { default: a.default } : {}) }])), required: (c.args || []).filter(a => a.required).map(a => a.name), additionalProperties: false },
     })) };

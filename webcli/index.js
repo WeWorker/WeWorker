@@ -143,23 +143,19 @@ Adapters:
   adapter install --file <path.adapt>      安装 v2 归档（旧式 .js 仍兼容）
   adapter remove  <id>  [--reload]         移除 adapter
 
-AdapterHub:
-  adapterhub list [--origin official|user] [--installed] [--json]   列出线上 / 本地已安装 Adapter
-  adapterhub find <keyword> [--json]                   按名称、域名、用途检索
-  adapterhub info <adapter> [--json]                  查看 Adapter 详情（含推荐提示词）
-  adapterhub versions <adapter> [--json]              查看版本历史
-  adapterhub commands <adapter> [--json]              查看命令清单与参数
-  adapterhub download <adapter>[@<版本>] [-o <file>] [--json]  下载 .adapt 包
+AdapterHub（参数详情: webcli adapterhub <命令> --help）:
+  adapterhub list [--installed[=false]] [--origin …] [--sort …]  列出线上 Adapter（标记/过滤安装状态）
+  adapterhub search <keyword>                          按名称、域名、用途检索
+  adapterhub info <adapter> [--versions]             详情（含命令清单；--versions 版本历史）
+  adapterhub install <adapter>[@<version>] | <local.adapt>
+                                                       安装/升级 Adapter
+  adapterhub upgrade [<adapter>|--all]               检查并升级已安装 Adapter
+  adapterhub remove <adapter>                        卸载 Adapter
   adapterhub validate <file.adapt>                    离线校验包结构与哈希
-  adapterhub pack <目录> [-o <file.adapt>] [--json]   将目录打包为 .adapt
-  adapterhub install <adapter>[@<版本>] | <本地.adapt> [--force] [--reload] [--json]
-                                                       安装/升级整个 Adapter
-  adapterhub update [<adapter>|--all] [--force] [--dry-run] [--json]
-                                                       检查并更新已安装 Adapter
-  adapterhub installed [--json]                       列出本地已安装 Adapter
-  adapterhub remove <adapter> [--reload] [--json]     卸载 Adapter
-  adapterhub publish <目录或.adapt> [--yes] [--json]  发布/更新 Adapter（需 ADAPTERHUB_TOKEN）
-  adapterhub endpoint [--json]                        打印当前 AdapterHub 端点
+  adapterhub pack <dir> [-o <file.adapt>]            将目录打包为 .adapt
+  adapterhub init [PAT]                              安全保存发布 PAT（Windows DPAPI）
+  adapterhub status                                  查看 PAT 是否已配置
+  adapterhub publish <dir> | <file.adapt> [--yes]    发布/更新 Adapter（需 PAT）
 
 Tools:
   skills list | skills read <skill[/path]>  列出或读取随包 Skill（不安装、不执行）
@@ -203,13 +199,22 @@ Extension:
   extension-path                 输出扩展目录路径
 
 Routing:
-  route [<adapter>] <request>    用自然语言推荐命令（不执行）
+  route [<adapter>] <request>    用自然语言推荐命令（不执行）；带 context 时解析已展示对象及动作
+
+Context:
+  route/call ... --new-context   自动生成 UUID；后续使用 --context <id> 关联会话
+  context status <id>            查看脱敏状态
+  context recover <id>           保守恢复死亡进程遗留的锁；未知写结果不重放
+  context prune --dry-run        预览可回收状态，不删除文件
+  context display <id> ...       宿主报告实际展示顺序；详见 Adapter 结果声明合同
 
 Tracing:
   trace <traceID>                按 traceID 查询服务日志
 
 Options:
   --version        显示版本（兼容：单独执行 webcli -v）
+  --context <id>   route/call 关联同一会话，最多追溯三轮
+  --new-context    route/call 自动生成新的 UUID
   --profile <id|alias>  选择浏览器（优先于 WEBCLI_PROFILE 和保存的默认值）
   -v, --verbose    调用工具时输出 trace 日志
   --output-format=json|markdown|table|plain|csv|yaml  调用工具输出格式（终端默认 markdown，管道/脚本默认 json）
@@ -239,7 +244,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
       usage: "webcli <command> [options]",
       description: "WeWorker 网站工具 CLI：调用浏览器站点自动化工具，管理适配器与统计",
       commands: [
-        { name: "call <tool>", usage: "webcli call <tool_name> [--key=value ...]", description: "调用站点工具" },
+        { name: "call <tool>", usage: "webcli call <tool_name> [--key=value ...] [--new-context|--context <id>]", description: "调用站点工具，可关联会话并采集结果" },
         { name: "completion", usage: "webcli completion bash|zsh|fish", description: "输出 shell 补全脚本" },
         { name: "skills", usage: "webcli skills list | read <skill[/path]>", description: "读取随包 Skill 和参考文件" },
         { name: "profile", usage: "webcli call profile.help", description: "浏览器连接、别名和默认选择" },
@@ -252,7 +257,8 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "auth", usage: "webcli auth <status|check|save|forget|autologin>", description: "网站登录状态与自动登录" },
         { name: "stats", usage: "webcli stats", description: "调用频次统计" },
         { name: "install --skills", usage: "webcli install --skills [adapter-id]", description: "安装 adapter skills" },
-        { name: "route", usage: "webcli route [<adapter>] <request>", description: "用自然语言推荐命令（不执行）" },
+        { name: "route", usage: "webcli route [<adapter>] <request> [--new-context|--context <id>]", description: "单轮推荐或基于已展示对象的多轮决策（不执行）" },
+        { name: "context", usage: "webcli context status <id> | recover <id> | prune --dry-run | display <id> ...", description: "脱敏状态、保守恢复、清理预览与宿主展示登记" },
         { name: "trace <id>", usage: "webcli trace <traceID>", description: "按 traceID 查日志" },
         { name: "extension-path", usage: "webcli extension-path", description: "输出扩展目录路径" },
       ],
@@ -891,6 +897,7 @@ async function ensureBridgeRunning() {
 
 async function cmdCall(toolName, argsStr, options = {}) {
   const verbose = !!options.verbose;
+  const returnResult = options.returnResult === true;
   const flagArgs = options.flagArgs || {};
   let outputFormat;
   try {
@@ -915,6 +922,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
   // 合并 --key=value 标志参数（优先级低于 --args 中的同名字段）
   args = { ...flagArgs, ...args };
   if (hasHostConfiguration()) {
+    if (returnResult || options.executionSnapshot) throw new Error('context_host_unsupported');
     try {
       const { callHost } = await import('./host-call.js');
       if (options.profile) throw Object.assign(new Error('Browser profiles are owned by the embedding host.'), { code: 'HOST_UNSUPPORTED_PROFILE' });
@@ -930,6 +938,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
   // renderer as Adapter calls, without changing the transport envelope.
   const printManagement = value => console.log(formatCallOutput(value, options.outputFormat === undefined ? 'json' : outputFormat));
 
+  if (returnResult && /^(?:development|profile|browser|exploration)\./.test(toolName)) throw new Error('context_unsupported_command');
   if (toolName.startsWith('development.')) {
     const command = toolName.slice('development.'.length);
     const { developmentHelp } = await import('./development-commands.js');
@@ -997,17 +1006,22 @@ async function cmdCall(toolName, argsStr, options = {}) {
   const { resolveToolkitTool } = await import("./adapter-registry.js");
   const { resolveAdapterCall } = await import("./adapter-host.js");
   const v2Match = resolveAdapterCall(toolName);
+  if (options.executionSnapshot && (!v2Match || ['name', 'digest', 'profile'].some(key => v2Match.snapshot?.[key] !== options.executionSnapshot[key]))) {
+    throw new Error('context_tool_profile_unavailable');
+  }
   if (v2Match) {
     args = businessArgs(args);
     if (v2Match.command.runtime === 'http' && !v2Match.command.http.cookies) {
       try {
         const { runHttpTool } = await import('./http-runner.js');
         const completed = await runHttpTool(v2Match, args);
+        if (returnResult) return { raw: completed.result, traceID: completed.traceID, exitCode: completed.exitCode ?? 0 };
         const value = completed.result;
         const output = value && typeof value === 'object' && !Array.isArray(value)
           ? { ...value, trace_id: completed.traceID } : { result: value, trace_id: completed.traceID };
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
       } catch (error) {
+        if (returnResult) return { raw: { error: error.message, code: error.code }, exitCode: 1 };
         console.log(formatCallOutput({ error: error.message, code: error.code || 'HTTP_COMMAND_FAILED', trace_id: null }, outputFormat));
         process.exitCode = 1;
       }
@@ -1022,6 +1036,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
           tool: { id: v2Match.command.id, name: toolName },
         };
         const completed = await runToolkitTool(toolkitMatch, args);
+        if (returnResult) return { raw: completed.result, traceID: completed.traceID, exitCode: completed.exitCode ?? 0 };
         const isPlainObject = completed.result && typeof completed.result === "object" && !Array.isArray(completed.result);
         const output = isPlainObject
           ? { ...completed.result, trace_id: completed.traceID }
@@ -1029,6 +1044,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
         console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
         process.exitCode = completed.exitCode;
       } catch (error) {
+        if (returnResult) return { raw: { error: error.message, code: error.code }, exitCode: 1 };
         console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
         process.exitCode = 1;
       }
@@ -1052,6 +1068,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
     try {
       const { runToolkitTool } = await import("./toolkit-runner.js");
       const completed = await runToolkitTool(toolkitMatch, args);
+      if (returnResult) return { raw: completed.result, traceID: completed.traceID, exitCode: completed.exitCode ?? 0 };
       const isPlainObject = completed.result && typeof completed.result === "object" && !Array.isArray(completed.result);
       const output = isPlainObject
         ? { ...completed.result, trace_id: completed.traceID }
@@ -1059,6 +1076,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
       console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
       process.exitCode = completed.exitCode;
     } catch (error) {
+      if (returnResult) return { raw: { error: error.message, code: error.code }, exitCode: 1 };
       console.log(formatCallOutput({ error: error.message, trace_id: null }, outputFormat));
       process.exitCode = 1;
     }
@@ -1082,9 +1100,20 @@ async function cmdCall(toolName, argsStr, options = {}) {
     args.adapter = site;
   }
 
+  let settle, settled = false;
+  const completion = returnResult ? new Promise(resolve => { settle = resolve; }) : undefined;
+  const finish = completed => {
+    if (!returnResult) return false;
+    if (!settled) {
+      settled = true; responseReceived = true;
+      clearTimeout(timeout); ws.close(); settle(completed);
+    }
+    return true;
+  };
   let requestSent = false;
   let responseReceived = false;
   const onTimeout = () => {
+    if (finish({ raw: interruptedCallResult(v2Match?.command, requestSent, true), exitCode: 1, dispatched: requestSent })) return;
     console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent, true), outputFormat));
     ws.terminate();
     process.exit(1);
@@ -1107,7 +1136,16 @@ async function cmdCall(toolName, argsStr, options = {}) {
     }));
 
     ws.on("message", async (data) => {
-      const msg = JSON.parse(data.toString());
+      let msg;
+      try {
+        msg = JSON.parse(data.toString());
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) throw new Error('Invalid envelope');
+      } catch {
+        const raw = { error: 'Invalid Bridge response.', code: 'INVALID_BRIDGE_RESPONSE' };
+        if (finish({ raw, exitCode: 1, dispatched: requestSent })) return;
+        console.log(formatCallOutput(raw, outputFormat));
+        ws.terminate(); process.exit(1); return;
+      }
       // The Bridge runs the login flow for this site: report progress, and allow the login time.
       if (msg.type === "auth_event" && site && msg.site === site) {
         printAuthEvent(msg);
@@ -1122,6 +1160,8 @@ async function cmdCall(toolName, argsStr, options = {}) {
       clearTimeout(timeout);
       if (msg.contextId) options.profile = msg.contextId;
       if (msg.type === "call_tool_result") {
+        const prepared = v2Match?.command.safety === 'write' && msg.execution?.phase === 'prepared';
+        if (finish({ raw: msg.result, traceID, exitCode: 0, dispatched: !prepared, ...(prepared ? { prepared: true } : {}) })) return;
         const isPlainObject = msg.result && typeof msg.result === "object" && !Array.isArray(msg.result);
         const output = isPlainObject
           ? { ...msg.result, trace_id: traceID }
@@ -1142,6 +1182,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
           hint: argumentDetails ? '参数校验失败，尚未派发写入。请核对参数名称和类型；无需重新登录，也不要反复提交相同参数。'
             : `用 webcli trace ${traceID} 查看完整链路日志${dedicatedBrowserHint()}`,
         };
+        if (finish({ raw: output, traceID, exitCode: 1, dispatched: true })) return;
         console.log(formatCallOutput(output, outputFormat));
         await printVerboseTrace(traceID, verbose, options.profile);
         ws.close();
@@ -1153,15 +1194,18 @@ async function cmdCall(toolName, argsStr, options = {}) {
   ws.on("error", () => {
     if (responseReceived) return;
     clearTimeout(timeout);
+    if (finish({ raw: interruptedCallResult(v2Match?.command, requestSent), exitCode: 1, dispatched: requestSent })) return;
     console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent), outputFormat));
     process.exit(1);
   });
   ws.on("close", () => {
     if (!requestSent || responseReceived) return;
     clearTimeout(timeout);
+    if (finish({ raw: interruptedCallResult(v2Match?.command, true), exitCode: 1, dispatched: true })) return;
     console.log(formatCallOutput(interruptedCallResult(v2Match?.command, true), outputFormat));
     process.exit(1);
   });
+  return completion;
 }
 
 // ─── Command: trace <traceID> ─────────────────────────────────────────────────
@@ -1524,6 +1568,51 @@ async function main() {
     return;
   }
 
+  const { extractContextFlags } = await import('./context-cli-flags.js');
+  const controls = extractContextFlags(process.argv.slice(2));
+  if (controls.context || controls.args[0] === 'context') {
+    const { ContextError, fail } = await import('./context-model.js');
+    try {
+      if (hasHostConfiguration()) fail('context_host_unsupported', 2);
+      const { runContextRoute, runContextCall, runContextMaintenance } = await import('./context-command.js');
+      const { args, verbose, outputFormat, profile, loginWaitSeconds } = extractRuntimeFlags(controls.args);
+      if (args[0] === 'context') {
+        if (controls.context) fail('context_usage', 2);
+        console.log(JSON.stringify(await runContextMaintenance(args.slice(1))));
+      } else if (controls.args[0] === 'route') {
+        console.log(JSON.stringify(await runContextRoute(args.slice(1), controls)));
+      } else if (args[0] === 'call') {
+        const invocation = resolveCliInvocation(args);
+        if (!invocation.toolName) fail('context_invalid_arguments', 2);
+        const businessArgs = { ...invocation.flagArgs, ...parseArgsJson(invocation.argsJson) };
+        const format = resolveOutputFormat(outputFormat);
+        const mapping = format === 'markdown' ? (await import('./column-mappings.js')).lookupColumnMapping(invocation.toolName) : undefined;
+        const render = completed => {
+          const raw = completed.raw;
+          const output = raw && typeof raw === 'object' && !Array.isArray(raw)
+            ? { ...raw, trace_id: completed.traceID } : { result: raw, trace_id: completed.traceID };
+          return formatCallOutput(output, format, { mapping });
+        };
+        let delivered = false;
+        const deliver = process.stdout.isTTY && format === 'markdown' ? async completed => {
+          delivered = true;
+          await new Promise((resolve, reject) => process.stdout.write(render(completed) + '\n', error => error ? reject(error) : resolve()));
+        } : undefined;
+        const completed = await runContextCall({ id: controls.context, tool: invocation.toolName, args: businessArgs,
+          decision: controls.decision, step: controls.step, deliver,
+          invoke: (tool, params, binding) => cmdCall(tool, JSON.stringify(params), { verbose, profile, loginWaitSeconds,
+            executionSnapshot: binding?.executionSnapshot, returnResult: true, outputFormat: 'json' }) });
+        if (!delivered) console.log(render(completed));
+        process.stderr.write('WEBCLI_CONTEXT ' + JSON.stringify(completed.receipt) + '\n');
+        process.exitCode = completed.contextExitCode || completed.exitCode;
+      } else fail('context_unsupported_command', 2);
+    } catch (error) {
+      const safe = error instanceof ContextError ? error : new ContextError('context_storage_or_call_failed');
+      console.error(JSON.stringify({ error: safe.code }));
+      process.exitCode = safe.exitCode;
+    }
+    return;
+  }
   // Route has its own natural-language argument parser, including a literal --.
   if (process.argv[2] === 'route') {
     const { runRouteCommand } = await import('./route-command.js');
@@ -1797,7 +1886,7 @@ const isDirectExecution = isDirectCliExecution();
 if (isDirectExecution) {
   main().catch(e => {
     process.stderr.write(`[WebCLI] Fatal: ${e.message}\n`);
-    process.exitCode = 1;
+    process.exitCode = [2, 3, 4].includes(e.exitCode) ? e.exitCode : 1;
   });
 }
 

@@ -102,6 +102,7 @@
           rank: i + 1,
           id: id2,
           author: item.author?.name || "anonymous",
+          context_title: window.__zhihu.contextTitle(stripHtml(item.content || '')),
           votes: item.voteup_count || 0,
           url: id2 ? `https://www.zhihu.com/question/${questionId}/answer/${id2}` : "",
           content: stripHtml(item.content || "").substring(0, 200)

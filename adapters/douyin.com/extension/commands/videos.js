@@ -90,6 +90,7 @@ kwargs={...{"limit":20,"status":"all"},...kwargs};kwargs["limit"]=integer(kwargs
         return rows.slice(0, limit).map((v) => ({
             aweme_id: v.aweme_id,
             title: v.desc ?? '',
+            context_title: Array.from(String(v.desc || v.aweme_id || '').replace(/\s+/g, ' ').trim()).slice(0, 60).join(''),
             status: normalizeVideoStatus(v.status, v.public_time),
             play_count: v.statistics?.play_count ?? null,
             digg_count: v.statistics?.digg_count ?? null,

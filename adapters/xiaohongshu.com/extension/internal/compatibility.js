@@ -17,12 +17,13 @@ window.__xhsLegacyAction = async function (name, input = {}) {
   const id = input.id === undefined ? '' : String(input.id).trim();
   if (id && !/^[a-f0-9]{24}$/i.test(id)) throw new Error('Invalid note id');
   const target = window.__xhsOpenCLI.trustedUrl(input.url || (id ? `https://www.xiaohongshu.com/explore/${id}` : location.href));
-  const notePath = /^\/(?:explore|search_result)\/([a-f0-9]{24})\/?$/i;
-  const targetId = target.pathname.match(notePath)?.[1];
+  const getNoteId = path => path.match(/^\/(?:explore|search_result|note|discovery\/item)\/([a-f0-9]{24})\/?$/i)?.[1] || path.match(/^\/user\/profile\/[a-f0-9]{24}\/([a-f0-9]{24})\/?$/i)?.[1];
+  const targetId = getNoteId(target.pathname);
   if (target.hostname !== 'www.xiaohongshu.com' || !targetId) throw new Error('A Xiaohongshu note page is required');
+  if (id && id !== targetId) throw new Error('Note id does not match its URL');
   const current = new URL(location.href);
-  if (current.origin !== target.origin || current.pathname.match(notePath)?.[1] !== targetId) {
-    return { __webcli_navigation: { version: 1, url: target.href, resume: false, result: { status: 'ready_to_retry', executed: false, message: '笔记页面已打开，尚未点赞或收藏；请用相同参数再次调用。' } } };
+  if (current.origin !== target.origin || getNoteId(current.pathname) !== targetId) {
+    return { __webcli_navigation: { version: 1, url: target.href, resume: false, phase: 'prepare', result: { status: 'ready_to_retry', executed: false, message: '笔记页面已打开，尚未点赞或收藏；请用相同参数再次调用。' } } };
   }
   return window.__xiaohongshu_com_internal.invoke(`xiaohongshu.com.${name}`, input);
 };

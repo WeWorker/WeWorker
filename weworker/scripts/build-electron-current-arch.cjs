@@ -35,7 +35,7 @@ function buildElectronCommand(
   }
 }
 
-function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) {
+function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath, platform = process.platform } = {}) {
   const packagePath = path.join(root, 'package.json')
   const deploymentPath = path.join(root, 'deployment.json')
   const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
@@ -44,14 +44,21 @@ function createElectronBuilderConfig({ root = WEWORKER_ROOT, outputPath } = {}) 
     ...packageJson.build,
     publish: [{ provider: 'generic', url: deployment.updateSources[0].url }],
   }
+  if (platform === 'win32') {
+    config.extraResources = config.extraResources.map(resource => resource.to === 'webwright'
+      ? { ...resource, filter: [...(resource.filter || ['**/*']), '!_internal/playwright/driver/node.exe'] }
+      : resource)
+  }
   const targetPath = outputPath || path.join(root, 'build', '.electron-builder-config.json')
   fs.mkdirSync(path.dirname(targetPath), { recursive: true })
   fs.writeFileSync(targetPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
   return targetPath
 }
 
-function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2)) {
   if (argv.length !== 1) throw new Error('Usage: node scripts/build-electron-current-arch.cjs --mac|--win')
+  buildElectronArgs(argv[0])
+  if (argv[0] === '--win') await require('./prepare-node-runtime.cjs').prepareNodeRuntime()
   const configPath = createElectronBuilderConfig()
   const { executable, args } = buildElectronCommand(argv[0], process.platform, process.arch, process.execPath, require.resolve('electron-builder/cli.js'), configPath)
   const result = spawnSync(executable, args, { cwd: path.resolve(__dirname, '..'), stdio: 'inherit', shell: false })
@@ -60,12 +67,10 @@ function main(argv = process.argv.slice(2)) {
 }
 
 if (require.main === module) {
-  try {
-    main()
-  } catch (error) {
+  main().catch(error => {
     console.error(`[build] ${error.message}`)
     process.exitCode = 1
-  }
+  })
 }
 
 module.exports = { buildElectronArgs, buildElectronCommand, createElectronBuilderConfig }

@@ -9,6 +9,7 @@ import { isBuiltinProvider, hasFixedModel } from '../../store/settings.js'
 import ChannelsTab from './ChannelsTab.jsx'
 import SkillsTab from './SkillsTab.jsx'
 import LogsTab from './LogsTab.jsx'
+import FastRoutesTab from './FastRoutesTab.jsx'
 import MemoryTab from './MemoryTab.jsx'
 import { useUserFilesStore } from '../../store/user-files.js'
 import { listSelectableStyles, isCustomStyleId, DEFAULT_STYLE_ID as DEFAULT_STYLE } from '../../store/styles.js'
@@ -143,7 +144,7 @@ const LOGOS = {
 const SETTINGS_GROUPS = [
   { label: '常用设置', items: [['model', '模型'], ['config', '应用偏好'], ['memory', '记忆']] },
   { label: '高级设置', items: [['channels', '通道'], ['permissions', '权限与安全'], ['browser', '浏览器'], ['logs', '运行日志']] },
-  { label: '扩展', items: [['webcli-route', 'WebCLI 路由']] },
+  { label: '扩展', items: [['webcli-route', 'WebCLI 路由'], ['fast-routes', '快捷路由']] },
   { label: '应用信息', items: [['about', '关于']] },
 ]
 const SETTINGS_DESCRIPTIONS = {
@@ -155,6 +156,7 @@ const SETTINGS_DESCRIPTIONS = {
   browser: '管理网站操作浏览器与连接设置。',
   logs: '查看运行记录，帮助排查问题。',
   'webcli-route': '默认关闭。开启后，在直接路由未命中时为 Agent 提供命令推荐。',
+  'fast-routes': '审核待启用的快捷路由并查看已配置路由。',
   about: '查看版本信息与更新选项。',
 }
 
@@ -273,6 +275,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'permissions' && <PermissionsTab />}
             {tab === 'browser' && <BrowserTab />}
             {tab === 'webcli-route' && <WebcliRouteTab />}
+            {tab === 'fast-routes' && <FastRoutesTab />}
             {personalizationMounted && <ConfigTab active={tab === 'config'} showStyle showOther={false} />}
             {tab === 'memory' && <MemoryTab />}
             {tab === 'skills' && <SkillsTab />}

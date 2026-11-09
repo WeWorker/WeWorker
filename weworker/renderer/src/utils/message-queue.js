@@ -113,7 +113,7 @@ export function createMessageQueue(handlers = {}) {
       const item = items.find(item => item.id === id)
       if (!item || (!text.trim() && !item.files.length) || transition) return false
       items = items.map(item => item.id === id ? {
-        ...item, text: text.trim(),
+        ...item, text: text.trim(), scenarioHint: item.scenarioHint?.text === text.trim() ? item.scenarioHint : null,
         ...(item.command ? { command: text.trim().startsWith('!') ? text.trim().slice(1).trim() : undefined } : {}),
       } : item)
       editingId = null; publish(); schedule(); return true

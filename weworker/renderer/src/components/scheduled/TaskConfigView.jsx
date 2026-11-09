@@ -109,6 +109,9 @@ export default function TaskConfigView({ taskId }) {
   const enabledChannels = useMemo(() => getEnabledChannels(channels), [channels])
   const hasUpcomingRuns = useMemo(() => Boolean(cronExpression && getNextRuns(schedule, 1).length), [cronExpression, schedule])
   const canSave = Boolean(title.trim() && promptTemplate.trim() && hasUpcomingRuns)
+  const weeklyDays = schedule.weekdayPreset === null ? schedule.weekdays : [Number(schedule.weekday)]
+  const weeklyValue = weeklyDays.join(',')
+  const weeklyLabel = weeklyDays.map((day) => WEEKDAY_OPTIONS.find((option) => option.value === String(day))?.label).join('、')
 
   if (!task) {
     return <div style={{ padding: 40, color: 'var(--text-muted)', textAlign: 'center' }}>任务不存在</div>
@@ -298,7 +301,13 @@ export default function TaskConfigView({ taskId }) {
 
               {schedule.frequency === 'weekly' && (
                 <label style={inlineLabel}>
-                  <AppDropdownSelect ariaLabel="执行星期" value={schedule.weekday} options={WEEKDAY_OPTIONS} onChange={value => updateSchedule({ weekday: value })} />
+                  <AppDropdownSelect
+                    ariaLabel="执行星期"
+                    value={weeklyValue}
+                    options={WEEKDAY_OPTIONS}
+                    fallbackOption={{ value: weeklyValue, label: weeklyLabel }}
+                    onChange={value => updateSchedule({ weekday: value, weekdays: [Number(value)], weekdayPreset: null })}
+                  />
                 </label>
               )}
 

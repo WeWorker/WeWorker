@@ -37,7 +37,7 @@ __webcliRegisterCommand('download',async(args={})=>{
   const output=args.output??'./zhihu-articles';if(typeof output!=='string'||!output.trim()||output.includes('\0'))throw new ArgumentError('output must be a nonempty directory');
   const images=boolean(args['download-images']);
   const url=target.kind==='answer'?'https://www.zhihu.com/answer/'+target.answerId:target.url;
-  if(!ready(url))return navigate(url);guard();
+  if(!ready(url))return {__webcli_navigation:{version:1,url,resume:false,phase:'prepare',result:{status:'prepared',message:'导出页面已准备，尚未写入文件；请核对后重新调用。'}}};guard();
   const data=target.kind==='answer'?await window.__zhihuExport.extractAnswer(null,target):{...await window.__zhihuExport.extractColumnArticle(null,target),sourceUrl:target.url};
   return exportArticle(data,{output,images});
 });})();

@@ -46,7 +46,40 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "resultId",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看酒店详情",
+              "command": "hotel",
+              "args": {
+                "id": {
+                  "from": "item.hotelId"
+                }
+              }
+            },
+            {
+              "id": "hotels",
+              "label": "查询酒店",
+              "command": "hotel-search",
+              "args": {
+                "city": {
+                  "from": "item.hotelCityId"
+                }
+              },
+              "inputs": [
+                "checkin",
+                "checkout"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "destination-search",
@@ -76,7 +109,40 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "destinationId",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看景点",
+              "command": "attraction",
+              "args": {
+                "city": {
+                  "from": "item.destinationId"
+                }
+              }
+            },
+            {
+              "id": "hotels",
+              "label": "查询酒店",
+              "command": "hotel-search",
+              "args": {
+                "city": {
+                  "from": "item.hotelCityId"
+                }
+              },
+              "inputs": [
+                "checkin",
+                "checkout"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "hotel-suggest",
@@ -106,7 +172,40 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "resultId",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看酒店详情",
+              "command": "hotel",
+              "args": {
+                "id": {
+                  "from": "item.hotelId"
+                }
+              }
+            },
+            {
+              "id": "hotels",
+              "label": "查询酒店",
+              "command": "hotel-search",
+              "args": {
+                "city": {
+                  "from": "item.hotelCityId"
+                }
+              },
+              "inputs": [
+                "checkin",
+                "checkout"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -124,7 +223,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Account diagnostic only; no profile-detail, order-history or account-edit command exists."
+        }
+      ]
     },
     {
       "id": "login",
@@ -173,7 +278,26 @@
           "checkout"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "hotelId",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "hotel",
+              "args": {
+                "id": {
+                  "from": "item.hotelId"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "hotel",
@@ -186,7 +310,10 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "integer",
+            "type": [
+              "string",
+              "integer"
+            ],
             "description": "从 hotel-suggest 的 Hotel 条目 id、hotel-search 的 hotelId 或用户提供的携程酒店详情链接中取得。"
           }
         },
@@ -194,7 +321,13 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Hotel profile is terminal in this package; no room-list, room-detail, reservation or payment command exists."
+        }
+      ]
     },
     {
       "id": "train",
@@ -229,7 +362,13 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Train service candidates have no train-detail, fare-detail or booking command in this package. Public train numbers are not 12306 internal train_no identifiers."
+        }
+      ]
     },
     {
       "id": "bus",
@@ -264,7 +403,13 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Bus candidates have no departure-detail, seat selection or booking command in this package."
+        }
+      ]
     },
     {
       "id": "ferry",
@@ -299,7 +444,13 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Ferry candidates have no sailing-detail, cabin selection or booking command in this package."
+        }
+      ]
     },
     {
       "id": "flight",
@@ -334,7 +485,13 @@
           "date"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Flight candidates have no itinerary-detail, seat selection or booking command in this package; flight-round is a separate route/date query, not detail for this row."
+        }
+      ]
     },
     {
       "id": "flight-round",
@@ -374,7 +531,13 @@
           "return"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Round-trip combinations have no combination-detail, seat selection or booking command in this package; a one-way search would discard the selected combination and quote scope."
+        }
+      ]
     },
     {
       "id": "attraction",
@@ -399,7 +562,13 @@
           "city"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Attraction candidates have no sight-detail, review or ticket command in this package."
+        }
+      ]
     },
     {
       "id": "cruise",
@@ -424,7 +593,13 @@
           "port"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Cruise candidates have no route-detail, cabin-detail or booking command in this package."
+        }
+      ]
     },
     {
       "id": "tour",
@@ -449,7 +624,13 @@
           "destination"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Tour product candidates have no product-detail or booking command in this package. A keyword query cannot represent the selected product."
+        }
+      ]
     },
     {
       "id": "package",
@@ -474,7 +655,13 @@
           "destination"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Package candidates have no product-detail or booking command in this package. Another keyword query cannot verify this exact package price or inclusions."
+        }
+      ]
     }
   ],
   "runtime_allowed_hosts": [

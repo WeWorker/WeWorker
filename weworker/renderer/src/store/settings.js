@@ -363,6 +363,24 @@ export const useSettingsStore = create((set, get) => ({
     }
   },
 
+  // Poll only pairing fields; never replace credentials or resurrect deleted profiles.
+  refreshChannelOwnerBinding: async (id) => {
+    const before = get().channels.configurations?.[id]
+    if (before?.type !== 'wecom') return
+    const res = await backendFetch(`${API}/settings/channels`, { cache: 'no-store' })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '刷新绑定状态失败')
+    const next = data.configurations?.[id]
+    if (next?.type !== 'wecom' || next.config.bot_id !== before.config.bot_id) return
+    set(state => {
+      if (state.channels.configurations?.[id] !== before) return state
+      const binding = { owner_user_id: next.config.owner_user_id || '', pairing_code: next.config.pairing_code || '', owner_permission_level: next.config.owner_permission_level || 'qa_only' }
+      const channels = { ...state.channels, configurations: { ...state.channels.configurations, [id]: { ...before, config: { ...before.config, ...binding } } } }
+      if (channels.active_ids?.wecom === id && data.active_ids?.wecom === id) channels.wecom = { ...channels.wecom, ...binding }
+      return { channels }
+    })
+  },
+
   channelProfileAction: async (channel, action, id, input = {}) => {
     const res = await backendFetch(`${API}/settings/channels/configuration`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

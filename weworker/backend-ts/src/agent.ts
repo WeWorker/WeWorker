@@ -23,6 +23,8 @@ import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode 
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
 import { markCompactionFinished, markCompactionProgress, markCompactionStarted } from './compaction-status.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
+import { bindReadQueryReceipt, discardReadQueryTurn, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
+import { randomUUID } from 'node:crypto'
 import { parseAllAdapters } from './adapter-parser.js'
 import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
 import { bridgeStatus, type ExtensionInstance } from './bridge-status.js'
@@ -347,7 +349,7 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
     ? `Claude Code 内置 ${nativeCommandTool}（必须使用；仅在其不可用时用 WeWorker Shell 兜底）`
     : 'WeWorker Shell'
   const nativeCommandPreference = adapterExecutionEnabled
-    ? `必须使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。`
+    ? `单步查询现有已启用的只读直调 Adapter 工具时，优先使用结构化 weworker_read_query（name 与 args），由后端校验并执行真实 WebCLI；不适用或失败时仍可按 Skill 用原生命令工具执行 webcli call。必须使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和其他 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。`
     : ''
   const webcliInvokeDesc = `${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
   const openBrowserDesc = `使用${commandToolDescription}执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
@@ -1297,6 +1299,9 @@ async function* streamChatWithBaseUrl(
     && !opts.forceCompaction
     && !opts.compactionOnly
   // Callbacks that a reused session must take from the current turn.
+  const readQueryTurnId = randomUUID()
+  const readQueryScope = { current: opts.workId && !opts.mcpServerOverride && !opts.systemPromptOverride && !opts.isolatedClaudeConfigDir
+    && (channelPermissionMode === 'full' || channelPermissionMode === 'workspace') ? readQueryTurnId : null }
   const turnBindings: ChatTurnBindings = {
     workIdRef: { current: opts.workId ?? null },
     onAskUser: opts.onAskUser ?? null,
@@ -1305,6 +1310,7 @@ async function* streamChatWithBaseUrl(
     memory: { userPromptInjections: 0, postToolBatchInjections: 0 },
   }
 
+  ;(turnBindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
   const mcpServer = _buildMcpServer({
     channelPermissionMode,
     workspaceDirectory,
@@ -1313,6 +1319,7 @@ async function* streamChatWithBaseUrl(
     channelAskUserHandler: opts.channelAskUserHandler ?? null,
     abortSignal: abortController?.signal,
     userMedia: () => turnBindings.userMedia ?? null,
+    readQueryScope: () => ({ workId: opts.workId ?? null, turnId: readQueryScope.current }),
   })
   const activeMcpServer = opts.mcpServerOverride || mcpServer
   const claudeSetup: { pathToClaudeCodeExecutable?: string; executable?: string; extraEnv?: Record<string, string> } = process.env.WEWORKER_PACKAGED
@@ -1848,6 +1855,7 @@ async function* streamChatWithBaseUrl(
         askUserSSECallback: (event) => bindings.onAskUser?.(event),
         channelAskUserHandler: null,
         userMedia: () => bindings.userMedia ?? null,
+        readQueryScope: () => ({ workId: bindings.workIdRef.current, turnId: (bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId ?? null }),
       })
       const releaseRuntime = internal.adoptModelRuntime()
       return new ChatSession({
@@ -1890,6 +1898,7 @@ async function* streamChatWithBaseUrl(
       const prewarmed = reusable.fresh
       sessionState = prewarmed ? 'prewarmed' : 'reused'
       reusable.bindings.workIdRef.current = turnWorkId
+      ;(reusable.bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
       reusable.bindings.onAskUser = turnBindings.onAskUser
       reusable.bindings.userMedia = turnBindings.userMedia
       reusable.bindings.extraToolGuard = turnBindings.extraToolGuard
@@ -1949,6 +1958,7 @@ async function* streamChatWithBaseUrl(
   let completed = false
   let turnFailed = false
   const contextUsageTracker = createContextUsageTracker()
+  const readQueryCalls = new Set<string>()
   try {
     log.info(' starting for-await over queryHandle')
     let firstEventReceived = false
@@ -1991,6 +2001,21 @@ async function* streamChatWithBaseUrl(
           event.usage = { ...event.usage, context_input_tokens: latestModelInputTokens }
         }
         if (event.type === 'memory_parse') memoryParseCount += 1
+        if (event.type === 'tool_call_start' && event.id && event.name === READ_QUERY_TOOL_NAME
+          && msg.type === 'assistant') {
+          readQueryCalls.add(event.id)
+          // Do not leak model-supplied query arguments into work logs/UI; the
+          // trusted receipt, not this SSE event, provides fixed learning args.
+          event.args = {}
+        }
+        if (event.type === 'tool_call_result' && event.id && readQueryCalls.has(event.id)
+          && msg.type === 'user' && !event.isError && opts.workId && readQueryScope.current) {
+          try {
+            const parsed = JSON.parse(String(event.result)) as Record<string, unknown>
+            const token = parsed[READ_QUERY_RECEIPT_FIELD]
+            if (typeof token === 'string') bindReadQueryReceipt(token, opts.workId, readQueryScope.current, event.id)
+          } catch { /* not a typed read-query receipt */ }
+        }
         if (event.type === 'error') turnFailed = true
         if (
           event.type === 'text_delta'
@@ -2031,6 +2056,9 @@ async function* streamChatWithBaseUrl(
   } finally {
     log.info(' finally block - setting queryRunning=false')
     queryRunning = false
+    if (opts.workId && readQueryScope.current) discardReadQueryTurn(opts.workId, readQueryScope.current)
+    readQueryScope.current = null
+    ;(activeBindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = null
     if (abortController) {
       abortController.signal.removeEventListener('abort', onAbort)
     }

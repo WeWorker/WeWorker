@@ -22,6 +22,7 @@ import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { requestChatWarmup } from '../../api/backend.js'
 import { buildOpenWarmupRequest } from '../../utils/chat-warmup.js'
 import { scheduledTasksPageState } from '../../utils/scheduled-tasks-view.js'
+import { scenarioForSend } from '../../utils/scenario-hint.js'
 
 export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, activeSidebarSection, compactLayout = false }) {
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
@@ -38,7 +39,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   const draftProjectId = useWorksStore(s => s.draftProjectId)
   const projects = useWorksStore(s => s.projects)
   const draftKey = draftProjectId ? `project-draft:${draftProjectId}` : 'welcome'
-  const { inputText, setInputText, attachments, setAttachments } = useChatDraft(draftKey)
+  const { inputText, setInputText, attachments, setAttachments, scenarioHint } = useChatDraft(draftKey)
   const creatingRef = React.useRef(false)
   const [creating, setCreating] = React.useState(false)
   const maxChatAttachments = useSettingsStore((s) => s.maxChatAttachments)
@@ -46,6 +47,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   const zcfCustomRoles = useSettingsStore((s) => s.zcfCustomRoles)
   const fillSeq = useChatInputFillStore((s) => s.seq)
   const fillText = useChatInputFillStore((s) => s.text)
+  const fillScenario = useChatInputFillStore((s) => s.scenario)
   const handledFillSeqRef = React.useRef(fillSeq)
   const tasksPageState = scheduledTasksPageState(
     activeWorkId || toolPackageOpen || explorationOpen ? null : activeSidebarSection,
@@ -63,9 +65,9 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
     if (fillSeq <= handledFillSeqRef.current) return
     handledFillSeqRef.current = fillSeq
     if (!activeWorkId && !activeTaskId && !websiteOpen && !dedicatedAgentsOpen && !toolPackageOpen && !explorationOpen) {
-      setInputText(fillText)
+      useChatDraftStore.getState().fillScenario(draftKey, fillText, fillScenario)
     }
-  }, [activeTaskId, activeWorkId, websiteOpen, dedicatedAgentsOpen, toolPackageOpen, explorationOpen, fillSeq, fillText, setInputText])
+  }, [activeTaskId, activeWorkId, websiteOpen, dedicatedAgentsOpen, toolPackageOpen, explorationOpen, fillSeq, fillText, fillScenario, draftKey])
 
   React.useEffect(() => {
     if (activeWorkId || activeTaskId || activeSidebarSection === 'tasks' || websiteOpen || dedicatedAgentsOpen || toolPackageOpen || explorationOpen) return
@@ -77,7 +79,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
     if (creatingRef.current) return
     creatingRef.current = true
     setCreating(true)
-    const savedDraft = { text: inputText, attachments }
+    const savedDraft = { text: inputText, attachments, scenarioHint }
     closeToolPackagePage()
     useWorksStore.setState(pending)
     try {
@@ -85,8 +87,8 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
       if (!work) throw new Error('Draft creation cancelled')
       useChatDraftStore.getState().discard(draftKey)
     } catch {
-      useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingShellCommand: null })
-      useChatDraftStore.getState().setText(draftKey, savedDraft.text)
+      useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingScenario: null, pendingShellCommand: null })
+      useChatDraftStore.getState().fillScenario(draftKey, savedDraft.text, savedDraft.scenarioHint?.scenario)
       useChatDraftStore.getState().setAttachments(draftKey, savedDraft.attachments)
     } finally {
       creatingRef.current = false
@@ -96,6 +98,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
 
   const handleSendFromWelcome = (text, files = [], thinkingEffort = 'off', permissionMode = 'workspace') => submitDraft({
     pendingMessage: text, pendingAttachments: files, pendingThinkingEffort: thinkingEffort, pendingPermissionMode: permissionMode,
+    pendingScenario: scenarioForSend(useChatDraftStore.getState().drafts[draftKey]?.scenarioHint, text, files),
   })
 
   const handleShellCommandFromWelcome = (command, originalText = '') => {
@@ -104,8 +107,8 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
     return submitDraft({ pendingShellCommand: { command: trimmed, originalText: originalText || `!${trimmed}` } })
   }
 
-  const handleFillInput = (text) => {
-    setInputText(text)
+  const handleFillInput = (text, scenario) => {
+    useChatDraftStore.getState().fillScenario(draftKey, text, scenario)
   }
 
   if (websiteOpen) {
@@ -204,7 +207,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   return (
     <MainWorkspaceShell>
       {draftProjectId && <DraftProjectNotice projectName={projects.find(project => project.id === draftProjectId)?.name || '工作区'} />}
-      <WelcomeScreen onFillInput={handleFillInput}>
+      <WelcomeScreen onFillInput={handleFillInput} />
       <ChatBottomDock
         variant="welcome"
         disabled={creating}
@@ -220,7 +223,6 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
         // style handleSendFromWelcome will persist into the new work.
         onWarmup={(thinkingEffort) => requestChatWarmup(null, { thinkingEffort, styleId })}
       />
-      </WelcomeScreen>
     </MainWorkspaceShell>
   )
 }

@@ -1,5 +1,6 @@
 const esbuild = require('esbuild')
 const path = require('path')
+const fs = require('fs')
 
 const projectRoot = path.resolve(__dirname, '../..')
 
@@ -27,6 +28,7 @@ await esbuild.build({
 })
 
 console.log('Bridge bundle created: build/bridge-dist/bridge.cjs')
+fs.copyFileSync(path.join(__dirname, 'bridge-parent.cjs'), path.resolve(__dirname, '../build/bridge-dist/bridge-parent.cjs'))
 require('./host-keychain-deps.cjs').copyHostKeychainDeps(path.resolve(__dirname, '../build/bridge-dist'))
 
 }

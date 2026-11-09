@@ -25,6 +25,14 @@ WeWorker 将 Webwright 作为内置伴生服务和标准 Skill 的 Python/Playwr
 - Electron `extraResources` 只将当前构建生成的 `Webwright/` 放入安装包资源目录 `webwright/`。
 - Webwright `onedir` 必须包含 `THIRD_PARTY_NOTICES.txt` 和 `licenses/`。构建从锁定环境提取实际冻结组件的准确版本、许可证和 NOTICE；Webwright MIT、CPython PSF、Playwright Apache 2.0／NOTICE、PyInstaller Bootloader Exception 及 certifi MPL 2.0／准确版本源码获取说明缺失时直接失败。
 
+### Windows 共享 Node 运行时
+
+Windows x64 桌面安装包由公共构建脚本提供固定版本、校验 SHA256 并附许可证的 `resources/node-runtime/node.exe`。Bridge、官方 CLI 子进程和网站探索agent的 Playwright driver 共用这一运行时。
+
+最终 Windows 资源组装排除探索组件的 `_internal/playwright/driver/node.exe`，并在其运行时 manifest 中记录 `node_runtime: "shared"`。冻结程序的统一入口在服务、Worker 和 `--internal-script` 分发前，将 Playwright 原生支持的 `PLAYWRIGHT_NODEJS_PATH` 设置为固定的公共路径；缺失时明确失败，不回退到系统 Node 或 Electron。独立 Toolkit 调用也经过该入口，不依赖探索服务是否运行。
+
+原始 onedir、standalone 和 macOS 仍使用既有布局。打包后必须校验公共 Node 的摘要和许可证，确认没有重复 Node，并通过最终冻结入口实际启停一次 Playwright driver。该构建检查不启动浏览器或访问外部网络；安装包验收另需验证受管浏览器、业务只读调用与退出清理。
+
 ## 生命周期
 
 `WebwrightManager` 使用以下状态：

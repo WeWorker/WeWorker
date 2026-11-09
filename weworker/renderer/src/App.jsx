@@ -430,7 +430,7 @@ export default function App() {
           <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 2 }}>v{appVersion || ''}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' }}>
-        {settingsLoaded && onboardingCompleted && <UpdatePrompt />}
+        {settingsLoaded && onboardingCompleted && compactLayout && sidebarCollapsed && !showSettings && !focusedWorkspaceOpen && <UpdatePrompt />}
         {!isMac && (
           <div className="app-window-controls" aria-label="窗口控制">
             <button type="button" className="app-window-control" aria-label="最小化" onClick={() => window.electronAPI?.minimizeWindow?.()}>

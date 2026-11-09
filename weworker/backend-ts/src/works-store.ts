@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type { LoadedSkillContext } from './skill-context.js'
-import { ensureProjectDirectory, ensureProjectsDirectory, expandHomePath, getConfigDirectory, getUserDirectory } from './config.js'
+import { ensureProjectDirectory, ensureProjectsDirectory, getUserDirectory } from './config.js'
 import { listArchivedWorkIds, removeArchivedWork, setWorkArchived } from './conversation-archive.js'
 import { appendWorkLog } from './work-log-file.js'
 
@@ -208,164 +208,8 @@ function db(): DatabaseSync {
   ]) {
     try { _db.exec(statement) } catch { /* column already exists */ }
   }
-  migrateLegacyWorkspacePaths(
-    _db,
-    getUserDirectory(),
-    path.join(getConfigDirectory(), 'projects'),
-    ensureProjectsDirectory(),
-  )
+  // Existing paths are authoritative; only newly created workspaces use projects/.
   return _db
-}
-
-type PathMapping = { from: string; to: string }
-
-function pathInside(target: string, root: string): boolean {
-  const relative = path.relative(root, target)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
-}
-
-function remapLegacyPath(value: string, mappings: PathMapping[]): string {
-  const resolved = path.resolve(expandHomePath(value))
-  for (const mapping of mappings) {
-    if (!pathInside(resolved, mapping.from)) continue
-    return path.join(mapping.to, path.relative(mapping.from, resolved))
-  }
-  return value
-}
-
-function rewriteLegacyPaths(value: unknown, mappings: PathMapping[]): { value: unknown; changed: boolean } {
-  if (typeof value === 'string') {
-    const next = remapLegacyPath(value, mappings)
-    return { value: next, changed: next !== value }
-  }
-  if (Array.isArray(value)) {
-    let changed = false
-    const next = value.map((item) => {
-      const rewritten = rewriteLegacyPaths(item, mappings)
-      changed ||= rewritten.changed
-      return rewritten.value
-    })
-    return { value: next, changed }
-  }
-  if (!value || typeof value !== 'object') return { value, changed: false }
-  let changed = false
-  const next: Record<string, unknown> = {}
-  for (const [key, item] of Object.entries(value)) {
-    const rewritten = rewriteLegacyPaths(item, mappings)
-    changed ||= rewritten.changed
-    next[key] = rewritten.value
-  }
-  return { value: next, changed }
-}
-
-export function migrateLegacyWorkspacePaths(
-  database: DatabaseSync,
-  userDirectory: string,
-  legacyProjectsDirectory: string,
-  projectsDirectory: string,
-): void {
-  const userRoot = path.resolve(userDirectory)
-  const legacyProjectsRoot = path.resolve(legacyProjectsDirectory)
-  const projectsRoot = path.resolve(projectsDirectory)
-  if (legacyProjectsRoot === projectsRoot && userRoot === projectsRoot) return
-
-  const projects = database.prepare('SELECT id, folder_path FROM projects').all() as Array<{ id: string; folder_path: string }>
-  const mappings: PathMapping[] = []
-  const projectUpdates = projects.map((project) => {
-    const current = path.resolve(expandHomePath(project.folder_path))
-    const legacyRoot = pathInside(current, legacyProjectsRoot) && current !== legacyProjectsRoot
-      ? legacyProjectsRoot
-      : pathInside(current, userRoot) && current !== userRoot
-        ? userRoot
-        : null
-    const next = pathInside(current, projectsRoot)
-      ? project.folder_path
-      : legacyRoot
-        ? path.join(projectsRoot, path.relative(legacyRoot, current))
-        : project.folder_path
-    if (next !== project.folder_path) {
-      const destination = path.resolve(next)
-      mappings.push({ from: current, to: destination })
-      if (!fs.existsSync(current) && pathInside(current, userRoot) && current !== userRoot) {
-        const relocated = path.join(legacyProjectsRoot, path.relative(userRoot, current))
-        if (fs.existsSync(relocated)) mappings.push({ from: relocated, to: destination })
-      }
-    }
-    return { id: project.id, folder_path: next }
-  }).filter((project, index) => project.folder_path !== projects[index].folder_path)
-
-  // Move only paths owned by project/workspace records; user-files remains the user area.
-  for (const mapping of mappings) moveLegacyDirectory(mapping.from, mapping.to)
-  for (const name of ['default', 'scheduled-tasks', 'agents']) {
-    const destination = path.join(projectsRoot, name)
-    for (const sourceRoot of [userRoot, legacyProjectsRoot]) {
-      const source = path.join(sourceRoot, name)
-      if (path.resolve(source) === path.resolve(destination)) continue
-      mappings.push({ from: source, to: destination })
-      moveLegacyDirectory(source, destination)
-    }
-  }
-  mappings.sort((left, right) => right.from.length - left.from.length)
-
-  const workUpdates = (database.prepare('SELECT id, workspace_directory FROM works').all() as Array<{ id: string; workspace_directory: string }>).flatMap((work) => {
-    const workspaceDirectory = work.workspace_directory ? remapLegacyPath(work.workspace_directory, mappings) : work.workspace_directory
-    return workspaceDirectory === work.workspace_directory ? [] : [{ id: work.id, workspace_directory: workspaceDirectory }]
-  })
-  const scheduledTaskUpdates = (database.prepare('SELECT id, workspace_directory FROM scheduled_tasks').all() as Array<{ id: string; workspace_directory: string }>).flatMap((task) => {
-    const workspaceDirectory = task.workspace_directory ? remapLegacyPath(task.workspace_directory, mappings) : task.workspace_directory
-    return workspaceDirectory === task.workspace_directory ? [] : [{ id: task.id, workspace_directory: workspaceDirectory }]
-  })
-
-  const messages = database.prepare('SELECT id, content FROM messages').all() as Array<{ id: string; content: string }>
-  const messageUpdates: Array<{ id: string; content: string }> = []
-  for (const message of messages) {
-    let parsed: unknown
-    try { parsed = JSON.parse(message.content) } catch { continue }
-    const rewritten = rewriteLegacyPaths(parsed, mappings)
-    if (rewritten.changed) messageUpdates.push({ id: message.id, content: JSON.stringify(rewritten.value) })
-  }
-
-  if (!projectUpdates.length && !workUpdates.length && !scheduledTaskUpdates.length && !messageUpdates.length) return
-  database.exec('BEGIN')
-  try {
-    const updateProject = database.prepare('UPDATE projects SET folder_path = ? WHERE id = ?')
-    for (const project of projectUpdates) updateProject.run(project.folder_path, project.id)
-    const updateWork = database.prepare('UPDATE works SET workspace_directory = ? WHERE id = ?')
-    for (const work of workUpdates) updateWork.run(work.workspace_directory, work.id)
-    const updateScheduledTask = database.prepare('UPDATE scheduled_tasks SET workspace_directory = ? WHERE id = ?')
-    for (const task of scheduledTaskUpdates) updateScheduledTask.run(task.workspace_directory, task.id)
-    const updateMessage = database.prepare('UPDATE messages SET content = ? WHERE id = ?')
-    for (const message of messageUpdates) updateMessage.run(message.content, message.id)
-    database.exec('COMMIT')
-  } catch (error) {
-    database.exec('ROLLBACK')
-    throw error
-  }
-}
-
-function moveLegacyDirectory(source: string, destination: string): void {
-  if (!fs.existsSync(source) || path.resolve(source) === path.resolve(destination)) return
-  fs.mkdirSync(path.dirname(destination), { recursive: true })
-  if (!fs.existsSync(destination)) {
-    fs.renameSync(source, destination)
-    return
-  }
-  if (!fs.statSync(source).isDirectory() || !fs.statSync(destination).isDirectory()) return
-  for (const name of fs.readdirSync(source)) {
-    const from = path.join(source, name)
-    let to = path.join(destination, name)
-    if (fs.existsSync(to)) {
-      const extension = path.extname(name)
-      const stem = name.slice(0, name.length - extension.length)
-      let suffix = 1
-      do {
-        to = path.join(destination, `${stem} (legacy ${suffix})${extension}`)
-        suffix += 1
-      } while (fs.existsSync(to))
-    }
-    fs.renameSync(from, to)
-  }
-  fs.rmSync(source, { recursive: true, force: true })
 }
 
 function toProjectSummary(project: Project): ProjectSummary {
@@ -406,42 +250,29 @@ export function getProjectByName(name: string): ProjectSummary | null {
 }
 
 export function getOrCreateScheduledTaskProject(): ProjectSummary {
-  const folderPath = ensureProjectDirectory('scheduled-tasks')
   const existing = db().prepare('SELECT id, name, folder_path, created_at, updated_at FROM projects WHERE name = ?').get(SCHEDULED_TASK_PROJECT_NAME) as Project | undefined
-  if (!existing) return createProjectRecord(SCHEDULED_TASK_PROJECT_NAME, folderPath)
-
-  const previousFolder = path.resolve(existing.folder_path)
-  const nextFolder = path.resolve(folderPath)
-  if (previousFolder !== nextFolder) {
-    const userRoot = path.resolve(getUserDirectory())
-    if (path.dirname(previousFolder) === userRoot && fs.existsSync(previousFolder)) {
-      let legacyFolder = path.join(nextFolder, 'legacy-project')
-      let suffix = 1
-      while (fs.existsSync(legacyFolder)) {
-        legacyFolder = path.join(nextFolder, `legacy-project-${suffix}`)
-        suffix += 1
-      }
-      fs.renameSync(previousFolder, legacyFolder)
-    }
-    db().prepare('UPDATE projects SET folder_path = ?, updated_at = ? WHERE id = ?').run(nextFolder, new Date().toISOString(), existing.id)
-  }
-
-  db().prepare('UPDATE scheduled_tasks SET workspace_directory = ? WHERE workspace_directory != ?').run(nextFolder, nextFolder)
-  return toProjectSummary(getProject(existing.id)!)
+  if (existing) return toProjectSummary(existing)
+  return createProjectRecord(SCHEDULED_TASK_PROJECT_NAME, ensureProjectDirectory('scheduled-tasks'))
 }
 
 export function moveScheduledTaskWorksToProject(projectId: string): number {
   const project = getProject(projectId)
   if (!project) throw new Error('project not found')
+  // Group history without changing its workspace, including the old project's fallback.
   const result = db().prepare(`
-    UPDATE works SET project_id = ?, workspace_directory = ?
+    UPDATE works SET project_id = ?,
+      workspace_directory = COALESCE(
+        NULLIF(workspace_directory, ''),
+        (SELECT NULLIF(folder_path, '') FROM projects WHERE id = works.project_id),
+        ?
+      )
     WHERE id IN (
       SELECT te.work_id
       FROM task_executions te
       JOIN scheduled_tasks st ON st.id = te.task_id
       WHERE st.agent_id IS NULL
-    ) AND (project_id IS NULL OR project_id != ? OR workspace_directory != ?)
-  `).run(projectId, project.folder_path, projectId, project.folder_path)
+    ) AND (project_id IS NULL OR project_id != ? OR COALESCE(workspace_directory, '') = '')
+  `).run(projectId, getUserDirectory(), projectId)
   return Number(result.changes)
 }
 
@@ -622,7 +453,8 @@ function toWork(row: Record<string, unknown>): Work {
     title: (row.title as string) ?? '',
     label: (row.label as LabelColor) ?? null,
     project_id: (row.project_id as string | null) ?? null,
-    workspace_directory: String(row.workspace_directory || (row.project_id ? getProject(String(row.project_id))?.folder_path : ensureProjectDirectory('default'))),
+    // Legacy rows retain their project directory, or the original user root.
+    workspace_directory: String(row.workspace_directory || (row.project_id ? getProject(String(row.project_id))?.folder_path : null) || getUserDirectory()),
     zcf_role: (row.zcf_role as string | null) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -886,11 +718,8 @@ export function createScheduledTask(
 export function ensureScheduledTaskWorkspace(taskId: string): string {
   const task = getScheduledTask(taskId)
   if (!task) throw new Error('task not found')
-  const project = getOrCreateScheduledTaskProject()
-  const directory = getProject(project.id)!.folder_path
-  if (path.resolve(task.workspace_directory || '') !== path.resolve(directory)) {
-    db().prepare('UPDATE scheduled_tasks SET workspace_directory = ? WHERE id = ?').run(directory, taskId)
-  }
+  const directory = task.workspace_directory || getUserDirectory()
+  fs.mkdirSync(directory, { recursive: true })
   return directory
 }
 

@@ -235,16 +235,6 @@ class DefaultAgent:
             return None
 
         action = str(payload.get("action", "")).strip().lower()
-        if action == "pause":
-            return self.model.format_message(
-                role="exit",
-                content="Task paused by server.",
-                extra={
-                    "exit_status": AgentExitStatus.PAUSED.value,
-                    "submission": "",
-                    "final_response": "",
-                },
-            )
         if action == "cancel":
             return self.model.format_message(
                 role="exit",

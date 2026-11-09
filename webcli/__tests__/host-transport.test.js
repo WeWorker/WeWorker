@@ -13,6 +13,14 @@ import { installAdapter } from '../adapter-install-store.js';
 import { resolveAdapterCall } from '../adapter-host.js';
 
 const cleanup = [];
+it('rejects contextual calls before contacting an embedding host with no context catalog protocol', async () => {
+  let requests = 0;
+  const config = await server((_req, res) => { requests++; res.end('{}'); });
+  const result = await cli(['call', 'example.com.list', '--new-context'], config);
+  expect(result.code).toBe(2);
+  expect(result.stderr).toContain('context_host_unsupported');
+  expect(requests).toBe(0);
+});
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); vi.unstubAllEnvs(); });
 async function server(handle) {
   const instance = createServer(handle);

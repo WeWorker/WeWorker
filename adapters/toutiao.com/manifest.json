@@ -78,7 +78,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Public headline candidates have no article-detail command in this package. Creator articles is the signed-in account management list, not a public article reader."
+        }
+      ]
     },
     {
       "id": "recommend",
@@ -107,7 +113,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Public feed candidates have no article-detail command in this package. Do not route their group IDs into the unrelated creator management list."
+        }
+      ]
     },
     {
       "id": "articles",
@@ -127,7 +139,13 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Creator rows contain title/date/metrics but no stable article ID or detail/edit/publish command. Both source identity extraction and target capabilities would be required for per-article actions."
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -141,7 +159,22 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "user_id",
+          "titleField": "nickname",
+          "actions": [
+            {
+              "id": "articles",
+              "label": "查看我的文章",
+              "command": "articles",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",

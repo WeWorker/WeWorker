@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "generatedAt": "2026-10-14T02:49:24.246Z",
+  "generatedAt": "2026-11-08T09:42:10.982Z",
   "routes": [
     {
       "adapter": "bilibili.com",
@@ -203,6 +203,33 @@
           "flags": "i"
         }
       ],
+      "guardNegative": []
+    },
+    {
+      "adapter": "news.ycombinator.com",
+      "scenarioId": "top-stories",
+      "tool": "top",
+      "enabled": true,
+      "slotNames": [],
+      "promptTemplates": [
+        "查看 Hacker News 热门榜单",
+        "查看 HN 热门帖子"
+      ],
+      "patterns": [
+        {
+          "regex": "^查看HackerNews热门榜单$",
+          "flags": "i"
+        },
+        {
+          "regex": "^查看HN热门帖子$",
+          "flags": "i"
+        }
+      ],
+      "args": {
+        "limit": {
+          "const": 20
+        }
+      },
       "guardNegative": []
     },
     {

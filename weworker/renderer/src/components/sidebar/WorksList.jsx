@@ -272,6 +272,11 @@ export default function WorksList({ searchQuery = '' }) {
             </div>
             {!collapsed && (
               <div className="work-folder-items">
+                {visibleItems.length === 0 && !searchQuery.trim() && !labelFilter && (
+                  <div style={{ padding: '6px 12px 6px 28px', color: 'var(--text-muted)', fontSize: 'var(--font-size-caption)' }}>
+                    没有对话
+                  </div>
+                )}
                 {visibleItems.map((w) => (
                   <WorkItem
                     key={w.id}

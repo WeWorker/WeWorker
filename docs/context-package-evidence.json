@@ -1,0 +1,16 @@
+{
+  "source": "e8b77b8c",
+  "baseline": "e3b7380f",
+  "npm": {
+    "archive": "weworker-webcli-1.1.7.tgz",
+    "entries": 1143,
+    "adapters": 33,
+    "byteComparedFiles": 962,
+    "mismatches": [],
+    "sha256": "26a5d161c004aeedd757cacfd035f2e0321652073e03c0beec4e3fb96df212ac"
+  },
+  "syntax": {
+    "files": 125,
+    "errors": []
+  }
+}
