@@ -1,0 +1,45 @@
+.welcome-prompt-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+  container-type: inline-size;
+}
+.welcome-prompt-shortcut {
+  display: flex;
+  flex: 0 1 calc(50% - 3px);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: calc(var(--font-size-caption) - 1px);
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.welcome-prompt-shortcut:last-child:nth-child(odd) { flex-basis: auto; }
+.welcome-prompt-shortcut:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+.welcome-prompt-shortcut:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.welcome-prompt-shortcut:disabled { opacity: .55; cursor: default; }
+.welcome-prompt-shortcut__text { min-width: 0; overflow-wrap: anywhere; }
+.welcome-prompt-shortcut__arrow { flex-shrink: 0; width: 10px; height: 10px; margin-left: auto; color: var(--text-muted); }
+@container (max-width: 560px) {
+  .welcome-prompt-shortcut,
+  .welcome-prompt-shortcut:last-child:nth-child(odd) { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .welcome-prompt-shortcut { transition: none; }
+}

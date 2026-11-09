@@ -5,7 +5,7 @@ export default function ChatBottomDock({ showInput = true, ...inputProps }) {
   const dockRef = useRef(null)
   useLayoutEffect(() => {
     const dock = dockRef.current
-    const view = dock?.closest('.chat-view')
+    const view = dock?.closest('.chat-view, .workspace-canvas')
     if (!dock || !view) return
     const measure = () => view.style.setProperty('--chat-dock-height', (dock.getBoundingClientRect().height + 16) + 'px')
     measure()

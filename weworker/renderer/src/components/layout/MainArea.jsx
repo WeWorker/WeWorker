@@ -204,7 +204,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   return (
     <MainWorkspaceShell>
       {draftProjectId && <DraftProjectNotice projectName={projects.find(project => project.id === draftProjectId)?.name || '工作区'} />}
-      <WelcomeScreen onFillInput={handleFillInput}>
+      <WelcomeScreen onFillInput={handleFillInput} />
       <ChatBottomDock
         variant="welcome"
         disabled={creating}
@@ -220,7 +220,6 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
         // style handleSendFromWelcome will persist into the new work.
         onWarmup={(thinkingEffort) => requestChatWarmup(null, { thinkingEffort, styleId })}
       />
-      </WelcomeScreen>
     </MainWorkspaceShell>
   )
 }

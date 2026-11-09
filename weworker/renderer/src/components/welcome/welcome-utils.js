@@ -7,6 +7,17 @@ export const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
 export const DEFAULT_FEATURED_SQUARE_CARDS = true
 export const ADD_FEATURED_DROP_TARGET = '__add-featured-drop-target__'
 
+export function scrollFeaturedSitesHorizontally(event, element) {
+  if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
+  const maxScroll = element.scrollWidth - element.clientWidth
+  if (maxScroll <= 0) return
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1
+  const nextScroll = Math.max(0, Math.min(maxScroll, element.scrollLeft + event.deltaY * unit))
+  if (Math.abs(nextScroll - element.scrollLeft) < 1) return
+  event.preventDefault()
+  element.scrollLeft = nextScroll
+}
+
 export function getFeaturedSiteAvailability({ siteLimit, visibleCount, availableCount }) {
   const limit = Math.max(1, Number(siteLimit) || DEFAULT_WELCOME_FEATURED_SITE_LIMIT)
   const count = Math.max(0, Number(visibleCount) || 0)
