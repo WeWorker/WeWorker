@@ -1,6 +1,6 @@
 ---
 name: webcli
-version: 1.1.7
+version: 1.0.5
 description: "通过 WebCLI 操作网站的浏览器自动化。当用户想操作网站时使用——打开某个网站、搜索、下单、查订单、填表、读取页面内容、截图，或让浏览器自动完成网页任务。涵盖：打开浏览器、调用网站工具、截图。支持京东、1688、闲鱼、B 站、知乎、微博、抖音、小红书、豆瓣、贴吧、12306、携程、51job、BOSS 直聘、GitHub、Gitee、V2EX、掘金、有道云笔记、大众点评、什么值得买、雪球、Wikipedia、arXiv、Hacker News 等站点。"
 allowed-tools: Bash(webcli *), Bash(npm install *), Bash(npm view *)
 ---

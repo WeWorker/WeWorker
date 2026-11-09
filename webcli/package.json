@@ -1,6 +1,6 @@
 {
   "name": "weworker-webcli",
-  "version": "1.1.7",
+  "version": "1.0.5",
   "description": "Browser automation CLI for Extension and Toolkit Adapters",
   "type": "module",
   "main": "index.js",
