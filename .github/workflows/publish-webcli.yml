@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version already committed in webcli/package.json
+        description: Version to apply to the WebCLI package during this build
         required: true
         type: string
       dist_tag:
@@ -70,7 +70,7 @@ jobs:
           WEBCLI_METRICS_CLIENT_TOKEN: ${{ secrets.WEWORKER_METRICS_CLIENT_TOKEN }}
         run: node weworker/scripts/prepare-build.cjs
 
-      - name: Validate version and registry state
+      - name: Apply and validate release version
         id: release
         shell: bash
         env:
@@ -78,7 +78,6 @@ jobs:
           DISPATCH_DIST_TAG: ${{ inputs.dist_tag }}
         run: |
           set -euo pipefail
-          package_version="$(node -p "require('./webcli/package.json').version")"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             requested_version="${GITHUB_REF_NAME#webcli-v}"
             [[ "$GITHUB_REF_NAME" == "webcli-v${requested_version}" ]]
@@ -96,7 +95,12 @@ jobs:
             echo "Invalid WebCLI version: $requested_version" >&2
             exit 1
           }
+
+          node webcli/scripts/set-release-version.mjs "$requested_version"
+          package_version="$(node -p "require('./webcli/package.json').version")"
           test "$requested_version" = "$package_version"
+          test "$(node -p "require('./webcli/package-lock.json').version")" = "$package_version"
+          test "$(node -p "require('./webcli/package-lock.json').packages[''].version")" = "$package_version"
           test "$(node -p "require('./webcli/version.json').version")" = "$package_version"
           test "$(node -p "require('./webcli/.claude-plugin/plugin.json').version")" = "$package_version"
           test "$(sed -n 's/^version:[[:space:]]*//p' webcli/skills/webcli/SKILL.md | head -1)" = "$package_version"
