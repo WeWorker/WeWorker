@@ -907,7 +907,7 @@ npm run test:exploration:browser --prefix webcli -- \
 - U02 补全：首级命令/Adapter、二级 namespace/command/alias；catalog/帮助只读发现，旧版 parser 新 namesOnly 分支不求值元数据/getter/schema/动态名字，不运行 Python 或连接 Bridge。源码/打包各 4 项 `webcli-completion-acceptance-c95JEt` / `webcli-completion-acceptance-ojFRrT`。真实 macOS Bash 3.2/Zsh Tab、Fish 4.9.3 原生 complete -C；Fish 从官方 Homebrew bottle 临时解包，SHA-256 `c530bd62ac9277e7e1ae3de9ff5e0a83fdb5f49d39f456ce8f61dce6f56dd8c3` 核对，不安装、不改 shell 配置。日志 `/tmp/weworker-completion-source-final4.log` / `/tmp/weworker-completion-bundled-final.log`。Fish 交互 PTY 因终端能力协商未进入提示符，改用其真实 completion 引擎接口，不声称交互 Fish Tab 已验。
 - 过程失败保留：R01 脚本多余 write-verify 参数、测试 import 路径和错误 config 脚本入口已修；输出验收先忽略 result/trace_id 包装后修正测试；补全初稿模板插值语法、夹具 legacy 名/module 路径、PTY 的旧 Bash bind 不支持/关闭顺序导致等待已修。Fish GitHub 下载失败，Homebrew info 触发 portable Ruby 下载时已停止自身进程，未完成安装，改为官方 bottle 显式临时下载，断点续传后核验摘要。未操作日常 Chrome/Bridge。
 - 新 list/help 测试后全量 120 文件/1384 项，其中 1 项 `extension-v2-wiring` 仍期待旧 refreshAdapterTabs 字符串，已改为 batch 入口；实际队列行为另由 extension 运行测试验证。最终聚焦/完整回归、npm pack、Skill 与隐私检查待补，不以早期通过冒充最终快照。
-- 探索 Skill quick_validate 已通过；通用 WebCLI Skill 原有顶层 version 1.0.4 不受 system quick_validate 接受，保留现有兼容字段，必须单独报告此限制，不能说该校验全部通过。
+- 探索 Skill quick_validate 已通过；通用 WebCLI Skill 原有顶层 version 字段不受 system quick_validate 接受，保留现有兼容字段，必须单独报告此限制，不能说该校验全部通过。实际安装版本用 `webcli --version` 查询，npm 最新版本用 `npm view weworker-webcli version --registry=https://registry.npmjs.org` 查询。
 - 下一项已开始审计 R03：上游 site-memory.md 要求字段冲突先凭真实样本/页面复核，已有 key 不默默覆盖；本项目已有字段冲突拒绝、CAS/过期和验证后保存，缺显式修订历史。继续实现之前先绑定当前验证证据并保持旧映射可追溯。U01 管理生态/validate/verify/convention-audit 审计也发现上游 verify --smoke 在发布包缺测试时明确失败，不能仅凭命令名当作已实机能力；其余完整清单继续。
 
 

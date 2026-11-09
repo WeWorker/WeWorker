@@ -206,12 +206,12 @@ npx skills add https://unpkg.com/weworker-webcli/skills/webcli/SKILL.md
 
 ### 更新 npm 命令行工具
 
-发布前应将仓库根的 `extension/` 拷入 npm 包的临时构建目录；`extension/` 在仓库中保持单一事实源。
+发布前应将仓库根的 `extension/` 拷入 npm 包的临时构建目录；`extension/` 在仓库中保持单一事实源。发布版本由 `Publish WebCLI` Workflow 的版本输入或 `webcli-v*` Tag 决定，构建时统一写入 npm 包、lockfile、插件清单和 Skill 元数据。
 
 - npm registry 和发布凭证必须由发布环境显式配置，不得写入仓库。
-- 发布版本号会写入 `package.json`。
+- 不在说明文档中写死当前版本；本机版本用 `webcli --version` 查询，npm 最新版本用 `npm view weworker-webcli version --registry=https://registry.npmjs.org` 查询。
 - `--dry-run` 会额外列出生成式 adapter 关键文件，例如 `SKILL.generated.md`、`WEBCLI_KNOWLEDGE.*` 和 `webcli-generated/tools/*.js`，用于确认自动探索产物会随 npm 包带出。
-- `--dry-run` 过程中即使指定版本号，也会在退出时恢复原 `package.json`，避免预览发布污染工作区。
+- `--dry-run` 过程中即使指定版本号，也会在退出时恢复所有版本账本，避免预览发布污染工作区。
 
 ### 更新 skill 市场
 
