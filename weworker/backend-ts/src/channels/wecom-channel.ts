@@ -34,6 +34,7 @@ import * as store from '../works-store.js'
 import { createLogger } from '../logger.js'
 import { createTurnTimingLedger } from '../turn-timing.js'
 import { historyBeforeLastUser, tryRoutedTurn } from '../routed-turn.js'
+import { createWecomOwnerPairing, WECOM_PAIRING_HINT } from './wecom-owner-pairing.js'
 
 const log = createLogger('wecom')
 
@@ -76,12 +77,13 @@ export type WecomAccessDecision = ChannelAccessDecision
 export type WecomProfileChatOptions = ChannelProfileChatOptions
 export type WecomChannelProfile = ChannelProfile
 
-export function createDefaultWecomProfile(): WecomChannelProfile {
+export function createDefaultWecomProfile(identity?: Pick<WecomChannelConfig, 'bot_id' | 'secret'>): WecomChannelProfile {
+  const pairOwner = identity ? createWecomOwnerPairing(identity) : null
   return {
     channelKey: 'wecom',
     titleLabel: (chatType) => (chatType === 'group' ? '企微群聊' : '企微'),
-    welcomeText: () => '你好！我是 WeWorker 智能助手，有什么可以帮你的吗？发送 /new 开启新对话，发送 /id 查看对话 ID。',
-    authorize: (userId) => ({ kind: 'allow', mode: getChannelPermissionMode('wecom', userId) }),
+    welcomeText: () => `你好！我是 WeWorker 智能助手，有什么可以帮你的吗？发送 /new 开启新对话，发送 /id 查看对话 ID。\n\n${WECOM_PAIRING_HINT}`,
+    authorize: (userId, text, context) => pairOwner?.(userId, text, context?.chatType) ?? ({ kind: 'allow', mode: getChannelPermissionMode('wecom', userId) }),
     memoryScope: (userId) => ({ user: `wecom:${userId}` }),
     chatOptions: () => ({}),
   }
@@ -108,7 +110,7 @@ export class WecomChannel implements Channel {
   // Pending WebSocket request resolvers: reqId → resolve function
   private _pendingWsRequests = new Map<string, (resp: Record<string, unknown>) => void>()
 
-  constructor(config: WecomChannelConfig, profile: WecomChannelProfile = createDefaultWecomProfile()) {
+  constructor(config: WecomChannelConfig, profile: WecomChannelProfile = createDefaultWecomProfile(config)) {
     this._config = config
     this._profile = profile
   }
@@ -614,8 +616,14 @@ export class WecomChannel implements Channel {
       body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content } },
     })
 
-    const access = this._profile.authorize(userId, text)
+    const access = this._profile.authorize(userId, text, { chatType })
     if (access.kind === 'reply') {
+      if (access.ownerPaired && chatType === 'single') {
+        this._lastUserId = userId
+        this._lastChatType = 1
+        try { store.saveChannelNotifyTarget(this._profile.channelKey, userId, { chat_type: '1', user_id: userId }) }
+        catch { log.warn('owner paired, but notification target could not be persisted') }
+      }
       replyOnce(access.text)
       return
     }
@@ -687,7 +695,7 @@ export class WecomChannel implements Channel {
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: `你的用户 ID：${userId}\n${CHANNEL_MYID_HINT}` } },
+        body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: `你的用户 ID：${userId}\n${this._profile.dedicatedAgentId ? CHANNEL_MYID_HINT : WECOM_PAIRING_HINT}` } },
       })
       return
     }
