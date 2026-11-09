@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="WeWorker AdapterHub 站点与命令目录" />
+    <title>WeWorker AdapterHub</title>
+    <script>
+      // 兼容入口前缀部署与深链刷新。
+      (function () {
+        var marker = '/adapterhub'
+        var index = location.pathname.indexOf(marker)
+        var base = index >= 0 ? location.pathname.slice(0, index + marker.length) + '/' : marker + '/'
+        document.write('<base href="' + base.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">')
+      }())
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
