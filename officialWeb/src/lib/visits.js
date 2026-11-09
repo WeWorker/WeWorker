@@ -22,11 +22,14 @@ export async function reportVisit(path) {
 
 /**
  * 查询按天 PV/UV 趋势。
- * @param {{since?:string}} opts since: 1d/7d/30d
+ * @param {{since?:string, from?:string|null, to?:string|null}} opts
  * @returns {Promise<{rows:Array<{day:string, pv:number, uv:number}>, totalPv:number, totalUv:number}>}
  */
-export async function fetchVisits({ since = '7d' } = {}) {
-  const res = await fetch(`/api/visits?since=${encodeURIComponent(since)}`)
+export async function fetchVisits({ since = '7d', from = null, to = null } = {}) {
+  const p = new URLSearchParams({ since })
+  if (from) p.set('from', from)
+  if (to) p.set('to', to)
+  const res = await fetch(`/api/visits?${p}`)
   if (!res.ok) throw new Error(`visits 请求失败: ${res.status}`)
   if (!res.headers.get('content-type')?.includes('application/json')) {
     return { rows: [], totalPv: 0, totalUv: 0, unavailable: true }
