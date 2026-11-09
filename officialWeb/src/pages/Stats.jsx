@@ -2,9 +2,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { fetchStats, groupByDomain, groupByUser } from '../lib/stats'
 import { fetchVisits } from '../lib/visits'
 
-const SINCE_OPTIONS = ['1d', '7d', '30d']
+const SINCE_OPTIONS = [
+  { value: '1d', label: '近1天' },
+  { value: '7d', label: '近7天' },
+  { value: '30d', label: '近30天' },
+  { value: '90d', label: '近90天' },
+  { value: 'custom', label: '自定义' },
+]
 const KIND_OPTIONS = ['adapter', 'builtin']
-const VIEW_OPTIONS = ['adapter', 'user']
+const VIEW_OPTIONS = ['adapter', 'user', 'err']
 
 // 用 officialWeb 主题 token class（bg-bg / bg-surface / text-[rgb(var(--color-text))] / border-border
 // / text-accent / text-muted），自动跟随明暗主题切换，不硬编码颜色。
@@ -16,9 +22,25 @@ export default function Stats() {
   const [error, setError] = useState(null)
   const [statsUnavailable, setStatsUnavailable] = useState(false)
   const [expanded, setExpanded] = useState(() => new Set())
-  const [since, setSince] = useState('7d')
-  const [kind, setKind] = useState('adapter')
   const [view, setView] = useState('adapter')
+
+  // 时间窗:预设走 since 相对窗;自定义走 from/to(YYYY-MM-DD,UTC 日界)。
+  // 自定义模式下一律回落 since=30d(后端 from/to 存在时忽略 since;旧 server 未升级时
+  // 也回落到合理的 30 天窗,绝不让字面 'custom' 出现在请求里)。
+  // 起止都没填时即 30d 预设;from>to 产生空窗(后端契约如此),由日期输入 min/max 约束。
+  const [since, setSince] = useState('7d')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const isCustom = since === 'custom'
+  const effSince = isCustom ? '30d' : since
+  const apiFrom = isCustom ? customFrom || null : null
+  const apiTo = isCustom ? customTo || null : null
+
+  const [kind, setKind] = useState('adapter')
+
+  // 按错误视图(err):错误类型聚合 rows + 失败总数(UI 渲染在下一任务)
+  const [errRows, setErrRows] = useState([])
+  const [totalFailed, setTotalFailed] = useState(0)
 
   // 网站访问量（PV/UV）
   const [visits, setVisits] = useState(null)
@@ -31,7 +53,7 @@ export default function Stats() {
     setVisitsError(null)
     setVisitsUnavailable(false)
     try {
-      const data = await fetchVisits({ since })
+      const data = await fetchVisits({ since: effSince, from: apiFrom, to: apiTo })
       setVisitsUnavailable(Boolean(data.unavailable))
       setVisits(data)
     } catch (e) {
@@ -39,7 +61,7 @@ export default function Stats() {
     } finally {
       setVisitsLoading(false)
     }
-  }, [since])
+  }, [effSince, apiFrom, apiTo])
 
   useEffect(() => {
     loadVisits()
@@ -50,18 +72,26 @@ export default function Stats() {
     setError(null)
     setStatsUnavailable(false)
     try {
-      const by = view === 'user' ? 'user' : 'tool'
-      const data = await fetchStats({ by, since, kind })
+      const by = view === 'user' ? 'user' : view === 'err' ? 'err' : 'tool'
+      const data = await fetchStats({ by, since: effSince, kind, from: apiFrom, to: apiTo })
       setStatsUnavailable(Boolean(data.unavailable))
       const rows = data.rows || []
-      setGroups(view === 'user' ? groupByUser(rows) : groupByDomain(rows))
+      if (view === 'err') {
+        setErrRows(rows)
+        setTotalFailed(data.totalFailed || 0)
+        setGroups([])
+      } else {
+        setGroups(view === 'user' ? groupByUser(rows) : groupByDomain(rows))
+        setErrRows([])
+        setTotalFailed(0)
+      }
       setTotalCalls(data.totalCalls || 0)
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [view, since, kind])
+  }, [view, effSince, kind, apiFrom, apiTo])
 
   useEffect(() => {
     load()
@@ -153,37 +183,58 @@ export default function Stats() {
           <div className="flex bg-surface border border-border rounded-lg overflow-hidden">
             {SINCE_OPTIONS.map((s) => (
               <button
-                key={s}
-                onClick={() => setSince(s)}
+                key={s.value}
+                onClick={() => setSince(s.value)}
                 className={`px-3 py-1.5 transition-colors ${
-                  since === s
+                  since === s.value
                     ? 'bg-accent/20 text-[rgb(var(--color-text))]'
                     : 'text-muted hover:text-[rgb(var(--color-text))]'
                 }`}
               >
-                {s}
+                {s.label}
               </button>
             ))}
           </div>
+          {isCustom && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || undefined}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="px-2 py-1.5 rounded-lg border border-border bg-surface text-[rgb(var(--color-text))] text-sm"
+              />
+              <span className="text-muted">至</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom || undefined}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="px-2 py-1.5 rounded-lg border border-border bg-surface text-[rgb(var(--color-text))] text-sm"
+              />
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-muted">类型</span>
-          <div className="flex bg-surface border border-border rounded-lg overflow-hidden">
-            {KIND_OPTIONS.map((k) => (
-              <button
-                key={k}
-                onClick={() => setKind(k)}
-                className={`px-3 py-1.5 transition-colors ${
-                  kind === k
-                    ? 'bg-accent/20 text-[rgb(var(--color-text))]'
-                    : 'text-muted hover:text-[rgb(var(--color-text))]'
-                }`}
-              >
-                {k}
-              </button>
-            ))}
+        {view !== 'err' && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted">类型</span>
+            <div className="flex bg-surface border border-border rounded-lg overflow-hidden">
+              {KIND_OPTIONS.map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setKind(k)}
+                  className={`px-3 py-1.5 transition-colors ${
+                    kind === k
+                      ? 'bg-accent/20 text-[rgb(var(--color-text))]'
+                      : 'text-muted hover:text-[rgb(var(--color-text))]'
+                  }`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         {!loading && !error && groups.length > 0 && (
           <div className="text-muted ml-auto">
             {isUser ? `${groups.length} 个用户` : `${groups.length} 个 adapter`} · {fmt(totalCalls)} 次调用
