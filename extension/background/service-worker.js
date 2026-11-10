@@ -126,6 +126,19 @@ const EXTENSION_CAPABILITIES = [
 ];
 
 let currentBrowserContextId;
+/** HRM getUserInfo 响应里探测登录名:字段链覆盖已知形态,全空返回 null。 */
+function extractIdentityUsername(data) {
+  if (!data || typeof data !== "object") return null;
+  const candidates = [
+    data.username, data.userName, data.loginName, data.account, data.workCode,
+    data.user && data.user.loginName, data.user && data.user.name,
+  ];
+  for (const v of candidates) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
 function buildExtensionHello(extra = {}) {
   return {
     type: 'extension_hello',
@@ -2794,6 +2807,21 @@ async function handleNativeMessageInternal(msg) {
   if (msg.type === "list_tools") {
     const tools = await getHostAdapterClient().tools(gatherAllTools());
     sendToNative({ type: "list_tools_result", id: msg.id, tools });
+
+  } else if (msg.type === "identity_fetch") {
+    // 上报身份兜底:扩展在浏览器上下文带 SSO cookie 请求 CLI 下发的身份接口,解析
+    // 登录名回传 CLI。只提取 username 字段;cookie 不落盘、不进 CLI 进程。
+    (async () => {
+      try {
+        if (typeof msg.url !== "string" || !/^https:\/\//i.test(msg.url)) throw new Error("invalid identity url");
+        const resp = await fetch(msg.url, { credentials: "include" });
+        const data = await resp.json().catch(() => null);
+        const user = extractIdentityUsername(data);
+        sendToNative({ type: "identity_fetch_result", id: msg.id, ok: !!user, ...(user ? { user } : { error: "no username in identity response" }) });
+      } catch (err) {
+        sendToNative({ type: "identity_fetch_result", id: msg.id, ok: false, error: err?.message || "identity fetch failed" });
+      }
+    })();
 
   } else if (msg.type === "call_tool") {
     const { toolName } = msg;

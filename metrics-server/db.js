@@ -119,6 +119,7 @@ export function validRecord(r) {
 /**
  * 幂等批量落库。以唯一索引 (client_id, ts, trace_id, tool) 去重，
  * 重复记录被 INSERT OR IGNORE 忽略（容忍客户端 at-least-once 重发）。
+ * @param {string} [body.userSource] 用户名来源；hrm/hrm-cache 时触发存量降级行身份修正
  * @returns {{accepted:number, skipped:number}}
  */
 export function insertBatch(db, body) {
@@ -155,6 +156,17 @@ export function insertBatch(db, body) {
       );
       if (res.changes > 0) accepted++;
       else skipped++; // 去重命中
+    }
+    // 身份修正(方案 X backfill):客户端经 HRM 解析出真实用户名后,改写该机器
+    // 的存量降级行(client-* / 空 user)。whoami 来源的真实行永不触碰;幂等无害。
+    if (
+      (body.userSource === "hrm" || body.userSource === "hrm-cache") &&
+      clientId && user
+    ) {
+      db.prepare(
+        `UPDATE metrics SET user = ?
+         WHERE client_id = ? AND (user IS NULL OR user = '' OR user LIKE 'client-%')`
+      ).run(user, clientId);
     }
     db.exec("COMMIT");
   } catch (e) {

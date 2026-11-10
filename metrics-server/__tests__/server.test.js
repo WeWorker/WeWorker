@@ -543,3 +543,45 @@ test("officialWeb NOISE_FIRST_SEGMENTS 与 server 名单双向一致", () => {
   // 静默隐藏合法调用,双向 deepEqual 把两侧名单钉成一体。
   assert.deepEqual([...NOISE_FIRST_SEGMENTS].sort(), [...FRONT_NOISE].sort());
 });
+
+test("insertBatch 身份修正:userSource=hrm 改写该机器存量降级行", () => {
+  const db = freshDb();
+  const now = Date.now();
+  // 先以降级名入库
+  insertBatch(db, { clientId: "c1", user: "client-ab12cd34", batch: [rec({ ts: now, traceID: "f1" })] });
+  // 解析成功后的上报(userSource=hrm)
+  insertBatch(db, { clientId: "c1", user: "rickhuang", userSource: "hrm", batch: [rec({ ts: now, traceID: "f2" })] });
+  const rows = db.prepare("SELECT user FROM metrics WHERE client_id='c1'").all();
+  assert.ok(rows.length === 2 && rows.every((r) => r.user === "rickhuang"), "存量与新行都应是真实名");
+});
+
+test("insertBatch 身份修正:只改降级行,whoami 真实名不动;其他机器不受影响", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, { clientId: "c1", user: "alice", batch: [rec({ ts: now, traceID: "g1" })] });
+  insertBatch(db, { clientId: "c1", user: "client-ab12cd34", batch: [rec({ ts: now, traceID: "g2" })] });
+  insertBatch(db, { clientId: "c2", user: "client-xxxxxxxx", batch: [rec({ ts: now, traceID: "g3" })] });
+  insertBatch(db, { clientId: "c1", user: "rickhuang", userSource: "hrm-cache", batch: [rec({ ts: now, traceID: "g4" })] });
+  const byTrace = Object.fromEntries(db.prepare("SELECT trace_id, user FROM metrics").all().map((r) => [r.trace_id, r.user]));
+  assert.equal(byTrace.g1, "alice");            // whoami 真实行不动
+  assert.equal(byTrace.g2, "rickhuang");        // 降级行被修正
+  assert.equal(byTrace.g3, "client-xxxxxxxx");  // 其他机器不受影响
+  assert.equal(byTrace.g4, "rickhuang");
+});
+
+test("insertBatch 身份修正:空 user 行(unknown 源)也修正;无 userSource 不触发;幂等", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, { clientId: "c1", batch: [rec({ ts: now, traceID: "h1" })] }); // user 缺失 → NULL
+  insertBatch(db, { clientId: "c1", user: "rickhuang", batch: [rec({ ts: now, traceID: "h2" })] }); // 无 userSource
+  let rows = db.prepare("SELECT trace_id, user FROM metrics WHERE client_id='c1' ORDER BY trace_id").all();
+  assert.equal(rows.find((r) => r.trace_id === "h1").user, null); // 未触发
+  // 触发一次
+  insertBatch(db, { clientId: "c1", user: "rickhuang", userSource: "hrm", batch: [rec({ ts: now, traceID: "h3" })] });
+  rows = db.prepare("SELECT user FROM metrics WHERE client_id='c1'").all();
+  assert.ok(rows.every((r) => r.user === "rickhuang"));
+  // 重复触发无害
+  insertBatch(db, { clientId: "c1", user: "rickhuang", userSource: "hrm", batch: [rec({ ts: now, traceID: "h3" })] });
+  rows = db.prepare("SELECT user FROM metrics WHERE client_id='c1'").all();
+  assert.ok(rows.every((r) => r.user === "rickhuang"));
+});

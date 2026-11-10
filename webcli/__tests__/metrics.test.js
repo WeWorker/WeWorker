@@ -2,7 +2,10 @@
 // 覆盖 metrics.js（classifyTool / sanitizeErr / buildRecord / whoami / buildUploadConfig）与 stats.js（aggregate / parseDuration / percentile）
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { classifyTool, sanitizeErr, buildRecord, whoami, buildUploadConfig } from '../metrics.js'
+import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import { join } from 'node:path'
+import { classifyTool, sanitizeErr, buildRecord, whoami, buildUploadConfig, loadIdentityCache, saveIdentityCache } from '../metrics.js'
 import { aggregate, parseDuration, percentile, renderRouteTable } from '../stats.js'
 
 describe('classifyTool', () => {
@@ -189,5 +192,33 @@ describe('whoami 失败降级', () => {
     expect(cfg.meta.userSource).toBe('client-id-fallback')
     expect(typeof cfg.meta.clientId).toBe('string')
     vi.doUnmock('node:child_process')
+  })
+})
+
+describe('身份缓存与 buildUploadConfig 优先级', () => {
+  const tmpFile = () => join(os.tmpdir(), `identity-${randomUUID()}.json`)
+
+  it('save/load 往返与合并', async () => {
+    const file = tmpFile()
+    await saveIdentityCache({ user: 'rickhuang', resolvedAt: 1 }, file)
+    await saveIdentityCache({ lastFailedAt: 2 }, file)
+    expect(await loadIdentityCache(file)).toEqual({ user: 'rickhuang', resolvedAt: 1, lastFailedAt: 2 })
+  })
+
+  it('缓存真实名优先于 whoami,来源 hrm-cache', async () => {
+    const file = tmpFile()
+    await saveIdentityCache({ user: 'rickhuang' }, file)
+    const cfg = await buildUploadConfig({ webcliVersion: 't', identityCacheFile: file })
+    expect(cfg.meta.user).toBe('rickhuang')
+    expect(cfg.meta.userSource).toBe('hrm-cache')
+  })
+
+  it('无缓存走 whoami;whoami 失败降级 client-<id8>', async () => {
+    const file = tmpFile()
+    const cfg = await buildUploadConfig({ webcliVersion: 't', identityCacheFile: file, whoamiImpl: () => 'alice' })
+    expect(cfg.meta.userSource).toBe('whoami')
+    const cfg2 = await buildUploadConfig({ webcliVersion: 't', identityCacheFile: file, whoamiImpl: () => null })
+    expect(cfg2.meta.userSource).toBe('client-id-fallback')
+    expect(cfg2.meta.user).toMatch(/^client-.{8}$/)
   })
 })
