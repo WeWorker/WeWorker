@@ -6,11 +6,11 @@ const panel = fs.readFileSync(new URL('../components/chat/RouteDiagnosticsPanel.
 const detail = fs.readFileSync(new URL('../components/chat/RouteTurnDetails.jsx', import.meta.url), 'utf8')
 const list = fs.readFileSync(new URL('../components/chat/MessageList.jsx', import.meta.url), 'utf8')
 
-describe('read-only route diagnostics surface', () => {
-  it('requests safe work-level projection without requesting raw conversation logs', () => {
+describe('route diagnostics are kept out of the chat surface', () => {
+  it('does not mount the route panel in chat; the unused panel reads only a safe projection', () => {
     assert.match(panel, /backendFetch\(`\/works\/\$\{encodeURIComponent\(workId\)\}\/route-diagnostics`\)/)
     assert.doesNotMatch(panel + detail, /logs\.txt|routeArgs|JSON\.stringify\(event\)/)
-    assert.match(list, /<RouteDiagnosticsPanel workId=\{workId\} streaming=\{streaming\} \/>/)
+    assert.doesNotMatch(list, /RouteDiagnosticsPanel|route-diagnostics/)
   })
   it('keeps advanced stages collapsed and avoids guessing per-message turn association', () => {
     assert.match(detail, /useState\(false\)/)

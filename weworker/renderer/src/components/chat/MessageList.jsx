@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import MessageItem from './MessageItem.jsx'
-import RouteDiagnosticsPanel from './RouteDiagnosticsPanel.jsx'
 import SaveCodewordModal from './SaveCodewordModal.jsx'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { useWorksStore } from '../../store/works.js'
@@ -432,7 +431,6 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
           </div>
         )
       })}
-      <RouteDiagnosticsPanel workId={workId} streaming={streaming} />
       {compactionStatus && (
         <div
           role="status"
