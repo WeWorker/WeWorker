@@ -1285,19 +1285,19 @@ async function* streamChatWithBaseUrl(
     ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
     : undefined
   const internal = opts[STREAM_CHAT_INTERNAL]
-  // Session reuse is limited to the plain desktop path: channel handlers, custom
-  // prompts/tools and compaction-only runs keep the one-off query behavior.
+  // Desktop turns need streaming input for steering. Guarded sessions live for
+  // one turn so workspace and approval callbacks cannot leak into later turns.
   const sessionMode = opts.reuseSession === true
     && (!!opts.workId || opts.warmupOnly === true)
     && !!internal
     && opts.streaming !== false
-    && channelPermissionMode === 'full'
     && !opts.channelAskUserHandler
     && !opts.systemPromptOverride
     && !opts.mcpServerOverride
     && !opts.restrictBuiltInTools
     && !opts.forceCompaction
     && !opts.compactionOnly
+  const reuseAcrossTurns = channelPermissionMode === 'full'
   // Callbacks that a reused session must take from the current turn.
   const readQueryTurnId = randomUUID()
   const readQueryScope = { current: opts.workId && !opts.mcpServerOverride && !opts.systemPromptOverride && !opts.isolatedClaudeConfigDir
@@ -1819,6 +1819,10 @@ async function* streamChatWithBaseUrl(
   let turnMessages: AsyncIterable<SDKMessage>
   let closeTurn: () => void
   if (sessionMode && internal && (!opts.workId || !isChatSessionBusy(opts.workId))) {
+    if (opts.warmupOnly && !reuseAcrossTurns) {
+      yield { type: 'done' }
+      return
+    }
     const workId = opts.workId ?? null
     const fingerprint = sha256(JSON.stringify({
       model: settings.model,
@@ -1851,6 +1855,8 @@ async function* streamChatWithBaseUrl(
       const bindings = turnBindings
       const sessionMcp = _buildMcpServer({
         channelPermissionMode,
+        workspaceDirectory,
+        abortSignal: sessionAbort.signal,
         workIdRef: bindings.workIdRef,
         askUserSSECallback: (event) => bindings.onAskUser?.(event),
         channelAskUserHandler: null,
@@ -1890,7 +1896,7 @@ async function* streamChatWithBaseUrl(
     }
 
     const turnWorkId = workId!
-    const reusable = needsCompaction ? undefined : findReusableChatSession(turnWorkId, fingerprint, history)
+    const reusable = needsCompaction || !reuseAcrossTurns ? undefined : findReusableChatSession(turnWorkId, fingerprint, history)
     if (!reusable && needsCompaction) disposeChatSession(turnWorkId, 'compaction')
     let firstPrompt: string
     if (reusable) {
@@ -2063,11 +2069,13 @@ async function* streamChatWithBaseUrl(
       abortController.signal.removeEventListener('abort', onAbort)
     }
     if (session && opts.workId) {
-      // Keep the CLI only after a clean turn; anything else may leave it mid-turn.
-      if (completed && !turnFailed && !abortController?.signal.aborted && !session.closed) {
+      // Guarded sessions are registered for steering, but never kept across turns.
+      if (reuseAcrossTurns && completed && !turnFailed && !abortController?.signal.aborted && !session.closed) {
         session.complete(history)
       } else {
-        disposeChatSession(opts.workId, abortController?.signal.aborted ? 'aborted' : 'turn_unfinished', session)
+        const reason = abortController?.signal.aborted ? 'aborted'
+          : completed && !turnFailed ? 'turn_complete' : 'turn_unfinished'
+        disposeChatSession(opts.workId, reason, session)
       }
     }
   }
