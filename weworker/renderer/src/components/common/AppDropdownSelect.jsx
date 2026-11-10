@@ -20,6 +20,7 @@ export default function AppDropdownSelect({
   showOptionIcons = false,
   renderOptionPrefix,
   renderOptionSuffix,
+  renderOptionAction,
   onRemoveOption,
   fallbackOption,
   menuHeader,
@@ -188,7 +189,7 @@ export default function AppDropdownSelect({
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
             items[next]?.focus()
           }
-          if (event.key === 'Escape' || event.key === 'Tab') {
+          if (event.key === 'Escape' || (event.key === 'Tab' && !renderOptionAction)) {
             event.preventDefault()
             event.stopPropagation()
             closeMenu()
@@ -210,6 +211,7 @@ export default function AppDropdownSelect({
           {visibleOptions.map((option) => {
             const removable = option.removable === true && typeof onRemoveOption === 'function'
             const optionPrefix = renderOptionPrefix?.(option)
+            const optionAction = renderOptionAction?.(option)
             const optionButton = (
               <button
                 type="button"
@@ -241,9 +243,16 @@ export default function AppDropdownSelect({
                     <span className="app-dropdown-menu-item__label">{option.label}</span>
                   </>
                 )}
-                {renderOptionSuffix?.(option)}
-                <DropdownMenuCheck selected={value === option.value} />
+                {!optionAction && renderOptionSuffix?.(option)}
+                {!optionAction && <DropdownMenuCheck selected={value === option.value} />}
               </button>
+            )
+            if (optionAction) return (
+              <div key={option.value} className={`${dropdownMenuItemClassName({ selected: value === option.value })} app-dropdown-select__action-option`}>
+                {optionButton}
+                {optionAction}
+                <DropdownMenuCheck selected={value === option.value} />
+              </div>
             )
             return removable ? (
               <div key={option.value} className="app-dropdown-select__removable-option">

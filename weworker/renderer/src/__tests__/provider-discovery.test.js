@@ -2,12 +2,11 @@ import test, { after, afterEach, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import React, { act } from 'react'
-import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
-let server, dom, root, ModelSelector, SettingsPage, SecretInput, store
+let server, dom, root, createRoot, ModelSelector, SettingsPage, SecretInput, store, healthStore
 let calls, state, detectResponse
 const globals = new Map()
 const imported = { name: 'Claude Code', provider_id: 'custom', model: 'fixture-model',
@@ -29,6 +28,8 @@ before(async () => {
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value })
   }
   globals.set('fetch', Object.getOwnPropertyDescriptor(globalThis, 'fetch'))
+  // Initialize React DOM after JSDOM so input focus uses modern browser events.
+  ;({ createRoot } = await import('react-dom/client'))
   server = await createServer({ root: fileURLToPath(new URL('../../', import.meta.url)), configFile: false,
     define: { __BUILD_DEPLOYMENT_CONFIG__: JSON.stringify({ officialUrl: 'https://example.com', githubUrl: 'https://example.org' }) },
     plugins: [react()], server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'silent' })
@@ -36,10 +37,12 @@ before(async () => {
   SettingsPage = (await server.ssrLoadModule('/src/components/settings/SettingsModal.jsx')).default
   SecretInput = (await server.ssrLoadModule('/src/components/settings/SecretInput.jsx')).default
   store = (await server.ssrLoadModule('/src/store/settings.js')).useSettingsStore
+  healthStore = (await server.ssrLoadModule('/src/store/model-health.js')).useModelHealthStore
 })
 
 beforeEach(() => {
   calls = []
+  healthStore.setState({ results: {}, running: {}, checking: {} })
   state = { active_provider: 'anthropic', model: 'fixture-current', has_api_key: true, model_discovery_enabled: true, providers: {
     anthropic: { has_key: true, model: 'fixture-current', visible: true },
     custom: { has_key: false, visible: false },
@@ -329,4 +332,78 @@ test('switching configurations ignores a late saved-key response', async () => {
   await act(async () => resolveRequest(Response.json({ api_key: 'fixture-stale-key' })))
   assert.equal(document.querySelector('input').value, '')
   assert.equal(document.querySelector('input').type, 'password')
+})
+
+test('a model status probes only that model, keeps the menu open and preserves selection and other results', async () => {
+  const otherKey = JSON.stringify(['anthropic', 'fixture-current'])
+  const previous = { ok: true, elapsedMs: 10, checkedAt: 1234 }
+  healthStore.setState({ results: { [otherKey]: previous } })
+  const originalFetch = globalThis.fetch
+  let finish
+  globalThis.fetch = async (url, options) => {
+    if (new URL(url).pathname !== '/settings/provider/probe') return originalFetch(url, options)
+    calls.push({ endpoint: '/settings/provider/probe', ...options })
+    return new Promise(resolve => { finish = result => resolve(Response.json(result)) })
+  }
+  await render()
+  await click(ariaButton('模型选择'))
+  const status = ariaButton('检测模型 fixture-model')
+  assert.equal(status.textContent.trim(), '未检测')
+  assert.equal(status.parentElement.tagName, 'DIV')
+  assert.equal(status.closest('button[role="option"]'), null)
+  await click(status)
+  assert.equal(status.disabled, true)
+  assert.match(status.textContent, /检测中/)
+  await click(status)
+  const probes = () => calls.filter(item => item.endpoint === '/settings/provider/probe')
+  assert.equal(probes().length, 1)
+  assert.deepEqual(JSON.parse(probes()[0].body), {
+    provider: 'anthropic', model: 'fixture-model', target: 'weworker', openai_base_url: '', openai_base_url_is_full: false,
+  })
+  assert.ok(document.querySelector('[role="listbox"]'))
+  assert.equal(store.getState().model, 'fixture-current')
+  assert.equal(calls.some(item => ['/settings/provider', '/settings/provider/activate'].includes(item.endpoint)), false)
+  await act(async () => finish({ ok: false, elapsed_ms: 24 }))
+  assert.equal(status.textContent.trim(), '不可用')
+  assert.equal(status.disabled, false)
+  assert.deepEqual(healthStore.getState().results[otherKey], previous)
+  await act(async () => {
+    status.focus()
+    status.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+  })
+  assert.ok(document.querySelector('[role="listbox"]'))
+  await click(status)
+  await act(async () => finish({ ok: true, elapsed_ms: 42 }))
+  assert.equal(probes().length, 2)
+  assert.equal(status.textContent.trim(), '42ms')
+  assert.deepEqual(healthStore.getState().results[otherKey], previous)
+})
+
+test('another model remains clickable while a single-model check is pending', async () => {
+  const originalFetch = globalThis.fetch
+  const pending = new Map()
+  globalThis.fetch = async (url, options) => {
+    if (new URL(url).pathname !== '/settings/provider/probe') return originalFetch(url, options)
+    calls.push({ endpoint: '/settings/provider/probe', ...options })
+    return new Promise(resolve => pending.set(JSON.parse(options.body).model, resolve))
+  }
+  await render()
+  await click(ariaButton('模型选择'))
+  const first = ariaButton('检测模型 fixture-model')
+  const second = ariaButton('检测模型 fixture-current')
+  await click(first)
+  assert.equal(first.disabled, true)
+  assert.equal(second.disabled, false)
+  await click(second)
+  assert.equal(first.disabled, true)
+  assert.equal(second.disabled, true)
+  assert.equal(pending.size, 2)
+  await act(async () => pending.get('fixture-current')(Response.json({ ok: true, elapsed_ms: 20 })))
+  assert.equal(second.textContent.trim(), '20ms')
+  assert.equal(second.disabled, false)
+  assert.equal(first.disabled, true)
+  await act(async () => pending.get('fixture-model')(Response.json({ ok: true, elapsed_ms: 42 })))
+  assert.equal(first.textContent.trim(), '42ms')
+  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/probe').length, 2)
+  assert.equal(store.getState().model, 'fixture-current')
 })

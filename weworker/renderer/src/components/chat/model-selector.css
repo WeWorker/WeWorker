@@ -90,6 +90,27 @@
 .model-health.is-success { color: var(--success, #16a34a); }
 .model-health.is-failure { color: var(--error, #dc2626); }
 
+.model-health-action {
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+.model-health-action:hover:not(:disabled) { background: var(--bg-hover); color: var(--accent); }
+.model-health-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.model-health-action:disabled { cursor: default; }
+
+.chat-model-health-menu .app-dropdown-select__action-option > [role='option'] {
+  flex: 1;
+  width: 0;
+  min-height: 18px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
 .chat-model-health-menu .app-dropdown-menu-item {
   display: flex;
   align-items: center;

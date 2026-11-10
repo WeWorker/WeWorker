@@ -34,6 +34,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
   const checking = useModelHealthStore(state => state.checking)
   const running = useModelHealthStore(state => Boolean(state.running[activeProvider]))
   const checkModels = useModelHealthStore(state => state.checkModels)
+  const checkModel = useModelHealthStore(state => state.checkModel)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -134,7 +135,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     if (normalizedThinkingEffort !== thinkingEffort) onThinkingEffortChange?.(normalizedThinkingEffort)
   }, [normalizedThinkingEffort, thinkingEffort, onThinkingEffortChange])
 
-  const renderModelHealth = (option) => {
+  const renderModelHealth = (option, interactive = false) => {
     if (!option) return null
     const key = modelHealthKey(activeProvider, option.value)
     const result = healthResults[key]
@@ -143,11 +144,22 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     const time = result ? new Date(result.checkedAt).toLocaleString() : ''
     const title = result
       ? `上次检测：${time} · ${result.ok ? '会话协议可用' : '检测未通过'} · 请求总耗时 ${result.elapsedMs}ms${busy ? ' · 正在重新检测' : ''}`
-      : busy ? '正在检测会话协议' : '尚未检测，点击列表顶部图标检测全部模型'
+      : busy ? '正在检测会话协议' : '尚未检测'
+    const content = <>
+      {busy ? <LoadingOutlined spin /> : result ? (result.ok ? <LinkOutlined /> : <DisconnectOutlined />) : <QuestionCircleOutlined />}
+      <span>{busy ? '检测中' : result ? (result.ok ? `${result.elapsedMs}ms` : '不可用') : '未检测'}</span>
+    </>
+    if (interactive) return (
+      <button type="button" className={`model-health model-health-action is-${state}`}
+        title="点击仅检测此模型" aria-label={`检测模型 ${option.value}`}
+        aria-busy={Boolean(busy)} disabled={busy || unavailable}
+        onClick={() => { void checkModel(activeProvider, option.value) }}>
+        {content}
+      </button>
+    )
     return (
       <span className={`model-health is-${state}`} title={title} aria-label={title}>
-        {busy ? <LoadingOutlined spin /> : result ? (result.ok ? <LinkOutlined /> : <DisconnectOutlined />) : <QuestionCircleOutlined />}
-        <span>{result ? (result.ok ? `${result.elapsedMs}ms` : '不可用') : busy ? '检测中' : '未检测'}</span>
+        {content}
       </span>
     )
   }
@@ -196,6 +208,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
         allowCustom={!fixedModel}
         searchPlaceholder="搜索或输入模型名"
         renderOptionSuffix={renderModelHealth}
+        renderOptionAction={option => renderModelHealth(option, true)}
         menuHeader={(
           <div className="model-health-toolbar">
             <span>{running ? '正在检测会话协议…' : '上次检测结果'}</span>
