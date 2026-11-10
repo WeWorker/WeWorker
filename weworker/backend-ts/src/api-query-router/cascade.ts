@@ -150,6 +150,13 @@ export type PlanCascadeDeps = {
   history?: unknown[]
   /** 第 12 层开关（默认关） */
   llmClassifyEnabled?: boolean
+  /**
+   * 按工具取 patterns 层声明的渲染 schema（`configs[tool].render.schemaId`）。
+   *
+   * 卡片层命中一个「同一工具在 patterns 层已声明 schema」的场景时借用这份声明，避免同一
+   * 工具两种入口两种长相。缺省不提供 = 不借用（保持旧行为）。
+   */
+  schemaForTool?: (tool: string) => string | undefined
   log?: (msg: string) => void
 }
 
@@ -226,6 +233,15 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
   // A validated single-tool card outranks P. A stale/unsafe card falls through
   // to the old text-only plan; the tool eligibility guard above remains mandatory.
   // A sequential request must not be truncated into the card's single read.
+  // 卡片（scenario / scenario-a）在配置里没有声明渲染的位置。同一个工具若在 patterns 层
+  // 声明了 `render: {type:'schema'}`，直接借用那份声明：否则同一工具「点卡片」和「打文字」
+  // 两种入口会渲染成两种样式（卡片走通用表格、文字走声明式表格）。
+  // 这里只查调用方预建的「工具 → schema」索引，不触发 pattern 匹配。
+  const cardRender = (tool: string): RenderCtx => {
+    const schemaId = deps.schemaForTool?.(tool)
+    return schemaId ? { schemaId } : {}
+  }
+
   const payload = input.scenarioPayload ?? null
   if (payload && !sequential) {
     const directHit = safe(() => matchers.scenario.matchDirect(payload, message), log, 'scenario-a')
@@ -233,7 +249,7 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
       push({
         layer: 'scenario-a',
         decision: {
-          kind: 'tool', tool: directHit.tool, args: directHit.args, source: 'scenario-a', render: {},
+          kind: 'tool', tool: directHit.tool, args: directHit.args, source: 'scenario-a', render: cardRender(directHit.tool),
           label: `scenario-a ${payload.adapterId}:${payload.scenarioId}`,
         },
         onFailure: { action: 'stop', reason: 'scenario_a_failed' },
@@ -304,7 +320,7 @@ export function planCascade(input: CascadeInput, deps: PlanCascadeDeps): Cascade
         tool: scenarioHit.tool,
         args: scenarioHit.args,
         source: 'scenario',
-        render: {},
+        render: cardRender(scenarioHit.tool),
         label: 'scenario',
       },
       onFailure: { action: 'continue', prune: ['pattern'] },
