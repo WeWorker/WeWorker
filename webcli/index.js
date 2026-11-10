@@ -295,16 +295,17 @@ Agent tip: use 'webcli call <tool> --key=value ...' to invoke a tool.
 }
 
 async function printVersion() {
+  const { cliName } = await import("./cli-name.js");
   if (typeof __WEBCLI_VERSION__ !== "undefined") {
-    console.log(`webcli ${__WEBCLI_VERSION__}`);
+    console.log(`${cliName()} ${__WEBCLI_VERSION__}`);
     return;
   }
   try {
     const pkgPath = join(__dirname, "package.json");
     const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-    console.log(`webcli ${pkg.version}`);
+    console.log(`${cliName()} ${pkg.version}`);
   } catch {
-    console.log("webcli (unknown version)");
+    console.log(`${cliName()} (unknown version)`);
   }
 }
 
