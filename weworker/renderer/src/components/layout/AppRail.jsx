@@ -10,7 +10,7 @@ import { useStatusStore } from '../../store/status.js'
 import { getPortConflictHelp } from '../../utils/port-conflict-help.js'
 
 export default function AppRail({ activeSection, settingsOpen = false, extensionOpen = false, onOpenConversation, onOpenTasks, onOpenSkills, onOpenExploration, onOpenWebsiteExploration, onOpenDedicatedAgents, onOpenExtension, onOpenSettings }) {
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(true)
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState('unknown')
   const [backendStatus, setBackendStatus] = useState('unknown')

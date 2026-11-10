@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { Brain } from 'lucide-react'
 import { CheckCircleFilled, KeyOutlined, DisconnectOutlined, LinkOutlined, LoadingOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import { PROVIDERS, useSettingsStore } from '../../store/settings.js'
 import { isBuiltinProvider, hasFixedModel } from '../../store/settings.js'
 import { fetchProviderModels } from '../../api/provider-models.js'
 import { buildModelOptions, buildSettingsProviderLists, buildChatProviderOptions, isFixedProvider } from '../../utils/model-selection.js'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
+import Tooltip from '../Tooltip.jsx'
 import PresetKeyDialog from './PresetKeyDialog.jsx'
 import { getThinkingEffortOptions, normalizeThinkingEffort } from '../../utils/thinking-effort.js'
 import { modelHealthKey, useModelHealthStore } from '../../store/model-health.js'
@@ -189,18 +191,20 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
           </div>
         )}
       />
-      <AppDropdownSelect
-        className="chat-model-selector__thinking"
-        menuClassName="app-dropdown-menu chat-model-selector-menu"
-        value={normalizedThinkingEffort}
-        options={thinkingOptions}
-        onChange={value => onThinkingEffortChange?.(normalizeThinkingEffort(value, thinkingOptions))}
-        disabled={unavailable}
-        ariaLabel="思考效果"
-        prefix="思考"
-        placement="top"
-        minMenuWidth={88}
-      />
+      <Tooltip text={`思考：${thinkingOptions.find(option => option.value === normalizedThinkingEffort)?.label || '关'}`}>
+        <AppDropdownSelect
+          className={`chat-model-selector__thinking${normalizedThinkingEffort !== 'off' ? ' is-active' : ''}`}
+          menuClassName="app-dropdown-menu chat-model-selector-menu"
+          value={normalizedThinkingEffort}
+          options={thinkingOptions}
+          onChange={value => onThinkingEffortChange?.(normalizeThinkingEffort(value, thinkingOptions))}
+          disabled={unavailable}
+          ariaLabel="思考效果"
+          prefix={<Brain size={18} strokeWidth={1.8} aria-hidden="true" />}
+          placement="top"
+          minMenuWidth={88}
+        />
+      </Tooltip>
       {keyProvider && <PresetKeyDialog
         providerName={PROVIDERS.find(item => item.id === keyProvider)?.name || keyProvider}
         onSave={savePresetKey}

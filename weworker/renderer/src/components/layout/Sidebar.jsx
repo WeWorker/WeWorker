@@ -163,7 +163,7 @@ export default function Sidebar({ section, collapsed, width }) {
               <button
                 ref={searchButtonRef}
                 type="button"
-                className={`sidebar-icon-button${showSearch ? ' is-active' : ''}`}
+                className={`sidebar-icon-button sidebar-workspace-action${showSearch ? ' is-active' : ''}`}
                 aria-label="搜索对话"
                 aria-expanded={showSearch}
                 aria-controls="sidebar-work-search"
@@ -238,7 +238,7 @@ export default function Sidebar({ section, collapsed, width }) {
               <Tooltip text="新建工作区">
                 <button
                   type="button"
-                  className="sidebar-new-project sidebar-icon-button"
+                  className="sidebar-new-project sidebar-icon-button sidebar-workspace-action"
                   aria-label="新建工作区"
                   onClick={handleCreateProject}
                 >

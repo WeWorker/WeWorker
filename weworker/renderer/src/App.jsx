@@ -382,6 +382,46 @@ export default function App() {
     document.addEventListener('mouseup', onUp)
   }, [sidebarWidth])
 
+  const workspaceToolbar = (
+    <div className="workspace-toolbar" aria-label="工作区工具栏">
+      <div id="workspace-toolbar-context" className="workspace-toolbar__context" />
+      <div className="workspace-toolbar__actions">
+        {!minimalWorkspaceToolbar && (
+          <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'} delay={800} placement="top">
+            <button
+              type="button"
+              onClick={handleToggleUserFilesPanel}
+              aria-label={userFilesOpen ? '收起用户目录' : '打开用户目录'}
+              aria-pressed={userFilesOpen}
+              className={`workspace-toolbar__button${userFilesOpen ? ' is-active' : ''}`}
+            >
+              <FolderIcon size={16} />
+            </button>
+          </Tooltip>
+        )}
+        <Tooltip text={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'} delay={800} placement="top">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className={`workspace-toolbar__button app-theme-toggle app-theme-toggle--${theme}`}
+            aria-label={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+          >
+            <span key={theme} className="app-theme-toggle__icon" aria-hidden="true">
+              {theme === 'dark' ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+              )}
+            </span>
+          </button>
+        </Tooltip>
+        {!minimalWorkspaceToolbar && <CapabilitiesToggleButton variant="titlebar" />}
+      </div>
+    </div>
+  )
+
   return (
     <ConfigProvider locale={zhCN} theme={antdThemeConfig}>
     <div className="app-shell" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -494,48 +534,10 @@ export default function App() {
           </>
         )}
         <div className="app-main-column">
-          {!showSettings && (!focusedWorkspaceOpen || dedicatedAgentsOpen) && (
-            <div className="workspace-toolbar" aria-label="工作区工具栏">
-              <div id="workspace-toolbar-context" className="workspace-toolbar__context" />
-              <div className="workspace-toolbar__actions">
-                {!minimalWorkspaceToolbar && (
-                <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'} delay={800} placement="top">
-                  <button
-                    type="button"
-                    onClick={handleToggleUserFilesPanel}
-                    aria-label={userFilesOpen ? '收起用户目录' : '打开用户目录'}
-                    aria-pressed={userFilesOpen}
-                    className={`workspace-toolbar__button${userFilesOpen ? ' is-active' : ''}`}
-                  >
-                    <FolderIcon size={16} />
-                  </button>
-                </Tooltip>
-                )}
-                <Tooltip text={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'} delay={800} placement="top">
-                  <button
-                    type="button"
-                    onClick={toggleTheme}
-                    className={`workspace-toolbar__button app-theme-toggle app-theme-toggle--${theme}`}
-                    aria-label={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-                  >
-                    <span key={theme} className="app-theme-toggle__icon" aria-hidden="true">
-                      {theme === 'dark' ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                        </svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
-                      )}
-                    </span>
-                  </button>
-                </Tooltip>
-                {!minimalWorkspaceToolbar && <CapabilitiesToggleButton variant="titlebar" />}
-              </div>
-            </div>
-          )}
+          {!showSettings && !focusedWorkspaceOpen && workspaceToolbar}
           {showSettings
             ? <SettingsPage onClose={() => setShowSettings(false)} />
-            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onResizeStart} compactLayout={compactLayout} onOpenSettings={() => setShowSettings((current) => !current)} />}
+            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onResizeStart} compactLayout={compactLayout} workspaceToolbar={workspaceToolbar} onOpenSettings={() => setShowSettings((current) => !current)} />}
         </div>
         </>}
       </div>

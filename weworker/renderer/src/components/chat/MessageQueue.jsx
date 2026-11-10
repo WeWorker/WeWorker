@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { DeleteOutlined, EditOutlined, SendOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EditOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
+import { Send } from 'lucide-react'
 import './message-queue.css'
 
 export default function MessageQueue({ state, controller, disabled = false }) {
@@ -40,7 +41,7 @@ export default function MessageQueue({ state, controller, disabled = false }) {
           </div>
           {state.editingId !== item.id && <div className="workspace-toolbar__actions message-queue__actions">
             <button className="workspace-toolbar__button" type="button" disabled={locked} title="立即发送：作为补充指令接入当前执行，不中断工具" aria-label={'立即发送第 ' + (index + 1) + ' 条消息'} onClick={() => { void controller.sendNow(item.id).catch(() => {}) }}>
-              <SendOutlined />
+              <Send size={16} className="message-queue__send-icon" aria-hidden="true" />
             </button>
             <button className="workspace-toolbar__button" type="button" disabled={locked} title="编辑" aria-label={'编辑第 ' + (index + 1) + ' 条消息'} onClick={() => controller.beginEdit(item.id)}><EditOutlined /></button>
             <button className="workspace-toolbar__button" type="button" disabled={locked} title="删除" aria-label={'删除第 ' + (index + 1) + ' 条消息'} onClick={() => controller.remove(item.id)}><DeleteOutlined /></button>

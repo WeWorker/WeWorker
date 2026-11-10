@@ -14,6 +14,7 @@ import { InboxOutlined } from '@ant-design/icons'
 import MessageSquarePlusIcon from '../icons/MessageSquarePlusIcon.jsx'
 import HoverScrollTitle from './HoverScrollTitle.jsx'
 import { handleFolderHeadingClick } from '../../utils/work-folder-interaction.js'
+import { conversationTimestamp, formatConversationAge } from '../../utils/conversation-age.js'
 
 const LABEL_COLORS = {
   red: '#ef4444',
@@ -98,6 +99,19 @@ export default function WorksList({ searchQuery = '' }) {
   const [renamingProjectId, setRenamingProjectId] = useState(null)
   const [renameProjectValue, setRenameProjectValue] = useState('')
   const renameProjectInputRef = useRef(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  // One clock for the whole list, including after returning from the background.
+  useEffect(() => {
+    const refresh = () => setNow(Date.now())
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    const timer = setInterval(refresh, 60000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
 
   useEffect(() => {
     setSelectedFolderKey(null)
@@ -281,6 +295,7 @@ export default function WorksList({ searchQuery = '' }) {
                   <WorkItem
                     key={w.id}
                     work={w}
+                    now={now}
                     active={w.id === activeWorkId}
                     onSelect={async () => {
                       if (!await leaveWebsiteExploration()) return
@@ -329,7 +344,7 @@ function ChevronIcon({ size = 13, collapsed }) {
   )
 }
 
-function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming, activityStatus }) {
+function WorkItem({ work, now, active, onSelect, onDelete, onArchive, isStreaming, activityStatus }) {
   const [hovered, setHovered] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
   const [menuPos, setMenuPos] = useState(null)
@@ -338,6 +353,9 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming, ac
   const [isSavingRename, setIsSavingRename] = useState(false)
   const updateLabel = useWorksStore((s) => s.updateLabel)
   const updateTitle = useWorksStore((s) => s.updateTitle)
+  const latestMessageAt = useWorksStore((s) => s.messages[work.id]?.at(-1)?.created_at)
+  const updatedAt = conversationTimestamp(work, latestMessageAt)
+  const age = formatConversationAge(updatedAt, now)
   const menuRef = useRef(null)
   const renameInputRef = useRef(null)
   const skipRenameCommitRef = useRef(false)
@@ -470,7 +488,7 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming, ac
         tabIndex={isRenaming ? -1 : 0}
         onClick={() => { if (!isRenaming) onSelect() }}
         onKeyDown={(e) => {
-          if (isRenaming) return
+          if (isRenaming || e.target !== e.currentTarget) return
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             onSelect()
@@ -532,6 +550,16 @@ function WorkItem({ work, active, onSelect, onDelete, onArchive, isStreaming, ac
             <HoverScrollTitle active={hovered}>{work.title || '新任务'}</HoverScrollTitle>
           )}
         </span>
+        {!isRenaming && age && (
+          <time
+            className="work-list-item__time"
+            dateTime={new Date(updatedAt).toISOString()}
+            title={`最近更新：${new Date(updatedAt).toLocaleString('zh-CN')}`}
+            aria-label={`最近更新：${age}${age === '刚刚' ? '' : '前'}`}
+          >
+            {age}
+          </time>
+        )}
         {!isRenaming && (
           <span className="sidebar-row-actions">
             <button

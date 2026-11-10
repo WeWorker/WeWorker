@@ -131,7 +131,7 @@ function Intro({ onCreate, hasAgents }) {
   )
 }
 
-export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, compactLayout = false }) {
+export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, compactLayout = false, toolbar }) {
   const agents = useDedicatedAgentsStore((s) => s.agents)
   const view = useDedicatedAgentsStore((s) => s.view)
   const selectedId = useDedicatedAgentsStore((s) => s.selectedId)
@@ -293,16 +293,19 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
           onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent' }}
         />
       )}
-      {showDetail ? (
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <AgentDetail key={selectedId} agentId={selectedId} />
-        </div>
-      ) : (
-        <div style={contentStyle}>
-          {view === 'create' && activeDraft && <AgentCreateWizard key={activeDraft.draftKey || activeDraft.id} draftKey={activeDraft.draftKey || activeDraft.id} />}
-          {view !== 'create' && <Intro onCreate={startCreate} hasAgents={agents.length > 0} />}
-        </div>
-      )}
+      <div className="app-main-column">
+        {toolbar}
+        {showDetail ? (
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <AgentDetail key={selectedId} agentId={selectedId} />
+          </div>
+        ) : (
+          <div style={contentStyle}>
+            {view === 'create' && activeDraft && <AgentCreateWizard key={activeDraft.draftKey || activeDraft.id} draftKey={activeDraft.draftKey || activeDraft.id} />}
+            {view !== 'create' && <Intro onCreate={startCreate} hasAgents={agents.length > 0} />}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

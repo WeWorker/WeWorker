@@ -5,7 +5,33 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
-import { scrollFeaturedSitesHorizontally } from '../components/welcome/welcome-utils.js'
+import { featuredSiteScrollState, scrollFeaturedSitesByPage, scrollFeaturedSitesHorizontally } from '../components/welcome/welcome-utils.js'
+
+test('website arrows track overflow and both edges, including fractional scroll positions', () => {
+  const strip = { scrollWidth: 900, clientWidth: 300, scrollLeft: 0 }
+  assert.deepEqual(featuredSiteScrollState(strip), { overflow: true, left: false, right: true })
+  strip.scrollLeft = 240
+  assert.deepEqual(featuredSiteScrollState(strip), { overflow: true, left: true, right: true })
+  strip.scrollLeft = 599.5
+  assert.deepEqual(featuredSiteScrollState(strip), { overflow: true, left: true, right: false })
+  strip.clientWidth = 900
+  strip.scrollLeft = 0
+  assert.deepEqual(featuredSiteScrollState(strip), { overflow: false, left: false, right: false })
+})
+
+test('website arrows scroll by a partial page, clamp at edges and respect reduced motion', () => {
+  const calls = []
+  const strip = { scrollWidth: 900, clientWidth: 300, scrollLeft: 0, scrollTo: options => calls.push(options) }
+  scrollFeaturedSitesByPage(strip, 1)
+  assert.deepEqual(calls.pop(), { left: 240, behavior: 'smooth' })
+  strip.scrollLeft = 550
+  scrollFeaturedSitesByPage(strip, 1)
+  assert.equal(calls.pop().left, 600)
+  strip.scrollLeft = 100
+  scrollFeaturedSitesByPage(strip, -1, true)
+  assert.deepEqual(calls.pop(), { left: 0, behavior: 'auto' })
+  scrollFeaturedSitesByPage(null, 1)
+})
 
 function wheel(element, options = {}) {
   const event = { deltaX: 0, deltaY: 80, deltaMode: 0, ctrlKey: false, prevented: false,

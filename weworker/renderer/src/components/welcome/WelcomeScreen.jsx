@@ -21,7 +21,7 @@ import { getFixedWelcomePrompts } from '../../utils/default-sites.js'
 import FeaturedSiteActions from './FeaturedSiteActions.jsx'
 import WelcomePromptShortcuts from './WelcomePromptShortcuts.jsx'
 import { ClosePanelIcon, EyeIcon, EyeOffIcon, FourSquaresIcon, ListIcon, RobotIcon, TrialChatIcon } from './WelcomeIcons.jsx'
-import { AppstoreAddOutlined, SearchOutlined } from '@ant-design/icons'
+import { AppstoreAddOutlined, CaretLeftFilled, CaretRightFilled, SearchOutlined } from '@ant-design/icons'
 import {
   ADD_FEATURED_DROP_TARGET,
   CONVERSATION_EXAMPLE_VISIBLE_KEY,
@@ -34,6 +34,7 @@ import {
   fallbackScenarios,
   filterFeaturedSites,
   filterScenarios,
+  featuredSiteScrollState,
   getFeaturedSiteAvailability,
   getHiddenFeaturedSites,
   readFeaturedOrder,
@@ -41,6 +42,7 @@ import {
   readFeaturedVisibleCount,
   readConversationExampleVisible,
   scrollFeaturedSitesHorizontally,
+  scrollFeaturedSitesByPage,
   userPromptTemplate,
 } from './welcome-utils.js'
 import { FEATURED_GRID_COLUMN_GAP, useWelcomeResponsiveLayout } from './welcome-responsive.js'
@@ -248,8 +250,6 @@ export default function WelcomeScreen({ onFillInput }) {
   const settingsLoaded = useSettingsStore((s) => s.loaded)
   const loadSettings = useSettingsStore((s) => s.load)
   const welcomeFeaturedSiteLimit = useSettingsStore((s) => s.welcomeFeaturedSiteLimit)
-  const capabilitiesPanelOpen = useCapabilitiesPanelStore((s) => s.open)
-  const openCapabilitiesPanel = useCapabilitiesPanelStore((s) => s.openPanel)
   const closeCapabilitiesPanel = useCapabilitiesPanelStore((s) => s.closePanel)
   const closeUserFilesPanel = useUserFilesStore((s) => s.closePanel)
   const openToolPackagePage = useToolPackagePageStore((s) => s.openPage)
@@ -298,6 +298,7 @@ export default function WelcomeScreen({ onFillInput }) {
   const [mountedFloatingPickerKey, setMountedFloatingPickerKey] = useState('')
   const [floatingPickerClosing, setFloatingPickerClosing] = useState(false)
   const [featuredGridLayoutEpoch, setFeaturedGridLayoutEpoch] = useState(0)
+  const [stripScrollState, setStripScrollState] = useState({ overflow: false, left: false, right: false })
   const bumpFeaturedGridLayout = useCallback(() => {
     setFeaturedGridLayoutEpoch((current) => current + 1)
   }, [])
@@ -420,6 +421,28 @@ export default function WelcomeScreen({ onFillInput }) {
     ? `已达上限 ${featuredSiteLimit} 个，可在设置 → 配置中调整「欢迎页常用场景网站上限」`
     : (allAvailableFeaturedSitesShown ? '已添加全部可用网站' : undefined)
   const featuredLayoutSignature = `${featuredSquareCards ? 'grid' : 'list'}:${filteredFeaturedSites.map(({ site }) => site.id).join('|')}:${canAddFeaturedSite ? 'add' : 'no-add'}`
+  useLayoutEffect(() => {
+    const grid = featuredGridRef.current
+    if (!grid) return undefined
+    const update = () => {
+      const next = featuredSquareCards ? featuredSiteScrollState(grid) : { overflow: false, left: false, right: false }
+      setStripScrollState(current => current.overflow === next.overflow && current.left === next.left && current.right === next.right ? current : next)
+    }
+    update()
+    grid.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    observer?.observe(grid)
+    for (const child of grid.children) observer?.observe(child)
+    return () => {
+      grid.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+      observer?.disconnect()
+    }
+  }, [featuredLayoutSignature, featuredSquareCards, detailRow])
+  const scrollFeaturedStrip = direction => scrollFeaturedSitesByPage(
+    featuredGridRef.current, direction, window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  )
   const filteredHiddenFeaturedSites = useMemo(() => {
     const query = addPickerQuery.trim().toLowerCase()
     if (!query) return hiddenFeaturedSites
@@ -668,15 +691,6 @@ export default function WelcomeScreen({ onFillInput }) {
     setScenarioPickerSiteId(null)
     setSelectedFeaturedSiteId(null)
     setDetailRow({ site, scenarios })
-  }
-
-  const handleOpenAllScenarios = () => {
-    if (capabilitiesPanelOpen) {
-      closeCapabilitiesPanel()
-      return
-    }
-    closeUserFilesPanel()
-    openCapabilitiesPanel('list')
   }
 
   const handleOpenSiteSkillsOrScenarios = (siteId, workspaceTab) => {
@@ -963,7 +977,7 @@ export default function WelcomeScreen({ onFillInput }) {
         <header className="welcome-introduction">
           <span className="welcome-wordmark">WeWorker <span>AI 网页助理</span></span>
           <h1>今天，我们一起完成什么？</h1>
-          <p>查询信息、操作网页、整理文件，从一句话开始。</p>
+          <p>查询信息、操作网页、下载附件，从一句话开始。</p>
         </header>
         <WelcomePromptShortcuts prompts={getFixedWelcomePrompts(sites)} onSelect={onFillInput} />
 
@@ -1091,12 +1105,8 @@ export default function WelcomeScreen({ onFillInput }) {
               </div>
             )}
           </div>
-          <div style={featuredHeaderActionsStyle}>
-            <button type="button" onClick={handleOpenAllScenarios} className="welcome-all-scenarios" style={{ ...allScenariosButtonStyle, borderRadius: 8 }}>
-              {capabilitiesPanelOpen ? <ClosePanelIcon /> : <ListIcon />}
-              {capabilitiesPanelOpen ? '关闭所有场景' : '查看所有场景'}
-            </button>
-            {showShowcase && (
+          {showShowcase && (
+            <div style={featuredHeaderActionsStyle}>
               <button
                 type="button"
                 onClick={toggleConversationExample}
@@ -1105,12 +1115,20 @@ export default function WelcomeScreen({ onFillInput }) {
                 {showConversationExample ? <EyeOffIcon /> : <EyeIcon />}
                 {showConversationExample ? '隐藏对话示例' : '展示对话示例'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
+        <div className="featured-website-strip">
+        {featuredSquareCards && stripScrollState.overflow && (
+          <button type="button" className="featured-website-strip__arrow featured-website-strip__arrow--left" aria-label="向左滚动网站" title="向左滚动网站"
+            aria-controls="welcome-featured-sites" disabled={!stripScrollState.left} onClick={() => scrollFeaturedStrip(-1)}>
+            <CaretLeftFilled aria-hidden="true" />
+          </button>
+        )}
         <div
           ref={featuredGridRef}
+          id="welcome-featured-sites"
           data-featured-grid=""
           data-site-search-active={featuredSearchQuery.trim() ? '' : undefined}
           role="region"
@@ -1527,6 +1545,13 @@ export default function WelcomeScreen({ onFillInput }) {
               </div>
             )
           })}
+        </div>
+        {featuredSquareCards && stripScrollState.overflow && (
+          <button type="button" className="featured-website-strip__arrow featured-website-strip__arrow--right" aria-label="向右滚动网站" title="向右滚动网站"
+            aria-controls="welcome-featured-sites" disabled={!stripScrollState.right} onClick={() => scrollFeaturedStrip(1)}>
+            <CaretRightFilled aria-hidden="true" />
+          </button>
+        )}
         </div>
         </div>
 
