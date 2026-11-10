@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Download, LoaderCircle, RefreshCw, X } from 'lucide-react'
+import { Check, Download, Eye, EyeOff, LoaderCircle, RefreshCw, X } from 'lucide-react'
 import { useSettingsStore } from '../../store/settings.js'
 import './local-model-discovery.css'
 
@@ -139,26 +139,28 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
                 const revealed = revealedKeys[candidate.source_id]
                 return <li key={candidate.source_id}>
                   <div className="local-model-discovery__row">
-                    <button type="button" className="local-model-discovery__candidate" disabled={imported || Boolean(importing)}
+                    <span className="local-model-discovery__details">
+                      <span className="local-model-discovery__name">{candidate.name}<span>{candidate.model || '未指定模型'}</span></span>
+                      <span className="local-model-discovery__endpoint">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol} · {candidate.base_url}</span>
+                      <span className="local-model-discovery__key">
+                        API Key：<code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
+                        <button type="button" className="local-model-discovery__eye"
+                          disabled={Boolean(importing) || revealing === candidate.source_id}
+                          aria-label={revealed ? '隐藏 API Key' : '显示 API Key'} title={revealed ? '隐藏' : '显示明文'}
+                          onClick={() => { void toggleKey(candidate) }}>
+                          {revealing === candidate.source_id
+                            ? <LoaderCircle className="local-model-discovery__spin" size={14} />
+                            : revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </span>
+                      {!validation.ok && <span className="local-model-discovery__invalid">校验未通过：{validation.detail || '未知原因'}（仍可手动导入）</span>}
+                    </span>
+                    <button type="button" className={`local-model-discovery__import${imported ? ' is-imported' : ''}`}
+                      disabled={imported || Boolean(importing)}
                       aria-label={`${imported ? '已导入' : '导入'} ${candidate.name}${candidate.model ? ` ${candidate.model}` : ''}`}
                       onClick={() => { void importCandidate(candidate) }}>
-                      <span className="local-model-discovery__details">
-                        <span className="local-model-discovery__name">{candidate.name}<span>{candidate.model || '未指定模型'}</span></span>
-                        <span className="local-model-discovery__endpoint">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol} · {candidate.base_url}</span>
-                        <span className="local-model-discovery__key">
-                          API Key：<code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
-                        </span>
-                        {!validation.ok && <span className="local-model-discovery__invalid">校验未通过：{validation.detail || '未知原因'}（仍可手动导入）</span>}
-                      </span>
-                      <span className={`local-model-discovery__import${imported ? ' is-imported' : ''}`}>
-                        {busy ? <LoaderCircle className="local-model-discovery__spin" size={16} /> : imported ? <Check size={16} /> : <Download size={16} />}
-                        {busy ? '导入中' : imported ? '已导入' : validation.ok ? '导入' : '仍然导入'}
-                      </span>
-                    </button>
-                    <button type="button" className="local-model-discovery__eye" disabled={Boolean(importing) || revealing === candidate.source_id}
-                      aria-label={revealed ? '隐藏 API Key' : '显示 API Key'} title={revealed ? '隐藏' : '显示明文'}
-                      onClick={() => { void toggleKey(candidate) }}>
-                      {revealing === candidate.source_id ? <LoaderCircle className="local-model-discovery__spin" size={14} /> : revealed ? '隐藏' : '显示'}
+                      {busy ? <LoaderCircle className="local-model-discovery__spin" size={16} /> : imported ? <Check size={16} /> : <Download size={16} />}
+                      {busy ? '导入中' : imported ? '已导入' : '导入'}
                     </button>
                   </div>
                 </li>
