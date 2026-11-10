@@ -17,6 +17,8 @@
     "npm-entry.js",
     "npm-environment.js",
     "npm-metrics.js",
+    "version-check.js",
+    "upgrade.js",
     "bridge-instance.js",
     "metrics-client.json",
     "route-command.js",

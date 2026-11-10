@@ -10,6 +10,7 @@ import { stat } from "fs/promises";
 import { rmSync } from "fs";
 import path from "path";
 import { homedir } from "os";
+import { fileURLToPath } from "url";
 import { resolveRegistry, compareSemver } from "./version-check.js";
 
 export function buildInstallCommand(pkgName, version, registry) {
@@ -30,13 +31,49 @@ export function serviceWorkerCacheDirs(home = homedir()) {
 }
 
 /**
+ * 解析全局安装目标 prefix。npm 默认 prefix 在部分环境指向系统 Node 目录
+ * (如 C:\Program Files\nodejs),无管理员权限时 `npm install -g` 直接 EPERM;
+ * 而用户的全局包实际装在用户级目录。探测顺序:
+ *   1. WEBCLI_UPGRADE_PREFIX 显式指定(env,部署/排障用);
+ *   2. 现有全局包的安装位置(从本模块真实位置推断——正在运行的包就在全局目录里);
+ *   3. 平台惯例目录存在才采用(win: %APPDATA%\npm;POSIX: ~/.npm-global 或 /usr/local 不强求);
+ *   4. 都没有 → 不加 --prefix,走 npm 默认(保持旧行为,失败时给手动命令)。
+ * @returns {Promise<{prefixArgs:string[], prefix:string|null}>}
+ */
+export async function resolveGlobalInstallTarget({ env = process.env, platform = process.platform, existsImpl = stat, home = homedir() } = {}) {
+  const explicit = env.WEBCLI_UPGRADE_PREFIX?.trim();
+  if (explicit) return { prefixArgs: ["--prefix", explicit], prefix: explicit };
+  // existsImpl 语义兼容:真实 stat 以抛异常表示不存在,测试替身以 false 表示——
+  // 两者都要覆盖(抛 → 不存在;返回 falsy → 不存在;返回 truthy → 存在)。
+  const pathExists = async (p) => {
+    try { return Boolean(await existsImpl(p)); } catch { return false; }
+  };
+  // 2. 当前运行的包自身就在某个全局目录里 —— 升级应原地覆盖同一位置
+  //    (<prefix>/node_modules/<scope?>/<pkg>/ → prefix 为 pkgDir 上三级;
+  //     无 scope 包少一级但此处以行内 @webank scope 布局为准)
+  const pkgDir = path.dirname(fileURLToPath(import.meta.url));
+  if (await pathExists(path.join(pkgDir, "package.json"))) {
+    const prefix = path.resolve(pkgDir, "..", "..", "..");
+    return { prefixArgs: ["--prefix", prefix], prefix };
+  }
+  // 3. 平台惯例目录(存在才用,避免臆造)
+  const candidates = platform === "win32"
+    ? [env.APPDATA ? path.join(env.APPDATA, "npm") : null].filter(Boolean)
+    : [path.join(home, ".npm-global")].filter(Boolean);
+  for (const dir of candidates) {
+    if (await pathExists(dir)) return { prefixArgs: ["--prefix", dir], prefix: dir };
+  }
+  return { prefixArgs: [], prefix: null };
+}
+
+/**
  * 升级编排。依赖全部可注入以便测试。
  * @returns {Promise<{upgraded:boolean, latest?:string, error?:string, embedded?:boolean}>}
  */
 export async function runUpgrade({
   pkgName, currentVersion, registryOverride = null,
   fetchImpl = fetch, spawnImpl = spawn, removeImpl = null, existsImpl = stat, home = homedir(),
-  log = console.log, embedded = false,
+  log = console.log, embedded = false, env = process.env, platform = process.platform,
 } = {}) {
   if (embedded) {
     log("[webcli] 桌面端自带 webcli 随应用更新,请通过应用内升级,不做 npm 升级。");
@@ -55,6 +92,9 @@ export async function runUpgrade({
     return { upgraded: false, latest };
   }
   const installCmd = buildInstallCommand(pkgName, latest, registry).split(" ");
+  // 全局安装目标探测:优先覆盖到用户实际的全局目录,规避系统 Node 目录 EPERM
+  const target = await resolveGlobalInstallTarget({ env, platform, existsImpl, home });
+  installCmd.push(...target.prefixArgs);
   log(`[webcli] 升级 ${currentVersion} → ${latest}:${installCmd.join(" ")}`);
   try {
     const child = await spawnImpl(installCmd[0], installCmd.slice(1), { stdio: "inherit", shell: process.platform === "win32" });
