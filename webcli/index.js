@@ -31,6 +31,7 @@ import { WebSocket } from "ws";
 import { createConnection } from "net";
 import { createHash, randomUUID } from "crypto";
 import { resolveToolCallTimeout, interruptedCallResult } from "./tool-timeouts.js";
+import { resolveRegistry as resolveRegistryShim } from "./version-check.js";
 
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readBrowserMode } from "./dedicated-browser.js";
@@ -1258,6 +1259,7 @@ const BUILTIN_COMMANDS = new Set([
   "--version", "-v", "--help", "-h", "-help", "--service",
   "extension-path", "adapter", "service", "call", "route", "trace", "install",
   "list", "skills", "completion", "mcp", "mcp-logs", "browser", "login", "auth",
+  "upgrade",
 ]);
 // 渐进式 help 不拦截的顶层命令（其 <sub> help 属于自身命令域）
 const BUILTIN_HELP_EXEMPT = new Set(["adapterhub", "stats"]);
@@ -1578,6 +1580,54 @@ async function main() {
       || (cmd === 'call' && sub?.startsWith('exploration.') && args.some(arg => ['--help', '-h'].includes(arg)))) {
     const { explorationHelp } = await import('./exploration-commands.js');
     console.log(formatCallOutput(explorationHelp(), outputFormat ?? 'json'));
+    return;
+  }
+
+  // ── 版本自检(内嵌/协议命令豁免;stderr 提示,stdout 永不污染) ────────────
+  const VERSION_CHECK_EXEMPT = new Set(["--version", "-v", "upgrade", "--service", "internal-ai-call", "mcp"]);
+  if (!VERSION_CHECK_EXEMPT.has(cmd)) {
+    try {
+      const { checkForUpdate } = await import("./version-check.js");
+      let pkgInfo = null;
+      try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
+      if (pkgInfo?.name && pkgInfo?.version) {
+        const notice = await checkForUpdate({
+          currentVersion: pkgInfo.version,
+          pkgName: pkgInfo.name,
+          registry: resolveRegistryShim(pkgInfo.name),
+          embedded: process.env.WEBCLI_EMBEDDED === "1",
+        });
+        if (notice) process.stderr.write(notice + "\n");
+      }
+    } catch { /* 版本检查绝不影响命令 */ }
+  }
+
+  // ── upgrade 命令 ──────────────────────────────────────────────────────────
+  if (cmd === "upgrade") {
+    const args2 = process.argv.slice(3);
+    const registryOverride = args2.includes("--registry") ? args2[args2.indexOf("--registry") + 1] : null;
+    let pkgInfo = null;
+    try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
+    if (!pkgInfo?.name || !pkgInfo?.version) {
+      console.log("webcli (unknown version)——无法升级,请手动重装。");
+      return;
+    }
+    if (args2.includes("--json")) {
+      const { resolveRegistry, compareSemver } = await import("./version-check.js");
+      const { fetchLatestVersion } = await import("./upgrade.js");
+      const registry = resolveRegistry(pkgInfo.name, registryOverride ?? process.env.WEBCLI_UPGRADE_REGISTRY ?? null);
+      const latest = await fetchLatestVersion(registry, pkgInfo.name).catch(() => null);
+      console.log(JSON.stringify({ current: pkgInfo.version, latest, registry, updateAvailable: latest ? compareSemver(pkgInfo.version, latest) < 0 : null }));
+      return;
+    }
+    const { runUpgrade } = await import("./upgrade.js");
+    const res = await runUpgrade({
+      pkgName: pkgInfo.name,
+      currentVersion: pkgInfo.version,
+      registryOverride,
+      embedded: process.env.WEBCLI_EMBEDDED === "1",
+    });
+    process.exitCode = res.upgraded ? 0 : res.error ? 1 : 0;
     return;
   }
 
