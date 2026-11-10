@@ -3602,14 +3602,22 @@ async function handleNativeMessageInternal(msg) {
     // Read-only download observers must not block the click they are observing.
     const observer = ['dialog', 'downloads', 'events'].includes(msg.command) || (msg.command === 'wait' && msg.args?.kind === 'download');
     let release;
+    let result;
     try {
       if (Number.isInteger(msg.tabId) && !observer) release = await claimSharedPage(msg.tabId, true);
-      const result = Number.isInteger(msg.tabId) && !observer
+      result = Number.isInteger(msg.tabId) && !observer
         ? await getHostAdapterRuntime().exclusive(msg.tabId, operation) : await operation();
-      sendToNative({ type: 'call_tool_result', id: msg.id, result });
     } catch (error) {
-      sendToNative({ type: 'call_tool_result', id: msg.id, result: { ok: false, error: { code: error.code || 'BROWSER_OPERATION_FAILED', message: error.message } } });
-    } finally { await release?.().catch(() => {}); }
+      result = { ok: false, error: { code: error.code || 'BROWSER_OPERATION_FAILED', message: error.message } };
+    } finally {
+      try { await release?.(); }
+      catch {
+        result = { ok: false, error: { code: 'BROWSER_RELEASE_FAILED', message: 'Browser operation finished, but its page ownership could not be released. Inspect the current state before continuing; do not replay the operation.' } };
+      }
+    }
+    // exploration.start binds the page and immediately acquires its Bridge lock.
+    // Replying before the release acknowledgement makes that operation block itself.
+    sendToNative({ type: 'call_tool_result', id: msg.id, result });
   } else if (msg.type === 'browser_state') {
     try {
       const tabId = await getExplorationTabId(msg.tabId);
