@@ -18,8 +18,10 @@
 
 1. **解析通道**:经 extension 代取——bridge 通过既有 WS 通道让扩展在浏览器上下文
    fetch getUserInfo,SSO cookie 天然携带,cookie 不落盘、不进 CLI 进程。
-2. **接口**:仅 `https://weoa.com/weoa/api/hrm/getUserInfo`(公司统一 SSO,覆盖所有
-   站点);不做按站接口适配,不读工具结果(维持"绝不记 args/result"原则)。
+2. **接口**:统一身份接口,URL 由部署侧注入(`WEBCLI_IDENTITY_URL` env,与
+   `WEBCLI_METRICS_ENDPOINT` 同机制;行内值为公司 HRM getUserInfo 接口)。公开源码
+   零内部域名;未配置该 env = 环境不支持身份兜底,静默不解析。不做按站接口适配,
+   不读工具结果(维持"绝不记 args/result"原则)。
 3. **映射:方案 X(backfill 直改存量行)**:`insertBatch` 收到已解析上报时,直接
    `UPDATE` 该 client_id 的存量降级行;不建映射表、不改查询 SQL。
 
@@ -128,5 +130,6 @@ UPDATE metrics SET user = ?
   独立 PR(base dev-1.1.0);
 - **生效链路**:server 可独立部署(backfill 等首个带 `userSource=hrm` 的上报到达才
   修正);客户端需发 webcli 行内包(wnpm)+ 扩展随包更新,用户升级后逐步修正;
-- HRM 真实响应字段在实现首个任务期经登录态抓取确认(sessionbridge 或真机),并固化
-  进测试。
+- 部署侧需在行内环境注入 `WEBCLI_IDENTITY_URL`(desktop 启动 env / repack 包配置,
+  同 metrics token 注入机制);HRM 真实响应字段经真机首次解析观察确认(探测链已覆盖
+  常见字段形态)。

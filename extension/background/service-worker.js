@@ -2809,14 +2809,15 @@ async function handleNativeMessageInternal(msg) {
     sendToNative({ type: "list_tools_result", id: msg.id, tools });
 
   } else if (msg.type === "identity_fetch") {
-    // 上报身份兜底:扩展在浏览器上下文带 SSO cookie 请求 HRM,解析登录名回传 CLI。
-    // 只提取 username 字段;cookie 不落盘、不进 CLI 进程。
+    // 上报身份兜底:扩展在浏览器上下文带 SSO cookie 请求 CLI 下发的身份接口,解析
+    // 登录名回传 CLI。只提取 username 字段;cookie 不落盘、不进 CLI 进程。
     (async () => {
       try {
-        const resp = await fetch("https://weoa.com/weoa/api/hrm/getUserInfo", { credentials: "include" });
+        if (typeof msg.url !== "string" || !/^https:\/\//i.test(msg.url)) throw new Error("invalid identity url");
+        const resp = await fetch(msg.url, { credentials: "include" });
         const data = await resp.json().catch(() => null);
         const user = extractIdentityUsername(data);
-        sendToNative({ type: "identity_fetch_result", id: msg.id, ok: !!user, ...(user ? { user } : { error: "no username in HRM response" }) });
+        sendToNative({ type: "identity_fetch_result", id: msg.id, ok: !!user, ...(user ? { user } : { error: "no username in identity response" }) });
       } catch (err) {
         sendToNative({ type: "identity_fetch_result", id: msg.id, ok: false, error: err?.message || "identity fetch failed" });
       }

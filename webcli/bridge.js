@@ -1730,6 +1730,10 @@ export class WebSocketBridge extends EventEmitter {
 
   async maybeResolveIdentity() {
     try {
+      // 身份接口 URL 由部署侧注入(WEBCLI_IDENTITY_URL,与 WEBCLI_METRICS_ENDPOINT 同
+      // 机制);公开源码不包含任何内部域名。未配置 = 环境不支持身份兜底,静默不解析。
+      const identityUrl = process.env.WEBCLI_IDENTITY_URL;
+      if (!identityUrl || !/^https:\/\//i.test(identityUrl)) return;
       const cache = await loadIdentityCache();
       const now = Date.now();
       if (cache.user) return;                                              // 已有真实名
@@ -1740,7 +1744,7 @@ export class WebSocketBridge extends EventEmitter {
         return;
       }
       await saveIdentityCache({ lastAttemptAt: now });
-      const response = await this._requestNow({ type: "identity_fetch" }, Bridge.IDENTITY_TIMEOUT_MS);
+      const response = await this._requestNow({ type: "identity_fetch", url: identityUrl }, Bridge.IDENTITY_TIMEOUT_MS);
       const user = response && response.ok ? response.user : null;
       if (typeof user === "string" && user) {
         await saveIdentityCache({ user, resolvedAt: Date.now(), lastFailedAt: null });
