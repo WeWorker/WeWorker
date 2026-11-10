@@ -1,6 +1,7 @@
 import { businessSchema } from './business-args.js';
 /** Shared Adapter help rendered from the effective catalog. */
 import { formatCallOutput } from './output-format.js';
+import { cliName } from './cli-name.js';
 
 function schemaToParams(schema) {
   schema = businessSchema(schema);
@@ -120,7 +121,7 @@ export function renderGlobalHelp(models) {
     const summary = m.description ? ` — ${m.description}` : "";
     lines.push(`  ${m.id}${tag} (${runtimes}, ${m.commands.length} cmd)${summary}`);
   }
-  lines.push("", 'Usage: webcli <adapter> help — 命令列表; webcli <adapter> <command> help — 参数说明');
+  lines.push("", 'Usage: ${cliName()} <adapter> help — 命令列表; ${cliName()} <adapter> <command> help — 参数说明');
   return lines.join("\n");
 }
 
@@ -130,16 +131,16 @@ function summary(text) {
 }
 
 export function renderAdapterHelp(model) {
-  const lines = [`Usage: webcli ${model.id} <command> [options]`, '', summary(model.description) || model.display || model.id, '', 'Commands:'];
+  const lines = [`Usage: ${cliName()} ${model.id} <command> [options]`, '', summary(model.description) || model.display || model.id, '', 'Commands:'];
   const width = Math.max(0, ...model.commands.map(c => c.id.length));
   for (const c of model.commands) lines.push(`  ${c.id.padEnd(width)}  ${summary(c.description)}`.trimEnd());
-  lines.push('', 'Options:', '  -h, --help  Show help', '', `Run "webcli ${model.id} <command> --help" for command options.`);
+  lines.push('', 'Options:', '  -h, --help  Show help', '', `Run "${cliName()} ${model.id} <command> --help" for command options.`);
   return lines.join('\n');
 }
 
 /** All business inputs are named options, including required inputs. */
 export function renderCommandHelp(adapterModel, command) {
-  const lines = [`Usage: webcli ${adapterModel.id} ${command.id} [options]`, '', command.description || command.name, '', 'Options:'];
+  const lines = [`Usage: ${cliName()} ${adapterModel.id} ${command.id} [options]`, '', command.description || command.name, '', 'Options:'];
   const params = sortParams(command.params || []);
   const labels = params.map(p => `--${p.name}=<${p.type}>`);
   const width = Math.max(10, ...labels.map(label => label.length));
@@ -151,7 +152,7 @@ export function renderCommandHelp(adapterModel, command) {
   if (command.safety && command.safety !== 'read') lines.push('', `Safety: ${command.safety}`);
   lines.push(`Runtime: ${RUNTIME_LABEL[command.runtime] || command.runtime}`);
   if (command.execution?.runtime === 'background') lines.push('Execution: background API');
-  lines.push('', 'Examples:', `  webcli call ${command.name}${params.filter(p => p.required).map(p => ` --${p.name}=<${p.type}>`).join('')}`);
+  lines.push('', 'Examples:', `  ${cliName()} call ${command.name}${params.filter(p => p.required).map(p => ` --${p.name}=<${p.type}>`).join('')}`);
   return lines.join('\n');
 }
 
@@ -166,7 +167,7 @@ export function suggestAdapters(models, keyword) {
 export async function runAdapterHelp(args, { outputFormat } = {}) {
   const { loadAdapterViews } = await import('./adapter-cli.js');
   const models = (await loadAdapterViews()).map((adapter) => toAdapterHelpModel(adapter));
-  if (args.length === 1) return outputFormat !== undefined ? formatCallOutput(models, outputFormat) : renderGlobalHelp(models) + '\n\nBrowser: webcli call browser.help\nAPI exploration: webcli call exploration.help (standalone; current agent authors the Adapter).';
+  if (args.length === 1) return outputFormat !== undefined ? formatCallOutput(models, outputFormat) : renderGlobalHelp(models) + '\n\nBrowser: ${cliName()} call browser.help\nAPI exploration: ${cliName()} call exploration.help (standalone; current agent authors the Adapter).';
   const adapter = models.find((model) => model.id === args[0])
     || models.find((model) => model.commands.some((command) => command.aliases?.includes(args[0])));
   if (!adapter) throw new Error('Adapter unavailable: ' + args[0]);
