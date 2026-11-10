@@ -24,10 +24,9 @@ skill 经 `webcli call ...` 使用 webcli;版本更新后 skill 使用过程难�
 
 1. **策略**:提醒(stderr 通知)+ `webcli upgrade` 一条命令;不做全自动升级。
 2. **兼容护栏**:内嵌模式(WEBCLI_EMBEDDED=1)整段关闭;协议/长驻命令豁免。
-3. **registry 区分**:按运行中包自身 `package.json` 的 `name` 自推导包名与默认
-   registry——`@webank/webcli` → `http://wnpm.weoa.com:8001`;`weworker-webcli` →
-   `https://registry.npmjs.org`。同一份代码在两个包内行为天然正确;`WEBCLI_UPGRADE_REGISTRY`
-   env / `--registry` 参数可覆盖(行内双地址并存场景)。
+3. **registry 区分**:包内 `internal-registry.json`(由行内 repack 流程注入,不入公开仓)
+   提供 `{"registry": "..."}`;`resolveRegistry` 优先级:env/--registry 显式覆盖 > 注入文件 >
+   npmjs 默认。公开源码零行内地址;行内包 repack 时随 internal delta 注入。
 
 ## 设计
 

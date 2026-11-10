@@ -6,19 +6,27 @@
  */
 
 import { readFile, writeFile, mkdir } from "fs/promises";
+import { readFileSync } from "fs";
 import path from "path";
 import { homedir } from "os";
+import { fileURLToPath } from "url";
 
 export const CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** 包名 → 默认 registry(行内 wnpm / 公开 npmjs)。WEBCLI_UPGRADE_REGISTRY 或 --registry 可覆盖。 */
-const PACKAGE_REGISTRIES = {
-  "@webank/webcli": "http://wnpm.weoa.com:8001",
-  "weworker-webcli": "https://registry.npmjs.org",
-};
+const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 
-export function resolveRegistry(pkgName, override = null) {
-  return override || PACKAGE_REGISTRIES[pkgName] || "https://registry.npmjs.org";
+/**
+ * 解析升级/检查用的 registry。优先级:显式覆盖(env/--registry)> 包内
+ * internal-registry.json(行内 repack 注入,不入公开仓)> npmjs 默认。
+ */
+export function resolveRegistry(pkgName, override = null, { internalRegistryFile = null, readFileImpl = null } = {}) {
+  if (override) return override;
+  const file = internalRegistryFile ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "internal-registry.json");
+  try {
+    const data = JSON.parse((readFileImpl ?? readFileSync)(file, "utf8"));
+    if (data && typeof data.registry === "string" && data.registry) return data.registry;
+  } catch { /* 文件不存在(公开包/源码树)→ 默认 */ }
+  return pkgName === "weworker-webcli" ? DEFAULT_REGISTRY : DEFAULT_REGISTRY;
 }
 
 /** 轻量 semver 数字段比较:a<b → -1,a=b → 0,a>b → 1。非数字段按 0 处理。 */
