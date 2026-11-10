@@ -61,11 +61,14 @@ describe('resolveGlobalInstallTarget', () => {
     expect(t.prefixArgs).toEqual([])
   })
   it('检测到用户级全局目录存在 → --prefix 指向它', async () => {
+    const path = await import('node:path')
+    const appdata = 'C:\\Users\\u\\AppData\\Roaming'
+    const expectedNpm = path.join(appdata, 'npm') // 与实现同式构造,平台无关
     const t = await resolveGlobalInstallTarget({
-      env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, platform: 'win32',
-      existsImpl: async (p) => p === 'C:\\Users\\u\\AppData\\Roaming\\npm',
+      env: { APPDATA: appdata }, platform: 'win32',
+      existsImpl: async (p) => p === expectedNpm,
     })
-    expect(t.prefixArgs).toEqual(['--prefix', 'C:\\Users\\u\\AppData\\Roaming\\npm'])
+    expect(t.prefixArgs).toEqual(['--prefix', expectedNpm])
   })
   it('POSIX 平台探测 ~/.npm-global 不存在 → 无 prefix', async () => {
     const t = await resolveGlobalInstallTarget({ env: { HOME: '/home/u' }, platform: 'linux', existsImpl: async () => false })
@@ -79,23 +82,26 @@ describe('resolveGlobalInstallTarget', () => {
   })
   it('生产布局推导:pkgDir 上三级 = prefix(node_modules/@webank/webcli → npm)', async () => {
     const path = await import('node:path')
-    const pkgDir = 'C:/Users/u/AppData/Roaming/npm/node_modules/@webank/webcli'
-    // 与实现同式:pkgDir 上三级(resolve 规范化为平台分隔符)
-    expect(path.resolve(pkgDir, '..', '..', '..').replace(/\\/g, '/')).toBe('C:/Users/u/AppData/Roaming/npm')
+    // 平台无关的数学钉死:用 posix 语义固定"上三级"推导
+    const pkgDir = '/home/u/.npm-global/node_modules/@webank/webcli'
+    expect(path.posix.resolve(pkgDir, '..', '..', '..')).toBe('/home/u/.npm-global')
   })
   it('runUpgrade 在用户级目录存在时把 --prefix 传给 npm', async () => {
     const calls = []
+    const path = await import('node:path')
+    const appdata = 'C:\\Users\\u\\AppData\\Roaming'
+    const expectedNpm = path.join(appdata, 'npm') // 与实现同式构造,平台无关
     const res = await runUpgrade({
       pkgName: '@webank/webcli', currentVersion: '1.1.8',
       fetchImpl: async () => ({ ok: true, json: async () => ({ version: '1.1.11' }) }),
       spawnImpl: async (cmd, args) => { calls.push([cmd, ...args]); return { code: 0 } },
-      removeImpl: async () => {}, existsImpl: async (p) => p === 'C:\\Users\\u\\AppData\\Roaming\\npm',
+      removeImpl: async () => {}, existsImpl: async (p) => p === expectedNpm,
       log: () => {}, registryOverride: null, home: '/h', embedded: false,
-      env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, platform: 'win32',
+      env: { APPDATA: appdata }, platform: 'win32',
     })
     expect(res.upgraded).toBe(true)
     const npmLine = calls.find((c) => c[0] === 'npm')
     expect(npmLine).toContain('--prefix')
-    expect(npmLine[npmLine.indexOf('--prefix') + 1]).toBe('C:\\Users\\u\\AppData\\Roaming\\npm')
+    expect(npmLine[npmLine.indexOf('--prefix') + 1]).toBe(expectedNpm)
   })
 })
