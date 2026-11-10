@@ -253,11 +253,33 @@ export type RouteInput = {
   engine?: RouteEngine
 }
 
+/**
+ * patterns 层声明的「工具 → 渲染 schema」索引。
+ *
+ * 卡片层（scenario / scenario-a）在配置里没有声明渲染的位置；同一工具若在 patterns 层
+ * 声明了 `render: {type:'schema'}`，卡片命中时借用同一份声明，避免「点卡片」和「打文字」
+ * 两种入口渲染成两种样式。只读配置、按 bundle 缓存，不触发 pattern 匹配。
+ */
+const patternSchemaIndexCache = new WeakMap<RouterConfigBundle, Map<string, string>>()
+
+function patternSchemaIndex(bundle: RouterConfigBundle): Map<string, string> {
+  const cached = patternSchemaIndexCache.get(bundle)
+  if (cached) return cached
+  const index = new Map<string, string>()
+  for (const [tool, entry] of Object.entries(bundle.patterns?.configs ?? {})) {
+    const schemaId = entry?.render?.type === 'schema' ? entry.render.schemaId : undefined
+    if (typeof schemaId === 'string' && schemaId) index.set(tool, schemaId)
+  }
+  patternSchemaIndexCache.set(bundle, index)
+  return index
+}
+
 /** 纯规划：不派发任何工具，可直接用于评测集断言。 */
 export function planRouteDecision(input: RouteInput): { plan: CascadePlan; payload: ScenarioPayload | null } {
   const payload = parseScenarioDirectPayload(input.scenario)
   const engine = input.engine ?? getRouteEngine()
   const settings = safeSettings()
+  const patternSchemas = patternSchemaIndex(engine.bundle)
   const plan = planCascade(
     { message: input.message, scenarioPayload: payload, workId: input.workId, now: input.now ?? Date.now(), log: input.log },
     {
@@ -271,6 +293,7 @@ export function planRouteDecision(input: RouteInput): { plan: CascadePlan; paylo
       },
       history: input.history,
       llmClassifyEnabled: input.llmClassifyEnabled ?? settings?.api_query_llm_route === true,
+      schemaForTool: (tool) => patternSchemas.get(tool),
       log: input.log,
     },
   )
