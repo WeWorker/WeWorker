@@ -23,6 +23,7 @@ import { homedir } from "os";
 // ~/.webcli 是 webcli 既有的配置目录（见 index.js getConfigDir）
 export const METRICS_DIR    = path.join(homedir(), ".webcli");
 const CLIENT_ID_FILE        = path.join(METRICS_DIR, "client-id");
+const USER_CACHE_FILE       = path.join(METRICS_DIR, "user-cache.json");
 
 const POST_TIMEOUT_MS = 10_000;
 
@@ -109,6 +110,28 @@ export async function getOrCreateClientId() {
 }
 
 /**
+ * 身份缓存读写(~/.webcli/user-cache.json)。文件可传参以便测试隔离;
+ * 任何 IO 失败静默降级为空缓存,主流程不受影响。
+ */
+export async function loadIdentityCache(file = USER_CACHE_FILE) {
+  try {
+    const data = JSON.parse(await fsp.readFile(file, "utf8"));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function saveIdentityCache(patch, file = USER_CACHE_FILE) {
+  const next = { ...(await loadIdentityCache(file)), ...patch };
+  try {
+    await fsp.mkdir(METRICS_DIR, { recursive: true }).catch(() => {});
+    await fsp.writeFile(file, JSON.stringify(next));
+  } catch { /* 静默 */ }
+  return next;
+}
+
+/**
  * 指标上报默认关闭。仅在部署者显式提供 endpoint 并开启上传时生效，
  * 凭证只能通过环境变量注入，不得写入源码或安装包。
  */
@@ -120,11 +143,13 @@ const DEFAULT_TOKEN = "";
  *   - endpoint：只从环境变量读取
  *   - UPLOAD：必须显式设为 on
  *   - 总开关 WEBCLI_METRICS=off 可完全关闭
- * user 由 whoami 自动取得。META 在此算一次并缓存，避免每次调用重复 spawn/IO。
- * @param {{ webcliVersion: string }} ctx
+ * user 优先级:HRM 解析缓存 > 系统用户(whoami) > clientId 降级。
+ * userSource 标记来源,服务端对 hrm/hrm-cache 上报做存量降级行身份修正。
+ * identityCacheFile / whoamiImpl 为测试注入口。META 在此算一次并缓存。
+ * @param {{ webcliVersion: string, identityCacheFile?: string, whoamiImpl?: Function }} opts
  * @returns {Promise<{endpoint:string|null, token:string, meta:object}>}
  */
-export async function buildUploadConfig({ webcliVersion }) {
+export async function buildUploadConfig({ webcliVersion, identityCacheFile = null, whoamiImpl = whoami } = {}) {
   const endpoint = process.env.WEBCLI_METRICS_ENDPOINT || DEFAULT_ENDPOINT;
   const token = process.env.WEBCLI_METRICS_TOKEN || DEFAULT_TOKEN;
   const uploadOn = process.env.WEBCLI_METRICS_UPLOAD === "on";
@@ -132,13 +157,13 @@ export async function buildUploadConfig({ webcliVersion }) {
     process.env.WEBCLI_METRICS !== "off" && uploadOn && !!endpoint;
 
   const clientId = await getOrCreateClientId();
-  const systemUser = whoami();
-  // whoami 失败（无命令/超时/受限环境）时降级为 clientId 前缀，保证每条
-  // 上报都可归因；userSource 标记来源，服务端可据此区分真实用户与降级值。
+  const identity = await loadIdentityCache(identityCacheFile ?? undefined);
+  const cachedUser = typeof identity.user === "string" && identity.user ? identity.user : null;
+  const systemUser = whoamiImpl();
   const meta = {
     clientId,
-    user: systemUser || `client-${clientId.slice(0, 8)}`,
-    userSource: systemUser ? "whoami" : "client-id-fallback",
+    user: cachedUser || systemUser || `client-${clientId.slice(0, 8)}`,
+    userSource: cachedUser ? "hrm-cache" : systemUser ? "whoami" : "client-id-fallback",
     webcliVersion,
     os: process.platform,
   };
