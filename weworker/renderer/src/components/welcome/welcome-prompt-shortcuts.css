@@ -4,26 +4,28 @@
   justify-content: center;
   gap: 6px;
   width: 100%;
-  max-width: 600px;
+  max-width: 680px;
   margin-inline: auto;
   container-type: inline-size;
 }
 .welcome-prompt-shortcut {
-  display: flex;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 12px;
   flex: 0 1 calc(50% - 3px);
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
+  min-height: 36px;
   max-width: 100%;
-  padding: 5px 8px;
+  padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   font: inherit;
-  font-size: calc(var(--font-size-caption) - 1px);
+  font-size: var(--font-size-body);
   line-height: 1.5;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease;
 }
@@ -34,8 +36,8 @@
 }
 .welcome-prompt-shortcut:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .welcome-prompt-shortcut:disabled { opacity: .55; cursor: default; }
-.welcome-prompt-shortcut__text { min-width: 0; overflow-wrap: anywhere; }
-.welcome-prompt-shortcut__arrow { flex-shrink: 0; width: 10px; height: 10px; margin-left: auto; color: var(--text-muted); }
+.welcome-prompt-shortcut__text { grid-column: 2; min-width: 0; overflow-wrap: anywhere; }
+.welcome-prompt-shortcut__arrow { grid-column: 3; width: 12px; height: 12px; color: var(--text-muted); }
 @container (max-width: 560px) {
   .welcome-prompt-shortcut,
   .welcome-prompt-shortcut:last-child:nth-child(odd) { flex-basis: 100%; }

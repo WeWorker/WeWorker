@@ -770,7 +770,6 @@ export default function InputBar({
     border: '1px solid color-mix(in srgb, var(--border) 68%, var(--text-muted))',
     borderRadius: 16,
     padding: 0,
-    boxShadow: 'none',
     pointerEvents: 'auto',
     overflow: 'hidden',
   }

@@ -134,8 +134,26 @@
 .model-health-refresh:disabled { cursor: default; opacity: 0.6; }
 
 .chat-model-selector__thinking {
-  width: 86px;
+  width: 80px;
+  --thinking-color: #2563eb;
 }
+
+html.dark .chat-model-selector__thinking { --thinking-color: #60a5fa; }
+.chat-input-surface--command .chat-model-selector .chat-model-selector__thinking { --thinking-color: var(--command-accent); }
+.chat-input-toolbar .chat-model-selector .chat-model-selector__thinking.is-active .app-dropdown-select__trigger,
+.chat-input-toolbar .chat-model-selector .chat-model-selector__thinking.is-active .app-dropdown-select__prefix,
+.chat-input-toolbar .chat-model-selector .chat-model-selector__thinking.is-active .app-dropdown-select__caret { color: var(--thinking-color); }
+.chat-input-toolbar .chat-model-selector__thinking .app-dropdown-select__prefix {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  line-height: 0;
+}
+.chat-model-selector__thinking .app-dropdown-select__prefix > svg { display: block; flex-shrink: 0; }
 
 .chat-model-selector .app-dropdown-select__label {
   font-weight: 500;
@@ -190,6 +208,6 @@
   }
 
   .chat-model-selector__thinking {
-    width: 78px;
+    width: 80px;
   }
 }

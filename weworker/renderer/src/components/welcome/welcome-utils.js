@@ -7,6 +7,18 @@ export const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
 export const DEFAULT_FEATURED_SQUARE_CARDS = true
 export const ADD_FEATURED_DROP_TARGET = '__add-featured-drop-target__'
 
+export function featuredSiteScrollState(element) {
+  const maxScroll = Math.max(0, element.scrollWidth - element.clientWidth)
+  return { overflow: maxScroll > 1, left: element.scrollLeft > 1, right: element.scrollLeft < maxScroll - 1 }
+}
+
+export function scrollFeaturedSitesByPage(element, direction, reducedMotion = false) {
+  if (!element) return
+  const maxScroll = Math.max(0, element.scrollWidth - element.clientWidth)
+  const left = Math.max(0, Math.min(maxScroll, element.scrollLeft + direction * element.clientWidth * 0.8))
+  element.scrollTo({ left, behavior: reducedMotion ? 'auto' : 'smooth' })
+}
+
 export function scrollFeaturedSitesHorizontally(event, element) {
   if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
   const maxScroll = element.scrollWidth - element.clientWidth
