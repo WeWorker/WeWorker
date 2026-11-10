@@ -141,6 +141,11 @@ function bundleBackend(options = {}) {
     bundle: true,
     platform: 'node',
     format: 'cjs',
+    // The UMD entry passes require through a factory, hiding its dependencies
+    // from esbuild. Use the library's ESM entry so they are bundled as well.
+    alias: {
+      'jsonc-parser': require.resolve('jsonc-parser/lib/esm/main.js', { paths: [BACKEND_TS_ROOT] }),
+    },
     outfile: outFile,
     // node:sqlite is a built-in only available in Node 22+; mark as external
     // @napi-rs/keyring ships platform-specific .node binaries — keep external and copy beside server.cjs

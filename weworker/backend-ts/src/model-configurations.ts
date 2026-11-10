@@ -11,6 +11,8 @@ import { modelCatalogConfigPatch, type ModelCatalogConfig } from './model-catalo
 
 export interface ModelConfiguration extends ModelCatalogConfig {
   name?: string
+  external_source_id?: string
+  external_product?: string
   provider_id: string
   model: string
   api_key: string
@@ -151,7 +153,10 @@ export function deleteModelConfiguration(settings: Settings, id: string): Partia
   if (settings.active_model_configuration === id) throw new Error('当前使用中的模型配置不能删除，请先切换其他模型')
   const model_configurations = { ...(settings.model_configurations || {}) }
   delete model_configurations[id]
-  return { model_configurations }
+  const sourceId = settings.model_configurations?.[id]?.external_source_id
+  return { model_configurations, ...(sourceId ? {
+    dismissed_model_sources: [...new Set([...(Array.isArray(settings.dismissed_model_sources) ? settings.dismissed_model_sources : []), sourceId])],
+  } : {}) }
 }
 
 export function activateModelConfiguration(settings: Settings, id: string): Partial<Settings> {

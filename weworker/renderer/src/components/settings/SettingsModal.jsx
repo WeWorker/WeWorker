@@ -1,5 +1,7 @@
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
+import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
+import { ScanSearch } from 'lucide-react'
 import AppDropdownInput from '../common/AppDropdownInput.jsx'
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react'
 import { createPortal } from 'react-dom'
@@ -144,7 +146,7 @@ const LOGOS = {
 const SETTINGS_GROUPS = [
   { label: '常用设置', items: [['model', '模型'], ['config', '应用偏好'], ['memory', '记忆']] },
   { label: '高级设置', items: [['channels', '通道'], ['permissions', '权限与安全'], ['browser', '浏览器'], ['logs', '运行日志']] },
-  { label: '扩展', items: [['webcli-route', 'WebCLI 路由'], ['fast-routes', '快捷路由']] },
+  { label: '扩展', items: [['model-discovery', '模型识别'], ['webcli-route', 'WebCLI 路由'], ['fast-routes', '快捷路由']] },
   { label: '应用信息', items: [['about', '关于']] },
 ]
 const SETTINGS_DESCRIPTIONS = {
@@ -156,6 +158,7 @@ const SETTINGS_DESCRIPTIONS = {
   browser: '管理网站操作浏览器与连接设置。',
   logs: '查看运行记录，帮助排查问题。',
   'webcli-route': '默认关闭。开启后，在直接路由未命中时为 Agent 提供命令推荐。',
+  'model-discovery': '管理启动时的本地模型配置识别。',
   'fast-routes': '审核待启用的快捷路由并查看已配置路由。',
   about: '查看版本信息与更新选项。',
 }
@@ -275,6 +278,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'permissions' && <PermissionsTab />}
             {tab === 'browser' && <BrowserTab />}
             {tab === 'webcli-route' && <WebcliRouteTab />}
+            {tab === 'model-discovery' && <ModelDiscoveryTab />}
             {tab === 'fast-routes' && <FastRoutesTab />}
             {personalizationMounted && <ConfigTab active={tab === 'config'} showStyle showOther={false} />}
             {tab === 'memory' && <MemoryTab />}
@@ -321,6 +325,31 @@ function WebcliRouteTab() {
       {(error || loadError) && <div className="settings-background-section__error" role="alert">{error || loadError}</div>}
     </div>
   )
+}
+
+function ModelDiscoveryTab() {
+  const enabled = useSettingsStore(state => state.modelDiscoveryEnabled)
+  const loaded = useSettingsStore(state => state.loaded)
+  const save = useSettingsStore(state => state.saveModelDiscoveryEnabled)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const pending = useRef(false)
+  const change = async value => {
+    if (pending.current) return
+    pending.current = true
+    setSaving(true)
+    setError('')
+    try { await save(value) }
+    catch (failure) { setError(failure.message || '保存失败') }
+    finally { pending.current = false; setSaving(false) }
+  }
+  return <div className="settings-group">
+    <SettingRow title="模型识别" description="启动时自动识别并导入本机应用中的模型配置。">
+      <AppSwitch checked={enabled} disabled={!loaded || saving} aria-label="模型识别"
+        onChange={event => { void change(event.target.checked) }} />
+    </SettingRow>
+    {error && <div className="settings-background-section__error" role="alert">{error}</div>}
+  </div>
 }
 
 function SwitchField({ checked, disabled, onChange, label }) {
@@ -1515,6 +1544,7 @@ function ModelTab() {
   const [selectedProvider, setSelectedProvider] = useState(activeProvider || null)
   const [providerSearch, setProviderSearch] = useState('')
   const [addPickerOpen, setAddPickerOpen] = useState(false)
+  const [discoveryOpen, setDiscoveryOpen] = useState(false)
   const [addingProvider, setAddingProvider] = useState(null)
   const [deletingProvider, setDeletingProvider] = useState(null)
   const addTriggerRef = useRef(null)
@@ -2016,15 +2046,7 @@ function ModelTab() {
     <>
       <div className="model-settings-layout">
         <aside className="model-settings-sidebar">
-          <div className="model-settings-sidebar__header">
-            <div>
-              <div className="model-settings-sidebar__title">模型列表</div>
-              <div className="model-settings-sidebar__count">
-                {filteredProviders.length === visibleProviders.length
-                  ? `${visibleProviders.length} 个配置`
-                  : `${filteredProviders.length} / ${visibleProviders.length} 个配置`}
-              </div>
-            </div>
+          <div className="model-settings-sidebar__header model-settings-sidebar__header--models">
             <label className="model-settings-search">
               <SearchOutlined aria-hidden="true" />
               <input
@@ -2035,7 +2057,8 @@ function ModelTab() {
                 onChange={(event) => setProviderSearch(event.target.value)}
               />
             </label>
-            {addableProviders.length > 0 && (
+            <div className="model-settings-sidebar__tools">
+              {addableProviders.length > 0 && (
               <button
                 ref={addTriggerRef}
                 type="button"
@@ -2051,7 +2074,12 @@ function ModelTab() {
               >
                 {addPickerOpen ? <CloseOutlined aria-hidden="true" /> : <AppstoreAddOutlined aria-hidden="true" />}
               </button>
-            )}
+              )}
+              <button type="button" className="settings-btn model-settings-discover"
+                aria-label="识别本地模型" title="识别本地模型" onClick={() => setDiscoveryOpen(true)}>
+                <ScanSearch size={18} aria-hidden="true" />
+              </button>
+            </div>
           </div>
           <div className="model-settings-provider-list">
             {filteredProviders.map((provider) => {
@@ -2501,7 +2529,10 @@ function ModelTab() {
         {visibleProviders.length === 0 && <div className="model-settings-empty">还没有模型配置，点击左侧 + 添加。</div>}
         </section>
       </div>
-
+      {discoveryOpen && <LocalModelDiscoveryDialog onClose={() => setDiscoveryOpen(false)} onImported={id => {
+        setProviderSearch('')
+        setSelectedProvider(id)
+      }} />}
     </>
   )
 }

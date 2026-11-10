@@ -53,6 +53,15 @@ export default function AppDropdownSelect({
 
   useDropdownDismiss(open, closeMenu, triggerRef, menuRef)
 
+  useEffect(() => {
+    if (!open) return undefined
+    const dismissOnFocusOutside = event => {
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) closeMenu()
+    }
+    document.addEventListener('focusin', dismissOnFocusOutside)
+    return () => document.removeEventListener('focusin', dismissOnFocusOutside)
+  }, [open])
+
   // 菜单打开时自动聚焦搜索框（菜单由 Portal 延迟一帧挂载，所以放到下一帧执行）。
   useEffect(() => {
     if (!open || !searchable) return undefined

@@ -1486,6 +1486,20 @@
   background: var(--bg-primary);
 }
 
+.model-settings-sidebar__header--models .model-settings-search { max-width: none; }
+.model-settings-sidebar__tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+.settings-btn.model-settings-discover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+
 .model-settings-search > .anticon {
   flex: 0 0 auto;
   font-size: 13px;

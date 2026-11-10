@@ -53,6 +53,7 @@ const baseSettings = (): Settings => ({
   open_browser_allowed_origins: [],
   api_query_llm_route: true,
   webcli_route_enabled: false,
+  model_discovery_enabled: true,
   welcome_featured_site_limit: 50,
   resource_preview_extensions: null,
   user_directory_blacklist: [],

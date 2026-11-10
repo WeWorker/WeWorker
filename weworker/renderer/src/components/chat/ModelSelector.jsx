@@ -8,6 +8,7 @@ import { buildModelOptions, buildSettingsProviderLists, buildChatProviderOptions
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import Tooltip from '../Tooltip.jsx'
 import PresetKeyDialog from './PresetKeyDialog.jsx'
+import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import { getThinkingEffortOptions, normalizeThinkingEffort } from '../../utils/thinking-effort.js'
 import { modelHealthKey, useModelHealthStore } from '../../store/model-health.js'
 import './model-selector.css'
@@ -21,6 +22,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
   const activateProvider = useSettingsStore(state => state.activateProvider)
   const saveProvider = useSettingsStore(state => state.saveProvider)
   const configurePresetProvider = useSettingsStore(state => state.configurePresetProvider)
+  const [discoveryOpen, setDiscoveryOpen] = useState(false)
   const [keyProvider, setKeyProvider] = useState(null)
   const [catalog, setCatalog] = useState(null)
   const [pending, setPending] = useState(false)
@@ -78,6 +80,12 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     try {
       await cancelActiveQrForModelSwitch()
       if (kind === 'provider') {
+        if (!providers[value]?.model && providers[value]?.external_source_id) {
+          const catalog = await fetchProviderModels({ provider: value, target: 'weworker' })
+          const firstModel = catalog.models?.find(item => typeof item === 'string' && item.trim())
+          if (!firstModel) throw new Error('已导入 API 配置，请在模型配置中选择或填写模型名称')
+          await saveProvider(value, { model: firstModel })
+        }
         autoCheckProvider.current = value
         await activateProvider(value)
       }
@@ -157,7 +165,15 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
         ariaLabel="模型供应商选择"
         prefix={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)" /><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)" /></svg>}
         placement="top"
-        minMenuWidth={150}
+        minMenuWidth={240}
+        menuHeader={(
+          <div className="provider-discovery-toolbar">
+            <button type="button" className="provider-discovery-action" disabled={unavailable}
+              onClick={() => setDiscoveryOpen(true)}>
+              {pending ? <LoadingOutlined spin aria-hidden="true" /> : <ReloadOutlined aria-hidden="true" />}<span>自动识别</span>
+            </button>
+          </div>
+        )}
         renderOptionSuffix={option => option?.keyConfigured === undefined ? null : (
           <span className={`provider-key-status${option.keyConfigured ? ' is-configured' : ''}`}
             title={option.keyConfigured ? '已填写 API Key' : '未填写 API Key，点击配置'}
@@ -205,6 +221,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
           minMenuWidth={88}
         />
       </Tooltip>
+      {discoveryOpen && <LocalModelDiscoveryDialog onClose={() => setDiscoveryOpen(false)} />}
       {keyProvider && <PresetKeyDialog
         providerName={PROVIDERS.find(item => item.id === keyProvider)?.name || keyProvider}
         onSave={savePresetKey}
