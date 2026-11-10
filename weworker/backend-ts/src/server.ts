@@ -74,7 +74,8 @@ import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-cata
 import { registerExplorationModelRoutes } from './exploration-model-settings.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
-import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration } from './model-configurations.js'
+import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
+import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
 import { configuredModel } from './provider-config.js'
@@ -431,6 +432,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     download_directory: getDownloadDirectory(),
     max_chat_attachments: s.max_chat_attachments,
     webcli_route_enabled: s.webcli_route_enabled !== false,
+    model_discovery_enabled: s.model_discovery_enabled !== false,
     paste_text_attachment_threshold: getPasteTextAttachmentThreshold(),
     welcome_featured_site_limit: getWelcomeFeaturedSiteLimit(),
     resource_preview_extensions: getResourcePreviewExtensions(),
@@ -609,6 +611,15 @@ app.post('/settings/extensions/webcli-route', (req, res) => {
   res.json(buildSettingsResponse(updateSettings({ webcli_route_enabled: enabled })))
 })
 
+app.post('/settings/extensions/model-discovery', (req, res) => {
+  const enabled = req.body?.model_discovery_enabled
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ detail: 'model_discovery_enabled must be a boolean' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ model_discovery_enabled: enabled })))
+})
+
 app.post('/settings/permissions', (req, res) => {
   const { open_browser_allowed_origins } = req.body as { open_browser_allowed_origins?: string[] }
   if (!Array.isArray(open_browser_allowed_origins)) {
@@ -634,6 +645,89 @@ app.post('/settings/styles', (req, res) => {
     ...(Array.isArray(zcf_custom_roles) ? { zcf_custom_roles: zcf_custom_roles as Settings['zcf_custom_roles'] } : {}),
   }, getSettings())
   res.json(buildSettingsResponse(updateSettings(updates)))
+})
+
+async function detectLocalProviders() {
+  const discovered = await discoverLocalProviders()
+  const result = importDiscoveredProviders(getSettings(), discovered.providers)
+  const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
+  return { ...buildSettingsResponse(settings), discovery: {
+    imported: result.imported.length, existing: result.existing, issues: discovered.issues,
+  } }
+}
+
+app.post('/settings/provider/detect', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    const discovered = await discoverLocalProviders()
+    res.json({ candidates: publicDiscoveredProviders(getSettings(), discovered.providers), issues: discovered.issues })
+  } catch {
+    res.status(500).json({ detail: '自动识别暂时失败，请稍后重试' })
+  }
+})
+
+app.post('/settings/provider/reveal-key', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  if (req.body?.provider !== undefined) {
+    const { provider, target = 'weworker' } = req.body
+    if (typeof provider !== 'string' || !provider || provider.length > 100 ||
+        !['weworker', 'webwright'].includes(target) || req.body.source_id !== undefined) {
+      res.status(400).json({ detail: '请选择要查看的模型配置' })
+      return
+    }
+    try {
+      const key = savedModelConfigurationKey(getSettings(), provider, target)
+      if (!key) { res.status(404).json({ detail: '尚未保存 API Key' }); return }
+      res.json({ api_key: key })
+    } catch {
+      res.status(400).json({ detail: '该模型配置不支持查看 API Key' })
+    }
+    return
+  }
+  const sourceId = req.body?.source_id
+  if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
+    res.status(400).json({ detail: '请选择要查看的模型配置' })
+    return
+  }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    // 只在用户点「眼睛」时读取一次；列表响应里始终只有打码提示。
+    const discovered = await discoverLocalProviders({ validate: false })
+    const candidate = discovered.providers.find(item => item.sourceId === sourceId)
+    if (!candidate) {
+      res.status(404).json({ detail: '该配置已不可用，请重新识别' })
+      return
+    }
+    res.json({ api_key: candidate.configuration.api_key })
+  } catch {
+    res.status(500).json({ detail: '读取 API Key 失败' })
+  }
+})
+
+app.post('/settings/provider/import', async (req, res) => {
+  const sourceId = req.body?.source_id
+  if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
+    res.status(400).json({ detail: '请选择要导入的模型配置' })
+    return
+  }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    // Resolve credentials again on the backend; the preview and import request
+    // never carry keys, paths or a caller-supplied configuration.
+    const discovered = await discoverLocalProviders()
+    const candidate = discovered.providers.find(item => item.sourceId === sourceId)
+    if (!candidate) {
+      res.status(404).json({ detail: '该配置已不可用，请重新识别' })
+      return
+    }
+    // 校验失败的来源也允许用户手动导入：识别是识别，导入由用户决定。
+    const result = importDiscoveredProviders(getSettings(), [candidate], true)
+    const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
+    const configuration = publicDiscoveredProviders(settings, [candidate])[0]
+    res.json({ ...buildSettingsResponse(settings), imported_provider: configuration.configuration_id })
+  } catch {
+    res.status(500).json({ detail: '导入模型配置失败，请重新识别后重试' })
+  }
 })
 
 // Save config for a specific provider (does NOT switch active provider)
@@ -4070,6 +4164,9 @@ async function startConfiguredChannels(): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   await initSettings()
+  if (getSettings().model_discovery_enabled !== false) {
+    try { await detectLocalProviders() } catch { /* Local discovery must not prevent startup. */ }
+  }
   const taskHistory = store.ensureScheduledTaskHistoryProject(getSettings().scheduled_task_history_limit)
   if (taskHistory.project && (taskHistory.movedCount > 0 || taskHistory.prunedIds.length > 0)) {
     log.info('scheduled task history initialized', {

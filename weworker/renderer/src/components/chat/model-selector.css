@@ -64,6 +64,12 @@
   width: 168px;
 }
 
+.provider-discovery-toolbar { display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.provider-discovery-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.provider-discovery-action:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.provider-discovery-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.provider-discovery-action:disabled { opacity: .55; cursor: default; }
+
 .chat-model-selector__model {
   width: 192px;
 }
@@ -83,6 +89,27 @@
 
 .model-health.is-success { color: var(--success, #16a34a); }
 .model-health.is-failure { color: var(--error, #dc2626); }
+
+.model-health-action {
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+.model-health-action:hover:not(:disabled) { background: var(--bg-hover); color: var(--accent); }
+.model-health-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.model-health-action:disabled { cursor: default; }
+
+.chat-model-health-menu .app-dropdown-select__action-option > [role='option'] {
+  flex: 1;
+  width: 0;
+  min-height: 18px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
 
 .chat-model-health-menu .app-dropdown-menu-item {
   display: flex;

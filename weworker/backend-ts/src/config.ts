@@ -317,6 +317,7 @@ export interface Settings {
 
   model_configurations?: Record<string, import('./model-configurations.js').ModelConfiguration>
   model_configuration_names?: Record<string, string>
+  dismissed_model_sources?: string[]
   active_model_configuration?: string
   active_auth_type?: import('./anthropic-auth.js').AnthropicAuthType
   active_weworker_protocol?: import('./llm-egress.js').LlmProtocol
@@ -361,6 +362,7 @@ export interface Settings {
 
   /** WebCLI recommendation before the Agent (default disabled until routing quality is validated); independent of direct routing. */
   webcli_route_enabled: boolean
+  model_discovery_enabled: boolean
 
   /**
    * 当前生效的风格 id（默认 / 预定义内置风格 / 自定义风格）。
@@ -448,6 +450,7 @@ const DEFAULTS: Settings = {
   api_query_llm_route: true,
   // 默认关闭：先由开发和测试同学验证路由质量，确认无问题后再改为默认开启。
   webcli_route_enabled: false,
+  model_discovery_enabled: true,
 
   openai_base_url_custom: '',
   openai_base_url_is_full_custom: false,
@@ -640,8 +643,12 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   )
 
   merged.channels = normalizeChannelsConfig(merged.channels)
+  merged.dismissed_model_sources = Array.isArray(merged.dismissed_model_sources)
+    ? [...new Set(merged.dismissed_model_sources.filter(value => typeof value === 'string' && value.length <= 100))]
+    : []
   // 非布尔或缺失一律按关闭处理，避免历史配置把「未设置」误读成开启。
   merged.webcli_route_enabled = merged.webcli_route_enabled === true
+  merged.model_discovery_enabled = merged.model_discovery_enabled !== false
 
   merged.user_directory_blacklist = normalizeUserDirectoryBlacklist(merged.user_directory_blacklist)
   merged.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(merged.open_browser_allowed_origins)
@@ -836,6 +843,7 @@ export function updateSettings(updates: Partial<Settings>): Settings {
 
   _settings.max_chat_attachments = normalizeMaxChatAttachments(_settings.max_chat_attachments)
   _settings.webcli_route_enabled = _settings.webcli_route_enabled === true
+  _settings.model_discovery_enabled = _settings.model_discovery_enabled !== false
   _settings.context_limit = normalizeContextLimit(_settings.context_limit)
   _settings.context_limit_anthropic = normalizeContextLimit(_settings.context_limit_anthropic)
   _settings.context_limit_glm = normalizeContextLimit(_settings.context_limit_glm)

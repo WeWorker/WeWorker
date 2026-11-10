@@ -8,6 +8,7 @@ import { buildModelOptions, buildSettingsProviderLists, buildChatProviderOptions
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import Tooltip from '../Tooltip.jsx'
 import PresetKeyDialog from './PresetKeyDialog.jsx'
+import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import { getThinkingEffortOptions, normalizeThinkingEffort } from '../../utils/thinking-effort.js'
 import { modelHealthKey, useModelHealthStore } from '../../store/model-health.js'
 import './model-selector.css'
@@ -21,6 +22,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
   const activateProvider = useSettingsStore(state => state.activateProvider)
   const saveProvider = useSettingsStore(state => state.saveProvider)
   const configurePresetProvider = useSettingsStore(state => state.configurePresetProvider)
+  const [discoveryOpen, setDiscoveryOpen] = useState(false)
   const [keyProvider, setKeyProvider] = useState(null)
   const [catalog, setCatalog] = useState(null)
   const [pending, setPending] = useState(false)
@@ -32,6 +34,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
   const checking = useModelHealthStore(state => state.checking)
   const running = useModelHealthStore(state => Boolean(state.running[activeProvider]))
   const checkModels = useModelHealthStore(state => state.checkModels)
+  const checkModel = useModelHealthStore(state => state.checkModel)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -78,6 +81,12 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     try {
       await cancelActiveQrForModelSwitch()
       if (kind === 'provider') {
+        if (!providers[value]?.model && providers[value]?.external_source_id) {
+          const catalog = await fetchProviderModels({ provider: value, target: 'weworker' })
+          const firstModel = catalog.models?.find(item => typeof item === 'string' && item.trim())
+          if (!firstModel) throw new Error('已导入 API 配置，请在模型配置中选择或填写模型名称')
+          await saveProvider(value, { model: firstModel })
+        }
         autoCheckProvider.current = value
         await activateProvider(value)
       }
@@ -126,7 +135,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     if (normalizedThinkingEffort !== thinkingEffort) onThinkingEffortChange?.(normalizedThinkingEffort)
   }, [normalizedThinkingEffort, thinkingEffort, onThinkingEffortChange])
 
-  const renderModelHealth = (option) => {
+  const renderModelHealth = (option, interactive = false) => {
     if (!option) return null
     const key = modelHealthKey(activeProvider, option.value)
     const result = healthResults[key]
@@ -135,11 +144,22 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     const time = result ? new Date(result.checkedAt).toLocaleString() : ''
     const title = result
       ? `上次检测：${time} · ${result.ok ? '会话协议可用' : '检测未通过'} · 请求总耗时 ${result.elapsedMs}ms${busy ? ' · 正在重新检测' : ''}`
-      : busy ? '正在检测会话协议' : '尚未检测，点击列表顶部图标检测全部模型'
+      : busy ? '正在检测会话协议' : '尚未检测'
+    const content = <>
+      {busy ? <LoadingOutlined spin /> : result ? (result.ok ? <LinkOutlined /> : <DisconnectOutlined />) : <QuestionCircleOutlined />}
+      <span>{busy ? '检测中' : result ? (result.ok ? `${result.elapsedMs}ms` : '不可用') : '未检测'}</span>
+    </>
+    if (interactive) return (
+      <button type="button" className={`model-health model-health-action is-${state}`}
+        title="点击仅检测此模型" aria-label={`检测模型 ${option.value}`}
+        aria-busy={Boolean(busy)} disabled={busy || unavailable}
+        onClick={() => { void checkModel(activeProvider, option.value) }}>
+        {content}
+      </button>
+    )
     return (
       <span className={`model-health is-${state}`} title={title} aria-label={title}>
-        {busy ? <LoadingOutlined spin /> : result ? (result.ok ? <LinkOutlined /> : <DisconnectOutlined />) : <QuestionCircleOutlined />}
-        <span>{result ? (result.ok ? `${result.elapsedMs}ms` : '不可用') : busy ? '检测中' : '未检测'}</span>
+        {content}
       </span>
     )
   }
@@ -157,7 +177,15 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
         ariaLabel="模型供应商选择"
         prefix={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)" /><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)" /></svg>}
         placement="top"
-        minMenuWidth={150}
+        minMenuWidth={240}
+        menuHeader={(
+          <div className="provider-discovery-toolbar">
+            <button type="button" className="provider-discovery-action" disabled={unavailable}
+              onClick={() => setDiscoveryOpen(true)}>
+              {pending ? <LoadingOutlined spin aria-hidden="true" /> : <ReloadOutlined aria-hidden="true" />}<span>自动识别</span>
+            </button>
+          </div>
+        )}
         renderOptionSuffix={option => option?.keyConfigured === undefined ? null : (
           <span className={`provider-key-status${option.keyConfigured ? ' is-configured' : ''}`}
             title={option.keyConfigured ? '已填写 API Key' : '未填写 API Key，点击配置'}
@@ -180,6 +208,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
         allowCustom={!fixedModel}
         searchPlaceholder="搜索或输入模型名"
         renderOptionSuffix={renderModelHealth}
+        renderOptionAction={option => renderModelHealth(option, true)}
         menuHeader={(
           <div className="model-health-toolbar">
             <span>{running ? '正在检测会话协议…' : '上次检测结果'}</span>
@@ -205,6 +234,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
           minMenuWidth={88}
         />
       </Tooltip>
+      {discoveryOpen && <LocalModelDiscoveryDialog onClose={() => setDiscoveryOpen(false)} />}
       {keyProvider && <PresetKeyDialog
         providerName={PROVIDERS.find(item => item.id === keyProvider)?.name || keyProvider}
         onSave={savePresetKey}

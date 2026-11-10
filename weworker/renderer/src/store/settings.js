@@ -31,6 +31,7 @@ function settingsPatch(data, fallback = {}) {
     activeProvider: data.active_provider,
     onboardingCompleted: data.onboarding_completed ?? fallback.onboardingCompleted ?? false,
     webcliRouteEnabled: data.webcli_route_enabled ?? fallback.webcliRouteEnabled ?? false,
+    modelDiscoveryEnabled: data.model_discovery_enabled ?? fallback.modelDiscoveryEnabled ?? true,
     baseUrl: data.base_url,
     model: data.model,
     contextLimit: data.context_limit || fallback.contextLimit || 1000000,
@@ -67,6 +68,7 @@ export const useSettingsStore = create((set, get) => ({
   activeProvider: BUILD_DEFAULT_PROVIDER,
   onboardingCompleted: false,
   webcliRouteEnabled: false,
+  modelDiscoveryEnabled: true,
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
   contextLimit: 1000000,
@@ -115,6 +117,36 @@ export const useSettingsStore = create((set, get) => ({
   },
 
   // Save config for one provider (does not switch active)
+  detectProviders: async (signal) => {
+    const res = await backendFetch(`${API}/settings/provider/detect`, { method: 'POST', signal })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '自动识别失败')
+    return data
+  },
+
+  revealProviderKey: async (sourceId) => {
+    const res = await backendFetch(`${API}/settings/provider/reveal-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: sourceId }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '读取 API Key 失败')
+    return data.api_key || ''
+  },
+
+  importLocalProvider: async (sourceId) => {
+    const res = await backendFetch(`${API}/settings/provider/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: sourceId }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '导入模型配置失败')
+    set(settingsPatch(data, get()))
+    return data.imported_provider
+  },
+
   addProvider: async (provider) => {
     const res = await backendFetch(`${API}/settings/provider/add`, {
       method: 'POST',
@@ -259,6 +291,17 @@ export const useSettingsStore = create((set, get) => ({
     const data = await response.json()
     if (!response.ok) throw new Error(data.detail || '保存 WebCLI 路由设置失败')
     set({ webcliRouteEnabled: (data.webcli_route_enabled ?? enabled) !== false })
+  },
+
+  saveModelDiscoveryEnabled: async (enabled) => {
+    const res = await backendFetch(`${API}/settings/extensions/model-discovery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_discovery_enabled: enabled }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '保存模型识别设置失败')
+    set({ modelDiscoveryEnabled: data.model_discovery_enabled ?? enabled })
   },
 
   saveWelcomeFeaturedSiteLimit: async (welcomeFeaturedSiteLimit) => {
