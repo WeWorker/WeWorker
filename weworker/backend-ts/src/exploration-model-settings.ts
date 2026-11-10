@@ -59,7 +59,7 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
     if (!force && verified === id) return { ok: true, target: 'webwright', protocol: config.protocol, model: config.model }
     if (pending.has(id)) return pending.get(id)!
     const provider: ProviderEntry = {
-      id: 'custom', name: '网站探索agent', models: [], defaultModel: '',
+      id: 'custom', name: 'Adapter工坊·探索模型', models: [], defaultModel: '',
       weworker: { protocol: 'anthropic_messages', baseUrl: '' },
       webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output },
     }

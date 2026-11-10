@@ -26,6 +26,7 @@
 .website-exploration summary:not(.chat-view *) { cursor:pointer;overflow-wrap:anywhere; }
 .wx-topbar,.wx-context,.website-exploration header:not(.chat-view *),.website-exploration footer:not(.chat-view *) { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
 .wx-topbar { padding:16px 20px;border-bottom:1px solid var(--border);flex:none; }
+.website-exploration .wx-workshop-subtitle { margin:2px 0 0;color:var(--wx-muted);font-size:var(--font-size-caption); }
 .wx-actions { display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
 .wx-layout { flex:1;display:flex;min-height:0;min-width:0; }
 .wx-tree { width:220px;flex:none;padding:12px 8px;overflow:auto;border-right:1px solid var(--border);background:var(--bg-secondary); }

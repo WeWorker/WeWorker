@@ -59,14 +59,14 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
       <button type="button" className="sidebar-new-chat sidebar-conversation-action" title="新探索" aria-label="新探索" disabled={submitting} onClick={() => { useStore.setState({ explorationContext: null }); setCurrentId('') }}>
         <FormOutlined aria-hidden="true" /><span>新探索</span>
       </button>
-      <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">探索列表</span></header>
+      <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">工作记录</span></header>
       <div className="wx-history-records">
       <ErrorMessage>{list.error || developments.error}</ErrorMessage>
       {list.loading && <p>正在加载…</p>}
       {records.map(item => <ExplorationRecord key={item.exploration_id} item={item} selected={!showNew && currentId === item.exploration_id}
-        inProgress={isExplorationInProgress(item, activeExplorationId, developingIds)} disabled={submitting}
+        inProgress={isExplorationInProgress(item, activeExplorationId, developingIds)} generating={developingIds.has(item.exploration_id)} disabled={submitting}
         onSelect={() => { useStore.getState().selectRecord(key + '/exploration', item.exploration_id); useStore.setState({ explorationContext: null }); setCurrentId(item.exploration_id) }} />)}
-      {!list.loading && !list.error && !records.length && <p className="wx-empty">从一个网址开始，探索会保存在这里。</p>}
+      {!list.loading && !list.error && !records.length && <p className="wx-empty">从一个网址开始探索；探索和适配器生成记录会保存在这里。</p>}
       </div>
     </aside>
     {showNew ? <NewExploration key={context ? context.toolkitId + '/' + context.tool.tool_id : 'site'} context={context} disabled={disabled || globalBusy || !modelReady} onCreated={onCreated} onBusyChange={setSubmitting} />
@@ -75,11 +75,11 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
   </div>
 }
 
-export function ExplorationRecord({ item, selected = false, inProgress = false, disabled = false, onSelect }) {
+export function ExplorationRecord({ item, selected = false, inProgress = false, generating = false, disabled = false, onSelect }) {
   return <button type="button" className={'wx-record' + (selected ? ' is-active' : '') + (inProgress ? ' is-in-progress' : '')}
     aria-current={selected ? 'true' : undefined} disabled={disabled} onClick={onSelect}>
     <strong>{item.title || item.instruction || item.created_at || '探索'}</strong>
-    {inProgress && <span className="wx-status wx-record-progress"><SettingOutlined className="wx-record-progress-gear" aria-hidden="true" /><span>进行中</span></span>}
+    {inProgress && <span className="wx-status wx-record-progress"><SettingOutlined className="wx-record-progress-gear" aria-hidden="true" /><span>{generating ? '生成中' : '探索中'}</span></span>}
     <small>{item.start_url}</small><small>{item.created_at}</small>
   </button>
 }

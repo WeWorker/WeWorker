@@ -99,7 +99,7 @@ export default function AppRail({ activeSection, settingsOpen = false, extension
             <RailMenuButton label="SKILLS与场景" active={activeKey === 'skills'} disabled={!moreOpen} onClick={() => openFeature(onOpenSkills)}>
               <SkillsIcon />
             </RailMenuButton>
-            <RailMenuButton label="网站探索agent" active={activeKey === 'website'} disabled={!moreOpen} onClick={() => openFeature(onOpenWebsiteExploration)}>
+            <RailMenuButton label="Adapter工坊" active={activeKey === 'website'} disabled={!moreOpen} onClick={() => openFeature(onOpenWebsiteExploration)}>
               <GlobeIcon />
             </RailMenuButton>
           </div>

@@ -76,8 +76,8 @@ export function shouldSuggestGraduation(count: number): boolean {
 
 export function graduationHint(host: string, count: number): string {
   return (
-    `\n\n💡 ${host} 已是第 ${count} 次由网站探索agent处理。` +
-    '若这是常用站点，可在网站探索agent的 Toolkit 流程中把它固化为本地工具包并安装；' +
-    '安装后此类请求会直接走本地工具，无需再逐次探索。\n入口：客户端「网站探索」工作台'
+    `\n\n💡 ${host} 已是第 ${count} 次通过网站探索处理。` +
+    '若这是常用站点，可在「Adapter工坊」中基于探索结果生成并应用适配器；' +
+    '应用后此类请求可直接调用适配器，无需再逐次探索。\n入口：客户端「Adapter工坊」'
   )
 }

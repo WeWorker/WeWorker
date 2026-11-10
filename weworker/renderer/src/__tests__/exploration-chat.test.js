@@ -180,7 +180,7 @@ test('exploration sidebar reuses the main new-chat button and exposes the full l
   assert.match(html, /class="sidebar-new-chat sidebar-conversation-action"/)
   assert.match(html, /aria-label="新探索"/)
   assert.match(html, /anticon-form/)
-  assert.match(html, /探索列表/)
+  assert.match(html, /工作记录/)
   assert.doesNotMatch(html, /探索记录|搜索记录或状态|搜索探索记录|<input/)
   const source = readFileSync(new URL('../components/website-exploration/ExploreWorkspace.jsx', import.meta.url), 'utf8')
   assert.match(source, /records\.map/)
@@ -273,19 +273,21 @@ test('in-progress indicator follows the same activity signals as list pinning', 
   assert.equal(isExplorationInProgress({ exploration_id: 'exp', status: 'succeeded' }, '', new Set(['exp'])), true)
 })
 
-test('running records use a gear and label independently of selected background', () => {
+test('running records distinguish exploration from adapter generation independently of selection', () => {
   for (const selected of [true, false]) {
-    const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'running' }, selected, inProgress: true }))
-    assert.match(html, /is-in-progress/)
-    assert.match(html, /进行中/)
-    assert.match(html, /anticon-setting/)
-    assert.match(html, /wx-record-progress-gear/)
-    assert.equal(html.includes('is-active'), selected)
-    assert.equal(html.includes('aria-current="true"'), selected)
-    assert.doesNotMatch(html, /disabled=/)
+    for (const [generating, label] of [[false, '探索中'], [true, '生成中']]) {
+      const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'running' }, selected, inProgress: true, generating }))
+      assert.match(html, /is-in-progress/)
+      assert.ok(html.includes(label))
+      assert.match(html, /anticon-setting/)
+      assert.match(html, /wx-record-progress-gear/)
+      assert.equal(html.includes('is-active'), selected)
+      assert.equal(html.includes('aria-current="true"'), selected)
+      assert.doesNotMatch(html, /disabled=/)
+    }
   }
   const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'succeeded' } }))
-  assert.doesNotMatch(html, /is-in-progress|is-active|wx-record-progress-gear|进行中/)
+  assert.doesNotMatch(html, /is-in-progress|is-active|wx-record-progress-gear|探索中|生成中/)
 })
 
 test('only selected rows receive a persistent background and gear respects reduced motion', () => {
@@ -299,7 +301,7 @@ test('only selected rows receive a persistent background and gear respects reduc
 test('idle conversations show no lifecycle badge because they can always continue', () => {
  for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {
   const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status } }))
-  assert.doesNotMatch(html, /wx-status|已完成|进行中|wx-record-progress/)
+  assert.doesNotMatch(html, /wx-status|已完成|探索中|生成中|wx-record-progress/)
  }
  const css = readFileSync(new URL('../components/website-exploration/website-exploration.css', import.meta.url), 'utf8')
  assert.match(css, /\.wx-record-progress \{[^}]*color:var\(--accent\)/)

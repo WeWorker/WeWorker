@@ -18,7 +18,7 @@ WeWorker 是桌面端 AI 工作助手项目，包含 Electron 桌面端、TypeSc
 - `extension/`：浏览器扩展、页面注入、Bridge 和扩展权限配置。
 - `adapters/`：仓库根目录的内置 Adapter v2 包（host-managed）定义与站点能力描述；新增或修改 Adapter 时必须同步构建 profile、权限、文档和对应验证。构建时由 `weworker/scripts/prepare-build.cjs` 打包为 host-managed 包，经 Bridge 下发，不随扩展内置。
 - `webcli/`：WebCLI 命令入口与 Adapter 调用层；统一对外提供 `webcli call <adapter-id>.<tool-id>`。
-- `components/webwright/`：网站探索agent实现源码目录。源码中可以沿用既有包名和路径，用户侧文案、UI、文档统一使用「网站探索agent」。
+- `components/webwright/`：网站探索服务实现源码目录。源码中可以沿用既有包名和路径；用户侧功能入口和页面名称使用「Adapter工坊」，具体执行阶段使用「网站探索」。
 - `officialWeb/`：产品官网、文档站与下载页（Vite + React）。
 - `docs/`：设计、构建、贡献、工作流和维护文档。
 - `.github/`：Issue/PR 模板与公开自动化流程。
@@ -71,7 +71,7 @@ WeWorker 是桌面端 AI 工作助手项目，包含 Electron 桌面端、TypeSc
 - 网站探索agent持久数据固定写入 `~/.weworker/webwright/`；不得读取、迁移或清理旧 `~/.webwright`。
 - 网站探索agent除持久数据根外，只允许按 Electron 注入的 `weworker_USER_FILES_DIR` 读写 `<user_directory>/.claude/skills/`；embedded 模式可通过独立临时 token 调用固定 loopback 接口读取当前模型配置快照，但不得读取设置文件、数据库或修改其他 WeWorker 数据。
 - 修改 CI/CD、发布、数据库 schema、`.env`、密钥、删除文件和 Git 回滚前必须获得用户单独确认。
-- UI、公开文档和用户可见文案中，严禁出现「webwright」文案，统一使用「网站探索agent」。
+- UI、公开文档和用户可见文案中，严禁出现「webwright」文案；功能入口和页面名称使用「Adapter工坊」，探索阶段和服务状态使用「网站探索」或「探索服务」，适配器生成与应用使用具体动作名称。
 
 ## WebCLI 维护边界
 

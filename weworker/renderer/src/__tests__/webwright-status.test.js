@@ -5,7 +5,7 @@ import { getWebwrightPresentation } from '../utils/webwright-status.js'
 describe('Webwright status presentation', () => {
   it('only enables the browser entry while running', () => {
     assert.deepEqual(getWebwrightPresentation('running'), {
-      label: '打开网站探索 agent',
+      label: '打开Adapter工坊',
       enabled: true,
       tone: 'success',
     })
@@ -15,8 +15,8 @@ describe('Webwright status presentation', () => {
   })
 
   it('shows explicit failure states', () => {
-    assert.equal(getWebwrightPresentation('error').label, '网站探索 agent 启动失败')
+    assert.equal(getWebwrightPresentation('error').label, '探索服务启动失败')
     assert.equal(getWebwrightPresentation('port_in_use').label, '端口 8766 被占用')
-    assert.equal(getWebwrightPresentation('version_mismatch').label, '网站探索 agent 版本不匹配')
+    assert.equal(getWebwrightPresentation('version_mismatch').label, '探索服务版本不匹配')
   })
 })
