@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { discoverLocalProviders, importDiscoveredProviders } from '../provider-discovery.js'
+import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from '../provider-discovery.js'
 import { deleteModelConfiguration, publicModelConfigurations, updateModelConfiguration } from '../model-configurations.js'
 import { applySecrets, clearSecretsOnDisk, extractSecrets } from '../settings-secrets.js'
 import type { Settings } from '../config.js'
@@ -153,6 +153,104 @@ describe('local provider discovery', () => {
       { id: 'fixture-b', apiKey: 'fixture-key', url: 'file:///fixture/chat/completions' },
       { id: 'fixture-c', apiKey: 'fixture-key', url: 'https://example.com/v1/chat/completions?api_key=fixture-secret' },
     ] })
+    expect((await discover()).providers).toEqual([])
+  })
+})
+
+describe('DeepSeek Harness discovery', () => {
+  const patch = (providers: unknown) => [{ id: 'llm-pi-ai', config: { providers } }]
+
+  it('reads the official YAML credential reference and profile without changing source files', async () => {
+    const credentials = 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: fixture-harness-key\n'
+    write('.dsh/.credentials.yaml', credentials)
+    write('.dsh/profiles/web/cordis.patch.yml', '- id: llm-deepseek\n  config:\n    models:\n      - id: fixture-deepseek-model\n')
+    const { providers } = await discover({ DEEPSEEK_API_KEY: 'fixture-env-lower-priority' })
+    expect(providers).toHaveLength(1)
+    expect(providers[0]).toMatchObject({ product: 'DeepSeek Harness', configuration: {
+      name: 'DeepSeek Harness', api_key: 'fixture-harness-key', model: 'fixture-deepseek-model',
+      base_url: 'https://api.deepseek.com/anthropic', weworker_protocol: 'anthropic_messages', auth_type: 'api_key',
+    } })
+    expect(JSON.stringify(publicDiscoveredProviders(settings(), providers))).not.toContain('fixture-harness-key')
+    const imported = importDiscoveredProviders(settings(), providers)
+    expect(importDiscoveredProviders({ ...settings(), ...imported.updates }, providers).imported).toEqual([])
+    expect(fs.readFileSync(path.join(home, '.dsh/.credentials.yaml'), 'utf8')).toBe(credentials)
+  })
+
+  it('discovers a saved official key before a profile patch exists, without inventing a model', async () => {
+    write('.dsh/.credentials.yaml', { version: 1, refs: { DEEPSEEK_API_KEY: 'fixture-key' } })
+    const { providers } = await discover()
+    expect(providers).toHaveLength(1)
+    expect(providers[0].configuration.model).toBe('')
+  })
+
+  it('honors DSH_HOME, legacy refs and explicit custom protocol routes', async () => {
+    write('dsh-custom/.credentials.yaml', { FIXTURE_KEY: 'fixture-key' })
+    write('dsh-custom/profiles/desktop/cordis.patch.yml', patch(Object.fromEntries(
+      ['openai-completions', 'openai-responses', 'anthropic-messages'].map(api => [api, {
+        api, apiKeyEnv: 'FIXTURE_KEY', baseURL: 'https://example.com/v1', models: [{ id: `fixture-${api}` }],
+      }]),
+    )))
+    const { providers } = await discover({ DSH_HOME: '~/dsh-custom' })
+    expect(providers.map(item => item.configuration.weworker_protocol)).toEqual([
+      'openai_chat_completions', 'openai_responses', 'anthropic_messages',
+    ])
+    expect(new Set(providers.map(item => item.sourceId)).size).toBe(3)
+  })
+
+  it('uses home config replacement over profile config and respects disabled entries', async () => {
+    write('.dsh/.credentials.yaml', { version: 1, refs: { DEEPSEEK_API_KEY: 'fixture-key' } })
+    write('.dsh/profiles/web/cordis.patch.yml', [{ id: 'llm-deepseek', config: { models: [{ id: 'old-model' }] } }])
+    write('.dsh/cordis.patch.yml', [{ id: 'llm-deepseek', config: { baseURL: 'https://example.com/anthropic', models: [{ id: 'home-model' }] } }])
+    expect((await discover()).providers[0].configuration).toMatchObject({ base_url: 'https://example.com/anthropic', model: 'home-model' })
+    write('.dsh/cordis.patch.yml', [{ id: 'llm-deepseek', disabled: true }])
+    expect((await discover()).providers).toEqual([])
+  })
+
+  it('imports explicit API-key records but skips OAuth and unresolved explicit refs', async () => {
+    write('.dsh/.credentials.yaml', { version: 1, records: {
+      'llm-pi-ai/key-provider': { kind: 'api-key', key: 'fixture-record-key' },
+      'llm-pi-ai/oauth-provider': { kind: 'grant', payload: { access: 'fixture-login-token' } },
+    } })
+    const route = { api: 'openai-completions', baseURL: 'https://example.com/v1', models: [{ id: 'fixture-model' }] }
+    write('.dsh/profiles/web/cordis.patch.yml', patch({ 'key-provider': route, 'oauth-provider': route }))
+    expect((await discover()).providers.map(item => item.configuration.api_key)).toEqual(['fixture-record-key'])
+    write('.dsh/profiles/web/cordis.patch.yml', patch({ 'key-provider': { ...route, apiKeyEnv: 'MISSING_REFERENCE' } }))
+    expect((await discover()).providers).toEqual([])
+  })
+
+  it('uses launch environment references only for an existing Harness installation', async () => {
+    expect((await discover({ DEEPSEEK_API_KEY: 'fixture-env-key' })).providers).toEqual([])
+    write('.dsh/profiles/web/cordis.patch.yml', [])
+    expect((await discover({ DEEPSEEK_API_KEY: 'fixture-env-key', DEEPSEEK_BASE_URL: 'https://example.com/anthropic' })).providers[0].configuration)
+      .toMatchObject({ api_key: 'fixture-env-key', base_url: 'https://example.com/anthropic' })
+  })
+
+  it('contains malformed YAML, oversized files and unsupported credential versions without exposing data', async () => {
+    claude()
+    write('.dsh/.credentials.yaml', 'refs: [fixture-sensitive-value')
+    let result = await discover()
+    expect(result.providers.map(item => item.product)).toEqual(['Claude Code'])
+    expect(result.issues).toEqual(['DeepSeek Harness'])
+    expect(JSON.stringify(result)).not.toContain('fixture-sensitive-value')
+    write('.dsh/.credentials.yaml', { version: 2, refs: { DEEPSEEK_API_KEY: 'fixture-key' } })
+    expect((await discover()).providers.map(item => item.product)).toEqual(['Claude Code'])
+    write('.dsh/.credentials.yaml', { version: 1, refs: { DEEPSEEK_API_KEY: 'fixture-key' } })
+    write('.dsh/profiles/web/cordis.patch.yml', 'x'.repeat(1024 * 1024 + 1))
+    result = await discover()
+    expect(result.providers.map(item => item.product)).toEqual(['Claude Code'])
+    expect(result.issues).toEqual(['DeepSeek Harness'])
+  })
+
+  it('skips ambiguous catalog routes, unknown protocols, login plugins and credential-bearing URLs', async () => {
+    write('.dsh/.credentials.yaml', { version: 1, refs: { FIXTURE_KEY: 'fixture-key' } })
+    write('.dsh/profiles/web/cordis.patch.yml', [
+      { id: 'llm-deepseek-account', config: { apiKeyEnv: 'FIXTURE_KEY' } },
+      ...patch({
+        catalog: { apiKeyEnv: 'FIXTURE_KEY' },
+        unknown: { apiKeyEnv: 'FIXTURE_KEY', api: 'other-api', baseURL: 'https://example.com' },
+        unsafe: { apiKeyEnv: 'FIXTURE_KEY', api: 'openai-completions', baseURL: 'https://example.com?key=fixture-key' },
+      }),
+    ])
     expect((await discover()).providers).toEqual([])
   })
 })

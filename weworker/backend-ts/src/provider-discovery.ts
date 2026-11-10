@@ -8,9 +8,10 @@ import type { Settings } from './config.js'
 import { DEFAULT_CONTEXT_LIMIT } from './context-window.js'
 import { activateModelConfiguration, type ModelConfiguration } from './model-configurations.js'
 import { normalizeLlmUrlInput, type LlmProtocol } from './llm-egress.js'
+import { discoverHarnessProviders } from './harness-provider-discovery.js'
 
 type RecordValue = Record<string, any>
-type Product = 'Claude Code' | 'Codex' | 'WorkBuddy' | 'CodeBuddy' | 'OpenCode'
+type Product = 'Claude Code' | 'Codex' | 'WorkBuddy' | 'CodeBuddy' | 'OpenCode' | 'DeepSeek Harness'
 export interface DiscoveredProvider {
   sourceId: string
   product: Product
@@ -150,6 +151,10 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
     if (protocol) add('OpenCode', providerId, key, apiOptions.baseURL || defaults[providerId]?.url, selection.slice(separator + 1), protocol,
       protocol === 'anthropic_messages' ? 'api_key' : 'auth_token')
   }
+  const harness = await discoverHarnessProviders(home, env)
+  if (harness.issue) issues.add('DeepSeek Harness')
+  for (const item of harness.providers) add('DeepSeek Harness', item.slot, item.key, item.url, item.model,
+    item.protocol, item.protocol === 'anthropic_messages' ? 'api_key' : 'auth_token')
   return { providers, issues: [...issues] }
 }
 

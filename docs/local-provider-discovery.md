@@ -20,6 +20,7 @@ and credentials are resolved again on the backend.
 | WorkBuddy | `~/.workbuddy/settings.json`, `models.json`; honors `WORKBUDDY_CONFIG_DIR`, then `CODEBUDDY_CONFIG_DIR` |
 | CodeBuddy | `~/.codebuddy/settings.json`, `models.json`; honors `CODEBUDDY_CONFIG_DIR` |
 | OpenCode | `~/.config/opencode/opencode.json` / `opencode.jsonc`, `~/.local/share/opencode/auth.json`; honors XDG directories |
+| DeepSeek Harness | `~/.dsh/.credentials.yaml`, `cordis.patch.yml`, `profiles/<profile>/cordis.patch.yml`; honors `DSH_HOME` |
 
 WorkBuddy model arrays and CodeBuddy `{ "models": [] }` objects are supported.
 Codex imports the selected provider's explicit API key or environment key;
@@ -49,4 +50,21 @@ Format references: [Claude Code](https://code.claude.com/docs/en/settings),
 [Codex](https://developers.openai.com/codex/config-reference),
 [WorkBuddy](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Model),
 [CodeBuddy](https://www.codebuddy.ai/docs/cli/models),
-[OpenCode](https://opencode.ai/docs/config/).
+[OpenCode](https://opencode.ai/docs/config/),
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md).
+
+DeepSeek Harness discovery reads the official DeepSeek API-key route and explicit
+`llm-pi-ai` custom routes using `openai-completions`, `openai-responses` or
+`anthropic-messages` plus a base URL. Configured models appear as separate import
+candidates; a route without a saved model imports without inventing a model ID.
+The version-1 credential store's `refs` (and the earlier flat reference map) take
+precedence over launch environment variables. Explicit `apiKeyEnv` references
+take precedence over `api-key` records. OAuth/grant records and the DeepSeek
+account-login plugin are excluded. Home patches replace profile entry configs,
+and disabled entries are skipped.
+
+Discovery reads at most 100 profile directories and only their fixed patch files;
+it does not execute DSH or load plugin bundles, project `.env` files, custom
+credential stores, or command-line overlays. Routes relying on an installed
+plugin catalog to supply their protocol or endpoint are skipped. These cases
+still require manual configuration. Original Harness files are never modified.
