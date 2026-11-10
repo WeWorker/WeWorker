@@ -176,6 +176,29 @@ describe('DeepSeek Harness discovery', () => {
     expect(fs.readFileSync(path.join(home, '.dsh/.credentials.yaml'), 'utf8')).toBe(credentials)
   })
 
+  it('reads the stored account token from versioned records when no refs map exists', async () => {
+    write('.dsh/.credentials.yaml', [
+      'version: 1',
+      'records:',
+      '  client-connection/browser-session:',
+      '    kind: grant',
+      '    payload:',
+      '      secret: fixture-session-secret',
+      '  deepseek-account-platform/default:',
+      '    kind: grant',
+      '    payload:',
+      '      token: fixture-record-token',
+      '      issuer: https://platform.deepseek.com',
+    ].join('\n'))
+    write('.dsh/profiles/desktop/cordis.patch.yml', '- id: llm-deepseek\n  config:\n    models:\n      - id: fixture-record-model\n')
+    const { providers } = await discover()
+    expect(providers).toHaveLength(1)
+    expect(providers[0].configuration).toMatchObject({ api_key: 'fixture-record-token', model: 'fixture-record-model' })
+    // 会话 secret 不能被当成模型 key。
+    expect(providers.some(item => item.configuration.api_key === 'fixture-session-secret')).toBe(false)
+    expect(JSON.stringify(publicDiscoveredProviders(settings(), providers))).not.toContain('fixture-record-token')
+  })
+
   it('discovers a saved official key before a profile patch exists, without inventing a model', async () => {
     write('.dsh/.credentials.yaml', { version: 1, refs: { DEEPSEEK_API_KEY: 'fixture-key' } })
     const { providers } = await discover()
