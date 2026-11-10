@@ -78,9 +78,11 @@ export async function discoverHarnessProviders(home: string, env: NodeJS.Process
     }
     return ''
   })()
-  function addModels(slot: string, config: ObjectValue, key: string, url: string, protocol: LlmProtocol) {
+  function addModels(slot: string, config: ObjectValue, key: string, url: string, protocol: LlmProtocol, fallbackModel = '') {
     if (!key || !url) return
-    const models = Array.isArray(config.models) ? config.models.slice(0, 100).map(model => text(object(model).id)).filter(Boolean) : ['']
+    const configured = Array.isArray(config.models) ? config.models.slice(0, 100).map(model => text(object(model).id)).filter(Boolean) : []
+    // 官方条目通常只声明 apiKeyEnv；默认模型来自 agent-default-model 条目。
+    const models = configured.length ? configured : fallbackModel ? [fallbackModel] : ['']
     for (const model of new Set(models)) providers.push({ slot: `${slot}/${model}`, key, url, model, protocol })
   }
   for (const profile of profiles) {
@@ -97,6 +99,7 @@ export async function discoverHarnessProviders(home: string, env: NodeJS.Process
         if (id) entries.set(id, { ...entries.get(id), ...entry })
       }
     }
+    const preferredModel = text(object(entries.get('agent-default-model')?.config).model)
     for (const [id, entry] of entries) {
       if (entry.disabled === true) continue
       const name = text(entry.name)
@@ -104,7 +107,7 @@ export async function discoverHarnessProviders(home: string, env: NodeJS.Process
       const official = name ? ['@deepseek-ai/dsh-llm-deepseek-api-key', '@deepseek-ai/dsh-llm-deepseek'].includes(name) : id === 'llm-deepseek'
       if (official) {
         addModels(`${profile}/${id}`, config, resolveKey(text(config.apiKeyEnv) || 'DEEPSEEK_API_KEY') || storedToken,
-          text(config.baseURL) || text(env.DEEPSEEK_BASE_URL) || 'https://api.deepseek.com/anthropic', 'anthropic_messages')
+          text(config.baseURL) || text(env.DEEPSEEK_BASE_URL) || 'https://api.deepseek.com/anthropic', 'anthropic_messages', preferredModel)
       } else if (name === '@deepseek-ai/dsh-llm-pi-ai' || (!name && id === 'llm-pi-ai')) {
         for (const [providerId, rawConfig] of Object.entries(object(config.providers)).slice(0, 100)) {
           const provider = object(rawConfig)
