@@ -103,7 +103,7 @@ export function createWebsiteExplorationAdapterRouter({
       const command = active?.manifest.commands.find((item: { id: string }) => item.id === commandId)
       if (!toolkitId && !command) throw new Error('已安装命令不存在，请刷新目录。')
       if (command && (active?.source !== 'user' || active.origin?.kind !== 'generated')) {
-        throw new Error('只能从网站探索agent生成的用户 Adapter 中删除已安装命令。')
+        throw new Error('只能从Adapter工坊生成的用户 Adapter 中删除已安装命令。')
       }
       if (command && command.runtime !== 'wewright') throw new Error('只能删除 Toolkit 命令。')
       const pkg = command ? readPackageDirectory(active!.root) : null

@@ -45,7 +45,7 @@ export default function WebsiteExplorationPage({ onOpenSettings }) {
   const activeExploration = globalBusy && status.data?.activity.kind === 'exploration' && status.data.activity.id
   return <div className="website-exploration wx-page">
     {messageContextHolder}
-    <header className="wx-topbar"><h1>网站探索agent</h1>
+    <header className="wx-topbar"><div><h1>Adapter工坊</h1><p className="wx-workshop-subtitle">从一次网站操作探索开始，一句话生成适配器，让每次网站操作皆可复用</p></div>
       <div className="wx-actions">
         <ActionMenu label={unavailable ? '服务未就绪' : status.data?.browser.running ? '浏览器已连接' : '浏览器未连接'}>
           <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(''))}>打开浏览器</button>

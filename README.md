@@ -45,7 +45,7 @@ Use it for:
 - **Operate websites with natural language:** describe a task in the desktop app and let the agent select the right website tools.
 - **33 built-in Adapters:** mail, shopping, social, content, travel, developer tools, and more.
 - **Two Adapter runtimes:** Extension Adapters operate through Chrome; Toolkit Adapters run through the bundled runtime. Both use the same `webcli call` entry point.
-- **Website exploration agent:** assists with exploring websites and creating, verifying, and maintaining website tools.
+- **Adapter Workshop:** explore website operations, then use the findings to create and apply reusable Adapters.
 - **Scheduled tasks and notifications:** run configured work on a schedule and deliver results through supported notification channels.
 - **Local site memory:** keep website-related working context locally.
 - **Multiple model providers:** Anthropic, Zhipu, DeepSeek, and compatible custom endpoints.
@@ -95,7 +95,7 @@ npm run install:all
 npm run dev
 ```
 
-The first installation downloads the website exploration agent environment, Electron, and project dependencies. It can take a while even when no new output appears.
+The first installation downloads the Adapter Workshop exploration runtime, Electron, and project dependencies. It can take a while even when no new output appears.
 
 ### Load the browser extension in development
 

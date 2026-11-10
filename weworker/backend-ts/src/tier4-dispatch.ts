@@ -13,7 +13,7 @@
  * 执行（`runWebwrightTaskTurn`）：网站探索agent任务事件 → 既有 chat `SSEEvent` 序列；
  * 超时/中止取消任务；`waiting_for_user` 引导去网站探索agent UI 接管（不是错误）。
  *
- * UI 与用户可见文案统一写「网站探索agent」，不出现内部组件名（见 AGENTS.md 红线）。
+ * 用户可见的功能入口称「Adapter工坊」，执行阶段称「网站探索」（见 AGENTS.md）。
  */
 import type { SSEEvent } from './agent.js'
 import type { SiteGateResult } from './site-gate.js'
@@ -33,10 +33,10 @@ import {
 /**
  * 任务说明文案。
  *
- * 注：自带 Web UI 已下线，统一引导至客户端内「网站探索」工作台。
+ * 注：自带 Web UI 已下线，统一引导至客户端内「Adapter工坊」。
  */
 function taskLink(taskId: string): string {
-  return `（任务 ${taskId}；可在客户端「网站探索」工作台中把常用站点固化成工具）`
+  return `（任务 ${taskId}；可在客户端「Adapter工坊」中把常用站点固化成工具）`
 }
 
 // ─── 站点信号提取（纯）────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ export async function* runWebwrightTaskTurn(input: {
   // 起点同样独立成行：URL 后面紧跟全角括号时会被链接器吞进去（同 taskLink 的成因）。
   yield {
     type: 'text_delta',
-    content: `已识别出尚未接入的站点，转交网站探索agent执行本次请求。\n起点：${input.startUrl}\n\n`,
+    content: `已识别出尚未接入的站点，转交网站探索流程执行本次请求。\n起点：${input.startUrl}\n\n`,
   }
 
   const opened = await openWebwrightTaskEvents(taskId, input.deps)
@@ -300,7 +300,7 @@ export async function* runWebwrightTaskTurn(input: {
     await cancelWebwrightTask(taskId, input.deps)
     yield {
       type: 'text_delta',
-      content: `任务事件流打开失败（${opened.reason}），已取消本次任务。原始请求请稍后重试，或在客户端「网站探索」工作台中检查。`,
+      content: `任务事件流打开失败（${opened.reason}），已取消本次任务。原始请求请稍后重试，或在客户端「Adapter工坊」中检查。`,
     }
     return
   }
@@ -336,7 +336,7 @@ export async function* runWebwrightTaskTurn(input: {
         yield {
           type: 'text_delta',
           content: final
-            ? `\n\n${final}\n\n---\n（以上由网站探索agent完成，共 ${task?.current_step ?? lastStep} 步）\n${link}`
+            ? `\n\n${final}\n\n---\n（以上由网站探索完成，共 ${task?.current_step ?? lastStep} 步）\n${link}`
             : `\n\n任务已完成（${task?.current_step ?? lastStep} 步），但未生成总结。详情：\n${link}`,
         }
         return

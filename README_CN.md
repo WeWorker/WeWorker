@@ -44,7 +44,7 @@ WeWorker 会选择对应 Adapter、读取网站信息并返回整理结果，而
 
 - **自然语言操作网站**：通过桌面端对话描述任务，由 AI 选择并调用网站工具。
 - **两类 Adapter**：Extension Adapter 通过 Chrome 扩展操作网页，Toolkit Adapter 通过内置运行时执行；两者共享 `webcli call` 调用入口。
-- **网站探索agent**：探索网站页面和请求，辅助创建、验证和维护网站工具。
+- **Adapter工坊**：探索网站操作，再基于探索结果生成并应用可复用的适配器。
 - **定时任务**：按计划执行已配置的任务。
 - **站点记忆**：在本地保存与网站相关的操作上下文。
 - **消息通知**：支持将任务结果发送到已配置的通知渠道。
@@ -123,7 +123,7 @@ npm run install:all
 npm run dev
 ```
 
-首次安装会同步网站探索agent运行环境，并通过 npm 官方的 `npm ci` 命令严格按照各目录的 `package-lock.json` 安装桌面端、Renderer、Backend 和 WebCLI 依赖。`npm ci` 会先删除对应目录已有的 `node_modules`，且不会改写 lockfile，适合首次克隆和复现正式构建；日常开发新增或升级依赖时请使用 `npm install <package>`，并提交同步更新的 `package.json` 和 `package-lock.json`。期间会下载 Python 运行环境和 Electron（约 120 MB），可能出现一段时间没有新日志；请确保能够访问 npm registry、GitHub Releases 和相关 CDN。
+首次安装会同步Adapter工坊的探索运行环境，并通过 npm 官方的 `npm ci` 命令严格按照各目录的 `package-lock.json` 安装桌面端、Renderer、Backend 和 WebCLI 依赖。`npm ci` 会先删除对应目录已有的 `node_modules`，且不会改写 lockfile，适合首次克隆和复现正式构建；日常开发新增或升级依赖时请使用 `npm install <package>`，并提交同步更新的 `package.json` 和 `package-lock.json`。期间会下载 Python 运行环境和 Electron（约 120 MB），可能出现一段时间没有新日志；请确保能够访问 npm registry、GitHub Releases 和相关 CDN。
 
 ### 加载浏览器扩展
 
@@ -228,7 +228,7 @@ npm run install:all
 npm run build:win
 ```
 
-这些变量只影响当前 PowerShell 会话，不建议写入项目文件。如果 `electron-builder` 报“无法创建符号链接/客户端没有所需的特权”，请开启 Windows 开发者模式，或从管理员 PowerShell 构建。如果刚生成的网站探索 Agent 或解密工具报 `EPERM`/“拒绝访问”，通常是终端安全软件阻止未签名的 PyInstaller 产物；不要关闭安全防护，应让管理员放行构建目录或改用允许执行本地构建产物的可信机器。
+这些变量只影响当前 PowerShell 会话，不建议写入项目文件。如果 `electron-builder` 报“无法创建符号链接/客户端没有所需的特权”，请开启 Windows 开发者模式，或从管理员 PowerShell 构建。如果刚生成的Adapter工坊探索程序或解密工具报 `EPERM`/“拒绝访问”，通常是终端安全软件阻止未签名的 PyInstaller 产物；不要关闭安全防护，应让管理员放行构建目录或改用允许执行本地构建产物的可信机器。
 
 详细说明见：
 

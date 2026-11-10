@@ -1973,7 +1973,7 @@ function ModelTab() {
         target,
         label: target === 'weworker'
           ? `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`
-          : '网站探索agent 接口（OpenAI 接口）',
+          : 'Adapter工坊·探索接口（OpenAI）',
         status: 'running',
         message: '',
       }))
@@ -1994,11 +1994,11 @@ function ModelTab() {
         results.push({
           ok: null,
           protocol: 'openai_chat_completions',
-          message: '未配置，仅影响网站探索 agent',
+          message: '未配置，仅影响Adapter工坊的网站探索',
         })
         setProbeChecks((current) => ({
           ...current,
-          [pid]: [...(current[pid] || []), { target: 'webwright', label: '网站探索agent 接口（OpenAI 接口）', status: 'skipped', message: '未配置地址，跳过检查' }],
+          [pid]: [...(current[pid] || []), { target: 'webwright', label: 'Adapter工坊·探索接口（OpenAI）', status: 'skipped', message: '未配置地址，跳过检查' }],
         }))
       }
       if (probeRequestIds.current[pid] !== requestId) return
@@ -2453,8 +2453,8 @@ function ModelTab() {
                               </span>
                             </button>
                             {advancedExpanded && (
-                              <section className="settings-interface-section settings-interface-section--advanced" aria-label="OpenAI 接口（网站探索agent）">
-                                <div className="settings-interface-section__title">OpenAI 接口（网站探索agent）</div>
+                              <section className="settings-interface-section settings-interface-section--advanced" aria-label="Adapter工坊·探索接口（OpenAI）">
+                                <div className="settings-interface-section__title">Adapter工坊·探索接口（OpenAI）</div>
                                 <div className="model-settings-grid">
                                 <Field label="接口地址" hint={getOpenAiUrlHint(f.openai_base_url_is_full)}>
                                   <label className="settings-url-mode">
@@ -2473,7 +2473,7 @@ function ModelTab() {
                                       options={openAiModelOptions}
                                       disabled={hasFixedModel(templateId)}
                                       onChange={(value) => setFormField(p.id, 'openai_model', value)}
-                                      ariaLabel="网站探索agent模型"
+                                      ariaLabel="Adapter工坊探索模型"
                                       minMenuWidth={280}
                                       matchAnchorWidth
                                       className="settings-model-dropdown"
