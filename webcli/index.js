@@ -1740,6 +1740,7 @@ async function main() {
   if (!VERSION_CHECK_EXEMPT.has(cmd)) {
     try {
       const { checkForUpdate } = await import("./version-check.js");
+      const { cliName } = await import("./cli-name.js");
       let pkgInfo = null;
       try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
       if (pkgInfo?.name && pkgInfo?.version) {
@@ -1747,6 +1748,7 @@ async function main() {
           currentVersion: pkgInfo.version,
           pkgName: pkgInfo.name,
           registry: resolveRegistryShim(pkgInfo.name),
+          cliName: cliName(),
           embedded: process.env.WEBCLI_EMBEDDED === "1",
         });
         if (notice) process.stderr.write(notice + "\n");
