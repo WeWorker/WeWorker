@@ -139,8 +139,8 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
                 const revealed = revealedKeys[candidate.source_id]
                 return <li key={candidate.source_id}>
                   <div className="local-model-discovery__row">
-                    <button type="button" className="local-model-discovery__candidate" disabled={imported || !validation.ok || Boolean(importing)}
-                      aria-label={`${imported ? '已导入' : validation.ok ? '导入' : '不可导入'} ${candidate.name}${candidate.model ? ` ${candidate.model}` : ''}`}
+                    <button type="button" className="local-model-discovery__candidate" disabled={imported || Boolean(importing)}
+                      aria-label={`${imported ? '已导入' : '导入'} ${candidate.name}${candidate.model ? ` ${candidate.model}` : ''}`}
                       onClick={() => { void importCandidate(candidate) }}>
                       <span className="local-model-discovery__details">
                         <span className="local-model-discovery__name">{candidate.name}<span>{candidate.model || '未指定模型'}</span></span>
@@ -148,11 +148,11 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
                         <span className="local-model-discovery__key">
                           API Key：<code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
                         </span>
-                        {!validation.ok && <span className="local-model-discovery__invalid">不可用：{validation.detail || '校验未通过'}</span>}
+                        {!validation.ok && <span className="local-model-discovery__invalid">校验未通过：{validation.detail || '未知原因'}（仍可手动导入）</span>}
                       </span>
                       <span className={`local-model-discovery__import${imported ? ' is-imported' : ''}`}>
                         {busy ? <LoaderCircle className="local-model-discovery__spin" size={16} /> : imported ? <Check size={16} /> : <Download size={16} />}
-                        {busy ? '导入中' : imported ? '已导入' : validation.ok ? '导入' : '不可导入'}
+                        {busy ? '导入中' : imported ? '已导入' : validation.ok ? '导入' : '仍然导入'}
                       </span>
                     </button>
                     <button type="button" className="local-model-discovery__eye" disabled={Boolean(importing) || revealing === candidate.source_id}

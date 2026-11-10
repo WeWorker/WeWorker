@@ -703,10 +703,7 @@ app.post('/settings/provider/import', async (req, res) => {
       res.status(404).json({ detail: '该配置已不可用，请重新识别' })
       return
     }
-    if (candidate.validation && !candidate.validation.ok) {
-      res.status(400).json({ detail: candidate.validation.detail || '该配置校验未通过，无法导入' })
-      return
-    }
+    // 校验失败的来源也允许用户手动导入：识别是识别，导入由用户决定。
     const result = importDiscoveredProviders(getSettings(), [candidate], true)
     const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
     const configuration = publicDiscoveredProviders(settings, [candidate])[0]

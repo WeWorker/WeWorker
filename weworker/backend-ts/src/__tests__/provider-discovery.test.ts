@@ -176,7 +176,7 @@ describe('DeepSeek Harness discovery', () => {
     expect(fs.readFileSync(path.join(home, '.dsh/.credentials.yaml'), 'utf8')).toBe(credentials)
   })
 
-  it('ignores grant tokens: a login token is not a reusable API key', async () => {
+  it('still shows a grant token as a candidate but leaves importing to the user', async () => {
     write('.dsh/.credentials.yaml', [
       'version: 1',
       'records:',
@@ -191,10 +191,16 @@ describe('DeepSeek Harness discovery', () => {
       '      issuer: https://platform.deepseek.com',
     ].join('\n'))
     write('.dsh/profiles/desktop/cordis.patch.yml', '- id: llm-deepseek\n  config:\n    models:\n      - id: fixture-record-model\n')
-    const { providers } = await discover()
-    // 这些令牌只对 DSH 自身的登录流程有效（对 api.deepseek.com 返回 401），
-    // 导入成模型 key 只会得到「识别到但不可用」，所以不应被发现出来。
-    expect(providers).toEqual([])
+    // 该令牌对真实接口返回 401；识别阶段仍然要展示，只是标记为校验未通过。
+    const unauthorized = (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch
+    const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl: unauthorized })
+    expect(providers).toHaveLength(1)
+    expect(providers[0]).toMatchObject({ product: 'DeepSeek Harness', configuration: { api_key: 'fixture-account-token' } })
+    expect(providers[0].validation).toMatchObject({ ok: false, reason: 'auth' })
+    // 启动时的自动导入不接收校验失败的来源。
+    expect(importDiscoveredProviders(settings(), providers).imported).toEqual([])
+    // 用户手动导入则允许。
+    expect(importDiscoveredProviders(settings(), providers, true).imported).toHaveLength(1)
   })
 
   it('discovers a saved official key before a profile patch exists, without inventing a model', async () => {

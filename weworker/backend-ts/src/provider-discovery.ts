@@ -243,8 +243,8 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
   const imported: string[] = []
   let existing = 0
   for (const item of discovered) {
-    // 校验不通过的来源不允许导入：否则用户会得到一条「识别到但不可用」的配置。
-    if (item.validation && !item.validation.ok) continue
+    // 自动导入只接受校验通过的来源；用户手动导入则由用户决定（列表里仍然展示）。
+    if (!manual && item.validation && !item.validation.ok) continue
     if (Object.values(configurations).some(configuration => configuration.external_source_id === item.sourceId)) { existing++; continue }
     if (!manual && dismissed.has(item.sourceId)) continue
     const usedNames = new Set(Object.values(configurations).map(configuration => configuration.name))
