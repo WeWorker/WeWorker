@@ -176,7 +176,7 @@ describe('DeepSeek Harness discovery', () => {
     expect(fs.readFileSync(path.join(home, '.dsh/.credentials.yaml'), 'utf8')).toBe(credentials)
   })
 
-  it('reads the stored account token from versioned records when no refs map exists', async () => {
+  it('ignores grant tokens: a login token is not a reusable API key', async () => {
     write('.dsh/.credentials.yaml', [
       'version: 1',
       'records:',
@@ -187,16 +187,14 @@ describe('DeepSeek Harness discovery', () => {
       '  deepseek-account-platform/default:',
       '    kind: grant',
       '    payload:',
-      '      token: fixture-record-token',
+      '      token: fixture-account-token',
       '      issuer: https://platform.deepseek.com',
     ].join('\n'))
     write('.dsh/profiles/desktop/cordis.patch.yml', '- id: llm-deepseek\n  config:\n    models:\n      - id: fixture-record-model\n')
     const { providers } = await discover()
-    expect(providers).toHaveLength(1)
-    expect(providers[0].configuration).toMatchObject({ api_key: 'fixture-record-token', model: 'fixture-record-model' })
-    // 会话 secret 不能被当成模型 key。
-    expect(providers.some(item => item.configuration.api_key === 'fixture-session-secret')).toBe(false)
-    expect(JSON.stringify(publicDiscoveredProviders(settings(), providers))).not.toContain('fixture-record-token')
+    // 这些令牌只对 DSH 自身的登录流程有效（对 api.deepseek.com 返回 401），
+    // 导入成模型 key 只会得到「识别到但不可用」，所以不应被发现出来。
+    expect(providers).toEqual([])
   })
 
   it('discovers a saved official key before a profile patch exists, without inventing a model', async () => {

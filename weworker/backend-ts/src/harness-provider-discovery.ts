@@ -67,17 +67,6 @@ export async function discoverHarnessProviders(home: string, env: NodeJS.Process
     'openai-responses': 'openai_responses',
     'anthropic-messages': 'anthropic_messages',
   }
-  // 新版凭据以 records 保存登录令牌（deepseek-account-platform/default → payload.token），
-  // 没有 refs 映射；只把 grant 记录的 token 当作官方 key，会话 secret 不在取值范围内。
-  const storedToken = (() => {
-    const preferred = object(records['deepseek-account-platform/default'])
-    for (const record of [preferred, ...Object.values(records).map(object)]) {
-      const payload = object(record.payload)
-      const token = text(payload.token)
-      if (token) return token
-    }
-    return ''
-  })()
   function addModels(slot: string, config: ObjectValue, key: string, url: string, protocol: LlmProtocol, fallbackModel = '') {
     if (!key || !url) return
     const configured = Array.isArray(config.models) ? config.models.slice(0, 100).map(model => text(object(model).id)).filter(Boolean) : []
@@ -106,7 +95,7 @@ export async function discoverHarnessProviders(home: string, env: NodeJS.Process
       const config = object(entry.config)
       const official = name ? ['@deepseek-ai/dsh-llm-deepseek-api-key', '@deepseek-ai/dsh-llm-deepseek'].includes(name) : id === 'llm-deepseek'
       if (official) {
-        addModels(`${profile}/${id}`, config, resolveKey(text(config.apiKeyEnv) || 'DEEPSEEK_API_KEY') || storedToken,
+        addModels(`${profile}/${id}`, config, resolveKey(text(config.apiKeyEnv) || 'DEEPSEEK_API_KEY'),
           text(config.baseURL) || text(env.DEEPSEEK_BASE_URL) || 'https://api.deepseek.com/anthropic', 'anthropic_messages', preferredModel)
       } else if (name === '@deepseek-ai/dsh-llm-pi-ai' || (!name && id === 'llm-pi-ai')) {
         for (const [providerId, rawConfig] of Object.entries(object(config.providers)).slice(0, 100)) {
