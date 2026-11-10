@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Download, Eye, EyeOff, LoaderCircle, RefreshCw, X } from 'lucide-react'
+import { Check, Download, Eye, EyeOff, Layers, LoaderCircle, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import { useSettingsStore } from '../../store/settings.js'
 import './local-model-discovery.css'
 
@@ -82,7 +82,8 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
     }
   }
 
-  const importCandidate = async candidate => {    if (importingRef.current) return
+  const importCandidate = async candidate => {
+    if (importingRef.current) return
     importingRef.current = true
     setImporting(candidate.source_id)
     setError('')
@@ -123,7 +124,10 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
           }
         }}>
         <header className="local-model-discovery__header">
-          <h2 id={titleId}>识别本地模型</h2>
+          <div className="local-model-discovery__heading">
+            <h2 id={titleId}>识别本地模型</h2>
+            <p>选择需要导入的配置，已有配置不会被覆盖。</p>
+          </div>
           <button type="button" className="local-model-discovery__icon" aria-label="重新识别" title="重新识别"
             disabled={scanning || Boolean(importing)} onClick={() => { void scan() }}><RefreshCw size={17} /></button>
           <button type="button" className="local-model-discovery__icon" aria-label="关闭" title="关闭"
@@ -139,11 +143,16 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
                 const revealed = revealedKeys[candidate.source_id]
                 return <li key={candidate.source_id}>
                   <div className="local-model-discovery__row">
-                    <span className="local-model-discovery__details">
-                      <span className="local-model-discovery__name">{candidate.name}<span>{candidate.model || '未指定模型'}</span></span>
-                      <span className="local-model-discovery__endpoint">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol} · {candidate.base_url}</span>
+                    <span className="local-model-discovery__avatar" aria-hidden="true"><Layers size={18} /></span>
+                    <div className="local-model-discovery__details">
+                      <div className="local-model-discovery__name">{candidate.name}</div>
+                      <div className="local-model-discovery__model">
+                        <span>{candidate.model || '未指定模型'}</span>
+                        <span className="local-model-discovery__protocol">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol}</span>
+                      </div>
+                      <span className="local-model-discovery__endpoint" title={candidate.base_url}>{candidate.base_url}</span>
                       <span className="local-model-discovery__key">
-                        API Key：<code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
+                        <span className="local-model-discovery__key-label">API Key</span><code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
                         <button type="button" className="local-model-discovery__eye"
                           disabled={Boolean(importing) || revealing === candidate.source_id}
                           aria-label={revealed ? '隐藏 API Key' : '显示 API Key'} title={revealed ? '隐藏' : '显示明文'}
@@ -153,8 +162,7 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
                             : revealed ? <EyeOff size={14} /> : <Eye size={14} />}
                         </button>
                       </span>
-                      {!validation.ok && <span className="local-model-discovery__invalid">校验未通过：{validation.detail || '未知原因'}（仍可手动导入）</span>}
-                    </span>
+                    </div>
                     <button type="button" className={`local-model-discovery__import${imported ? ' is-imported' : ''}`}
                       disabled={imported || Boolean(importing)}
                       aria-label={`${imported ? '已导入' : '导入'} ${candidate.name}${candidate.model ? ` ${candidate.model}` : ''}`}
@@ -163,6 +171,10 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
                       {busy ? '导入中' : imported ? '已导入' : '导入'}
                     </button>
                   </div>
+                  {!validation.ok && <div className="local-model-discovery__invalid">
+                    <TriangleAlert size={14} aria-hidden="true" />
+                    <div><strong>校验未通过</strong><span>{validation.detail || '未知原因'}，仍可手动导入。</span></div>
+                  </div>}
                 </li>
               })}
             </ul> : !error && <div className="local-model-discovery__status" role="status">未找到可导入的模型配置</div>}

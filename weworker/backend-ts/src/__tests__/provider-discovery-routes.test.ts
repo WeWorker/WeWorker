@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { importDiscoveredProviders, publicDiscoveredProviders } from '../provider-discovery.js'
-import { publicModelConfigurations } from '../model-configurations.js'
+import { publicModelConfigurations, savedModelConfigurationKey } from '../model-configurations.js'
 import type { Settings } from '../config.js'
 
 const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
@@ -19,7 +19,7 @@ function fixture() {
   const routes = new Map<string, (req: unknown, res: unknown) => Promise<void>>()
   const updateSettings = vi.fn(patch => { state = { ...state, ...patch }; return state })
   const context = vm.createContext({
-    discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders, getSettings: () => state, updateSettings,
+    discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders, savedModelConfigurationKey, getSettings: () => state, updateSettings,
     buildSettingsResponse: (settings: Settings) => ({ providers: publicModelConfigurations(settings) }),
     app: { post: (url: string, handler: any) => routes.set(url, handler) },
   })
@@ -38,6 +38,43 @@ function fixture() {
 }
 
 describe('provider discovery API and startup', () => {
+  it('reveals the saved configuration key rather than rescanning a changed source', async () => {
+    const f = fixture()
+    f.state().model_configurations = { 'model-fixture': {
+      provider_id: 'custom', api_key: 'fixture-saved-edited-key', openai_api_key: 'fixture-exploration-key',
+    } as any }
+    const route = f.routes.get('/settings/provider/reveal-key')!
+    const res = f.response()
+    await route({ body: { provider: 'model-fixture' } }, res)
+    expect(res.json).toHaveBeenCalledWith({ api_key: 'fixture-saved-edited-key' })
+    expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store')
+    const exploration = f.response()
+    await route({ body: { provider: 'model-fixture', target: 'webwright' } }, exploration)
+    expect(exploration.json).toHaveBeenCalledWith({ api_key: 'fixture-exploration-key' })
+    expect(f.discoverLocalProviders).not.toHaveBeenCalled()
+    expect(f.updateSettings).not.toHaveBeenCalled()
+  })
+
+  it('rejects built-in keys, ambiguous requests, invalid targets and missing configurations', async () => {
+    const f = fixture()
+    const route = f.routes.get('/settings/provider/reveal-key')!
+    for (const body of [{ provider: 'builtin' }, { provider: 'missing' },
+      { provider: 'anthropic', target: 'other' }, { provider: 'anthropic', source_id: 'fixture-source' }]) {
+      const res = f.response()
+      await route({ body }, res)
+      expect(res.status).toHaveBeenCalledWith(400)
+      expect(res.json.mock.calls[0][0]).not.toHaveProperty('api_key')
+    }
+    const empty = f.response()
+    await route({ body: { provider: 'anthropic' } }, empty)
+    expect(empty.status).toHaveBeenCalledWith(404)
+    f.state().api_key_anthropic = 'fixture-legacy-key'
+    const legacy = f.response()
+    await route({ body: { provider: 'anthropic' } }, legacy)
+    expect(legacy.json).toHaveBeenCalledWith({ api_key: 'fixture-legacy-key' })
+    expect(f.discoverLocalProviders).not.toHaveBeenCalled()
+  })
+
   it('scans without writing settings or returning credentials', async () => {
     const f = fixture()
     const res = f.response()

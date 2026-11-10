@@ -1,6 +1,7 @@
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
+import SecretInput from './SecretInput.jsx'
 import { ScanSearch } from 'lucide-react'
 import AppDropdownInput from '../common/AppDropdownInput.jsx'
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react'
@@ -2325,7 +2326,7 @@ function ModelTab() {
                   {identityFields}
                   {templateId !== 'custom' && <div className="model-settings-grid" role="group" aria-label="接口配置">
                   <Field label="API Key" hint={stored.has_key ? '已设置（留空保持不变）' : '未设置'}>
-                    <SecretInput value={f.api_key}
+                    <SecretInput value={f.api_key} provider={p.id} hasSavedKey={stored.has_key}
                       onChange={(e) => setFormField(p.id, 'api_key', e.target.value)}
                       onBlur={() => { if (f.api_key) void loadModels(p.id) }}
                       placeholder={stored.has_key ? '••••••••••••' : 'sk-...'}
@@ -2428,7 +2429,7 @@ function ModelTab() {
                         />
                       </Field>}
                       <Field label="API Key" hint={`${stored.has_key ? '已设置（留空保持不变）' : '未设置'}${f.weworker_protocol !== 'anthropic_messages' ? ' · Bearer Token' : ''}`}>
-                        <SecretInput value={f.api_key} onChange={(e) => setFormField(p.id, 'api_key', e.target.value)} onBlur={() => { if (f.api_key) void loadModels(p.id, false, 'weworker') }} placeholder={stored.has_key ? '••••••••••••' : 'sk-...'} />
+                        <SecretInput value={f.api_key} provider={p.id} hasSavedKey={stored.has_key} onChange={(e) => setFormField(p.id, 'api_key', e.target.value)} onBlur={() => { if (f.api_key) void loadModels(p.id, false, 'weworker') }} placeholder={stored.has_key ? '••••••••••••' : 'sk-...'} />
                       </Field>
                       <Field label="模型" hint={catalogHint} hintError={catalogRefreshFailed || Boolean(catalogErrorDetail)} errorDetail={catalogErrorDetail}>
                         <div className="settings-model-input-row">
@@ -2490,7 +2491,7 @@ function ModelTab() {
                                   <input aria-label="OpenAI 接口地址" className="settings-input" value={f.openai_base_url} onChange={(e) => setFormField(p.id, 'openai_base_url', e.target.value)} onBlur={() => { if (f.openai_base_url) void loadModels(p.id, false, 'webwright') }} placeholder={f.openai_base_url_is_full ? 'https://gateway.example/custom/completions' : 'https://gateway.example/openai/v1'} />
                                 </Field>
                                 <Field label="API Key" hint={(stored.has_openai_key || stored.openai_has_key) ? '已设置（留空保持不变）' : '未设置'}>
-                                  <SecretInput value={f.openai_api_key} onChange={(e) => setFormField(p.id, 'openai_api_key', e.target.value)} onBlur={() => { if (f.openai_api_key) void loadModels(p.id, false, 'webwright') }} placeholder={(stored.has_openai_key || stored.openai_has_key) ? '••••••••••••' : 'sk-...'} ariaLabel="网站探索agent API Key" />
+                                  <SecretInput value={f.openai_api_key} provider={p.id} target="webwright" hasSavedKey={stored.has_openai_key || stored.openai_has_key} onChange={(e) => setFormField(p.id, 'openai_api_key', e.target.value)} onBlur={() => { if (f.openai_api_key) void loadModels(p.id, false, 'webwright') }} placeholder={(stored.has_openai_key || stored.openai_has_key) ? '••••••••••••' : 'sk-...'} ariaLabel="网站探索agent API Key" />
                                 </Field>
                                 <Field label="模型" hint={openAiCatalogStatus.hint} hintError={openAiCatalogStatus.failed || Boolean(openAiCatalogStatus.detail)} errorDetail={openAiCatalogStatus.detail}>
                                   <div className="settings-model-input-row">
@@ -2578,36 +2579,6 @@ function SettingRow({
           ) : null)}
         </div>
       )}
-    </div>
-  )
-}
-
-/** 密钥输入：默认打码，点右侧按钮切换明文（眼睛）。 */
-function SecretInput({ value, onChange, onBlur, placeholder, ariaLabel = 'API Key' }) {
-  const [visible, setVisible] = useState(false)
-  return (
-    <div className="settings-secret-input">
-      <input
-        type={visible ? 'text' : 'password'}
-        className="settings-input"
-        value={value}
-        onChange={onChange}
-        onBlur={onBlur}
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-        autoComplete="off"
-        spellCheck={false}
-      />
-      <button
-        type="button"
-        className="settings-secret-toggle"
-        data-app-button="action"
-        aria-label={visible ? '隐藏 API Key' : '显示 API Key'}
-        title={visible ? '隐藏' : '显示明文'}
-        onClick={() => setVisible(current => !current)}
-      >
-        {visible ? '隐藏' : '显示'}
-      </button>
     </div>
   )
 }

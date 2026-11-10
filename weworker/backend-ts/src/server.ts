@@ -74,7 +74,7 @@ import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-cata
 import { registerExplorationModelRoutes } from './exploration-model-settings.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
-import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration } from './model-configurations.js'
+import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
@@ -667,6 +667,23 @@ app.post('/settings/provider/detect', async (_req, res) => {
 })
 
 app.post('/settings/provider/reveal-key', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  if (req.body?.provider !== undefined) {
+    const { provider, target = 'weworker' } = req.body
+    if (typeof provider !== 'string' || !provider || provider.length > 100 ||
+        !['weworker', 'webwright'].includes(target) || req.body.source_id !== undefined) {
+      res.status(400).json({ detail: '请选择要查看的模型配置' })
+      return
+    }
+    try {
+      const key = savedModelConfigurationKey(getSettings(), provider, target)
+      if (!key) { res.status(404).json({ detail: '尚未保存 API Key' }); return }
+      res.json({ api_key: key })
+    } catch {
+      res.status(400).json({ detail: '该模型配置不支持查看 API Key' })
+    }
+    return
+  }
   const sourceId = req.body?.source_id
   if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
     res.status(400).json({ detail: '请选择要查看的模型配置' })

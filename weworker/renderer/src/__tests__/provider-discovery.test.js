@@ -7,7 +7,7 @@ import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
-let server, dom, root, ModelSelector, SettingsPage, store
+let server, dom, root, ModelSelector, SettingsPage, SecretInput, store
 let calls, state, detectResponse
 const globals = new Map()
 const imported = { name: 'Claude Code', provider_id: 'custom', model: 'fixture-model',
@@ -34,6 +34,7 @@ before(async () => {
     plugins: [react()], server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom', logLevel: 'silent' })
   ModelSelector = (await server.ssrLoadModule('/src/components/chat/ModelSelector.jsx')).default
   SettingsPage = (await server.ssrLoadModule('/src/components/settings/SettingsModal.jsx')).default
+  SecretInput = (await server.ssrLoadModule('/src/components/settings/SecretInput.jsx')).default
   store = (await server.ssrLoadModule('/src/store/settings.js')).useSettingsStore
 })
 
@@ -259,4 +260,73 @@ test('an empty catalog does not activate an incomplete imported provider', async
   assert.equal(store.getState().activeProvider, 'anthropic')
   assert.equal(calls.some(item => item.endpoint === '/settings/provider/activate'), false)
   assert.match(document.querySelector('.chat-model-selector').title, /选择或填写模型名称/)
+})
+
+test('the eye reads a saved key on demand without editing or saving the form, then clears plaintext', async () => {
+  const changes = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ endpoint: new URL(url).pathname, ...options })
+    return Response.json({ api_key: 'fixture-saved-secret' })
+  }
+  await act(async () => root.render(React.createElement(SecretInput, { value: '', provider: 'model-fixture',
+    hasSavedKey: true, onChange: event => changes.push(event.target.value), placeholder: '••••••••' })))
+  const input = document.querySelector('input')
+  assert.equal(input.value, '')
+  assert.equal(calls.length, 0)
+  assert.ok(ariaButton('显示 API Key').querySelector('svg'))
+  assert.equal(ariaButton('显示 API Key').textContent, '')
+  await click(ariaButton('显示 API Key'))
+  assert.equal(input.type, 'text')
+  assert.equal(input.value, 'fixture-saved-secret')
+  assert.deepEqual(JSON.parse(calls[0].body), { provider: 'model-fixture', target: 'weworker' })
+  assert.equal(calls[0].endpoint, '/settings/provider/reveal-key')
+  assert.deepEqual(changes, [])
+  await click(ariaButton('隐藏 API Key'))
+  assert.equal(input.type, 'password')
+  assert.equal(input.value, '')
+  assert.equal(calls.length, 1)
+})
+
+test('the eye shows unsaved input locally and resets when switching configurations', async () => {
+  const props = { value: 'fixture-draft-key', provider: 'model-first', hasSavedKey: true, onChange: () => {} }
+  await act(async () => root.render(React.createElement(SecretInput, props)))
+  await click(ariaButton('显示 API Key'))
+  assert.equal(document.querySelector('input').value, 'fixture-draft-key')
+  assert.equal(calls.length, 0)
+  await act(async () => root.render(React.createElement(SecretInput, { ...props, value: '', provider: 'model-second' })))
+  assert.equal(document.querySelector('input').type, 'password')
+  assert.equal(document.querySelector('input').value, '')
+})
+
+test('saved-key failures stay masked and can be retried, with distinct exploration target', async () => {
+  let requests = 0
+  globalThis.fetch = async (_url, options) => {
+    assert.deepEqual(JSON.parse(options.body), { provider: 'model-fixture', target: 'webwright' })
+    return ++requests === 1 ? Response.json({}, { status: 500 }) : Response.json({ api_key: 'fixture-retry-key' })
+  }
+  await act(async () => root.render(React.createElement(SecretInput, { value: '', provider: 'model-fixture', target: 'webwright',
+    ariaLabel: '网站探索agent API Key', hasSavedKey: true, onChange: () => {} })))
+  await click(ariaButton('显示 网站探索agent API Key'))
+  assert.ok(document.querySelector('[role="alert"]'))
+  assert.equal(document.querySelector('input').type, 'password')
+  await click(ariaButton('显示 网站探索agent API Key'))
+  assert.equal(document.querySelector('input').value, 'fixture-retry-key')
+  assert.equal(document.querySelector('[role="alert"]'), null)
+})
+
+test('switching configurations ignores a late saved-key response', async () => {
+  let resolveRequest
+  globalThis.fetch = (_url, options) => {
+    calls.push(options)
+    return new Promise(resolve => { resolveRequest = resolve })
+  }
+  const props = { value: '', provider: 'model-first', hasSavedKey: true, onChange: () => {} }
+  await act(async () => root.render(React.createElement(SecretInput, props)))
+  await click(ariaButton('显示 API Key'))
+  assert.equal(ariaButton('显示 API Key').disabled, true)
+  await act(async () => root.render(React.createElement(SecretInput, { ...props, provider: 'model-second' })))
+  assert.equal(calls[0].signal.aborted, true)
+  await act(async () => resolveRequest(Response.json({ api_key: 'fixture-stale-key' })))
+  assert.equal(document.querySelector('input').value, '')
+  assert.equal(document.querySelector('input').type, 'password')
 })
