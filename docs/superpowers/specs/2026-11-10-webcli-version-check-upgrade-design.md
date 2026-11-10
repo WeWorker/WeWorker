@@ -85,7 +85,7 @@ SKILL.md 不强制改动(CLI 提示自解释)。可选:主 webcli skill 文档�
 - notice:落后打印、豁免清单不打、WEBCLI_EMBEDDED 跳过;
 - upgrade 编排(fake spawn):已最新跳过 / npm 失败保版本并报错 / SW 清理容错 /
   内嵌模式分支;
-- registry 自推导:@webank/webcli → wnpm、weworker-webcli → npmjs、env/--registry 覆盖。
+- registry:行内包由 repack 注入 internal-registry.json,公开包默认 npmjs;env/--registry 可覆盖。
 
 ## 明确不做
 

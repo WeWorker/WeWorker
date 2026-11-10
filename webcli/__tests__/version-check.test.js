@@ -52,13 +52,13 @@ describe('checkForUpdate', () => {
 describe('resolveRegistry', () => {
   it('行内包经 internal-registry.json 注入(文件缺失回落 npmjs)', () => {
     const f = tmpFile()
-    const fs = { readFileSync: (p) => { if (p !== f) throw new Error('missing'); return JSON.stringify({ registry: 'http://wnpm.internal:8001' }) } }
-    expect(resolveRegistry('@webank/webcli', null, { internalRegistryFile: f, readFileImpl: fs.readFileSync })).toBe('http://wnpm.internal:8001')
+    const fs = { readFileSync: (p) => { if (p !== f) throw new Error('missing'); return JSON.stringify({ registry: 'http://registry.internal.example' }) } }
+    expect(resolveRegistry('@webank/webcli', null, { internalRegistryFile: f, readFileImpl: fs.readFileSync })).toBe('http://registry.internal.example')
     expect(resolveRegistry('@webank/webcli', null, { internalRegistryFile: f, readFileImpl: () => { throw new Error('ENOENT') } })).toBe('https://registry.npmjs.org')
   })
   it('显式覆盖优先于注入文件', () => {
     const f = tmpFile()
-    const fs = { readFileSync: () => JSON.stringify({ registry: 'http://wnpm.internal:8001' }) }
+    const fs = { readFileSync: () => JSON.stringify({ registry: 'http://registry.internal.example' }) }
     expect(resolveRegistry('@webank/webcli', 'http://override:8001', { internalRegistryFile: f, readFileImpl: fs.readFileSync })).toBe('http://override:8001')
   })
   it('公开包默认 npmjs', () => {

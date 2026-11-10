@@ -1,6 +1,6 @@
 /**
  * webcli upgrade —— 一条命令升级全局安装的 webcli 并自动清理 Service Worker 缓存。
- * 包名/registry 取自运行中包自身身份(@webank/webcli → 行内 wnpm;weworker-webcli → npmjs),
+ * 包名/registry 取自运行中包自身身份(行内包经 repack 注入 internal-registry.json;公开包默认 npmjs),
  * WEBCLI_UPGRADE_REGISTRY env 或 --registry 参数可覆盖。
  * 桌面端内嵌模式(WEBCLI_EMBEDDED=1)不做任何动作:桌面端自带 webcli 随应用更新。
  */

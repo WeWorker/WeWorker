@@ -10,8 +10,8 @@ describe('fetchLatestVersion', () => {
 
 describe('buildInstallCommand', () => {
   it('npm -g 安装带 registry', () => {
-    expect(buildInstallCommand('@webank/webcli', '1.1.11', 'http://wnpm.weoa.com:8001'))
-      .toBe('npm install -g @webank/webcli@1.1.11 --registry=http://wnpm.weoa.com:8001')
+    expect(buildInstallCommand('@webank/webcli', '1.1.11', 'https://registry.example.com'))
+      .toBe('npm install -g @webank/webcli@1.1.11 --registry=https://registry.example.com')
   })
 })
 
