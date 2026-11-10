@@ -129,7 +129,7 @@ UPDATE metrics SET user = ?
 - metrics-server 与 webcli、extension 同一分支 `feat/metrics-user-fallback-dev110`,
   独立 PR(base dev-1.1.0);
 - **生效链路**:server 可独立部署(backfill 等首个带 `userSource=hrm` 的上报到达才
-  修正);客户端需发 webcli 行内包(wnpm)+ 扩展随包更新,用户升级后逐步修正;
+  修正);客户端需发 webcli 行内包 + 扩展随包更新,用户升级后逐步修正;
 - 部署侧需在行内环境注入 `WEBCLI_IDENTITY_URL`(desktop 启动 env / repack 包配置,
   同 metrics token 注入机制);HRM 真实响应字段经真机首次解析观察确认(探测链已覆盖
   常见字段形态)。
