@@ -129,6 +129,24 @@ body { -webkit-font-smoothing: antialiased; }
 .chat-input-surface:focus-within { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 7%, transparent), var(--composer-shadow); }
 .chat-input-surface textarea { padding: 20px 20px 12px !important; font-size: var(--font-size-body) !important; line-height: 1.7 !important; }
 .chat-input-surface textarea::placeholder { color: var(--text-muted); }
+.chat-input-surface.chat-input-surface--command,
+html.dark .chat-input-surface.chat-input-surface--command {
+  --command-accent: #ff4db8;
+  border-color: var(--command-accent) !important;
+}
+.chat-input-surface--command textarea { color: var(--command-accent) !important; caret-color: var(--command-accent); }
+.chat-input-surface--command .chat-input-toolbar {
+  --text-primary: var(--command-accent);
+  --text-secondary: var(--command-accent);
+  --text-muted: var(--command-accent);
+  --accent: var(--command-accent);
+  --accent-hover: var(--command-accent);
+  color: var(--command-accent);
+}
+.chat-input-surface--command .chat-input-action {
+  background: color-mix(in srgb, var(--command-accent) 12%, transparent) !important;
+  color: var(--command-accent) !important;
+}
 .chat-input-toolbar { padding: 8px 14px 12px !important; }
 .chat-input-upload { background: transparent; color: var(--text-secondary); }
 .chat-input-upload:disabled { opacity: .55; }
@@ -292,8 +310,23 @@ html.dark .dedicated-agents-sidebar {
 }
 .work-list-item:hover .sidebar-row-actions,
 .work-list-item:focus-visible .sidebar-row-actions,
-.work-list-item:has(.sidebar-row-actions :focus-visible) .sidebar-row-actions {
+.work-list-item:focus-within:not(:focus) .sidebar-row-actions {
   display: inline-flex;
+}
+
+.work-list-item__time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  line-height: 22px;
+  text-align: right;
+  white-space: nowrap;
+}
+.work-list-item:hover .work-list-item__time,
+.work-list-item:focus-visible .work-list-item__time,
+.work-list-item:focus-within:not(:focus) .work-list-item__time {
+  display: none;
 }
 
 .work-list-item .work-list-item__title,
@@ -305,11 +338,12 @@ html.dark .dedicated-agents-sidebar {
 }
 .work-list-item:hover .work-list-item__title,
 .work-list-item:focus-visible .work-list-item__title,
-.work-list-item:has(.sidebar-row-actions :focus-visible) .work-list-item__title { padding-right: 64px; }
+.work-list-item:focus-within:not(:focus) .work-list-item__title { padding-right: 64px; }
 
 .workspace-sidebar .sidebar-new-chat { margin-bottom: 12px; }
 .sidebar-workspaces-label { font-size: 12px; font-weight: 400; color: var(--text-secondary); }
-.workspace-sidebar .sidebar-conversation-header { padding: 4px 12px 2px !important; }
+.workspace-sidebar .sidebar-conversation-header,
+.dedicated-agents-sidebar .sidebar-conversation-header { padding: 4px 12px 2px !important; }
 
 /* Chat reading rhythm and a compact composer toolbar. */
 .chat-view .message-bubble { font-size: var(--font-size-body); line-height: 1.7; }
