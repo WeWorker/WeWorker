@@ -39,7 +39,7 @@ import { usesBackgroundExecution } from './conditional-execution.js';
 import { adapterHelperPatterns, adapterPrimaryHost, hostMatchesPattern } from './host-scope.js';
 import { watchAdapterState } from './adapter-state-watch.js';
 import { describeAdapterCatalog, readAdapterBundle, resolveAdapterCall } from './adapter-host.js';
-import { reportMetric, buildUploadConfig } from "./metrics.js";
+import { reportMetric, buildUploadConfig, loadIdentityCache, saveIdentityCache } from "./metrics.js";
 import {
   assertAllowedOpenBrowserUrl,
   buildAllowedOpenBrowserOrigins,
@@ -620,6 +620,10 @@ export class WebSocketBridge extends EventEmitter {
       if (this._metricsCfg.endpoint) {
         process.stderr.write(`[Bridge] Metrics upload enabled → ${this._metricsCfg.endpoint}\n`);
       }
+      // 身份兜底:whoami 失败(client-xx)时异步经扩展代取 HRM 用户名,绝不阻塞 init
+      if (this._metricsCfg.meta?.userSource === "client-id-fallback") {
+        this.maybeResolveIdentity().catch(() => {});
+      }
     } catch {
       /* 上报初始化失败不影响服务 */
     }
@@ -716,7 +720,7 @@ export class WebSocketBridge extends EventEmitter {
                 });
                 return;
               }
-              if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result') {
+              if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result' || msg.type === 'identity_fetch_result') {
                 // 来自Chrome扩展的消息
                 this._handleExtensionMessage(msg, ws);
               } else if (msg.type === 'profile_command') {
@@ -887,7 +891,7 @@ export class WebSocketBridge extends EventEmitter {
   _handleExtensionMessage(msg, ws) {
     const pending = this._pendingRequests.get(msg.id);
     if (!pending || pending.ws !== ws) return;
-    const accepted = new Set(['call_tool_result', 'call_tool_error', 'list_tools_result', 'get_active_tab_result', 'get_trace_logs_result', 'validate_generation_preview_result']);
+    const accepted = new Set(['call_tool_result', 'call_tool_error', 'list_tools_result', 'get_active_tab_result', 'get_trace_logs_result', 'validate_generation_preview_result', 'identity_fetch_result']);
     if (!accepted.has(msg.type)) return;
     clearTimeout(pending.timer);
     pending.detachClient?.();
@@ -1717,6 +1721,37 @@ export class WebSocketBridge extends EventEmitter {
   async _request(msg, timeout = 120000, traceID = null, raw = false) {
     if (!this._route?.getStore() && !this._profiles?.state?.defaultContextId) await this._ensureBrowser();
     return this._requestNow(msg, timeout, traceID, raw);
+  }
+
+  // ─── 上报身份兜底:whoami 失败时经扩展代取 HRM 用户名 ─────────────────────
+
+  static IDENTITY_BACKOFF_MS = 60 * 60 * 1000;
+  static IDENTITY_TIMEOUT_MS = 5000;
+
+  async maybeResolveIdentity() {
+    try {
+      const cache = await loadIdentityCache();
+      const now = Date.now();
+      if (cache.user) return;                                              // 已有真实名
+      if (cache.lastFailedAt && now - cache.lastFailedAt < Bridge.IDENTITY_BACKOFF_MS) return; // 退避中
+      const ws = this._currentConnection()?.ws ?? this._extensionWs;
+      if (!ws || ws.readyState !== 1) {                                    // 扩展未连接:绝不为此启动浏览器
+        await saveIdentityCache({ lastFailedAt: now });
+        return;
+      }
+      await saveIdentityCache({ lastAttemptAt: now });
+      const response = await this._requestNow({ type: "identity_fetch" }, Bridge.IDENTITY_TIMEOUT_MS);
+      const user = response && response.ok ? response.user : null;
+      if (typeof user === "string" && user) {
+        await saveIdentityCache({ user, resolvedAt: Date.now(), lastFailedAt: null });
+        if (this._metricsCfg?.meta) {
+          this._metricsCfg.meta.user = user;
+          this._metricsCfg.meta.userSource = "hrm";
+        }
+      } else {
+        await saveIdentityCache({ lastFailedAt: Date.now() });
+      }
+    } catch { /* 身份解析永不影响主流程 */ }
   }
 
   async _handleHostCliRequest(msg, ws) {
