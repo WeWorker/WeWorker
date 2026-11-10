@@ -666,6 +666,27 @@ app.post('/settings/provider/detect', async (_req, res) => {
   }
 })
 
+app.post('/settings/provider/reveal-key', async (req, res) => {
+  const sourceId = req.body?.source_id
+  if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
+    res.status(400).json({ detail: '请选择要查看的模型配置' })
+    return
+  }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    // 只在用户点「眼睛」时读取一次；列表响应里始终只有打码提示。
+    const discovered = await discoverLocalProviders({ validate: false })
+    const candidate = discovered.providers.find(item => item.sourceId === sourceId)
+    if (!candidate) {
+      res.status(404).json({ detail: '该配置已不可用，请重新识别' })
+      return
+    }
+    res.json({ api_key: candidate.configuration.api_key })
+  } catch {
+    res.status(500).json({ detail: '读取 API Key 失败' })
+  }
+})
+
 app.post('/settings/provider/import', async (req, res) => {
   const sourceId = req.body?.source_id
   if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
@@ -680,6 +701,10 @@ app.post('/settings/provider/import', async (req, res) => {
     const candidate = discovered.providers.find(item => item.sourceId === sourceId)
     if (!candidate) {
       res.status(404).json({ detail: '该配置已不可用，请重新识别' })
+      return
+    }
+    if (candidate.validation && !candidate.validation.ok) {
+      res.status(400).json({ detail: candidate.validation.detail || '该配置校验未通过，无法导入' })
       return
     }
     const result = importDiscoveredProviders(getSettings(), [candidate], true)

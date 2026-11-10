@@ -31,3 +31,48 @@
 .local-model-discovery__spin { animation: local-model-discovery-spin 1s linear infinite; }
 @keyframes local-model-discovery-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .local-model-discovery__spin { animation: none; } }
+
+.local-model-discovery__row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.local-model-discovery__row .local-model-discovery__candidate {
+  flex: 1 1 auto;
+}
+
+.local-model-discovery__eye {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.28));
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.local-model-discovery__eye:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.local-model-discovery__key {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.local-model-discovery__key code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.local-model-discovery__invalid {
+  display: block;
+  margin-top: 2px;
+  color: var(--error);
+  font-size: 12px;
+}

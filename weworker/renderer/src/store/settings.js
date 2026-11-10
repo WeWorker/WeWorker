@@ -124,6 +124,17 @@ export const useSettingsStore = create((set, get) => ({
     return data
   },
 
+  revealProviderKey: async (sourceId) => {
+    const res = await backendFetch(`${API}/settings/provider/reveal-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: sourceId }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '读取 API Key 失败')
+    return data.api_key || ''
+  },
+
   importLocalProvider: async (sourceId) => {
     const res = await backendFetch(`${API}/settings/provider/import`, {
       method: 'POST',

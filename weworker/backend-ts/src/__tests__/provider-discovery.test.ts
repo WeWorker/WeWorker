@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from '../provider-discovery.js'
+import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders, validateProviderConnection } from '../provider-discovery.js'
 import { deleteModelConfiguration, publicModelConfigurations, updateModelConfiguration } from '../model-configurations.js'
 import { applySecrets, clearSecretsOnDisk, extractSecrets } from '../settings-secrets.js'
 import type { Settings } from '../config.js'
@@ -22,7 +22,7 @@ function settings(): Settings {
 function claude(key = 'fixture-claude-key') {
   write('.claude/settings.json', { env: { ANTHROPIC_API_KEY: key, ANTHROPIC_BASE_URL: 'https://example.com/anthropic', ANTHROPIC_MODEL: 'fixture-claude-model' } })
 }
-const discover = (env: NodeJS.ProcessEnv = {}) => discoverLocalProviders({ home, env })
+const discover = (env: NodeJS.ProcessEnv = {}) => discoverLocalProviders({ home, env, validate: false })
 
 describe('local provider discovery', () => {
   it('reads Claude settings and local overrides without changing the source', async () => {
@@ -328,5 +328,45 @@ describe('discovered provider import', () => {
     claude()
     const state = { ...settings(), dismissed_model_sources: {} } as unknown as Settings
     expect(importDiscoveredProviders(state, (await discover()).providers).imported).toHaveLength(1)
+  })
+})
+
+describe('provider validation', () => {
+  const base = {
+    api_key: 'fixture-key-123456', base_url: 'https://example.com/anthropic',
+    weworker_protocol: 'anthropic_messages' as const,
+  }
+
+  it('rejects malformed keys before any network call', async () => {
+    let called = false
+    const fetchImpl = (async () => { called = true; return new Response('{}') }) as unknown as typeof fetch
+    const result = await validateProviderConnection({ ...base, api_key: 'has space' }, fetchImpl)
+    expect(result).toMatchObject({ ok: false, reason: 'format' })
+    expect(called).toBe(false)
+  })
+
+  it('treats 401 as an invalid key and 200 as usable', async () => {
+    const unauthorized = (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch
+    expect(await validateProviderConnection(base, unauthorized)).toMatchObject({ ok: false, reason: 'auth' })
+    const ok = (async () => new Response('{"data":[]}')) as unknown as typeof fetch
+    expect(await validateProviderConnection(base, ok)).toMatchObject({ ok: true })
+  })
+
+  it('does not reject a gateway that has no model listing endpoint', async () => {
+    const notFound = (async () => new Response('', { status: 404 })) as unknown as typeof fetch
+    expect(await validateProviderConnection(base, notFound)).toMatchObject({ ok: true })
+  })
+
+  it('marks network failures as unreachable', async () => {
+    const failing = (async () => { throw new Error('connect ECONNREFUSED') }) as unknown as typeof fetch
+    expect(await validateProviderConnection(base, failing)).toMatchObject({ ok: false, reason: 'unreachable' })
+  })
+
+  it('never imports a source that failed validation', async () => {
+    claude()
+    const unauthorized = (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch
+    const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl: unauthorized })
+    expect(providers[0].validation).toMatchObject({ ok: false, reason: 'auth' })
+    expect(importDiscoveredProviders(settings(), providers).imported).toEqual([])
   })
 })

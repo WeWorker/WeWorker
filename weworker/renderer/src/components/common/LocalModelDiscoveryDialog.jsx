@@ -13,8 +13,11 @@ const protocolNames = {
 export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
   const detect = useSettingsStore(state => state.detectProviders)
   const importProvider = useSettingsStore(state => state.importLocalProvider)
+  const revealProviderKey = useSettingsStore(state => state.revealProviderKey)
   const providers = useSettingsStore(state => state.providers)
   const [candidates, setCandidates] = useState([])
+  const [revealedKeys, setRevealedKeys] = useState({})
+  const [revealing, setRevealing] = useState('')
   const [issues, setIssues] = useState([])
   const [scanning, setScanning] = useState(true)
   const [importing, setImporting] = useState('')
@@ -58,8 +61,28 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
     }
   }, [])
 
-  const importCandidate = async candidate => {
-    if (importingRef.current) return
+  // 列表里始终打码；只有用户点「显示」时才向本机后端取一次明文。
+  const toggleKey = async candidate => {
+    if (revealedKeys[candidate.source_id]) {
+      setRevealedKeys(current => {
+        const next = { ...current }
+        delete next[candidate.source_id]
+        return next
+      })
+      return
+    }
+    setRevealing(candidate.source_id)
+    try {
+      const key = await revealProviderKey(candidate.source_id)
+      if (mountedRef.current) setRevealedKeys(current => ({ ...current, [candidate.source_id]: key }))
+    } catch (failure) {
+      if (mountedRef.current) setError(failure.message || '读取 API Key 失败')
+    } finally {
+      if (mountedRef.current) setRevealing('')
+    }
+  }
+
+  const importCandidate = async candidate => {    if (importingRef.current) return
     importingRef.current = true
     setImporting(candidate.source_id)
     setError('')
@@ -112,19 +135,32 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
               {candidates.map(candidate => {
                 const imported = candidate.imported || Object.values(providers).some(provider => provider.external_source_id === candidate.source_id)
                 const busy = importing === candidate.source_id
+                const validation = candidate.validation || { ok: true, detail: '' }
+                const revealed = revealedKeys[candidate.source_id]
                 return <li key={candidate.source_id}>
-                  <button type="button" className="local-model-discovery__candidate" disabled={imported || Boolean(importing)}
-                    aria-label={`${imported ? '已导入' : '导入'} ${candidate.name}${candidate.model ? ` ${candidate.model}` : ''}`}
-                    onClick={() => { void importCandidate(candidate) }}>
-                    <span className="local-model-discovery__details">
-                      <span className="local-model-discovery__name">{candidate.name}<span>{candidate.model || '未指定模型'}</span></span>
-                      <span className="local-model-discovery__endpoint">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol} · {candidate.base_url}</span>
-                    </span>
-                    <span className={`local-model-discovery__import${imported ? ' is-imported' : ''}`}>
-                      {busy ? <LoaderCircle className="local-model-discovery__spin" size={16} /> : imported ? <Check size={16} /> : <Download size={16} />}
-                      {busy ? '导入中' : imported ? '已导入' : '导入'}
-                    </span>
-                  </button>
+                  <div className="local-model-discovery__row">
+                    <button type="button" className="local-model-discovery__candidate" disabled={imported || !validation.ok || Boolean(importing)}
+                      aria-label={`${imported ? '已导入' : validation.ok ? '导入' : '不可导入'} ${candidate.name}${candidate.model ? ` ${candidate.model}` : ''}`}
+                      onClick={() => { void importCandidate(candidate) }}>
+                      <span className="local-model-discovery__details">
+                        <span className="local-model-discovery__name">{candidate.name}<span>{candidate.model || '未指定模型'}</span></span>
+                        <span className="local-model-discovery__endpoint">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol} · {candidate.base_url}</span>
+                        <span className="local-model-discovery__key">
+                          API Key：<code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
+                        </span>
+                        {!validation.ok && <span className="local-model-discovery__invalid">不可用：{validation.detail || '校验未通过'}</span>}
+                      </span>
+                      <span className={`local-model-discovery__import${imported ? ' is-imported' : ''}`}>
+                        {busy ? <LoaderCircle className="local-model-discovery__spin" size={16} /> : imported ? <Check size={16} /> : <Download size={16} />}
+                        {busy ? '导入中' : imported ? '已导入' : validation.ok ? '导入' : '不可导入'}
+                      </span>
+                    </button>
+                    <button type="button" className="local-model-discovery__eye" disabled={Boolean(importing) || revealing === candidate.source_id}
+                      aria-label={revealed ? '隐藏 API Key' : '显示 API Key'} title={revealed ? '隐藏' : '显示明文'}
+                      onClick={() => { void toggleKey(candidate) }}>
+                      {revealing === candidate.source_id ? <LoaderCircle className="local-model-discovery__spin" size={14} /> : revealed ? '隐藏' : '显示'}
+                    </button>
+                  </div>
                 </li>
               })}
             </ul> : !error && <div className="local-model-discovery__status" role="status">未找到可导入的模型配置</div>}

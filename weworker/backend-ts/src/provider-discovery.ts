@@ -12,17 +12,67 @@ import { discoverHarnessProviders } from './harness-provider-discovery.js'
 
 type RecordValue = Record<string, any>
 type Product = 'Claude Code' | 'Codex' | 'WorkBuddy' | 'CodeBuddy' | 'OpenCode' | 'DeepSeek Harness'
+export interface ProviderValidation {
+  ok: boolean
+  reason: '' | 'format' | 'auth' | 'unreachable' | 'unsupported'
+  detail: string
+}
 export interface DiscoveredProvider {
   sourceId: string
   product: Product
   configuration: ModelConfiguration
+  validation?: ProviderValidation
 }
 export interface DiscoveryOptions {
   home?: string
   env?: NodeJS.ProcessEnv
+  /** 校验格式与连通性；测试里可以关掉，避免真实网络请求。 */
+  validate?: boolean
+  fetchImpl?: typeof fetch
+  validateTimeoutMs?: number
 }
 const record = (value: unknown): RecordValue => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {}
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
+
+/** 只做格式判断：可打印 ASCII、无空白、长度合理。 */
+export function looksLikeApiKey(key: string): boolean {
+  return /^[\x21-\x7e]{8,512}$/.test(String(key || '')) && !/\s/.test(String(key || ''))
+}
+
+/**
+ * 连通性校验：用模型列表接口做一次轻量探测。
+ * 401/403 视为 key 无效；其它失败视为不可达；200 视为可用。
+ */
+export async function validateProviderConnection(
+  configuration: Pick<ModelConfiguration, 'api_key' | 'base_url' | 'weworker_protocol'>,
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs = 6000,
+): Promise<ProviderValidation> {
+  if (!looksLikeApiKey(configuration.api_key)) {
+    return { ok: false, reason: 'format', detail: 'API Key 格式不合法（需为 8-512 个非空白可见字符）' }
+  }
+  const anthropic = configuration.weworker_protocol === 'anthropic_messages'
+  const url = anthropic
+    ? `${configuration.base_url.replace(/\/+$/, '')}/v1/models?limit=1`
+    : `${configuration.base_url.replace(/\/+$/, '')}/models`
+  const headers: Record<string, string> = anthropic
+    ? { 'x-api-key': configuration.api_key, 'anthropic-version': '2023-06-01' }
+    : { authorization: `Bearer ${configuration.api_key}` }
+  try {
+    const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) })
+    if (response.ok) return { ok: true, reason: '', detail: '' }
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, reason: 'auth', detail: `鉴权失败（HTTP ${response.status}），该 Key 无法调用此接口` }
+    }
+    if (response.status === 404 || response.status === 405) {
+      // 有些网关不提供模型列表接口，不能据此判定 key 无效。
+      return { ok: true, reason: '', detail: '' }
+    }
+    return { ok: false, reason: 'unsupported', detail: `接口返回 HTTP ${response.status}` }
+  } catch (error) {
+    return { ok: false, reason: 'unreachable', detail: `无法连接接口：${error instanceof Error ? error.message : String(error)}` }
+  }
+}
 
 // Only product configuration files are read. Never run credential helpers or
 // inspect session histories, project directories, browser data or login tokens.
@@ -155,6 +205,16 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
   if (harness.issue) issues.add('DeepSeek Harness')
   for (const item of harness.providers) add('DeepSeek Harness', item.slot, item.key, item.url, item.model,
     item.protocol, item.protocol === 'anthropic_messages' ? 'api_key' : 'auth_token')
+
+  // 发现结果必须可用：先校验格式，再用模型列表接口探测一次连通性。
+  // 校验不通过也保留在列表里（带原因），但导入时会被拒绝。
+  if (options.validate !== false && providers.length > 0) {
+    const fetchImpl = options.fetchImpl ?? fetch
+    const timeoutMs = options.validateTimeoutMs ?? 6000
+    await Promise.all(providers.map(async (item) => {
+      item.validation = await validateProviderConnection(item.configuration, fetchImpl, timeoutMs)
+    }))
+  }
   return { providers, issues: [...issues] }
 }
 
@@ -171,6 +231,8 @@ export function publicDiscoveredProviders(settings: Settings, discovered: Discov
       weworker_protocol: item.configuration.weworker_protocol,
       imported: Boolean(existing),
       configuration_id: existing?.[0] || '',
+      api_key_hint: item.configuration.api_key ? item.configuration.api_key.slice(-4) : '',
+      validation: item.validation ?? { ok: true, reason: '' as const, detail: '' },
     }
   })
 }
@@ -181,6 +243,8 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
   const imported: string[] = []
   let existing = 0
   for (const item of discovered) {
+    // 校验不通过的来源不允许导入：否则用户会得到一条「识别到但不可用」的配置。
+    if (item.validation && !item.validation.ok) continue
     if (Object.values(configurations).some(configuration => configuration.external_source_id === item.sourceId)) { existing++; continue }
     if (!manual && dismissed.has(item.sourceId)) continue
     const usedNames = new Set(Object.values(configurations).map(configuration => configuration.name))
