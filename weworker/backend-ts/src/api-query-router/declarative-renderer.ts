@@ -16,6 +16,14 @@ const DEFAULT_MAX_ROWS = 50
 const CELL_MAX_CHARS = 80
 /** 超过这个长度的 href 归入「埋点 URL」处理，见 `compactHref`。 */
 const LINK_HREF_MAX_CHARS = 200
+/**
+ * 列表查完但零条时的兜底话术。
+ *
+ * 空数组是「查完了，就是没有」这一**事实**，不是「没答出来」——它必须变成一句给用户看的
+ * 友好回答（各 schema 可用 `emptyMessage` 写得更贴合业务），而不是静默丢回模型重查一遍。
+ * 真正的失败（空文本 / 错误信封 / 鉴权 / 超时）在派发层就被拦下了，走不到这里。
+ */
+export const DEFAULT_EMPTY_ANSWER = '经查询，没有符合条件的数据。'
 
 export type RenderSchemaContext = {
   /** 用于相对日期与时间格式化的「今天」；注入以便测试固定时钟 */
@@ -203,7 +211,9 @@ function renderSection(
 ): string | null {
   const rows = locateRows(source, section.dataSource)
   if (!rows) return null
-  const body = rows.length ? renderTable(rows, section) : (section.emptyMessage ?? '未查询到相关数据。')
+  const body = rows.length
+    ? renderTable(rows, section)
+    : (section.emptyMessage ?? DEFAULT_EMPTY_ANSWER)
   if (!body) return null
   const heading = section.title ? `### ${section.title}${rows.length ? `（${rows.length} 条）` : ''}\n\n` : ''
   return `${heading}${body}`
@@ -212,6 +222,9 @@ function renderSection(
 /**
  * 按 schema 渲染。返回 null 表示「该 schema 不适用于这份返回值」——调用方须回退通用渲染。
  * 永不抛错：任何内部异常都退化为 null。
+ *
+ * 空结果的两种落法：`sections` 里**没有数据的分组整节跳过**（不堆「无」占位）；
+ * 整份都没有数据时用 schema 的 `emptyMessage`（缺省 `DEFAULT_EMPTY_ANSWER`）。
  */
 export function renderFromSchema(
   schema: RouterRenderSchema | undefined,
@@ -225,10 +238,16 @@ export function renderFromSchema(
     const parts: string[] = []
     if (Array.isArray(schema.sections) && schema.sections.length) {
       for (const section of schema.sections) {
+        const rows = locateRows(source, section.dataSource)
+        if (!rows || !rows.length) continue
         const rendered = renderSection(section, source, ctx)
         if (rendered) parts.push(rendered)
       }
-      if (!parts.length) return null
+      // 所有分节都没有数据 → 给一句整份的友好话术，而不是返回 null 让上层回退模型。
+      if (!parts.length) {
+        const head = schema.title ? `### ${schema.title}\n\n` : ''
+        return `${head}${schema.emptyMessage ?? DEFAULT_EMPTY_ANSWER}`
+      }
     } else {
       const single = renderSection(schema, source, ctx)
       if (!single) return null

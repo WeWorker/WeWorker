@@ -58,7 +58,6 @@ import {
   classifyDispatchPayload,
   createGuardedDispatch,
   isUnrenderableAnswer,
-  isConfirmedEmptyListPayload,
   resolveDispatchTimeoutMs,
   RouteDispatchError,
   type RouteDispatchFn,
@@ -513,12 +512,9 @@ async function dispatchAndRender(args: {
     ctx.onFallback?.({ status: 'failed', reason: 'render_failed' })
     return 'fallback'
   }
-  // Only the explicitly successful empty-list contract can finish with a no-records answer.
-  // Generic/schema empty messages without that contract remain unusable.
-  const confirmedEmpty = isConfirmedEmptyListPayload(renderRaw)
-  if (confirmedEmpty) text = args.render.title ? `### ${args.render.title}\n\n未查询到相关数据。` : '未查询到相关数据。'
-  // 渲染不出可展示内容（渲染器吞掉异常或投影为空）→ 同为「没答出来」，落回 LLM。
-  if (isUnrenderableAnswer(text) && !confirmedEmpty) {
+  // 空结果不是「没答出来」：渲染层会把它变成一句场景化话术（`emptyMessage` /
+  // DEFAULT_EMPTY_ANSWER），照常推给用户；只有渲染不出任何内容才落回 LLM。
+  if (isUnrenderableAnswer(text)) {
     routeDiagnostic(ctx, 'render_failed', { tool, category: 'no_renderable_data', fallback: 'llm' })
     ctx.log?.(`route render produced no answer: ${tool} → fall back to LLM`)
     ctx.onFallback?.({ status: 'failed', reason: 'empty_answer' })

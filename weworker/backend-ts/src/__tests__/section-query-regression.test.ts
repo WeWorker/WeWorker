@@ -41,14 +41,15 @@ describe('section result rendering', () => {
       for (const row of section.rows ?? []) expect(md).toContain(row.rule)
     }
     expect(lookupSchema).not.toHaveBeenCalled()
-    expect(md).not.toContain('未查询到相关数据')
+    expect(md).not.toContain('经查询，没有符合条件的数据')
   })
 
   it('escapes cells, respects columns and skips malformed sections', () => {
     const md = renderGeneric(JSON.stringify({ sections: [null, 5, [], { title: 'Rules', columns: ['rule'], rows: [{ rule: '`name` | value\nnext', hidden: 'omit' }] }, { title: 'Empty', content: '' }] }))
     expect(md).toContain('`name` \\| value next')
     expect(md).not.toContain('omit')
-    expect(md).toContain('## Empty\n\n（无数据）')
+    // 空分节直接跳过：既不堆「无」，也不把空话术当正文
+    expect(md).not.toContain('## Empty')
     expect(renderGeneric(JSON.stringify({ sections: [{ rows: [{ id: 1 }] }] }))).toContain('| id |')
   })
 
@@ -57,7 +58,7 @@ describe('section result rendering', () => {
     const pointer = JSON.stringify({ type: 'large_output', file: 'fixture.json' })
     expect(renderGeneric(pointer)).toContain('结果过大已落盘')
     expect(renderGeneric(pointer, undefined, undefined, { rehydrate: () => JSON.stringify(result) })).toContain(result.sections[1].content)
-    expect(renderGeneric(JSON.stringify({ items: [] }))).toContain('未查询到相关数据')
+    expect(renderGeneric(JSON.stringify({ items: [] }))).toContain('经查询，没有符合条件的数据。')
     expect(renderGeneric(JSON.stringify({ items: [{ id: 1 }] }))).toContain('| id |')
   })
 
