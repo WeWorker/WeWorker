@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { renderGeneric } from '../api-query-router/generic-renderer.js'
+import { renderFromSchema } from '../api-query-router/declarative-renderer.js'
 import { buildCompactSummary } from '../webcli-result-project.js'
 import { planCascade, type PlanCascadeDeps } from '../api-query-router/cascade.js'
 import { executeRoutePlan, tryIntelligentQueryRoute, type RouteEngine } from '../api-query-router/index.js'
@@ -51,6 +52,39 @@ describe('section result rendering', () => {
     // 空分节直接跳过：既不堆「无」，也不把空话术当正文
     expect(md).not.toContain('## Empty')
     expect(renderGeneric(JSON.stringify({ sections: [{ rows: [{ id: 1 }] }] }))).toContain('| id |')
+  })
+
+  it('keeps an empty group visible with a short marker instead of dropping it', () => {
+    const schema = {
+      title: '到期工单',
+      sections: [
+        { title: '安全单', dataSource: 'groups.security.items', columns: [{ type: 'text' as const, key: 'id', title: '工单号' }] },
+        { title: '问题单', dataSource: 'groups.event.items', columns: [{ type: 'text' as const, key: 'id', title: '工单号' }] },
+        { title: '事件单', dataSource: 'groups.incident.items', emptyMessage: '当前暂无事件单', columns: [{ type: 'text' as const, key: 'id', title: '工单号' }] },
+      ],
+    }
+    const mixed = renderFromSchema(
+      schema,
+      { groups: { security: { items: [{ id: 'S1' }] }, event: { items: [] }, incident: { items: [] } } },
+      { now: new Date('2026-10-23T00:00:00Z') },
+    )
+    // 有数据的分组照常出表；空分组保留标题 + 一句说明，用户能看出「这一类查了、确实没有」
+    expect(mixed).toContain('### 安全单（1 条）')
+    expect(mixed).toContain('### 问题单\n\n无')
+    expect(mixed).toContain('### 事件单\n\n当前暂无事件单')
+
+    // 接口没返回这个分组字段 ≠ 查了没有：不凭空造一节「无」
+    const missing = renderFromSchema(schema, { groups: { security: { items: [{ id: 'S1' }] } } }, { now: new Date() })
+    expect(missing).toContain('### 安全单（1 条）')
+    expect(missing).not.toContain('### 问题单')
+
+    // 整份都没有数据 → 收敛成一句总述，不堆一屏「无」
+    const allEmpty = renderFromSchema(
+      { ...schema, emptyMessage: '经查询，期限内没有到期的工单。' },
+      { groups: { security: { items: [] }, event: { items: [] }, incident: { items: [] } } },
+      { now: new Date() },
+    )
+    expect(allEmpty).toBe('### 到期工单\n\n经查询，期限内没有到期的工单。')
   })
 
   it('preserves error/large-output handling and renders rehydrated sections', () => {
