@@ -32,6 +32,7 @@ import { createConnection } from "net";
 import { createHash, randomUUID } from "crypto";
 import { resolveToolCallTimeout, interruptedCallResult } from "./tool-timeouts.js";
 import { resolveRegistry as resolveRegistryShim } from "./version-check.js";
+import { cliName, cliLabel } from "./cli-name.js";
 
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readBrowserMode } from "./dedicated-browser.js";
@@ -254,7 +255,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "development", usage: "webcli call development.help", description: "Toolkit 代码校验、开发槽位、调试与正式应用" },
         { name: "exploration", usage: "webcli call exploration.help", description: "独立 API 探索、Agent 草稿编辑、验证与本地安装" },
         { name: "adapter", usage: "webcli adapter <command>", description: "管理网站适配器" },
-        { name: "service", usage: "webcli service <start|stop|status|logs>", description: "管理 WebSocket bridge 服务" },
+        { name: "service", usage: `${cliName()} service <start|stop|status|logs>`, description: "管理 WebSocket bridge 服务" },
         { name: "browser", usage: "webcli browser <status|show|hide|start|stop|restart|mode>", description: "管理 WeWorker 浏览器（需要登录时用 show 打开）" },
         { name: "login <site>", usage: "webcli login <site>", description: "主动登录网站（工具遇到未登录时也会自动发起）" },
         { name: "auth", usage: "webcli auth <status|check|save|forget|autologin>", description: "网站登录状态与自动登录" },
@@ -390,7 +391,7 @@ async function cmdServiceStart(daemon, report = console.log) {
     // Check if already running
     const existing = await readPid();
     if (existing && isPidRunning(existing)) {
-      report(`WebCLI service is already running (PID: ${existing})`);
+      report(`${cliLabel()} service is already running (PID: ${existing})`);
       return;
     }
 
@@ -398,7 +399,7 @@ async function cmdServiceStart(daemon, report = console.log) {
     if (isIsolatedKind(INSTANCE.kind) && await isPortOccupied()) {
       const info = await probeBridgeInstance();
       if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) {
-        report(`WebCLI service is already running on ${bridgeUrl(INSTANCE)}`);
+        report(`${cliLabel()} service is already running on ${bridgeUrl(INSTANCE)}`);
         return;
       }
       throw new Error(`Port ${INSTANCE.port} is already in use by a different process; refusing to reuse it`);
@@ -427,12 +428,12 @@ async function cmdServiceStart(daemon, report = console.log) {
       });
       const ready = await waitForOwnBridgeByFile();
       if (!ready) {
-        throw new Error(`WebCLI service failed to start on ${bridgeUrl(INSTANCE)}`);
+        throw new Error(`${cliLabel()} service failed to start on ${bridgeUrl(INSTANCE)}`);
       }
-      report(`✓ WebCLI service started in background`);
+      report(`✓ ${cliLabel()} service started in background`);
       report(`  Logs:   ${LOG_FILE}`);
-      report(`  Stop:   webcli service stop`);
-      report(`  Status: webcli service status`);
+      report(`  Stop:   ${cliName()} service stop`);
+      report(`  Status: ${cliName()} service status`);
       return;
     }
 
@@ -471,19 +472,19 @@ async function cmdServiceStart(daemon, report = console.log) {
       if (!ready && !isPidRunning(child.pid)) {
         await unlink(PID_FILE).catch(() => {});
         await unlink(OWNER_FILE).catch(() => {});
-        throw new Error(`WebCLI service failed to start on ${bridgeUrl(INSTANCE)}`);
+        throw new Error(`${cliLabel()} service failed to start on ${bridgeUrl(INSTANCE)}`);
       }
       if (!ready) {
-        report(`WebCLI service is starting in background (PID: ${child.pid}) — still initializing`);
+        report(`${cliLabel()} service is starting in background (PID: ${child.pid}) — still initializing`);
         report(`  Logs:   ${LOG_FILE}`);
         return;
       }
     }
 
-    report(`✓ WebCLI service started in background (PID: ${child.pid})`);
+    report(`✓ ${cliLabel()} service started in background (PID: ${child.pid})`);
     report(`  Logs:   ${LOG_FILE}`);
-    report(`  Stop:   webcli service stop`);
-    report(`  Status: webcli service status`);
+    report(`  Stop:   ${cliName()} service stop`);
+    report(`  Status: ${cliName()} service status`);
   } else {
     // Foreground — hand off to service mode
     await runServiceMode();
@@ -495,7 +496,7 @@ async function cmdServiceStart(daemon, report = console.log) {
 async function cmdServiceStop() {
   const pid = await readPid();
   if (!pid) {
-    console.log("WebCLI service is not running (no PID file found)");
+    console.log(`${cliLabel()} service is not running (no PID file found)`);
     return;
   }
   if (!isPidRunning(pid)) {
@@ -507,14 +508,14 @@ async function cmdServiceStop() {
   if (isIsolatedKind(INSTANCE.kind)) {
     const owner = await readServiceOwner();
     if (!owner || owner.pid !== pid || owner.port !== INSTANCE.port || owner.kind !== INSTANCE.kind) {
-      throw new Error(`PID ${pid} is not owned by this npm WebCLI; refusing to stop it`);
+      throw new Error(`PID ${pid} is not owned by this ${cliName()} WebCLI; refusing to stop it`);
     }
   }
   try {
     process.kill(pid, "SIGTERM");
     await unlink(PID_FILE).catch(() => {});
     await unlink(OWNER_FILE).catch(() => {});
-    console.log(`✓ WebCLI service stopped (PID: ${pid})`);
+    console.log(`✓ ${cliLabel()} service stopped (PID: ${pid})`);
   } catch (e) {
     console.error(`Failed to stop service: ${e.message}`);
   }
@@ -529,13 +530,13 @@ async function cmdServiceStatus() {
 
   if (listening) {
     const pidStr = pidRunning ? ` (PID: ${pid})` : "";
-    console.log(`✓ WebCLI service is running on ${bridgeUrl(INSTANCE)}${pidStr}`);
+    console.log(`✓ ${cliLabel()} service is running on ${bridgeUrl(INSTANCE)}${pidStr}`);
   } else {
-    console.log("✗ WebCLI service is not running");
+    console.log(`✗ ${cliLabel()} service is not running`);
     if (pid && !pidRunning) {
-      console.log("  (stale PID file found — run 'webcli service stop' to clean up)");
+      console.log(`  (stale PID file found — run '${cliName()} service stop' to clean up)`);
     }
-    console.log("  Start with: webcli service start -d");
+    console.log(`  Start with: ${cliName()} service start -d`);
   }
 }
 
@@ -544,7 +545,7 @@ async function cmdServiceStatus() {
 async function cmdServiceLogs(follow) {
   if (!existsSync(LOG_FILE)) {
     console.log(`No log file found at ${LOG_FILE}`);
-    console.log("Start the service first: webcli service start -d");
+    console.log(`Start the service first: ${cliName()} service start -d`);
     return;
   }
   if (follow) {

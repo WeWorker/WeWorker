@@ -22,3 +22,8 @@ export function cliName() {
   }
   return cached;
 }
+
+/** 品牌标签(大写首字母):webgo → WebGo,其余 → WebCLI。用于服务名等展示文案。 */
+export function cliLabel() {
+  return cliName() === "webgo" ? "WebGo" : "WebCLI";
+}

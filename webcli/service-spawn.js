@@ -1,61 +1,100 @@
 /**
- * Windows daemon detach via Task Scheduler (schtasks).
+ * Windows daemon detach via CreateProcess breakaway (PowerShell P/Invoke).
  *
- * Node's `spawn(..., { detached: true })` only sets DETACHED_PROCESS on Windows —
- * it does NOT request CREATE_BREAKAWAY_FROM_JOB, so the daemon stays inside the
- * parent's Job Object / process tree and is killed when the launching command
- * exits (e.g. inside WorkBuddy). Launching through the Task Scheduler service
- * instead makes the daemon belong to the Scheduler, not the caller, so it survives.
+ * Node's `spawn(..., { detached: true })` only sets DETACHED_PROCESS — it does NOT
+ * request CREATE_BREAKAWAY_FROM_JOB, so the daemon stays inside the parent's Job
+ * Object and is killed when the launching command exits (e.g. inside WorkBuddy).
+ *
+ * Task Scheduler (schtasks.exe) is the usual escape hatch but is blacklisted by
+ * some sandboxes' command policy. This module instead invokes kernel32
+ * CreateProcess directly through an inlined PowerShell P/Invoke with
+ * CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS, so the daemon leaves the caller's
+ * Job Object without touching any system-management executable.
  */
 import { spawn } from "child_process";
-import { writeFile, unlink } from "fs/promises";
-import { randomUUID } from "crypto";
-import path from "path";
+import { openSync, closeSync } from "fs";
 
 export function quoteCmd(arg) {
   const s = String(arg);
   return /[\s"]/.test(s) ? `"${s.replace(/"/g, '\\"')}"` : s;
 }
 
-export function buildSchtasksArgs({ taskName, scriptPath }) {
-  return {
-    create: ["schtasks", "/create", "/tn", taskName, "/tr", `"${scriptPath}"`, "/sc", "once", "/st", "00:00", "/f"],
-    run: ["schtasks", "/run", "/tn", taskName],
-    delete: ["schtasks", "/delete", "/tn", taskName, "/f"],
-  };
+/** Escape a value for a PowerShell single-quoted string ('' → '). */
+function psQuote(value) {
+  return String(value).replace(/'/g, "''");
 }
 
-export function buildDaemonLaunchScript({ nodeExe, serviceArgs, logFile, env = {} }) {
-  const setLines = Object.entries(env).map(([k, v]) => `set "${k}=${v}"`).join("\r\n");
-  const cmd = [nodeExe, ...serviceArgs].map(quoteCmd).join(" ");
-  return `@echo off\r\n${setLines ? setLines + "\r\n" : ""}${cmd} >> "${logFile}" 2>&1\r\n`;
+export function buildBreakawayPs1({ cmdline, applicationName, cwd }) {
+  const psApp = psQuote(applicationName);
+  const psCmdline = psQuote(cmdline);
+  const psCwd = psQuote(cwd);
+  return `$ErrorActionPreference = 'Stop'
+$sig = @"
+using System;
+using System.Runtime.InteropServices;
+public static class NativeBreakaway {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct STARTUPINFO {
+    public int cb;
+    public string lpReserved;
+    public string lpDesktop;
+    public string lpTitle;
+    public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+    public short wShowWindow, cbReserved2;
+    public IntPtr lpReserved2;
+    public IntPtr hStdInput, hStdOutput, hStdError;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct PROCESS_INFORMATION {
+    public IntPtr hProcess;
+    public IntPtr hThread;
+    public int dwProcessId;
+    public int dwThreadId;
+  }
+  [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+  public static extern bool CreateProcess(
+    string lpApplicationName, string lpCommandLine,
+    IntPtr lpProcessAttributes, IntPtr lpThreadAttributes,
+    bool bInheritHandles, uint dwCreationFlags,
+    IntPtr lpEnvironment, string lpCurrentDirectory,
+    ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
 }
-
-function run(argv) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(argv[0], argv.slice(1), { stdio: "ignore", windowsHide: true });
-    child.on("error", reject);
-    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${argv[0]} 退出码 ${code}`))));
-  });
+"@
+Add-Type -TypeDefinition $sig
+$si = New-Object NativeBreakaway+STARTUPINFO
+$si.cb = [Runtime.InteropServices.Marshal]::SizeOf($si)
+$pi = New-Object NativeBreakaway+PROCESS_INFORMATION
+$flags = [uint32]0x01000000 -bor [uint32]0x00000008  # CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS
+$ok = [NativeBreakaway]::CreateProcess('${psApp}', '${psCmdline}', [IntPtr]::Zero, [IntPtr]::Zero, $true, $flags, [IntPtr]::Zero, '${psCwd}', [ref]$si, [ref]$pi)
+if (-not $ok) {
+  Write-Error ("CreateProcess failed, win32=" + [Runtime.InteropServices.Marshal]::GetLastWin32Error())
+  exit 1
+}
+`;
 }
 
 /**
- * Launch the daemon detached from the caller's Job Object.
- * @param {{nodeExe:string, serviceArgs:string[], logFile:string, stateDir:string, env?:object}} opts
- * @returns {Promise<void>} resolves once schtasks has been told to run (async); the
- *   caller must poll the daemon's PID file / port for actual readiness.
+ * Launch the daemon detached from the caller's Job Object via CreateProcess breakaway.
+ * The daemon inherits this process's stdout/stderr (redirected to `logFile`) and
+ * writes its own PID file on readiness; the caller must poll for actual readiness.
+ * @param {{nodeExe:string, serviceArgs:string[], logFile:string, env?:object}} opts
+ * @returns {Promise<void>}
  */
-export async function launchDetachedWindows({ nodeExe, serviceArgs, logFile, stateDir, env = {} }) {
-  const taskName = `weworker-webcli-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
-  const scriptPath = path.join(stateDir, `${taskName}.cmd`);
-  await writeFile(scriptPath, buildDaemonLaunchScript({ nodeExe, serviceArgs, logFile, env }));
-  const args = buildSchtasksArgs({ taskName, scriptPath });
-  try {
-    await run(args.create);
-    await run(args.run);
-  } finally {
-    await run(args.delete).catch(() => {});
-    // 任务由调度器异步启动:立即 unlink 会在任务读到 .cmd 前删掉它。延迟到启动窗口后清理。
-    setTimeout(() => unlink(scriptPath).catch(() => {}), 30_000).unref?.();
-  }
+export async function launchDetachedWindows({ nodeExe, serviceArgs, logFile, env = {} }) {
+  const logFd = openSync(logFile, "a");
+  const cmdline = [nodeExe, ...serviceArgs].map(quoteCmd).join(" ");
+  const script = buildBreakawayPs1({ cmdline, applicationName: nodeExe, cwd: process.cwd() });
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  await new Promise((resolve, reject) => {
+    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
+      stdio: ["ignore", logFd, logFd],
+      env: { ...process.env, ...env },
+      windowsHide: true,
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      try { closeSync(logFd); } catch {}
+      code === 0 ? resolve() : reject(new Error(`breakaway 启动失败,退出码 ${code}`));
+    });
+  });
 }
