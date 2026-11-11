@@ -927,12 +927,14 @@ export default function WelcomeScreen({ onFillInput }) {
             <button
               type="button"
               onClick={toggleFeaturedSquareCards}
-              style={featuredViewToggleStyle}
-              title={featuredSquareCards ? '切换为列表显示' : '切换为卡片显示'}
-              aria-label={featuredSquareCards ? '切换为列表显示' : '切换为卡片显示'}
-              aria-pressed={featuredSquareCards}
+              className="featured-view-toggle featured-layout-toggle"
+              style={featuredLayoutToggleStyle}
+              title={featuredSquareCards ? '切换为竖向展示' : '切换为横向展示'}
+              aria-label={featuredSquareCards ? '切换为竖向展示' : '切换为横向展示'}
+              aria-pressed={!featuredSquareCards}
             >
               {featuredSquareCards ? <ListIcon size={14} /> : <FourSquaresIcon size={14} />}
+              <span>{featuredSquareCards ? '切换为竖向展示' : '切换为横向展示'}</span>
             </button>
           </div>
           <div style={featuredHeaderActionsStyle}>
@@ -1597,6 +1599,17 @@ const featuredViewToggleStyle = {
   cursor: 'pointer',
   padding: 0,
   flexShrink: 0,
+}
+
+const featuredLayoutToggleStyle = {
+  ...featuredViewToggleStyle,
+  width: 'auto',
+  gap: 6,
+  padding: '0 8px',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  fontWeight: 400,
+  whiteSpace: 'nowrap',
 }
 
 const featuredHeaderActionsStyle = {
