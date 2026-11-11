@@ -20,14 +20,13 @@ import { getSiteDragId, hasSiteDragData, setSiteDragData } from '../../utils/sit
 import { getFixedWelcomePrompts } from '../../utils/default-sites.js'
 import FeaturedSiteActions from './FeaturedSiteActions.jsx'
 import WelcomePromptShortcuts from './WelcomePromptShortcuts.jsx'
-import { ClosePanelIcon, EyeIcon, EyeOffIcon, FourSquaresIcon, ListIcon, RobotIcon, TrialChatIcon } from './WelcomeIcons.jsx'
+import { ClosePanelIcon, EyeIcon, EyeOffIcon, RobotIcon, TrialChatIcon } from './WelcomeIcons.jsx'
 import { AppstoreAddOutlined, CaretLeftFilled, CaretRightFilled, SearchOutlined } from '@ant-design/icons'
 import {
   ADD_FEATURED_DROP_TARGET,
   CONVERSATION_EXAMPLE_VISIBLE_KEY,
   DEFAULT_WELCOME_FEATURED_SITE_LIMIT,
   FEATURED_ORDER_KEY,
-  FEATURED_SQUARE_CARDS_KEY,
   FEATURED_VISIBLE_COUNT_KEY,
   assistantText,
   clampText,
@@ -38,14 +37,13 @@ import {
   getFeaturedSiteAvailability,
   getHiddenFeaturedSites,
   readFeaturedOrder,
-  readFeaturedSquareCards,
   readFeaturedVisibleCount,
   readConversationExampleVisible,
   scrollFeaturedSitesHorizontally,
   scrollFeaturedSitesByPage,
   userPromptTemplate,
 } from './welcome-utils.js'
-import { FEATURED_GRID_COLUMN_GAP, useWelcomeResponsiveLayout } from './welcome-responsive.js'
+import { useWelcomeResponsiveLayout } from './welcome-responsive.js'
 
 const FEATURED_SITE_NAMES = {
   'ctrip.com': '携程',
@@ -264,7 +262,6 @@ export default function WelcomeScreen({ onFillInput }) {
   const featuredCardPointerRef = useRef(null)
   const lastFeaturedCardToggleRef = useRef({ siteId: null, at: 0 })
   const { showShowcase } = useWelcomeResponsiveLayout(sectionRef)
-  const [featuredSquareCards, setFeaturedSquareCards] = useState(readFeaturedSquareCards)
   const [activeIndex, setActiveIndex] = useState(0)
   const [hoveredSiteId, setHoveredSiteId] = useState(null)
   const [selectedFeaturedSiteId, setSelectedFeaturedSiteId] = useState(null)
@@ -324,28 +321,21 @@ export default function WelcomeScreen({ onFillInput }) {
     return () => window.removeEventListener('pointerdown', handlePointerDown)
   }, [scenarioPickerSiteId, addPickerOpen, skillsScenariosPickerSiteId])
 
-  useEffect(() => {
-    setScenarioPickerSiteId(null)
-    setSkillsScenariosPickerSiteId(null)
-    setHoveredFeaturedAction(null)
-    setSelectedFeaturedSiteId(null)
-  }, [featuredSquareCards])
-
   useLayoutEffect(() => {
     const grid = featuredGridRef.current
     if (!grid || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(bumpFeaturedGridLayout)
     observer.observe(grid)
     return () => observer.disconnect()
-  }, [featuredSquareCards, bumpFeaturedGridLayout])
+  }, [bumpFeaturedGridLayout])
 
   useEffect(() => {
     const grid = featuredGridRef.current
-    if (!grid || !featuredSquareCards || detailRow) return undefined
+    if (!grid || detailRow) return undefined
     const onWheel = (event) => scrollFeaturedSitesHorizontally(event, grid)
     grid.addEventListener('wheel', onWheel, { passive: false })
     return () => grid.removeEventListener('wheel', onWheel)
-  }, [featuredSquareCards, detailRow])
+  }, [detailRow])
 
   useEffect(() => {
     window.addEventListener('resize', bumpFeaturedGridLayout)
@@ -420,12 +410,12 @@ export default function WelcomeScreen({ onFillInput }) {
   const addFeaturedLimitTitle = featuredSiteLimitReached
     ? `已达上限 ${featuredSiteLimit} 个，可在设置 → 配置中调整「欢迎页常用场景网站上限」`
     : (allAvailableFeaturedSitesShown ? '已添加全部可用网站' : undefined)
-  const featuredLayoutSignature = `${featuredSquareCards ? 'grid' : 'list'}:${filteredFeaturedSites.map(({ site }) => site.id).join('|')}:${canAddFeaturedSite ? 'add' : 'no-add'}`
+  const featuredLayoutSignature = `${filteredFeaturedSites.map(({ site }) => site.id).join('|')}:${canAddFeaturedSite ? 'add' : 'no-add'}`
   useLayoutEffect(() => {
     const grid = featuredGridRef.current
     if (!grid) return undefined
     const update = () => {
-      const next = featuredSquareCards ? featuredSiteScrollState(grid) : { overflow: false, left: false, right: false }
+      const next = featuredSiteScrollState(grid)
       setStripScrollState(current => current.overflow === next.overflow && current.left === next.left && current.right === next.right ? current : next)
     }
     update()
@@ -439,7 +429,7 @@ export default function WelcomeScreen({ onFillInput }) {
       window.removeEventListener('resize', update)
       observer?.disconnect()
     }
-  }, [featuredLayoutSignature, featuredSquareCards, detailRow])
+  }, [featuredLayoutSignature, detailRow])
   const scrollFeaturedStrip = direction => scrollFeaturedSitesByPage(
     featuredGridRef.current, direction, window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   )
@@ -710,18 +700,6 @@ export default function WelcomeScreen({ onFillInput }) {
     setSelectedFeaturedSiteId(null)
     setAddPickerOpen(false)
     setSkillsScenariosPickerSiteId((current) => (current === siteId ? null : siteId))
-  }
-
-  const toggleFeaturedSquareCards = () => {
-    setFeaturedSquareCards((current) => {
-      const next = !current
-      try {
-        window.localStorage.setItem(FEATURED_SQUARE_CARDS_KEY, String(next))
-      } catch {
-        // localStorage may be unavailable in restricted environments.
-      }
-      return next
-    })
   }
 
   const openScenarioPicker = (siteId) => {
@@ -1047,17 +1025,6 @@ export default function WelcomeScreen({ onFillInput }) {
         <div ref={featuredToolbarRef} className="welcome-featured-toolbar" style={featuredHeaderStyle}>
           <div className="welcome-featured-title-row" style={featuredHeaderTitleRowStyle}>
             <span>常用网站</span>
-            <button
-              type="button"
-              onClick={toggleFeaturedSquareCards}
-              className="featured-view-toggle"
-              style={featuredViewToggleStyle}
-              title={featuredSquareCards ? '切换为列表显示' : '切换为卡片显示'}
-              aria-label={featuredSquareCards ? '切换为列表显示' : '切换为卡片显示'}
-              aria-pressed={featuredSquareCards}
-            >
-              {featuredSquareCards ? <ListIcon size={14} /> : <FourSquaresIcon size={14} />}
-            </button>
             {!featuredSearchOpen ? (
               <button type="button" className="featured-view-toggle" style={featuredViewToggleStyle}
                 title="搜索已添加站点" aria-label="展开站点搜索" aria-expanded={false}
@@ -1120,7 +1087,7 @@ export default function WelcomeScreen({ onFillInput }) {
         </div>
 
         <div className="featured-website-strip">
-        {featuredSquareCards && stripScrollState.overflow && (
+        {stripScrollState.overflow && (
           <button type="button" className="featured-website-strip__arrow featured-website-strip__arrow--left" aria-label="向左滚动网站" title="向左滚动网站"
             aria-controls="welcome-featured-sites" disabled={!stripScrollState.left} onClick={() => scrollFeaturedStrip(-1)}>
             <CaretLeftFilled aria-hidden="true" />
@@ -1134,8 +1101,8 @@ export default function WelcomeScreen({ onFillInput }) {
           role="region"
           aria-label="常用网站列表"
           tabIndex={0}
-          className={featuredSquareCards ? 'featured-websites-grid' : 'featured-websites-list'}
-          style={featuredSquareCards ? featuredSquareGridStyle : featuredGridStyle}
+          className="featured-websites-grid"
+          style={featuredSquareGridStyle}
           onScroll={(event) => {
             if (event.target !== event.currentTarget) return
             const anchorId = scenarioPickerSiteId || skillsScenariosPickerSiteId || (addPickerOpen ? ADD_FEATURED_DROP_TARGET : null)
@@ -1200,11 +1167,11 @@ export default function WelcomeScreen({ onFillInput }) {
                 onClick={canAddFeaturedSite ? handleAddFeaturedSite : undefined}
                 style={{
                   ...addFeaturedCardStyle,
-                  ...(featuredSquareCards ? featuredSquareAddCardStyle : null),
-                  justifyContent: featuredSquareCards ? 'center' : 'flex-start',
+                  ...featuredSquareAddCardStyle,
+                  justifyContent: 'center',
                   background: canAddFeaturedSite && (addTriggerHovered || addPickerOpen || dragOverSiteId === ADD_FEATURED_DROP_TARGET)
                     ? 'color-mix(in srgb, var(--bg-tertiary) 64%, var(--bg-primary))'
-                    : (featuredSquareCards ? 'transparent' : addFeaturedCardStyle.background),
+                    : 'transparent',
                   boxShadow: addFeaturedCardStyle.boxShadow,
                   opacity: canAddFeaturedSite ? 1 : 0.45,
                   cursor: canAddFeaturedSite ? 'pointer' : 'not-allowed',
@@ -1212,7 +1179,7 @@ export default function WelcomeScreen({ onFillInput }) {
               >
                 <span
                   style={{
-                    ...(featuredSquareCards ? featuredSquareAddIconStyle : addFeaturedIconStyle),
+                    ...featuredSquareAddIconStyle,
                     color: addTriggerHovered || addPickerOpen ? 'var(--accent)' : 'var(--text-secondary)',
                   }}
                 >
@@ -1351,73 +1318,26 @@ export default function WelcomeScreen({ onFillInput }) {
                   }, 0)
                 }}
               >
-                {featuredSquareCards ? (
-                  <div style={featuredSquareCardUnitStyle}>
-                    <div
-                      data-featured-site-item
-                      className={`featured-site-card featured-site-card--square${isCardFocused ? ' is-focused' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
-                      role="button"
-                      tabIndex={0}
-                      style={{
-                        ...featuredSquareCardStyle,
-                        ...featuredCardFocusStyle({
-                          active: isCardFocused,
-                          hovered: isHovered,
-                          dropTarget: isDropTarget,
-                          square: true,
-                        }),
-                        opacity: draggingSiteId === site.id ? 0.56 : 1,
-                        cursor: 'default',
-                      }}
-                      onPointerDown={(e) => handleFeaturedCardPointerDown(e, site.id)}
-                      onPointerUp={(e) => handleFeaturedCardPointerUp(e, site.id)}
-                      onClick={handleFeaturedCardClick}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          openScenarioPicker(site.id)
-                        }
-                      }}
-                      onMouseEnter={() => {
-                        setHoveredSiteId(site.id)
-                        focusSitePreview(site.id)
-                      }}
-                      onPointerEnter={() => {
-                        setHoveredSiteId(site.id)
-                        focusSitePreview(site.id)
-                      }}
-                      onMouseLeave={() => {
-                        if (skillsScenariosPickerSiteId === site.id) return
-                        setHoveredSiteId((current) => (current === site.id ? null : current))
-                      }}
-                      onPointerLeave={() => {
-                        if (skillsScenariosPickerSiteId === site.id) return
-                        setHoveredSiteId((current) => (current === site.id ? null : current))
-                      }}
-                    >
-                      <span style={featuredSquareCardIconStyle} data-featured-card-icon>
-                        <SiteIcon site={site} size={20} />
-                      </span>
-                      <span className="featured-site-copy" data-featured-card-title>
-                        <span className="featured-site-name">{featuredSiteName(site)}</span>
-                        <span className="featured-site-summary" title={featuredSiteSummary(site, scenarios)}>{featuredSiteSummary(site, scenarios)}</span>
-                      </span>
-                      <FeaturedSiteActions
-                        {...actionProps}
-                        layout="chip"
-                        compact
-                        showActions={showCardActions}
-                      />
-                    </div>
-                  </div>
-                ) : (
+                <div style={featuredSquareCardUnitStyle}>
                   <div
                     data-featured-site-item
-                    className={`featured-site-card featured-site-card--list${isCardFocused ? ' is-focused' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
+                    className={`featured-site-card featured-site-card--square${isCardFocused ? ' is-focused' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
                     role="button"
                     tabIndex={0}
+                    style={{
+                      ...featuredSquareCardStyle,
+                      ...featuredCardFocusStyle({
+                        active: isCardFocused,
+                        hovered: isHovered,
+                        dropTarget: isDropTarget,
+                        square: true,
+                      }),
+                      opacity: draggingSiteId === site.id ? 0.56 : 1,
+                      cursor: 'default',
+                    }}
                     onPointerDown={(e) => handleFeaturedCardPointerDown(e, site.id)}
                     onPointerUp={(e) => handleFeaturedCardPointerUp(e, site.id)}
+                    onClick={handleFeaturedCardClick}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
@@ -1440,31 +1360,25 @@ export default function WelcomeScreen({ onFillInput }) {
                       if (skillsScenariosPickerSiteId === site.id) return
                       setHoveredSiteId((current) => (current === site.id ? null : current))
                     }}
-                    style={{
-                      ...featuredItemStyle,
-                      justifyContent: 'flex-start',
-                      ...featuredCardFocusStyle({
-                        active: isCardFocused,
-                        hovered: isHovered,
-                        dropTarget: isDropTarget,
-                        square: false,
-                      }),
-                      opacity: draggingSiteId === site.id ? 0.56 : 1,
-                      cursor: 'default',
-                    }}
-                    onClick={handleFeaturedCardClick}
                   >
-                    <span style={featuredIconStyle} data-featured-card-icon><SiteIcon site={site} size={20} /></span>
-                    <span style={featuredCopyStyle} data-featured-card-title>
+                    <span style={featuredSquareCardIconStyle} data-featured-card-icon>
+                      <SiteIcon site={site} size={20} />
+                    </span>
+                    <span className="featured-site-copy" data-featured-card-title>
                       <span className="featured-site-name">{featuredSiteName(site)}</span>
                       <span className="featured-site-summary" title={featuredSiteSummary(site, scenarios)}>{featuredSiteSummary(site, scenarios)}</span>
                     </span>
-                    <FeaturedSiteActions {...actionProps} layout="row" showActions={showCardActions} />
+                    <FeaturedSiteActions
+                      {...actionProps}
+                      layout="chip"
+                      compact
+                      showActions={showCardActions}
+                    />
                   </div>
-                )}
+                </div>
 
                 {isDropTarget && (
-                  <span style={featuredSquareCards ? dropInsertIndicatorCardStyle : dropInsertIndicatorStyle} />
+                  <span style={dropInsertIndicatorCardStyle} />
                 )}
 
                 {isScenarioPickerMounted && createPortal(
@@ -1546,7 +1460,7 @@ export default function WelcomeScreen({ onFillInput }) {
             )
           })}
         </div>
-        {featuredSquareCards && stripScrollState.overflow && (
+        {stripScrollState.overflow && (
           <button type="button" className="featured-website-strip__arrow featured-website-strip__arrow--right" aria-label="向右滚动网站" title="向右滚动网站"
             aria-controls="welcome-featured-sites" disabled={!stripScrollState.right} onClick={() => scrollFeaturedStrip(1)}>
             <CaretRightFilled aria-hidden="true" />
@@ -1828,13 +1742,6 @@ const allScenariosButtonStyle = {
   fontWeight: 650,
 }
 
-const featuredGridStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  columnGap: FEATURED_GRID_COLUMN_GAP,
-  rowGap: 8,
-}
-
 const featuredSquareGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
@@ -1978,25 +1885,6 @@ const dropInsertIndicatorCardStyle = {
   pointerEvents: 'none',
 }
 
-const featuredItemStyle = {
-  width: '100%',
-  minWidth: 0,
-  minHeight: 62,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  border: '1px solid transparent',
-  borderRadius: 8,
-  background: 'transparent',
-  color: 'var(--text-primary)',
-  padding: '8px 10px',
-  boxSizing: 'border-box',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  textAlign: 'left',
-  transition: 'background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease',
-}
-
 const addFeaturedCardStyle = {
   width: '100%',
   minWidth: 0,
@@ -2013,21 +1901,6 @@ const addFeaturedCardStyle = {
   fontFamily: 'inherit',
   textAlign: 'left',
   transition: 'background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease',
-}
-
-const addFeaturedIconStyle = {
-  width: 36,
-  height: 36,
-  borderRadius: 11,
-  border: 0,
-  background: 'color-mix(in srgb, var(--bg-tertiary) 42%, transparent)',
-  fontSize: 20,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  flexShrink: 0,
-  lineHeight: 0,
-  transition: 'color 0.16s ease, background-color 0.16s ease',
 }
 
 const addFeaturedCopyStyle = {
@@ -2174,25 +2047,6 @@ const pickerEmptyStyle = {
   color: 'var(--text-muted)',
   fontSize: 12,
   textAlign: 'center',
-}
-
-const featuredIconStyle = {
-  width: 42,
-  height: 42,
-  borderRadius: 10,
-  border: '1px solid var(--border)',
-  background: 'var(--bg-secondary)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  flexShrink: 0,
-}
-
-const featuredCopyStyle = {
-  minWidth: 0,
-  flex: 1,
-  display: 'grid',
-  gap: 2,
 }
 
 const featuredTitleStyle = {

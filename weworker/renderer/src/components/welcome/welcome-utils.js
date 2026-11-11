@@ -1,10 +1,8 @@
 export const FEATURED_ORDER_KEY = 'weworker.welcome.featuredSiteOrder'
 export const FEATURED_VISIBLE_COUNT_KEY = 'weworker.welcome.featuredVisibleCount.v2'
-export const FEATURED_SQUARE_CARDS_KEY = 'weworker.welcome.featuredSquareCards'
 export const CONVERSATION_EXAMPLE_VISIBLE_KEY = 'weworker.welcome.conversationExampleVisible'
 export const DEFAULT_FEATURED_VISIBLE_COUNT = 5
 export const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
-export const DEFAULT_FEATURED_SQUARE_CARDS = true
 export const ADD_FEATURED_DROP_TARGET = '__add-featured-drop-target__'
 
 export function featuredSiteScrollState(element) {
@@ -70,13 +68,6 @@ export function readFeaturedVisibleCount() {
   if (raw === null) return DEFAULT_FEATURED_VISIBLE_COUNT
   const saved = Number(raw)
   return Number.isFinite(saved) ? Math.max(0, saved) : DEFAULT_FEATURED_VISIBLE_COUNT
-}
-
-export function readFeaturedSquareCards() {
-  if (typeof window === 'undefined') return DEFAULT_FEATURED_SQUARE_CARDS
-  const raw = window.localStorage.getItem(FEATURED_SQUARE_CARDS_KEY)
-  if (raw === null) return DEFAULT_FEATURED_SQUARE_CARDS
-  return raw === 'true'
 }
 
 export function readConversationExampleVisible() {
