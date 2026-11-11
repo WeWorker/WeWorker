@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from webwright.server.status import StepStatus
+from webwright.server.status import AgentExitStatus, StepStatus
+from webwright.utils.intervention import validate_user_intervention
 
 
 class ArtifactReadError(RuntimeError):
@@ -92,6 +93,7 @@ def _step_from_debug(task_id: str, output_dir: Path, step: int, payload: dict[st
         "status": status,
         "done": bool(payload.get("done", False)),
         "final_response": payload.get("final_response", ""),
+        "user_intervention": payload.get("user_intervention"),
         "url": observation.get("url", ""),
         "title": observation.get("title", ""),
         "output": first_output.get("output", "") if isinstance(first_output, dict) else "",
@@ -247,6 +249,21 @@ def exit_status(output_dir: Path) -> tuple[str, str]:
             extra.get("final_response") or extra.get("submission") or ""
         )
     return "", ""
+
+
+def waiting_intervention(output_dir: Path) -> dict[str, str] | None:
+    trajectory = try_read_json(output_dir / "trajectory.json")
+    messages = trajectory.get("messages", []) if isinstance(trajectory, dict) else []
+    if not isinstance(messages, list) or not messages or not isinstance(messages[-1], dict):
+        return None
+    last = messages[-1]
+    extra = last.get("extra", {})
+    if not isinstance(extra, dict) or last.get("role") != "exit" or extra.get("exit_status") != AgentExitStatus.PAUSED.value:
+        return None
+    try:
+        return validate_user_intervention(extra.get("user_intervention"))
+    except ValueError:
+        return None
 
 
 def resolve_task_file(output_dir: Path, relative_path: str) -> Path:

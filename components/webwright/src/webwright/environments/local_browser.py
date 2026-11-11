@@ -130,11 +130,11 @@ class LocalBrowserEnvironment:
         return self.config.output_dir / "steps"
 
     def _existing_step_index(self) -> int:
-        steps_dir = self._steps_dir()
-        if not steps_dir.exists():
-            return 0
         max_index = 0
-        for path in steps_dir.glob("step_*.*"):
+        # Pause/completion turns have debug artifacts but no browser action file.
+        paths = list(self._steps_dir().glob("step_*.*"))
+        paths.extend((self.config.output_dir / "debug" / "steps").glob("step_*.json"))
+        for path in paths:
             stem = path.stem
             if not stem.startswith("step_"):
                 continue

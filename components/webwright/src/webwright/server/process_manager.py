@@ -15,6 +15,7 @@ from webwright.server.artifacts import (
     exit_status,
     task_artifact_summary,
     try_read_json,
+    waiting_intervention,
 )
 from webwright.server.browser import (
     DEFAULT_CDP_URL,
@@ -863,6 +864,7 @@ class ProcessManager:
                 error="",
                 error_code="",
                 error_stage="",
+                user_intervention=None,
             )
             self.active_process = process
             self.active_kind = "task"
@@ -969,6 +971,7 @@ class ProcessManager:
                 error="",
                 error_code="",
                 error_stage="",
+                user_intervention=None,
             )
             self.active_process = process
             self.active_kind = "task"
@@ -1691,6 +1694,8 @@ class ProcessManager:
             error_code=error_code,
             error_stage=error_stage,
             active_target_id=active_target_id,
+            user_intervention=(waiting_intervention(output_dir)
+                               if mapped_status == TaskStatus.WAITING_FOR_USER.value else None),
         )
 
     def _finish_replay(self, replay_id: str, returncode: int) -> None:

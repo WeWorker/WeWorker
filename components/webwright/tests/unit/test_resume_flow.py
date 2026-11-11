@@ -169,6 +169,62 @@ class FakeEnv:
         return None
 
 
+def test_human_resume_observes_changed_page_and_gets_bounded_budget(tmp_path):
+    model = FakeModel()
+    env = FakeEnv()
+    env.initial_observation = Mock(return_value={
+        "url": "https://example.com/projects", "title": "Projects",
+        "aria_snapshot": "- heading: Signed in; project selected by user",
+    })
+    agent = DefaultAgent(model, env, system_template="System", instance_template="Task: {{ task }}",
+                         step_limit=1, output_path=tmp_path / "trajectory.json")
+    state = {"n_calls": 10, "messages": [
+        {"role": "system", "content": "System"},
+        {"role": "user", "content": "Task: Inspect projects"},
+        {"role": "exit", "content": "Please log in", "extra": {"exit_status": "Paused"}},
+    ]}
+    result = agent.resume(prior_state=state, followup="I have signed in")
+    assert result["exit_status"] == "Submitted"
+    assert agent.n_calls == 11
+    env.initial_observation.assert_called_once_with()
+    assert model.queries[0][-1]["extra"]["interrupt_type"] == "ResumeBrowserObservation"
+    assert "Signed in; project selected by user" in model.queries[0][-1]["content"]
+    assert model.queries[0][-2]["extra"]["user_input"] == "I have signed in"
+    from webwright.exceptions import LimitsExceeded
+    with pytest.raises(LimitsExceeded):
+        agent.query()
+    agent.run("Start another exploration")
+    with pytest.raises(LimitsExceeded):
+        agent.query()
+
+
+def test_resume_browser_steps_do_not_overwrite_pause_artifacts(tmp_path):
+    debug = tmp_path / "debug" / "steps"
+    debug.mkdir(parents=True)
+    (debug / "step_0004.json").write_text('{"done":false}')
+    env = LocalBrowserEnvironment(output_dir=tmp_path, resume_existing_output=True)
+    assert env._existing_step_index() == 4
+
+
+def test_resume_missing_page_never_falls_back_to_another_tab(monkeypatch, tmp_path):
+    from webwright.environments import local_browser
+
+    monkeypatch.delenv("WEWORKER_BROWSER_MANAGED", raising=False)
+    browser = SimpleNamespace(contexts=[SimpleNamespace(pages=[object()])])
+    playwright = SimpleNamespace(chromium=SimpleNamespace(connect_over_cdp=AsyncMock(return_value=browser)))
+    monkeypatch.setattr("playwright.async_api.async_playwright", lambda: SimpleNamespace(start=AsyncMock(return_value=playwright)))
+    monkeypatch.setattr(local_browser, "_ensure_local_cdp_page_target", lambda *_: None)
+    monkeypatch.setattr(local_browser, "_find_cdp_target_by_id", lambda *_: None)
+    env = LocalBrowserEnvironment(output_dir=tmp_path, browser_mode="local_cdp", resume_existing_page=True)
+    monkeypatch.setattr(env, "_ensure_local_cdp_browser", lambda: None)
+    monkeypatch.setattr(env, "_match_page_in_context", AsyncMock())
+    monkeypatch.setattr(env, "_prepare_async", env._prepare_connected_async)
+    with pytest.raises(RuntimeError, match="Saved browser target no longer exists"):
+        env.prepare(resume_target_id="closed-page")
+    env._match_page_in_context.assert_not_awaited()
+    assert env._page is None
+
+
 def test_build_resume_state_infers_task() -> None:
     trajectory = {
         "info": {
@@ -184,6 +240,7 @@ def test_build_resume_state_infers_task() -> None:
                 "local_cdp_url": "http://127.0.0.1:9222",
             },
             "runtime_state": {
+                "browser_instance_id": "owned-browser",
                 "target_id": "target-123",
                 "last_url": "https://mail.163.com/inbox",
                 "last_title": "Inbox",
@@ -203,6 +260,7 @@ def test_build_resume_state_infers_task() -> None:
     assert state["n_consecutive_format_errors"] == 1
     assert state["environment_config"]["browser_mode"] == "local_cdp"
     assert state["environment_runtime_state"]["target_id"] == "target-123"
+    assert state["environment_runtime_state"]["browser_instance_id"] == "owned-browser"
 
 
 def test_load_trajectory_rejects_bad_json(tmp_path: Path) -> None:

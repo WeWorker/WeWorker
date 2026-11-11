@@ -75,6 +75,25 @@ test('browser confirmation offers opening the browser and continuing without a t
   assert.equal((disabled.match(/disabled/g) || []).length, 2)
   assert.equal(renderToStaticMarkup(React.createElement(components.BrowserConfirmation, { issue: { type: 'failed' } })), '')
 })
+
+test('autonomous intervention shows the model question and appropriate continuation controls', () => {
+  const render = (mode, disabled = false) => renderToStaticMarkup(React.createElement(components.UserIntervention, {
+    issue: { type: 'user_takeover_required', reason: 'unanticipated_reason', message: '请确认目标项目。', mode },
+    disabled, onOpen() {}, onContinue() {},
+  }))
+  const input = render('input')
+  assert.match(input, /需要你补充信息/)
+  assert.match(input, /请确认目标项目。/)
+  assert.match(input, /发送后继续探索/)
+  assert.doesNotMatch(input, /<button/)
+  for (const mode of ['browser', 'either']) {
+    assert.match(render(mode), /探索已暂停/)
+    assert.match(render(mode), /打开当前页面/)
+    assert.match(render(mode), /我已处理，继续探索/)
+    assert.equal((render(mode, true).match(/disabled/g) || []).length, 2)
+  }
+  assert.equal(renderToStaticMarkup(React.createElement(components.UserIntervention, { issue: { type: 'failed' } })), '')
+})
 test('replay is hidden unless an existing replay needs to be stopped', () => {
   const empty = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls(undefined) }))
   assert.equal(empty, '')

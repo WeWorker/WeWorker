@@ -53,6 +53,38 @@ def test_browser_confirmation_is_a_recoverable_exploration_issue(tmp_path):
     assert issue == {"type": "browser_confirmation_required", "message": task["error"]}
 
 
+@pytest.mark.parametrize("mode", ["browser", "input", "either"])
+def test_intervention_survives_service_restart_and_focuses_original_page(tmp_path, monkeypatch, mode):
+    from webwright.server.records import atomic_write_json
+
+    paths = _paths(tmp_path)
+    store = TaskStore(paths.tasks)
+    task_id = store.new_task_id("help")
+    store.create_task_record(task_id=task_id, title="Explore", instruction="Inspect",
+                             start_url="https://example.com/", output_dir=store.task_dir(task_id),
+                             run_id="run-1", activity_type="exploration", active_target_id="owned-page")
+    intervention = {"reason": "arbitrary_model_reason", "message": "请确认目标项目。", "mode": mode}
+    store.update_task(task_id, status=TaskStatus.WAITING_FOR_USER.value, user_intervention=intervention)
+    atomic_write_json(store.task_dir(task_id) / "trajectory.json", {
+        "environment": {"runtime_state": {"target_id": "owned-page", "browser_instance_id": "owned-browser"}},
+    })
+    calls = []
+    monkeypatch.setattr("webwright.server.app.browser_activate", lambda *args: calls.append(args))
+    monkeypatch.setattr("webwright.server.app.browser_open", lambda *args: pytest.fail("must not navigate"))
+    for _ in range(2):
+        client = create_app(paths=paths).test_client()
+        detail = client.get(f"/api/explorations/{task_id}").get_json()
+        assert detail["status"] == "waiting_for_user"
+        assert detail["completed_goal"] is False
+        assert detail["active_issue"] == {"type": "user_takeover_required", **intervention}
+        assert client.post("/api/browser/open", json={"exploration_id": task_id}).status_code == 200
+    assert calls[-1][1:] == ("owned-page", "owned-browser")
+    def missing_page(*args):
+        raise RuntimeError("原探索页面已关闭")
+    monkeypatch.setattr("webwright.server.app.browser_activate", missing_page)
+    assert client.post("/api/browser/open", json={"exploration_id": task_id}).status_code == 503
+
+
 def test_open_confirmation_browser_activates_saved_page_without_navigating(tmp_path, monkeypatch):
     from webwright.server.records import atomic_write_json
 
