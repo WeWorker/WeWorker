@@ -1627,6 +1627,29 @@ async function runProgressiveHelp(args, outputFormat) {
 }
 
 async function main() {
+  // ── 版本自检(内嵌/协议命令豁免;stderr 提示,stdout 永不污染) ────────────
+  // 必须在所有命令分派(含 route/skills/context 等早期分派与 host 委托)之前,
+  // 否则 skill 主路径的 route 永远不提示更新。
+  const VERSION_CHECK_EXEMPT = new Set(["--version", "-v", "upgrade", "--service", "internal-ai-call", "mcp"]);
+  if (!VERSION_CHECK_EXEMPT.has(process.argv[2])) {
+    try {
+      const { checkForUpdate } = await import("./version-check.js");
+      const { cliName } = await import("./cli-name.js");
+      let pkgInfo = null;
+      try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
+      if (pkgInfo?.name && pkgInfo?.version) {
+        const notice = await checkForUpdate({
+          currentVersion: pkgInfo.version,
+          pkgName: pkgInfo.name,
+          registry: resolveRegistryShim(pkgInfo.name),
+          cliName: cliName(),
+          embedded: process.env.WEBCLI_EMBEDDED === "1",
+        });
+        if (notice) process.stderr.write(notice + "\n");
+      }
+    } catch { /* 版本检查绝不影响命令 */ }
+  }
+
   if (hasHostConfiguration() && !['call', '--version', '-v', '--help', '-h'].includes(process.argv[2])) {
     throw new Error('Host mode only supports webcli call; service and browser lifecycle belong to the embedding host.');
   }
@@ -1735,27 +1758,6 @@ async function main() {
     const { explorationHelp } = await import('./exploration-commands.js');
     console.log(formatCallOutput(explorationHelp(), outputFormat ?? 'json'));
     return;
-  }
-
-  // ── 版本自检(内嵌/协议命令豁免;stderr 提示,stdout 永不污染) ────────────
-  const VERSION_CHECK_EXEMPT = new Set(["--version", "-v", "upgrade", "--service", "internal-ai-call", "mcp"]);
-  if (!VERSION_CHECK_EXEMPT.has(cmd)) {
-    try {
-      const { checkForUpdate } = await import("./version-check.js");
-      const { cliName } = await import("./cli-name.js");
-      let pkgInfo = null;
-      try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
-      if (pkgInfo?.name && pkgInfo?.version) {
-        const notice = await checkForUpdate({
-          currentVersion: pkgInfo.version,
-          pkgName: pkgInfo.name,
-          registry: resolveRegistryShim(pkgInfo.name),
-          cliName: cliName(),
-          embedded: process.env.WEBCLI_EMBEDDED === "1",
-        });
-        if (notice) process.stderr.write(notice + "\n");
-      }
-    } catch { /* 版本检查绝不影响命令 */ }
   }
 
   // ── upgrade 命令 ──────────────────────────────────────────────────────────
