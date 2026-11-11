@@ -72,6 +72,9 @@ export default function TaskConfigView({ taskId }) {
   const executions = useScheduledTasksStore((s) => s.executions[taskId] ?? [])
   const updateTask = useScheduledTasksStore((s) => s.updateTask)
   const deleteTask = useScheduledTasksStore((s) => s.deleteTask)
+  const runTask = useScheduledTasksStore((s) => s.runTask)
+  const loadExecutions = useScheduledTasksStore((s) => s.loadExecutions)
+  const running = useScheduledTasksStore((s) => Boolean(s.runningTasks[taskId] || s.startingTasks[taskId]))
   const selectWork = useWorksStore((s) => s.selectWork)
   const channels = useSettingsStore((s) => s.channels)
 
@@ -88,6 +91,17 @@ export default function TaskConfigView({ taskId }) {
   const [notifyChannels, setNotifyChannels] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    let stopped = false
+    let timer
+    const refresh = async () => {
+      try { await loadExecutions(taskId) } catch { /* Retry on the next poll. */ }
+      if (!stopped) timer = setTimeout(refresh, 3000)
+    }
+    void refresh()
+    return () => { stopped = true; clearTimeout(timer) }
+  }, [taskId, loadExecutions])
 
   // Sync form state when task changes
   useEffect(() => {
@@ -179,6 +193,18 @@ export default function TaskConfigView({ taskId }) {
     catch (error) { showAlert(error.message || '更新定时任务失败，请重试') }
   }
 
+  const handleRunNow = async () => {
+    const changed = title.trim() !== task.title || cronExpression !== buildCron(parseCron(task.cron_expression))
+      || promptTemplate !== task.prompt_template
+      || JSON.stringify(notifyChannels) !== JSON.stringify(task.notify_channels || [])
+    if (changed) {
+      showAlert('请先保存修改，再立即执行')
+      return
+    }
+    try { await runTask(taskId) }
+    catch (error) { showAlert(error.message || '启动任务失败，请重试') }
+  }
+
   const handleDelete = async () => {
     const confirmed = await showConfirm(
       `确定要删除任务「${task.title || '未命名任务'}」吗？\n\n这将同时删除该任务的所有执行记录，此操作不可撤销。`,
@@ -267,6 +293,10 @@ export default function TaskConfigView({ taskId }) {
               <AppSwitch checked={task.enabled} onChange={handleToggleEnabled} />
               {task.enabled ? '已启用' : '已禁用'}
             </label>
+            <button type="button" data-app-button="action" disabled={running || saving}
+              onClick={handleRunNow} title="按已保存的配置执行一次，不改变定时计划">
+              {running ? '执行中…' : '立即执行'}
+            </button>
             <button data-app-button="action" data-variant="danger" onClick={handleDelete} style={deleteBtnStyle}>删除</button>
           </div>
         </div>

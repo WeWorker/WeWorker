@@ -2636,8 +2636,17 @@ app.get('/scheduled-tasks/:id', (req, res) => {
   res.json({
     task,
     executions,
+    running: scheduler.isRunning(task.id),
     next_run: nextRun ? nextRun.toISOString() : undefined,
   })
+})
+
+app.post('/scheduled-tasks/:id/run', (req, res) => {
+  const result = scheduler.runNow(req.params.id)
+  if (result === 'not_found') { res.status(404).json({ error: '任务不存在' }); return }
+  if (result === 'running') { res.status(409).json({ error: '任务正在执行，请勿重复启动' }); return }
+  if (result === 'empty_prompt') { res.status(400).json({ error: '请先填写并保存任务描述' }); return }
+  res.status(202).json({ status: 'started' })
 })
 
 app.patch('/scheduled-tasks/:id', (req, res) => {
