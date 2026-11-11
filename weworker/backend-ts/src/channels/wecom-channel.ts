@@ -936,11 +936,6 @@ export class WecomChannel implements Channel {
           // Flush to WeCom periodically to avoid flooding
           if (Date.now() - lastStreamTime >= STREAM_INTERVAL_MS) {
             flushText()
-            // If we accumulated enough text, also save a text block for interleaved display
-            if (currentTextChunk.trim()) {
-              assistantContent.push({ type: 'text', text: currentTextChunk })
-              currentTextChunk = ''
-            }
           }
         } else if (event.type === 'tool_call_start' && event.id) {
           // Save any pending text before the tool call

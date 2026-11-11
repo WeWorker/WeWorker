@@ -96,6 +96,31 @@ it('rejects a channel turn while the desktop owns the same conversation', async 
   } finally { turn.finish() }
 })
 
+it('keeps streamed Markdown continuous across timed remote updates and tool boundaries', async () => {
+  let now = 0
+  const clock = vi.spyOn(Date, 'now').mockImplementation(() => now += 900)
+  const fragments = ['`', 'ls` finished.\n\n| Type | Name |\n| --- | --- |\n| file | `exa', 'mple.json` |\n| file | `other.json` |\n']
+  fixture.streamChat.mockImplementation(async function* () {
+    for (const fragment of fragments) {
+      yield { type: 'text_delta', content: fragment }
+      expect(listBackgroundChatRuns()[0].messages.at(-1)!.content.filter(block => block.type === 'text')).toHaveLength(1)
+    }
+    yield { type: 'tool_call_start', id: 'example-tool', name: 'example.search' }
+    yield { type: 'tool_call_result', id: 'example-tool', result: 'Found' }
+    yield { type: 'text_delta', content: 'After ' }
+    yield { type: 'text_delta', content: 'tool' }
+  })
+  try {
+    await bot().send()
+    const content = fixture.messages.at(-1)!.content.filter(block => block.type !== 'timing')
+    expect(content).toEqual([
+      { type: 'text', text: fragments.join('') },
+      expect.objectContaining({ type: 'tool_use', id: 'example-tool', status: 'done' }),
+      { type: 'text', text: 'After tool' },
+    ])
+  } finally { clock.mockRestore() }
+})
+
 it('does not start the model when stopped during routing', async () => {
   const entered = deferred(), release = deferred()
   fixture.route.mockImplementation(async () => {
