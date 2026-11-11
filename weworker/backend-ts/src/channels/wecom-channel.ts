@@ -82,7 +82,7 @@ export function createDefaultWecomProfile(identity?: Pick<WecomChannelConfig, 'b
   return {
     channelKey: 'wecom',
     titleLabel: (chatType) => (chatType === 'group' ? '企微群聊' : '企微'),
-    welcomeText: () => `你好！我是 WeWorker 智能助手，有什么可以帮你的吗？发送 /new 开启新对话，发送 /id 查看对话 ID。\n\n${WECOM_PAIRING_HINT}`,
+    welcomeText: () => `你好！我是 WeWorker 智能助手。\n\n首次使用，请在 WeWorker「设置 → 通道 → 企业微信」查看六位绑定码，私聊发送该绑定码即可自动绑定主人。已绑定后，直接发送任务即可。\n\n发送 /new 开启新对话，发送 /stop 停止当前任务。`,
     authorize: (userId, text, context) => pairOwner?.(userId, text, context?.chatType) ?? ({ kind: 'allow', mode: getChannelPermissionMode('wecom', userId) }),
     memoryScope: (userId) => ({ user: `wecom:${userId}` }),
     chatOptions: () => ({}),

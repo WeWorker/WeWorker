@@ -37,7 +37,9 @@ export function createWecomOwnerPairing(identity: { bot_id: string; secret: stri
       attempts.set(userId, { failures: (record?.failures ?? 0) + 1, expiresAt: now + LOCK_MS })
       return { kind: 'reply', text: '绑定码不正确，请核对 WeWorker「设置 → 通道 → 企业微信」显示的绑定码。' }
     }
-    const paired = { ...config, owner_user_id: userId, pairing_code: '' }
+    // A verified pairing is the explicit owner hand-off. Start that owner at
+    // full capability; guests remain qa_only through channel-permissions.ts.
+    const paired = { ...config, owner_user_id: userId, owner_permission_level: 'full' as const, pairing_code: '' }
     try {
       // Synchronous read/check/write: consume once, before another message can run.
       updateSettings({

@@ -71,7 +71,7 @@ it('persists WeCom pairing across restart and leaves the owner unbound when savi
     expect(authorize('fixture-owner', `绑定 ${code}`, 'single')).toMatchObject({ ownerPaired: true })
     config.resetSettingsStateForTests()
     state = config.getSettings()
-    expect(state.channels.wecom).toMatchObject({ owner_user_id: 'fixture-owner', pairing_code: '', secret: 'fixture-secret' })
+    expect(state.channels.wecom).toMatchObject({ owner_user_id: 'fixture-owner', owner_permission_level: 'full', pairing_code: '', secret: 'fixture-secret' })
     expect(state.channel_configurations![added.id].config.owner_user_id).toBe('fixture-owner')
   } finally { writer?.mockRestore(); home.mockRestore(); setMasterKeyForTests(null); config.resetSettingsStateForTests(); vi.resetModules() }
 })
