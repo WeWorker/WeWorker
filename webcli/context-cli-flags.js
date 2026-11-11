@@ -4,6 +4,12 @@ import { randomUUID } from 'node:crypto';
 const controls = new Set(['context', 'decision', 'step', 'reply-to']);
 export function extractContextFlags(argv) {
   const args = [], values = {};
+  const end = argv.indexOf('--');
+  const options = end < 0 ? argv : argv.slice(0, end);
+  // Legacy association flags belong to routing only after explicit opt-in.
+  // Namespaced controls allow an Adapter's decision/step alongside routing.
+  const namespaced = options.some(arg => /^--context-(decision|step|reply-to)(?:=|$)/.test(arg));
+  const legacy = !namespaced && options.some(arg => /^--context(?:=|$)/.test(arg));
   let newContext = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -14,9 +20,10 @@ export function extractContextFlags(argv) {
       continue;
     }
     if (arg.startsWith('--new-context=')) fail('context_invalid_flag', 2);
-    const match = /^--(context|decision|step|reply-to)(?:=(.*))?$/.exec(arg);
+    const match = /^--(context|context-decision|context-step|context-reply-to|decision|step|reply-to)(?:=(.*))?$/.exec(arg);
     if (!match) { args.push(arg); continue; }
-    const name = match[1];
+    if (['decision', 'step', 'reply-to'].includes(match[1]) && !legacy) { args.push(arg); continue; }
+    const name = match[1].replace(/^context-/, '');
     if (Object.hasOwn(values, name)) fail('context_duplicate_flag', 2);
     const value = match[2] ?? argv[++i];
     if (!value || (match[2] === undefined && value.startsWith('--'))) fail('context_missing_flag_value', 2);

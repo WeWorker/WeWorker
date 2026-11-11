@@ -6,6 +6,7 @@ it.each([
   [['route', '--context', '../unsafe', 'Search'], 'context_invalid_id'],
   [['route', '--context', 'example', '--new-context', 'Search'], 'context_invalid_flag'],
   [['call', 'example.com.list', '--context', 'example', '--step', 's1'], 'context_invalid_association'],
+  [['call', 'example.com.list', '--context-decision=d1', '--context-step=s1'], 'context_required'],
 ])('the actual CLI preserves usage exit codes before storage or dispatch: %j', async (args, code) => {
   const result = await new Promise((done, reject) => {
     const child = spawn(process.execPath, [resolve('index.js'), ...args], { windowsHide: true });
@@ -14,6 +15,7 @@ it.each([
     child.once('error', reject); child.once('close', exitCode => done({ exitCode, stdout, stderr }));
   });
   expect(result.exitCode, result.stderr).toBe(2); expect(result.stdout).toBe(''); expect(result.stderr).toContain(code);
+  if (code === 'context_required') expect(result.stderr).toContain('not a website login or page-context error');
 });
 
 
