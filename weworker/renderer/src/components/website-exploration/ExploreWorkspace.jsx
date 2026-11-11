@@ -206,6 +206,20 @@ export function BrowserConfirmation({ issue, disabled, onOpen, onContinue }) {
   </article>
 }
 
+export function UserIntervention({ issue, disabled, onOpen, onContinue }) {
+  if (issue?.type !== 'user_takeover_required') return null
+  const needsInput = issue.mode === 'input'
+  return <article className="wx-chat-message wx-chat-assistant" role="status">
+    <h3>{needsInput ? '需要你补充信息' : '需要你处理'}</h3>
+    <p>{issue.message}</p>
+    <p className="wx-muted">探索已暂停。{needsInput ? '请在下方输入框补充信息，发送后继续探索。' : '请在浏览器中处理后继续，也可以在下方补充信息。'}</p>
+    {!needsInput && <>
+      <button type="button" className="wx-quiet" disabled={disabled} onClick={onOpen}>打开当前页面</button>
+      <button type="button" className="wx-quiet" disabled={disabled} onClick={onContinue}>我已处理，继续探索</button>
+    </>}
+  </article>
+}
+
 function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelReady, onBusyChange }) {
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
   const [historyWorkId, setHistoryWorkId] = useState(null)
@@ -271,7 +285,11 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
         ? <BrowserConfirmation issue={data.active_issue} disabled={!controls.canSend}
           onOpen={() => action.run(() => api.openExplorationBrowser(id))}
           onContinue={() => sendMessage(prompt.trim() || '我已处理浏览器提示，网站可以正常打开，请继续探索。')} />
-        : data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'} role="status">{data.active_issue.message}</p>}
+        : data.active_issue?.type === 'user_takeover_required'
+          ? <UserIntervention issue={data.active_issue} disabled={!controls.canSend}
+            onOpen={() => action.run(() => api.openExplorationBrowser(id))}
+            onContinue={() => sendMessage(prompt.trim() || '我已处理好，请先检查当前页面，再继续探索。')} />
+          : data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'} role="status">{data.active_issue.message}</p>}
       {replayId && <div className="wx-replay-status" role="status">回放 <Status value={replay.data?.status} /></div>}
       <ErrorMessage>{snapshot.error || messageAction.error || action.error || transferAction.error || replay.error || replayAction.error}</ErrorMessage>
     </>

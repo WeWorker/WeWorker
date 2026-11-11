@@ -132,7 +132,7 @@ export function Modal({ title, children, onClose }) {
 export function ErrorMessage({ children }) {
   return children ? <p className="wx-error" role="alert">{children}</p> : null
 }
-const labels = { queued: '排队中', running: '运行中', pending: '等待中', starting: '启动中', succeeded: '已完成', failed: '失败', cancelled: '已取消', paused: '已暂停', cancel_requested: '正在取消', waiting_for_user: '等待补充', stopping: '正在停止', stopped: '已停止' }
+const labels = { queued: '排队中', running: '运行中', pending: '等待中', starting: '启动中', succeeded: '已完成', failed: '失败', cancelled: '已取消', paused: '已暂停', cancel_requested: '正在取消', waiting_for_user: '等待你处理', stopping: '正在停止', stopped: '已停止' }
 export function Status({ value }) { return <span className={'wx-status wx-status-' + value}>{labels[value] || value || '暂无运行'}</span> }
 export function JsonView({ value }) { return <pre>{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</pre> }
 export function useDraft(key, initial = '') {

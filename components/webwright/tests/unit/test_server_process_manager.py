@@ -509,7 +509,8 @@ def test_finish_task_maps_paused_exit_to_waiting_for_user(tmp_path: Path) -> Non
                 {
                     "role": "exit",
                     "content": "paused",
-                    "extra": {"exit_status": AgentExitStatus.PAUSED.value, "final_response": ""},
+                    "extra": {"exit_status": AgentExitStatus.PAUSED.value, "final_response": "",
+                              "user_intervention": {"reason": "custom_reason", "message": "Which project?", "mode": "input"}},
                 }
             ]
         },
@@ -519,6 +520,28 @@ def test_finish_task_maps_paused_exit_to_waiting_for_user(tmp_path: Path) -> Non
 
     assert store.read_task(task_id)["status"] == TaskStatus.WAITING_FOR_USER.value
     assert store.read_task(task_id)["active_target_id"] == "target-paused"
+    assert store.read_task(task_id)["user_intervention"]["reason"] == "custom_reason"
+
+
+def test_resume_waiting_request_is_single_flight_and_clears_active_issue(monkeypatch, tmp_path):
+    from webwright.server.process_manager import BusyError
+
+    manager, store, commands = _manager(tmp_path, monkeypatch)
+    task_id = store.new_task_id("waiting")
+    output_dir = store.task_dir(task_id)
+    store.create_task_record(task_id=task_id, title="Explore", instruction="Inspect",
+                             start_url="https://example.com/", output_dir=output_dir,
+                             run_id="run-1", active_target_id="owned-page", activity_type="exploration")
+    store.update_task(task_id, status=TaskStatus.WAITING_FOR_USER.value,
+                      user_intervention={"reason": "other", "message": "Help", "mode": "either"})
+    atomic_write_json(output_dir / "trajectory.json", {"messages": []})
+    result = manager.continue_task(task_id=task_id, followup="Handled", require_waiting=True)
+    assert result["status"] == TaskStatus.RUNNING.value
+    assert result["user_intervention"] is None
+    with pytest.raises(BusyError):
+        manager.continue_task(task_id=task_id, followup="Handled again", require_waiting=True)
+    assert len(commands) == 1
+    assert len(store.read_user_turns(task_id)) == 1
 
 
 def test_finish_task_maps_format_error_to_failed(tmp_path: Path) -> None:
