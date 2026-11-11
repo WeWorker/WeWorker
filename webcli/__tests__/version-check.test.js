@@ -21,15 +21,33 @@ describe('checkForUpdate', () => {
 
   it('缓存落后 → 返回提示(零网络)', async () => {
     const file = tmpFile()
-    await writeVersionCache({ latest: '1.1.11', checkedAt: Date.now() }, file)
+    await writeVersionCache({ latest: '1.1.11', checkedAt: Date.now(), pkgName: '@webank/webcli' }, file)
     const notice = await checkForUpdate({ ...base, file })
     expect(notice).toContain('1.1.11')
     expect(notice).toContain('webcli upgrade')
   })
   it('缓存最新 / 相同 → null', async () => {
     const file = tmpFile()
-    await writeVersionCache({ latest: '1.1.8', checkedAt: Date.now() }, file)
+    await writeVersionCache({ latest: '1.1.8', checkedAt: Date.now(), pkgName: '@webank/webcli' }, file)
     expect(await checkForUpdate({ ...base, file })).toBe(null)
+  })
+  it('缓存 pkgName 不符 → 视为无缓存,不误报,触发刷新', async () => {
+    const file = tmpFile()
+    // 共享 ~/.webcli 目录下,另一个包(webcli)写入的缓存残留
+    await writeVersionCache({ latest: '9.9.9', checkedAt: Date.now(), pkgName: '@webank/webcli' }, file)
+    let fetched = 0
+    const fetchImpl = async () => { fetched++; return { ok: true, json: async () => ({ version: '1.0.1' }) } }
+    const notice = await checkForUpdate({ ...base, pkgName: '@webank/webgo', file, fetchImpl })
+    expect(notice).toBe(null)         // 不误报"webgo 落后于 webcli"
+    expect(fetched).toBe(1)           // 而是按自己包重新查
+  })
+  it('提示前缀与命令名跟随 cliName(webgo 包显示 [webgo])', async () => {
+    const file = tmpFile()
+    await writeVersionCache({ latest: '1.0.2', checkedAt: Date.now(), pkgName: '@webank/webgo' }, file)
+    const notice = await checkForUpdate({ ...base, pkgName: '@webank/webgo', currentVersion: '1.0.1', cliName: 'webgo', file })
+    expect(notice).toContain('[webgo]')
+    expect(notice).toContain('webgo upgrade')
+    expect(notice).not.toContain('[webcli]')
   })
   it('无缓存/过期 → 触发后台刷新并写缓存,本次不打提示', async () => {
     const file = tmpFile()

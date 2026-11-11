@@ -32,6 +32,7 @@ import { createConnection } from "net";
 import { createHash, randomUUID } from "crypto";
 import { resolveToolCallTimeout, interruptedCallResult } from "./tool-timeouts.js";
 import { resolveRegistry as resolveRegistryShim } from "./version-check.js";
+import { cliName, cliLabel } from "./cli-name.js";
 
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
 import { readBrowserMode } from "./dedicated-browser.js";
@@ -254,7 +255,7 @@ async function printGlobalHelp({ json = false, outputFormat } = {}) {
         { name: "development", usage: "webcli call development.help", description: "Toolkit 代码校验、开发槽位、调试与正式应用" },
         { name: "exploration", usage: "webcli call exploration.help", description: "独立 API 探索、Agent 草稿编辑、验证与本地安装" },
         { name: "adapter", usage: "webcli adapter <command>", description: "管理网站适配器" },
-        { name: "service", usage: "webcli service <start|stop|status|logs>", description: "管理 WebSocket bridge 服务" },
+        { name: "service", usage: `${cliName()} service <start|stop|status|logs>`, description: "管理 WebSocket bridge 服务" },
         { name: "browser", usage: "webcli browser <status|show|hide|start|stop|restart|mode>", description: "管理 WeWorker 浏览器（需要登录时用 show 打开）" },
         { name: "login <site>", usage: "webcli login <site>", description: "主动登录网站（工具遇到未登录时也会自动发起）" },
         { name: "auth", usage: "webcli auth <status|check|save|forget|autologin>", description: "网站登录状态与自动登录" },
@@ -295,16 +296,17 @@ Agent tip: use 'webcli call <tool> --key=value ...' to invoke a tool.
 }
 
 async function printVersion() {
+  const { cliName } = await import("./cli-name.js");
   if (typeof __WEBCLI_VERSION__ !== "undefined") {
-    console.log(`webcli ${__WEBCLI_VERSION__}`);
+    console.log(`${cliName()} ${__WEBCLI_VERSION__}`);
     return;
   }
   try {
     const pkgPath = join(__dirname, "package.json");
     const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
-    console.log(`webcli ${pkg.version}`);
+    console.log(`${cliName()} ${pkg.version}`);
   } catch {
-    console.log("webcli (unknown version)");
+    console.log(`${cliName()} (unknown version)`);
   }
 }
 
@@ -327,6 +329,27 @@ async function readPid() {
 function isPidRunning(pid) {
   try { process.kill(pid, 0); return true; }
   catch { return false; }
+}
+
+/** npm 与 webgo 都是 isolated 发行版(专属端口/状态目录),desktop 不是。 */
+function isIsolatedKind(kind) {
+  return kind === "npm" || kind === "webgo";
+}
+
+/**
+ * schtasks 启动的 daemon 没有父进程写 PID,改为轮询 PID_FILE + 端口确认它已监听。
+ */
+async function waitForOwnBridgeByFile({ timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pid = await readPid();
+    if (pid && isPidRunning(pid) && await checkPortListening()) {
+      const info = await probeBridgeInstance();
+      if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) return true;
+    }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return false;
 }
 
 function getServiceNodeArgs() {
@@ -354,7 +377,7 @@ async function waitForOwnBridge(pid, { timeoutMs = 30_000 } = {}) {
     if (await checkPortListening()) {
       if (INSTANCE.kind !== "npm") return true;
       const info = await probeBridgeInstance();
-      if (info && info.kind === "npm" && info.port === INSTANCE.port) return true;
+      if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) return true;
     }
     await new Promise(r => setTimeout(r, 250));
   }
@@ -368,22 +391,54 @@ async function cmdServiceStart(daemon, report = console.log) {
     // Check if already running
     const existing = await readPid();
     if (existing && isPidRunning(existing)) {
-      report(`WebCLI service is already running (PID: ${existing})`);
+      report(`${cliLabel()} service is already running (PID: ${existing})`);
       return;
     }
 
     // A foreign listener must never be adopted as this distribution's service.
-    if (INSTANCE.kind === "npm" && await isPortOccupied()) {
+    if (isIsolatedKind(INSTANCE.kind) && await isPortOccupied()) {
       const info = await probeBridgeInstance();
-      if (info && info.kind === "npm" && info.port === INSTANCE.port) {
-        report(`WebCLI service is already running on ${bridgeUrl(INSTANCE)}`);
+      if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) {
+        report(`${cliLabel()} service is already running on ${bridgeUrl(INSTANCE)}`);
         return;
       }
       throw new Error(`Port ${INSTANCE.port} is already in use by a different process; refusing to reuse it`);
     }
 
-    const logFd  = openSync(LOG_FILE, "a");
     const token  = randomUUID().replace(/-/g, "");
+
+    if (process.platform === "win32") {
+      // Windows 上 detached:true 只脱离 console,不脱离父进程 Job Object(如 WorkBuddy),
+      // 命令退出会整树回收。改用 Task Scheduler 启动,daemon 归属调度器,命令退出后仍常驻。
+      const { launchDetachedWindows } = await import("./service-spawn.js");
+      // daemon 经 schtasks 启动不继承父进程 env,显式传 WEBCLI_/WEWORKER_ 关键变量
+      //(distribution、bridge 端口、d3Url、metrics、身份接口等均由 internal 入口注入),
+      // 否则 daemon 回落 desktop 3711,与父进程等待的 webgo 3713 不一致而超时。
+      const env = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (k.startsWith('WEBCLI_') || k.startsWith('WEWORKER_')) env[k] = v;
+      }
+      env.WEBCLI_SERVICE_TOKEN = token;
+      await launchDetachedWindows({
+        nodeExe: process.execPath,
+        serviceArgs: getServiceNodeArgs(),
+        logFile: LOG_FILE,
+        stateDir: getServiceStateDir(),
+        env,
+      });
+      const ready = await waitForOwnBridgeByFile();
+      if (!ready) {
+        throw new Error(`${cliLabel()} service failed to start on ${bridgeUrl(INSTANCE)}`);
+      }
+      report(`✓ ${cliLabel()} service started in background`);
+      report(`  Logs:   ${LOG_FILE}`);
+      report(`  Stop:   ${cliName()} service stop`);
+      report(`  Status: ${cliName()} service status`);
+      return;
+    }
+
+    // POSIX 及非 Job Object 环境:detached + IPC 报告就绪。
+    const logFd  = openSync(LOG_FILE, "a");
     const child  = spawn(process.execPath, getServiceNodeArgs(), {
       detached: true,
       stdio: ["ignore", logFd, logFd, "ipc"],
@@ -410,27 +465,26 @@ async function cmdServiceStart(daemon, report = console.log) {
       pid: child.pid, port: INSTANCE.port, kind: INSTANCE.kind, tokenHash: tokenHash(token),
     }));
 
-    // npm reports success only after its own Bridge is actually listening.
-    // A slow cold start must NOT fail the command: the daemon keeps starting,
-    // and ensureBridgeRunning keeps waiting for it below.
-    if (INSTANCE.kind === "npm") {
+    // npm/webgo 报告成功仅在自有 Bridge 真正监听之后。
+    // 冷启动慢不得令命令失败:daemon 继续启动,下方 ensureBridgeRunning 持续等待。
+    if (isIsolatedKind(INSTANCE.kind)) {
       const ready = await waitForOwnBridge(child.pid);
       if (!ready && !isPidRunning(child.pid)) {
         await unlink(PID_FILE).catch(() => {});
         await unlink(OWNER_FILE).catch(() => {});
-        throw new Error(`WebCLI service failed to start on ${bridgeUrl(INSTANCE)}`);
+        throw new Error(`${cliLabel()} service failed to start on ${bridgeUrl(INSTANCE)}`);
       }
       if (!ready) {
-        report(`WebCLI service is starting in background (PID: ${child.pid}) — still initializing`);
+        report(`${cliLabel()} service is starting in background (PID: ${child.pid}) — still initializing`);
         report(`  Logs:   ${LOG_FILE}`);
         return;
       }
     }
 
-    report(`✓ WebCLI service started in background (PID: ${child.pid})`);
+    report(`✓ ${cliLabel()} service started in background (PID: ${child.pid})`);
     report(`  Logs:   ${LOG_FILE}`);
-    report(`  Stop:   webcli service stop`);
-    report(`  Status: webcli service status`);
+    report(`  Stop:   ${cliName()} service stop`);
+    report(`  Status: ${cliName()} service status`);
   } else {
     // Foreground — hand off to service mode
     await runServiceMode();
@@ -442,7 +496,7 @@ async function cmdServiceStart(daemon, report = console.log) {
 async function cmdServiceStop() {
   const pid = await readPid();
   if (!pid) {
-    console.log("WebCLI service is not running (no PID file found)");
+    console.log(`${cliLabel()} service is not running (no PID file found)`);
     return;
   }
   if (!isPidRunning(pid)) {
@@ -451,17 +505,17 @@ async function cmdServiceStop() {
     await unlink(OWNER_FILE).catch(() => {});
     return;
   }
-  if (INSTANCE.kind === "npm") {
+  if (isIsolatedKind(INSTANCE.kind)) {
     const owner = await readServiceOwner();
-    if (!owner || owner.pid !== pid || owner.port !== INSTANCE.port || owner.kind !== "npm") {
-      throw new Error(`PID ${pid} is not owned by this npm WebCLI; refusing to stop it`);
+    if (!owner || owner.pid !== pid || owner.port !== INSTANCE.port || owner.kind !== INSTANCE.kind) {
+      throw new Error(`PID ${pid} is not owned by this ${cliName()} WebCLI; refusing to stop it`);
     }
   }
   try {
     process.kill(pid, "SIGTERM");
     await unlink(PID_FILE).catch(() => {});
     await unlink(OWNER_FILE).catch(() => {});
-    console.log(`✓ WebCLI service stopped (PID: ${pid})`);
+    console.log(`✓ ${cliLabel()} service stopped (PID: ${pid})`);
   } catch (e) {
     console.error(`Failed to stop service: ${e.message}`);
   }
@@ -476,13 +530,13 @@ async function cmdServiceStatus() {
 
   if (listening) {
     const pidStr = pidRunning ? ` (PID: ${pid})` : "";
-    console.log(`✓ WebCLI service is running on ${bridgeUrl(INSTANCE)}${pidStr}`);
+    console.log(`✓ ${cliLabel()} service is running on ${bridgeUrl(INSTANCE)}${pidStr}`);
   } else {
-    console.log("✗ WebCLI service is not running");
+    console.log(`✗ ${cliLabel()} service is not running`);
     if (pid && !pidRunning) {
-      console.log("  (stale PID file found — run 'webcli service stop' to clean up)");
+      console.log(`  (stale PID file found — run '${cliName()} service stop' to clean up)`);
     }
-    console.log("  Start with: webcli service start -d");
+    console.log(`  Start with: ${cliName()} service start -d`);
   }
 }
 
@@ -491,7 +545,7 @@ async function cmdServiceStatus() {
 async function cmdServiceLogs(follow) {
   if (!existsSync(LOG_FILE)) {
     console.log(`No log file found at ${LOG_FILE}`);
-    console.log("Start the service first: webcli service start -d");
+    console.log(`Start the service first: ${cliName()} service start -d`);
     return;
   }
   if (follow) {
@@ -508,14 +562,23 @@ async function cmdServiceLogs(follow) {
 async function runServiceMode() {
   const { WebSocketBridge } = await import("./bridge.js");
 
-  process.stderr.write("[WebCLI] Starting WebSocket bridge...\n");
+  process.stderr.write(`[${cliLabel()}] Starting WebSocket bridge...\n`);
   const bridge = new WebSocketBridge({
     port: INSTANCE.port,
     host: INSTANCE.bindHost,
     instanceKind: INSTANCE.kind,
     serviceTokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
   });
-  bridge._wss.once('listening', () => { if (process.send) process.send({ type: 'bridge_ready' }); });
+  bridge._wss.once('listening', async () => {
+    if (process.send) process.send({ type: 'bridge_ready' });
+    // schtasks 启动的 daemon 没有父进程替它写 PID/OWNER,这里自己落(幂等,
+    // spawn 场景父进程也写同值,无害)。OWNER 的 tokenHash 用于客户端确认归属。
+    await writeFile(PID_FILE, String(process.pid)).catch(() => {});
+    await writeFile(OWNER_FILE, JSON.stringify({
+      pid: process.pid, port: INSTANCE.port, kind: INSTANCE.kind,
+      tokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
+    })).catch(() => {});
+  });
 
   // 初始化埋点上报配置（whoami / clientId / 版本号）；实时上报无需定时器。
   // 仅当 WEBCLI_METRICS_UPLOAD=on 且配置了 endpoint 才启用，失败一律静默。
@@ -524,11 +587,11 @@ async function runServiceMode() {
   await bridge.init({ webcliVersion: version });
 
   await new Promise(resolve => setTimeout(resolve, 500));
-  process.stderr.write(`[WebCLI] WebSocket server listening on ${bridgeUrl(INSTANCE)}\n`);
-  process.stderr.write("[WebCLI] Waiting for Chrome extension to connect...\n");
+  process.stderr.write(`[${cliLabel()}] WebSocket server listening on ${bridgeUrl(INSTANCE)}\n`);
+  process.stderr.write(`[${cliLabel()}] Waiting for Chrome extension to connect...\n`);
 
   setInterval(() => {
-    process.stderr.write(`[WebCLI] Alive — extension ${bridge.isExtensionConnected() ? 'connected' : 'disconnected'}\n`);
+    process.stderr.write(`[${cliLabel()}] Alive — extension ${bridge.isExtensionConnected() ? 'connected' : 'disconnected'}\n`);
   }, 60_000);
 
   // Close WeWorker 浏览器 cleanly where signals are delivered (POSIX, Ctrl+C).
@@ -537,7 +600,7 @@ async function runServiceMode() {
   const shutdown = (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    process.stderr.write(`[WebCLI] ${signal} — stopping WeWorker browser\n`);
+    process.stderr.write(`[${cliLabel()}] ${signal} — stopping WeWorker browser\n`);
     const forceExit = setTimeout(() => process.exit(0), 8000);
     forceExit.unref?.();
     bridge.shutdownBrowser().catch(() => {}).finally(() => process.exit(0));
@@ -659,7 +722,7 @@ function resolveLoginWaitMs(seconds) {
 }
 
 const AUTH_EVENT_TEXT = {
-  waiting_user: (e) => `需要登录 ${e.name}：已在 WeWorker 浏览器中打开登录页（支持扫码、短信验证码或账号密码），登录完成后自动继续…${e.screenshot ? `\n  登录页截图（可用于扫码）：${e.screenshot}` : ""}`,
+  waiting_user: (e) => `需要登录 ${e.name}：已在 WeWorker 浏览器中打开登录页（支持扫码、短信验证码或账号密码），登录完成后自动继续…${e.screenshot ? `\n  登录页截图（可用于扫码）：${e.screenshot}` : ""}\n  浏览器窗口默认在屏幕外：运行 webgo browser show（桌面端：左侧栏浏览器图标）把窗口调到屏幕内完成登录；agent 场景可加 --login-wait=0 立即返回提示，登录后重试调用`,
   autologin_started: (e) => `正在自动登录 ${e.name}…`,
   autologin_failed: (e) => `自动登录 ${e.name} 未成功：${e.message || "原因未知"}；请在浏览器中手动完成登录`,
   logged_in: (e) => `已登录 ${e.name}${e.autologin ? "（自动登录）" : ""}，继续执行`,
@@ -670,7 +733,7 @@ const AUTH_EVENT_TEXT = {
 
 function printAuthEvent(event) {
   const text = AUTH_EVENT_TEXT[event.status]?.(event);
-  if (text) process.stderr.write(`[WebCLI] ${text}\n`);
+  if (text) process.stderr.write(`[${cliLabel()}] ${text}\n`);
 }
 
 /** One fixed control action against the running Bridge (`browser_control` / `auth_control`). */
@@ -864,9 +927,9 @@ async function probeBridgeInstance(timeoutMs = 2000) {
 async function ensureBridgeRunning() {
   const isRunning = await checkPortListening();
   if (isRunning) {
-    if (INSTANCE.kind === "npm") {
+    if (isIsolatedKind(INSTANCE.kind)) {
       const info = await probeBridgeInstance();
-      if (!info || info.kind !== "npm" || info.port !== INSTANCE.port) {
+      if (!info || info.kind !== INSTANCE.kind || info.port !== INSTANCE.port) {
         console.error(`Error: ${bridgeUrl(INSTANCE)} is used by a different service; refusing to attach.`);
         console.error("Stop the other Bridge or free the port, then retry.");
         process.exit(1);
@@ -884,9 +947,9 @@ async function ensureBridgeRunning() {
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 250));
     if (!(await checkPortListening())) continue;
-    if (INSTANCE.kind !== "npm") return;
+    if (!isIsolatedKind(INSTANCE.kind)) return;
     const info = await probeBridgeInstance();
-    if (info && info.kind === "npm" && info.port === INSTANCE.port) return;
+    if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) return;
   }
   const pid = await readPid();
   if (pid && isPidRunning(pid)) {
@@ -1564,6 +1627,29 @@ async function runProgressiveHelp(args, outputFormat) {
 }
 
 async function main() {
+  // ── 版本自检(内嵌/协议命令豁免;stderr 提示,stdout 永不污染) ────────────
+  // 必须在所有命令分派(含 route/skills/context 等早期分派与 host 委托)之前,
+  // 否则 skill 主路径的 route 永远不提示更新。
+  const VERSION_CHECK_EXEMPT = new Set(["--version", "-v", "upgrade", "--service", "internal-ai-call", "mcp"]);
+  if (!VERSION_CHECK_EXEMPT.has(process.argv[2])) {
+    try {
+      const { checkForUpdate } = await import("./version-check.js");
+      const { cliName } = await import("./cli-name.js");
+      let pkgInfo = null;
+      try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
+      if (pkgInfo?.name && pkgInfo?.version) {
+        const notice = await checkForUpdate({
+          currentVersion: pkgInfo.version,
+          pkgName: pkgInfo.name,
+          registry: resolveRegistryShim(pkgInfo.name),
+          cliName: cliName(),
+          embedded: process.env.WEBCLI_EMBEDDED === "1",
+        });
+        if (notice) process.stderr.write(notice + "\n");
+      }
+    } catch { /* 版本检查绝不影响命令 */ }
+  }
+
   if (hasHostConfiguration() && !['call', '--version', '-v', '--help', '-h'].includes(process.argv[2])) {
     throw new Error('Host mode only supports webcli call; service and browser lifecycle belong to the embedding host.');
   }
@@ -1672,25 +1758,6 @@ async function main() {
     const { explorationHelp } = await import('./exploration-commands.js');
     console.log(formatCallOutput(explorationHelp(), outputFormat ?? 'json'));
     return;
-  }
-
-  // ── 版本自检(内嵌/协议命令豁免;stderr 提示,stdout 永不污染) ────────────
-  const VERSION_CHECK_EXEMPT = new Set(["--version", "-v", "upgrade", "--service", "internal-ai-call", "mcp"]);
-  if (!VERSION_CHECK_EXEMPT.has(cmd)) {
-    try {
-      const { checkForUpdate } = await import("./version-check.js");
-      let pkgInfo = null;
-      try { pkgInfo = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf8")); } catch {}
-      if (pkgInfo?.name && pkgInfo?.version) {
-        const notice = await checkForUpdate({
-          currentVersion: pkgInfo.version,
-          pkgName: pkgInfo.name,
-          registry: resolveRegistryShim(pkgInfo.name),
-          embedded: process.env.WEBCLI_EMBEDDED === "1",
-        });
-        if (notice) process.stderr.write(notice + "\n");
-      }
-    } catch { /* 版本检查绝不影响命令 */ }
   }
 
   // ── upgrade 命令 ──────────────────────────────────────────────────────────
@@ -1895,8 +1962,8 @@ async function main() {
 
   // --service (internal flag used by daemon spawn)
   if (cmd === "--service") {
-    process.on("uncaughtException",  e => process.stderr.write(`[WebCLI] ${e.message}\n`));
-    process.on("unhandledRejection", r => process.stderr.write(`[WebCLI] ${r}\n`));
+    process.on("uncaughtException",  e => process.stderr.write(`[${cliLabel()}] ${e.message}\n`));
+    process.on("unhandledRejection", r => process.stderr.write(`[${cliLabel()}] ${r}\n`));
     await runServiceMode();
     return;
   }
@@ -1937,7 +2004,7 @@ async function main() {
 const isDirectExecution = isDirectCliExecution();
 if (isDirectExecution) {
   main().catch(e => {
-    process.stderr.write(`[WebCLI] Fatal: ${e.message}\n`);
+    process.stderr.write(`[${cliLabel()}] Fatal: ${e.message}\n`);
     if (e.code === 'context_required') {
       process.stderr.write('Context routing controls require --context <id>. This is a CLI argument error, not a website login or page-context error.\n');
     }

@@ -5,7 +5,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { checkPackageResources, syncPackageExtension, syncPackageMetrics } from '../scripts/prepare-package-extension.js'
+import { checkPackageResources, syncPackageExtension, syncPackageMetrics, WEBGO_BRIDGE_URL } from '../scripts/prepare-package-extension.js'
 
 const tempDirs = []
 
@@ -127,5 +127,20 @@ describe('prepare package extension', () => {
     fs.writeFileSync(path.join(sourceBuiltinDir, '.profile.json'), JSON.stringify({ schema_version: 1, profile: 'public', adapters: [], legacy: [] }))
     symlinkSync(linkedTarget, path.join(sourceExtensionDir, 'linked'), process.platform === 'win32' ? 'junction' : 'dir')
     expect(() => syncPackageExtension({ webcliDir, sourceExtensionDir, sourceBuiltinDir })).toThrow(/symbolic link/)
+  })
+})
+
+describe('webgo packaged worker', () => {
+  it('rewrites the worker to the webgo port 3713 when bridgeUrl is overridden', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'webgo-ext-'))
+    const webcliDir = path.join(root, 'webcli')
+    const sourceExtensionDir = path.join(root, 'extension')
+    fs.mkdirSync(path.join(sourceExtensionDir, 'background'), { recursive: true })
+    fs.writeFileSync(path.join(sourceExtensionDir, 'manifest.json'), '{"version":"1"}\n')
+    fs.writeFileSync(path.join(sourceExtensionDir, 'background', 'service-worker.js'), 'const WS_URL = "ws://localhost:3711";\n')
+    syncPackageExtension({ webcliDir, sourceExtensionDir, bridgeUrl: WEBGO_BRIDGE_URL })
+    const worker = fs.readFileSync(path.join(webcliDir, 'extension', 'background', 'service-worker.js'), 'utf8')
+    expect(worker).toContain('ws://127.0.0.1:3713')
+    expect(worker).not.toContain('ws://localhost:3711')
   })
 })

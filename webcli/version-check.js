@@ -61,7 +61,7 @@ export function refreshLatestAsync({ registry, pkgName, file, fetchImpl = fetch,
   fetchImpl(`${String(registry).replace(/\/$/, "")}/${pkgName}/latest`, { signal: AbortSignal.timeout(2000) })
     .then((r) => (r.ok ? r.json() : null))
     .then((manifest) => {
-      if (manifest?.version) return writeVersionCache({ latest: manifest.version, checkedAt: now }, file);
+      if (manifest?.version) return writeVersionCache({ latest: manifest.version, checkedAt: now, pkgName }, file);
     })
     .catch(() => {});
 }
@@ -69,15 +69,19 @@ export function refreshLatestAsync({ registry, pkgName, file, fetchImpl = fetch,
 /**
  * 命令分派前的版本自检。返回提示文本(无需升级返回 null)。
  * embedded=true(桌面端内嵌)→ 直接 null,不读缓存不发起刷新。
+ * cliName 用于提示前缀与命令名(webgo 包显示 [webgo],默认 webcli)。
  */
-export async function checkForUpdate({ currentVersion, pkgName, registry, file, fetchImpl = fetch, now = Date.now(), embedded = false, ttl = CHECK_TTL_MS } = {}) {
+export async function checkForUpdate({ currentVersion, pkgName, registry, file, cliName = "webcli", fetchImpl = fetch, now = Date.now(), embedded = false, ttl = CHECK_TTL_MS } = {}) {
   if (embedded) return null;
   const cacheFile = file ?? path.join(homedir(), ".webcli", "version-check.json");
   const cache = await readVersionCache(cacheFile);
-  if (cache?.latest && compareSemver(currentVersion, cache.latest) < 0) {
-    return `[webcli] 有新版本 ${cache.latest}(当前 ${currentVersion})——运行 webcli upgrade 升级(自动清理 Service Worker 缓存)`;
+  // 缓存按包名隔离:共享 ~/.webcli 目录下,读到别的包写入的缓存必须视为无缓存,
+  // 否则 webgo 会误读 webcli 的 latest 而误报。
+  const ownCache = cache && cache.pkgName === pkgName ? cache : null;
+  if (ownCache?.latest && compareSemver(currentVersion, ownCache.latest) < 0) {
+    return `[${cliName}] 有新版本 ${ownCache.latest}(当前 ${currentVersion})——运行 ${cliName} upgrade 升级(自动清理 Service Worker 缓存)`;
   }
-  if (!cache?.checkedAt || now - cache.checkedAt > ttl) {
+  if (!ownCache?.checkedAt || now - ownCache.checkedAt > ttl) {
     refreshLatestAsync({ registry, pkgName, file: cacheFile, fetchImpl, now });
   }
   return null;
