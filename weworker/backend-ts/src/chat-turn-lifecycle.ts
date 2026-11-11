@@ -31,3 +31,6 @@ export function createChatTurnRegistry() {
     },
   }
 }
+
+// Desktop chat and scheduled tasks must own the same per-conversation lock.
+export const chatTurns = createChatTurnRegistry()

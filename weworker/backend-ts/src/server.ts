@@ -4,7 +4,8 @@ import { officialSkillBuildTime } from './skill-build-time.js'
 import { randomUUID as channelQrId, createHash } from 'node:crypto'
 import { changeChannelConfiguration, createChannelMutationQueue, getChannelConfiguration, isChannelType, publicChannelSettings, type ChannelType } from './channels/channel-configurations.js'
 import express from 'express'
-import { createChatTurnRegistry } from './chat-turn-lifecycle.js'
+import { chatTurns as sharedChatTurns } from './chat-turn-lifecycle.js'
+import { listScheduledTaskRuns } from './scheduled-task-progress.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
@@ -2593,6 +2594,10 @@ const UpdateTaskSchema = z.object({
   notify_channels: z.array(z.string()).optional(),
 })
 
+app.get('/scheduled-task-runs', (_req, res) => {
+  res.json(listScheduledTaskRuns())
+})
+
 app.get('/scheduled-tasks', (_req, res) => {
   const tasks = store.listScheduledTasks()
   res.json({ tasks })
@@ -3145,7 +3150,7 @@ app.post('/chat/warmup', (req, res) => {
   })
 })
 
-const chatTurns = createChatTurnRegistry()
+const chatTurns = sharedChatTurns
 const chatSteeringListeners = new Map<string, {
   checkpoint: () => store.Message | undefined
   notify: (message: store.Message, requestId?: string, previousAssistant?: store.Message) => void

@@ -148,6 +148,13 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const sync = () => { void useWorksStore.getState().syncScheduledTaskRuns().catch(() => {}) }
+    sync()
+    const interval = setInterval(sync, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
     if (activeSidebarSection !== 'tasks' || focusedWorkspaceOpen || activeWorkId || tasksStatus !== 'ready' || activeTaskId || !scheduledTasks[0]?.id) return
     void useScheduledTasksStore.getState().selectTask(scheduledTasks[0].id)
   }, [activeSidebarSection, focusedWorkspaceOpen, activeWorkId, tasksStatus, activeTaskId, scheduledTasks])

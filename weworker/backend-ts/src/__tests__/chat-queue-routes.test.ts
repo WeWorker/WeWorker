@@ -8,7 +8,7 @@ import { getTurnExecutionContext, runWithTurnExecutionContext } from '../memory/
 
 function fixture() {
   const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
-  const start = source.indexOf('const chatTurns = createChatTurnRegistry()')
+  const start = source.indexOf('const chatTurns = sharedChatTurns')
   const end = source.indexOf('\nasync function handleChatRequest(', start)
   const routes = new Map<string, (req: any, res: any) => Promise<void> | void>()
   const steer = vi.fn(() => true)
@@ -26,9 +26,10 @@ function fixture() {
     return hold
   })
   const chatLog = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  const sharedChatTurns = createChatTurnRegistry()
   const context = vm.createContext({
     app: { post: (route: string, handler: any) => routes.set(route, handler) },
-    createChatTurnRegistry, runWithTurnExecutionContext, getSteerableChatSession: lookup, notify, checkpoint, chatLog,
+    sharedChatTurns, runWithTurnExecutionContext, getSteerableChatSession: lookup, notify, checkpoint, chatLog,
     store: { getWork: () => ({ id: 'fixture-work' }), getWorkspaceDirectoryForWork: () => undefined, appendMessage: append },
     importChatAttachments: importAttachments, messagePromptText: (message: any) => JSON.stringify(message.content),
     createHash, channelQrId: () => '11111111-1111-4111-8111-111111111111', handleChatRequest: run,
@@ -38,10 +39,21 @@ function fixture() {
   }).outputText, context)
   vm.runInContext("chatSteeringListeners.set('fixture-work', { checkpoint, notify })", context)
   const response = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn(), on: vi.fn(), off: vi.fn() })
-  return { routes, steer, lookup, notify, checkpoint, previousAssistant, append, importAttachments, finish, run, chatLog, response, get observedContext() { return observedContext } }
+  return { routes, sharedChatTurns, steer, lookup, notify, checkpoint, previousAssistant, append, importAttachments, finish, run, chatLog, response, get observedContext() { return observedContext } }
 }
 
 describe('chat queue endpoints', () => {
+  it('rejects ordinary chat while a scheduled task owns the shared conversation lock', async () => {
+    const f = fixture()
+    const taskTurn = f.sharedChatTurns.start('fixture-work')!
+    try {
+      const response = f.response()
+      await f.routes.get('/works/:id/chat')!({ params: { id: 'fixture-work' }, body: { message: 'Followup' } }, response)
+      expect(response.status).toHaveBeenCalledWith(409)
+      expect(f.run).not.toHaveBeenCalled()
+      expect(f.append).not.toHaveBeenCalled()
+    } finally { taskTurn.finish() }
+  })
   it('persists steering and attachments then sends through the existing session', async () => {
     const f = fixture(); const res = f.response()
     await f.routes.get('/works/:id/chat/steer')!({ params: { id: 'fixture-work' }, body: { message: 'correction', attachments: [{ name: 'sample.txt', path: 'C:/weworker-fixtures/sample.txt' }] } }, res)
