@@ -216,8 +216,6 @@ Tracing:
 Options:
   --version        显示版本（兼容：单独执行 webcli -v）
   --context <id>   route/call 关联同一会话，最多追溯三轮
-  --context-decision <id> --context-step <id>  call 关联路由决策；业务参数仍用 --decision/--step
-  --context-reply-to <id>  route 回答上下文澄清
   --new-context    route/call 自动生成新的 UUID
   --profile <id|alias>  选择浏览器（优先于 WEBCLI_PROFILE 和保存的默认值）
   -v, --verbose    调用工具时输出 trace 日志
@@ -562,7 +560,7 @@ async function cmdServiceLogs(follow) {
 async function runServiceMode() {
   const { WebSocketBridge } = await import("./bridge.js");
 
-  process.stderr.write("[WebCLI] Starting WebSocket bridge...\n");
+  process.stderr.write(`[${cliLabel()}] Starting WebSocket bridge...\n`);
   const bridge = new WebSocketBridge({
     port: INSTANCE.port,
     host: INSTANCE.bindHost,
@@ -587,11 +585,11 @@ async function runServiceMode() {
   await bridge.init({ webcliVersion: version });
 
   await new Promise(resolve => setTimeout(resolve, 500));
-  process.stderr.write(`[WebCLI] WebSocket server listening on ${bridgeUrl(INSTANCE)}\n`);
-  process.stderr.write("[WebCLI] Waiting for Chrome extension to connect...\n");
+  process.stderr.write(`[${cliLabel()}] WebSocket server listening on ${bridgeUrl(INSTANCE)}\n`);
+  process.stderr.write(`[${cliLabel()}] Waiting for Chrome extension to connect...\n`);
 
   setInterval(() => {
-    process.stderr.write(`[WebCLI] Alive — extension ${bridge.isExtensionConnected() ? 'connected' : 'disconnected'}\n`);
+    process.stderr.write(`[${cliLabel()}] Alive — extension ${bridge.isExtensionConnected() ? 'connected' : 'disconnected'}\n`);
   }, 60_000);
 
   // Close WeWorker 浏览器 cleanly where signals are delivered (POSIX, Ctrl+C).
@@ -600,7 +598,7 @@ async function runServiceMode() {
   const shutdown = (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    process.stderr.write(`[WebCLI] ${signal} — stopping WeWorker browser\n`);
+    process.stderr.write(`[${cliLabel()}] ${signal} — stopping WeWorker browser\n`);
     const forceExit = setTimeout(() => process.exit(0), 8000);
     forceExit.unref?.();
     bridge.shutdownBrowser().catch(() => {}).finally(() => process.exit(0));
@@ -733,7 +731,7 @@ const AUTH_EVENT_TEXT = {
 
 function printAuthEvent(event) {
   const text = AUTH_EVENT_TEXT[event.status]?.(event);
-  if (text) process.stderr.write(`[WebCLI] ${text}\n`);
+  if (text) process.stderr.write(`[${cliLabel()}] ${text}\n`);
 }
 
 /** One fixed control action against the running Bridge (`browser_control` / `auth_control`). */
@@ -1962,8 +1960,8 @@ async function main() {
 
   // --service (internal flag used by daemon spawn)
   if (cmd === "--service") {
-    process.on("uncaughtException",  e => process.stderr.write(`[WebCLI] ${e.message}\n`));
-    process.on("unhandledRejection", r => process.stderr.write(`[WebCLI] ${r}\n`));
+    process.on("uncaughtException",  e => process.stderr.write(`[${cliLabel()}] ${e.message}\n`));
+    process.on("unhandledRejection", r => process.stderr.write(`[${cliLabel()}] ${r}\n`));
     await runServiceMode();
     return;
   }
@@ -2004,10 +2002,7 @@ async function main() {
 const isDirectExecution = isDirectCliExecution();
 if (isDirectExecution) {
   main().catch(e => {
-    process.stderr.write(`[WebCLI] Fatal: ${e.message}\n`);
-    if (e.code === 'context_required') {
-      process.stderr.write('Context routing controls require --context <id>. This is a CLI argument error, not a website login or page-context error.\n');
-    }
+    process.stderr.write(`[${cliLabel()}] Fatal: ${e.message}\n`);
     process.exitCode = [2, 3, 4].includes(e.exitCode) ? e.exitCode : 1;
   });
 }
