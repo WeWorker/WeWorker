@@ -172,6 +172,10 @@ class ProcessManager:
             )
             raise InvalidStateError("请先在 WeWorker 中配置可用于 Webwright 的模型。") from exc
         endpoint = active.base_url.rstrip("/")
+        overrides.extend([
+            f"agent.context_limit={active.context_limit}",
+            f"agent.compaction_ratio={active.compaction_ratio}",
+        ])
         if active.model_class == "anthropic":
             model_config_file = "model_claude.yaml"
             overrides.extend([

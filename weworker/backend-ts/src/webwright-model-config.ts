@@ -4,6 +4,8 @@ import { assertAllowedLlmBaseUrl, normalizeLlmBaseUrl, normalizeLlmUrlInput } fr
 import { buildRuntimeAllowedLlmBaseUrls, getProvider, PROVIDERS } from './provider-registry.js'
 import { getModelConfiguration } from './model-configurations.js'
 import { builtinProviderAccess, isBuiltinProvider } from './builtin-provider.js'
+import { normalizeContextLimit } from './context-window.js'
+import { normalizeCompactionRatio } from './context/conversation-compaction.js'
 export { explorationResetPatch } from './provider-config.js'
 
 export function isAuthorizedModelConfigRequest(authorization: string | undefined, expectedToken: string): boolean {
@@ -71,6 +73,8 @@ export function resolveWebwrightModelConfig(settings: Settings) {
     model,
     api_key: apiKey,
     structured_output: config.structuredOutput,
+    context_limit: normalizeContextLimit(configuration?.context_limit ?? settings.context_limit),
+    compaction_ratio: normalizeCompactionRatio(settings.compaction_ratio),
   }
 }
 
