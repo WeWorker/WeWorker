@@ -89,7 +89,7 @@ describe('智能路由接线', () => {
 
   it('企微路由命中后不再跑模型回合', () => {
     // 命中时用空流顶掉 streamChat：收尾/发送仍走同一条路径，但不再付模型成本。
-    expect(sources.wecom).toContain('routed?.handled ? noModelEvents() : streamChat(')
+    expect(sources.wecom).toContain('routed?.handled || turn.abortController.signal.aborted ? noModelEvents() : streamChat(')
     // 路由回合的 timing 自带 routeTool，不能再叠一条模型计时把来源抹掉。
     expect(sources.wecom).toContain('if (!routed?.handled) {')
   })

@@ -6,6 +6,7 @@ import { changeChannelConfiguration, createChannelMutationQueue, getChannelConfi
 import express from 'express'
 import { chatTurns as sharedChatTurns } from './chat-turn-lifecycle.js'
 import { listScheduledTaskRuns } from './scheduled-task-progress.js'
+import { listBackgroundChatRuns } from './background-chat-progress.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
@@ -2596,6 +2597,10 @@ const UpdateTaskSchema = z.object({
 
 app.get('/scheduled-task-runs', (_req, res) => {
   res.json(listScheduledTaskRuns())
+})
+
+app.get('/background-chat-runs', (_req, res) => {
+  res.json(listBackgroundChatRuns())
 })
 
 app.get('/scheduled-tasks', (_req, res) => {

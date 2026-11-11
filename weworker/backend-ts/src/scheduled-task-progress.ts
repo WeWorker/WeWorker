@@ -1,19 +1,11 @@
-import { getWorkWithMessages, type Message } from './works-store.js'
-
-const runs = new Map<string, { executionId: string; pending: () => Message | null }>()
+import type { Message } from './works-store.js'
+import { listBackgroundChatRuns, trackBackgroundChatRun } from './background-chat-progress.js'
 
 /** Read current blocks on demand so partial tokens never require database writes. */
 export function trackScheduledTaskRun(workId: string, executionId: string, pending: () => Message | null): () => void {
-  const run = { executionId, pending }
-  runs.set(workId, run)
-  return () => { if (runs.get(workId) === run) runs.delete(workId) }
+  return trackBackgroundChatRun(workId, executionId, 'scheduled_task', pending)
 }
 
 export function listScheduledTaskRuns() {
-  return [...runs].flatMap(([workId, run]) => {
-    const work = getWorkWithMessages(workId)
-    if (!work) return []
-    const pending = run.pending()
-    return [{ workId, executionId: run.executionId, messages: [...work.messages, ...(pending ? [pending] : [])] }]
-  })
+  return listBackgroundChatRuns('scheduled_task')
 }
