@@ -90,6 +90,8 @@ import {
   type ScheduledTask,
 } from '../works-store.js'
 import { executeTask } from '../task-executor.js'
+import { chatTurns } from '../chat-turn-lifecycle.js'
+import { listScheduledTaskRuns } from '../scheduled-task-progress.js'
 
 function makeTask(overrides: Partial<Parameters<typeof createScheduledTask>[0]> = {}): ScheduledTask {
   const created = createScheduledTask({
@@ -112,6 +114,70 @@ function assistantTiming(workId: string): Record<string, unknown> | null {
 }
 
 describe('executeTask 的路由接线', () => {
+  it('exposes live text and tools, holds the shared chat lock through summary, then clears progress', async () => {
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    let entered!: () => void
+    const ready = new Promise<void>(resolve => { entered = resolve })
+    mocks.streamChat.mockImplementation(async function* (_messages, _settings, _controller, options) {
+      if (options?.notificationSummaryOnly) {
+        const run = listScheduledTaskRuns()[0]
+        expect(chatTurns.start(run.workId)).toBeNull()
+        expect(run.messages.flatMap(message => message.content).filter(block => block.type === 'text' && block.text === 'Live response')).toHaveLength(1)
+        yield { type: 'text_delta', content: 'Conclusion' }
+        return
+      }
+      expect(options.streaming).toBe(true)
+      yield { type: 'text_delta', content: 'Live response' }
+      yield { type: 'tool_call_start', id: 'example-tool', name: 'example.search' }
+      entered()
+      await hold
+      yield { type: 'tool_call_result', id: 'example-tool', result: 'Found', isError: false }
+    })
+    const running = executeTask(makeTask())
+    expect(listScheduledTaskRuns()[0].messages.at(-1)).toMatchObject({ role: 'assistant', content: [] })
+    await ready
+    try {
+      const [run] = listScheduledTaskRuns()
+      expect(chatTurns.start(run.workId)).toBeNull()
+      expect(run.messages.at(-1)?.content).toEqual(expect.arrayContaining([
+        { type: 'text', text: 'Live response' },
+        expect.objectContaining({ type: 'tool_use', id: 'example-tool', status: 'running' }),
+      ]))
+    } finally { release() }
+    const result = await running
+    expect(result.status).toBe('completed')
+    expect(listScheduledTaskRuns()).toEqual([])
+    const next = chatTurns.start(result.workId)
+    expect(next).not.toBeNull()
+    next?.finish()
+  })
+
+  it('stops a scheduled run using the chat stop lock and saves partial output before releasing it', async () => {
+    let entered!: () => void
+    const ready = new Promise<void>(resolve => { entered = resolve })
+    mocks.streamChat.mockImplementation(async function* (_messages, _settings, controller, options) {
+      if (options?.notificationSummaryOnly) { yield { type: 'text_delta', content: 'Stopped summary' }; return }
+      yield { type: 'text_delta', content: 'Partial response' }
+      yield { type: 'tool_call_start', id: 'interrupted-tool', name: 'example.search' }
+      entered()
+      await new Promise<void>(resolve => controller.signal.addEventListener('abort', () => resolve(), { once: true }))
+      // SDK cancellation may end the iterator without throwing.
+    })
+    const running = executeTask(makeTask())
+    await ready
+    const [run] = listScheduledTaskRuns()
+    const stopping = chatTurns.stop(run.workId)
+    const result = await running
+    expect(await stopping).toBe('stopped')
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('停止')
+    const content = getWorkWithMessages(run.workId)!.messages.flatMap(message => message.content)
+    expect(content).toContainEqual({ type: 'text', text: 'Partial response' })
+    expect(content).toContainEqual(expect.objectContaining({ id: 'interrupted-tool', status: 'failed' }))
+    expect(mocks.streamChat.mock.calls.filter(call => call[3]?.notificationSummaryOnly)).toHaveLength(1)
+    expect(listScheduledTaskRuns()).toEqual([])
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-task-routing-'))
@@ -203,6 +269,41 @@ describe('executeTask 的路由接线', () => {
       summary: '总结：模型回答',
       fullText: '模型回答',
     }), ['wecom'])
+  })
+
+  it.each(['completed', 'task-failed', 'summary-failed'] as const)('keeps the internal summary request out of conversation history; outcome=%s', async outcome => {
+    const task = makeTask({ notify_channels: ['wecom'] })
+    const persistedDuringSummary: Message[][] = []
+    const internalRequests: Message[] = []
+    mocks.onSummary.mockImplementation((messages: Message[]) => {
+      const request = messages.at(-1)!
+      internalRequests.push(request)
+      persistedDuringSummary.push(getWorkWithMessages(request.work_id)!.messages)
+      if (outcome === 'summary-failed') throw new Error('Fixture summary failure')
+    })
+    if (outcome === 'task-failed') {
+      mocks.streamChat.mockImplementationOnce(async function* () {
+        throw new Error('Fixture execution failure')
+      })
+    }
+
+    const result = await executeTask(task)
+
+    expect(result.status).toBe(outcome === 'task-failed' ? 'failed' : 'completed')
+    expect(internalRequests).toHaveLength(1)
+    const request = internalRequests[0]
+    expect(request.role).toBe('user')
+    expect(request.content).toEqual([expect.objectContaining({
+      type: 'text', text: expect.stringContaining('【定时任务结果总结】'),
+    })])
+    expect(mocks.streamChat.mock.calls.filter(call => call[3]?.notificationSummaryOnly)).toHaveLength(1)
+    for (const history of [...persistedDuringSummary, getWorkWithMessages(result.workId)!.messages]) {
+      expect(history.map(message => message.id)).not.toContain(request.id)
+      expect(history.filter(message => message.role === 'user').map(message => message.content))
+        .toEqual([[{ type: 'text', text: task.prompt_template }]])
+    }
+    expect(mocks.notify).toHaveBeenCalledTimes(1)
+    expect(mocks.notify.mock.calls[0][0].summary).not.toContain('【定时任务结果总结】')
   })
 
   it.each([true, false])('sends the original table once with a conclusion; routed=%s', async (routed) => {

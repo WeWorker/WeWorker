@@ -15,6 +15,41 @@ function fixture() {
 }
 
 describe('conversation message queue', () => {
+  it('keeps followups queued during an external run and stops it before resuming', async () => {
+    const { queue, calls, turns } = fixture()
+    let external = true
+    let stopped = false
+    const cleanup = deferred()
+    queue.setHandlers({
+      isBlocked: () => external,
+      isExternalRunning: () => external,
+      steer: async () => { throw new Error('补充消息已保留在队列中') },
+      stop: async () => { stopped = true; await cleanup.promise; external = false },
+    })
+    const id = queue.enqueue({ text: 'Followup' }); await tick()
+    assert.equal(calls.length, 0)
+    await assert.rejects(queue.sendNow(id), /保留在队列/)
+    assert.equal(queue.snapshot().items[0].id, id)
+    const stopping = queue.stop(); await tick()
+    assert.equal(stopped, true)
+    assert.equal(calls.length, 0)
+    cleanup.resolve(); await stopping
+    assert.equal(calls.length, 0)
+    queue.resume(); await tick()
+    assert.equal(calls.length, 1)
+    turns[0].resolve({ status: 'completed' })
+  })
+
+  it('automatically wakes queued followups when an external run completes', async () => {
+    const { queue, calls, turns } = fixture()
+    let external = true
+    queue.setHandlers({ isBlocked: () => external, isExternalRunning: () => external })
+    queue.enqueue({ text: 'Followup' }); await tick()
+    assert.equal(calls.length, 0)
+    external = false; queue.wake(); await tick()
+    assert.equal(calls.length, 1)
+    turns[0].resolve({ status: 'completed' })
+  })
   it('does not retry steering acknowledged on the stream when its HTTP reply is lost', async () => {
     const { queue, calls, turns } = fixture()
     queue.setHandlers({ steer: async item => { queue.acknowledgeSteering(item.id); throw new Error('response lost') } })

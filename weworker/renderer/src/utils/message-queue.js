@@ -51,8 +51,9 @@ export function createMessageQueue(handlers = {}) {
     pausedReason = nextId ? '正在发送补充指令' : '正在停止当前回复'
     publish()
     const current = active
+    const external = handlers.isExternalRunning?.()
     try {
-      if (current && nextId) {
+      if ((current || external) && nextId) {
         const selected = items.find(item => item.id === nextId)
         try { await handlers.steer(selected) }
         catch (error) {
@@ -61,12 +62,12 @@ export function createMessageQueue(handlers = {}) {
         }
         items = items.filter(item => item.id !== nextId)
         if (editingId === nextId) editingId = null
-        if (!current.result || current.result.status === 'completed') pausedReason = previousPause
+        if (!current?.result || current.result.status === 'completed') pausedReason = previousPause
         return
       }
-      if (current) {
+      if (current || external) {
         await handlers.stop?.()
-        await current.done
+        if (current) await current.done
       }
       if (disposed) return
       if (nextId) {

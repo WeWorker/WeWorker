@@ -23,13 +23,15 @@ import { createTurnTimingLedger } from './turn-timing.js'
 import { routedAssistantBlocks, tryRoutedTurn } from './routed-turn.js'
 import { getAgent } from './dedicated-agents/agent-store.js'
 import { buildAgentChatOptions } from './dedicated-agents/agent-runtime.js'
+import { chatTurns } from './chat-turn-lifecycle.js'
+import { trackScheduledTaskRun } from './scheduled-task-progress.js'
 
 const log = createLogger('task-executor')
 const memoryLog = createLogger('memory')
 
 /**
- * WeWorker Bot 定时任务复用同一个持久会话，每轮执行追加「执行 + 总结」两条用户消息。
- * 只保留最近这么多条用户轮次（≈ 最近 5 轮执行）：高频任务（如每 10 分钟）的历史
+ * WeWorker Bot 定时任务复用同一个持久会话，每轮执行追加一条用户消息；总结指令不落库。
+ * 只保留最近这么多条用户轮次：高频任务（如每 10 分钟）的历史
  * 若不截断会无限累积，最终把模型上下文撑爆（Prompt is too long）。
  */
 const AGENT_TASK_CONTEXT_TURNS = 10
@@ -83,6 +85,7 @@ async function summarizeTaskExecution(input: {
   blocks: ContentBlock[]
   fullText?: string
   error?: string
+  abortController?: AbortController
 }): Promise<string | undefined> {
   const taskResult = formatTaskResultForSummary(input.blocks)
   const source = [taskResult, input.error ? `执行错误：${input.error}` : ''].filter(Boolean).join('\n\n')
@@ -90,12 +93,18 @@ async function summarizeTaskExecution(input: {
   let summary = ''
 
   try {
-    store.appendMessage(input.workId, 'user', [{
-      type: 'text',
-      text: `【定时任务结果总结】\n任务：${input.task.title}\n原始要求：${input.task.prompt_template || '无'}\n执行状态：${input.status}\n请基于下面本轮执行结果，生成适合直接发送给用户的简洁总结。不要重新执行任务。\n\n${source || fallback}`,
-    }])
-    const summaryMessages = [...store.getWorkWithMessages(input.workId)!.messages]
-    for await (const event of streamChat(summaryMessages, getSettings(), undefined, {
+    // The notification request is internal input, not a user-authored chat message.
+    const summaryMessages: store.Message[] = [...store.getWorkWithMessages(input.workId)!.messages, {
+      id: `task-summary-${input.workId}`,
+      work_id: input.workId,
+      role: 'user',
+      content: [{
+        type: 'text',
+        text: `【定时任务结果总结】\n任务：${input.task.title}\n原始要求：${input.task.prompt_template || '无'}\n执行状态：${input.status}\n请基于下面本轮执行结果，生成适合直接发送给用户的简洁总结。不要重新执行任务。\n\n${source || fallback}`,
+      }],
+      created_at: new Date().toISOString(),
+    }]
+    for await (const event of streamChat(summaryMessages, getSettings(), input.abortController, {
       streaming: false,
       workId: input.workId,
       notificationSummaryOnly: true,
@@ -232,308 +241,340 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
     ? (store.getWork(task.context_work_id) ?? store.createWork(`【定时】${task.title}`, agent.project_id ?? taskProject.id))
     : store.createWork(`[定时] ${task.title} · ${timeStr}`, taskProject.id, taskWorkspace)
 
-  // 截断要在追加本轮用户消息之前做：模型调用读到的是「截断后的历史 + 本轮」，
-  // 已经过载的老会话也能在下一轮直接恢复，不必先失败一次。
-  if (agent && task.context_work_id) {
-    try {
-      const removed = store.trimWorkMessages(work.id, AGENT_TASK_CONTEXT_TURNS)
-      if (removed > 0) log.info('agent task context trimmed', { task_id: task.id, removed_messages: removed })
-    } catch (error) {
-      // Trimming is best-effort: a failure must not turn a healthy run into a failed one.
-      log.warn('agent task context trim failed', { task_id: task.id, error_type: error instanceof Error ? error.name : 'UnknownError' })
-    }
-  }
-
-  // 2. Create execution record (pending)
-  const execution = store.createTaskExecution(task.id, work.id)
-  const assistantContent: ContentBlock[] = []
-  let memoryAdapters: MemoryAdapterIdentity[] = []
-  let taskMemoryContext = buildMemoryEventContext({
-    baseScope: { user: 'local' },
-    userMessage: task.prompt_template,
-    adapters: [],
-    toolCalls: [],
-  })
-  let memoryCandidate: MemoryUpdateCandidate | undefined
-
-  // 3. Append the prompt template as user message
-  const userMessage = store.appendMessage(work.id, 'user', [{ type: 'text', text: agent
-    ? `【定时任务执行】\n${task.prompt_template}\n\n请自行判断本轮是否值得通知。只有确有必要时才调用 send_agent_message；不调用就不会发送任何消息。`
-    : task.prompt_template }])
-
-  // 4. Update execution to running
-  store.updateTaskExecution(execution.id, { status: 'running' })
-
+  const turn = chatTurns.start(work.id)
+  if (!turn) throw new Error('当前对话仍在执行，请等待完成后重试定时任务')
+  let stopTracking = () => {}
   try {
-    // 5. Get work with messages and settings
-    const workWithMessages = store.getWorkWithMessages(work.id)!
-    const settings = getSettings()
+    // 截断要在追加本轮用户消息之前做：模型调用读到的是「截断后的历史 + 本轮」，
+    // 已经过载的老会话也能在下一轮直接恢复，不必先失败一次。
+    if (agent && task.context_work_id) {
+      try {
+        const removed = store.trimWorkMessages(work.id, AGENT_TASK_CONTEXT_TURNS)
+        if (removed > 0) log.info('agent task context trimmed', { task_id: task.id, removed_messages: removed })
+      } catch (error) {
+        // Trimming is best-effort: a failure must not turn a healthy run into a failed one.
+        log.warn('agent task context trim failed', { task_id: task.id, error_type: error instanceof Error ? error.name : 'UnknownError' })
+      }
+    }
 
-    // 6. Build enabled adapter IDs (same pattern as server.ts chat endpoint)
-    const allAdapters = parseAllAdapters()
-    const enabledAdapterIds = new Set(
-      [...allAdapters.entries()].filter(([id, a]) => getSiteEnabled(id, a.defaultEnabled, a.managed?.enabled)).map(([id]) => id),
-    )
-    memoryAdapters = [...allAdapters.values()].map((adapter) => ({
-      id: adapter.id,
-      name: adapter.name,
-      match: adapter.match,
-    }))
-    taskMemoryContext = buildMemoryEventContext({
+    // 2. Create execution record (pending)
+    const execution = store.createTaskExecution(task.id, work.id)
+    const assistantContent: ContentBlock[] = []
+    let currentText = ''
+    let assistantPersisted = false
+    let memoryAdapters: MemoryAdapterIdentity[] = []
+    let taskMemoryContext = buildMemoryEventContext({
       baseScope: { user: 'local' },
       userMessage: task.prompt_template,
-      adapters: memoryAdapters,
+      adapters: [],
       toolCalls: [],
     })
+    let memoryCandidate: MemoryUpdateCandidate | undefined
 
-    // 7. Call streamChat and iterate to completion (non-streaming, like runChannelChat)
-    let currentText = ''
-    // Per-turn timing (mirrors server.ts /chat so scheduled results also show durations).
-    // llm 与 exec 互不重叠：llm + exec === total，缺 tool_call_result 的工具不会计进 llm。
-    const chatStartTime = Date.now()
-    const turnTiming = createTurnTimingLedger({ startedAt: chatStartTime })
-    let stepIndex = 0
-    const seenToolIds = new Set<string>()
+    // 3. Append the prompt template as user message
+    const userMessage = store.appendMessage(work.id, 'user', [{ type: 'text', text: agent
+      ? `【定时任务执行】\n${task.prompt_template}\n\n请自行判断本轮是否值得通知。只有确有必要时才调用 send_agent_message；不调用就不会发送任何消息。`
+      : task.prompt_template }])
 
-    const styleId = resolveStyleId(workWithMessages, settings)
-
-    // 定时任务接入确定性路由（共享入口见 routed-turn.ts）。WeWorker Bot 任务显式跳过：
-    // 它有自己的站点/技能边界，路由可能换成别的站点作答。命中则整轮跳过模型。
-    const routed = agent
-      ? null
-      : await tryRoutedTurn({
-          // 用任务原文，而不是落库时可能被包装过的文本，保证与用户配置逐字一致。
-          message: task.prompt_template,
-          workId: workWithMessages.id,
-          chatStartTime,
-          // 定时任务自己落库（要带本轮 work 与执行记录），不交给路由层写。
-          persist: false,
-          // 追问闸门（闸门①b）需要「本轮之前」的历史。
-          history: workWithMessages.messages.filter((message) => message.id !== userMessage.id),
-          log: (m: string) => log.info(`task ${task.id} ${m}`),
-        })
-
-    if (routed?.handled) {
-      // 路由已渲染正文与 timing（含 routeTool），这里只补落库：与普通回合同一形态，
-      // UI 的耗时与来源展示、以及闸门①b 的 fast-path 识别都能读到。
-      // 同时写进本地 assistantContent——下面的摘要与记忆规划都从它派生。
-      assistantContent.push(...routedAssistantBlocks(routed))
-      if (assistantContent.length > 0) store.appendMessage(work.id, 'assistant', assistantContent)
-    } else {
-      for await (const event of streamChat(workWithMessages.messages, settings, undefined, {
-        directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
-        streaming: false,
-        enabledAdapterIds,
-        workId: workWithMessages.id,
-        styleId,
-        memoryScope: taskMemoryContext.scope,
-        ...(agent ? {
-          ...buildAgentChatOptions({ agent, siteName: agent.site_id, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
-          memoryEnabled: false,
-        } : {}),
-        memoryExpectedType: 'task_execution',
-        memoryTriggerHint: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
-        previousTaskFailed: previousExecution?.status === 'failed',
-        // The task's own work shows its images and files on the desktop.
-        userMedia: {
-          image: (image) => {
-            if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
-            assistantContent.push(userImageBlock(image))
-          },
-          file: (file) => {
-            if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
-            assistantContent.push(userFileBlock(file))
-          },
-        },
-      })) {
-        if (event.type === 'skill_context' && event.skillContext) {
-          assistantContent.push(event.skillContext)
-        } else if (event.type === 'text_delta' && event.content) {
-          currentText += event.content
-        } else if (event.type === 'memory_candidate' && event.candidate) {
-          memoryCandidate = event.candidate
-        } else if (event.type === 'tool_call_start' && event.id) {
-          if (currentText) {
-            assistantContent.push({ type: 'text', text: currentText })
-            currentText = ''
-          }
-          const isNew = !seenToolIds.has(event.id)
-          let thinkMs: number | undefined
-          if (isNew) {
-            seenToolIds.add(event.id)
-            stepIndex++
-            thinkMs = turnTiming.toolStarted(event.id)
-          }
-          const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id)
-          if (existing?.type === 'tool_use') {
-            existing.name = event.name ?? existing.name
-            existing.args = event.args ?? existing.args
-          } else {
-            assistantContent.push({ type: 'tool_use', id: event.id, name: event.name ?? '', args: event.args, status: 'running', ...(thinkMs !== undefined ? { thinkMs } : {}) })
-          }
-        } else if (event.type === 'tool_call_result' && event.id) {
-          const toolDuration = turnTiming.toolSettled(event.id)
-          const idx = assistantContent.findIndex(
-            b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
-          )
-          if (idx >= 0) {
-            assistantContent[idx] = {
-              ...(assistantContent[idx] as object),
-              result: event.result,
-              status: event.isError ? 'failed' : 'done',
-              ...(toolDuration !== undefined ? { execMs: toolDuration } : {}),
-            } as ContentBlock
-          }
-        } else if (event.type === 'tool_call_image' && event.id) {
-          // 只回图片的工具没有 tool_call_result：同样结算，避免其耗时漏进 llm。
-          const imageToolDuration = turnTiming.toolObserved(event.id)
-          const idx = assistantContent.findIndex(
-            b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
-          )
-          if (idx >= 0) {
-            const currentStatus = (assistantContent[idx] as Extract<ContentBlock, { type: 'tool_use' }>).status
-            assistantContent[idx] = {
-              ...(assistantContent[idx] as object),
-              image: event.data,
-              status: currentStatus === 'failed' ? 'failed' : 'done',
-              ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}),
-            } as ContentBlock
-          }
-        } else if (event.type === 'error') {
-          throw new Error(event.content ?? 'AI Agent error')
-        }
-      }
-
-      // Finalize remaining text
-      if (currentText) {
-        assistantContent.push({ type: 'text', text: currentText })
-      }
-
-      // Account for trailing LLM text generation (and settle any tool that never
-      // reported a result, so its time stays in execMs).
-      const timing = turnTiming.finish()
-      for (const block of assistantContent) {
-        if (block.type === 'tool_use') {
-          block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
-          if (block.status === 'running') block.status = 'done'
-        }
-      }
-
-      // 8. Persist assistant message
-      if (assistantContent.length > 0) {
-        assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
-        store.appendMessage(work.id, 'assistant', assistantContent)
-      }
-    }
-
-    // 9. Extract summary from accumulated text
-    const fullText = assistantContent
-      .filter(b => b.type === 'text')
-      .map(b => (b as { text: string }).text)
-      .join('')
-    const taskMemoryPlan = planTaskMemoryEvent({
-      executionId: execution.id,
-      trigger: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
-      baseScope: { user: 'local' },
-      taskPrompt: task.prompt_template,
-      adapters: memoryAdapters,
-      toolCalls: assistantContent
-        .filter((block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
-        .map((block) => ({ name: block.name, args: block.args, status: block.status })),
-    })
-    // 10. Mark execution as completed
-    store.updateTaskExecution(execution.id, {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-    })
-    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'completed', blocks: assistantContent, fullText })
-
-    if (memoryCandidate) {
-      queueTaskMemoryProcessing({
-        executionId: execution.id,
-        trigger: taskMemoryPlan.event.trigger,
-        scope: taskMemoryPlan.event.scope,
-        expectedMemoryType: taskMemoryPlan.event.expectedMemoryType,
-        candidate: memoryCandidate,
-      })
-    }
-
-    // Prune before notifying: the renderer refreshes its list on this event.
-    enforceTaskHistoryLimit(taskProject.id)
-    // 11. Send notification (notifier will be created in task 5.1)
-    await safeNotify(
-      {
-        taskId: task.id,
-        taskTitle: task.title,
-        status: 'completed',
-        summary,
-        fullText: fullText || undefined,
-        executionId: execution.id,
-        workId: work.id,
-      },
-      task.notify_channels,
-    )
-
-    return {
-      workId: work.id,
-      executionId: execution.id,
-      status: 'completed',
-      summary,
-    }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err)
-    const failedMemoryPlan = planTaskMemoryEvent({
-      executionId: execution.id,
-      trigger: 'task_failed',
-      baseScope: { user: 'local' },
-      taskPrompt: task.prompt_template,
-      adapters: memoryAdapters,
-      toolCalls: assistantContent
-        .filter((block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
-        .map((block) => ({ name: block.name, args: block.args, status: block.status })),
-    })
-    // Mark execution terminal before requesting the one-shot notification summary.
-    store.updateTaskExecution(execution.id, {
-      status: 'failed',
-      error_message: errorMessage,
-      completed_at: new Date().toISOString(),
-    })
-    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: assistantContent, fullText: assistantContent.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text').map(block => block.text).join(''), error: errorMessage })
+    // 4. Update execution to running
+    store.updateTaskExecution(execution.id, { status: 'running' })
+    const progressCreatedAt = new Date().toISOString()
+    stopTracking = trackScheduledTaskRun(work.id, execution.id, () => assistantPersisted ? null : ({
+      id: `task-progress-${execution.id}`,
+      work_id: work.id,
+      role: 'assistant',
+      content: [...assistantContent, ...(currentText ? [{ type: 'text' as const, text: currentText }] : [])],
+      created_at: progressCreatedAt,
+    }))
 
     try {
+      // 5. Get work with messages and settings
+      const workWithMessages = store.getWorkWithMessages(work.id)!
+      const settings = getSettings()
+
+      // 6. Build enabled adapter IDs (same pattern as server.ts chat endpoint)
+      const allAdapters = parseAllAdapters()
+      const enabledAdapterIds = new Set(
+        [...allAdapters.entries()].filter(([id, a]) => getSiteEnabled(id, a.defaultEnabled, a.managed?.enabled)).map(([id]) => id),
+      )
+      memoryAdapters = [...allAdapters.values()].map((adapter) => ({
+        id: adapter.id,
+        name: adapter.name,
+        match: adapter.match,
+      }))
+      taskMemoryContext = buildMemoryEventContext({
+        baseScope: { user: 'local' },
+        userMessage: task.prompt_template,
+        adapters: memoryAdapters,
+        toolCalls: [],
+      })
+
+      // 7. Stream partial output to the desktop while persisting the final reply once.
+      // Per-turn timing (mirrors server.ts /chat so scheduled results also show durations).
+      // llm 与 exec 互不重叠：llm + exec === total，缺 tool_call_result 的工具不会计进 llm。
+      const chatStartTime = Date.now()
+      const turnTiming = createTurnTimingLedger({ startedAt: chatStartTime })
+      let stepIndex = 0
+      const seenToolIds = new Set<string>()
+
+      const styleId = resolveStyleId(workWithMessages, settings)
+
+      // 定时任务接入确定性路由（共享入口见 routed-turn.ts）。WeWorker Bot 任务显式跳过：
+      // 它有自己的站点/技能边界，路由可能换成别的站点作答。命中则整轮跳过模型。
+      const routed = agent
+        ? null
+        : await tryRoutedTurn({
+            // 用任务原文，而不是落库时可能被包装过的文本，保证与用户配置逐字一致。
+            message: task.prompt_template,
+            workId: workWithMessages.id,
+            chatStartTime,
+            // 定时任务自己落库（要带本轮 work 与执行记录），不交给路由层写。
+            persist: false,
+            // 追问闸门（闸门①b）需要「本轮之前」的历史。
+            history: workWithMessages.messages.filter((message) => message.id !== userMessage.id),
+            log: (m: string) => log.info(`task ${task.id} ${m}`),
+          })
+
+      if (turn.controller.signal.aborted) throw new Error('任务已停止')
+
+      if (routed?.handled) {
+        // 路由已渲染正文与 timing（含 routeTool），这里只补落库：与普通回合同一形态，
+        // UI 的耗时与来源展示、以及闸门①b 的 fast-path 识别都能读到。
+        // 同时写进本地 assistantContent——下面的摘要与记忆规划都从它派生。
+        assistantContent.push(...routedAssistantBlocks(routed))
+        if (assistantContent.length > 0) store.appendMessage(work.id, 'assistant', assistantContent)
+        assistantPersisted = true
+      } else {
+        for await (const event of streamChat(workWithMessages.messages, settings, turn.controller, {
+          directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
+          streaming: true,
+          enabledAdapterIds,
+          workId: workWithMessages.id,
+          styleId,
+          memoryScope: taskMemoryContext.scope,
+          ...(agent ? {
+            ...buildAgentChatOptions({ agent, siteName: agent.site_id, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
+            memoryEnabled: false,
+          } : {}),
+          memoryExpectedType: 'task_execution',
+          memoryTriggerHint: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
+          previousTaskFailed: previousExecution?.status === 'failed',
+          // The task's own work shows its images and files on the desktop.
+          userMedia: {
+            image: (image) => {
+              if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
+              assistantContent.push(userImageBlock(image))
+            },
+            file: (file) => {
+              if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
+              assistantContent.push(userFileBlock(file))
+            },
+          },
+        })) {
+          if (event.type === 'skill_context' && event.skillContext) {
+            assistantContent.push(event.skillContext)
+          } else if (event.type === 'text_delta' && event.content) {
+            currentText += event.content
+          } else if (event.type === 'memory_candidate' && event.candidate) {
+            memoryCandidate = event.candidate
+          } else if (event.type === 'tool_call_start' && event.id) {
+            if (currentText) {
+              assistantContent.push({ type: 'text', text: currentText })
+              currentText = ''
+            }
+            const isNew = !seenToolIds.has(event.id)
+            let thinkMs: number | undefined
+            if (isNew) {
+              seenToolIds.add(event.id)
+              stepIndex++
+              thinkMs = turnTiming.toolStarted(event.id)
+            }
+            const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id)
+            if (existing?.type === 'tool_use') {
+              existing.name = event.name ?? existing.name
+              existing.args = event.args ?? existing.args
+            } else {
+              assistantContent.push({ type: 'tool_use', id: event.id, name: event.name ?? '', args: event.args, status: 'running', ...(thinkMs !== undefined ? { thinkMs } : {}) })
+            }
+          } else if (event.type === 'tool_call_result' && event.id) {
+            const toolDuration = turnTiming.toolSettled(event.id)
+            const idx = assistantContent.findIndex(
+              b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
+            )
+            if (idx >= 0) {
+              assistantContent[idx] = {
+                ...(assistantContent[idx] as object),
+                result: event.result,
+                status: event.isError ? 'failed' : 'done',
+                ...(toolDuration !== undefined ? { execMs: toolDuration } : {}),
+              } as ContentBlock
+            }
+          } else if (event.type === 'tool_call_image' && event.id) {
+            // 只回图片的工具没有 tool_call_result：同样结算，避免其耗时漏进 llm。
+            const imageToolDuration = turnTiming.toolObserved(event.id)
+            const idx = assistantContent.findIndex(
+              b => b.type === 'tool_use' && (b as { id: string }).id === event.id,
+            )
+            if (idx >= 0) {
+              const currentStatus = (assistantContent[idx] as Extract<ContentBlock, { type: 'tool_use' }>).status
+              assistantContent[idx] = {
+                ...(assistantContent[idx] as object),
+                image: event.data,
+                status: currentStatus === 'failed' ? 'failed' : 'done',
+                ...(imageToolDuration !== undefined ? { execMs: imageToolDuration } : {}),
+              } as ContentBlock
+            }
+          } else if (event.type === 'error') {
+            throw new Error(event.content ?? 'AI Agent error')
+          }
+        }
+
+        if (turn.controller.signal.aborted) throw new Error('任务已停止')
+
+        // Finalize remaining text
+        if (currentText) {
+          assistantContent.push({ type: 'text', text: currentText })
+          currentText = ''
+        }
+
+        // Account for trailing LLM text generation (and settle any tool that never
+        // reported a result, so its time stays in execMs).
+        const timing = turnTiming.finish()
+        for (const block of assistantContent) {
+          if (block.type === 'tool_use') {
+            block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
+            if (block.status === 'running') block.status = 'done'
+          }
+        }
+
+        // 8. Persist assistant message
+        if (assistantContent.length > 0) {
+          assistantContent.push({ type: 'timing', totalMs: timing.totalMs, llmMs: timing.llmMs, execMs: timing.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
+          store.appendMessage(work.id, 'assistant', assistantContent)
+        }
+        assistantPersisted = true
+      }
+
+      // 9. Extract summary from accumulated text
+      const fullText = assistantContent
+        .filter(b => b.type === 'text')
+        .map(b => (b as { text: string }).text)
+        .join('')
+      const taskMemoryPlan = planTaskMemoryEvent({
+        executionId: execution.id,
+        trigger: previousExecution?.status === 'failed' ? 'task_recovered' : 'task_completed',
+        baseScope: { user: 'local' },
+        taskPrompt: task.prompt_template,
+        adapters: memoryAdapters,
+        toolCalls: assistantContent
+          .filter((block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
+          .map((block) => ({ name: block.name, args: block.args, status: block.status })),
+      })
+      // 10. Mark execution as completed
+      store.updateTaskExecution(execution.id, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      })
+      const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'completed', blocks: assistantContent, fullText, abortController: turn.controller })
+
       if (memoryCandidate) {
         queueTaskMemoryProcessing({
           executionId: execution.id,
-          trigger: 'task_failed',
-          scope: failedMemoryPlan.event.scope,
-          expectedMemoryType: failedMemoryPlan.event.expectedMemoryType,
+          trigger: taskMemoryPlan.event.trigger,
+          scope: taskMemoryPlan.event.scope,
+          expectedMemoryType: taskMemoryPlan.event.expectedMemoryType,
           candidate: memoryCandidate,
         })
       }
-    } catch {
-      // A missing model configuration must not change the task failure result.
-    }
 
-    enforceTaskHistoryLimit(taskProject.id)
-    // Send failure notification
-    await safeNotify(
-      {
-        taskId: task.id,
-        taskTitle: task.title,
-        status: 'failed',
-        summary,
-        error: errorMessage,
-        executionId: execution.id,
+      // Prune before notifying: the renderer refreshes its list on this event.
+      enforceTaskHistoryLimit(taskProject.id)
+      // 11. Send notification (notifier will be created in task 5.1)
+      await safeNotify(
+        {
+          taskId: task.id,
+          taskTitle: task.title,
+          status: 'completed',
+          summary,
+          fullText: fullText || undefined,
+          executionId: execution.id,
+          workId: work.id,
+        },
+        task.notify_channels,
+      )
+
+      return {
         workId: work.id,
-      },
-      task.notify_channels,
-    )
+        executionId: execution.id,
+        status: 'completed',
+        summary,
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      if (!assistantPersisted) {
+        if (currentText) { assistantContent.push({ type: 'text', text: currentText }); currentText = '' }
+        for (const block of assistantContent) {
+          if (block.type === 'tool_use' && block.status === 'running') block.status = 'failed'
+        }
+        if (assistantContent.length) store.appendMessage(work.id, 'assistant', assistantContent)
+        assistantPersisted = true
+      }
+      const failedMemoryPlan = planTaskMemoryEvent({
+        executionId: execution.id,
+        trigger: 'task_failed',
+        baseScope: { user: 'local' },
+        taskPrompt: task.prompt_template,
+        adapters: memoryAdapters,
+        toolCalls: assistantContent
+          .filter((block): block is Extract<ContentBlock, { type: 'tool_use' }> => block.type === 'tool_use')
+          .map((block) => ({ name: block.name, args: block.args, status: block.status })),
+      })
+      // Mark execution terminal before requesting the one-shot notification summary.
+      store.updateTaskExecution(execution.id, {
+        status: 'failed',
+        error_message: errorMessage,
+        completed_at: new Date().toISOString(),
+      })
+      const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: assistantContent, fullText: assistantContent.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text').map(block => block.text).join(''), error: errorMessage, abortController: turn.controller })
 
-    return {
-      workId: work.id,
-      executionId: execution.id,
-      status: 'failed',
-      error: errorMessage,
+      try {
+        if (memoryCandidate) {
+          queueTaskMemoryProcessing({
+            executionId: execution.id,
+            trigger: 'task_failed',
+            scope: failedMemoryPlan.event.scope,
+            expectedMemoryType: failedMemoryPlan.event.expectedMemoryType,
+            candidate: memoryCandidate,
+          })
+        }
+      } catch {
+        // A missing model configuration must not change the task failure result.
+      }
+
+      enforceTaskHistoryLimit(taskProject.id)
+      // Send failure notification
+      await safeNotify(
+        {
+          taskId: task.id,
+          taskTitle: task.title,
+          status: 'failed',
+          summary,
+          error: errorMessage,
+          executionId: execution.id,
+          workId: work.id,
+        },
+        task.notify_channels,
+      )
+
+      return {
+        workId: work.id,
+        executionId: execution.id,
+        status: 'failed',
+        error: errorMessage,
+      }
     }
+  } finally {
+    stopTracking()
+    turn.finish()
   }
 }

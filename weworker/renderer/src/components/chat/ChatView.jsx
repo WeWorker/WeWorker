@@ -148,6 +148,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   }
 
   const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode }), scenarioHint = null) => {
+    await useWorksStore.getState().syncScheduledTaskRuns().catch(() => {})
     if ((!text.trim() && !files.length) || useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting') return { status: 'failed', accepted: false }
     if (files.length > maxChatAttachments) {
       setError(`已选 ${files.length}/${maxChatAttachments} 个文件，请删减后再发送`)
@@ -451,8 +452,10 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
 
   queue.setHandlers({
     isBlocked: () => useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting',
+    isExternalRunning: () => Boolean(useWorksStore.getState().scheduledTaskRuns[workId]),
     send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort, item.permissionMode, item.scenarioHint),
     steer: async item => {
+      if (useWorksStore.getState().scheduledTaskRuns[workId]) throw new Error('定时任务正在执行，补充消息已保留在队列中，请等待任务完成')
       if (item.command) throw new Error('命令行消息只能排队执行，请等待当前回复完成')
       await steerChat(workId, item)
       // Only SSE has a total order with text/tool events. A faster POST response
@@ -463,6 +466,11 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     },
     stop: async () => {
       const controller = useWorksStore.getState().abortControllers[workId]
+      if (useWorksStore.getState().scheduledTaskRuns[workId]) {
+        await stopChat(workId)
+        await useWorksStore.getState().syncScheduledTaskRuns()
+        return
+      }
       if (!controller) throw new Error('命令正在执行，请在终端停止；队列已暂停')
       await stopChat(workId)
       controller.abort()

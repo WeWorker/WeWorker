@@ -198,7 +198,7 @@ html.dark .chat-input-surface.chat-input-surface--command {
 :is(.workspace-canvas, .chat-view) .message-list-scroll { padding-inline: var(--workspace-content-gutter); }
 :is(.workspace-canvas, .chat-view) .message-list-scroll__inner,
 :is(.workspace-canvas, .chat-view) .complex-task-plan--pinned-inner { max-width: var(--workspace-content-width); margin-inline: auto; }
-:is(.workspace-canvas, .chat-view) .message-item { padding-inline: 0 !important; }
+:is(.workspace-canvas, .chat-view) :is(.message-item, .conversation-compaction-status) { padding-inline: 0 !important; }
 :is(.workspace-canvas, .chat-view) .complex-task-plan--pinned-overlay { padding-inline: var(--workspace-content-gutter); }
 .message-item--assistant:not(.is-selected) { background: transparent; }
 .message-item .markdown { line-height: 1.85; }
