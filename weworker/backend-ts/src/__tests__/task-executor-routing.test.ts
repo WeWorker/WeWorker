@@ -205,6 +205,26 @@ describe('executeTask 的路由接线', () => {
     }), ['wecom'])
   })
 
+  it.each([true, false])('sends the original table once with a conclusion; routed=%s', async (routed) => {
+    const table = '| Item | Status |\n| --- | --- |\n| example-item | pending |'
+    const conclusion = 'One pending item; the query completed successfully.'
+    if (routed) mocks.tryRoutedTurn.mockResolvedValue({ handled: true, text: table, timing: null })
+    mocks.streamChat.mockImplementation(async function* (_messages, _settings, _abort, options) {
+      yield { type: 'text_delta', content: options?.notificationSummaryOnly ? conclusion : table }
+    })
+    const result = await executeTask(makeTask({ notify_channels: ['wecom'] }))
+    const payload = mocks.notify.mock.calls[0][0]
+    const { formatNotificationMessage } = await vi.importActual<typeof import('../notifier.js')>('../notifier.js')
+    const notification = formatNotificationMessage(payload)
+    expect(result.status).toBe('completed')
+    expect(payload.fullText).toBe(table)
+    expect(payload.summary).toBe(conclusion)
+    expect(notification.split(table)).toHaveLength(2)
+    expect(notification).toContain(`摘要: ${conclusion}`)
+    expect(mocks.notify).toHaveBeenCalledTimes(1)
+    expect(mocks.streamChat.mock.calls.filter(call => call[3]?.notificationSummaryOnly)).toHaveLength(1)
+  })
+
   it.each([false, true])('persists the route command, result and execution timing; failed=%s', async (failed) => {
     const routeResult = JSON.stringify(failed
       ? { status: 'failed', reason: 'not_configured' }
