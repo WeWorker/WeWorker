@@ -4167,6 +4167,19 @@ async function bootstrap(): Promise<void> {
   if (getSettings().model_discovery_enabled !== false) {
     try { await detectLocalProviders() } catch { /* Local discovery must not prevent startup. */ }
   }
+  // 上一进程若被强杀，遗留的 pending/running 执行永远不会结束，会一直把对应
+  // 会话当作“仍在运行”，导致定时任务历史无法被清理。启动时统一收尾。
+  try {
+    const recovered = store.recoverInterruptedScheduledTasks(getSettings().scheduled_task_history_limit)
+    if (recovered.failed > 0 || recovered.pruned > 0) {
+      log.warn('scheduled task recovery', {
+        interrupted_executions: recovered.failed,
+        pruned_conversations: recovered.pruned,
+      })
+    }
+  } catch (error) {
+    log.error('scheduled task recovery failed', error instanceof Error ? error.message : String(error))
+  }
   const taskHistory = store.ensureScheduledTaskHistoryProject(getSettings().scheduled_task_history_limit)
   if (taskHistory.project && (taskHistory.movedCount > 0 || taskHistory.prunedIds.length > 0)) {
     log.info('scheduled task history initialized', {

@@ -307,3 +307,24 @@ describe('project persistence', () => {
     expect(store.getWork(unrelated.id)).not.toBeNull()
   })
 })
+
+describe('interrupted scheduled task recovery', () => {
+  it('marks leftover executions failed and then prunes the reserved project', () => {
+    const project = store.ensureScheduledTaskHistoryProject(2, { createIfMissing: true }).project!
+    const task = store.createScheduledTask({
+      title: 'Fixture schedule', cron_expression: '0 * * * *', prompt_template: 'Fixture prompt',
+      enabled: true, notify_channels: [],
+    })
+    for (let index = 0; index < 3; index += 1) {
+      const work = store.createWork(`运行 ${index}`, project.id)
+      store.createTaskExecution(task.id, work.id)
+    }
+    expect(store.listTaskExecutions(task.id).filter(item => item.status === 'pending')).toHaveLength(3)
+
+    const recovered = store.recoverInterruptedScheduledTasks(2)
+    expect(recovered.failed).toBe(3)
+    // 中断的执行先被收尾，随后按上限清理（至少删掉一条）。
+    expect(recovered.pruned).toBeGreaterThan(0)
+    expect(store.listTaskExecutions(task.id).every(item => item.status === 'failed')).toBe(true)
+  })
+})
