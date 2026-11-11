@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { NPM_BRIDGE_PORT, resolveBridgeInstance, bridgeUrl } from '../bridge-instance.js'
-import { prepareNpmEnvironment } from '../npm-environment.js'
+import { prepareNpmEnvironment, prepareWebgoEnvironment } from '../npm-environment.js'
 
 const home = path.resolve('/tmp/fixture-home')
 
@@ -77,5 +77,31 @@ describe('npm environment', () => {
   it('refuses desktop resource overrides and user-selected npm ports', () => {
     expect(() => prepareNpmEnvironment({ WEWORKER_RESOURCES_PATH: path.join(home, 'desktop-resources') }, home)).toThrow(/WEWORKER_RESOURCES_PATH/)
     expect(() => prepareNpmEnvironment({ WEBCLI_BRIDGE_PORT: '3711' }, home)).toThrow(/3712/)
+  })
+})
+
+describe('webgo distribution', () => {
+  it('gives webgo its own loopback port 3713 and isolated state', () => {
+    const instance = resolveBridgeInstance({ env: { WEWORKER_WEBCLI_DISTRIBUTION: 'webgo' }, home })
+    expect(instance).toMatchObject({
+      kind: 'webgo', port: 3713, connectHost: '127.0.0.1', bindHost: '127.0.0.1',
+      stateDir: path.join(home, '.webcli', 'webgo-3713'),
+    })
+    expect(bridgeUrl(instance)).toBe('ws://127.0.0.1:3713')
+  })
+  it('rejects a webgo port that does not match the packaged 3713', () => {
+    expect(() => resolveBridgeInstance({ env: { WEWORKER_WEBCLI_DISTRIBUTION: 'webgo', WEBCLI_BRIDGE_PORT: '3712' }, home })).toThrow(/3713/)
+  })
+})
+
+describe('webgo environment', () => {
+  it('selects webgo distribution and 3713 while keeping isolated writable roots', () => {
+    const env = prepareWebgoEnvironment({}, home)
+    expect(env).toMatchObject({
+      WEWORKER_WEBCLI_DISTRIBUTION: 'webgo',
+      WEBCLI_BRIDGE_PORT: '3713',
+      WEWORKER_BROWSER_HOME: path.join(home, '.webcli', 'browser'),
+      WEWORKER_USER_ADAPTERS_DIR: path.join(home, '.webcli', 'adapters'),
+    })
   })
 })

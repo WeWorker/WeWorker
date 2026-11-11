@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 export const DESKTOP_BRIDGE_PORT = 3711
 export const NPM_BRIDGE_PORT = 3712
+export const WEBGO_BRIDGE_PORT = 3713
 
 function parsePort(value, fallback) {
   if (value === undefined || value === '') return fallback
@@ -15,19 +16,24 @@ function parsePort(value, fallback) {
 /**
  * The shared core and the desktop bundle keep using 3711. The npm executable sets
  * WEWORKER_WEBCLI_DISTRIBUTION=npm before loading the core and is pinned to 3712.
+ * The internal webgo distribution (npm-packaged, separate from webcli) is pinned
+ * to 3713 so webgo and webcli can run side by side without Bridge port conflicts.
  */
 export function resolveBridgeInstance({ env = process.env, home = homedir() } = {}) {
-  const npm = env.WEWORKER_WEBCLI_DISTRIBUTION === 'npm'
-  const port = parsePort(env.WEBCLI_BRIDGE_PORT, npm ? NPM_BRIDGE_PORT : DESKTOP_BRIDGE_PORT)
-  if (npm && port !== NPM_BRIDGE_PORT) {
-    throw new Error(`npm WebCLI uses its packaged Bridge port ${NPM_BRIDGE_PORT}`)
+  const dist = env.WEWORKER_WEBCLI_DISTRIBUTION
+  const webgo = dist === 'webgo'
+  const isolated = dist === 'npm' || webgo
+  const fallback = webgo ? WEBGO_BRIDGE_PORT : isolated ? NPM_BRIDGE_PORT : DESKTOP_BRIDGE_PORT
+  const port = parsePort(env.WEBCLI_BRIDGE_PORT, fallback)
+  if (isolated && port !== fallback) {
+    throw new Error(`${webgo ? 'webgo' : 'npm'} WebCLI uses its packaged Bridge port ${fallback}`)
   }
   return Object.freeze({
-    kind: npm ? 'npm' : 'desktop',
+    kind: webgo ? 'webgo' : isolated ? 'npm' : 'desktop',
     port,
-    connectHost: npm ? '127.0.0.1' : 'localhost',
-    bindHost: npm ? '127.0.0.1' : undefined,
-    stateDir: npm ? join(home, '.webcli', `npm-${port}`) : undefined,
+    connectHost: isolated ? '127.0.0.1' : 'localhost',
+    bindHost: isolated ? '127.0.0.1' : undefined,
+    stateDir: isolated ? join(home, '.webcli', `${webgo ? 'webgo' : 'npm'}-${port}`) : undefined,
   })
 }
 
