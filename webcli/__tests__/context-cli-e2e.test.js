@@ -22,6 +22,9 @@ beforeAll(async () => {
     { id: 'detail', description: 'Read record', safety: 'read', schema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'], additionalProperties: false } },
     { id: 'edit', description: 'Edit record', safety: 'write', schema: { type: 'object', properties: { key: { type: 'string' }, body: { type: 'string' } }, required: ['key', 'body'], additionalProperties: false } },
     { id: 'unmapped', description: 'An explicit query without follow-up metadata', safety: 'read', schema: { type: 'object', properties: {} } },
+    { id: 'review', description: 'Review a fixture record', safety: 'write', schema: { type: 'object', properties: {
+      id: { type: 'string' }, decision: { type: 'string' }, step: { type: 'string' }, 'reply-to': { type: 'string' },
+    }, required: ['id', 'decision'], additionalProperties: false } },
   ].map(command => ({ ...command, runtime: 'extension', module: `extension/commands/${command.id}.js` })) };
   writeFileSync(join(adapter, 'manifest.json'), JSON.stringify(manifest));
   for (const command of manifest.commands) writeFileSync(join(adapter, command.module), 'throw new Error("Mock Bridge must supply the business result");');
@@ -59,7 +62,7 @@ afterAll(async () => {
 });
 function cli(...args) {
   return new Promise((done, reject) => {
-    const child = spawn(process.execPath, [resolve('index.js'), ...args], { env, windowsHide: true });
+    const child = spawn(process.execPath, [process.env.WEBCLI_TEST_ENTRY || resolve('index.js'), ...args], { env, windowsHide: true });
     let stdout = '', stderr = '';
     child.stdout.on('data', bytes => stdout += bytes); child.stderr.on('data', bytes => stderr += bytes);
     child.once('error', reject); child.once('close', code => done({ code, stdout, stderr }));
@@ -69,6 +72,25 @@ function receipt(result) {
   const line = result.stderr.split(/\r?\n/).find(line => line.startsWith('WEBCLI_CONTEXT '));
   expect(line, result.stderr).toBeDefined(); return JSON.parse(line.slice('WEBCLI_CONTEXT '.length));
 }
+it.each(['read', 'approve'])('ordinary CLI passes the %s business decision to the mock Bridge once', async decision => {
+  const result = await cli('call', 'example.com.review', '--id=123', '--decision=' + decision, '--step=review', '--reply-to=record-1', '--output-format=json');
+  expect(result.code, result.stderr).toBe(0);
+  expect(result.stderr).not.toContain('WEBCLI_CONTEXT');
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ toolName: 'example.com.review', args: { id: '123', decision, step: 'review', 'reply-to': 'record-1' } });
+});
+
+it('a new context retains the business decision and still guards write replay', async () => {
+  const result = await cli('call', 'example.com.review', '--new-context', '--id=123', '--decision=approve');
+  expect(result.code, result.stderr).toBe(0);
+  const context = receipt(result);
+  expect(context.toolOutcome).toBe('acknowledged');
+  expect(calls).toHaveLength(1);
+  expect(calls[0].args).toEqual({ id: '123', decision: 'approve' });
+  const replay = await cli('call', 'example.com.review', '--context', context.contextId, '--args', JSON.stringify({ id: '123', decision: 'approve' }));
+  expect(replay.code).toBe(4);
+  expect(calls).toHaveLength(1);
+}, 90000);
 it('allows a second real CLI call after an envelope preparation receipt and blocks a third dispatched write', async () => {
   const args = JSON.stringify({ key: 'prepare-once', body: 'Example text' });
   const first = await cli('call', 'example.com.edit', '--new-context', '--args', args);
@@ -96,7 +118,7 @@ it('persists an automatic UUID across real CLI processes, opens the displayed se
   const decision = JSON.parse(routed.stdout);
   expect(decision.kind).toBe('resolved'); expect(decision.steps[0].args).toEqual({ key: 'a' });
   const step = decision.steps[0];
-  const selected = await cli('call', step.tool, '--context', source.contextId, '--decision', decision.decisionId, '--step', step.stepId,
+  const selected = await cli('call', step.tool, '--context', source.contextId, '--context-decision', decision.decisionId, '--context-step', step.stepId,
     '--args', JSON.stringify(step.args), '--output-format=json');
   expect(selected.code, selected.stderr).toBe(0);
   expect(JSON.parse(selected.stdout).key).toBe('a'); expect(receipt(selected).toolOutcome).toBe('read_success');

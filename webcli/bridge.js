@@ -2488,6 +2488,17 @@ export class WebSocketBridge extends EventEmitter {
     // navigation. Bind that exact tab and skip a global check that could select
     // an older business tab in the same Profile.
     const observedLogin = observation?.state === 'login';
+    if (!observedLogin) {
+      // Opening a business page is not evidence that authentication is needed.
+      // Missing/failed checks must not start a login flow or claim logged-out.
+      const current = await this._siteLogin().check(adapter).catch(() => null);
+      if (current?.logged_in !== false) {
+        return {
+          ...opened,
+          auth: { site: adapter, status: current?.logged_in === true ? 'already_logged_in' : 'unverified', flowActive: false },
+        };
+      }
+    }
     const auth = await this._siteLogin().login(adapter, {
       waitMs: 0,
       ...(observedLogin ? {
