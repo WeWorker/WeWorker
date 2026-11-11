@@ -48,12 +48,28 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
+it('guides first-time users to send the binding code and keeps it out of the greeting', async () => {
+  const greeting = createDefaultWecomProfile(identity).welcomeText()
+  expect(greeting).toContain('设置 → 通道 → 企业微信')
+  expect(greeting).toContain('私聊发送该绑定码即可自动绑定主人')
+  expect(greeting).toContain('已绑定后，直接发送任务即可')
+  expect(greeting).toContain('/new')
+  expect(greeting).toContain('/stop')
+  expect(greeting).not.toMatch(/\/myid|\/id/)
+  expect(greeting).not.toContain(fixture.state.channels.wecom.pairing_code)
+  const bot = connection()
+  await bot.send(fixture.state.channels.wecom.pairing_code ?? '')
+  expect(fixture.state.channels.wecom.owner_user_id).toBe('fixture-owner')
+  expect(bot.replies[0]).toContain('绑定成功')
+  expect(fixture.turns).not.toHaveBeenCalled()
+})
+
 it('binds the authenticated sender, consumes the code and records a notification target without an AI turn', async () => {
   const bot = connection()
   const code = fixture.state.channels.wecom.pairing_code
   await bot.send(`绑定 ${code}`, 'fixture-owner')
-  expect(fixture.state.channels.wecom).toMatchObject({ owner_user_id: 'fixture-owner', pairing_code: '' })
-  expect(fixture.state.channel_configurations![profileId].config).toMatchObject({ owner_user_id: 'fixture-owner', pairing_code: '' })
+  expect(fixture.state.channels.wecom).toMatchObject({ owner_user_id: 'fixture-owner', owner_permission_level: 'full', pairing_code: '' })
+  expect(fixture.state.channel_configurations![profileId].config).toMatchObject({ owner_user_id: 'fixture-owner', owner_permission_level: 'full', pairing_code: '' })
   expect(bot.replies[0]).toContain('绑定成功')
   expect(fixture.turns).not.toHaveBeenCalled()
   expect(fixture.notifications).toEqual([['wecom', 'fixture-owner', { chat_type: '1', user_id: 'fixture-owner' }]])
