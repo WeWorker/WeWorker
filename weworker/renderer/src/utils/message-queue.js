@@ -47,27 +47,17 @@ export function createMessageQueue(handlers = {}) {
     if (nextId && !items.some(item => item.id === nextId)) return
     let settle
     transition = new Promise(resolve => { settle = resolve })
-    const previousPause = pausedReason
     pausedReason = nextId ? '正在发送补充指令' : '正在停止当前回复'
     publish()
     const current = active
     const external = handlers.isExternalRunning?.()
     try {
-      if ((current || external) && nextId) {
-        const selected = items.find(item => item.id === nextId)
-        try { await handlers.steer(selected) }
-        catch (error) {
-          // The stream can acknowledge delivery before the POST response is lost.
-          if (items.some(item => item.id === nextId)) throw error
-        }
-        items = items.filter(item => item.id !== nextId)
-        if (editingId === nextId) editingId = null
-        if (!current?.result || current.result.status === 'completed') pausedReason = previousPause
-        return
-      }
       if (current || external) {
-        await handlers.stop?.()
+        if (!handlers.stop) throw new Error('无法停止当前回复，排队消息已保留')
+        await handlers.stop()
         if (current) await current.done
+        // Drain the old stream before loading its persisted interruption point.
+        if (!disposed) await handlers.afterStop?.()
       }
       if (disposed) return
       if (nextId) {

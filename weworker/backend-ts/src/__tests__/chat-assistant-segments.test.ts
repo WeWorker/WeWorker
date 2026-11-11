@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
+import ts from 'typescript'
+import { createChatTurnRegistry } from '../chat-turn-lifecycle.js'
+import { requestUserChoice, hasPendingAskUser } from '../ask-user-pending.js'
 import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatSession, PromptQueue } from '../chat-session.js'
@@ -18,6 +22,49 @@ const entry = (message: Store.Message) => ({ id: message.id, role: message.role,
 
 describe('assistant segments around steering', () => {
   beforeEach(() => { store._initTestDb() })
+  it('persists trailing text and completed results before acknowledging interruption', async () => {
+    const work = store.createWork('Fixture')
+    store.appendMessage(work.id, 'user', [{ type: 'text', text: 'original goal' }])
+    const content: Store.ContentBlock[] = [
+      { type: 'text', text: 'earlier answer' },
+      { type: 'tool_use', id: 'completed', name: 'Read', args: {}, status: 'done', result: 'keep completed result' },
+      { type: 'tool_use', id: 'pending', name: 'Read', args: {}, status: 'running' },
+    ]
+    const segments = createAssistantSegments(work.id, content)
+    segments.checkpoint()
+    const registry = createChatTurnRegistry()
+    const turn = registry.start(work.id)!
+    const choice = requestUserChoice({ workId: work.id, toolCallId: 'pending', question: 'Old question', options: [], onChoice() {}, signal: turn.controller.signal })
+    const stopping = registry.stop(work.id)
+    expect(turn.controller.signal.aborted).toBe(true)
+    expect(await choice).toBe('用户取消了本次操作')
+    expect(hasPendingAskUser(work.id)).toBe(false)
+    expect(registry.start(work.id)).toBeNull()
+
+    const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
+    const flushStart = source.indexOf('  const flushText = () => {')
+    const flushEnd = source.indexOf('  chatSteeringListeners.set(', flushStart)
+    const finalizeStart = source.indexOf('  // Finalize text', flushEnd)
+    const finalizeEnd = source.indexOf('  // No automatic memory processing', finalizeStart)
+    const scope = vm.createContext({ assistantContent: content, currentText: 'trailing partial answer', segments,
+      turnSucceeded: false, observation: undefined, abortController: turn.controller,
+      turnTimingResult: { totalMs: 1, llmMs: 1, execMs: 0, steps: 1 },
+      turnTiming: { remainingModelMs: () => 1000 }, stepIndex: 1,
+    })
+    vm.runInContext(ts.transpileModule(source.slice(flushStart, flushEnd) + source.slice(finalizeStart, finalizeEnd), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    }).outputText, scope)
+    turn.finish()
+    expect(await stopping).toBe('stopped')
+    store.appendMessage(work.id, 'user', [{ type: 'text', text: 'correction' }])
+    const messages = store.getWorkWithMessages(work.id)!.messages
+    expect(messages.map(message => message.role)).toEqual(['user', 'assistant', 'assistant', 'user'])
+    const blocks = messages.flatMap(message => message.content)
+    expect(blocks).toContainEqual(expect.objectContaining({ type: 'text', text: 'earlier answer' }))
+    expect(blocks).toContainEqual(expect.objectContaining({ type: 'text', text: 'trailing partial answer' }))
+    expect(blocks).toContainEqual(expect.objectContaining({ id: 'completed', result: 'keep completed result', status: 'done' }))
+    expect(blocks).toContainEqual(expect.objectContaining({ id: 'pending', status: 'cancelled' }))
+  })
   it('appends steering inputs and late tool updates to the same file without replacing earlier entries', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'steering-log-'))
     configureWorkLogs(directory)

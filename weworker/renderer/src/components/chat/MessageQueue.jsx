@@ -40,7 +40,7 @@ export default function MessageQueue({ state, controller, disabled = false }) {
             {item.files.length > 0 && <div className="message-queue__files">{item.files.map((file, fileIndex) => <span key={fileIndex} title={file.name}>📎 {file.name}</span>)}</div>}
           </div>
           {state.editingId !== item.id && <div className="workspace-toolbar__actions message-queue__actions">
-            <button className="workspace-toolbar__button" type="button" disabled={locked} title="立即发送：作为补充指令接入当前执行，不中断工具" aria-label={'立即发送第 ' + (index + 1) + ' 条消息'} onClick={() => { void controller.sendNow(item.id).catch(() => {}) }}>
+            <button className="workspace-toolbar__button" type="button" disabled={locked} title="立即发送：停止当前回复，保留上下文并发送此消息" aria-label={'立即发送第 ' + (index + 1) + ' 条消息'} onClick={() => { void controller.sendNow(item.id).catch(() => {}) }}>
               <Send size={16} className="message-queue__send-icon" aria-hidden="true" />
             </button>
             <button className="workspace-toolbar__button" type="button" disabled={locked} title="编辑" aria-label={'编辑第 ' + (index + 1) + ' 条消息'} onClick={() => controller.beginEdit(item.id)}><EditOutlined /></button>
