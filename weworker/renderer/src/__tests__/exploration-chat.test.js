@@ -59,6 +59,22 @@ test('composer renders the main chat send icon and lower-right controls without 
   assert.doesNotMatch(html, />暂停<|>继续</)
   assert.doesNotMatch(html, /取消本次探索|>取消</)
 })
+
+test('browser confirmation offers opening the browser and continuing without a typed message', () => {
+  const html = renderToStaticMarkup(React.createElement(components.BrowserConfirmation, {
+    issue: { type: 'browser_confirmation_required', message: '浏览器需要确认，探索已暂停。' },
+    disabled: false, onOpen() {}, onContinue() {},
+  }))
+  assert.match(html, /需要在浏览器中确认/)
+  assert.match(html, /打开浏览器/)
+  assert.match(html, /已处理，继续探索/)
+  assert.doesNotMatch(html, /wx-error|trajectory\.json|ERR_BLOCKED_BY_CLIENT|disabled/)
+  const disabled = renderToStaticMarkup(React.createElement(components.BrowserConfirmation, {
+    issue: { type: 'browser_confirmation_required' }, disabled: true,
+  }))
+  assert.equal((disabled.match(/disabled/g) || []).length, 2)
+  assert.equal(renderToStaticMarkup(React.createElement(components.BrowserConfirmation, { issue: { type: 'failed' } })), '')
+})
 test('replay is hidden unless an existing replay needs to be stopped', () => {
   const empty = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls(undefined) }))
   assert.equal(empty, '')

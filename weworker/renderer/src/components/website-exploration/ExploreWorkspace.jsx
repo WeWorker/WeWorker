@@ -196,6 +196,16 @@ export function CompletionQuestion({ submitted = false, developing = false, deve
   </div>
 }
 
+export function BrowserConfirmation({ issue, disabled, onOpen, onContinue }) {
+  if (issue?.type !== 'browser_confirmation_required') return null
+  return <article className="wx-chat-message wx-chat-assistant" role="status">
+    <h3>需要在浏览器中确认</h3>
+    <p>{issue.message}</p>
+    <button type="button" className="wx-quiet" disabled={disabled} onClick={onOpen}>打开浏览器</button>
+    <button type="button" className="wx-quiet" disabled={disabled} onClick={onContinue}>已处理，继续探索</button>
+  </article>
+}
+
 function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelReady, onBusyChange }) {
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
   const [historyWorkId, setHistoryWorkId] = useState(null)
@@ -257,7 +267,11 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
       {development && <div className="wx-development-transition" role="status">{needsStart ? '网站适配器生成已准备，尚未发送。' : '网站适配器生成'}</div>}
       {needsStart && <button type="button" className="wx-quiet" disabled={transferBusy} onClick={() => transferAction.run(() => startDevelopmentSession(development))}>继续生成网站适配器</button>}
       {rounds.length > 0 && (!development || rounds.length > 1 || historyWorkId) && <details className="wx-development-rounds"><summary>网站适配器生成（{rounds.length}）</summary>{rounds.map((round, index) => <button key={round.work.id} type="button" className="wx-quiet" onClick={() => setHistoryWorkId(round.work.id)} aria-pressed={development?.work.id === round.work.id}>第 {index + 1} 次生成</button>)}{historyWorkId && <button type="button" className="wx-quiet" onClick={() => setHistoryWorkId(null)}>返回当前探索</button>}</details>}
-      {data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'} role="status">{data.active_issue.message}</p>}
+      {data.active_issue?.type === 'browser_confirmation_required'
+        ? <BrowserConfirmation issue={data.active_issue} disabled={!controls.canSend}
+          onOpen={() => action.run(() => api.openExplorationBrowser(id))}
+          onContinue={() => sendMessage(prompt.trim() || '我已处理浏览器提示，网站可以正常打开，请继续探索。')} />
+        : data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'} role="status">{data.active_issue.message}</p>}
       {replayId && <div className="wx-replay-status" role="status">回放 <Status value={replay.data?.status} /></div>}
       <ErrorMessage>{snapshot.error || messageAction.error || action.error || transferAction.error || replay.error || replayAction.error}</ErrorMessage>
     </>

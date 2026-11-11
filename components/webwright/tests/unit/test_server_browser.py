@@ -42,6 +42,33 @@ def test_managed_status_and_tabs_do_not_start_browser(monkeypatch):
     assert calls == ["status", "status"]
 
 
+@pytest.mark.parametrize("instance,exists,expected", [
+    ("owned-browser", True, None),
+    ("new-browser", True, "浏览器已重启"),
+    ("owned-browser", False, "原探索页面已关闭"),
+])
+def test_confirmation_activation_checks_instance_and_page(monkeypatch, instance, exists, expected):
+    calls = []
+    class Control:
+        descriptor = {"instanceId": instance}
+        http_url = "http://127.0.0.1:9222"
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def acquire(self, **kwargs): calls.append("acquire")
+        def claim(self, target): calls.append(("claim", target))
+    monkeypatch.setenv("WEWORKER_BROWSER_MANAGED", "1")
+    monkeypatch.setattr(browser, "ManagedBrowser", Control)
+    monkeypatch.setattr(browser, "find_target_by_id", lambda *_: {"id": "owned-page"} if exists else None)
+    monkeypatch.setattr(browser, "activate_target", lambda *_: calls.append("activate"))
+    if expected:
+        with pytest.raises(ValueError, match=expected):
+            browser.browser_activate(target_id="owned-page", expected_instance_id="owned-browser")
+        assert "activate" not in calls
+    else:
+        browser.browser_activate(target_id="owned-page", expected_instance_id="owned-browser")
+        assert calls == ["acquire", ("claim", "owned-page"), "activate"]
+
+
 def test_normalize_page_url_preserves_page_identity() -> None:
     assert normalize_page_url("HTTPS://Example.COM:443") == "https://example.com/"
     assert (

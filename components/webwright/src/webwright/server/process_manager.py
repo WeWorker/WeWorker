@@ -882,10 +882,14 @@ class ProcessManager:
             has_trajectory = trajectory_path.is_file()
             restart_before_first_step = (
                 not has_trajectory and task.get("activity_type") == "exploration"
-                and status == TaskStatus.CANCELLED.value
+                and (
+                    status in {TaskStatus.CANCELLED.value, TaskStatus.FAILED.value}
+                    or (status == TaskStatus.WAITING_FOR_USER.value
+                        and task.get("error_code") == "navigation_blocked_by_client")
+                )
             )
             if not has_trajectory and not restart_before_first_step:
-                raise InvalidStateError("Task has no trajectory.json to resume from.")
+                raise InvalidStateError("探索记录暂不可用，请新建探索后重试。")
             model_config_file, model_overrides, env_extra = self._resolve_model()
             run_id = make_run_id()
             self._clear_control(task_id)
@@ -923,6 +927,15 @@ class ProcessManager:
                     item for item in prior_spec["config_spec"]
                     if item.startswith("environment.allowed_domains=")
                 )
+                if task.get("error_code") == "navigation_blocked_by_client":
+                    attention = try_read_json(output_dir / "browser_attention.json") or {}
+                    if attention.get("target_id"):
+                        spec.update(target_id="", resume_target_id=attention["target_id"])
+                        spec["config_spec"].append("environment.resume_existing_page=true")
+                    if attention.get("browser_instance_id"):
+                        spec["config_spec"].append(
+                            f"environment.expected_browser_instance_id={attention['browser_instance_id']}"
+                        )
             atomic_write_json(self.store.spec_path(task_id), spec)
             process = self._spawn(
                 self.launcher.worker_command(
@@ -1646,6 +1659,10 @@ class ProcessManager:
             error = child_error.get("error") or f"Child process exited with code {returncode}."
             error_code = child_error.get("error_code") or "worker_crashed"
             error_stage = child_error.get("error_stage") or "worker"
+            if (task.get("activity_type") == "exploration"
+                    and error_code == "navigation_blocked_by_client"
+                    and error_stage == "initial_navigation"):
+                mapped_status = TaskStatus.WAITING_FOR_USER.value
         elif agent_exit_status is not None:
             mapped_status = AGENT_EXIT_TO_TASK_STATUS[agent_exit_status]
             error = AGENT_EXIT_ERROR_MESSAGES.get(agent_exit_status, "")
@@ -1656,6 +1673,8 @@ class ProcessManager:
 
         summary = task_artifact_summary(task_id, output_dir)
         runtime_state = environment_runtime_state(output_dir)
+        if error_code == "navigation_blocked_by_client" and error_stage == "initial_navigation":
+            runtime_state = try_read_json(output_dir / "browser_attention.json") or runtime_state
         active_target_id = str(runtime_state.get("target_id", "") or "") or str(
             task.get("active_target_id", "") or ""
         )

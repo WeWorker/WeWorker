@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
+import { runInNewContext } from 'node:vm'
 import {
   BROWSER_INSTANCE_STORAGE_KEY,
   BrowserHost,
@@ -12,6 +13,7 @@ import {
   OFFSCREEN_POSITION,
   browserExecutableCandidates,
   buildBrowserArgs,
+  configureHttpNavigation,
   createCdpPipe,
   discoverCdpEndpoint,
   extensionBuildDigest,
@@ -28,6 +30,55 @@ import {
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-browser-test-'))
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test.each([
+  ['generated.https_first_mode_enabled', 'NUMBER', 2, 0],
+  ['generated.https_first_mode_enabled', 'NUMBER', 3, 0],
+  ['https_only_mode_enabled', 'BOOLEAN', true, false],
+])('HTTP navigation disables an existing %s setting (%s, %s)', async (key, type, initial, expected) => {
+  const pref = { key, type, value: initial }
+  const commands = []
+  const cdp = { async send(method, params) {
+    commands.push([method, params])
+    if (method === 'Target.createTarget') return { targetId: 'settings-owned' }
+    if (method === 'Target.attachToTarget') return { sessionId: 'settings-session' }
+    if (method === 'Runtime.evaluate') {
+      const value = await runInNewContext(params.expression, { chrome: { settingsPrivate: {
+        getAllPrefs: callback => callback([pref, { key: 'safebrowsing.enabled', value: true }]),
+        setPref: (name, value, page, callback) => { assert.equal(name, key); pref.value = value; callback(true) },
+        getPref: (name, callback) => callback(pref),
+      } } })
+      return { result: { value } }
+    }
+    return {}
+  } }
+  assert.equal((await configureHttpNavigation(cdp)).configured, true)
+  assert.equal(pref.value, expected)
+  assert.deepEqual(commands.at(-1), ['Target.closeTarget', { targetId: 'settings-owned' }])
+})
+
+test.each(['policy', 'unsupported', 'not-ready', 'transport'])('HTTP configuration preserves startup fallback on %s', async reason => {
+  let writes = 0
+  const commands = []
+  const cdp = { async send(method, params) {
+    commands.push([method, params])
+    if (method === 'Target.createTarget') return { targetId: 'settings-owned' }
+    if (method === 'Target.attachToTarget') return { sessionId: 'settings-session' }
+    if (method === 'Runtime.evaluate') {
+      if (reason === 'transport') throw new Error('Settings unavailable')
+      const prefs = reason === 'unsupported' ? [] : [{ key: 'generated.https_first_mode_enabled', type: 'NUMBER', value: 2, enforcement: 'ENFORCED' }]
+      const value = await runInNewContext(params.expression, { chrome: reason === 'not-ready' ? {} : { settingsPrivate: {
+        getAllPrefs: callback => callback(prefs), setPref: () => { writes++ },
+      } } })
+      return { result: { value } }
+    }
+    return {}
+  } }
+  if (reason === 'transport') await assert.rejects(configureHttpNavigation(cdp), /Settings unavailable/)
+  else assert.equal((await configureHttpNavigation(cdp, { timeoutMs: 0 })).configured, false)
+  assert.equal(writes, 0)
+  assert.deepEqual(commands.at(-1), ['Target.closeTarget', { targetId: 'settings-owned' }])
+})
 
 test('CDP discovery rejects a stale file pointing at a different live browser', async () => {
   const { createServer } = await import('node:http')
@@ -120,7 +171,7 @@ function fakeBrowser({ handlers = {}, exitOnLaunch = null, bounds = { left: OFFS
       { targetId: 'sw-1', type: 'service_worker', url: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop/background/service-worker.js' },
     ] }),
     'Target.attachToTarget': () => ({ sessionId: 'session-1' }),
-    'Runtime.evaluate': () => ({ result: { type: 'string', value: 'ok' } }),
+    'Runtime.evaluate': (params) => ({ result: { value: params.expression.includes('api.getAllPrefs') ? { configured: true } : 'ok' } }),
   }
   const respond = (message) => {
     setImmediate(() => {
@@ -223,6 +274,14 @@ test('launch flags keep navigator.webdriver false despite the CDP pipe', () => {
   assert.equal(args.some((arg) => arg === '--enable-automation' || arg.startsWith('--headless')), false)
 })
 
+test('HTTP navigation suppresses automatic prompts without disabling TLS verification', () => {
+  const args = buildBrowserArgs({ userDataDir: '/fixture/profile' })
+  const disabled = args.find(arg => arg.startsWith('--disable-features='))
+  assert.match(disabled, /HttpsFirstBalancedModeAutoEnable/)
+  assert.match(disabled, /HttpsFirstModeV2ForTypicallySecureUsers/)
+  assert.equal(args.some(arg => /^--(ignore-certificate-errors|disable-web-security|unsafely-treat-insecure-origin-as-secure)/.test(arg)), false)
+})
+
 test('the instance token is stable for a profile and replaced when invalid', () => {
   const dir = tempDir()
   const first = loadInstanceToken(dir)
@@ -294,10 +353,10 @@ test('starts the browser off-screen with the extension and its instance marker, 
   assert.deepEqual(spawnOptions.stdio, ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'])
   assert.equal(spawnOptions.detached, false)
   assert.ok(args.some((arg) => arg.startsWith('--user-data-dir=') && arg.endsWith('profile')))
-  assert.deepEqual(browser.methods().slice(0, 3), ['Browser.getVersion', 'Extensions.loadUnpacked', 'Target.createTarget'])
+  assert.ok(browser.methods().indexOf('Target.closeTarget') < browser.methods().indexOf('Extensions.loadUnpacked'))
   assert.deepEqual(browser.requests.find((r) => r.method === 'Extensions.loadUnpacked').params, { path: 'C:/weworker-fixtures/extension' })
   assert.equal(browser.requests.find((r) => r.method === 'Target.createTarget').params.background, true)
-  const marker = browser.requests.find((r) => r.method === 'Runtime.evaluate')
+  const marker = browser.requests.find((r) => r.method === 'Runtime.evaluate' && r.params.expression.includes('fixture-instance-token'))
   assert.equal(marker.sessionId, 'session-1')
   assert.match(marker.params.expression, /fixture-instance-token-0123456789abcdef/)
 
@@ -316,6 +375,7 @@ function storageHandlers(stored) {
     evaluated,
     'Runtime.evaluate': (params) => {
       evaluated.push(params.expression)
+      if (params.expression.includes('api.getAllPrefs')) return { result: { value: { configured: true } } }
       if (params.expression.includes('chrome.storage.local.get(null)')) return { result: { type: 'string', value: JSON.stringify(stored) } }
       return { result: { type: 'string', value: 'ok' } }
     },
@@ -329,7 +389,7 @@ test('a changed extension build is reinstalled once, keeping its local storage',
   const { instance } = manager({ browserHome, browsers: [first], overrides: { extensionDigest: () => 'build-1' } })
   await instance.start()
   // Chrome keeps the worker it registered first; only a reinstall picks up new files.
-  assert.deepEqual(first.methods().slice(0, 4), ['Browser.getVersion', 'Extensions.loadUnpacked', 'Target.getTargets', 'Target.attachToTarget'])
+  assert.ok(first.methods().indexOf('Target.closeTarget') < first.methods().indexOf('Extensions.loadUnpacked'))
   assert.ok(first.methods().indexOf('Extensions.uninstall') < first.methods().lastIndexOf('Extensions.loadUnpacked'))
   assert.equal(first.methods().filter((method) => method === 'Extensions.loadUnpacked').length, 2)
   assert.ok(handlers.evaluated.some((expression) => expression === 'chrome.storage.local.set({"siteMemories":{"example.com":{"captureCount":2}}}).then(() => \'ok\')'))
