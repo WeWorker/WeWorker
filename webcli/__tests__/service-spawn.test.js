@@ -18,6 +18,7 @@ describe('buildBreakawayPs1', () => {
       applicationName: 'C:\\Program Files\\nodejs\\node.exe',
       cwd: 'C:\\',
     })
+    expect(script).toContain("$ProgressPreference = 'SilentlyContinue'")
     expect(script).toContain('CreateProcess')
     expect(script).toContain('CREATE_BREAKAWAY_FROM_JOB')
     expect(script).toContain('0x01000000')           // CREATE_BREAKAWAY_FROM_JOB

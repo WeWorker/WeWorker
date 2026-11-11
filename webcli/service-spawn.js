@@ -28,7 +28,8 @@ export function buildBreakawayPs1({ cmdline, applicationName, cwd }) {
   const psApp = psQuote(applicationName);
   const psCmdline = psQuote(cmdline);
   const psCwd = psQuote(cwd);
-  return `$ErrorActionPreference = 'Stop'
+  return `$ProgressPreference = 'SilentlyContinue'  # PowerShell 5.1 会把 progress 流以 CLIXML 写入 stderr,污染继承的 service.log
+$ErrorActionPreference = 'Stop'
 $sig = @"
 using System;
 using System.Runtime.InteropServices;
@@ -87,6 +88,8 @@ export async function launchDetachedWindows({ nodeExe, serviceArgs, logFile, env
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   await new Promise((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
+      // daemon(由 CreateProcess 启动)继承本 powershell 的 stdout/stderr = logFd,
+      // 其 [WebCLI] 日志得以写入 service.log。
       stdio: ["ignore", logFd, logFd],
       env: { ...process.env, ...env },
       windowsHide: true,

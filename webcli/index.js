@@ -722,7 +722,7 @@ function resolveLoginWaitMs(seconds) {
 }
 
 const AUTH_EVENT_TEXT = {
-  waiting_user: (e) => `需要登录 ${e.name}：已在 WeWorker 浏览器中打开登录页（支持扫码、短信验证码或账号密码），登录完成后自动继续…${e.screenshot ? `\n  登录页截图（可用于扫码）：${e.screenshot}` : ""}`,
+  waiting_user: (e) => `需要登录 ${e.name}：已在 WeWorker 浏览器中打开登录页（支持扫码、短信验证码或账号密码），登录完成后自动继续…${e.screenshot ? `\n  登录页截图（可用于扫码）：${e.screenshot}` : ""}\n  浏览器窗口默认在屏幕外：运行 webgo browser show（桌面端：左侧栏浏览器图标）把窗口调到屏幕内完成登录；agent 场景可加 --login-wait=0 立即返回提示，登录后重试调用`,
   autologin_started: (e) => `正在自动登录 ${e.name}…`,
   autologin_failed: (e) => `自动登录 ${e.name} 未成功：${e.message || "原因未知"}；请在浏览器中手动完成登录`,
   logged_in: (e) => `已登录 ${e.name}${e.autologin ? "（自动登录）" : ""}，继续执行`,
