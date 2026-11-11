@@ -329,6 +329,27 @@ function isPidRunning(pid) {
   catch { return false; }
 }
 
+/** npm 与 webgo 都是 isolated 发行版(专属端口/状态目录),desktop 不是。 */
+function isIsolatedKind(kind) {
+  return kind === "npm" || kind === "webgo";
+}
+
+/**
+ * schtasks 启动的 daemon 没有父进程写 PID,改为轮询 PID_FILE + 端口确认它已监听。
+ */
+async function waitForOwnBridgeByFile({ timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const pid = await readPid();
+    if (pid && isPidRunning(pid) && await checkPortListening()) {
+      const info = await probeBridgeInstance();
+      if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) return true;
+    }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return false;
+}
+
 function getServiceNodeArgs() {
   const args = [...process.execArgv];
   if (process.allowedNodeEnvironmentFlags?.has("--use-system-ca")
@@ -354,7 +375,7 @@ async function waitForOwnBridge(pid, { timeoutMs = 30_000 } = {}) {
     if (await checkPortListening()) {
       if (INSTANCE.kind !== "npm") return true;
       const info = await probeBridgeInstance();
-      if (info && info.kind === "npm" && info.port === INSTANCE.port) return true;
+      if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) return true;
     }
     await new Promise(r => setTimeout(r, 250));
   }
@@ -373,17 +394,49 @@ async function cmdServiceStart(daemon, report = console.log) {
     }
 
     // A foreign listener must never be adopted as this distribution's service.
-    if (INSTANCE.kind === "npm" && await isPortOccupied()) {
+    if (isIsolatedKind(INSTANCE.kind) && await isPortOccupied()) {
       const info = await probeBridgeInstance();
-      if (info && info.kind === "npm" && info.port === INSTANCE.port) {
+      if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) {
         report(`WebCLI service is already running on ${bridgeUrl(INSTANCE)}`);
         return;
       }
       throw new Error(`Port ${INSTANCE.port} is already in use by a different process; refusing to reuse it`);
     }
 
-    const logFd  = openSync(LOG_FILE, "a");
     const token  = randomUUID().replace(/-/g, "");
+
+    if (process.platform === "win32") {
+      // Windows 上 detached:true 只脱离 console,不脱离父进程 Job Object(如 WorkBuddy),
+      // 命令退出会整树回收。改用 Task Scheduler 启动,daemon 归属调度器,命令退出后仍常驻。
+      const { launchDetachedWindows } = await import("./service-spawn.js");
+      // daemon 经 schtasks 启动不继承父进程 env,显式传 WEBCLI_/WEWORKER_ 关键变量
+      //(distribution、bridge 端口、d3Url、metrics、身份接口等均由 internal 入口注入),
+      // 否则 daemon 回落 desktop 3711,与父进程等待的 webgo 3713 不一致而超时。
+      const env = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (k.startsWith('WEBCLI_') || k.startsWith('WEWORKER_')) env[k] = v;
+      }
+      env.WEBCLI_SERVICE_TOKEN = token;
+      await launchDetachedWindows({
+        nodeExe: process.execPath,
+        serviceArgs: getServiceNodeArgs(),
+        logFile: LOG_FILE,
+        stateDir: getServiceStateDir(),
+        env,
+      });
+      const ready = await waitForOwnBridgeByFile();
+      if (!ready) {
+        throw new Error(`WebCLI service failed to start on ${bridgeUrl(INSTANCE)}`);
+      }
+      report(`✓ WebCLI service started in background`);
+      report(`  Logs:   ${LOG_FILE}`);
+      report(`  Stop:   webcli service stop`);
+      report(`  Status: webcli service status`);
+      return;
+    }
+
+    // POSIX 及非 Job Object 环境:detached + IPC 报告就绪。
+    const logFd  = openSync(LOG_FILE, "a");
     const child  = spawn(process.execPath, getServiceNodeArgs(), {
       detached: true,
       stdio: ["ignore", logFd, logFd, "ipc"],
@@ -410,10 +463,9 @@ async function cmdServiceStart(daemon, report = console.log) {
       pid: child.pid, port: INSTANCE.port, kind: INSTANCE.kind, tokenHash: tokenHash(token),
     }));
 
-    // npm reports success only after its own Bridge is actually listening.
-    // A slow cold start must NOT fail the command: the daemon keeps starting,
-    // and ensureBridgeRunning keeps waiting for it below.
-    if (INSTANCE.kind === "npm") {
+    // npm/webgo 报告成功仅在自有 Bridge 真正监听之后。
+    // 冷启动慢不得令命令失败:daemon 继续启动,下方 ensureBridgeRunning 持续等待。
+    if (isIsolatedKind(INSTANCE.kind)) {
       const ready = await waitForOwnBridge(child.pid);
       if (!ready && !isPidRunning(child.pid)) {
         await unlink(PID_FILE).catch(() => {});
@@ -451,9 +503,9 @@ async function cmdServiceStop() {
     await unlink(OWNER_FILE).catch(() => {});
     return;
   }
-  if (INSTANCE.kind === "npm") {
+  if (isIsolatedKind(INSTANCE.kind)) {
     const owner = await readServiceOwner();
-    if (!owner || owner.pid !== pid || owner.port !== INSTANCE.port || owner.kind !== "npm") {
+    if (!owner || owner.pid !== pid || owner.port !== INSTANCE.port || owner.kind !== INSTANCE.kind) {
       throw new Error(`PID ${pid} is not owned by this npm WebCLI; refusing to stop it`);
     }
   }
@@ -515,7 +567,16 @@ async function runServiceMode() {
     instanceKind: INSTANCE.kind,
     serviceTokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
   });
-  bridge._wss.once('listening', () => { if (process.send) process.send({ type: 'bridge_ready' }); });
+  bridge._wss.once('listening', async () => {
+    if (process.send) process.send({ type: 'bridge_ready' });
+    // schtasks 启动的 daemon 没有父进程替它写 PID/OWNER,这里自己落(幂等,
+    // spawn 场景父进程也写同值,无害)。OWNER 的 tokenHash 用于客户端确认归属。
+    await writeFile(PID_FILE, String(process.pid)).catch(() => {});
+    await writeFile(OWNER_FILE, JSON.stringify({
+      pid: process.pid, port: INSTANCE.port, kind: INSTANCE.kind,
+      tokenHash: tokenHash(process.env.WEBCLI_SERVICE_TOKEN),
+    })).catch(() => {});
+  });
 
   // 初始化埋点上报配置（whoami / clientId / 版本号）；实时上报无需定时器。
   // 仅当 WEBCLI_METRICS_UPLOAD=on 且配置了 endpoint 才启用，失败一律静默。
@@ -864,9 +925,9 @@ async function probeBridgeInstance(timeoutMs = 2000) {
 async function ensureBridgeRunning() {
   const isRunning = await checkPortListening();
   if (isRunning) {
-    if (INSTANCE.kind === "npm") {
+    if (isIsolatedKind(INSTANCE.kind)) {
       const info = await probeBridgeInstance();
-      if (!info || info.kind !== "npm" || info.port !== INSTANCE.port) {
+      if (!info || info.kind !== INSTANCE.kind || info.port !== INSTANCE.port) {
         console.error(`Error: ${bridgeUrl(INSTANCE)} is used by a different service; refusing to attach.`);
         console.error("Stop the other Bridge or free the port, then retry.");
         process.exit(1);
@@ -884,9 +945,9 @@ async function ensureBridgeRunning() {
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 250));
     if (!(await checkPortListening())) continue;
-    if (INSTANCE.kind !== "npm") return;
+    if (!isIsolatedKind(INSTANCE.kind)) return;
     const info = await probeBridgeInstance();
-    if (info && info.kind === "npm" && info.port === INSTANCE.port) return;
+    if (info && info.kind === INSTANCE.kind && info.port === INSTANCE.port) return;
   }
   const pid = await readPid();
   if (pid && isPidRunning(pid)) {
