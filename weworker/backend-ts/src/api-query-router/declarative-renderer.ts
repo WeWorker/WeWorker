@@ -204,6 +204,15 @@ function renderTable(rows: readonly unknown[], schema: RouterRenderSchema): stri
   return lines.join('\n')
 }
 
+/**
+ * 分组查完但零条时的兜底话术。
+ *
+ * 多分组查询要能让用户看出「这一类我们查了，确实没有」——所以空分组**保留标题并写一句「无」**，
+ * 而不是整节消失（消失会让人以为漏查了）。各 schema 可用 `emptyMessage` 写得更具体
+ * （如「当前暂无问题单」）。只有整份都没有数据时才收敛成一句总述，避免一屏十行「无」。
+ */
+export const DEFAULT_SECTION_EMPTY_ANSWER = '无'
+
 function renderSection(
   section: RouterRenderSchema,
   source: unknown,
@@ -213,7 +222,7 @@ function renderSection(
   if (!rows) return null
   const body = rows.length
     ? renderTable(rows, section)
-    : (section.emptyMessage ?? DEFAULT_EMPTY_ANSWER)
+    : (section.emptyMessage ?? DEFAULT_SECTION_EMPTY_ANSWER)
   if (!body) return null
   const heading = section.title ? `### ${section.title}${rows.length ? `（${rows.length} 条）` : ''}\n\n` : ''
   return `${heading}${body}`
@@ -223,8 +232,8 @@ function renderSection(
  * 按 schema 渲染。返回 null 表示「该 schema 不适用于这份返回值」——调用方须回退通用渲染。
  * 永不抛错：任何内部异常都退化为 null。
  *
- * 空结果的两种落法：`sections` 里**没有数据的分组整节跳过**（不堆「无」占位）；
- * 整份都没有数据时用 schema 的 `emptyMessage`（缺省 `DEFAULT_EMPTY_ANSWER`）。
+ * 空结果的两种落法：有数据时，空分组也保留（标题 + 「无」），让用户看到每一类都查过；
+ * 整份都没有数据时收敛成 schema 的 `emptyMessage`（缺省 `DEFAULT_EMPTY_ANSWER`）。
  */
 export function renderFromSchema(
   schema: RouterRenderSchema | undefined,
@@ -237,14 +246,18 @@ export function renderFromSchema(
 
     const parts: string[] = []
     if (Array.isArray(schema.sections) && schema.sections.length) {
+      let anyRows = false
       for (const section of schema.sections) {
         const rows = locateRows(source, section.dataSource)
-        if (!rows || !rows.length) continue
+        // 返回值里根本没有这个分组（接口没带该字段）→ 不显示，这不是「查了没有」。
+        if (!rows) continue
+        if (rows.length) anyRows = true
         const rendered = renderSection(section, source, ctx)
         if (rendered) parts.push(rendered)
       }
-      // 所有分节都没有数据 → 给一句整份的友好话术，而不是返回 null 让上层回退模型。
-      if (!parts.length) {
+      if (!parts.length) return null
+      // 整份都没有数据 → 一句总述，不堆一屏「无」。
+      if (!anyRows) {
         const head = schema.title ? `### ${schema.title}\n\n` : ''
         return `${head}${schema.emptyMessage ?? DEFAULT_EMPTY_ANSWER}`
       }
