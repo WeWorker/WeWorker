@@ -719,7 +719,10 @@ function resolveLoginWaitMs(seconds) {
   if (Number.isFinite(seconds)) return Math.max(0, Math.min(15 * 60, seconds)) * 1000;
   const env = Number(process.env.WEBCLI_LOGIN_WAIT_SECONDS);
   if (Number.isFinite(env)) return Math.max(0, Math.min(15 * 60, env)) * 1000;
-  return process.stdin.isTTY && process.stderr.isTTY ? 300_000 : 0;
+  // 宿主 agent 环境(WorkBuddy 等内置 Node)虽然可能分配 pty(被误判为交互终端),
+  // 但没人盯着本机终端——立即返回登录提示与截图,登录流程后台继续。
+  const isHostAgent = process.execPath.toLowerCase().includes(".workbuddy");
+  return !isHostAgent && process.stdin.isTTY && process.stderr.isTTY ? 300_000 : 0;
 }
 
 const AUTH_EVENT_TEXT = {
