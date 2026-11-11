@@ -81,6 +81,17 @@ describe('managed built-in models', () => {
     expect(resolveBuiltinSettings({ ...saved, active_provider: 'builtin' }, PROVIDERS, {}).api_key).not.toBe('')
   })
 
+  it.each(['openai_responses', 'openai_chat_completions'] as const)('replaces a stale %s protocol when selecting or loading a built-in', staleProtocol => {
+    const patch = activateBuiltinProvider(BUILTIN_PROVIDER, env)
+    expect(patch.active_weworker_protocol).toBe(BUILTIN_PROVIDER.weworker.protocol)
+    const saved = { ...patch, active_weworker_protocol: staleProtocol } as Settings
+    const runtime = resolveBuiltinSettings(saved, PROVIDERS, env)
+    expect(runtime.active_weworker_protocol).toBe(BUILTIN_PROVIDER.weworker.protocol)
+    expect(saved.active_weworker_protocol).toBe(staleProtocol)
+    const custom = { ...saved, active_provider: 'custom' }
+    expect(resolveBuiltinSettings(custom, PROVIDERS, env).active_weworker_protocol).toBe(staleProtocol)
+  })
+
   it('preserves custom settings and independent exploration settings', () => {
     vi.stubEnv('WEWORKER_BUILTIN_API_KEY', env.WEWORKER_BUILTIN_API_KEY)
     const custom = { active_provider: 'custom', api_key: 'fixture-custom-key' } as Settings
