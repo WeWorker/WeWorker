@@ -430,9 +430,7 @@ html.dark .dedicated-agents-sidebar {
 [data-featured-grid].featured-websites-grid::-webkit-scrollbar { display: none; }
 .welcome-home [data-featured-grid].featured-websites-grid { margin-inline: 0; }
 [data-featured-grid].featured-websites-grid > div { flex: 0 0 auto; max-width: min(260px, 100%); }
-[data-featured-grid].featured-websites-list { grid-template-columns: minmax(0, 1fr) !important; gap: 8px !important; }
 .featured-site-card--square,
-.featured-site-card--list,
 .featured-add-website {
   flex-direction: row !important;
   justify-content: flex-start !important;

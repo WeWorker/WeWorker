@@ -1,27 +1,5 @@
 import React from 'react'
 
-export function FourSquaresIcon({ size = 15 }) {
-  const dot = Math.floor((size - 3) / 2)
-  return (
-    <span style={{ display: 'grid', gridTemplateColumns: `repeat(2, ${dot}px)`, gap: 3, width: size, height: size }} aria-hidden="true">
-      {[0, 1, 2, 3].map((i) => (
-        <span key={i} style={{ width: dot, height: dot, borderRadius: 2, border: '1.8px solid currentColor' }} />
-      ))}
-    </span>
-  )
-}
-
-export function ListIcon({ size = 16 }) {
-  return (
-    <span style={{ width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <path d="M8 6h12M8 12h12M8 18h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        <path d="M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      </svg>
-    </span>
-  )
-}
-
 export function ClosePanelIcon({ size = 16 }) {
   return (
     <span style={{ width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
