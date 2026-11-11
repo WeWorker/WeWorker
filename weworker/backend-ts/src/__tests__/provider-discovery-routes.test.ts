@@ -141,15 +141,27 @@ describe('provider discovery API and startup', () => {
     expect(f.updateSettings).not.toHaveBeenCalled()
   })
 
-  it.each([undefined, true, false])('honors the startup discovery switch (%s) and tolerates scanning failures', async enabled => {
+  it.each([undefined, true, false].flatMap(enabled =>
+    ['none', 'recovered', 'error'].map(recovery => ({ enabled, recovery })),
+  ))('honors discovery=$enabled with scheduled task recovery=$recovery', async ({ enabled, recovery }) => {
     const order: string[] = []
+    const recoverInterruptedScheduledTasks = vi.fn(() => {
+      order.push('recover')
+      if (recovery === 'error') throw new Error('fixture recovery failure')
+      return recovery === 'recovered' ? { failed: 3, pruned: 3 } : { failed: 0, pruned: 0 }
+    })
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const context = vm.createContext({
       initSettings: async () => order.push('init'),
       detectLocalProviders: async () => { order.push('detect'); throw new Error('fixture failure') },
-      store: { ensureScheduledTaskHistoryProject: () => ({ project: null }) }, getSettings: () => ({ model_discovery_enabled: enabled }),
+      store: {
+        recoverInterruptedScheduledTasks,
+        ensureScheduledTaskHistoryProject: () => { order.push('history'); return { project: null } },
+      },
+      getSettings: () => ({ model_discovery_enabled: enabled, scheduled_task_history_limit: 50 }),
       startConfiguredChannels: async () => order.push('channels'),
       app: { listen: (_port: unknown, _host: unknown, callback: () => void) => { order.push('listen'); callback() } },
-      PORT: 0, log: { info: vi.fn() }, scheduler: { start: () => order.push('scheduler') },
+      PORT: 0, log, scheduler: { start: () => order.push('scheduler') },
     })
     const from = source.indexOf('async function bootstrap():')
     const to = source.indexOf('\nbootstrap().catch', from)
@@ -157,6 +169,22 @@ describe('provider discovery API and startup', () => {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
     }).outputText, context)
     await context.bootstrap()
-    expect(order).toEqual(enabled === false ? ['init', 'channels', 'listen', 'scheduler'] : ['init', 'detect', 'channels', 'listen', 'scheduler'])
+    expect(order).toEqual([
+      'init', ...(enabled === false ? [] : ['detect']),
+      'recover', 'history', 'channels', 'listen', 'scheduler',
+    ])
+    expect(recoverInterruptedScheduledTasks).toHaveBeenCalledExactlyOnceWith(50)
+    if (recovery === 'recovered') {
+      expect(log.warn).toHaveBeenCalledExactlyOnceWith('scheduled task recovery', {
+        interrupted_executions: 3, pruned_conversations: 3,
+      })
+    } else {
+      expect(log.warn).not.toHaveBeenCalled()
+    }
+    if (recovery === 'error') {
+      expect(log.error).toHaveBeenCalledExactlyOnceWith('scheduled task recovery failed', expect.stringContaining('fixture recovery failure'))
+    } else {
+      expect(log.error).not.toHaveBeenCalled()
+    }
   })
 })

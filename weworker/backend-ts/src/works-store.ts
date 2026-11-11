@@ -867,6 +867,25 @@ export function updateTaskExecution(
     .run(...values)
 }
 
+/**
+ * 应用重启后，上一进程遗留的 pending/running 执行永远不会有结果；它们会让
+ * 「定时任务」项目里的会话被认为“仍在运行”，从而永远不被历史清理删除。
+ * 启动时把它们标记为失败，并按上限清理一次。
+ */
+export function failInterruptedTaskExecutions(reason = '应用重启中断，本次执行未完成'): number {
+  const result = db().prepare(
+    "UPDATE task_executions SET status = 'failed', error_message = ?, completed_at = ? WHERE status IN ('pending', 'running')",
+  ).run(reason, new Date().toISOString())
+  return Number(result.changes ?? 0)
+}
+
+export function recoverInterruptedScheduledTasks(limit: number): { failed: number; pruned: number } {
+  const failed = failInterruptedTaskExecutions()
+  const project = db().prepare('SELECT id FROM projects WHERE name = ?').get(SCHEDULED_TASK_PROJECT_NAME) as { id: string } | undefined
+  const pruned = project ? pruneScheduledTaskWorks(project.id, limit).length : 0
+  return { failed, pruned }
+}
+
 export function listTaskExecutions(taskId: string): TaskExecution[] {
   const rows = db()
     .prepare('SELECT * FROM task_executions WHERE task_id = ? ORDER BY started_at DESC')
