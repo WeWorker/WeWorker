@@ -3,10 +3,62 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 from webwright.agents.default import DefaultAgent
 from webwright.exceptions import FormatError
 from webwright.server.status import AgentExitStatus
+
+
+def test_agent_stops_and_persists_arbitrary_intervention_without_executing(tmp_path):
+    from webwright.server.artifacts import waiting_intervention
+
+    request = {"reason": "ambiguous_project", "message": "请选择目标项目。", "mode": "input"}
+    model = ControlModel()
+    model.query = Mock(return_value=model.format_message(
+        role="assistant", content="Cannot choose for the user",
+        extra={"actions": [], "done": False, "final_response": "", "user_intervention": request},
+    ))
+    env = ControlEnv()
+    env.execute = Mock(side_effect=AssertionError("must not execute while requesting help"))
+    agent = DefaultAgent(model, env, system_template="System", instance_template="Task: {{ task }}",
+                         output_path=tmp_path / "trajectory.json", checkpoint_path=tmp_path / "checkpoint.json")
+    result = agent.run("Select the project")
+    assert result["exit_status"] == AgentExitStatus.PAUSED.value
+    assert result["final_response"] == ""
+    assert model.query.call_count == 1
+    env.execute.assert_not_called()
+    assert waiting_intervention(tmp_path) == request
+    assert json.loads((tmp_path / "checkpoint.json").read_text())["phase"] == "waiting_for_user"
+    # The requested question remains in the model context after removing the
+    # exit record, so a short user reply can be interpreted correctly.
+    prior = json.loads((tmp_path / "trajectory.json").read_text(encoding="utf-8"))
+    from webwright.utils.trajectory import build_resume_state
+    model.query.reset_mock()
+    result = agent.resume(prior_state=build_resume_state(prior), followup="Project A")
+    assert result["exit_status"] == AgentExitStatus.PAUSED.value
+    assert model.query.call_count == 1
+    messages = model.query.call_args.args[0]
+    prior_request = next(message for message in messages if message["role"] == "assistant")
+    assert json.loads(prior_request["content"])["user_intervention"] == request
+    assert agent.n_calls == 2
+    env.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("conflict", [{"actions": [{"python_code": "print('unsafe')"}]}, {"done": True}])
+def test_agent_never_executes_conflicting_intervention(conflict):
+    model = ControlModel()
+    env = ControlEnv()
+    env.execute = Mock(side_effect=AssertionError("must not execute"))
+    agent = DefaultAgent(model, env, system_template="System", instance_template="Task")
+    message = model.format_message(role="assistant", extra={
+        "user_intervention": {"reason": "other", "message": "Help", "mode": "either"}, **conflict,
+    })
+    with pytest.raises(FormatError):
+        agent.execute_actions(message)
+    env.execute.assert_not_called()
 
 
 class ControlModel:

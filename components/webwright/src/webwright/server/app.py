@@ -23,6 +23,7 @@ from webwright.resources import BundledResources
 from webwright.runtime_identity import RuntimeIdentity
 from webwright.runtime_launcher import RuntimeLauncher
 from webwright.server.artifacts import (
+    environment_runtime_state,
     read_messages,
     read_script,
     read_steps,
@@ -221,7 +222,7 @@ Base URL: `{base_url}`
 ## Browser
 
 - `GET /api/browser/status` - check whether `http://127.0.0.1:9222` is reachable; tasks may auto-start Chrome/Edge.
-- `POST /api/browser/open` - open or focus the WeWorker browser. Optional body: `{{"url":"https://example.com/"}}` opens or reuses that exact page; `{{"exploration_id":"exp_example"}}` focuses the original page of an Exploration waiting for browser confirmation.
+- `POST /api/browser/open` - open or focus the WeWorker browser. Optional body: `{{"url":"https://example.com/"}}` opens or reuses that exact page; `{{"exploration_id":"exp_example"}}` focuses the original page of an Exploration waiting for human intervention.
 - `GET /api/browser/match?url=https://example.com` - find the first exact open tab for a URL.
 - `GET /api/browser/tabs` - list CDP page targets.
 
@@ -389,6 +390,9 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
             "message": (view["error"] if view["error_code"] == "navigation_blocked_by_client"
                         else "请在 WeWorker 浏览器中完成所需操作，然后输入指令继续探索。"),
         }
+        intervention = task.get("user_intervention")
+        if isinstance(intervention, dict):
+            active_issue = {"type": "user_takeover_required", **intervention}
     elif status == TaskStatus.FAILED.value:
         active_issue = {
             "type": "failed",
@@ -474,6 +478,7 @@ def _exploration_timeline(
     append_turns(0)
     for step in sorted(steps, key=lambda item: int(item.get("step") or 0)):
         step_number = int(step.get("step") or 0)
+        intervention = step.get("user_intervention") or {}
         items.append(
             {
                 "id": f"step_{step_number}",
@@ -481,7 +486,7 @@ def _exploration_timeline(
                 "step": step_number,
                 "status": step.get("status", ""),
                 "done": bool(step.get("done", False)),
-                "thought": str(step.get("thought") or ""),
+                "thought": str(intervention.get("message") or step.get("thought") or ""),
                 "code": str(step.get("code") or ""),
                 "observation": _timeline_observation(step),
             }
@@ -749,16 +754,18 @@ def create_app(
             payload = _request_json()
             if payload.get("exploration_id"):
                 task = task_store.read_exploration(str(payload["exploration_id"]))
-                if (task.get("status") != TaskStatus.WAITING_FOR_USER.value
-                        or task.get("error_code") != "navigation_blocked_by_client"):
-                    raise InvalidStateError("当前探索无需浏览器确认。")
-                attention = try_read_json(Path(task["output_dir"]) / "browser_attention.json") or {}
+                if task.get("status") != TaskStatus.WAITING_FOR_USER.value:
+                    raise InvalidStateError("当前探索未在等待人工处理。")
+                output_dir = Path(task["output_dir"])
+                attention = (try_read_json(output_dir / "browser_attention.json") or {}
+                             if task.get("error_code") == "navigation_blocked_by_client"
+                             else environment_runtime_state(output_dir))
                 target_id = str(attention.get("target_id") or task.get("active_target_id") or "")
                 if target_id:
                     browser_activate(app.config["WEBWRIGHT_CDP_URL"], target_id,
                                      str(attention.get("browser_instance_id") or ""))
                     return jsonify({"available": True})
-                return jsonify(browser_open(app.config["WEBWRIGHT_CDP_URL"], str(task["start_url"])))
+                raise InvalidStateError("原探索页面不可用，请重新选择页面发起探索。")
             return jsonify(
                 browser_open(
                     app.config["WEBWRIGHT_CDP_URL"],

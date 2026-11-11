@@ -1,10 +1,52 @@
 import asyncio
+import json
 
 import pytest
 
 from webwright.models import base as base_model_module
 from webwright.models.base import parse_json_output
 from webwright.models.openai_chat_model import OpenAIChatModel
+
+
+@pytest.mark.parametrize("reason", ["login_required", "form_validation", "ambiguous_project", "unanticipated_reason"])
+def test_browser_model_can_request_help_for_any_reason(reason):
+    intervention = {"reason": reason, "message": "请选择目标项目。", "mode": "input"}
+    payload = {"thought": "Need help", "python_code": "", "done": False,
+               "final_response": "", "user_intervention": intervention}
+    assert parse_json_output(json.dumps(payload), action_field="python_code")["user_intervention"] == intervention
+
+
+@pytest.mark.parametrize("override", [
+    {"python_code": "await page.click('button')"}, {"done": True}, {"final_response": "done"},
+    {"user_intervention": {}}, {"user_intervention": {"reason": "other", "message": " ", "mode": "input"}},
+    {"user_intervention": {"reason": "other", "message": "Help", "mode": "automatic"}},
+])
+def test_intervention_rejects_invalid_or_conflicting_actions(override):
+    payload = {"thought": "Need help", "python_code": "", "done": False, "final_response": "",
+               "user_intervention": {"reason": "other", "message": "Help", "mode": "either"}, **override}
+    with pytest.raises(ValueError, match="user_intervention"):
+        parse_json_output(json.dumps(payload), action_field="python_code")
+
+
+def test_intervention_is_preserved_by_model_and_browser_schema(monkeypatch):
+    intervention = {"reason": "ambiguous_project", "message": "Which project?", "mode": "input"}
+    model = OpenAIChatModel(model_name="test-model", action_field="python_code",
+                            openai_chat_api_key="placeholder-test-key",
+                            openai_chat_endpoint="https://example.com/chat/completions")
+    schema = model._response_schema()
+    assert "user_intervention" in schema["required"]
+    assert "enum" not in schema["properties"]["user_intervention"]["anyOf"][1]["properties"]["reason"]
+    async def response(_payload):
+        return {"choices": [{"message": {"content": json.dumps({
+            "thought": "Need help", "python_code": "", "done": False,
+            "final_response": "", "user_intervention": intervention,
+        })}}]}
+    monkeypatch.setattr(model, "_post_with_retries", response)
+    message = asyncio.run(model._query_async([]))
+    assert message["extra"]["user_intervention"] == intervention
+    assert message["extra"]["actions"] == []
+    model.config.action_field = "bash_command"
+    assert "user_intervention" not in model._response_schema()["properties"]
 
 
 def test_parse_json_output_accepts_strict_json() -> None:

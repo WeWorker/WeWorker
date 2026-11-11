@@ -15,6 +15,7 @@ from webwright.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded
 from webwright.server.records import atomic_write_json
 from webwright.server.status import AgentExitStatus
 from webwright.utils.serialize import recursive_merge
+from webwright.utils.intervention import validate_user_intervention
 
 
 DEFAULT_SUMMARY_USER_PROMPT = """You are about to have your working context compacted to save tokens.
@@ -98,6 +99,7 @@ class DefaultAgent:
         self.env = env
         self.extra_template_vars: dict[str, Any] = {}
         self.n_calls = 0
+        self._run_start_calls = 0
         self.n_format_errors = 0
         self.n_consecutive_format_errors = 0
 
@@ -137,7 +139,7 @@ class DefaultAgent:
         except OSError:
             pass
 
-    def _initial_browser_observation(self) -> None:
+    def _initial_browser_observation(self, *, resumed: bool = False) -> None:
         observer = getattr(self.env, "initial_observation", None)
         if not callable(observer):
             return
@@ -150,10 +152,16 @@ class DefaultAgent:
             self._write_checkpoint(phase="initial_observation_completed")
             return
         aria_snapshot = str(observation.get("aria_snapshot") or "")
+        heading = "Resumed" if resumed else "Initial"
+        resume_notice = (
+            "The user may have changed the page. This fresh observation supersedes old page snapshots. "
+            "Verify the blocker is resolved before continuing; do not repeat completed submissions.\n"
+            if resumed else ""
+        )
         content = (
-            "## Initial Browser Observation\n"
+            f"## {heading} Browser Observation\n{resume_notice}"
             "The prepared browser page is already connected. Inspect this state before acting. "
-            "Do not navigate to the start URL again when the current URL already matches it.\n\n"
+            "Do not navigate to the start URL again; preserve the current page, login and form state.\n\n"
             f"URL: {observation.get('url', '')}\n"
             f"Title: {observation.get('title', '')}\n"
             f"ARIA snapshot:\n{aria_snapshot}"
@@ -163,7 +171,7 @@ class DefaultAgent:
                 role="user",
                 content=content,
                 extra={
-                    "interrupt_type": "InitialBrowserObservation",
+                    "interrupt_type": "ResumeBrowserObservation" if resumed else "InitialBrowserObservation",
                     "observation": observation,
                 },
             )
@@ -291,6 +299,7 @@ class DefaultAgent:
             "raw_response": extra.get("raw_response", {}),
             "done": extra.get("done", False),
             "final_response": extra.get("final_response", ""),
+            "user_intervention": extra.get("user_intervention"),
             "outputs": outputs or [],
         }
         (steps_dir / f"step_{step_index:04d}.json").write_text(json.dumps(payload, indent=2))
@@ -474,6 +483,13 @@ class DefaultAgent:
             extra = message.get("extra")
             if not isinstance(extra, dict):
                 continue
+            if extra.get("user_intervention"):
+                message["content"] = json.dumps({
+                    "thought": str(message.get("content") or ""),
+                    "python_code": "", "done": False, "final_response": "",
+                    "user_intervention": extra["user_intervention"],
+                }, ensure_ascii=False)
+                return model_messages
             actions = extra.get("actions")
             if not isinstance(actions, list):
                 continue
@@ -544,6 +560,7 @@ class DefaultAgent:
         self.extra_template_vars |= {"task": task, **kwargs}
         self.messages = []
         self.n_calls = 0
+        self._run_start_calls = 0
         self.n_format_errors = 0
         self.n_consecutive_format_errors = 0
         self.add_messages(
@@ -586,6 +603,9 @@ class DefaultAgent:
         self.extra_template_vars |= {"task": inferred_task, **kwargs}
         self.messages = messages
         self.n_calls = int(prior_state.get("n_calls", 0) or 0)
+        # Explicit human continuation receives a fresh bounded execution budget;
+        # cumulative calls and artifact numbering are retained.
+        self._run_start_calls = self.n_calls
         self.n_format_errors = int(prior_state.get("n_format_errors", 0) or 0)
         self.n_consecutive_format_errors = int(
             prior_state.get("n_consecutive_format_errors", 0) or 0
@@ -602,6 +622,8 @@ class DefaultAgent:
                 )
             )
 
+        self._initial_browser_observation(resumed=True)
+        self.save(self.config.output_path)
         return self._run_loop()
 
     def step(self) -> list[dict[str, Any]]:
@@ -616,7 +638,7 @@ class DefaultAgent:
         return self.execute_actions(message)
 
     def query(self) -> dict[str, Any]:
-        if 0 < self.config.step_limit <= self.n_calls:
+        if 0 < self.config.step_limit <= self.n_calls - self._run_start_calls:
             raise LimitsExceeded(
                 self.model.format_message(
                     role="exit",
@@ -635,6 +657,27 @@ class DefaultAgent:
 
     def execute_actions(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         extra = message.get("extra", {})
+        try:
+            intervention = validate_user_intervention(extra.get("user_intervention"))
+            if intervention is not None and (
+                extra.get("actions") or extra.get("done") or extra.get("final_response")
+            ):
+                raise ValueError("Request user intervention in a separate turn without actions or completion.")
+        except ValueError as exc:
+            raise FormatError(self.model.format_message(
+                role="user", content=str(exc), extra={"interrupt_type": "FormatError"},
+            )) from exc
+        if intervention is not None:
+            self._write_debug_step_artifact(step_index=self.n_calls, assistant_message=message, outputs=[])
+            self._write_checkpoint(phase="waiting_for_user", step=self.n_calls, message=message)
+            return self.add_messages(self.model.format_message(
+                role="exit", content=intervention["message"],
+                extra={
+                    "exit_status": AgentExitStatus.PAUSED.value,
+                    "submission": "", "final_response": "",
+                    "user_intervention": intervention,
+                },
+            ))
         if extra.get("done"):
             gate_error = self._self_reflection_gate_error()
             if gate_error is not None:
