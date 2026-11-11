@@ -126,6 +126,21 @@ it('excludes route preprocessing from no-tool notification summaries', async () 
   expect(mocks.prompts.join('')).not.toContain('<turn_routing>')
 })
 
+it('reports the SDK compaction failure instead of leaving an unmatched start event', async () => {
+  mocks.query.mockImplementation(() => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'system', subtype: 'status', status: 'compacting' }
+      yield { type: 'system', subtype: 'status', status: null, compact_result: 'failed', compact_error: 'fixture summary request rejected' }
+      yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['fixture summary request rejected'] }
+    },
+    close() {},
+  }))
+  const events = await collect([message('question', 'fixture question')])
+  expect(events.filter(event => event.type === 'context_compaction_end')).toEqual([
+    expect.objectContaining({ compaction: expect.objectContaining({ status: 'failed', error: 'fixture summary request rejected' }) }),
+  ])
+})
+
 it('streams a visible WebCLI route command before starting the Agent', async () => {
   const events = streamChat([message('route', 'search public projects')], { ...settings, webcli_route_enabled: true }, undefined, {
     ...options, channelPermissionMode: 'full', enabledAdapterIds: new Set(['example.com']), directRoute: { status: 'miss' },

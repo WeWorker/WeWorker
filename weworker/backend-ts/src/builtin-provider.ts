@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Settings } from './config.js'
 import { createDecipheriv } from 'node:crypto'
-import { DEFAULT_CONTEXT_LIMIT } from './context-window.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeContextLimit, parseContextLimit } from './context-window.js'
 import { normalizeLlmBaseUrl, type ProviderEntry } from './llm-egress.js'
 
 import { configuredProvider, configuredEncryptedApiKey, CONFIGURED_PROVIDERS, explorationResetPatch } from './provider-config.js'
@@ -73,11 +73,19 @@ export function isBuiltinProviderConfigured(provider: ProviderEntry, env: NodeJS
   }
 }
 
-export function publicBuiltinProviders(providers: ProviderEntry[], env: NodeJS.ProcessEnv = process.env) {
+export function normalizeBuiltinContextLimits(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).flatMap(([id, limit]) => {
+    const parsed = parseContextLimit(limit)
+    return parsed === null ? [] : [[id, parsed]]
+  }))
+}
+
+export function publicBuiltinProviders(providers: ProviderEntry[], env: NodeJS.ProcessEnv = process.env, contextLimits: Settings['builtin_context_limits'] = {}) {
   return Object.fromEntries(providers.filter(p => isBuiltinProvider(p.id)).map(p => [p.id, {
     has_key: isBuiltinProviderConfigured(p, env),
     model: p.defaultModel,
-    context_limit: DEFAULT_CONTEXT_LIMIT,
+    context_limit: normalizeContextLimit(contextLimits?.[p.id], DEFAULT_BUILTIN_CONTEXT_LIMIT),
     readonly: true,
   }]))
 }
@@ -108,7 +116,7 @@ export function activateBuiltinProvider(provider: ProviderEntry, env: NodeJS.Pro
     base_url: '',
     base_url_is_full: false,
     model: access.provider.defaultModel,
-    context_limit: DEFAULT_CONTEXT_LIMIT,
+    context_limit: DEFAULT_BUILTIN_CONTEXT_LIMIT,
     ...explorationResetPatch(access.provider.id),
   }
 }
@@ -130,7 +138,7 @@ export function resolveBuiltinSettings(settings: Settings, providers: ProviderEn
     base_url_is_full: false,
     model: access?.provider.defaultModel || '',
     active_auth_type: access?.anthropicAuthType || settings.active_auth_type,
-    context_limit: DEFAULT_CONTEXT_LIMIT,
+    context_limit: normalizeContextLimit(settings.builtin_context_limits?.[settings.active_provider], DEFAULT_BUILTIN_CONTEXT_LIMIT),
   }
 }
 

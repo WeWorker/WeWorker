@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import type { Settings } from './config.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
+import { normalizeContextLimit } from './context-window.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
 import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
@@ -170,7 +171,7 @@ export function buildClaudeNativeShellEnv(
 }
 
 export function buildConfiguredModelEnv(
-  settings: Pick<Settings, 'api_key' | 'base_url'> & Partial<Pick<Settings, 'active_provider' | 'active_weworker_protocol' | 'custom_auth_type' | 'active_auth_type' | 'model'>>,
+  settings: Pick<Settings, 'api_key' | 'base_url'> & Partial<Pick<Settings, 'active_provider' | 'active_weworker_protocol' | 'custom_auth_type' | 'active_auth_type' | 'model' | 'context_limit'>>,
   extraEnv?: NodeJS.ProcessEnv,
   claudeConfigDir?: string,
 ): NodeJS.ProcessEnv {
@@ -178,6 +179,10 @@ export function buildConfiguredModelEnv(
   for (const key of MODEL_AUTH_ENV_KEYS) delete env[key]
   delete env.CLAUDE_CODE_GIT_BASH_PATH
   delete env.WEWORKER_BUNDLED_GIT_BASH
+  // Unknown model aliases otherwise inherit the CLI's 200K compaction window.
+  const contextLimit = String(normalizeContextLimit(settings.context_limit))
+  env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = contextLimit
+  env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = contextLimit
   const baseUrl = assertAllowedLlmBaseUrl(settings.base_url, buildRuntimeAllowedLlmBaseUrls(settings.base_url))
   const effectiveProviderId = settings.active_provider === 'custom'
     ? findProviderByWeWorkerBaseUrl(baseUrl)?.id || settings.active_provider
@@ -988,10 +993,20 @@ export function* mapSdkMessage(
     const systemMessage = msg as unknown as {
       subtype?: string
       status?: string | null
+      compact_result?: 'success' | 'failed'
+      compact_error?: string
       compact_metadata?: { trigger?: 'manual' | 'auto'; pre_tokens?: number }
     }
     if (systemMessage.subtype === 'status' && systemMessage.status === 'compacting') {
       yield { type: 'context_compaction_start', compaction: { status: 'started' } }
+    } else if (systemMessage.subtype === 'status' && systemMessage.compact_result === 'failed') {
+      yield {
+        type: 'context_compaction_end',
+        compaction: {
+          status: 'failed', reason: 'summary_failed',
+          error: redactSensitive(systemMessage.compact_error || 'Claude SDK 对话压缩失败'),
+        },
+      }
     } else if (systemMessage.subtype === 'compact_boundary') {
       yield {
         type: 'context_compaction_end',
@@ -1827,6 +1842,7 @@ async function* streamChatWithBaseUrl(
     const fingerprint = sha256(JSON.stringify({
       model: settings.model,
       protocol: settings.active_weworker_protocol || 'anthropic_messages',
+      contextLimit: normalizeContextLimit(settings.context_limit),
       baseUrl: internal.sessionBaseUrl,
       apiKey: sha256(settings.api_key || ''),
       provider: settings.active_provider,

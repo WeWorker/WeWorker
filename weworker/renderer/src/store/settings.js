@@ -7,12 +7,15 @@ import {
 } from '../utils/resource-preview-extensions.js'
 import { backendFetch } from '../api/http.js'
 import { isFixedProvider } from '../utils/model-selection.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT } from '../utils/context-window.js'
 
 const API = 'http://127.0.0.1:8765'
 
 const DEFAULT_STYLE = { subtitle: '', color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' }
 const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
 const DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD = 20000
+const defaultContextLimit = providerId => BUILD_PROVIDERS.find(provider => provider.id === providerId)?.builtin
+  ? DEFAULT_BUILTIN_CONTEXT_LIMIT : DEFAULT_CONTEXT_LIMIT
 
 function settingsPatch(data, fallback = {}) {
   const hasPreviewApi = Object.prototype.hasOwnProperty.call(data, 'resource_preview_extensions')
@@ -34,7 +37,9 @@ function settingsPatch(data, fallback = {}) {
     modelDiscoveryEnabled: data.model_discovery_enabled ?? fallback.modelDiscoveryEnabled ?? true,
     baseUrl: data.base_url,
     model: data.model,
-    contextLimit: data.context_limit || fallback.contextLimit || 1000000,
+    contextLimit: data.context_limit || data.providers?.[data.active_provider]?.context_limit
+      || (data.active_provider === fallback.activeProvider ? fallback.contextLimit : undefined)
+      || defaultContextLimit(data.active_provider || fallback.activeProvider || BUILD_DEFAULT_PROVIDER),
     hasApiKey: data.has_api_key,
     userDirectory: data.user_directory || fallback.userDirectory || '',
     downloadSubdirectory: data.download_subdirectory || fallback.downloadSubdirectory || 'download',
@@ -71,7 +76,7 @@ export const useSettingsStore = create((set, get) => ({
   modelDiscoveryEnabled: true,
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
-  contextLimit: 1000000,
+  contextLimit: defaultContextLimit(BUILD_DEFAULT_PROVIDER),
   hasApiKey: false,
   userDirectory: '',
   downloadSubdirectory: 'download',
@@ -89,7 +94,7 @@ export const useSettingsStore = create((set, get) => ({
   zcfEnabledRoles: ['default'],
   zcfCustomRoles: [],
   providers: Object.fromEntries(BUILD_PROVIDERS.map(provider => [provider.id, {
-    has_key: false, model: provider.defaultModel, context_limit: 1000000,
+    has_key: false, model: provider.defaultModel, context_limit: defaultContextLimit(provider.id),
     readonly: provider.builtin === true, added: provider.fixed === true || provider.builtin === true,
     visible: provider.fixed === true || provider.builtin === true,
   }])),
