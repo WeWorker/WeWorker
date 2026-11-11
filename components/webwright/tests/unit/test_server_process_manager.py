@@ -241,11 +241,15 @@ def test_start_task_rejects_missing_prepared_target(monkeypatch, tmp_path: Path)
     assert store.list_tasks() == []
 
 
-def test_followup_after_stop_before_first_step(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("outcome", ["cancelled", "failed"])
+@pytest.mark.parametrize("url_only", [False, True])
+def test_followup_before_first_step(monkeypatch, tmp_path: Path, outcome: str, url_only: bool) -> None:
     toolkits = ToolkitStore(tmp_path / "toolkits")
     toolkits.create_toolkit(name="demo", allowed_domains=["example.org"])
     manager, store, _ = _manager(tmp_path, monkeypatch, toolkit_store=toolkits)
-    task = manager.start_task(
+    task = manager.start_url_exploration(
+        instruction="Explore example.org", start_url="https://example.org",
+    ) if url_only else manager.start_task(
         instruction="Explore example.org", start_url="https://example.org",
         activity_type="exploration", toolkit_id="demo",
     )
@@ -253,9 +257,11 @@ def test_followup_after_stop_before_first_step(monkeypatch, tmp_path: Path) -> N
     monkeypatch.setattr(manager, "_schedule_cancel_escalation", lambda *_: None)
     notes = ["Find the help page", "Use the English version"]
     for note in notes:
-        manager.cancel_task(task_id)
+        if outcome == "cancelled":
+            manager.cancel_task(task_id)
         manager.active_process.terminate()
         manager._finish_task(task_id, -15)
+        assert store.read_task(task_id)["status"] == outcome
         record = manager.continue_task(task_id=task_id, followup=note)
         assert record["task_id"] == task_id
         assert record["status"] == TaskStatus.RUNNING.value
@@ -263,8 +269,42 @@ def test_followup_after_stop_before_first_step(monkeypatch, tmp_path: Path) -> N
     assert spec["mode"] == "start"
     assert spec["resume_from"] is None
     assert spec["instruction"].split("\n\n") == ["Explore example.org", *notes]
-    assert 'environment.allowed_domains=["example.org"]' in spec["config_spec"]
+    if not url_only:
+        assert 'environment.allowed_domains=["example.org"]' in spec["config_spec"]
     assert [turn["content"] for turn in store.read_user_turns(task_id)] == notes
+
+
+def test_blocked_startup_waits_and_continues_on_the_same_browser_page(monkeypatch, tmp_path):
+    manager, store, _ = _manager(tmp_path, monkeypatch)
+    task = manager.start_url_exploration(start_url="http://example.com/", instruction="Explore the site")
+    task_id = task["task_id"]
+    output_dir = Path(task["output_dir"])
+    atomic_write_json(output_dir / "browser_attention.json", {
+        "target_id": "owned-page", "browser_instance_id": "owned-browser",
+    })
+    for note in ["I have handled the browser prompt", "Continue exploring"]:
+        store.process_log_path(task_id).write_text(json.dumps({
+            "ok": False, "error": "请在浏览器中确认后继续探索。",
+            "error_code": "navigation_blocked_by_client", "stage": "initial_navigation",
+        }), encoding="utf-8")
+        manager.active_process.terminate()
+        manager._finish_task(task_id, 1)
+        paused = store.read_task(task_id)
+        assert paused["status"] == TaskStatus.WAITING_FOR_USER.value
+        assert paused["active_target_id"] == "owned-page"
+        record = manager.continue_task(task_id=task_id, followup=note, require_waiting=True)
+        assert record["status"] == TaskStatus.RUNNING.value
+        assert record["error_code"] == ""
+        spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
+        assert spec["mode"] == "start"
+        assert spec["resume_from"] is None
+        assert spec["resume_target_id"] == "owned-page"
+        assert spec["target_id"] == ""
+        assert "environment.resume_existing_page=true" in spec["config_spec"]
+        assert "environment.expected_browser_instance_id=owned-browser" in spec["config_spec"]
+    assert [turn["content"] for turn in store.read_user_turns(task_id)] == [
+        "I have handled the browser prompt", "Continue exploring",
+    ]
 
 
 def test_force_cancel_marks_request_before_terminating_and_finishes_cancelled(
@@ -576,8 +616,9 @@ def test_continue_task_passes_active_target_override(monkeypatch, tmp_path: Path
     assert spec["resume_target_id"] == "target-replay"
 
 
+@pytest.mark.parametrize("failed", [False, True])
 def test_continue_exploration_persists_user_turn_after_latest_step(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, failed: bool
 ) -> None:
     manager, store, _commands = _manager(tmp_path, monkeypatch)
     task_id = store.new_task_id("exploration-followup")
@@ -599,7 +640,14 @@ def test_continue_exploration_persists_user_turn_after_latest_step(
     )
     atomic_write_json(output_dir / "trajectory.json", {"messages": []})
 
+    if failed:
+        store.update_task(task_id, status=TaskStatus.FAILED.value)
+
     manager.continue_task(task_id=task_id, followup="Login is complete")
+
+    spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
+    assert spec["mode"] == "resume"
+    assert spec["resume_from"] == str(output_dir / "trajectory.json")
 
     turns = store.read_user_turns(task_id)
     assert len(turns) == 1

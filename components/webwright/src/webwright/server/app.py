@@ -28,10 +28,12 @@ from webwright.server.artifacts import (
     read_steps,
     resolve_task_file,
     task_artifact_summary,
+    try_read_json,
 )
 from webwright.server.browser import (
     DEFAULT_CDP_URL,
     browser_match,
+    browser_activate,
     browser_open,
     browser_status,
     browser_tabs,
@@ -219,7 +221,7 @@ Base URL: `{base_url}`
 ## Browser
 
 - `GET /api/browser/status` - check whether `http://127.0.0.1:9222` is reachable; tasks may auto-start Chrome/Edge.
-- `POST /api/browser/open` - open or focus the Agent browser. Optional body: `{{"url":"https://example.com/"}}` opens or reuses that exact page.
+- `POST /api/browser/open` - open or focus the WeWorker browser. Optional body: `{{"url":"https://example.com/"}}` opens or reuses that exact page; `{{"exploration_id":"exp_example"}}` focuses the original page of an Exploration waiting for browser confirmation.
 - `GET /api/browser/match?url=https://example.com` - find the first exact open tab for a URL.
 - `GET /api/browser/tabs` - list CDP page targets.
 
@@ -382,8 +384,10 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
     active_issue = None
     if status == TaskStatus.WAITING_FOR_USER.value:
         active_issue = {
-            "type": "user_takeover_required",
-            "message": "请在 Agent 浏览器中完成所需操作，然后输入指令继续探索。",
+            "type": ("browser_confirmation_required" if view["error_code"] == "navigation_blocked_by_client"
+                     else "user_takeover_required"),
+            "message": (view["error"] if view["error_code"] == "navigation_blocked_by_client"
+                        else "请在 WeWorker 浏览器中完成所需操作，然后输入指令继续探索。"),
         }
     elif status == TaskStatus.FAILED.value:
         active_issue = {
@@ -743,6 +747,18 @@ def create_app(
     def open_browser():
         try:
             payload = _request_json()
+            if payload.get("exploration_id"):
+                task = task_store.read_exploration(str(payload["exploration_id"]))
+                if (task.get("status") != TaskStatus.WAITING_FOR_USER.value
+                        or task.get("error_code") != "navigation_blocked_by_client"):
+                    raise InvalidStateError("当前探索无需浏览器确认。")
+                attention = try_read_json(Path(task["output_dir"]) / "browser_attention.json") or {}
+                target_id = str(attention.get("target_id") or task.get("active_target_id") or "")
+                if target_id:
+                    browser_activate(app.config["WEBWRIGHT_CDP_URL"], target_id,
+                                     str(attention.get("browser_instance_id") or ""))
+                    return jsonify({"available": True})
+                return jsonify(browser_open(app.config["WEBWRIGHT_CDP_URL"], str(task["start_url"])))
             return jsonify(
                 browser_open(
                     app.config["WEBWRIGHT_CDP_URL"],

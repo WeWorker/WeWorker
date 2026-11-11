@@ -172,9 +172,13 @@ def browser_target(cdp_url: str, target_id: str) -> dict[str, Any] | None:
 
 
 @_host_browser(start=True)
-def browser_activate(cdp_url: str, target_id: str) -> None:
+def browser_activate(cdp_url: str, target_id: str, expected_instance_id: str = "") -> None:
     if _browser_control.get():
+        if expected_instance_id and _browser_control.get().descriptor["instanceId"] != expected_instance_id:
+            raise ValueError("浏览器已重启，原探索页面无法恢复，请新建探索。")
         _browser_control.get().claim(target_id)
+    if find_target_by_id(cdp_url, target_id) is None:
+        raise ValueError("原探索页面已关闭，请新建探索。")
     activate_target(cdp_url, target_id)
 
 
