@@ -109,8 +109,8 @@ async function summarizeTaskExecution(input: {
   }
 
   summary = summary.trim()
-  // 兜底：原文有表格而摘要把表格丢了时，把原表格放回去，保证「加总结」不破坏原内容。
-  if (summary) summary = keepMarkdownTables(summary, [source, input.fullText])
+  // The notifier already includes fullText. Keep the summary as a conclusion;
+  // copying tables from both source and fullText would repeat the same data twice.
   if (summary) {
     try {
       store.appendMessage(input.workId, 'assistant', [{ type: 'text', text: summary }])
@@ -119,37 +119,6 @@ async function summarizeTaskExecution(input: {
     }
   }
   return summary || fallback || undefined
-}
-
-const MARKDOWN_TABLE_LINE = /^\s*\|.*\|\s*$/
-
-/** 抽出连续的 markdown 表格行（至少两行才算表格）。 */
-export function extractMarkdownTables(text: string | undefined): string[] {
-  const lines = String(text || '').split(/\r?\n/)
-  const tables: string[] = []
-  let current: string[] = []
-  for (const line of lines) {
-    if (MARKDOWN_TABLE_LINE.test(line)) {
-      current.push(line)
-      continue
-    }
-    if (current.length >= 2) tables.push(current.join('\n'))
-    current = []
-  }
-  if (current.length >= 2) tables.push(current.join('\n'))
-  return tables
-}
-
-/**
- * 摘要里已经有表格时原样返回；没有则把原文中的表格补到摘要前面。
- * 这样即使模型改写了表格，通知里仍然保留可渲染的原始数据。
- */
-export function keepMarkdownTables(summary: string, sources: Array<string | undefined>): string {
-  if (!summary || !summary.trim()) return summary
-  if (String(summary).split(/\r?\n/).some((line) => MARKDOWN_TABLE_LINE.test(line))) return summary
-  const tables = sources.flatMap((text) => extractMarkdownTables(text))
-  if (tables.length === 0) return summary
-  return `${tables.join('\n\n')}\n\n${summary}`
 }
 
 async function safeNotify(payload: NotificationPayload, channels: string[]): Promise<void> {
