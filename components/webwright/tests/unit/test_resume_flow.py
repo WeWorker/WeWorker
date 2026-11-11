@@ -50,6 +50,79 @@ def test_prepared_exploration_page_keeps_current_state(monkeypatch, tmp_path, ur
     assert env._page.url == url
 
 
+@pytest.mark.parametrize("error_text", [
+    None,
+    "Page.goto: net::ERR_BLOCKED_BY_CLIENT at https://example.com/",
+    "Page.goto: net::ERR_NAME_NOT_RESOLVED at https://example.com/",
+])
+def test_initial_navigation_reports_client_block_without_masking_other_errors(
+    monkeypatch, tmp_path, error_text,
+):
+    from playwright.async_api import Error as PlaywrightError
+    from webwright.exceptions import RuntimeExecutionError
+
+    monkeypatch.delenv("WEWORKER_BROWSER_MANAGED", raising=False)
+    navigation_error = PlaywrightError(error_text) if error_text else None
+    page = SimpleNamespace(goto=AsyncMock(side_effect=navigation_error), on=Mock())
+    context = SimpleNamespace(
+        new_page=AsyncMock(return_value=page),
+        set_default_timeout=Mock(), set_default_navigation_timeout=Mock(),
+    )
+    browser = SimpleNamespace(new_context=AsyncMock(return_value=context))
+    playwright = SimpleNamespace(chromium=SimpleNamespace(launch=AsyncMock(return_value=browser)))
+    monkeypatch.setattr(
+        "playwright.async_api.async_playwright",
+        lambda: SimpleNamespace(start=AsyncMock(return_value=playwright)),
+    )
+    env = LocalBrowserEnvironment(output_dir=tmp_path, start_url="https://example.com/")
+    env._page_target_id = "owned-page"
+    env._managed_browser = SimpleNamespace(descriptor={"instanceId": "owned-browser"})
+    if error_text is None:
+        asyncio.run(env._prepare_connected_async())
+    elif "ERR_BLOCKED_BY_CLIENT" in error_text:
+        with pytest.raises(RuntimeExecutionError, match="继续探索") as caught:
+            asyncio.run(env._prepare_connected_async())
+        assert caught.value.error_code == "navigation_blocked_by_client"
+        assert caught.value.stage == "initial_navigation"
+        assert "此网站不支持安全连接" in str(caught.value)
+        assert "继续访问网站" in str(caught.value)
+        assert "ERR_BLOCKED_BY_CLIENT" not in str(caught.value)
+        assert (tmp_path / "browser_attention.json").is_file()
+        assert json.loads((tmp_path / "browser_attention.json").read_text())["browser_instance_id"] == "owned-browser"
+        assert caught.value.__cause__ is navigation_error
+    else:
+        with pytest.raises(PlaywrightError) as caught:
+            asyncio.run(env._prepare_connected_async())
+        assert caught.value is navigation_error
+    page.goto.assert_awaited_once_with("https://example.com/", wait_until="domcontentloaded")
+
+
+def test_confirmation_resume_preserves_redirected_page(monkeypatch, tmp_path):
+    from webwright.environments import local_browser
+
+    monkeypatch.delenv("WEWORKER_BROWSER_MANAGED", raising=False)
+    page = SimpleNamespace(url="https://auth.example.com/signed-in", goto=AsyncMock(), on=Mock())
+    context = SimpleNamespace(set_default_timeout=Mock(), set_default_navigation_timeout=Mock())
+    browser = SimpleNamespace(contexts=[context])
+    playwright = SimpleNamespace(chromium=SimpleNamespace(connect_over_cdp=AsyncMock(return_value=browser)))
+    monkeypatch.setattr("playwright.async_api.async_playwright", lambda: SimpleNamespace(start=AsyncMock(return_value=playwright)))
+    monkeypatch.setattr(local_browser, "_ensure_local_cdp_page_target", lambda *_: None)
+    monkeypatch.setattr(local_browser, "_find_cdp_target_by_id", lambda *_: {"id": "owned-page", "url": page.url})
+    env = LocalBrowserEnvironment(
+        output_dir=tmp_path, browser_mode="local_cdp", start_url="http://example.com/",
+        resume_existing_page=True, expected_browser_instance_id="owned-browser",
+    )
+    monkeypatch.setattr(env, "_ensure_local_cdp_browser", lambda: None)
+    monkeypatch.setattr(env, "_match_page_in_context", AsyncMock(return_value=(page, "cdp_target_id")))
+    monkeypatch.setattr(env, "_target_id_for_page", AsyncMock(return_value="owned-page"))
+    monkeypatch.setattr(env, "_prepare_async", env._prepare_connected_async)
+    env.prepare(resume_target_id="owned-page")
+    page.goto.assert_not_awaited()
+    env._step_index = 1
+    assert env._with_initial_navigation("print(page.url)") == "print(page.url)"
+    assert env._resume_browser_instance_id == "owned-browser"
+
+
 class FakeModel:
     def __init__(self):
         self.queries: list[list[dict]] = []

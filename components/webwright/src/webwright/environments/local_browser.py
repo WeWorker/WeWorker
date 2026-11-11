@@ -60,6 +60,7 @@ class LocalBrowserEnvironmentConfig(BaseModel):
     local_cdp_close_started_browser_on_exit: bool = False
     resume_existing_output: bool = False
     resume_existing_page: bool = False
+    expected_browser_instance_id: str = ""
 
     @field_validator("browser_mode")
     @classmethod
@@ -153,7 +154,9 @@ class LocalBrowserEnvironment:
         self._resume_target_id = str(kwargs.get("resume_target_id", "") or "")
         self._resume_last_url = str(kwargs.get("resume_last_url", "") or "")
         self._resume_last_title = str(kwargs.get("resume_last_title", "") or "")
-        self._resume_browser_instance_id = str(kwargs.get("resume_browser_instance_id", "") or "")
+        self._resume_browser_instance_id = str(
+            kwargs.get("resume_browser_instance_id") or self.config.expected_browser_instance_id
+        )
         self._page_target_id = ""
         self._page_selection_source = ""
         start_url = kwargs.get("start_url") or self.config.start_url
@@ -174,7 +177,8 @@ class LocalBrowserEnvironment:
         page_url = str(getattr(self._page, "url", "") or "") if self._page is not None else ""
         self._last_url = page_url
         self._start_url_ready = bool(
-            self._initial_target_id and page_url
+            (self._initial_target_id or (self.config.resume_existing_page and self._resume_target_id))
+            and page_url
         ) or bool(
             self.config.start_url
             and page_url
@@ -327,7 +331,7 @@ class LocalBrowserEnvironment:
             raise
 
     async def _prepare_connected_async(self) -> None:
-        from playwright.async_api import async_playwright
+        from playwright.async_api import Error as PlaywrightError, async_playwright
         from webwright.tool_runtime.managed_browser import ManagedBrowser, managed_browser_enabled
 
         if self._page is not None and self._context is not None:
@@ -499,7 +503,25 @@ class LocalBrowserEnvironment:
             and self._page_selection_source != "new_page"
         )
         if self.config.start_url and not should_skip_start_url:
-            await self._page.goto(self.config.start_url, wait_until="domcontentloaded")
+            try:
+                await self._page.goto(self.config.start_url, wait_until="domcontentloaded")
+            except PlaywrightError as exc:
+                if "net::ERR_BLOCKED_BY_CLIENT" not in str(exc):
+                    raise
+                # Startup failed before an agent trajectory exists. Preserve the
+                # owned page binding before cleanup disconnects the CDP client.
+                (self.config.output_dir / "browser_attention.json").write_text(
+                    json.dumps(self.serialize()["environment"]["runtime_state"]), encoding="utf-8",
+                )
+                raise RuntimeExecutionError(
+                    "浏览器需要你确认后才能打开网站，探索已暂停。"
+                    "请打开 WeWorker 浏览器处理提示。"
+                    "若提示“此网站不支持安全连接”，请在确认信任该站点后手动点击“继续访问网站”；"
+                    "否则请检查扩展或浏览器访问策略。"
+                    "网站正常打开后，回到 Adapter工坊继续探索。",
+                    error_code="navigation_blocked_by_client",
+                    stage="initial_navigation",
+                ) from exc
 
     def _attach_page_listeners(self, page: Any) -> None:
         page.on("console", self._on_console_message)
