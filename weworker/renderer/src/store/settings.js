@@ -392,11 +392,12 @@ export const useSettingsStore = create((set, get) => ({
     if (!profile) throw new Error('机器人配置不存在，请重新选择')
     if (get().channelProfileQrSaving[id]) throw new Error('机器人配置正在保存，请稍候')
     if (!credentials) throw new Error('未获取完整机器人配置')
+    const identity = profile.type === 'wecom' ? 'bot_id' : 'app_id'
+    if (profile.config[identity] && profile.config[identity] !== credentials[identity]) throw new Error('当前配置已关联机器人，请添加独立配置后再扫码')
     set(state => ({ channelProfileQrPending: { ...state.channelProfileQrPending, [id]: credentials }, channelProfileQrSaving: { ...state.channelProfileQrSaving, [id]: true } }))
     try {
-      const identity = profile.type === 'wecom' ? 'bot_id' : 'app_id'
       const changed = profile.config[identity] !== credentials[identity]
-      await get().channelProfileAction(profile.type, 'save', id, { config: { ...credentials, enabled: true,
+      await get().channelProfileAction(profile.type, 'qr-import', id, { config: { ...credentials, enabled: true,
         ...(changed ? { owner_user_id: '', owner_permission_level: 'qa_only' } : {}) } })
       set(state => ({ channelProfileQrPending: { ...state.channelProfileQrPending, [id]: null } }))
     } catch {
