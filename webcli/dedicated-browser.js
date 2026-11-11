@@ -269,6 +269,35 @@ export async function discoverCdpEndpoint(userDataDir, targetId, { timeoutMs = R
   throw new Error('无法确认本次 WeWorker 浏览器的 CDP 地址');
 }
 
+/**
+ * Attach to an already-running Chrome owned by this profile (Browser Keeper design).
+ * Reads DevToolsActivePort, verifies the endpoint matches the file, then opens a
+ * ws CDP client against the browser endpoint — no pipe required, so the Bridge
+ * can attach to a browser that outlives it.
+ * @returns {Promise<object>} ws CDP client (send/onEvent/closed/close)
+ */
+export async function attachExistingBrowser(userDataDir, { timeoutMs = READY_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = new Error('DevToolsActivePort 不存在或已失效');
+  while (Date.now() < deadline) {
+    try {
+      const [portText, browserPath] = fs.readFileSync(path.join(userDataDir, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+      const port = Number(portText);
+      if (!Number.isInteger(port) || port < 1 || port > 65535 || !/^\/devtools\/browser\/[\w-]+$/.test(browserPath)) throw new Error('Invalid discovery file');
+      const version = await localJson(port, '/json/version');
+      if (new URL(version.webSocketDebuggerUrl).pathname !== browserPath) throw new Error('Endpoint mismatch');
+      const { createCdpWebSocket } = await import('./cdp-websocket.js');
+      const cdp = await createCdpWebSocket(`ws://127.0.0.1:${port}${browserPath}`);
+      await cdp.send('Browser.getVersion'); // 活性验证
+      return cdp;
+    } catch (error) {
+      lastError = error;
+    }
+    await wait(200);
+  }
+  throw new Error(`无法连接已运行的 WeWorker 浏览器: ${lastError.message}`);
+}
+
 async function withTimeout(promise, ms, message) {
   let timer;
   try {
