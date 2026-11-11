@@ -12,10 +12,9 @@
  */
 
 import { detectMainArray, projectResult } from '../webcli-result-project.js'
-import { hasTitleHeading, renderFromSchema, type RenderSchemaContext } from './declarative-renderer.js'
+import { DEFAULT_EMPTY_ANSWER, hasTitleHeading, renderFromSchema, type RenderSchemaContext } from './declarative-renderer.js'
 import type { RouterRenderSchema } from '../router-config/types.js'
 import { createLogger } from '../logger.js'
-import { isConfirmedEmptyListPayload } from './route-dispatch.js'
 
 const log = createLogger('api-query-router')
 const TABLE_MAX_COLS = 8
@@ -51,7 +50,7 @@ function escapeCell(value: unknown, maxChars = CELL_MAX_CHARS): string {
 }
 
 function renderTable(rows: readonly unknown[], columns?: string[], maxChars = CELL_MAX_CHARS): string {
-  if (!rows.length) return '（无数据）'
+  if (!rows.length) return ''
   const cols: string[] = []
   for (const row of rows) {
     if (row && typeof row === 'object' && !Array.isArray(row)) {
@@ -80,27 +79,48 @@ function renderTable(rows: readonly unknown[], columns?: string[], maxChars = CE
 
 function renderKv(obj: Record<string, unknown>): string {
   const entries = Object.entries(obj).filter(([, value]) => value != null && value !== '')
-  if (!entries.length) return '（无数据）'
+  if (!entries.length) return ''
   return entries.map(([key, value]) => `- **${key}**: ${escapeCell(value)}`).join('\n')
 }
 
-/** 列表查询命中但为空（count:0 / items:[]）→ 给一句友好提示，而非把元数据当 JSON 甩出。 */
+/**
+ * 列表查完但零条 → 一句友好话术（空数组是事实，不是失败）。
+ * 各业务可用声明式 schema 的 `emptyMessage` 写得更贴合场景，这里只做兜底。
+ */
 function renderEmptyResult(): string {
-  return '未查询到相关数据。'
+  return DEFAULT_EMPTY_ANSWER
+}
+
+/** 单键信封（`result` / `data` + 状态字段）逐层剥掉，与派发判定的拆包口径保持一致。 */
+const ENVELOPE_KEYS = new Set(['result', 'data', 'trace_id', 'ok', 'success', 'code', 'status', 'message', 'msg'])
+function unwrapEnvelope(value: unknown): unknown {
+  let current = value
+  for (let depth = 0; depth < 3; depth++) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return current
+    const record = current as Record<string, unknown>
+    const inner = record.result ?? record.data
+    if (!inner || typeof inner !== 'object' || Array.isArray(inner)) return current
+    if (!Object.keys(record).every((key) => ENVELOPE_KEYS.has(key))) return current
+    current = inner
+  }
+  return current
 }
 
 function toMarkdownBody(obj: unknown): string {
-  const main = detectMainArray(obj)
+  // 先剥信封：`{result:{items:[]}}` / `{data:{items:[]}}` 这类包装若直接按 KV 渲染，
+  // 用户看到的是一坨 JSON，而不是「没有数据」这句人话。
+  const target = unwrapEnvelope(obj)
+  const main = detectMainArray(target)
   if (main?.array.length && main.array.some((item) => item && typeof item === 'object')) {
     return renderTable(main.array)
   }
-  if ((main && main.array.length === 0) || (Array.isArray(obj) && obj.length === 0)) {
+  if ((main && main.array.length === 0) || (Array.isArray(target) && target.length === 0)) {
     return renderEmptyResult()
   }
-  if (obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length) {
-    return renderKv(obj as Record<string, unknown>)
+  if (target && typeof target === 'object' && !Array.isArray(target) && Object.keys(target).length) {
+    return renderKv(target as Record<string, unknown>)
   }
-  return projectResult(obj, { mode: 'summary' })
+  return projectResult(target, { mode: 'summary' })
 }
 
 function tryParseJson(raw: string): unknown {
@@ -141,9 +161,6 @@ function renderGenericBody(
 
   const parsed = tryParseJson(raw)
   if (typeof parsed === 'string') return parsed.trim()
-  // An explicit successful empty-list response is factual; a schema's custom emptyMessage
-  // must not replace it with an unrelated (or misleading) claim.
-  if (isConfirmedEmptyListPayload(raw)) return renderEmptyResult()
 
   const record = parsed as Record<string, unknown> | null
   if (record && record.type === 'large_output') {
@@ -178,17 +195,22 @@ function renderGenericBody(
     const parts: string[] = []
     for (const section of record.sections) {
       if (!section || typeof section !== 'object' || Array.isArray(section)) continue
-      if (typeof section.title === 'string' && section.title) parts.push(`## ${section.title}`)
+      // 先算出这一节自己的正文：空节直接跳过（不输出只有标题的空分组）。
+      const body: string[] = []
       if (typeof section.content === 'string' && section.content.trim()) {
-        parts.push(section.content)
+        body.push(section.content)
       } else {
         const rows = Array.isArray(section.rows) ? section.rows : []
         const columns = Array.isArray(section.columns)
           ? section.columns.filter((col: unknown): col is string => typeof col === 'string')
           : undefined
         // Rules must remain complete; ordinary list cell limits can remove required conditions.
-        parts.push(renderTable(rows, columns, Infinity))
+        const table = renderTable(rows, columns, Infinity)
+        if (table) body.push(table)
       }
+      if (!body.length) continue
+      if (typeof section.title === 'string' && section.title) parts.push(`## ${section.title}`)
+      parts.push(...body)
     }
     return parts.join('\n\n') || renderEmptyResult()
   }
