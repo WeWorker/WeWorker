@@ -19,6 +19,21 @@ export function partitionContentBlocks(content) {
 
   while (i < content.length) {
     const block = content[i]
+    if (block.type === 'text') {
+      const startIndex = i
+      const fragments = []
+      // Transport chunks can split Markdown syntax, including whitespace and table rows.
+      while (i < content.length && content[i].type === 'text') {
+        fragments.push(content[i].text ?? '')
+        i += 1
+      }
+      items.push({
+        kind: 'block',
+        block: { ...block, text: fragments.join('') },
+        key: block.id ?? `block-${startIndex}`,
+      })
+      continue
+    }
     if (isGroupableToolUse(block)) {
       const startIndex = i
       const blocks = []

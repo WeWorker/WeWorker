@@ -28,9 +28,21 @@ test('QR retry stays bound to its original profile and never uses another robot 
   failed = false
   await useSettingsStore.getState().saveChannelProfileQr('second')
   assert.ok(requests.every(body => body.id === 'second' && body.channel === 'qq'))
+  assert.ok(requests.every(body => body.action === 'qr-import'))
   assert.equal(requests[1].config.owner_permission_level, 'qa_only')
   assert.equal(useSettingsStore.getState().channelProfileQrPending.second, null)
   assert.ok(useSettingsStore.getState().channels.configurations.other)
+})
+
+test('scanning cannot overwrite an existing robot or leave replacement credentials pending', async t => {
+  setup(t)
+  let requests = 0
+  t.mock.method(globalThis, 'fetch', async () => { requests++; return Response.json({}) })
+  const before = useSettingsStore.getState().channels
+  await assert.rejects(useSettingsStore.getState().saveChannelProfileQr('first', { app_id: 'fixture-new', app_secret: 'fixture-secret' }), /已关联机器人/)
+  assert.equal(requests, 0)
+  assert.equal(useSettingsStore.getState().channels, before)
+  assert.equal(useSettingsStore.getState().channelProfileQrPending.first, undefined)
 })
 
 test('out of order responses for different types cannot drop each other profiles', async t => {

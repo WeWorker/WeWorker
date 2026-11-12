@@ -13,6 +13,7 @@ export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChan
   const onImportRef = useRef(onImport)
   onImportRef.current = onImport
   const busy = state.status === 'loading' || state.status === 'waiting' || state.status === 'saving'
+  const configured = Boolean(String(channel === 'wecom' ? bindingConfig?.bot_id || '' : bindingConfig?.app_id || '').trim())
   const showPairingGuide = channel === 'wecom' && !disabled && bindingConfig?.enabled && bindingConfig?.bot_id && bindingConfig?.has_secret
     && ['idle', 'confirmed'].includes(state.status)
     && (state.status === 'confirmed' || (bindingConfig.pairing_code && !bindingConfig.owner_user_id) || guidedBotId === bindingConfig.bot_id)
@@ -31,6 +32,7 @@ export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChan
   useEffect(() => { onBusyChange?.(busy) }, [busy, onBusyChange])
 
   const start = async () => {
+    if (disabled || configured || busy || runRef.current) return
     cancelRun()
     const run = { id: '', timer: null }
     runRef.current = run
@@ -86,13 +88,13 @@ export default function WecomQrConnect({ channel = 'wecom', onImport, onBusyChan
 
   return <div className="wecom-qr-connect">
     <div className="wecom-qr-connect__actions">
-      <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={start} disabled={busy || disabled}>
-        {state.status === 'loading' ? <LoadingOutlined spin aria-hidden="true" /> : <QrcodeOutlined aria-hidden="true" />} {state.status === 'expired' || state.status === 'error' ? '重新获取二维码' : channel === 'qq' ? '扫码绑定机器人' : '扫码创建机器人'}
+      <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={start} disabled={busy || disabled || configured} title={configured ? '如需新增机器人，请添加独立配置' : undefined}>
+        {state.status === 'loading' ? <LoadingOutlined spin aria-hidden="true" /> : <QrcodeOutlined aria-hidden="true" />} {configured ? '已关联机器人' : state.status === 'expired' || state.status === 'error' ? '重新获取二维码' : channel === 'qq' ? '扫码绑定机器人' : '扫码创建机器人'}
       </button>
       {busy && state.status !== 'saving' && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { cancelRun(); setState({ status: 'idle', message: '', image: '' }) }}>取消扫码</button>}
-      {!state.message && !showPairingGuide && <span>扫码确认后自动保存并启用，也可在下方手动填写</span>}
+      {!configured && !state.message && !showPairingGuide && <span>扫码确认后自动保存并启用，也可在下方手动填写</span>}
     </div>
-    {channel === 'qq' && <p>还没有机器人？<a href="https://q.qq.com/qqbot/openclaw/login.html" target="_blank" rel="noreferrer">扫码创建 QQ 机器人</a>，完成后返回这里扫码绑定。</p>}
+    {channel === 'qq' && !configured && <p>还没有机器人？<a href="https://q.qq.com/qqbot/openclaw/login.html" target="_blank" rel="noreferrer">扫码创建 QQ 机器人</a>，完成后返回这里扫码绑定。</p>}
     {state.image && <img width="200" height="200" src={state.image} alt={`${name}机器人二维码`} />}
     {showPairingGuide ? <WecomPairingGuide config={bindingConfig} /> : state.message && <p role="status" className={state.status === 'error' ? 'is-error' : state.status === 'confirmed' ? 'is-success' : ''}>{state.message}</p>}
   </div>

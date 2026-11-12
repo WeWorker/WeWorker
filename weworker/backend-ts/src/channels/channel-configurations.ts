@@ -83,9 +83,15 @@ export function changeChannelConfiguration(settings: Settings, type: ChannelType
         config.pairing_code = generatePairingCode()
       }
       Object.assign(channels.wecom, config)
-    } else if (action === 'save' || action === 'activate') {
+    } else if (action === 'save' || action === 'activate' || action === 'qr-import') {
+      if (action === 'qr-import') {
+        if (type === 'weixin') throw new Error('不支持的扫码导入操作')
+        const key = type === 'wecom' ? 'bot_id' : 'app_id'
+        const savedId = (entry.config as unknown as Record<string, unknown>)[key]
+        if (savedId && savedId !== input[key]) throw new Error('当前配置已关联机器人，请添加独立配置后再扫码')
+      }
       const previousBotId = type === 'wecom' ? (entry.config as WecomChannelConfig).bot_id : ''
-      if (action === 'save') {
+      if (action !== 'activate') {
         // WeCom owner identity is written only by verified inbound pairing.
         const allowed = Object.keys(emptyChannel(type)).filter(key => type !== 'wecom' || !['owner_user_id', 'pairing_code'].includes(key))
         const config = entry.config as unknown as Record<string, unknown>
