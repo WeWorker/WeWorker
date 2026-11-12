@@ -290,8 +290,9 @@ Agent tip: use 'webcli call <tool> --key=value ...' to invoke a tool.
            use 'webcli adapter <id> -help -f json' for structured tools.
 `;
   // wecli 风格：站点列表紧跟 Usage 行（HELP 首行），Agent tip 在末尾
-  const helpLines = HELP.split("\n");
-  const usageLine = helpLines[0]; // "webcli <command> [options]"
+  // help 文本按命令名 rebrand:webgo 包输出 webgo/WebGo,desktop 内嵌按 WEBCLI_CLI_NAME 覆盖
+  const helpLines = HELP.replaceAll('webcli', cliName()).split("\n");
+  const usageLine = helpLines[0]; // "<command> [options]"
   const rest = helpLines.slice(1).join("\n");
   console.log(`${usageLine}\n\n${siteText}\n${rest}${agentTip}`);
 }

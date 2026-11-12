@@ -265,6 +265,7 @@ function runWebcli(extraArgs: string[], cb: (err: Error | null) => void = () => 
     ...(isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
     WEBCLI_EMBEDDED: '1', // 桌面端内嵌 webcli:关闭版本自检与 npm 升级(随应用更新)
+    WEBCLI_CLI_NAME: 'webgo', // 桌面端内嵌统一品牌:运行时输出/help 显示 webgo(WebGo)
   }
 
   log.info(`Running webcli: ${nodeBin} ${webcliEntry} ${extraArgs.join(' ')}`)
