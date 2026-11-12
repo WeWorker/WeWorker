@@ -87,6 +87,20 @@ describe('route dispatch fallback', () => {
     expect(input.send).not.toHaveBeenCalled()
   })
 
+  it('a rehydrated blob that is not JSON falls back instead of printing _rawText', async () => {
+    // 落盘内容被截断时，旧实现会把它包成 {_rawText} 交给渲染层，用户看到一行被截断的乱码。
+    // 现在渲染层判成「没有可展示内容」→ 这一轮整份落回模型。
+    const mocked = vi.fn(async () => '{"type":"large_output","file":"missing"}')
+    const input = ctx()
+    expect(await executeRoutePlan(plan, input, {
+      engine, dispatch: mocked,
+      rehydrate: () => JSON.stringify({ _rawText: '{\n  "availabilityNotice": "",\n  "count": 9' }),
+      persistAssistantMessage: vi.fn(),
+    })).toBe(false)
+    expect(mocked).toHaveBeenCalledTimes(1)
+    expect(input.send).not.toHaveBeenCalled()
+  })
+
   it('a successful API response with a numeric business code remains routable', async () => {
     const mocked = vi.fn(async () => '{"code":200,"data":{"items":[{"id":"example"}]}}')
     const input = ctx()

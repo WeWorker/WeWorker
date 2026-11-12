@@ -96,6 +96,14 @@ describe('section result rendering', () => {
     expect(renderGeneric(JSON.stringify({ items: [{ id: 1 }] }))).toContain('| id |')
   })
 
+  it('never renders an unparseable cache blob as a key/value answer', () => {
+    // 落盘内容读不出 JSON 时 `readCacheResult` 会兜底成 `{_rawText}`；渲染层必须把它当成
+    // 「没有可展示内容」（空正文 → 调用方落回模型），而不是一行被截断的 `- **_rawText**: {…`
+    const blob = JSON.stringify({ _rawText: '{\n  "availabilityNotice": "",\n  "count": 9,\n  "rooms": [' })
+    expect(renderGeneric(blob)).toBe('')
+    expect(renderGeneric(blob, '企业微信会议室')).toBe('')
+  })
+
   it('keeps section content in capped summaries', () => {
     expect(buildCompactSummary(result)).toContain(result.sections[1].content)
     expect(buildCompactSummary(result)).toContain('rule=')
