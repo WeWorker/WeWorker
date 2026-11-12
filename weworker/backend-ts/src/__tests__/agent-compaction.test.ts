@@ -36,8 +36,8 @@ function message(id: string, text: string, role: Message['role'] = 'user'): Mess
 }
 
 const history = () => [
-  message('old-user', '旧目标：保留订单号A123。' + '历史内容'.repeat(600)),
-  message('old-assistant', '历史查询结果'.repeat(600), 'assistant'),
+  message('old-user', '旧目标：保留订单号A123。' + '历史内容。'.repeat(600)),
+  message('old-assistant', '历史查询结果。'.repeat(600), 'assistant'),
   message('current', '继续检查订单A123'),
 ]
 const settings = { active_provider: 'anthropic', api_key: 'test-only', base_url: 'https://api.anthropic.com', model: 'test-model', context_limit: 1_000_000 } as Settings
@@ -462,4 +462,28 @@ describe('agent conversation compaction', () => {
       else process.env.WEWORKER_COMPACTION_TIMEOUT_MS = previous
     }
   })
+})
+
+it('excludes the entire current turn including an overflowing assistant result from the summary', async () => {
+  const messages = [...history(), message('overflow-result', 'OVERSIZED-CURRENT-RESULT'.repeat(10000), 'assistant')]
+  const original = structuredClone(messages)
+  await collect(messages, { forceCompaction: true, compactionOnly: true })
+  const request = mocks.query.mock.calls.find(([request]) => request.options.tools)?.[0]
+  expect(request.prompt).toContain('旧目标')
+  expect(request.prompt).not.toContain('继续检查订单A123')
+  expect(request.prompt).not.toContain('OVERSIZED-CURRENT-RESULT')
+  expect(messages).toEqual(original)
+})
+
+it('bounds the summary request and restores every unsummarized sentence and the current turn', async () => {
+  const messages = history()
+  await collect(messages, { forceCompaction: true, compactionOnly: true }, { ...settings, context_limit: 4000, compaction_ratio: 65 })
+  const summaryRequest = mocks.query.mock.calls.find(([request]) => request.options.tools)?.[0]
+  const recentRequest = mocks.query.mock.calls.find(([request]) => !request.options.tools)?.[0]
+  expect(summaryRequest.options.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('400')
+  expect(contextAssembly.estimateContextTokens(summaryRequest.prompt) + 1024 + 400).toBeLessThan(4000)
+  const original = messages.slice(0, -1).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content[0].type === 'text' ? m.content[0].text : ''}`).join('\n\n')
+  expect(original.startsWith(summaryRequest.prompt)).toBe(true)
+  expect(recentRequest.prompt).toContain(original.slice(summaryRequest.prompt.length).trim())
+  expect(recentRequest.prompt).toContain('继续检查订单A123')
 })

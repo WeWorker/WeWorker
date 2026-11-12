@@ -229,7 +229,7 @@ class CompactionModel(ControlModel):
         )
 
 
-def test_history_compaction_receives_latest_complete_action_json(tmp_path: Path) -> None:
+def test_history_compaction_receives_older_complete_action_json_and_excludes_current_step(tmp_path: Path) -> None:
     model = CompactionModel()
     agent = DefaultAgent(
         model,
@@ -240,12 +240,20 @@ def test_history_compaction_receives_latest_complete_action_json(tmp_path: Path)
         summary_every_n_steps=1,
     )
 
-    agent.run("demo")
-
-    assistant_message = next(
-        message for message in model.requests[1] if message["role"] == "assistant"
-    )
-    assert json.loads(assistant_message["content"])["python_code"] == "print('page')"
+    model.queries = 1
+    agent.messages = [
+        model.format_message(role="system", content="System"),
+        model.format_message(role="assistant", content="Earlier facts. " * 100,
+                             extra={"actions": [{"python_code": "print('page')"}]}),
+        model.format_message(role="user", content="Older observations. " * 100),
+        model.format_message(role="assistant", content="CURRENT-ACTION"),
+        model.format_message(role="user", content="CURRENT-OBSERVATION"),
+    ]
+    agent._compact_history()
+    summary_input = model.requests[0][1]["content"]
+    assert '"python_code": "print(\'page\')"' in summary_input
+    assert "CURRENT-ACTION" not in summary_input
+    assert "CURRENT-OBSERVATION" not in summary_input
 
 
 def test_default_agent_cancel_control_file_writes_cancelled_exit(tmp_path: Path) -> None:

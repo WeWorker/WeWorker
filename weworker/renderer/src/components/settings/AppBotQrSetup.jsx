@@ -7,6 +7,7 @@ export default function AppBotQrSetup({ channel, profileId, disabled, onBusyChan
   const [error, setError] = useState('')
   const profilePending = useSettingsStore(state => state.channelProfileQrPending[profileId])
   const profileSaving = useSettingsStore(state => state.channelProfileQrSaving[profileId])
+  const bindingConfig = useSettingsStore(state => profileId ? state.channels.configurations?.[profileId]?.config : state.channels[channel])
   const pending = profileId ? profilePending : appBotQrPending[channel]
   const saving = profileId ? profileSaving : appBotQrSaving[channel]
   const changeBusy = useCallback(busy => onBusyChange(channel, busy), [channel, onBusyChange])
@@ -20,6 +21,6 @@ export default function AppBotQrSetup({ channel, profileId, disabled, onBusyChan
       {saving ? '正在保存机器人配置…' : error || '扫码已完成，配置尚未保存。请重试保存，无需重新扫码。'}
       {!saving && <button data-app-button="action" type="button" className="settings-btn settings-btn-secondary" onClick={() => { void save().catch(() => {}) }}>重试保存</button>}
     </div>}
-    <WecomQrConnect channel={channel} onImport={save} onBusyChange={changeBusy} disabled={disabled || !!pending} />
+    <WecomQrConnect channel={channel} bindingConfig={bindingConfig} onImport={save} onBusyChange={changeBusy} disabled={disabled || !!pending} />
   </>
 }

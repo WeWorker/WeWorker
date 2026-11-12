@@ -6,6 +6,7 @@ import { changeChannelConfiguration, createChannelMutationQueue, getChannelConfi
 import express from 'express'
 import { chatTurns as sharedChatTurns } from './chat-turn-lifecycle.js'
 import { listScheduledTaskRuns } from './scheduled-task-progress.js'
+import { listBackgroundChatRuns } from './background-chat-progress.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
@@ -445,6 +446,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     base_url: isBuiltinProvider(s.active_provider) ? '' : s.base_url,
     model: s.model,
     context_limit: s.context_limit,
+    compaction_ratio: s.compaction_ratio ?? 80,
     has_api_key: !!s.api_key,
     providers: Object.fromEntries(Object.entries({
       ...publicBuiltinProviders(PROVIDERS, process.env, s.builtin_context_limits),
@@ -601,6 +603,15 @@ app.post('/settings/user-directory-blacklist', (req, res) => {
     user_directory_blacklist: sanitized,
   }))
   res.json({ ...response, blacklist_dropped: dropped })
+})
+
+app.post('/settings/compaction', (req, res) => {
+  const ratio = req.body?.compaction_ratio
+  if (typeof ratio !== 'number' || !Number.isInteger(ratio) || ratio < 1 || ratio > 99) {
+    res.status(400).json({ detail: '压缩比例请输入 1-99 之间的整数' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ compaction_ratio: ratio })))
 })
 
 app.post('/settings/extensions/webcli-route', (req, res) => {
@@ -1151,7 +1162,7 @@ async function mutateChannelProfile(type: ChannelType, action: string, id: unkno
       input = { ...input, base_url: assertAllowedWeixinBaseUrl(input.base_url, ALLOWED_WEIXIN_BASE_URLS) }
     }
     const change = changeChannelConfiguration(previous, type, action, id, input)
-    if (action === 'save' || action === 'activate') {
+    if (action === 'save' || action === 'activate' || action === 'qr-import') {
       const entry = change.updates.channel_configurations[change.id]
       if (type === 'wecom') assertWecomBotNotUsedByAgent(entry ? (entry.config as { bot_id?: string }).bot_id : '')
       if (type === 'weixin') assertWeixinTokenNotUsedByAgent(entry ? (entry.config as { token?: string }).token : '')
@@ -2609,6 +2620,10 @@ const UpdateTaskSchema = z.object({
 
 app.get('/scheduled-task-runs', (_req, res) => {
   res.json(listScheduledTaskRuns())
+})
+
+app.get('/background-chat-runs', (_req, res) => {
+  res.json(listBackgroundChatRuns())
 })
 
 app.get('/scheduled-tasks', (_req, res) => {

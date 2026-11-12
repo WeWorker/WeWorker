@@ -71,9 +71,8 @@ import {
 } from './context-assembly.js'
 import {
   buildCompactedConversationPrompt,
-  CONVERSATION_COMPACTION_TARGET_RATIO,
   planConversationCompaction,
-  takeRecentWithinTokenBudget,
+  selectCompactionSource,
 } from './context/conversation-compaction.js'
 import type { ConversationCompactionSnapshot } from './context/context-types.js'
 import type { MemoryScope } from './memory/memory-types.js'
@@ -287,7 +286,7 @@ export interface SSEEvent {
   memoryParse?: MemoryParseSummary
   compaction?: Partial<ConversationCompactionSnapshot> & {
     status?: 'started' | 'completed' | 'skipped' | 'failed'
-    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed'
+    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed' | 'summary_input_too_large'
     error?: string
   }
 }
@@ -666,6 +665,7 @@ async function withCompactionWatchdog<T>(
 
 async function summarizeConversationOnly(input: {
   conversation: string
+  maxOutputTokens?: number
   settings: Settings
   purpose?: 'compaction' | 'task_notification'
   abortController?: AbortController
@@ -705,7 +705,9 @@ async function summarizeConversationOnly(input: {
       cwd: getUserDirectory(),
       pathToClaudeCodeExecutable: input.claudeSetup.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess: input.spawnClaudeCodeProcess,
-      env: input.env,
+      env: input.maxOutputTokens
+        ? { ...input.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(input.maxOutputTokens) }
+        : input.env,
     },
   })
 
@@ -1610,35 +1612,35 @@ async function* streamChatWithBaseUrl(
   phase.mark('context_assembly')
 
   if (needsCompaction) {
-    const historyMessages = conversationMessages.slice(0, -1)
-    const currentMessage = conversationMessages[conversationMessages.length - 1]
-    const currentTokens = estimateContextTokens(messagePromptText(currentMessage))
-    const targetTokens = opts.forceCompaction
-      ? Math.min(compactionPlan.targetTokens, Math.floor(conversationTokens * CONVERSATION_COMPACTION_TARGET_RATIO))
-      : compactionPlan.targetTokens
-    const recentSelection = takeRecentWithinTokenBudget(
-      historyMessages,
-      Math.max(1, targetTokens - currentTokens),
-      (message) => estimateContextTokens(messagePromptText(message)),
-    )
+    let currentTurnStart = conversationMessages.length - 1
+    while (currentTurnStart > 0 && conversationMessages[currentTurnStart].role !== 'user') currentTurnStart -= 1
+    const historyMessages = conversationMessages.slice(0, Math.max(0, currentTurnStart))
+    const currentTurn = conversationMessages.slice(Math.max(0, currentTurnStart))
+    const historyText = historyMessages.map(message => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`).join('\n\n')
+    const summaryOutputTokens = Math.min(4096, Math.floor(settings.context_limit / 10))
+    const selection = selectCompactionSource({
+      history: historyText,
+      ratio: settings.compaction_ratio,
+      contextLimit: settings.context_limit,
+      reservedTokens: summaryOutputTokens + 1024,
+      estimateTokens: estimateContextTokens,
+    })
     const compactionBase = {
       mode: 'conversation_only' as const,
       before_tokens: conversationTokens,
       after_tokens: 0,
-      summarized_message_count: recentSelection.dropped.length,
-      retained_message_count: recentSelection.retained.length + 1,
+      summarized_message_count: selection.source ? historyMessages.length : 0,
+      retained_message_count: currentTurn.length + (selection.retained ? 1 : 0),
     }
-    if (recentSelection.dropped.length > 0) {
-      const summarySource = recentSelection.dropped
-        .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`)
-        .filter((text) => text.trim())
-        .join('\n\n')
+    if (selection.source.trim()) {
+      const summarySource = selection.source
       compactionEventEmitted = true
       markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
       yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
       try {
         const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
           conversation: summarySource,
+          maxOutputTokens: summaryOutputTokens,
           settings,
           abortController: summaryAbort,
           onProgress: () => {
@@ -1650,7 +1652,7 @@ async function* streamChatWithBaseUrl(
           spawnClaudeCodeProcess,
         }))
         if (summary) {
-          const recentConversation = buildPromptString([...recentSelection.retained, currentMessage])
+          const recentConversation = [selection.retained, buildPromptString(currentTurn)].filter(Boolean).join('\n\n')
           const compactedConversation = buildCompactedConversationPrompt({
             summary: clampPromptText(summary, 16_000),
             recentConversation,
@@ -1700,8 +1702,9 @@ async function* streamChatWithBaseUrl(
         compaction: {
           ...compactionBase,
           after_tokens: conversationTokens,
-          status: 'skipped',
-          reason: 'no_droppable_history',
+          status: historyText.trim() ? 'failed' : 'skipped',
+          reason: historyText.trim() ? 'summary_input_too_large' : 'no_droppable_history',
+          ...(historyText.trim() ? { error: '历史内容没有可在窗口内压缩的完整句子，原始上下文已保留' } : {}),
         },
       }
     }

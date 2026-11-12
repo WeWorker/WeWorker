@@ -111,6 +111,7 @@ export function activateBuiltinProvider(provider: ProviderEntry, env: NodeJS.Pro
     active_provider: access.provider.id,
     active_model_configuration: '',
     active_auth_type: access.anthropicAuthType,
+    active_weworker_protocol: access.provider.weworker.protocol,
     // Only the selection is persisted. The deployment credential stays in memory.
     api_key: '',
     base_url: '',
@@ -138,6 +139,7 @@ export function resolveBuiltinSettings(settings: Settings, providers: ProviderEn
     base_url_is_full: false,
     model: access?.provider.defaultModel || '',
     active_auth_type: access?.anthropicAuthType || settings.active_auth_type,
+    active_weworker_protocol: access?.provider.weworker.protocol || 'anthropic_messages',
     context_limit: normalizeContextLimit(settings.builtin_context_limits?.[settings.active_provider], DEFAULT_BUILTIN_CONTEXT_LIMIT),
   }
 }

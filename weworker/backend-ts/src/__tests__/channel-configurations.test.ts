@@ -81,6 +81,26 @@ it('serializes asynchronous mutations and recovers after a rejected operation', 
   expect(events).toEqual(['stop', 'start', 'next', 'recovered'])
 })
 
+it.each(['wecom', 'qq', 'feishu'] as ChannelType[])('%s: QR imports cannot replace a saved robot and new profiles retain the old one', type => {
+  let state = initial()
+  const first = changeChannelConfiguration(state, type, 'add')
+  state = { ...state, ...first.updates }
+  state = { ...state, ...changeChannelConfiguration(state, type, 'save', first.id, { ...credentials(type), enabled: true }).updates }
+  const identity = type === 'wecom' ? 'bot_id' : 'app_id'
+  const replacement = { ...credentials(type), [identity]: 'fixture-new-bot', enabled: true }
+  const original = structuredClone(state)
+  expect(() => changeChannelConfiguration(state, type, 'qr-import', first.id, replacement)).toThrow('已关联机器人')
+  expect(state).toEqual(original)
+  const second = changeChannelConfiguration(state, type, 'add')
+  state = { ...state, ...second.updates }
+  state = { ...state, ...changeChannelConfiguration(state, type, 'qr-import', second.id, replacement).updates }
+  expect(Object.keys(state.channel_configurations!)).toHaveLength(2)
+  expect(state.channel_configurations![first.id].config).toMatchObject({ ...credentials(type), enabled: false })
+  expect(state.active_channel_configurations![type]).toBe(second.id)
+  // A retry after a lost response must remain idempotent.
+  expect(changeChannelConfiguration(state, type, 'qr-import', second.id, replacement).updates.channel_configurations).toEqual(state.channel_configurations)
+})
+
 it('issues an independent WeCom binding code after credentials are saved', () => {
   let state = initial()
   const first = changeChannelConfiguration(state, 'wecom', 'add')

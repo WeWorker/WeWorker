@@ -86,6 +86,8 @@ describe('Webwright managed model config', () => {
       model: 'glm-5.2',
       api_key: 'secret',
       structured_output: 'openai_json_object',
+      context_limit: 1_000_000,
+      compaction_ratio: 80,
     })
   })
 
@@ -162,6 +164,8 @@ describe('Webwright managed model config', () => {
       model: 'glm-5.2',
       api_key: 'secret',
       structured_output: 'openai_json_object',
+      context_limit: 1_000_000,
+      compaction_ratio: 80,
     })
   })
 
