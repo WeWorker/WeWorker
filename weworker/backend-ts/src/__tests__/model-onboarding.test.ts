@@ -14,7 +14,7 @@ const settings = (patch: Partial<Settings> = {}) => ({
   ...patch,
 } as Settings)
 const chatResponse = () => Response.json({ choices: [{ message: { content: '{"ok":true}' } }] })
-const toolResponse = () => Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { ok: true } }] })
+const toolResponse = () => Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] })
 const anthropicTextResponse = () => Response.json({ content: [{ type: 'text', text: '{"ok":true}' }] })
 const mainInput = () => ({ provider: getProvider('custom')!, apiKey: 'fixture-main-key', model: 'fixture-model', anthropicBaseUrl: 'https://example.com/proxy', autoAuth: true })
 const configuredSettings = (id: string, baseUrl: string) => settings({
@@ -50,7 +50,43 @@ describe('main model onboarding', () => {
     const [url, options] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://example.com/proxy/v1/messages')
     expect(JSON.parse(options.body as string).tool_choice).toEqual({ type: 'tool', name: 'connection_check' })
+    expect(JSON.parse(options.body as string)).toMatchObject({ max_tokens: 1024 })
+    expect(JSON.parse(options.body as string).messages[0].content).toMatch(/call.*connection_check/i)
+    expect(JSON.parse(options.body as string).tools[0].input_schema).toEqual({
+      type: 'object', properties: { status: { type: 'string', enum: ['ok'] } },
+      required: ['status'], additionalProperties: false,
+    })
     expect(options.redirect).toBe('error')
+  })
+
+  it('reports a truncated tool probe instead of declaring the model incompatible or available', async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }],
+    }))
+    const result = await probeMainConnection(mainInput(), fetchMock)
+    expect(result).toMatchObject({ ok: false, error: 'protocol_mismatch' })
+    expect(result.detail).toContain('输出上限')
+    expect(result.detail).not.toContain('不支持')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([{ status: true }, { raw_arguments: '{"status":' }, { status: 'failed' }, { status: 'ok</true>\n' }, { ok: 'true' }, {}])('rejects malformed tool confirmation %j without coercion', async input => {
+    const fetchMock = vi.fn(async () => Response.json({
+      stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'connection_check', input }],
+    }))
+    const result = await probeMainConnection(mainInput(), fetchMock)
+    expect(result).toMatchObject({ ok: false, error: 'protocol_mismatch' })
+    expect(result.detail).toContain('完整工具调用')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a confirmation returned by the wrong tool', async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'different_tool', input: { status: 'ok' } }],
+    }))
+    expect(await probeMainConnection(mainInput(), fetchMock)).toMatchObject({ ok: false, error: 'protocol_mismatch' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('retries without tools when a thinking model rejects tool_choice', async () => {
