@@ -4,7 +4,9 @@ import { officialSkillBuildTime } from './skill-build-time.js'
 import { randomUUID as channelQrId, createHash } from 'node:crypto'
 import { changeChannelConfiguration, createChannelMutationQueue, getChannelConfiguration, isChannelType, publicChannelSettings, type ChannelType } from './channels/channel-configurations.js'
 import express from 'express'
-import { createChatTurnRegistry } from './chat-turn-lifecycle.js'
+import { chatTurns as sharedChatTurns } from './chat-turn-lifecycle.js'
+import { listScheduledTaskRuns } from './scheduled-task-progress.js'
+import { listBackgroundChatRuns } from './background-chat-progress.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
@@ -14,6 +16,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
 import { appendWorkLog, configureWorkLogs, readWorkLog, recordWorkLogStream } from './work-log-file.js'
+import { readRouteDiagnostics } from './route-diagnostics-projection.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
 import { createAdapterStateRefreshHandler } from './adapter-state-refresh.js'
@@ -73,7 +76,8 @@ import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-cata
 import { registerExplorationModelRoutes } from './exploration-model-settings.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
-import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration } from './model-configurations.js'
+import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
+import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
 import { configuredModel } from './provider-config.js'
@@ -108,7 +112,6 @@ import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveS
 import * as store from './works-store.js'
 import { listArchivedWorkIds } from './conversation-archive.js'
 import { getCompactionStatus } from './compaction-status.js'
-import { tryBackendProfileQueryRoute } from './profile-query-route.js'
 import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
 import { matchSiteAdapter, resolveSiteToolkitPrompt } from './site-gate.js'
@@ -119,6 +122,14 @@ import { checkWebwrightHealth, fetchWebwrightTask } from './webwright-client.js'
 import { graduationHint, recordTier4HostUsage, shouldSuggestGraduation } from './tier4-graduation.js'
 import { computeRoutableSitesFromConfig, getScopedRouterConfig } from './router-config/index.js'
 import { listAliasTexts } from './api-query-router/aliases.js'
+import { createLocalApprovedRouteService, LocalRouteError } from './api-query-router/local-approved-routes.js'
+import { DesktopRouteCandidateStore } from './desktop-route-candidates.js'
+import { redeemReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
+import { getCatalog } from './api-query-router/tool-catalog.js'
+import type { LocalRouteInput } from './api-query-router/local-approved-routes.js'
+import { getRouteEngine, planRouteDecision } from './api-query-router/index.js'
+import { loadScenarioRoutes } from './api-query-router/scenario-routes.js'
+import { isFollowUpMessage } from './api-query-router/gates.js'
 import { tryRoutedTurn } from './routed-turn.js'
 import type { DirectRouteOutcome } from './webcli-route.js'
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
@@ -253,6 +264,7 @@ function runWebcli(extraArgs: string[], cb: (err: Error | null) => void = () => 
     ...process.env,
     ...(isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
+    WEBCLI_EMBEDDED: '1', // 桌面端内嵌 webcli:关闭版本自检与 npm 升级(随应用更新)
   }
 
   log.info(`Running webcli: ${nodeBin} ${webcliEntry} ${extraArgs.join(' ')}`)
@@ -422,6 +434,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     download_directory: getDownloadDirectory(),
     max_chat_attachments: s.max_chat_attachments,
     webcli_route_enabled: s.webcli_route_enabled !== false,
+    model_discovery_enabled: s.model_discovery_enabled !== false,
     paste_text_attachment_threshold: getPasteTextAttachmentThreshold(),
     welcome_featured_site_limit: getWelcomeFeaturedSiteLimit(),
     resource_preview_extensions: getResourcePreviewExtensions(),
@@ -433,9 +446,10 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     base_url: isBuiltinProvider(s.active_provider) ? '' : s.base_url,
     model: s.model,
     context_limit: s.context_limit,
+    compaction_ratio: s.compaction_ratio ?? 80,
     has_api_key: !!s.api_key,
     providers: Object.fromEntries(Object.entries({
-      ...publicBuiltinProviders(PROVIDERS),
+      ...publicBuiltinProviders(PROVIDERS, process.env, s.builtin_context_limits),
       anthropic: { has_key: !!s.api_key_anthropic, model: configuredModel('anthropic', s.model_anthropic || ''), context_limit: s.context_limit_anthropic, added: s.added_providers.includes('anthropic'), visible: visible('anthropic') },
       bank_coding: { has_key: !!s.api_key_bank_coding, model: configuredModel('bank_coding', s.model_bank_coding || ''), context_limit: s.context_limit_bank_coding || DEFAULT_CONTEXT_LIMIT, added: s.added_providers.includes('bank_coding'), visible: visible('bank_coding') },
       glm:       { has_key: !!s.api_key_glm,       model: configuredModel('glm', s.model_glm || ''), context_limit: s.context_limit_glm, added: s.added_providers.includes('glm'), visible: visible('glm') },
@@ -591,6 +605,15 @@ app.post('/settings/user-directory-blacklist', (req, res) => {
   res.json({ ...response, blacklist_dropped: dropped })
 })
 
+app.post('/settings/compaction', (req, res) => {
+  const ratio = req.body?.compaction_ratio
+  if (typeof ratio !== 'number' || !Number.isInteger(ratio) || ratio < 1 || ratio > 99) {
+    res.status(400).json({ detail: '压缩比例请输入 1-99 之间的整数' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ compaction_ratio: ratio })))
+})
+
 app.post('/settings/extensions/webcli-route', (req, res) => {
   const enabled = req.body?.webcli_route_enabled
   if (typeof enabled !== 'boolean') {
@@ -598,6 +621,15 @@ app.post('/settings/extensions/webcli-route', (req, res) => {
     return
   }
   res.json(buildSettingsResponse(updateSettings({ webcli_route_enabled: enabled })))
+})
+
+app.post('/settings/extensions/model-discovery', (req, res) => {
+  const enabled = req.body?.model_discovery_enabled
+  if (typeof enabled !== 'boolean') {
+    res.status(400).json({ detail: 'model_discovery_enabled must be a boolean' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ model_discovery_enabled: enabled })))
 })
 
 app.post('/settings/permissions', (req, res) => {
@@ -625,6 +657,89 @@ app.post('/settings/styles', (req, res) => {
     ...(Array.isArray(zcf_custom_roles) ? { zcf_custom_roles: zcf_custom_roles as Settings['zcf_custom_roles'] } : {}),
   }, getSettings())
   res.json(buildSettingsResponse(updateSettings(updates)))
+})
+
+async function detectLocalProviders() {
+  const discovered = await discoverLocalProviders()
+  const result = importDiscoveredProviders(getSettings(), discovered.providers)
+  const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
+  return { ...buildSettingsResponse(settings), discovery: {
+    imported: result.imported.length, existing: result.existing, issues: discovered.issues,
+  } }
+}
+
+app.post('/settings/provider/detect', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    const discovered = await discoverLocalProviders()
+    res.json({ candidates: publicDiscoveredProviders(getSettings(), discovered.providers), issues: discovered.issues })
+  } catch {
+    res.status(500).json({ detail: '自动识别暂时失败，请稍后重试' })
+  }
+})
+
+app.post('/settings/provider/reveal-key', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  if (req.body?.provider !== undefined) {
+    const { provider, target = 'weworker' } = req.body
+    if (typeof provider !== 'string' || !provider || provider.length > 100 ||
+        !['weworker', 'webwright'].includes(target) || req.body.source_id !== undefined) {
+      res.status(400).json({ detail: '请选择要查看的模型配置' })
+      return
+    }
+    try {
+      const key = savedModelConfigurationKey(getSettings(), provider, target)
+      if (!key) { res.status(404).json({ detail: '尚未保存 API Key' }); return }
+      res.json({ api_key: key })
+    } catch {
+      res.status(400).json({ detail: '该模型配置不支持查看 API Key' })
+    }
+    return
+  }
+  const sourceId = req.body?.source_id
+  if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
+    res.status(400).json({ detail: '请选择要查看的模型配置' })
+    return
+  }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    // 只在用户点「眼睛」时读取一次；列表响应里始终只有打码提示。
+    const discovered = await discoverLocalProviders({ validate: false })
+    const candidate = discovered.providers.find(item => item.sourceId === sourceId)
+    if (!candidate) {
+      res.status(404).json({ detail: '该配置已不可用，请重新识别' })
+      return
+    }
+    res.json({ api_key: candidate.configuration.api_key })
+  } catch {
+    res.status(500).json({ detail: '读取 API Key 失败' })
+  }
+})
+
+app.post('/settings/provider/import', async (req, res) => {
+  const sourceId = req.body?.source_id
+  if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
+    res.status(400).json({ detail: '请选择要导入的模型配置' })
+    return
+  }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    // Resolve credentials again on the backend; the preview and import request
+    // never carry keys, paths or a caller-supplied configuration.
+    const discovered = await discoverLocalProviders()
+    const candidate = discovered.providers.find(item => item.sourceId === sourceId)
+    if (!candidate) {
+      res.status(404).json({ detail: '该配置已不可用，请重新识别' })
+      return
+    }
+    // 校验失败的来源也允许用户手动导入：识别是识别，导入由用户决定。
+    const result = importDiscoveredProviders(getSettings(), [candidate], true)
+    const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
+    const configuration = publicDiscoveredProviders(settings, [candidate])[0]
+    res.json({ ...buildSettingsResponse(settings), imported_provider: configuration.configuration_id })
+  } catch {
+    res.status(500).json({ detail: '导入模型配置失败，请重新识别后重试' })
+  }
 })
 
 // Save config for a specific provider (does NOT switch active provider)
@@ -676,7 +791,20 @@ app.post('/settings/provider', (req, res) => {
     return
   }
   if (isBuiltinProvider(provider)) {
-    res.status(403).json({ detail: '内置模型由应用提供方管理，不支持修改' })
+    if (Object.keys(req.body).some(key => !['provider', 'name', 'context_limit'].includes(key))) {
+      res.status(403).json({ detail: '内置模型仅支持修改名称和上下文窗口' })
+      return
+    }
+    const limit = parseContextLimit(context_limit)
+    if (limit === null) {
+      res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位' })
+      return
+    }
+    const current = getSettings()
+    res.json(buildSettingsResponse(updateSettings({
+      ...nameUpdates,
+      builtin_context_limits: { ...current.builtin_context_limits, [provider]: limit },
+    })))
     return
   }
   if (getProvider(provider)?.fixedModel && model !== undefined && model !== configuredModel(provider, model)) {
@@ -997,6 +1125,7 @@ app.post('/settings/provider/probe', async (req, res) => {
 registerExplorationModelRoutes(app, { getSettings, updateSettings })
 
 app.get('/settings/channels', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   res.json(publicChannelSettings(getSettings()))
 })
 
@@ -1033,7 +1162,7 @@ async function mutateChannelProfile(type: ChannelType, action: string, id: unkno
       input = { ...input, base_url: assertAllowedWeixinBaseUrl(input.base_url, ALLOWED_WEIXIN_BASE_URLS) }
     }
     const change = changeChannelConfiguration(previous, type, action, id, input)
-    if (action === 'save' || action === 'activate') {
+    if (action === 'save' || action === 'activate' || action === 'qr-import') {
       const entry = change.updates.channel_configurations[change.id]
       if (type === 'wecom') assertWecomBotNotUsedByAgent(entry ? (entry.config as { bot_id?: string }).bot_id : '')
       if (type === 'weixin') assertWeixinTokenNotUsedByAgent(entry ? (entry.config as { token?: string }).token : '')
@@ -1045,6 +1174,7 @@ async function mutateChannelProfile(type: ChannelType, action: string, id: unkno
 }
 
 app.post('/settings/channels/configuration', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
   const { channel, action, id, config = {}, name } = req.body || {}
   if (!isChannelType(channel) || !config || typeof config !== 'object' || Array.isArray(config)) return res.status(400).json({ detail: '机器人配置格式无效' })
   try { res.json(await mutateChannelProfile(channel, action, id, action === 'rename' ? { name } : config)) }
@@ -1529,6 +1659,83 @@ app.get('/router/aliases', (_req, res) => {
   } catch (error) {
     log.warn('router aliases unavailable', error)
     res.json({ aliases: [] })
+  }
+})
+
+// A work ID is resolved on the server; the client cannot nominate another workspace.
+const pendingFastRoutes = new DesktopRouteCandidateStore()
+const localFastRoutes = createLocalApprovedRouteService()
+function fastRouteScope(req: express.Request): { workId: string; workspaceId: string } | null {
+  const workId = typeof req.query.workId === 'string' ? req.query.workId : ''
+  const work = workId ? store.getWork(workId) : null
+  return work ? { workId, workspaceId: work.workspace_directory } : null
+}
+function candidateInput(scope: { workId: string; workspaceId: string }, candidateId: string, keys: unknown): LocalRouteInput | null {
+  const verified = pendingFastRoutes.getVerified(scope.workspaceId, candidateId)
+  if (!verified || verified.candidate.workId !== scope.workId || !Array.isArray(keys)
+    || keys.length < 1 || keys.length > 8 || keys.some(key => typeof key !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/.test(key))
+    || new Set(keys).size !== keys.length) return null
+  const toolName = `${verified.candidate.tool.adapterId}.${verified.candidate.tool.toolId}`
+  return { workspaceId: scope.workspaceId, question: verified.candidate.question,
+    tool: toolName, args: { ...verified.args },
+    display: { columns: keys.map(key => ({ key, type: 'text' as const })), maxRows: 10 } }
+}
+function fastRouteReserved(question: string): boolean {
+  try {
+    const { plan } = planRouteDecision({ message: question, workId: 'local-route-check' })
+    return !!plan.blocked || plan.steps.length > 0
+  } catch { return true }
+}
+app.get('/router/fast-routes', (req, res) => {
+  const scope = fastRouteScope(req)
+  if (!scope) { res.status(400).json({ detail: '请先打开一个对话工作区' }); return }
+  const local = localFastRoutes.list(scope.workspaceId, { isReserved: fastRouteReserved })
+  const candidates = pendingFastRoutes.list(scope.workspaceId).map(candidate => ({
+    id: candidate.id, title: candidate.question, siteName: candidate.tool.adapterId,
+    description: '尚无可信的固定参数执行回执，不能测试或启用',
+    verification: 'identity_only_unverified', runnableArgs: null, displayFields: [],
+  }))
+  const system = loadScenarioRoutes()
+  const engine = getRouteEngine()
+  const configured = engine.bundle.routes?.routes ?? []
+  const aliases = engine.bundle.aliases?.aliases ?? []
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ candidates, routes: [
+    ...configured.filter(route => route.enabled !== false).map(route => ({
+      id: route.id, title: route.title || route.id, siteName: route.tool.split('.').slice(0, -1).join('.'), source: 'system' as const,
+    })),
+    ...aliases.filter(route => route.enabled !== false).map(route => ({
+      id: route.id, title: route.alias || `!${route.id}`, siteName: route.tool.split('.').slice(0, -1).join('.'), source: 'system' as const,
+    })),
+    ...system.filter(route => route.enabled !== false && !route.optout).map(route => ({
+      id: `${route.adapter}:${route.scenarioId}`, title: route.scenarioId,
+      siteName: route.adapter, source: 'system' as const,
+    })),
+    ...local.routes.map(({ route, status }) => ({ id: route.id, title: route.question,
+      siteName: route.tool.split('.').slice(0, -1).join('.'), source: 'local' as const, status })),
+  ], status: local.status })
+})
+app.post('/router/fast-routes/candidates/:id/test', (req, res) => {
+  // Shell tool-use events have no trustworthy fixed-argument execution receipt.
+  // Never guess an executable command from their text or replay unverified data.
+  res.status(409).json({ detail: '候选缺少可信固定参数，无法安全测试；不会自动启用' })
+})
+app.post('/router/fast-routes/candidates/:id/approve', (_req, res) => {
+  res.status(409).json({ detail: '候选缺少可信固定参数和只读测试，无法启用' })
+})
+app.post('/router/fast-routes/candidates/:id/ignore', (req, res) => {
+  const scope = fastRouteScope(req)
+  if (!scope) { res.status(400).json({ detail: '请先打开一个对话工作区' }); return }
+  res.json({ ok: pendingFastRoutes.ignore(scope.workspaceId, req.params.id) })
+})
+app.delete('/router/fast-routes/local/:id', (req, res) => {
+  const scope = fastRouteScope(req)
+  if (!scope) { res.status(400).json({ detail: '请先打开一个对话工作区' }); return }
+  try {
+    localFastRoutes.remove(req.params.id, scope.workspaceId, localFastRoutes.snapshot().revision)
+    res.json({ ok: true })
+  } catch (error) {
+    res.status(error instanceof LocalRouteError && error.reason === 'unavailable' ? 404 : 409).json({ detail: '本地路由不存在或状态已变化' })
   }
 })
 
@@ -2411,6 +2618,14 @@ const UpdateTaskSchema = z.object({
   notify_channels: z.array(z.string()).optional(),
 })
 
+app.get('/scheduled-task-runs', (_req, res) => {
+  res.json(listScheduledTaskRuns())
+})
+
+app.get('/background-chat-runs', (_req, res) => {
+  res.json(listBackgroundChatRuns())
+})
+
 app.get('/scheduled-tasks', (_req, res) => {
   const tasks = store.listScheduledTasks()
   res.json({ tasks })
@@ -2454,8 +2669,17 @@ app.get('/scheduled-tasks/:id', (req, res) => {
   res.json({
     task,
     executions,
+    running: scheduler.isRunning(task.id),
     next_run: nextRun ? nextRun.toISOString() : undefined,
   })
+})
+
+app.post('/scheduled-tasks/:id/run', (req, res) => {
+  const result = scheduler.runNow(req.params.id)
+  if (result === 'not_found') { res.status(404).json({ error: '任务不存在' }); return }
+  if (result === 'running') { res.status(409).json({ error: '任务正在执行，请勿重复启动' }); return }
+  if (result === 'empty_prompt') { res.status(400).json({ error: '请先填写并保存任务描述' }); return }
+  res.status(202).json({ status: 'started' })
 })
 
 app.patch('/scheduled-tasks/:id', (req, res) => {
@@ -2954,7 +3178,7 @@ app.post('/chat/warmup', (req, res) => {
   })
 })
 
-const chatTurns = createChatTurnRegistry()
+const chatTurns = sharedChatTurns
 const chatSteeringListeners = new Map<string, {
   checkpoint: () => store.Message | undefined
   notify: (message: store.Message, requestId?: string, previousAssistant?: store.Message) => void
@@ -3035,10 +3259,11 @@ app.post('/works/:id/chat', async (req, res) => {
 
 async function handleChatRequest(req: express.Request<{ id: string }>, res: express.Response, abortController: AbortController, requestTurnId?: string) {
   const workId = req.params.id
-  const { message, modelMessage, attachments, retryCompaction, thinkingEffort, permissionMode } = req.body as {
+  const { message, modelMessage, attachments, scenario, retryCompaction, thinkingEffort, permissionMode } = req.body as {
     message: string;
     modelMessage?: string;
     attachments?: Array<{ path?: string; name?: string }>;
+    scenario?: unknown;
     retryCompaction?: boolean;
     thinkingEffort?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     permissionMode?: 'ask' | 'workspace' | 'full';
@@ -3216,20 +3441,8 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   const tag = `[${workId}][${turnId}]`
 
-  // Optional product profiles may answer a query before the normal LLM route.
-  // The public profile has no registered route and always falls through.
-  // Ask mode must use the model's per-tool confirmation path. Direct dispatch
-  // does not expose operation approvals, even for read-only queries.
-  // Dedicated agents skip profile routes: those may answer with other websites.
-  if (desktopPermission.channelPermissionMode !== 'ask' && !dedicatedAgent && await tryBackendProfileQueryRoute({ message, workId, turnId, chatStartTime, send, log: (m: string) => chatLog.info(`${tag} ${m}`), llmRouteSettings: getSettings() })) {
-    appendWorkLog(workId, 'route_diagnostic', { phase: 'legacy_profile_handled', reason: 'profile_route_before_intelligent_engine' }, turnId)
-    finished = true
-    res.off('close', onClose)
-    broadcastSSE({ type: 'works_changed', workId })
-    res.end()
-    return
-  }
-
+  // All configured direct routes now use the shared router safety and fallback gates.
+  // The retired profile hook no longer preempts card or explicit-alias routing.
   // Deterministic routing layers (weworker/router-config, see
   // docs/intelligent_routing_architecture.md). Every layer answers "not mine" when
   // unsure and the shared entry returns `handled: false`, so a message that no
@@ -3245,6 +3458,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   if (!dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
     const routed = await tryRoutedTurn({
       message,
+      // A hint is never authority: the compiled server-side template must reconstruct
+      // this exact user-visible message, then normal read-only tool gates still apply.
+      scenario: importedAttachments.length === 0 && modelInputMessage === message ? scenario : undefined,
       workId,
       turnId,
       chatStartTime,
@@ -3264,11 +3480,59 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       return
     }
   } else {
-    const reason = desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
+    const reason = dedicatedAgent ? 'dedicated_agent'
+      : desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
       : retryCompaction === true ? 'compaction_retry' : 'empty_message'
     appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
+    appendWorkLog(workId, 'route_diagnostic', { phase: 'route_complete', engine: 'deterministic', status: 'skipped', reason, fallback: 'llm', visible: false }, turnId)
     chatLog.info(`${tag} route diagnostic route_skipped reason=${reason}`)
   }
+
+  // Locally approved exact questions are a last deterministic option, never a
+  // replacement for a blocked gate, attachment, explicit alias or system route.
+  const plainDesktopQuestion = !dedicatedAgent && retryCompaction !== true
+    && process.env.WEWORKER_API_QUERY_ROUTE !== '0'
+    && desktopPermission.channelPermissionMode !== 'ask' && importedAttachments.length === 0
+    && modelInputMessage === message && !!message.trim() && !scenario
+    && !isFollowUpMessage(message, workWithMessages.messages.filter(msg => msg.id !== savedUserMessage?.id))
+  if (plainDesktopQuestion && directRoute.status === 'miss' && !fastRouteReserved(message)) {
+    const workspaceId = workWithMessages.workspace_directory
+    const match = localFastRoutes.lookup(message, workspaceId, { isReserved: fastRouteReserved })
+    if (match.route) {
+      const began = Date.now()
+      const answer = await localFastRoutes.execute(match.route, { workId, isReserved: fastRouteReserved })
+      if (answer && !abortController.signal.aborted) {
+        const totalMs = Date.now() - chatStartTime
+        const timing = { totalMs, llmMs: 0, execMs: Date.now() - began, steps: 1,
+          routeTool: match.route.tool, routeSource: 'local-approved' }
+        // Commit before any visible output: a storage failure must not yield a
+        // partial routed answer followed by an independent Agent answer.
+        store.appendMessage(workId, 'assistant', [{ type: 'text', text: answer }, { type: 'timing', ...timing }])
+        send({ type: 'turn_start', turnId, workId })
+        send({ type: 'text_delta', content: answer })
+        appendWorkLog(workId, 'route_diagnostic', { phase: 'render_succeeded', source: 'local-approved', tool: match.route.tool }, turnId)
+        appendWorkLog(workId, 'route_diagnostic', { phase: 'route_finished', handled: true, fallback: 'none' }, turnId)
+        send({ type: 'turn_end', turnId, workId, ...timing })
+        finished = true
+        res.off('close', onClose)
+        broadcastSSE({ type: 'works_changed', workId })
+        res.end()
+        return
+      }
+      directRoute = { status: 'failed', reason: 'local_route_failed' }
+      appendWorkLog(workId, 'route_diagnostic', { phase: 'dispatch_failed', category: 'local_route_failed', fallback: 'llm' }, turnId)
+    }
+  }
+
+  // Conservative observer: this turn is a provable router miss only if planning
+  // itself produced no candidates. The SDK Shell event stream supplies no trusted
+  // webcli argument receipt; never synthesize one from command text or output.
+  const learningEligible = plainDesktopQuestion && directRoute.status === 'miss'
+    && !fastRouteReserved(message) && !localFastRoutes.lookup(message, workWithMessages.workspace_directory).route
+  const observation = learningEligible ? pendingFastRoutes.begin({
+    source: 'desktop', workspaceKey: workWithMessages.workspace_directory, workId, turnId,
+    question: message, directRoute, plainQuestion: true, eligibleAgentTurn: true,
+  }) : null
 
   const unsubscribeTerminalEvents = onTerminalEvent((event) => {
     if (event.workId !== workId) return
@@ -3395,6 +3659,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       reuseSession: true,
       ...(dedicatedAgentOptions ?? {}),
     })) {
+      if (ev.type === 'tool_call_start') observation?.event({ type: ev.type, id: ev.id, name: ev.name, args: ev.args })
+      else if (ev.type === 'tool_call_result') observation?.event({ type: ev.type, id: ev.id, isError: ev.isError, result: ev.result })
+      else if (ev.type === 'tool_call_image') observation?.event({ type: ev.type, id: ev.id })
+      else if (ev.type === 'error') observation?.event({ type: ev.type, content: ev.content })
       if (ev.type === 'skill_context' && ev.skillContext) {
         assistantContent.push(ev.skillContext)
       } else if (ev.type === 'text_delta' && ev.content) {
@@ -3551,6 +3819,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       segments.refresh(index)
     }
   }
+
+  // No trusted backend receipt is currently correlated with an SDK tool-use ID.
+  // finish() therefore records no candidate; a Shell exit code is not proof.
+  observation?.finish({ completed: turnSucceeded, finalAnswerVisible: !!currentText.trim(), cancelled: abortController.signal.aborted })
 
   // Persist assistant message
   if (assistantContent.length > 0) {
@@ -3852,6 +4124,18 @@ app.get('/logs', (req, res) => {
   }
 })
 
+// Only the allowlisted projection is exposed to the in-chat diagnostics panel.
+app.get('/works/:id/route-diagnostics', (req, res) => {
+  const work = store.getWork(req.params.id)
+  if (!work) { res.status(404).json({ detail: 'Not found' }); return }
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(readRouteDiagnostics(work.id))
+  } catch {
+    res.status(500).json({ detail: '路由诊断暂不可用' })
+  }
+})
+
 // Both copy and download use the same full conversation diagnostic export.
 app.get('/works/:id/logs.txt', (req, res) => {
   const work = store.getWorkWithMessages(req.params.id)
@@ -3922,6 +4206,22 @@ async function startConfiguredChannels(): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   await initSettings()
+  if (getSettings().model_discovery_enabled !== false) {
+    try { await detectLocalProviders() } catch { /* Local discovery must not prevent startup. */ }
+  }
+  // 上一进程若被强杀，遗留的 pending/running 执行永远不会结束，会一直把对应
+  // 会话当作“仍在运行”，导致定时任务历史无法被清理。启动时统一收尾。
+  try {
+    const recovered = store.recoverInterruptedScheduledTasks(getSettings().scheduled_task_history_limit)
+    if (recovered.failed > 0 || recovered.pruned > 0) {
+      log.warn('scheduled task recovery', {
+        interrupted_executions: recovered.failed,
+        pruned_conversations: recovered.pruned,
+      })
+    }
+  } catch (error) {
+    log.error('scheduled task recovery failed', error instanceof Error ? error.message : String(error))
+  }
   const taskHistory = store.ensureScheduledTaskHistoryProject(getSettings().scheduled_task_history_limit)
   if (taskHistory.project && (taskHistory.movedCount > 0 || taskHistory.prunedIds.length > 0)) {
     log.info('scheduled task history initialized', {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { executeRoutePlan, type RouteEngine } from '../api-query-router/index.js'
-import { dispatchOnce, isUnrenderableAnswer } from '../api-query-router/route-dispatch.js'
+import { classifyDispatchPayload, dispatchOnce, isUnrenderableAnswer } from '../api-query-router/route-dispatch.js'
+import { renderGeneric } from '../api-query-router/generic-renderer.js'
 import type { CascadePlan } from '../api-query-router/cascade.js'
 
 const tool = 'example.list'
@@ -43,6 +44,29 @@ describe('route dispatch fallback', () => {
     expect(input.send).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['HTTP 200 auth code', '{"code":401,"msg":"login required","data":null}'],
+    ['extension auth code', '{"error":"login required","code":"AUTH_REQUIRED"}'],
+    ['wrapped auth error', '{"result":{"code":4001,"msg":"请先登录","data":null},"trace_id":"example-trace"}'],
+    ['CLI auth envelope', '{"error":"Authentication credentials were not provided.","code":"FETCH_ERROR"}'],
+  ])('%s is diagnosed as authentication and hands off once', async (_name, raw) => {
+    const onFallback = vi.fn()
+    const dispatch = vi.fn(async () => raw)
+    const input = { ...ctx(), onFallback }
+    expect(await executeRoutePlan(plan, input, { engine, dispatch })).toBe(false)
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(onFallback).toHaveBeenCalledWith({ status: 'failed', reason: 'authentication_required' })
+    expect(input.send).not.toHaveBeenCalled()
+  })
+
+  it('does not diagnose a successful payload mentioning login as authentication', async () => {
+    const input = { ...ctx(), onFallback: vi.fn() }
+    expect(await executeRoutePlan(plan, input, {
+      engine, dispatch: async () => '{"items":[{"note":"login required for another feature"}]}', persistAssistantMessage: vi.fn(),
+    })).toBe(true)
+    expect(input.onFallback).not.toHaveBeenCalled()
+  })
+
   it('unavailable spill falls back without trying another layer', async () => {
     const mocked = vi.fn(async () => '{"type":"large_output","file":"missing"}')
     const input = ctx()
@@ -63,6 +87,20 @@ describe('route dispatch fallback', () => {
     expect(input.send).not.toHaveBeenCalled()
   })
 
+  it('a rehydrated blob that is not JSON falls back instead of printing _rawText', async () => {
+    // 落盘内容被截断时，旧实现会把它包成 {_rawText} 交给渲染层，用户看到一行被截断的乱码。
+    // 现在渲染层判成「没有可展示内容」→ 这一轮整份落回模型。
+    const mocked = vi.fn(async () => '{"type":"large_output","file":"missing"}')
+    const input = ctx()
+    expect(await executeRoutePlan(plan, input, {
+      engine, dispatch: mocked,
+      rehydrate: () => JSON.stringify({ _rawText: '{\n  "availabilityNotice": "",\n  "count": 9' }),
+      persistAssistantMessage: vi.fn(),
+    })).toBe(false)
+    expect(mocked).toHaveBeenCalledTimes(1)
+    expect(input.send).not.toHaveBeenCalled()
+  })
+
   it('a successful API response with a numeric business code remains routable', async () => {
     const mocked = vi.fn(async () => '{"code":200,"data":{"items":[{"id":"example"}]}}')
     const input = ctx()
@@ -73,26 +111,58 @@ describe('route dispatch fallback', () => {
   })
 
   it.each([
-    ['empty items', '{"items":[]}'],
-    ['empty data', '{"code":200,"data":[]}'],
+    ['empty items without success marker', '{"items":[]}'],
+    ['empty data', '{"data":[]}'],
     ['bare empty array', '[]'],
     ['wrapped empty result', '{"result":{"items":[]},"trace_id":"example-trace"}'],
-  ])('%s falls back to LLM without emitting an empty-result answer', async (_name, raw) => {
-    const mocked = vi.fn(async () => raw)
+    ['confirmed empty list', '{"ok":true,"items":[]}'],
+    ['nested confirmed empty list', '{"success":true,"data":{"items":[],"count":0}}'],
+    ['numeric business code with empty data', '{"code":200,"data":[]}'],
+  ])('%s renders a friendly no-records answer instead of falling back %s', async (_name, raw) => {
     const input = ctx()
     const persistAssistantMessage = vi.fn()
+    expect(classifyDispatchPayload(raw)).toBeNull()
     expect(await executeRoutePlan(plan, input, {
-      engine, dispatch: mocked, persistAssistantMessage,
-    })).toBe(false)
-    expect(mocked).toHaveBeenCalledTimes(1)
-    expect(input.send).not.toHaveBeenCalled()
-    expect(persistAssistantMessage).not.toHaveBeenCalled()
+      engine, dispatch: async () => raw, persistAssistantMessage,
+    })).toBe(true)
+    expect(input.send).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'text_delta',
+      content: expect.stringContaining('经查询，没有符合条件的数据。'),
+    }))
+    expect(persistAssistantMessage).toHaveBeenCalledTimes(1)
   })
 
-  it('falls back when a declarative renderer produces only an empty-result message', () => {
-    expect(isUnrenderableAnswer('### 查询结果\n\n未查询到相关数据。')).toBe(true)
-    expect(isUnrenderableAnswer('### 查询结果\n\n（无数据）')).toBe(true)
-    expect(isUnrenderableAnswer('### 查询结果\n\n未查询到相关数据。\n\n### 其它结果\n\n| 名称 |\n| --- |\n| 示例 |')).toBe(false)
+  it('uses the schema emptyMessage instead of the generic wording', async () => {
+    const raw = '{"ok":true,"items":[]}'
+    const schema = { id: 'example', dataSource: 'items', emptyMessage: '经查询，当前没有待办要处理。' }
+    expect(renderGeneric(raw, undefined, { schemaId: 'example' }, { lookupSchema: () => schema }))
+      .toBe('经查询，当前没有待办要处理。')
+    const input = ctx()
+    const schemaEngine = { ...engine, bundle: { renderers: { schemas: { example: schema } } } } as unknown as RouteEngine
+    const schemaPlan = { ...plan, steps: [{ ...plan.steps[0], decision: { ...plan.steps[0].decision, render: { schemaId: 'example' } } }] } as CascadePlan
+    expect(await executeRoutePlan(schemaPlan, input, { engine: schemaEngine, dispatch: async () => raw, persistAssistantMessage: vi.fn() })).toBe(true)
+    expect(input.send).toHaveBeenCalledWith({ type: 'text_delta', content: '经查询，当前没有待办要处理。' })
+  })
+
+  it('treats a render with no content as unrenderable but keeps friendly no-records answers', () => {
+    expect(isUnrenderableAnswer('')).toBe(true)
+    expect(isUnrenderableAnswer('### 查询结果\n\n')).toBe(true)
+    expect(isUnrenderableAnswer('### 查询结果\n\n⚠️ 查询失败：request failed')).toBe(true)
+    // 空结果话术是有效回答：不能被当成「没答出来」再丢回模型
+    expect(isUnrenderableAnswer('经查询，没有符合条件的数据。')).toBe(false)
+    expect(isUnrenderableAnswer('### 企业微信会议室\n\n经查询，当前没有符合条件的空闲会议室。')).toBe(false)
+    expect(isUnrenderableAnswer('### 查询结果\n\n| 名称 |\n| --- |\n| 示例 |')).toBe(false)
+  })
+
+  it.each([
+    ['error envelope on top of an empty array', '{"ok":true,"items":[],"error":"request failed"}'],
+    ['positive total contradicting an empty array', '{"ok":true,"items":[],"total":3}'],
+    ['nested positive total contradicting an empty array', '{"ok":true,"data":{"items":[],"total":2}}'],
+  ])('%s still falls back instead of claiming there is no data', async (_name, raw) => {
+    const input = ctx()
+    expect(classifyDispatchPayload(raw)).not.toBeNull()
+    expect(await executeRoutePlan(plan, input, { engine, dispatch: async () => raw, persistAssistantMessage: vi.fn() })).toBe(false)
+    expect(input.send).not.toHaveBeenCalled()
   })
 
   it('categorizes a tool timeout before routing can render it', async () => {

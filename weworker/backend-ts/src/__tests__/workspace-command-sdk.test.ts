@@ -24,10 +24,16 @@ import { createWorkspacePreToolUseHook } from '../workspace-tool-hook.js'
 import { createAskPreToolUseHook } from '../tool-permission-approval.js'
 import { resolvePendingAskUser } from '../ask-user-pending.js'
 import { spawnManagedClaudeCodeProcess } from '../claude-process.js'
+import { ChatSession, PromptQueue } from '../chat-session.js'
 
 // Use the actual Windows CLI and PowerShell with a local model fixture. This
 // catches SDK-level sandbox rejection that unit tests of our guard cannot see.
-it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs %s commands through the real SDK while retaining access and approval guards', async mode => {
+it.runIf(process.platform === 'win32').each([
+  { mode: 'workspace' as const, steering: false },
+  { mode: 'ask' as const, steering: false },
+  { mode: 'workspace' as const, steering: true },
+  { mode: 'ask' as const, steering: true },
+])('runs $mode commands (steering=$steering) through the real SDK while retaining access and approval guards', async ({ mode, steering }) => {
   fixture.directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-workspace-sdk-'))
   const workspace = path.join(fixture.directory, 'workspace')
   fs.mkdirSync(workspace)
@@ -45,6 +51,9 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
   const confirmations: Array<{ id: string; createdFileExists: boolean }> = []
   const workId = `public-sdk-${mode}`
   const results = new Map<string, { is_error?: boolean; content: unknown }>()
+  let session: ChatSession | undefined
+  let steeringSent = false
+  let steeringObserved = false
   let nextCall = 0
   const server = http.createServer(async (req, res) => {
     if (!req.url?.startsWith('/v1/messages')) { res.writeHead(404).end(); return }
@@ -57,6 +66,7 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
         content: [{ type: 'text', text: 'Fixture' }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }))
       return
     }
+    steeringObserved ||= JSON.stringify(request.messages).includes('steering-public-fixture')
     for (const message of request.messages ?? []) {
       if (!Array.isArray(message.content)) continue
       for (const block of message.content) {
@@ -98,7 +108,15 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
     }
     const cli = path.resolve('node_modules/@anthropic-ai/claude-code/bin/claude.exe')
     expect(fs.existsSync(cli)).toBe(true)
-    handle = query({ prompt: 'Run the fixture commands.', options: {
+    const queue = new PromptQueue()
+    const permissionHook = mode === 'ask' ? createAskPreToolUseHook({
+      workId: () => workId, checkAccess: canUseTool, signal: abort.signal,
+      onAskUser: () => event => {
+        confirmations.push({ id: event.id, createdFileExists: fs.existsSync(path.join(workspace, 'created.txt')) })
+        queueMicrotask(() => resolvePendingAskUser(workId, event.id.includes('fixture-tool-6') ? '拒绝' : '允许本次', event.id))
+      },
+    }) : createWorkspacePreToolUseHook(workspace)
+    handle = query({ prompt: steering ? queue : 'Run the fixture commands.', options: {
       abortController: abort,
       pathToClaudeCodeExecutable: cli,
       model: 'test-model', systemPrompt: 'Follow the fixture tool calls.',
@@ -107,13 +125,17 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
       allowDangerouslySkipPermissions: permission.allowDangerouslySkipPermissions,
       settings: buildAgentFilesystemSettings(workspace, permission.channelPermissionMode),
       canUseTool,
-      hooks: { PreToolUse: [{ timeout: 330, hooks: [mode === 'ask' ? createAskPreToolUseHook({
-        workId: () => workId, checkAccess: canUseTool, signal: abort.signal,
-        onAskUser: () => event => {
-          confirmations.push({ id: event.id, createdFileExists: fs.existsSync(path.join(workspace, 'created.txt')) })
-          queueMicrotask(() => resolvePendingAskUser(workId, event.id.includes('fixture-tool-6') ? '拒绝' : '允许本次', event.id))
-        },
-      }) : createWorkspacePreToolUseHook(workspace)] }] },
+      extraArgs: { 'replay-user-messages': null },
+      hooks: { PreToolUse: [{ timeout: 330, hooks: [async (...args) => {
+        const result = await permissionHook(...args)
+        if (steering && !steeringSent) {
+          steeringSent = true
+          expect(session!.steer({ type: 'user', uuid: '11111111-1111-4111-8111-111111111111',
+            session_id: '', parent_tool_use_id: null,
+            message: { role: 'user', content: 'steering-public-fixture' } }, { id: 'correction', role: 'user' })).toBe(true)
+        }
+        return result
+      }] }] },
       cwd: workspace,
       env: { ...process.env, CLAUDE_CONFIG_DIR: path.join(fixture.directory, 'config'),
         ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`, ANTHROPIC_API_KEY: 'test-placeholder-key',
@@ -127,7 +149,13 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
         return child as unknown as SpawnedProcess
       },
     } })
-    for await (const _message of handle) { /* Consume until the fixture turn finishes. */ }
+    if (steering) session = new ChatSession({ workId, fingerprint: 'fixture', queue, query: handle,
+      bindings: { workIdRef: { current: workId }, onAskUser: null, memory: { userPromptInjections: 0, postToolBatchInjections: 0 } } })
+    const events = session ? session.runTurn({ type: 'user', session_id: '', parent_tool_use_id: null,
+      message: { role: 'user', content: 'Run the fixture commands.' } }) : handle
+    for await (const _message of events) { /* Consume until the fixture turn finishes. */ }
+    expect(steeringObserved).toBe(steering)
+    expect(children).toHaveLength(1)
     const resultText = (index: number) => JSON.stringify(results.get(`fixture-tool-${index}`)?.content)
     expect(resultText(0)).toContain('workspace-native-ok')
     expect(results.get('fixture-tool-0')?.is_error).not.toBe(true)
@@ -152,6 +180,7 @@ it.runIf(process.platform === 'win32').each(['workspace', 'ask'] as const)('runs
     }
   } finally {
     clearTimeout(timeout)
+    session?.close('test')
     handle?.close()
     for (const child of children) {
       if (child.exitCode !== null || child.signalCode !== null) continue

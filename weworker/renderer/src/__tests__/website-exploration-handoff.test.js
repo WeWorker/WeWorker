@@ -117,7 +117,7 @@ test('exploration asks about development in the message stream, not a header but
   assert.doesNotMatch(actions, /回放|暂停|取消运行/)
   assert.doesNotMatch(source, /转为开发|<ActionMenu|changeWebsiteContext/)
   assert.match(source, /<ExplorationComposer[\s\S]*<ExplorationControls/)
-  assert.match(source, /onReplay=\{\(\) => action.run/)
+  assert.doesNotMatch(source, /api\.replayExploration\(/)
 })
 test('selected exploration and target prepare a chat directly, without navigating to development or replacing its drafts', async () => {
   setup()

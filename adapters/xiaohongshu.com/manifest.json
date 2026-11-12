@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "xiaohongshu.com",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "enabled": true,
   "description": "小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理",
   "match": [
@@ -18,7 +18,6 @@
       "routeDomain": "www.xiaohongshu.com",
       "description": "Ask 小红书点点 and return the answer with citation sources.",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -54,7 +53,8 @@
         "properties": {
           "note-id": {
             "type": "string",
-            "description": "Full Xiaohongshu note URL with xsec_token"
+            "description": "Full Xiaohongshu note URL with xsec_token",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -70,7 +70,46 @@
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注作者",
+              "command": "follow",
+              "args": {
+                "user-id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            },
+            {
+              "id": "unfollow",
+              "label": "取消关注作者",
+              "command": "unfollow",
+              "args": {
+                "user-id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "creator-note-detail",
@@ -84,13 +123,44 @@
         "properties": {
           "note-id": {
             "type": "string",
-            "description": "Note ID (from creator-notes or note-detail page URL)"
+            "description": "Note ID (from creator-notes or note-detail page URL)",
+            "minLength": 1
           }
         },
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "delete",
+              "label": "删除作品",
+              "variants": [
+                {
+                  "when": {
+                    "section": "笔记信息",
+                    "metric": "note_id"
+                  },
+                  "command": "delete-note",
+                  "args": {
+                    "note-id": {
+                      "from": "item.context_note_id"
+                    },
+                    "execute": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "creator-notes",
@@ -109,7 +179,39 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看作品数据",
+              "command": "creator-note-detail",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_id"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除作品",
+              "command": "delete-note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_id"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "creator-notes-summary",
@@ -133,7 +235,39 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看作品数据",
+              "command": "creator-note-detail",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_id"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除作品",
+              "command": "delete-note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_id"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "creator-profile",
@@ -146,7 +280,13 @@
         "type": "object",
         "properties": {},
         "required": []
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回完整账号资料及汇总字段，不含可选择的作品或用户ID；作品列表应独立调用creator-notes，不将字段行映射为作品操作。"
+        }
+      ]
     },
     {
       "id": "creator-stats",
@@ -169,7 +309,13 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回所选周期的账号指标及趋势；指标不是笔记对象，当前无按指标下钻或修改指标的命令。"
+        }
+      ]
     },
     {
       "id": "delete-note",
@@ -178,13 +324,13 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "删除小红书已发布笔记 (creator center UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "note-id": {
             "type": "string",
-            "description": "Note ID (e.g. 6a08ba0b000000000702a893 from xiaohongshu creator-notes / URL)"
+            "description": "Note ID (e.g. 6a08ba0b000000000702a893 from xiaohongshu creator-notes / URL)",
+            "minLength": 1
           },
           "execute": {
             "type": "boolean",
@@ -203,13 +349,14 @@
       "module": "extension/commands/download.js",
       "routeDomain": "www.xiaohongshu.com",
       "description": "下载小红书笔记中的图片和视频",
-      "safety": "read",
+      "safety": "write",
       "schema": {
         "type": "object",
         "properties": {
           "note-id": {
             "type": "string",
-            "description": "Full Xiaohongshu note URL with xsec_token, or xhslink short link"
+            "description": "Full Xiaohongshu note URL with xsec_token, or xhslink short link",
+            "minLength": 1
           },
           "output": {
             "type": "string",
@@ -229,7 +376,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "清空小红书本地草稿",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -254,13 +400,13 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "删除一条小红书本地草稿",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "description": "Draft id returned by `opencli xiaohongshu drafts`"
+            "description": "Draft id returned by `opencli xiaohongshu drafts`",
+            "minLength": 1
           },
           "type": {
             "type": "string",
@@ -290,7 +436,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Draft id returned by `opencli xiaohongshu drafts`"
+            "description": "Draft id returned by `opencli xiaohongshu drafts`",
+            "minLength": 1
           },
           "type": {
             "type": "string",
@@ -301,7 +448,32 @@
         "required": [
           "id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "delete",
+              "label": "删除草稿",
+              "command": "draft-delete",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "from": "item.type"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "drafts",
@@ -320,7 +492,45 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看草稿",
+              "command": "draft-open",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "from": "item.type"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除草稿",
+              "command": "draft-delete",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                },
+                "type": {
+                  "from": "item.type"
+                },
+                "execute": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "feed",
@@ -339,7 +549,78 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "follow",
@@ -348,13 +629,13 @@
       "routeDomain": "www.xiaohongshu.com",
       "description": "关注小红书用户 (profile UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "user-id": {
             "type": "string",
-            "description": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+            "description": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL",
+            "minLength": 1
           }
         },
         "required": [
@@ -374,7 +655,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "User id or profile URL (defaults to current logged-in user)"
+            "description": "User id or profile URL (defaults to current logged-in user)",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -383,7 +665,78 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "note",
@@ -397,13 +750,103 @@
         "properties": {
           "note-id": {
             "type": "string",
-            "description": "Full Xiaohongshu note URL with xsec_token"
+            "description": "Full Xiaohongshu note URL with xsec_token",
+            "minLength": 1
           }
         },
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "comments",
+                  "args": {
+                    "note-id": {
+                      "from": "item.context_note_url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "download",
+                  "args": {
+                    "note-id": {
+                      "from": "item.context_note_url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "like-note",
+                  "args": {
+                    "id": {
+                      "from": "item.context_note_id"
+                    },
+                    "url": {
+                      "from": "item.context_note_url"
+                    },
+                    "confirm": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "favorite-note",
+                  "args": {
+                    "id": {
+                      "from": "item.context_note_id"
+                    },
+                    "url": {
+                      "from": "item.context_note_url"
+                    },
+                    "confirm": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "notifications",
@@ -427,7 +870,46 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注作者",
+              "command": "follow",
+              "args": {
+                "user-id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            },
+            {
+              "id": "unfollow",
+              "label": "取消关注作者",
+              "command": "unfollow",
+              "args": {
+                "user-id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "publish",
@@ -436,7 +918,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "小红书发布图文笔记 (creator center UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -488,7 +969,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "User id or profile URL (defaults to current logged-in user)"
+            "description": "User id or profile URL (defaults to current logged-in user)",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -497,7 +979,78 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "search",
@@ -576,7 +1129,78 @@
         "required": [
           "query"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "unfollow",
@@ -585,13 +1209,13 @@
       "routeDomain": "www.xiaohongshu.com",
       "description": "取消关注小红书用户 (profile UI automation)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "user-id": {
             "type": "string",
-            "description": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL"
+            "description": "User ID (e.g. 5d8f88dc0000000001005d3a) or profile URL",
+            "minLength": 1
           }
         },
         "required": [
@@ -611,7 +1235,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "User id or profile URL"
+            "description": "User id or profile URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -622,7 +1247,78 @@
         "required": [
           "id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -635,7 +1331,40 @@
         "type": "object",
         "properties": {},
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "site",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看本人作品",
+              "command": "creator-notes",
+              "args": {}
+            },
+            {
+              "id": "profile",
+              "label": "查看账号资料",
+              "command": "creator-profile",
+              "args": {}
+            },
+            {
+              "id": "stats",
+              "label": "查看账号统计",
+              "command": "creator-stats",
+              "args": {}
+            },
+            {
+              "id": "drafts",
+              "label": "查看本人草稿",
+              "command": "drafts",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -644,7 +1373,6 @@
       "routeDomain": "creator.xiaohongshu.com",
       "description": "打开创作者中心登录页；完成登录后调用 whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},
@@ -723,7 +1451,78 @@
       "aliases": [
         "search_notes"
       ],
-      "routeDomain": "www.xiaohongshu.com"
+      "routeDomain": "www.xiaohongshu.com",
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "open-note",
@@ -736,18 +1535,109 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "Note ID (e.g., \"69a7ff7e00000000220334e1\")"
+            "description": "Note ID (e.g., \"69a7ff7e00000000220334e1\")",
+            "minLength": 1
           },
           "url": {
             "type": "string",
-            "description": "Full note URL (e.g., \"https://www.xiaohongshu.com/explore/69a7ff7e00000000220334e1\")"
+            "description": "Full note URL (e.g., \"https://www.xiaohongshu.com/explore/69a7ff7e00000000220334e1\")",
+            "minLength": 1
           }
         }
       },
       "aliases": [
         "open_note"
       ],
-      "routeDomain": "www.xiaohongshu.com"
+      "routeDomain": "www.xiaohongshu.com",
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "comments",
+                  "args": {
+                    "note-id": {
+                      "from": "item.context_note_url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "download",
+                  "args": {
+                    "note-id": {
+                      "from": "item.context_note_url"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "like-note",
+                  "args": {
+                    "id": {
+                      "from": "item.context_note_id"
+                    },
+                    "url": {
+                      "from": "item.context_note_url"
+                    },
+                    "confirm": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "variants": [
+                {
+                  "when": {
+                    "field": "title"
+                  },
+                  "command": "favorite-note",
+                  "args": {
+                    "id": {
+                      "from": "item.context_note_id"
+                    },
+                    "url": {
+                      "from": "item.context_note_url"
+                    },
+                    "confirm": {
+                      "value": true
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "read-comments",
@@ -760,11 +1650,13 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "笔记 ID；为空时使用当前页"
+            "description": "笔记 ID；为空时使用当前页",
+            "minLength": 1
           },
           "url": {
             "type": "string",
-            "description": "笔记详情 URL；为空时使用当前页"
+            "description": "笔记详情 URL；为空时使用当前页",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -781,7 +1673,46 @@
       "aliases": [
         "read_comments"
       ],
-      "routeDomain": "www.xiaohongshu.com"
+      "routeDomain": "www.xiaohongshu.com",
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看作者",
+              "command": "user",
+              "args": {
+                "id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注作者",
+              "command": "follow",
+              "args": {
+                "user-id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            },
+            {
+              "id": "unfollow",
+              "label": "取消关注作者",
+              "command": "unfollow",
+              "args": {
+                "user-id": {
+                  "from": "item.context_user_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "check-login-status",
@@ -796,7 +1727,40 @@
       "aliases": [
         "check_login_status"
       ],
-      "routeDomain": "creator.xiaohongshu.com"
+      "routeDomain": "creator.xiaohongshu.com",
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "site",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看本人作品",
+              "command": "creator-notes",
+              "args": {}
+            },
+            {
+              "id": "profile",
+              "label": "查看账号资料",
+              "command": "creator-profile",
+              "args": {}
+            },
+            {
+              "id": "stats",
+              "label": "查看账号统计",
+              "command": "creator-stats",
+              "args": {}
+            },
+            {
+              "id": "drafts",
+              "label": "查看本人草稿",
+              "command": "drafts",
+              "args": {}
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "navigate-to-homepage",
@@ -811,6 +1775,12 @@
       },
       "aliases": [
         "navigate_to_homepage"
+      ],
+      "results": [
+        {
+          "actions": [],
+          "reason": "仅导航回首页的回执，不返回候选对象；需要推荐列表时调用feed。"
+        }
       ]
     },
     {
@@ -824,11 +1794,13 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "笔记 ID；为空时使用当前页"
+            "description": "笔记 ID；为空时使用当前页",
+            "minLength": 1
           },
           "url": {
             "type": "string",
-            "description": "笔记详情 URL；为空时使用当前页"
+            "description": "笔记详情 URL；为空时使用当前页",
+            "minLength": 1
           },
           "confirm": {
             "type": "boolean",
@@ -838,8 +1810,7 @@
       },
       "aliases": [
         "like_note"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "favorite-note",
@@ -852,11 +1823,13 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "笔记 ID；为空时使用当前页"
+            "description": "笔记 ID；为空时使用当前页",
+            "minLength": 1
           },
           "url": {
             "type": "string",
-            "description": "笔记详情 URL；为空时使用当前页"
+            "description": "笔记详情 URL；为空时使用当前页",
+            "minLength": 1
           },
           "confirm": {
             "type": "boolean",
@@ -866,8 +1839,7 @@
       },
       "aliases": [
         "favorite_note"
-      ],
-      "requires_confirmation": false
+      ]
     }
   ],
   "homepage_url": "https://www.xiaohongshu.com",

@@ -3,6 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   registeredTools: new Map<string, (args: Record<string, unknown>) => Promise<unknown>>(),
   toolDescriptions: new Map<string, string>(),
+  runWeWorkerPowerShell: vi.fn(async () => ({
+    exitCode: 0, sessionId: 'fixture-shell-session', shell: 'bash',
+    cwd: '/fixture/workspace', output: 'fixture-shell-output',
+  })),
+}))
+
+vi.mock('../powershell-runner.js', () => ({
+  runWeWorkerPowerShell: mocks.runWeWorkerPowerShell,
 }))
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
@@ -79,6 +87,12 @@ describe('Adapter command boundary', () => {
       command: 'webcli call blog-admin.search-blog --limit=5',
     })
 
+    expect(mocks.runWeWorkerPowerShell).toHaveBeenCalledOnce()
+    expect(mocks.runWeWorkerPowerShell).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'webcli call blog-admin.search-blog --limit=5',
+      source: 'ai',
+    }))
+    expect(JSON.stringify(result)).toContain('fixture-shell-output')
     expect(JSON.stringify(result)).not.toContain('must stay inside user directory')
     expect(JSON.stringify(result)).not.toContain('Adapter commands must run with')
   })

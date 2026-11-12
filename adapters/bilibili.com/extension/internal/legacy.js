@@ -370,7 +370,14 @@ function scrollToCommentArea() {
   return false;
 }
 
-async function readComments({ limit = 10 } = {}) {
+async function readComments({ limit = 10, video_url = '' } = {}) {
+  if (video_url) {
+    const target = new URL(normalizeVideoUrl(video_url));
+    if (target.origin !== 'https://www.bilibili.com' || target.username || target.password || !/^\/video\/(?:BV[0-9A-Za-z]+|av\d+)\/?$/i.test(target.pathname)) {
+      throw new Error('Use a Bilibili video URL or video ID.');
+    }
+    if (!isSamePage(target.href)) return requestNavigation(target.href, '正在打开所选视频的评论。', true);
+  }
   if (!isBilibiliVideoPath()) {
     return {
       ok: false,
@@ -419,7 +426,7 @@ async function readComments({ limit = 10 } = {}) {
 
 // ─── Like / Favorite ────────────────────────────────────────────────────────
 
-async function likeVideo({ video_url = '', confirm = false, __confirmed = false } = {}) {
+async function likeVideo({ video_url = '', confirm = false } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
     return requestNavigation(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
@@ -435,7 +442,7 @@ async function likeVideo({ video_url = '', confirm = false, __confirmed = false 
     };
   }
 
-  if (!confirm && __confirmed !== true) {
+  if (!confirm) {
     return {
       changed: false,
       liked: false,
@@ -530,7 +537,7 @@ async function favoriteVideoViaApi({ folder_name = '' } = {}) {
   };
 }
 
-async function favoriteVideo({ video_url = '', folder_name = '', confirm = false, __confirmed = false } = {}) {
+async function favoriteVideo({ video_url = '', folder_name = '', confirm = false } = {}) {
   const targetUrl = normalizeVideoUrl(video_url);
   if (!isBilibiliVideoPath() || !isSamePage(targetUrl)) {
     return requestNavigation(targetUrl, '已打开 B 站视频详情页，请等待页面加载完成后再次调用该工具。');
@@ -546,7 +553,7 @@ async function favoriteVideo({ video_url = '', folder_name = '', confirm = false
     };
   }
 
-  if (!confirm && __confirmed !== true) {
+  if (!confirm) {
     return {
       changed: false,
       favorited: false,

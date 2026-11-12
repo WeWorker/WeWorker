@@ -18,11 +18,14 @@ import { fileURLToPath } from 'node:url'
 import type { Settings } from './config.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
+import { normalizeContextLimit } from './context-window.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
 import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
 import { markCompactionFinished, markCompactionProgress, markCompactionStarted } from './compaction-status.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
+import { bindReadQueryReceipt, discardReadQueryTurn, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
+import { randomUUID } from 'node:crypto'
 import { parseAllAdapters } from './adapter-parser.js'
 import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
 import { bridgeStatus, type ExtensionInstance } from './bridge-status.js'
@@ -68,9 +71,8 @@ import {
 } from './context-assembly.js'
 import {
   buildCompactedConversationPrompt,
-  CONVERSATION_COMPACTION_TARGET_RATIO,
   planConversationCompaction,
-  takeRecentWithinTokenBudget,
+  selectCompactionSource,
 } from './context/conversation-compaction.js'
 import type { ConversationCompactionSnapshot } from './context/context-types.js'
 import type { MemoryScope } from './memory/memory-types.js'
@@ -168,7 +170,7 @@ export function buildClaudeNativeShellEnv(
 }
 
 export function buildConfiguredModelEnv(
-  settings: Pick<Settings, 'api_key' | 'base_url'> & Partial<Pick<Settings, 'active_provider' | 'active_weworker_protocol' | 'custom_auth_type' | 'active_auth_type' | 'model'>>,
+  settings: Pick<Settings, 'api_key' | 'base_url'> & Partial<Pick<Settings, 'active_provider' | 'active_weworker_protocol' | 'custom_auth_type' | 'active_auth_type' | 'model' | 'context_limit'>>,
   extraEnv?: NodeJS.ProcessEnv,
   claudeConfigDir?: string,
 ): NodeJS.ProcessEnv {
@@ -176,6 +178,10 @@ export function buildConfiguredModelEnv(
   for (const key of MODEL_AUTH_ENV_KEYS) delete env[key]
   delete env.CLAUDE_CODE_GIT_BASH_PATH
   delete env.WEWORKER_BUNDLED_GIT_BASH
+  // Unknown model aliases otherwise inherit the CLI's 200K compaction window.
+  const contextLimit = String(normalizeContextLimit(settings.context_limit))
+  env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = contextLimit
+  env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = contextLimit
   const baseUrl = assertAllowedLlmBaseUrl(settings.base_url, buildRuntimeAllowedLlmBaseUrls(settings.base_url))
   const effectiveProviderId = settings.active_provider === 'custom'
     ? findProviderByWeWorkerBaseUrl(baseUrl)?.id || settings.active_provider
@@ -280,7 +286,7 @@ export interface SSEEvent {
   memoryParse?: MemoryParseSummary
   compaction?: Partial<ConversationCompactionSnapshot> & {
     status?: 'started' | 'completed' | 'skipped' | 'failed'
-    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed'
+    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed' | 'summary_input_too_large'
     error?: string
   }
 }
@@ -347,7 +353,7 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
     ? `Claude Code 内置 ${nativeCommandTool}（必须使用；仅在其不可用时用 WeWorker Shell 兜底）`
     : 'WeWorker Shell'
   const nativeCommandPreference = adapterExecutionEnabled
-    ? `必须使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。`
+    ? `单步查询现有已启用的只读直调 Adapter 工具时，优先使用结构化 weworker_read_query（name 与 args），由后端校验并执行真实 WebCLI；不适用或失败时仍可按 Skill 用原生命令工具执行 webcli call。必须使用 Claude Code 内置 ${nativeCommandTool} 执行本地命令、构建、测试、git、npm 和其他 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。`
     : ''
   const webcliInvokeDesc = `${commandToolDescription}执行 \`webcli call <完整工具名> --参数名=参数值\``
   const openBrowserDesc = `使用${commandToolDescription}执行 \`webcli call open_browser --url=<url> [--adapter=<adapter-id>]\``
@@ -659,6 +665,7 @@ async function withCompactionWatchdog<T>(
 
 async function summarizeConversationOnly(input: {
   conversation: string
+  maxOutputTokens?: number
   settings: Settings
   purpose?: 'compaction' | 'task_notification'
   abortController?: AbortController
@@ -674,14 +681,18 @@ async function summarizeConversationOnly(input: {
       model: input.settings.model,
       systemPrompt: [
         input.purpose === 'task_notification'
-          ? '你正在整理 WeWorker 定时任务的执行结果，用于发送给用户。'
+          ? '你正在整理 WeWorker 定时任务的执行结果，用于在通知里补一句结论。'
           : '你正在执行 WeWorker 的对话上下文压缩。',
         input.purpose === 'task_notification'
-          ? '只依据本轮定时任务的执行记录，写一段准确、简洁、可直接发送的中文结果摘要。保留关键数据、结论和失败情况；不要声称记录中没有的结果。'
+          ? [
+            '只依据本轮定时任务的执行记录写一段简短结论，不要声称记录中没有的内容。',
+            '通知正文已经包含原始执行结果，所以你不需要重复表格或列表：不要复述表格内容，不要重排数据，也不要输出新的表格。',
+            '用一到三句话说明总量、最紧急或最需要注意的条目、以及失败情况（如有）。',
+          ].join('\n')
           : '只根据用户与助手的对话内容生成简洁、可继续执行的事实摘要。保留用户目标、已经确认的事实、已完成或失败的步骤、重要参数、待处理事项和恢复线索。',
         '不要加入系统规则、工具定义、Skills、长期记忆或对话之外的推断。',
         input.purpose === 'task_notification'
-          ? '不要执行任务或调用工具，不要输出标题、解释或元数据，只输出摘要正文。'
+          ? '不要执行任务或调用工具，不要输出标题、解释或元数据，只输出结论正文。'
           : '不要回答用户问题，不要输出标题、解释或元数据，只输出摘要正文。',
       ].join('\n'),
       tools: [],
@@ -694,7 +705,9 @@ async function summarizeConversationOnly(input: {
       cwd: getUserDirectory(),
       pathToClaudeCodeExecutable: input.claudeSetup.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess: input.spawnClaudeCodeProcess,
-      env: input.env,
+      env: input.maxOutputTokens
+        ? { ...input.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(input.maxOutputTokens) }
+        : input.env,
     },
   })
 
@@ -982,10 +995,20 @@ export function* mapSdkMessage(
     const systemMessage = msg as unknown as {
       subtype?: string
       status?: string | null
+      compact_result?: 'success' | 'failed'
+      compact_error?: string
       compact_metadata?: { trigger?: 'manual' | 'auto'; pre_tokens?: number }
     }
     if (systemMessage.subtype === 'status' && systemMessage.status === 'compacting') {
       yield { type: 'context_compaction_start', compaction: { status: 'started' } }
+    } else if (systemMessage.subtype === 'status' && systemMessage.compact_result === 'failed') {
+      yield {
+        type: 'context_compaction_end',
+        compaction: {
+          status: 'failed', reason: 'summary_failed',
+          error: redactSensitive(systemMessage.compact_error || 'Claude SDK 对话压缩失败'),
+        },
+      }
     } else if (systemMessage.subtype === 'compact_boundary') {
       yield {
         type: 'context_compaction_end',
@@ -1285,20 +1308,23 @@ async function* streamChatWithBaseUrl(
     ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
     : undefined
   const internal = opts[STREAM_CHAT_INTERNAL]
-  // Session reuse is limited to the plain desktop path: channel handlers, custom
-  // prompts/tools and compaction-only runs keep the one-off query behavior.
+  // Desktop turns need streaming input for steering. Guarded sessions live for
+  // one turn so workspace and approval callbacks cannot leak into later turns.
   const sessionMode = opts.reuseSession === true
     && (!!opts.workId || opts.warmupOnly === true)
     && !!internal
     && opts.streaming !== false
-    && channelPermissionMode === 'full'
     && !opts.channelAskUserHandler
     && !opts.systemPromptOverride
     && !opts.mcpServerOverride
     && !opts.restrictBuiltInTools
     && !opts.forceCompaction
     && !opts.compactionOnly
+  const reuseAcrossTurns = channelPermissionMode === 'full'
   // Callbacks that a reused session must take from the current turn.
+  const readQueryTurnId = randomUUID()
+  const readQueryScope = { current: opts.workId && !opts.mcpServerOverride && !opts.systemPromptOverride && !opts.isolatedClaudeConfigDir
+    && (channelPermissionMode === 'full' || channelPermissionMode === 'workspace') ? readQueryTurnId : null }
   const turnBindings: ChatTurnBindings = {
     workIdRef: { current: opts.workId ?? null },
     onAskUser: opts.onAskUser ?? null,
@@ -1307,6 +1333,7 @@ async function* streamChatWithBaseUrl(
     memory: { userPromptInjections: 0, postToolBatchInjections: 0 },
   }
 
+  ;(turnBindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
   const mcpServer = _buildMcpServer({
     channelPermissionMode,
     workspaceDirectory,
@@ -1315,6 +1342,7 @@ async function* streamChatWithBaseUrl(
     channelAskUserHandler: opts.channelAskUserHandler ?? null,
     abortSignal: abortController?.signal,
     userMedia: () => turnBindings.userMedia ?? null,
+    readQueryScope: () => ({ workId: opts.workId ?? null, turnId: readQueryScope.current }),
   })
   const activeMcpServer = opts.mcpServerOverride || mcpServer
   const claudeSetup: { pathToClaudeCodeExecutable?: string; executable?: string; extraEnv?: Record<string, string> } = process.env.WEWORKER_PACKAGED
@@ -1592,35 +1620,35 @@ async function* streamChatWithBaseUrl(
   phase.mark('context_assembly')
 
   if (needsCompaction) {
-    const historyMessages = conversationMessages.slice(0, -1)
-    const currentMessage = conversationMessages[conversationMessages.length - 1]
-    const currentTokens = estimateContextTokens(messagePromptText(currentMessage))
-    const targetTokens = opts.forceCompaction
-      ? Math.min(compactionPlan.targetTokens, Math.floor(conversationTokens * CONVERSATION_COMPACTION_TARGET_RATIO))
-      : compactionPlan.targetTokens
-    const recentSelection = takeRecentWithinTokenBudget(
-      historyMessages,
-      Math.max(1, targetTokens - currentTokens),
-      (message) => estimateContextTokens(messagePromptText(message)),
-    )
+    let currentTurnStart = conversationMessages.length - 1
+    while (currentTurnStart > 0 && conversationMessages[currentTurnStart].role !== 'user') currentTurnStart -= 1
+    const historyMessages = conversationMessages.slice(0, Math.max(0, currentTurnStart))
+    const currentTurn = conversationMessages.slice(Math.max(0, currentTurnStart))
+    const historyText = historyMessages.map(message => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`).join('\n\n')
+    const summaryOutputTokens = Math.min(4096, Math.floor(settings.context_limit / 10))
+    const selection = selectCompactionSource({
+      history: historyText,
+      ratio: settings.compaction_ratio,
+      contextLimit: settings.context_limit,
+      reservedTokens: summaryOutputTokens + 1024,
+      estimateTokens: estimateContextTokens,
+    })
     const compactionBase = {
       mode: 'conversation_only' as const,
       before_tokens: conversationTokens,
       after_tokens: 0,
-      summarized_message_count: recentSelection.dropped.length,
-      retained_message_count: recentSelection.retained.length + 1,
+      summarized_message_count: selection.source ? historyMessages.length : 0,
+      retained_message_count: currentTurn.length + (selection.retained ? 1 : 0),
     }
-    if (recentSelection.dropped.length > 0) {
-      const summarySource = recentSelection.dropped
-        .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`)
-        .filter((text) => text.trim())
-        .join('\n\n')
+    if (selection.source.trim()) {
+      const summarySource = selection.source
       compactionEventEmitted = true
       markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
       yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
       try {
         const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
           conversation: summarySource,
+          maxOutputTokens: summaryOutputTokens,
           settings,
           abortController: summaryAbort,
           onProgress: () => {
@@ -1632,7 +1660,7 @@ async function* streamChatWithBaseUrl(
           spawnClaudeCodeProcess,
         }))
         if (summary) {
-          const recentConversation = buildPromptString([...recentSelection.retained, currentMessage])
+          const recentConversation = [selection.retained, buildPromptString(currentTurn)].filter(Boolean).join('\n\n')
           const compactedConversation = buildCompactedConversationPrompt({
             summary: clampPromptText(summary, 16_000),
             recentConversation,
@@ -1682,8 +1710,9 @@ async function* streamChatWithBaseUrl(
         compaction: {
           ...compactionBase,
           after_tokens: conversationTokens,
-          status: 'skipped',
-          reason: 'no_droppable_history',
+          status: historyText.trim() ? 'failed' : 'skipped',
+          reason: historyText.trim() ? 'summary_input_too_large' : 'no_droppable_history',
+          ...(historyText.trim() ? { error: '历史内容没有可在窗口内压缩的完整句子，原始上下文已保留' } : {}),
         },
       }
     }
@@ -1816,10 +1845,15 @@ async function* streamChatWithBaseUrl(
   let turnMessages: AsyncIterable<SDKMessage>
   let closeTurn: () => void
   if (sessionMode && internal && (!opts.workId || !isChatSessionBusy(opts.workId))) {
+    if (opts.warmupOnly && !reuseAcrossTurns) {
+      yield { type: 'done' }
+      return
+    }
     const workId = opts.workId ?? null
     const fingerprint = sha256(JSON.stringify({
       model: settings.model,
       protocol: settings.active_weworker_protocol || 'anthropic_messages',
+      contextLimit: normalizeContextLimit(settings.context_limit),
       baseUrl: internal.sessionBaseUrl,
       apiKey: sha256(settings.api_key || ''),
       provider: settings.active_provider,
@@ -1848,10 +1882,13 @@ async function* streamChatWithBaseUrl(
       const bindings = turnBindings
       const sessionMcp = _buildMcpServer({
         channelPermissionMode,
+        workspaceDirectory,
+        abortSignal: sessionAbort.signal,
         workIdRef: bindings.workIdRef,
         askUserSSECallback: (event) => bindings.onAskUser?.(event),
         channelAskUserHandler: null,
         userMedia: () => bindings.userMedia ?? null,
+        readQueryScope: () => ({ workId: bindings.workIdRef.current, turnId: (bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId ?? null }),
       })
       const releaseRuntime = internal.adoptModelRuntime()
       return new ChatSession({
@@ -1886,7 +1923,7 @@ async function* streamChatWithBaseUrl(
     }
 
     const turnWorkId = workId!
-    const reusable = needsCompaction ? undefined : findReusableChatSession(turnWorkId, fingerprint, history)
+    const reusable = needsCompaction || !reuseAcrossTurns ? undefined : findReusableChatSession(turnWorkId, fingerprint, history)
     if (!reusable && needsCompaction) disposeChatSession(turnWorkId, 'compaction')
     let firstPrompt: string
     if (reusable) {
@@ -1894,6 +1931,7 @@ async function* streamChatWithBaseUrl(
       const prewarmed = reusable.fresh
       sessionState = prewarmed ? 'prewarmed' : 'reused'
       reusable.bindings.workIdRef.current = turnWorkId
+      ;(reusable.bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
       reusable.bindings.onAskUser = turnBindings.onAskUser
       reusable.bindings.userMedia = turnBindings.userMedia
       reusable.bindings.extraToolGuard = turnBindings.extraToolGuard
@@ -1953,6 +1991,7 @@ async function* streamChatWithBaseUrl(
   let completed = false
   let turnFailed = false
   const contextUsageTracker = createContextUsageTracker()
+  const readQueryCalls = new Set<string>()
   try {
     log.info(' starting for-await over queryHandle')
     let firstEventReceived = false
@@ -1995,6 +2034,21 @@ async function* streamChatWithBaseUrl(
           event.usage = { ...event.usage, context_input_tokens: latestModelInputTokens }
         }
         if (event.type === 'memory_parse') memoryParseCount += 1
+        if (event.type === 'tool_call_start' && event.id && event.name === READ_QUERY_TOOL_NAME
+          && msg.type === 'assistant') {
+          readQueryCalls.add(event.id)
+          // Do not leak model-supplied query arguments into work logs/UI; the
+          // trusted receipt, not this SSE event, provides fixed learning args.
+          event.args = {}
+        }
+        if (event.type === 'tool_call_result' && event.id && readQueryCalls.has(event.id)
+          && msg.type === 'user' && !event.isError && opts.workId && readQueryScope.current) {
+          try {
+            const parsed = JSON.parse(String(event.result)) as Record<string, unknown>
+            const token = parsed[READ_QUERY_RECEIPT_FIELD]
+            if (typeof token === 'string') bindReadQueryReceipt(token, opts.workId, readQueryScope.current, event.id)
+          } catch { /* not a typed read-query receipt */ }
+        }
         if (event.type === 'error') turnFailed = true
         if (
           event.type === 'text_delta'
@@ -2035,15 +2089,20 @@ async function* streamChatWithBaseUrl(
   } finally {
     log.info(' finally block - setting queryRunning=false')
     queryRunning = false
+    if (opts.workId && readQueryScope.current) discardReadQueryTurn(opts.workId, readQueryScope.current)
+    readQueryScope.current = null
+    ;(activeBindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = null
     if (abortController) {
       abortController.signal.removeEventListener('abort', onAbort)
     }
     if (session && opts.workId) {
-      // Keep the CLI only after a clean turn; anything else may leave it mid-turn.
-      if (completed && !turnFailed && !abortController?.signal.aborted && !session.closed) {
+      // Guarded sessions are registered for steering, but never kept across turns.
+      if (reuseAcrossTurns && completed && !turnFailed && !abortController?.signal.aborted && !session.closed) {
         session.complete(history)
       } else {
-        disposeChatSession(opts.workId, abortController?.signal.aborted ? 'aborted' : 'turn_unfinished', session)
+        const reason = abortController?.signal.aborted ? 'aborted'
+          : completed && !turnFailed ? 'turn_complete' : 'turn_unfinished'
+        disposeChatSession(opts.workId, reason, session)
       }
     }
   }

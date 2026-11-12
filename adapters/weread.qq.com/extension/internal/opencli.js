@@ -780,13 +780,14 @@ var __wave5 = (() => {
     args: [
       { name: "book-id", positional: true, required: true, help: "Book ID from search or shelf results" }
     ],
-    columns: ["title", "author", "publisher", "intro", "category", "rating"],
+    columns: ["bookId", "title", "author", "publisher", "intro", "category", "rating"],
     func: async (page, args) => {
       const bookId = String(args["book-id"] || "").trim();
       try {
         const data = await fetchPrivateApi(page, "/book/info", { bookId });
         const rating = data.newRating ? `${(data.newRating / 10).toFixed(1)}%` : "-";
         return [{
+          bookId: args["book-id"],
           title: data.title ?? "",
           author: data.author ?? "",
           publisher: data.publisher ?? "",
@@ -812,6 +813,7 @@ var __wave5 = (() => {
           throw error;
         }
         return [{
+          bookId: args["book-id"],
           title: data.title,
           author: data.author,
           publisher: data.publisher,
@@ -1580,11 +1582,14 @@ var __wave5 = (() => {
       }
       if (previous?.url === target.href && Date.now() - previous.at < 105e3) throw new CommandExecutionError("Site redirected the requested page; check login or site verification");
       sessionStorage.setItem(markerKey, JSON.stringify({ url: target.href, at: Date.now() }));
-      this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write" } };
+      // A page evaluation may already have written; only untouched invocations can promise preparation.
+      this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write",
+        ...(this.command.access === "write" && !this.pageEvaluated ? { phase: "prepare", result: { status: "prepared", executed: false } } : {}) } };
       throw new CommandExecutionError("Navigation required");
     }
     async evaluate(source) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
+      this.pageEvaluated = true;
       const expression = `(async () => { const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
       const result = await helper("main_world_eval", { expression });
       if (!result || !Object.hasOwn(result, "value")) throw new CommandExecutionError("Missing page evaluation result");
@@ -1592,6 +1597,7 @@ var __wave5 = (() => {
     }
     async evaluateWithArgs(source, args = {}) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
+      this.pageEvaluated = true;
       const bindings = Object.entries(args).map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`).join("");
       const expression = `(async () => { ${bindings} const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
       const result = await helper("main_world_eval", { expression });

@@ -1,5 +1,6 @@
 import { buildSiteGroups } from './auto-route-catalog.js';
 import { d3Predict } from './auto-route-d3-client.js';
+import { cliName } from './cli-name.js';
 
 const GATE = 0.85;
 const ranked = probabilities => Object.entries(probabilities).sort((a, b) => b[1] - a[1]);
@@ -56,14 +57,14 @@ export async function routeRequest(request, { adapters, knownSite, url, predict 
   const [name, confidence] = ranked(probabilities)[0];
   if (!passesGate(probabilities, 0.25)) return {
     kind: 'low-confidence', site,
-    stoppedAt: { tier: 'command', alternatives: alternatives(probabilities).map(a => ({ ...a, option: `webcli call ${a.option}` })) },
+    stoppedAt: { tier: 'command', alternatives: alternatives(probabilities).map(a => ({ ...a, option: `${cliName()} call ${a.option}` })) },
   };
   const command = adapter.commands.find(c => c.name === name);
   return {
     kind: 'routed', site,
     command: { name: command.id, description: command.description, confidence },
-    callCommand: `webcli call ${command.name}`,
-    helpCommand: `webcli ${adapter.id} ${command.id} help`,
+    callCommand: `${cliName()} call ${command.name}`,
+    helpCommand: `${cliName()} ${adapter.id} ${command.id} help`,
     singleCommand: adapter.commands.length === 1,
   };
 }

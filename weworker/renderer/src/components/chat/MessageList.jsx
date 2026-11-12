@@ -115,6 +115,7 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
   const [selectionToolbarRect, setSelectionToolbarRect] = useState(null)
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [showNewMsg, setShowNewMsg] = useState(false)
+
   const isNearBottomRef = useRef(true)
   const planSentinelRef = useRef(null)
   const [planPinned, setPlanPinned] = useState(false)
@@ -435,8 +436,9 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
           role="status"
           aria-live="polite"
           data-conversation-compaction-status={compactionStatus}
+          className="conversation-compaction-status"
           style={{
-            padding: '12px 20px',
+            padding: '12px 24px',
             fontSize: 'var(--font-size-body)',
             color: compactionStatus === 'failed' ? 'var(--error)' : compactionStatus === 'compacting' ? 'var(--accent)' : 'var(--text-secondary)',
           }}

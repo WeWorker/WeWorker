@@ -21,7 +21,7 @@ import { rehydratePointer } from '../webcli-result-cache.js'
 import * as store from '../works-store.js'
 import { getSettings } from '../config.js'
 import { createLogger } from '../logger.js'
-import { looksLikeAuthFailure, looksLikeMissingArg } from '../query-router/configurable-query-route.js'
+import { looksLikeAuthFailure, looksLikeMissingArg } from './legacy-error-hints.js'
 import {
   advanceAfterFailure,
   isLayerSkipped,
@@ -90,7 +90,7 @@ export type RouteEngineDeps = {
 
 let engineCache: { signature: string; engine: RouteEngine } | null = null
 
-function configSignature(bundle: RouterConfigBundle, adapterIds: ReadonlySet<string>): string {
+function configSignature(bundle: RouterConfigBundle, adapterIds: ReadonlySet<string>, scenarioRoutes: readonly CompiledScenarioRoute[]): string {
   // 用各层 JSON 的字符串指纹参与缓存键：改一行配置即重建 matcher（热重载）。
   return JSON.stringify([
     bundle.routes,
@@ -100,8 +100,7 @@ function configSignature(bundle: RouterConfigBundle, adapterIds: ReadonlySet<str
     bundle.plans,
     bundle.renderers,
     bundle.planTerminals,
-    bundle.scenarioRoutes?.generatedAt ?? '',
-    bundle.scenarioRoutes?.routes?.length ?? 0,
+    scenarioRoutes,
     [...adapterIds].sort(),
     getCatalog().tools.map((tool) => `${tool.name}:${tool.safety ?? ''}:${tool.direct ? 1 : 0}`),
   ])
@@ -114,7 +113,8 @@ export function getRouteEngine(deps: RouteEngineDeps = {}): RouteEngine {
   const catalog = getCatalog()
   const adapterIds = deps.adapterIds ?? catalog.adapterIds
   const bundle = deps.bundle ?? loadScopedBundle(adapterIds)
-  const signature = configSignature(bundle, adapterIds)
+  const scenarioRoutes = filterScenarioRoutesInScope(adapterIds)
+  const signature = configSignature(bundle, adapterIds, scenarioRoutes)
   if (engineCache && engineCache.signature === signature) return engineCache.engine
 
   const routableTools = new Set<string>()
@@ -122,7 +122,6 @@ export function getRouteEngine(deps: RouteEngineDeps = {}): RouteEngine {
     if (tool.direct && isReadOnlyTool(tool)) routableTools.add(tool.name)
   }
   // 只读但不可直调的工具（需页面上下文）不进路由面——不在 routableTools 里，天然拒绝。
-  const scenarioRoutes = filterScenarioRoutesInScope(adapterIds)
   const routeMatcher = buildRouteMatcher(bundle.routes?.routes)
   const patternMatcher = buildPatternMatcher(bundle.patterns, { allowedTools: routableTools })
   const shortcutMatcher = buildShortcutMatcher(bundle.shortcuts?.shortcuts)
@@ -253,11 +252,33 @@ export type RouteInput = {
   engine?: RouteEngine
 }
 
+/**
+ * patterns 层声明的「工具 → 渲染 schema」索引。
+ *
+ * 卡片层（scenario / scenario-a）在配置里没有声明渲染的位置；同一工具若在 patterns 层
+ * 声明了 `render: {type:'schema'}`，卡片命中时借用同一份声明，避免「点卡片」和「打文字」
+ * 两种入口渲染成两种样式。只读配置、按 bundle 缓存，不触发 pattern 匹配。
+ */
+const patternSchemaIndexCache = new WeakMap<RouterConfigBundle, Map<string, string>>()
+
+function patternSchemaIndex(bundle: RouterConfigBundle): Map<string, string> {
+  const cached = patternSchemaIndexCache.get(bundle)
+  if (cached) return cached
+  const index = new Map<string, string>()
+  for (const [tool, entry] of Object.entries(bundle.patterns?.configs ?? {})) {
+    const schemaId = entry?.render?.type === 'schema' ? entry.render.schemaId : undefined
+    if (typeof schemaId === 'string' && schemaId) index.set(tool, schemaId)
+  }
+  patternSchemaIndexCache.set(bundle, index)
+  return index
+}
+
 /** 纯规划：不派发任何工具，可直接用于评测集断言。 */
 export function planRouteDecision(input: RouteInput): { plan: CascadePlan; payload: ScenarioPayload | null } {
   const payload = parseScenarioDirectPayload(input.scenario)
   const engine = input.engine ?? getRouteEngine()
   const settings = safeSettings()
+  const patternSchemas = patternSchemaIndex(engine.bundle)
   const plan = planCascade(
     { message: input.message, scenarioPayload: payload, workId: input.workId, now: input.now ?? Date.now(), log: input.log },
     {
@@ -271,6 +292,7 @@ export function planRouteDecision(input: RouteInput): { plan: CascadePlan; paylo
       },
       history: input.history,
       llmClassifyEnabled: input.llmClassifyEnabled ?? settings?.api_query_llm_route === true,
+      schemaForTool: (tool) => patternSchemas.get(tool),
       log: input.log,
     },
   )
@@ -433,7 +455,7 @@ async function dispatchAndRender(args: {
   } catch (error) {
     if (error instanceof RouteDispatchError) {
       routeDiagnostic(ctx, 'dispatch_failed', { tool, category: error.kind, fallback: 'llm' })
-      ctx.onFallback?.({ status: 'failed', reason: error.kind })
+      ctx.onFallback?.({ status: 'failed', reason: error.kind === 'authentication' ? 'authentication_required' : error.kind })
       return 'fallback'
     }
     throw error
@@ -490,7 +512,8 @@ async function dispatchAndRender(args: {
     ctx.onFallback?.({ status: 'failed', reason: 'render_failed' })
     return 'fallback'
   }
-  // 渲染不出可展示内容（渲染器吞掉异常或投影为空）→ 同为「没答出来」，落回 LLM。
+  // 空结果不是「没答出来」：渲染层会把它变成一句场景化话术（`emptyMessage` /
+  // DEFAULT_EMPTY_ANSWER），照常推给用户；只有渲染不出任何内容才落回 LLM。
   if (isUnrenderableAnswer(text)) {
     routeDiagnostic(ctx, 'render_failed', { tool, category: 'no_renderable_data', fallback: 'llm' })
     ctx.log?.(`route render produced no answer: ${tool} → fall back to LLM`)

@@ -12,6 +12,15 @@ const MAX_SECRET_BYTES = 64 * 1024;
 const MAX_CIPHERTEXT_BYTES = 256 * 1024;
 const IDENTIFIER = /^[a-zA-Z0-9][a-zA-Z0-9._:@-]{0,255}$/;
 
+/** Optional state boundary for an embedding host; standalone storage stays unchanged. */
+export function resolveHostStateDirectory(env = process.env) {
+  const directory = env.WEBCLI_HOST_STATE_DIR;
+  if (directory !== undefined && (typeof directory !== 'string' || !path.isAbsolute(directory))) {
+    throw fail('SECRET_STORE_INVALID_PATH', 'Host state directory must be absolute.');
+  }
+  return directory || path.join(homedir(), '.webcli');
+}
+
 function fail(code, message) {
   return Object.assign(new Error(message), { code });
 }
@@ -36,12 +45,15 @@ function assertBackend(backend) {
  */
 export function createHostSecretStore({
   scope,
-  directory = path.join(homedir(), '.webcli', 'host-secrets'),
+  directory = path.join(resolveHostStateDirectory(), 'host-secrets'),
   backend,
   platform = process.platform,
   keychainLoad,
 } = {}) {
-  const namespace = assertIdentifier(scope);
+  const hostState = process.env.WEBCLI_HOST_STATE_DIR;
+  const namespace = hostState
+    ? `embedded:${createHash('sha256').update(JSON.stringify([assertIdentifier(scope), resolveHostStateDirectory()])).digest('hex')}`
+    : assertIdentifier(scope);
   const withAccountLock = (key, fn, options) => withHostAccountLock(JSON.stringify(['host-lifecycle', namespace, assertIdentifier(key)]), fn, options);
   if (platform === 'darwin' && backend === undefined) return Object.freeze({ ...createKeychainSecretStore({scope:namespace, load:keychainLoad}), withAccountLock });
   backend ??= defaultBackend(platform);

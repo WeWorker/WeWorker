@@ -16,6 +16,13 @@
  * 维护者：WeWorker 项目
  */
 
+function assertInvoiceIdentity(expectedIdentity) {
+  if (expectedIdentity === undefined) return;
+  if (typeof expectedIdentity !== 'string' || !expectedIdentity || getInvoiceInfo().context_identity !== expectedIdentity) throw new Error('invoice_identity_changed');
+}
+function trustedDownloadUrl(raw) {
+  try { const u = new URL(raw, window.location.href); return u.protocol === 'https:' && !u.username && !u.password && !u.port && ['nnfp.jss.com.cn', 'inv.jss.com.cn'].includes(u.hostname); } catch { return false; }
+}
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -115,7 +122,9 @@ function checkPageStatus() {
  * @param {string} filename - 文件名
  * @param {string} downloadPath - 下载路径（可选）
  */
-async function downloadWithChromeApi(url, filename, downloadPath = null) {
+async function downloadWithChromeApi(url, filename, downloadPath = null, expectedIdentity) {
+  assertInvoiceIdentity(expectedIdentity);
+  if (!trustedDownloadUrl(url)) throw new Error('Untrusted invoice download URL');
   return new Promise((resolve, reject) => {
     if (typeof chrome === 'undefined' || !chrome.downloads || !chrome.downloads.download) {
       reject(new Error('Chrome downloads API not available'));
@@ -215,10 +224,7 @@ function findDirectDownloadUrl(format = "auto") {
     if (!href) continue;
 
     // 限制：优先同源或可信域，避免跳广告域
-    const isTrusted =
-      href.startsWith(window.location.origin) ||
-      href.includes("nnfp.jss.com.cn") ||
-      href.includes("inv.jss.com.cn");
+    const isTrusted = trustedDownloadUrl(href);
     if (!isTrusted) continue;
 
     const lower = href.toLowerCase();
@@ -252,7 +258,7 @@ function findDirectDownloadUrl(format = "auto") {
         ? candidates.find((c) => c.isOfd)
         : candidates.find((c) => c.isXml);
 
-  return (byFormat || candidates[0]).href;
+  return (byFormat || (format === 'auto' ? candidates[0] : null))?.href || null;
 }
 
 /**
@@ -260,7 +266,7 @@ function findDirectDownloadUrl(format = "auto") {
  * @param {string} format - 'pdf' | 'ofd' | 'xml' | 'auto'
  * @param {string} downloadPath - 下载路径（可选），相对于浏览器默认下载目录的子路径
  */
-async function downloadInvoice(format = "auto", downloadPath = null) {
+async function downloadInvoice(format = "auto", downloadPath = null, expectedIdentity) {
   try {
     // 等待页面加载完成，最多等待10秒
     let pageStatus = checkPageStatus();
@@ -281,6 +287,9 @@ async function downloadInvoice(format = "auto", downloadPath = null) {
       };
     }
 
+    if (!pageStatus.loaded) throw new Error('Invoice page is not ready');
+    assertInvoiceIdentity(expectedIdentity);
+
     // 方案A：优先找“直链”并用 chrome.downloads 触发下载（尽量不点击按钮，避免弹窗/重定向拦截）
     const directUrl = findDirectDownloadUrl(format);
     if (
@@ -289,20 +298,18 @@ async function downloadInvoice(format = "auto", downloadPath = null) {
       chrome.downloads &&
       chrome.downloads.download
     ) {
-      const ext = format === "ofd" ? "ofd" : format === "xml" ? "xml" : "pdf";
+      const actualFormat = format === 'auto' ? ['pdf', 'ofd', 'xml'].find(value => directUrl.toLowerCase().includes(value)) || 'unknown' : format;
+      const ext = actualFormat === 'unknown' ? 'bin' : actualFormat;
       const filename = `发票_${new Date().toISOString().slice(0, 10)}.${ext}`;
-      try {
-        await downloadWithChromeApi(directUrl, filename, downloadPath);
-        return {
-          status: "downloading",
-          format: format === "auto" ? "pdf" : format,
-          directUrl,
-          downloadPath: downloadPath || null,
-          message: `已使用直链触发下载: ${filename}${downloadPath ? `，保存到: ${downloadPath}` : ""}`,
-        };
-      } catch (e) {
-        // 直链下载失败再回退到按钮点击
-      }
+      await downloadWithChromeApi(directUrl, filename, downloadPath, expectedIdentity);
+      return {
+        status: "downloading",
+        format: actualFormat,
+        directUrl,
+        downloadPath: downloadPath || null,
+        message: `已使用直链触发下载: ${filename}${downloadPath ? `，保存到: ${downloadPath}` : ""}`,
+      };
+
     }
 
     // 查找下载按钮 - 使用更广泛的选择器
@@ -397,38 +404,38 @@ async function downloadInvoice(format = "auto", downloadPath = null) {
 
     if (format === "pdf" || format === "auto") {
       const pdfLink = downloadLinks.find((l) => l.isPdf);
-      linkToClick = pdfLink || downloadLinks[0];
+      linkToClick = pdfLink || (format === 'auto' ? downloadLinks[0] : null);
     } else if (format === "ofd") {
       const ofdLink = downloadLinks.find((l) => l.isOfd);
-      linkToClick = ofdLink || downloadLinks[0];
+      linkToClick = ofdLink;
     } else if (format === "xml") {
       const xmlLink = downloadLinks.find((l) => l.isXml);
-      linkToClick = xmlLink || downloadLinks[0];
+      linkToClick = xmlLink;
     } else {
       linkToClick = downloadLinks[0];
     }
 
+    if (!linkToClick) throw new Error('Requested invoice format is unavailable');
+    assertInvoiceIdentity(expectedIdentity);
     // 获取下载链接
     const downloadUrl = getDownloadUrlFromButton(linkToClick.element);
+    if (downloadUrl && !trustedDownloadUrl(downloadUrl)) throw new Error('Untrusted invoice download URL');
     const suggestedFilename = `发票_${new Date().toISOString().slice(0, 10)}.${linkToClick.isPdf ? 'pdf' : linkToClick.isOfd ? 'ofd' : linkToClick.isXml ? 'xml' : 'pdf'}`;
 
     // 方案B：只要能拿到 URL，就优先用 Chrome API（不依赖 downloadPath 是否提供）
     if (typeof chrome !== 'undefined' && chrome.downloads && downloadUrl) {
-      try {
-        await downloadWithChromeApi(downloadUrl, suggestedFilename, downloadPath);
-        return {
-          status: "downloading",
-          format: format === "auto" ? (linkToClick.isPdf ? "pdf" : "unknown") : format,
-          buttonText: linkToClick.text,
-          downloadPath: downloadPath || null,
-          message: `已触发下载: ${suggestedFilename}${downloadPath ? `，保存到: ${downloadPath}` : ""}`,
-        };
-      } catch (e) {
-        // 失败时回退到点击方式
-        linkToClick.element.click();
-      }
+      await downloadWithChromeApi(downloadUrl, suggestedFilename, downloadPath, expectedIdentity);
+      return {
+        status: "downloading",
+        format: format === "auto" ? (linkToClick.isPdf ? "pdf" : "unknown") : format,
+        buttonText: linkToClick.text,
+        downloadPath: downloadPath || null,
+        message: `已触发下载: ${suggestedFilename}${downloadPath ? `，保存到: ${downloadPath}` : ""}`,
+      };
+
     } else {
       // 点击下载按钮
+      assertInvoiceIdentity(expectedIdentity);
       linkToClick.element.click();
     }
 
@@ -468,6 +475,8 @@ function getInvoiceInfo() {
       title,
       isInvoicePage: isNuonuoInvoicePage(),
       pageStatus,
+      context_identity: null,
+      context_title: Array.from(String(title || 'Invoice page').replace(/\s+/g, ' ').trim()).slice(0, 60).join(''),
     };
 
     // 如果页面未加载成功，直接返回基本信息
@@ -531,7 +540,10 @@ function getInvoiceInfo() {
 
     // 检查是否有下载按钮
     info.hasDownloadButton = pageStatus.hasDownloadBtn;
-
+    if (info.isInvoicePage && (info.digitalNumber || info.invoiceNumber)) {
+      info.context_identity = JSON.stringify([url, info.digitalNumber || '', info.invoiceCode || '', info.invoiceNumber || '']);
+      info.context_title = Array.from('Invoice ' + (info.digitalNumber || info.invoiceNumber)).slice(0, 60).join('');
+    }
     return info;
   } catch (error) {
     return {
@@ -602,7 +614,7 @@ async function closeAndReturnToQQMail() {
     try {
       const bc = new BroadcastChannel('nuonuo_invoice_channel');
       bc.postMessage({
-        action: 'download_complete',
+        action: 'return_requested',
         url: window.location.href,
         timestamp: Date.now()
       });
@@ -634,7 +646,7 @@ async function closeAndReturnToQQMail() {
       localStorage.setItem('nuonuo_invoice_last_download', JSON.stringify({
         url: window.location.href,
         timestamp: Date.now(),
-        completed: true
+        completed: false
       }));
     } catch (e) {
       // localStorage 不可用
@@ -659,7 +671,7 @@ async function closeAndReturnToQQMail() {
  * @param {string} format - 'pdf' | 'ofd' | 'xml' | 'auto'
  * @param {string} downloadPath - 下载路径（可选），相对于浏览器默认下载目录的子路径
  */
-async function autoDownloadAndReturn(format = "pdf", downloadPath = null) {
+async function autoDownloadAndReturn(format = "pdf", downloadPath = null, expectedIdentity) {
   // 首先检查页面状态
   const pageStatus = checkPageStatus();
   if (!pageStatus.loaded) {
@@ -670,7 +682,7 @@ async function autoDownloadAndReturn(format = "pdf", downloadPath = null) {
     };
   }
 
-  const downloadResult = await downloadInvoice(format, downloadPath);
+  const downloadResult = await downloadInvoice(format, downloadPath, expectedIdentity);
 
   if (downloadResult.error) {
     return {
@@ -681,17 +693,16 @@ async function autoDownloadAndReturn(format = "pdf", downloadPath = null) {
     };
   }
 
-  // 等待下载完成
   await sleep(3000);
-
-  // 返回QQ邮箱
-  const returnResult = await closeAndReturnToQQMail();
+  let returnResult;
+  try { assertInvoiceIdentity(expectedIdentity); returnResult = await closeAndReturnToQQMail(); }
+  catch (error) { returnResult = { error: error.message }; }
 
   return {
-    status: "completed",
+    status: "download_requested",
     download: downloadResult,
     navigation: returnResult,
-    message: `发票下载完成，正在返回QQ邮箱`,
+    message: `已请求下载发票；文件是否保存完成尚未核验。`,
   };
 }
 
@@ -712,6 +723,7 @@ window.__webmcpRegister({
       parameters: {
         type: "object",
         properties: {
+          expectedIdentity: { type: 'string', minLength: 1, description: 'Identity captured by get-invoice-info' },
           format: {
             type: "string",
             description: "下载格式：pdf、ofd、xml 或 auto（自动选择）",
@@ -725,7 +737,7 @@ window.__webmcpRegister({
         },
         required: [],
       },
-      handler: async ({ format = "auto", downloadPath }) => downloadInvoice(format, downloadPath),
+      handler: async ({ format = "auto", downloadPath, expectedIdentity }) => downloadInvoice(format, downloadPath, expectedIdentity),
     },
     {
       name: "nnfp.jss.com.cn.auto_download_and_return",
@@ -733,6 +745,7 @@ window.__webmcpRegister({
       parameters: {
         type: "object",
         properties: {
+          expectedIdentity: { type: 'string', minLength: 1, description: 'Identity captured by get-invoice-info' },
           format: {
             type: "string",
             description: "下载格式：pdf、ofd、xml 或 auto",
@@ -746,13 +759,13 @@ window.__webmcpRegister({
         },
         required: [],
       },
-      handler: async ({ format = "pdf", downloadPath }) => autoDownloadAndReturn(format, downloadPath),
+      handler: async ({ format = "pdf", downloadPath, expectedIdentity }) => autoDownloadAndReturn(format, downloadPath, expectedIdentity),
     },
     {
       name: "nnfp.jss.com.cn.return_to_qqmail",
       description: "关闭当前页面并返回QQ邮箱",
       parameters: { type: "object", properties: {}, required: [] },
-      handler: () => closeAndReturnToQQMail(),
+      handler: ({ expectedIdentity } = {}) => { assertInvoiceIdentity(expectedIdentity); return closeAndReturnToQQMail(); },
     },
   ],
 });

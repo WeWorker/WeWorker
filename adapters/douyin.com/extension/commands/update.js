@@ -3,7 +3,7 @@
 (function(){const {CliError,ArgumentError,CommandExecutionError,EmptyResultError,AuthRequiredError,navigate,same,guard,integer,bool,list,browserFetch,toUnixSeconds,validateTiming,fetchDouyinUserVideos,fetchDouyinComments}=window.__douyin;
 
 __webcliRegisterCommand("update",async (kwargs={}) => {
-kwargs={...{"reschedule":"","caption":""},...kwargs};if(typeof kwargs["aweme_id"]!=='string'||!kwargs["aweme_id"].trim())throw new ArgumentError("aweme_id is required");if(location.hostname!=='creator.douyin.com')return {__webcli_navigation:{version:1,url:'https://creator.douyin.com/creator-micro/content/manage',resume:false,result:{status:'prepared',message:'页面已准备，重新确认后调用更新；尚未更新作品。'}}};
+kwargs={...{"reschedule":"","caption":""},...kwargs};if(typeof kwargs["aweme_id"]!=='string'||!kwargs["aweme_id"].trim())throw new ArgumentError("aweme_id is required");if(location.hostname!=='creator.douyin.com')return {__webcli_navigation:{version:1,url:'https://creator.douyin.com/creator-micro/content/manage',resume:false,phase:'prepare',result:{status:'prepared',message:'页面已准备，重新确认后调用更新；尚未更新作品。'}}};
 
         if (!kwargs.reschedule && !kwargs.caption) {
             throw new ArgumentError('必须提供 --reschedule 或 --caption');

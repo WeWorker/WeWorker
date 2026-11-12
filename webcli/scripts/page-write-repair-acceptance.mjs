@@ -114,7 +114,7 @@ export async function verifyPageWriteRepairs({ cli, record, passed, stopBridge, 
       assert.equal(count(kind), before + 1); assert.ok(verified.writeExecutions[0].effectAttempts >= 2);
       if (kind === 'ui') assert.deepEqual((await cli('browser.eval', { session: repaired.session, expression: '({submits:window.exampleSubmits,events:window.exampleEvents})' })).data.value, { submits: 1, events: 0 });
       await install(repaired);
-      const ordinary = await cli(repaired.tool, { title: 'Ordinary', marker: 'ordinary-' + kind, __confirmed: true });
+      const ordinary = await cli(repaired.tool, { title: 'Ordinary', marker: 'ordinary-' + kind });
       assert.equal(kind === 'ui' ? ordinary.confirmationMatched : ordinary.ok, true);
       assert.equal(state.get(kind).title, 'Ordinary'); assert.equal(count(kind), before + 2);
       await record('repair-' + kind + '-verified', verified);

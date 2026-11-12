@@ -43,8 +43,10 @@ function copyDirRecursive(srcDir, destDir) {
   }
 }
 
+async function main() {
 // 1. Bundle webcli/index.js
-esbuild.buildSync({
+await esbuild.build({
+  plugins: require('./host-cli-provider-build.cjs').hostCliProviderPlugins(projectRoot),
   entryPoints: [path.resolve(projectRoot, 'webcli/index.js')],
   absWorkingDir: projectRoot,
   bundle: true,
@@ -198,3 +200,6 @@ for (const [srcRel, destRel] of mappingAssets) {
     console.warn(`[bundle-webcli] missing ${srcRel}, bundled webcli column mappings will be unavailable`)
   }
 }
+
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

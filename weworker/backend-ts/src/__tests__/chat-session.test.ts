@@ -144,6 +144,18 @@ afterEach(() => {
 })
 
 describe('desktop chat session reuse', () => {
+  it('restarts the native session when its configured context window changes', async () => {
+    const sessions = installFakeCli()
+    const first = message('u1', 'first question')
+    await collect([first])
+    await collect([first, message('a1', 'first answer', 'assistant'), message('u2', 'next question')], {}, {
+      ...settings, context_limit: 2_000_000,
+    })
+    expect(sessions).toHaveLength(2)
+    expect(sessions[0].closed).toBe(true)
+    expect(sessions[1].request.options.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe('2000000')
+    expect(sessions[1].request.options.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe('2000000')
+  })
   it('calibrates the final snapshot from delayed stream usage instead of placeholder zeros', async () => {
     installFakeCli({ delayedUsage: true })
     const events = await collect([message('u1', 'fixture question')])

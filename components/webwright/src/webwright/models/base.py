@@ -15,6 +15,7 @@ from jinja2 import StrictUndefined, Template
 from pydantic import BaseModel as PydanticBaseModel, BeforeValidator, field_validator
 
 from webwright.exceptions import FormatError
+from webwright.utils.intervention import validate_user_intervention
 from webwright.utils.logging import append_process_log, append_runtime_log, log_run_error
 from webwright.utils.runtime import run_async
 
@@ -50,6 +51,7 @@ Please respond with strict JSON using exactly these fields:
 - python_code: exactly one async Python browser step for local-browser tasks
 - done: boolean indicating whether the task is complete
 - final_response: final natural-language answer when done, otherwise empty
+- user_intervention: for local-browser tasks only, null or an object with reason, message and mode (browser/input/either); requesting help requires an empty action and done=false
 """
 
 ACTION_FIELDS = {"bash_command", "python_code"}
@@ -146,13 +148,19 @@ def parse_json_output(raw: str, *, action_field: str = "bash_command") -> dict[s
     if not isinstance(parsed, dict):
         raise ValueError("Model output was JSON but not a JSON object.")
     required = {"thought", action_field, "done", "final_response"}
-    if set(parsed) != required:
+    allowed = required | ({"user_intervention"} if action_field == "python_code" else set())
+    if not required <= set(parsed) <= allowed:
         raise ValueError(f"Model output JSON fields must be exactly: {', '.join(sorted(required))}")
     if not isinstance(parsed["thought"], str) or not isinstance(parsed[action_field], str) or not isinstance(parsed["final_response"], str) or not isinstance(parsed["done"], bool):
         raise ValueError("Model output JSON field types do not match the action schema.")
-    # Strict-schema responses cannot have done=true with a non-empty action;
-    # tolerate it from non-strict callers by demoting `done`.
     action_text = str(parsed.get(action_field, "") or "").strip()
+    intervention = validate_user_intervention(parsed.get("user_intervention"))
+    if intervention is not None:
+        if action_text or parsed["done"] or parsed["final_response"].strip():
+            raise ValueError("user_intervention requires an empty action/final_response and done=false.")
+        parsed["user_intervention"] = intervention
+    # Tolerate legacy completion + action responses by demoting `done`, but never
+    # execute an action paired with a request for human intervention.
     if action_text and bool(parsed.get("done", False)):
         parsed = dict(parsed)
         parsed["done"] = False
@@ -386,7 +394,7 @@ class BaseModel:
 
     def _response_schema(self) -> dict[str, Any]:
         action_field = self.config.action_field
-        return {
+        schema = {
             "type": "object",
             "additionalProperties": False,
             "properties": {
@@ -397,6 +405,24 @@ class BaseModel:
             },
             "required": ["thought", action_field, "done", "final_response"],
         }
+        if action_field == "python_code":
+            schema["properties"]["user_intervention"] = {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "reason": {"type": "string"},
+                            "message": {"type": "string"},
+                            "mode": {"type": "string", "enum": ["browser", "input", "either"]},
+                        },
+                        "required": ["reason", "message", "mode"],
+                    },
+                ],
+            }
+            schema["required"].append("user_intervention")
+        return schema
 
     def _usage_snapshot(self) -> dict[str, dict[str, int]]:
         return {
@@ -724,6 +750,7 @@ class BaseModel:
                 "actions": actions,
                 "done": bool(parsed.get("done", False)),
                 "final_response": parsed.get("final_response", ""),
+                "user_intervention": parsed.get("user_intervention"),
                 "raw_response": parsed,
                 "usage": self._usage_snapshot(),
             },

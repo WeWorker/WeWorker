@@ -198,19 +198,6 @@ function ScheduledTaskItem({ task, active, onSelect }) {
         >
           {title}
         </span>}
-        <span
-          style={{
-            fontSize: 'var(--font-size-caption)',
-            lineHeight: '20px',
-            color: 'var(--text-muted)',
-            display: 'block',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {cronToSummary(task.cron_expression)}
-        </span>
         {error && <span role="alert" style={{ display: 'block', fontSize: 'var(--font-size-caption)', color: 'var(--error, #ef4444)' }}>{error}</span>}
       </div>
       <div className="sidebar-row-actions" style={{ opacity: draftTitle !== null ? 0 : undefined, pointerEvents: draftTitle !== null ? 'none' : undefined }} onClick={(event) => event.stopPropagation()}>

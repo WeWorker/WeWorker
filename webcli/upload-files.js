@@ -6,7 +6,7 @@ const fail = (code, message) => { throw Object.assign(new Error(message), {code}
 export function inspectLocalUpload(paths, directory = false) {
   if (!Array.isArray(paths) || !paths.length || paths.length > (directory ? 1 : 20)
     || paths.some(file => typeof file !== 'string' || !path.isAbsolute(file))) fail('INVALID_ARGUMENT', 'Provide absolute paths: one directory or 1–20 files.');
-  const stat = file => { try { return fs.lstatSync(file); } catch { fail('FILE_UNAVAILABLE', 'An upload entry is unavailable.'); } };
+  const stat = file => { try { return fs.lstatSync(file, {bigint:true}); } catch { fail('FILE_UNAVAILABLE', 'An upload entry is unavailable.'); } };
   // Some Windows environments expose different file sizes to pathname
   // metadata and an opened handle. Chromium receives a pathname, so accepting
   // that discrepancy can send different bytes while reporting verified:true.
@@ -16,7 +16,8 @@ export function inspectLocalUpload(paths, directory = false) {
     try {
       const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
       fd = fs.openSync(file, flags);
-      const opened = fs.fstatSync(fd);
+      // Windows file IDs can exceed Number's precision; compare the original integers.
+      const opened = fs.fstatSync(fd, {bigint:true});
       const sameIdentity = ['dev', 'ino'].every(key => !info[key] || !opened[key] || info[key] === opened[key]);
       if (!opened.isFile() || !sameIdentity || opened.size !== info.size) {
         fail('UPLOAD_FILE_VIEW_MISMATCH', 'The upload file metadata is inconsistent; no browser upload was started.');
@@ -32,7 +33,7 @@ export function inspectLocalUpload(paths, directory = false) {
     const info = stat(file);
     if (!info.isFile()) fail('INVALID_ARGUMENT', 'Upload paths must point to regular files, not links.');
     inspectFile(file, info);
-    return {name:path.basename(file), size:info.size};
+    return {name:path.basename(file), size:Number(info.size)};
   });
   const root = paths[0], files = []; let entries = 0;
   if (!stat(root).isDirectory() || !path.basename(root)) fail('INVALID_ARGUMENT', 'Provide one named directory.');
@@ -47,7 +48,7 @@ export function inspectLocalUpload(paths, directory = false) {
       else if (info.isFile()) {
         if (files.length >= 200) fail('UPLOAD_LIMIT', 'Directory selection exceeds 200 files.');
         inspectFile(file, info);
-        files.push({name, size:info.size, relativePath:path.basename(root)+'/'+path.relative(root,file).split(path.sep).join('/')});
+        files.push({name, size:Number(info.size), relativePath:path.basename(root)+'/'+path.relative(root,file).split(path.sep).join('/')});
       } else fail('INVALID_ARGUMENT', 'Directory uploads require regular files.');
     }
   };

@@ -5,12 +5,17 @@ manifests must not choose resource paths or executable commands.
 
 ## Integration contract
 
-- Replace `webcli/host-cli-provider.js` only at build time. Dispatch by a fixed
+- A distribution can add `weworker/host-cli-provider.json` with
+  `{"schemaVersion":1,"entry":"host-cli-assets/example/provider.js"}`. Both
+  desktop bundles bind that reviewed source to `webcli/host-cli-provider.js`
+  during compilation; no public runtime source is overwritten. Relative imports
+  in the provider resolve from `webcli/`. Missing/invalid configured files fail
+  the build; absent configuration retains the disabled public provider.
+  Runtime arguments, settings and environment cannot select a provider. Dispatch by a fixed
   Adapter name, reviewed package digest and command map. The public provider
   always reports unavailable; this is not a generic shell execution tool.
 - The Bridge binds each helper to the original builtin Adapter invocation,
-  profile, arguments and cancellation signal. Writes follow the existing
-  confirmation policy and must call `markWriteDispatched` before dispatch.
+  profile, arguments and cancellation signal. Writes must call `markWriteDispatched` before dispatch.
   Disconnection or failure after dispatch reports an unknown outcome, never
   an automatic retry through another implementation.
 - Use the host secret store for account credentials (Windows DPAPI or macOS

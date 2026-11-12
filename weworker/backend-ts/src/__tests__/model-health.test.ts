@@ -6,7 +6,7 @@ const input = { provider: getProvider('custom')!, model: 'fixture-model', apiKey
   anthropicBaseUrl: 'https://example.com', openaiBaseUrl: 'https://example.org/v1' }
 
 it('measures a verified conversation request and never calls the exploration protocol', async () => {
-  const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { ok: true } }] }))
+  const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] }))
   const clock = vi.fn().mockReturnValueOnce(10).mockReturnValueOnce(22)
   const result = await probeTimedMainConnection(input, fetchMock, clock)
   expect(result).toMatchObject({ ok: true, model: 'fixture-model', elapsed_ms: 12, target: 'weworker' })
@@ -14,7 +14,7 @@ it('measures a verified conversation request and never calls the exploration pro
   expect(fetchMock).toHaveBeenCalledTimes(1)
   const [url, options] = fetchMock.mock.calls[0]
   expect(url).toBe('https://example.com/v1/messages')
-  expect(JSON.parse(String(options?.body))).toMatchObject({ model: 'fixture-model', max_tokens: 256 })
+  expect(JSON.parse(String(options?.body))).toMatchObject({ model: 'fixture-model', max_tokens: 1024 })
 })
 
 it('does not label HTTP success with invalid content as available', async () => {

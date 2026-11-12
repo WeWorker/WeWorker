@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "nnfp.jss.com.cn",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "enabled": true,
   "description": "诺诺网发票平台：获取发票信息、下载 PDF/OFD/XML、自动下载并返回 QQ 邮箱",
   "match": [
@@ -22,6 +22,77 @@
       },
       "aliases": [
         "get_invoice_info"
+      ],
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "url",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "download-pdf",
+              "label": "下载PDF",
+              "command": "download-invoice",
+              "args": {
+                "expectedIdentity": {
+                  "from": "item.context_identity"
+                },
+                "format": {
+                  "value": "pdf"
+                }
+              }
+            },
+            {
+              "id": "download-ofd",
+              "label": "下载OFD",
+              "command": "download-invoice",
+              "args": {
+                "expectedIdentity": {
+                  "from": "item.context_identity"
+                },
+                "format": {
+                  "value": "ofd"
+                }
+              }
+            },
+            {
+              "id": "download-xml",
+              "label": "下载XML",
+              "command": "download-invoice",
+              "args": {
+                "expectedIdentity": {
+                  "from": "item.context_identity"
+                },
+                "format": {
+                  "value": "xml"
+                }
+              }
+            },
+            {
+              "id": "download-return",
+              "label": "下载并返回邮箱",
+              "command": "auto-download-and-return",
+              "args": {
+                "expectedIdentity": {
+                  "from": "item.context_identity"
+                },
+                "format": {
+                  "value": "pdf"
+                }
+              }
+            },
+            {
+              "id": "return",
+              "label": "返回邮箱",
+              "command": "return-to-qqmail",
+              "args": {
+                "expectedIdentity": {
+                  "from": "item.context_identity"
+                }
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -47,14 +118,18 @@
           "downloadPath": {
             "type": "string",
             "description": "下载路径（可选），相对于浏览器默认下载目录的子路径，例如：'invoices/2026-03' 或 '发票/三月'。如果不提供，则使用浏览器默认下载位置"
+          },
+          "expectedIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact identity captured by get-invoice-info; reject changed invoice pages."
           }
         },
         "required": []
       },
       "aliases": [
         "download_invoice"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "auto-download-and-return",
@@ -79,24 +154,34 @@
           "downloadPath": {
             "type": "string",
             "description": "下载路径（可选），相对于浏览器默认下载目录的子路径，例如：'invoices/2026-03' 或 '发票/三月'。如果不提供，则使用浏览器默认下载位置"
+          },
+          "expectedIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact identity captured by get-invoice-info; reject changed invoice pages."
           }
         },
         "required": []
       },
       "aliases": [
         "auto_download_and_return"
-      ],
-      "requires_confirmation": false
+      ]
     },
     {
       "id": "return-to-qqmail",
       "runtime": "extension",
       "module": "extension/commands/return-to-qqmail.js",
       "description": "关闭当前页面并返回QQ邮箱",
-      "safety": "read",
+      "safety": "write",
       "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "expectedIdentity": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact identity captured by get-invoice-info; reject changed invoice pages."
+          }
+        },
         "required": []
       },
       "aliases": [

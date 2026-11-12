@@ -6,6 +6,10 @@ import { validateV2AdapterDir } from '../adapter-package-v2.js';
 import { buildV2Bootstrap } from '../../extension/background/v2-loader.js';
 import { managedAdapterSkill } from '../adapter-views.js';
 import { extractFlagArgs } from '../index.js';
+import { compileResultBindings } from '../result-bindings.js';
+import { captureResult } from '../context-profile.js';
+import { newState, beginRound, commitRound, registerDisplay } from '../context-model.js';
+import { routeContext } from '../context-router.js';
 
 const root = resolve(import.meta.dirname, '../..');
 const sites = ['news.ycombinator.com', '36kr.com'];
@@ -243,10 +247,10 @@ describe('Hacker News read', () => {
 
   it('renders the story header, indented comments and hidden-reply stubs from the source fixture', async () => {
     const rows = await treeSetup().run('read', { id: '123', limit: 5, depth: 1, replies: 5, 'max-length': 2000 });
-    expect(rows).toEqual([
-      { type: 'POST', author: 'hn-fix-author', score: 42, text: 'Ask HN: Example\nHello world (https://example.com)\nhttps://news.ycombinator.com/item?id=123' },
-      { type: 'L0', author: 'hn-fix-replier', score: '', text: 'Top level' },
-      { type: 'L1', author: '', score: '', text: '  [+1 more replies]' },
+    expect(rows.map(({ selection_title, ...row }) => row)).toEqual([
+      { row_ref: 1, item_id: 123, type: 'POST', author: 'hn-fix-author', score: 42, text: 'Ask HN: Example\nHello world (https://example.com)\nhttps://news.ycombinator.com/item?id=123' },
+      { row_ref: 2, item_id: 456, type: 'L0', author: 'hn-fix-replier', score: '', text: 'Top level' },
+      { row_ref: 3, item_id: null, type: 'L1', author: '', score: '', text: '  [+1 more replies]' },
     ]);
   });
 
@@ -265,6 +269,37 @@ describe('Hacker News read', () => {
     expect(zero[0]).toMatchObject({ type: 'POST', score: 0, author: null });
   });
 
+  it('binds actual mixed-tree item IDs after reversed display, executes a selected comment and author, and never executes truncation markers', async () => {
+    const map = new Map([
+      ['1', { id: 1, type: 'story', by: 'example-author', title: 'Example story', kids: [2, 4] }],
+      ['2', { id: 2, type: 'comment', by: 'example-replier', text: 'Example comment', kids: [3] }],
+      ['3', { id: 3, type: 'comment', by: 'example-child', text: 'Example reply' }],
+      ['4', { id: 4, type: 'comment', text: 'Unknown author' }],
+    ]);
+    const s = setup('news.ycombinator.com', { payload: url => url.includes('/user/') ? { id: 'example-replier', karma: 1 } : map.get(url.match(/item\/(\d+)\.json$/)?.[1]) ?? null });
+    const args = { id: '1', depth: 1 }, raw = await s.run('read', args);
+    const entries = s.pkg.commands.map(c => ({ ...c, adapterId: s.pkg.name })), catalog = { entries, resultBindings: compileResultBindings(entries) };
+    function captured() {
+      const state = newState(1000); beginRound(state, null, 1000);
+      const snapshot = captureResult(state, { tool: 'news.ycombinator.com.read', args, raw, exitCode: 0, now: 1000, catalog, roundId: state.activeRound.roundId });
+      commitRound(state); registerDisplay(state, { epoch: state.sessionEpoch, revision: state.revision, roundId: snapshot.sourceRoundId, snapshotId: snapshot.snapshotId,
+        order: snapshot.entities.map(e => e.entityRef).reverse(), completeness: 'unknown', delivered: true });
+      return state;
+    }
+    expect(raw.map(r => r.item_id)).toEqual([1, 2, null, 4]);
+    expect(raw[1].selection_title).toBe('Example comment');
+    const comment = await routeContext(captured(), '查看第三条', { catalog, now: 1001 });
+    expect(comment.steps[0].args).toEqual({ id: 2 });
+    expect((await s.run('read', comment.steps[0].args))[0]).toMatchObject({ item_id: 2, type: 'COMMENT', text: 'Example comment' });
+    const author = await routeContext(captured(), '查看作者第三条', { catalog, now: 1001 });
+    expect(author.steps[0].args).toEqual({ username: 'example-replier' });
+    expect(await s.run('user', author.steps[0].args)).toMatchObject({ username: 'example-replier' });
+    const count = s.requests.length;
+    expect((await routeContext(captured(), '查看第二条', { catalog, now: 1001 })).steps).toBeUndefined();
+    expect((await routeContext(captured(), '查看作者第一条', { catalog, now: 1001 })).steps).toBeUndefined();
+    expect(s.requests).toHaveLength(count);
+  });
+
   it('rejects non-numeric ids and missing/deleted stories before walking the tree', async () => {
     const s = treeSetup();
     await expect(s.run('read', { id: 'abc' })).rejects.toMatchObject({ code: 'INVALID_ARGS' });
@@ -272,6 +307,14 @@ describe('Hacker News read', () => {
     expect(s.requests).toHaveLength(0);
     await expect(treeSetup().run('read', { id: '99999999' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
     await expect(treeSetup(new Map([['1', { id: 1, deleted: true }]])).run('read', { id: '1' })).rejects.toMatchObject({ code: 'EMPTY_RESULT' });
+  });
+
+  it('keeps the full body while bounding a multibyte selection title for the decision model', async () => {
+    const s = treeSetup(new Map([['1', { id: 1, type: 'story', title: '😀'.repeat(90) }]])), raw = await s.run('read', { id: '1' });
+    expect(raw[0].text).toBe('😀'.repeat(90)); expect(Buffer.byteLength(raw[0].selection_title)).toBe(240);
+    const entries = s.pkg.commands.map(c => ({ ...c, adapterId: s.pkg.name })), catalog = { resultBindings: compileResultBindings(entries) };
+    const state = newState(1000); beginRound(state, null, 1000);
+    expect(captureResult(state, { tool: 'news.ycombinator.com.read', args: { id: '1' }, raw, exitCode: 0, now: 1000, catalog, roundId: state.activeRound.roundId }).entities[0].title).toBe(raw[0].selection_title);
   });
 
   it('validates tree tuning arguments like the source', async () => {

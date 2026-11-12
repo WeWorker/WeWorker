@@ -16,7 +16,7 @@ function ChannelIcon({ id }) {
 export default function ChannelsTab() {
   const { channels, channelProfileAction } = useSettingsStore()
   const profiles = Object.values(channels.configurations || {})
-  const [type, setType] = useState(() => profiles[0]?.type || 'qq')
+  const [type, setType] = useState('wecom')
   const [selected, setSelected] = useState({})
   const [busy, setBusy] = useState(false)
   const [editorBusy, setEditorBusy] = useState(false)

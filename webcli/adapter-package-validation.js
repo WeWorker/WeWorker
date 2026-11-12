@@ -21,6 +21,7 @@ import { normalizeNavigationQueryParameters, normalizeHashNavigation } from './p
 import { validatePageWorkflowContract } from './exploration-workflow.js';
 import { validateUiWrite } from './exploration-ui-write.js';
 import { validatePageWrite } from './exploration-extension-write.js';
+import { compileResultBindings } from './result-bindings.js';
 
 
 const RUNTIMES = ["extension", "wewright", "http"];
@@ -285,6 +286,9 @@ export function validateV2Manifest(manifest, directoryName = "?") {
     }
     return { ...command, safety: command.safety || "read", name: `${manifest.name}.${id}` };
   });
+
+  compileResultBindings(commands.map(command => ({ ...command, adapterId: manifest.name,
+    safety: manifest.commands.find(item => item.id === command.id)?.safety })));
 
   const hasExtension = runtimesPresent.has("extension");
   if (hasExtension) {

@@ -513,7 +513,7 @@ var __wave5 = (() => {
         if (!r.ok) return { _err: r.status };
         try { return await r.json(); } catch { return { _err: 'parse' }; }
       };
-      const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
+      const n = (v) => { if (v == null || typeof v === 'string' && !v.trim()) return null; const x = Number(v); return Number.isFinite(x) ? x : null; };
 
       const gain = await f(${JSON.stringify(GAIN_URL)});
       if (gain._err) return { _httpError: gain._err };
@@ -1117,11 +1117,14 @@ var __wave5 = (() => {
         throw new CommandExecutionError("Site redirected the requested page; check login or site verification");
       }
       sessionStorage.setItem(markerKey, JSON.stringify({ url: target.href, at: Date.now() }));
-      this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write" } };
+      // A page evaluation may already have written; only untouched invocations can promise preparation.
+      this.pending = { __webcli_navigation: { version: 1, url: target.href, resume: this.command.access !== "write",
+        ...(this.command.access === "write" && !this.pageEvaluated ? { phase: "prepare", result: { status: "prepared", executed: false } } : {}) } };
       throw new CommandExecutionError("Navigation required");
     }
     async evaluate(source) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
+      this.pageEvaluated = true;
       const expression = `(async () => { const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
       const result = await helper("main_world_eval", { expression });
       if (!result || !Object.hasOwn(result, "value")) throw new CommandExecutionError("Missing page evaluation result");
@@ -1129,6 +1132,7 @@ var __wave5 = (() => {
     }
     async evaluateWithArgs(source, args = {}) {
       if (this.pending) throw new CommandExecutionError("Navigation required");
+      this.pageEvaluated = true;
       const bindings = Object.entries(args).map(([key, value]) => `const ${key} = ${JSON.stringify(value)};`).join("");
       const expression = `(async () => { ${bindings} const result = (${source}); return typeof result === 'function' ? await result() : await result; })()`;
       const result = await helper("main_world_eval", { expression });

@@ -9,36 +9,82 @@ function fixture() {
   const turns = []
   const queue = createMessageQueue({
     send: payload => { calls.push(payload); const turn = deferred(); turns.push(turn); return turn.promise },
+    steer: async () => {},
     stop: async () => { turns.at(-1)?.resolve({ status: 'stopped', accepted: true }) },
   })
   return { queue, calls, turns }
 }
 
 describe('conversation message queue', () => {
-  it('does not retry steering acknowledged on the stream when its HTTP reply is lost', async () => {
+  it('keeps followups queued during an external run and stops it before resuming', async () => {
     const { queue, calls, turns } = fixture()
-    queue.setHandlers({ steer: async item => { queue.acknowledgeSteering(item.id); throw new Error('response lost') } })
+    let external = true
+    let stopped = false
+    const cleanup = deferred()
+    queue.setHandlers({
+      isBlocked: () => external,
+      isExternalRunning: () => external,
+      stop: async () => { stopped = true; await cleanup.promise; external = false },
+    })
+    const id = queue.enqueue({ text: 'Followup' }); await tick()
+    assert.equal(calls.length, 0)
+    const stopping = queue.sendNow(id); await tick()
+    assert.equal(stopped, true)
+    assert.equal(calls.length, 0)
+    cleanup.resolve(); await stopping
+    await tick()
+    assert.equal(calls.length, 1)
+    turns[0].resolve({ status: 'completed' })
+  })
+
+  it('automatically wakes queued followups when an external run completes', async () => {
+    const { queue, calls, turns } = fixture()
+    let external = true
+    queue.setHandlers({ isBlocked: () => external, isExternalRunning: () => external })
+    queue.enqueue({ text: 'Followup' }); await tick()
+    assert.equal(calls.length, 0)
+    external = false; queue.wake(); await tick()
+    assert.equal(calls.length, 1)
+    turns[0].resolve({ status: 'completed' })
+  })
+  it('waits for persistence, stream cleanup and history refresh before sending the correction', async () => {
+    const { queue, calls, turns } = fixture()
+    const persisted = deferred()
+    const refreshed = deferred()
+    let aborted = false
+    let refreshing = false
+    queue.setHandlers({
+      stop: async () => { aborted = true; await persisted.promise },
+      afterStop: async () => { refreshing = true; await refreshed.promise },
+    })
     queue.enqueue({ text: 'active' })
     const id = queue.enqueue({ text: 'urgent' })
     queue.enqueue({ text: 'later' }); await tick()
-    await queue.sendNow(id)
+    const sending = queue.sendNow(id)
+    assert.equal(aborted, true)
+    assert.equal(calls.length, 1)
+    persisted.resolve(); await tick()
+    assert.equal(refreshing, false)
+    assert.equal(calls.length, 1)
+    turns[0].resolve({ status: 'stopped', accepted: true }); await tick()
+    assert.equal(refreshing, true)
+    assert.equal(calls.length, 1)
+    refreshed.resolve(); await sending; await tick()
+    assert.deepEqual(calls.map(item => item.text), ['active', 'urgent'])
     assert.deepEqual(queue.snapshot().items.map(item => item.text), ['later'])
     assert.equal(queue.snapshot().pausedReason, null)
-    turns[0].resolve({ status: 'completed' }); await tick()
-    assert.deepEqual(calls.map(item => item.text), ['active', 'later'])
-    turns[1].resolve({ status: 'completed' })
+    turns[1].resolve({ status: 'completed' }); await tick()
+    turns[2].resolve({ status: 'completed' })
   })
 
-  it('does not resume remaining messages when the active turn fails during steering', async () => {
+  it('keeps all messages queued when refreshing interrupted history fails', async () => {
     const { queue, calls, turns } = fixture()
-    const delivery = deferred()
-    queue.setHandlers({ steer: () => delivery.promise })
+    queue.setHandlers({ afterStop: async () => { throw new Error('history unavailable') } })
     queue.enqueue({ text: 'active' }); queue.enqueue({ text: 'later' })
     const id = queue.enqueue({ text: 'urgent' }); await tick()
-    const sending = queue.sendNow(id)
-    turns[0].resolve({ status: 'failed', accepted: true }); await tick()
-    delivery.resolve(); await sending; await tick()
+    await assert.rejects(queue.sendNow(id), /history unavailable/); await tick()
     assert.equal(calls.length, 1)
+    assert.deepEqual(queue.snapshot().items.map(item => item.text), ['later', 'urgent'])
     assert.ok(queue.snapshot().pausedReason)
   })
 
@@ -87,11 +133,11 @@ describe('conversation message queue', () => {
     turns[1].resolve({ status: 'completed' })
   })
 
-  it('steers once without interrupting the current turn or draining other messages', async () => {
+  it('interrupts once and prioritizes the selected message without losing other queued items', async () => {
     const { queue, calls, turns } = fixture()
-    const delivered = deferred()
-    const steered = []
-    queue.setHandlers({ steer: item => { steered.push(item); return delivered.promise }, stop: () => { assert.fail('steering must not stop the turn') } })
+    const stopped = deferred()
+    let stopCount = 0
+    queue.setHandlers({ stop: async () => { stopCount++; await stopped.promise; turns[0].resolve({ status: 'stopped', accepted: true }) } })
     queue.enqueue({ text: 'active' })
     queue.enqueue({ text: 'later' })
     const id = queue.enqueue({ text: 'urgent' })
@@ -100,16 +146,17 @@ describe('conversation message queue', () => {
     const duplicate = queue.sendNow(id)
     await tick()
     assert.equal(calls.length, 1)
-    assert.deepEqual(steered.map(item => item.text), ['urgent'])
-    delivered.resolve()
+    assert.equal(stopCount, 1)
+    stopped.resolve()
     await Promise.all([sending, duplicate])
     await tick()
-    assert.equal(calls.length, 1)
+    assert.equal(calls.length, 2)
     assert.deepEqual(queue.snapshot().items.map(item => item.text), ['later'])
-    turns[0].resolve({ status: 'completed', accepted: true })
+    assert.deepEqual(calls.map(x => x.text), ['active', 'urgent'])
+    turns[1].resolve({ status: 'completed', accepted: true })
     await tick()
-    assert.deepEqual(calls.map(x => x.text), ['active', 'later'])
-    turns[1].resolve({ status: 'completed' })
+    assert.deepEqual(calls.map(x => x.text), ['active', 'urgent', 'later'])
+    turns[2].resolve({ status: 'completed' })
   })
 
   it('manual stop pauses remaining items until explicit resume', async () => {
@@ -144,13 +191,13 @@ describe('conversation message queue', () => {
     assert.ok(queue.snapshot().pausedReason)
   })
 
-  it('keeps the message queued if steering fails', async () => {
+  it('keeps the message queued if stopping fails', async () => {
     const { queue, calls, turns } = fixture()
-    queue.setHandlers({ steer: async () => { throw new Error('steering unavailable') } })
+    queue.setHandlers({ stop: async () => { throw new Error('stop unavailable') } })
     queue.enqueue({ text: 'active' })
     const id = queue.enqueue({ text: 'urgent' })
     await tick()
-    await assert.rejects(queue.sendNow(id), /steering unavailable/)
+    await assert.rejects(queue.sendNow(id), /stop unavailable/)
     turns[0].resolve({ status: 'completed' })
     await tick()
     assert.equal(calls.length, 1)

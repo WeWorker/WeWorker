@@ -6,8 +6,7 @@
  * - 按 adapter 目录 mtime 失效重建（改 manifest → 下次路由决策即生效，不重启进程）；
  * - 路由面准入硬门：**写操作不得进路由面**，只读性只认工具自述的 safety，缺省即不放行。
  *
- * 与既有 `query-router/configurable-query-route.ts` 的 `listDefaultCatalogTools()` 保持一致：
- * 两者共用同一「可直调」判据，避免同仓出现两套口径。
+ * 旧 profile 路由已退出桌面调用链；工具准入仅由共享路由引擎使用。
  */
 
 import fs from 'node:fs'
@@ -15,6 +14,7 @@ import path from 'node:path'
 import { parseAllAdapters, type ParsedAdapter, type StaticToolDef } from '../adapter-parser.js'
 import { findAdaptersDirectory, resolveToolsForAdapter } from '../adapter-tool-list.js'
 import { getSiteEnabled } from '../config.js'
+import { clearDesktopAdapterCatalogCache } from '../adapter-catalog-cache.js'
 
 export type CatalogTool = {
   /** 全名 `<adapterId>.<tool>` */
@@ -53,7 +53,7 @@ const EMPTY_CATALOG: ToolCatalog = {
 
 /**
  * 可直调判据：三选一即成立。
- * 与 `configurable-query-route.ts` 的 `isDirectCapable` 同口径。
+ * 只有可直调工具才可能进入后续只读路由准入。
  */
 export function isDirectTool(adapter: ParsedAdapter, tool: StaticToolDef): boolean {
   const execution = adapter.toolExecution?.[tool.name] ?? tool.execution
@@ -124,13 +124,20 @@ export function buildCatalog(adaptersDir: string | null = findAdaptersDirectory(
   }
 }
 
-/** adapters 目录签名（mtime+size），用于热重载失效判定。 */
+/** Per-manifest stats detect in-place edits without hashing every package file each turn. */
 function adaptersSignature(adaptersDir: string | null): string {
   if (!adaptersDir) return '-'
   try {
-    const stat = fs.statSync(adaptersDir)
     const names = fs.readdirSync(adaptersDir).sort()
-    return `${adaptersDir}:${stat.mtimeMs}:${names.length}:${names.join(',')}`
+    const parts = names.map((name) => {
+      try {
+        const stat = fs.statSync(path.join(adaptersDir, name, 'manifest.json'))
+        return `${name}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`
+      } catch {
+        return `${name}:-`
+      }
+    })
+    return `${adaptersDir}:${parts.join('|')}`
   } catch {
     return `${adaptersDir}:-`
   }
@@ -145,6 +152,9 @@ let cache: { signature: string; catalog: ToolCatalog } | null = null
 export function getCatalog(adaptersDir: string | null = findAdaptersDirectory()): ToolCatalog {
   const signature = adaptersSignature(adaptersDir)
   if (cache && cache.signature === signature) return cache.catalog
+  // Built-in packages are pinned by profile metadata in the desktop snapshot. A
+  // changed manifest must invalidate that snapshot before parsing the new tools.
+  if (cache && cache.signature !== signature) clearDesktopAdapterCatalogCache()
   const catalog = buildCatalog(adaptersDir)
   cache = { signature, catalog }
   return catalog

@@ -18,7 +18,7 @@ describe('native CLI help layout', () => {
     expect(output).toContain('(required)');
     expect(output).toContain('enum=request|event');
     expect(output).toContain('[default="request"]');
-    expect(output).toContain('Confirmation: required');
+    expect(output).not.toContain('Confirmation: required');
     expect(output).not.toContain('Arguments (required)');
   });
 });

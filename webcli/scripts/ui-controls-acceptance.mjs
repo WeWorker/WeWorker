@@ -113,7 +113,7 @@ export async function verifyUiControls({ cli, passed, record, browser }) {
       const install=(await cli('exploration.review',{taskId})).data;await cli('exploration.install',{taskId,reviewId:install.reviewId,confirmed:true});assert.equal((await settle(taskId)).status,'installed');
       if(label.endsWith('navigation'))await cli('browser.open',{session:session+'-ordinary',url:origin+pagePathname});
       const ordinaryTitle=label.startsWith('date')||label==='calendar'?'2026-10-29':label==='checkbox'?'false':'Again';
-      const ordinary=await cli(tool,{title:ordinaryTitle,marker:'ordinary-'+label,__confirmed:true});assert.equal(ordinary.confirmationMatched,true);assert.equal(ordinary.effectVerified,false);
+      const ordinary=await cli(tool,{title:ordinaryTitle,marker:'ordinary-'+label});assert.equal(ordinary.confirmationMatched,true);assert.equal(ordinary.effectVerified,false);
       if(label==='networkmulti')assert.deepEqual(ordinary.resultIds,['-9007199254740993123456789','007']);
       if(label==='network')assert.equal(ordinary.resultId,'007');
       if(label==='networkurl')assert.equal(ordinary.resultId,'networkurl');

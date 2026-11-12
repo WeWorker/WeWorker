@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { buildOfficialAdapterToolSection } from '../components/welcome/custom-skill-builtins.js'
 import { parseSkillMarkdownMeta } from '../utils/skill-markdown-meta.js'
 
 // Exercise the same disk-entry conversion used after creation and list reload.
@@ -32,4 +33,13 @@ test('saved Skill content, including deliberately emptied documents, is not repl
     assert.equal(tool.markdown, content)
     assert.equal(tool.source, 'public-skill')
   }
+})
+
+test('examples keep typed fields in a JSON file and strings on the command line', () => {
+  const section = buildOfficialAdapterToolSection({ name: 'example.com.search', parameters: [
+    { name: 'query', type: 'string', required: true }, { name: 'filters', type: 'object', required: true },
+    { name: 'page', type: 'integer', required: true }, { name: 'cursor', type: 'string', required: false },
+  ] })
+  assert.deepEqual(JSON.parse(section.match(/```json\n([\s\S]*?)\n```/)[1]), { filters: {}, page: 1 })
+  assert.match(section, /webcli call example\.com\.search --query=example-value --args-file=\.\/args\.json\n/)
 })

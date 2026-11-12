@@ -43,7 +43,7 @@
 
 `write-verification-write.fixture` 保持兼容单一 fixture，也可写入 `{"cases":[...]}`：2–10 个唯一 id，每个都包含完整代表参数、离线模型和独立效果断言。普通 validate 对全部用例做零真实写验证。单独审阅/执行时传 `caseId`；全部当前用例通过真实效果验证后才能安装。修改任一用例会使现有审阅失效。
 
-`exploration.write-sequence-review` 与 `exploration.write-sequence-verify` 将当前任务内生成工具的用例组成 2–20 步显式序列，支持多个工具或同一工具不同用例的批量操作。它是 CLI 探索任务的编排能力，安装后的单个工具仍使用原来的确认调用入口；不把任务账本或验证 fixture 塞进安装包。
+`exploration.write-sequence-review` 与 `exploration.write-sequence-verify` 将当前任务内生成工具的用例组成 2–20 步显式序列，支持多个工具或同一工具不同用例的批量操作。它是 CLI 探索任务的编排能力，安装后的单个工具使用普通业务参数调用入口；不把任务账本或验证 fixture 塞进安装包。
 
 ```json
 {

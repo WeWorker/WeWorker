@@ -58,7 +58,7 @@ async function setup({ behavior = 'normal', source, auth = false, mixed = false,
     ...(mixed ? [{ name: 'current_item', risk: 'read', sourceApiKind: 'list', sourceApiIndexes: [0], strategy: 'PUBLIC_API', readReason: 'Read example identity', strategyNote: { reason: 'Public item', limitations: 'Local fixture' } }] : [])] } })).ok).toBe(true);
   const run = service.runs.get(taskId), tool = run.draft.toolNames[0];
   const handler = source || `module.exports = async (args, api) => {
-    if (args.__confirmed !== true) return {blocked:true, requiresConfirmation:true};
+
     try { return await api.request({url:${JSON.stringify(origin + '/items/example')},method:'PUT',json:{title:args.title}}); }
     catch (error) { return {ok:false,errorCode:error.code}; }
   };`;
@@ -150,7 +150,7 @@ it('partial sequence resume obtains a new review and skips verified steps; uncer
   expect(u.run.writeExecutions[0].status).toBe('uncertain');
 });
 
-it('generates declared HTTP writes, runs no-network mocks, verifies a real effect and installs with ordinary call confirmation', async () => {
+it('generates declared HTTP writes, runs no-network mocks, verifies a real effect and installs for ordinary business calls', async () => {
   const f = await setup();
   expect((await f.call('evidence')).data.candidates[0]).toMatchObject({ declared: true, status: null, observation: { executed: false } });
   const review = await reviewed(f);
@@ -170,8 +170,7 @@ it('generates declared HTTP writes, runs no-network mocks, verifies a real effec
   await f.call('install', { reviewId: installReview.data.reviewId, confirmed: true });
   expect(f.run.status).toBe('installed');
   const match = resolveAdapterCall(f.tool, { paths: f.paths });
-  await expect(runHttpTool(match, { title: 'Ordinary' })).rejects.toMatchObject({ code: 'HTTP_CONFIRMATION_REQUIRED' });
-  expect((await runHttpTool(match, { title: 'Ordinary', __confirmed: true })).result).toMatchObject({ ok: true, title: 'Ordinary' });
+  expect((await runHttpTool(match, { title: 'Ordinary' })).result).toMatchObject({ ok: true, title: 'Ordinary' });
   const stored = fs.readFileSync(path.join(f.options.rootDir, f.taskId + '.json'), 'utf8');
   expect(stored).not.toContain('example-unpersisted-body');
   expect(fs.existsSync(path.join(match.adapter.root, 'write-verification.json'))).toBe(false);
@@ -240,7 +239,7 @@ it('binds exact requests and rejects caught extra attempts even when the first w
   expect(f.requests.map(item => item.method)).toEqual(['GET', 'PUT']);
 });
 
-it('mock checks raw handler confirmation and failure interpretation without host credentials', async () => {
+it('mock checks business-only execution and failure interpretation without host credentials', async () => {
   const f = await setup({ auth: true });
   const review = await reviewed(f); // No EXAMPLE_WRITE_KEY exists.
   expect(f.requests).toHaveLength(0);
@@ -249,9 +248,9 @@ it('mock checks raw handler confirmation and failure interpretation without host
   expect(f.run.status).toBe('review_ready');
   expect(f.requests.every(item => item.auth === 'Bearer example-write-placeholder')).toBe(true);
   expect(fs.readFileSync(path.join(f.options.rootDir, f.taskId + '.json'), 'utf8')).not.toContain('example-write-placeholder');
-  const bad = await setup({ source: "module.exports = async (args,api) => { const __confirmed = args.__confirmed; return api.request({url:'EXAMPLE_ORIGIN/items/example',method:'PUT',json:{title:args.title}}); };" });
+  const bad = await setup({ source: "module.exports = async (args,api) => { if (!args.__confirmed) return {blocked:true}; return api.request({url:'EXAMPLE_ORIGIN/items/example',method:'PUT',json:{title:args.title}}); };" });
   await bad.call('validate');
-  expect(bad.run.runtimeSummary.errors.some(item => item.code === 'WRITE_IO_BEFORE_CONFIRMATION')).toBe(true);
+  expect(bad.run.runtimeSummary.errors.some(item => item.code === 'WRITE_REQUEST_MISMATCH')).toBe(true);
   expect(bad.requests).toHaveLength(0);
 });
 
@@ -303,7 +302,7 @@ it('verifies mixed read/write plans without executing writes through the ordinar
 });
 
 it('cancels a running write mock without overwriting the terminal task state', async () => {
-  const f = await setup({ source: 'module.exports = args => { if (args.__confirmed !== true) return {blocked:true,requiresConfirmation:true}; while(true) {} };' });
+  const f = await setup({ source: 'module.exports = args => { while(true) {} };' });
   await f.service.execute('validate', { taskId: f.taskId });
   await new Promise(resolve => setTimeout(resolve, 100));
   await f.service.execute('cancel', { taskId: f.taskId });
@@ -320,7 +319,7 @@ it('matches JSON content-type after host normalization and rejects unreviewed ex
   await f.call('write-verify', { tool: f.tool, reviewId: review.reviewId, confirmed: true });
   expect(f.run.status).toBe('review_ready');
   const extra = await setup({ source: `module.exports = async (args,api) => {
-    if (args.__confirmed !== true) return {blocked:true,requiresConfirmation:true};
+
     try { return await api.request({url:'EXAMPLE_ORIGIN/items/example',method:'PUT',json:{title:args.title},headers:{'x-example':'unreviewed'}}); }
     catch (error) { return {ok:false,errorCode:error.code}; }
   };` });
@@ -339,7 +338,7 @@ async function resultFixture(f) {
 
 it('reads the actual response ID, persists only that binding, installs and recovers without trusting handler mapping', async () => {
   const f = await setup({ resultId: '007示例', source: `module.exports = async (args,api) => {
-    if (args.__confirmed !== true) return {blocked:true,requiresConfirmation:true};
+
     try { const value = await api.request({url:'EXAMPLE_ORIGIN/items/example',method:'PUT',json:{title:args.title}}); return {ok:value.ok,title:value.title,id:'fabricated'}; }
     catch(error) { return {ok:false,errorCode:error.code}; }
   };` });
@@ -399,7 +398,7 @@ it('does not invent a mock ID or reissue a lost response write during recovery',
 
 it('saves the actual ID before an authored handler fails and never upgrades failure on readback', async () => {
   const f = await setup({ resultId: 'example-generated', source: `module.exports = async (args,api) => {
-    if (args.__confirmed !== true) return {blocked:true,requiresConfirmation:true};
+
     try { const value = await api.request({url:'EXAMPLE_ORIGIN/items/example',method:'PUT',json:{title:args.title}}); if(value.live) return {ok:false}; return value; }
     catch(error) { return {ok:false,errorCode:error.code}; }
   };` }), review = await resultFixture(f);

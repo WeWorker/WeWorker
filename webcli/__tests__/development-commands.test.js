@@ -30,11 +30,40 @@ describe('development CLI', () => {
     const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     for (const path of ['development-commands.js', 'development-client.js', 'development-install-client.js', 'skills/']) expect(pkg.files).toContain(path);
     const skill = fs.readFileSync(new URL('../skills/adapter-development/SKILL.md', import.meta.url), 'utf8');
-    expect(skill).toContain('ConvertTo-Json');
+    expect(skill).not.toMatch(/webcli call development\.[\w-]+ --args(?:\s|=)/);
     expect(skill).toContain('expected_digest');
     expect(skill).not.toContain('webwright');
     expect(listBundledSkills().some(item => item.name === 'adapter-development')).toBe(true);
     expect(readBundledSkill('adapter-development').content).toBe(skill);
+  });
+  it.skipIf(process.platform !== 'win32')('passes the documented prepare and save arguments through PowerShell 5.1 and a cmd launcher', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'development skill '));
+    try {
+      // Stop at the CLI parser: inspect exactly what the handler would receive, without contacting a host.
+      const parser = new URL('../index.js', import.meta.url).href;
+      fs.writeFileSync(path.join(root, 'probe.mjs'),
+        'import { extractFlagArgs } from ' + JSON.stringify(parser) + ';\n' +
+        'console.log(JSON.stringify(extractFlagArgs(process.argv.slice(4)).args));');
+      fs.writeFileSync(path.join(root, 'webcli.cmd'), '@echo off\r\n"' + process.execPath + '" "%~dp0probe.mjs" %*\r\n');
+      const skill = readBundledSkill('adapter-development').content;
+      const prepare = skill.match(/^\$prepared = webcli call development\.prepare .+$/m)[0];
+      const save = skill.match(/^\$submission = @\{[\s\S]+?^\$saved = webcli call development\.save .+$/m)[0];
+      const script = [
+        "$ErrorActionPreference = 'Stop'", '[Console]::OutputEncoding = [Text.UTF8Encoding]::new()',
+        "$env:Path = (Get-Location).Path + ';' + $env:Path",
+        "$selected = @(@{id='example.com'; digest=('a' * 64)})", '$current = @{data=@{revision=3}}',
+        prepare, save, '@{prepared=$prepared; saved=$saved} | ConvertTo-Json -Depth 20 -Compress',
+      ].join('\n');
+      const ps = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+      const run = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64')], { cwd: root, encoding: 'utf8' });
+      expect(run.status, run.stderr).toBe(0);
+      const { prepared, saved } = JSON.parse(run.stdout);
+      expect(prepared).toEqual({ adapter_id: 'example.com', expected_digest: 'a'.repeat(64) });
+      expect(saved).toMatchObject({ expected_revision: 3, description: '读取当前页面标题',
+        code: 'async def get_page_title(ctx):\n    return {"title": await ctx.page.title()}',
+        parameters_schema: { required: [], additionalProperties: false } });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
   it('requires trusted host identity before any network activity', async () => {
     const fetch = vi.fn();
@@ -89,7 +118,7 @@ it('discovers management commands without starting a browser', async () => {
   expect(JSON.parse(output.stdout).namespace).toBe('development');
 });
 
-it('requires confirmation before spawning a Toolkit write runtime', () => {
+it('reaches Toolkit runtime validation without a confirmation gate', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'development-write-guard-'));
   const builtin = path.join(root, 'builtin');
   const adapter = path.join(builtin, 'example.com');
@@ -109,7 +138,8 @@ it('requires confirmation before spawning a Toolkit write runtime', () => {
       WEWORKER_BUILD_PROFILE: 'public', WEWORKER_TOOLKIT_RUNTIME: path.join(root, 'must-not-start'), WEBCLI_METRICS_UPLOAD: 'off' },
   });
   expect(output.status, output.stderr).toBe(1);
-  expect(JSON.parse(output.stdout).code).toBe('CONFIRMATION_REQUIRED');
+  expect(JSON.parse(output.stdout).error).toMatch(/runtime|Runtime/);
+  expect(output.stdout).not.toContain('CONFIRMATION_REQUIRED');
 });
 it('discovers target-resolution commands and lists workspaces without a preselected target', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(health()).mockResolvedValueOnce(Response.json({ schemaVersion: 1, command: 'development.list', ok: true, data: { workspaces: [] } }));

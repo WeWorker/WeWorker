@@ -1,0 +1,6081 @@
+{
+  "scope": "Current public source packages; external deployment assets require a separate controlled inventory.",
+  "meaning": {
+    "mapped_query": "A declared query-to-action mapping passes package/schema validation; per-command execution evidence is still required.",
+    "write_command": "A possible action target or standalone write; being a write does not prove that every query has its needed follow-up.",
+    "declared_no_actions": "The author explicitly declared no actions; this alone does not certify that no follow-up is needed.",
+    "pending_source_review": "Implementation review remains; do not classify this as terminal, unnecessary, or externally blocked."
+  },
+  "totals": {
+    "adapters": 33,
+    "commands": 334,
+    "mapped_query": 171,
+    "write_command": 89,
+    "declared_no_actions": 74,
+    "pending_source_review": 0
+  },
+  "errors": [],
+  "adapters": [
+    {
+      "name": "12306.cn",
+      "digest": "f8449a15dafab89585e7e20dcc0e5dfd33f8995815fb793bc1567a4dc7cef3a4",
+      "commands": [
+        {
+          "name": "12306.cn.stations",
+          "module": "extension/commands/stations.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "trains",
+              "target": "12306.cn.trains",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "12306.cn.trains",
+          "module": "extension/commands/trains.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "12306.cn.train",
+              "safety": "read"
+            },
+            {
+              "id": "price",
+              "target": "12306.cn.price",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "12306.cn.train",
+          "module": "extension/commands/train.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "trains",
+              "target": "12306.cn.trains",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "12306.cn.price",
+          "module": "extension/commands/price.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Seat prices are terminal values; this package has no booking or seat-specific detail command. Booking is an unsupported capability, not a missing identifier mapping."
+          ]
+        },
+        {
+          "name": "12306.cn.me",
+          "module": "extension/commands/me.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "passengers",
+              "target": "12306.cn.passengers",
+              "safety": "read"
+            },
+            {
+              "id": "orders",
+              "target": "12306.cn.orders",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "12306.cn.passengers",
+          "module": "extension/commands/passengers.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Saved passenger records have no per-passenger detail, edit, delete or booking command in this package. Do not persist masked identity fields as executable identifiers."
+          ]
+        },
+        {
+          "name": "12306.cn.orders",
+          "module": "extension/commands/orders.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Order summaries have no order-detail, cancel or payment command in this package; train_code is a public service code and cannot substitute for internal train_no. These follow-ups require new Adapter capabilities."
+          ]
+        },
+        {
+          "name": "12306.cn.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "12306.cn.me",
+              "safety": "read"
+            },
+            {
+              "id": "passengers",
+              "target": "12306.cn.passengers",
+              "safety": "read"
+            },
+            {
+              "id": "orders",
+              "target": "12306.cn.orders",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "12306.cn.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "1688.com",
+      "digest": "deb05c276e411d236dee846be4ef01e2df9b890680a8cac96d2527219117120b",
+      "commands": [
+        {
+          "name": "1688.com.assets",
+          "module": "extension/commands/assets.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "1688.com.item",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "1688.com.download",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "1688.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Returns authenticated account identity only. There is no account-detail, purchase-history or account-edit command; public product search is an independent query."
+          ]
+        },
+        {
+          "name": "1688.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "1688.com.download",
+          "module": "extension/commands/download.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Returns media URLs and suggested filenames only. No command in this package saves a media file or opens an individual media asset; download-to-disk requires a separate capability."
+          ]
+        },
+        {
+          "name": "1688.com.item",
+          "module": "extension/commands/item.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "assets",
+              "target": "1688.com.assets",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "1688.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "store",
+              "target": "1688.com.store",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "1688.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "1688.com.item",
+              "safety": "read"
+            },
+            {
+              "id": "assets",
+              "target": "1688.com.assets",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "1688.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "store",
+              "target": "1688.com.store",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "1688.com.store",
+          "module": "extension/commands/store.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Returns supplier profile and contact fields. This package has no shop-scoped product listing or contact-seller operation; keyword search cannot represent shop inventory."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "36kr.com",
+      "digest": "cadb60e35c550221c82ddf225ddaf3e0180d33b1aee511578acdf50b82d88c9b",
+      "commands": [
+        {
+          "name": "36kr.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "36kr.com.article",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "36kr.com.news",
+          "module": "extension/commands/news.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "36kr.com.article",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "36kr.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "36kr.com.article",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "36kr.com.article",
+          "module": "extension/commands/article.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Article fields include an explicitly capped body; there is no full-text, author-profile or comment command. Opening the returned URL is an Agent/browser handoff, not an invented Adapter action."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "51job.com",
+      "digest": "d696dd291b9b7fc09f3308d62fa3ee7792c0ba6b1194cbcb9ff213dac7c73457",
+      "commands": [
+        {
+          "name": "51job.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "51job.com.detail",
+              "safety": "read"
+            },
+            {
+              "id": "company",
+              "target": "51job.com.company",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "51job.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "51job.com.detail",
+              "safety": "read"
+            },
+            {
+              "id": "company",
+              "target": "51job.com.company",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "51job.com.detail",
+          "module": "extension/commands/detail.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "company",
+              "target": "51job.com.company",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "51job.com.company",
+          "module": "extension/commands/company.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "51job.com.detail",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "arxiv.org",
+      "digest": "9dbb24f834e1284abeaacf29561e3c0527e4e49fc28f910b76f19c68f09a66e7",
+      "commands": [
+        {
+          "name": "arxiv.org.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "arxiv.org.paper",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "arxiv.org.paper",
+          "module": "extension/commands/paper.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "author",
+              "target": "arxiv.org.author",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "arxiv.org.author",
+          "module": "extension/commands/author.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "arxiv.org.paper",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "arxiv.org.recent",
+          "module": "extension/commands/recent.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "arxiv.org.paper",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "bilibili.com",
+      "digest": "8f2eadb72f6f5410ef4e10bfe168632ec63b9a46aedbffb2ca26c923501eadb6",
+      "commands": [
+        {
+          "name": "bilibili.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Login diagnostic only; this package has no user profile, account settings or account-history command."
+          ]
+        },
+        {
+          "name": "bilibili.com.search-videos",
+          "module": "extension/commands/search-videos.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "bilibili.com.open-video-detail",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "bilibili.com.read-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "bilibili.com.like-video",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "bilibili.com.favorite-video",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "bilibili.com.open-video-detail",
+          "module": "extension/commands/open-video-detail.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "comments",
+              "target": "bilibili.com.read-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "bilibili.com.like-video",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "bilibili.com.favorite-video",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "bilibili.com.read-comments",
+          "module": "extension/commands/read-comments.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Comment summaries have no stable comment IDs and this package has no comment-detail, reply or author-profile command. These require new Adapter capabilities."
+          ]
+        },
+        {
+          "name": "bilibili.com.like-video",
+          "module": "extension/commands/like-video.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "bilibili.com.favorite-video",
+          "module": "extension/commands/favorite-video.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "ctrip.com",
+      "digest": "4756c5ced0b8cbf8d0ecdd41ea50b36b03a6079eeb043c4cac9ed867c6acaf1a",
+      "commands": [
+        {
+          "name": "ctrip.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "ctrip.com.hotel",
+              "safety": "read"
+            },
+            {
+              "id": "hotels",
+              "target": "ctrip.com.hotel-search",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "ctrip.com.destination-search",
+          "module": "extension/commands/destination-search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "ctrip.com.attraction",
+              "safety": "read"
+            },
+            {
+              "id": "hotels",
+              "target": "ctrip.com.hotel-search",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "ctrip.com.hotel-suggest",
+          "module": "extension/commands/hotel-suggest.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "ctrip.com.hotel",
+              "safety": "read"
+            },
+            {
+              "id": "hotels",
+              "target": "ctrip.com.hotel-search",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "ctrip.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Account diagnostic only; no profile-detail, order-history or account-edit command exists."
+          ]
+        },
+        {
+          "name": "ctrip.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "ctrip.com.hotel-search",
+          "module": "extension/commands/hotel-search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "ctrip.com.hotel",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "ctrip.com.hotel",
+          "module": "extension/commands/hotel.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Hotel profile is terminal in this package; no room-list, room-detail, reservation or payment command exists."
+          ]
+        },
+        {
+          "name": "ctrip.com.train",
+          "module": "extension/commands/train.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Train service candidates have no train-detail, fare-detail or booking command in this package. Public train numbers are not 12306 internal train_no identifiers."
+          ]
+        },
+        {
+          "name": "ctrip.com.bus",
+          "module": "extension/commands/bus.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Bus candidates have no departure-detail, seat selection or booking command in this package."
+          ]
+        },
+        {
+          "name": "ctrip.com.ferry",
+          "module": "extension/commands/ferry.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Ferry candidates have no sailing-detail, cabin selection or booking command in this package."
+          ]
+        },
+        {
+          "name": "ctrip.com.flight",
+          "module": "extension/commands/flight.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Flight candidates have no itinerary-detail, seat selection or booking command in this package; flight-round is a separate route/date query, not detail for this row."
+          ]
+        },
+        {
+          "name": "ctrip.com.flight-round",
+          "module": "extension/commands/flight-round.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Round-trip combinations have no combination-detail, seat selection or booking command in this package; a one-way search would discard the selected combination and quote scope."
+          ]
+        },
+        {
+          "name": "ctrip.com.attraction",
+          "module": "extension/commands/attraction.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Attraction candidates have no sight-detail, review or ticket command in this package."
+          ]
+        },
+        {
+          "name": "ctrip.com.cruise",
+          "module": "extension/commands/cruise.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Cruise candidates have no route-detail, cabin-detail or booking command in this package."
+          ]
+        },
+        {
+          "name": "ctrip.com.tour",
+          "module": "extension/commands/tour.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Tour product candidates have no product-detail or booking command in this package. A keyword query cannot represent the selected product."
+          ]
+        },
+        {
+          "name": "ctrip.com.package",
+          "module": "extension/commands/package.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Package candidates have no product-detail or booking command in this package. Another keyword query cannot verify this exact package price or inclusions."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "dianping.com",
+      "digest": "2668166a9c09b5a3e161877cd600c585cd7c66e5407d3e035a320e7158771194",
+      "commands": [
+        {
+          "name": "dianping.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "dianping.com.shop",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "dianping.com.shop",
+          "module": "extension/commands/shop.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Shop profile fields have no per-review, menu, reservation or purchase command in this package; these require additional Adapter capabilities."
+          ]
+        },
+        {
+          "name": "dianping.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Account diagnostic only; there is no member-profile or account-settings command. Shop search is a separate query."
+          ]
+        },
+        {
+          "name": "dianping.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "douban.com",
+      "digest": "5d2b2d7ce6c1879e452caa804090564d09a01db78b22ded1c75e5928093c74f3",
+      "commands": [
+        {
+          "name": "douban.com.movie-hot",
+          "module": "extension/commands/movie-hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douban.com.subject",
+              "safety": "read"
+            },
+            {
+              "id": "photos",
+              "target": "douban.com.photos",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "douban.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.book-hot",
+          "module": "extension/commands/book-hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douban.com.subject",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.subject",
+          "module": "extension/commands/subject.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "photos",
+              "target": "douban.com.photos",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "douban.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": [
+            "Book detail is terminal: no book reviews, purchase or author-detail command; movie photos cannot receive a book ID."
+          ]
+        },
+        {
+          "name": "douban.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douban.com.subject",
+              "safety": "read"
+            },
+            {
+              "id": "detail",
+              "target": "douban.com.subject",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": [
+            "Music search has no music subject-detail or music playback command. Movie/book detail must not receive music IDs."
+          ]
+        },
+        {
+          "name": "douban.com.photos",
+          "module": "extension/commands/photos.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "download",
+              "target": "douban.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "subject",
+              "target": "douban.com.subject",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.marks",
+          "module": "extension/commands/marks.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douban.com.subject",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.reviews",
+          "module": "extension/commands/reviews.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "movie",
+              "target": "douban.com.subject",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.top250",
+          "module": "extension/commands/top250.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douban.com.subject",
+              "safety": "read"
+            },
+            {
+              "id": "photos",
+              "target": "douban.com.photos",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "douban.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "marks",
+              "target": "douban.com.marks",
+              "safety": "read"
+            },
+            {
+              "id": "reviews",
+              "target": "douban.com.reviews",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "douban.com.download",
+          "module": "extension/commands/download.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "douyin.com",
+      "digest": "d8aa7ed098fc48aec0b2d3801bd3ac3622e569061a50c5ab698cc04407ea3be1",
+      "commands": [
+        {
+          "name": "douyin.com.profile",
+          "module": "extension/commands/profile.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douyin.com.videos",
+              "safety": "read"
+            },
+            {
+              "id": "drafts",
+              "target": "douyin.com.drafts",
+              "safety": "read"
+            },
+            {
+              "id": "collections",
+              "target": "douyin.com.collections",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douyin.com.videos",
+          "module": "extension/commands/videos.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douyin.com.stats",
+              "safety": "read"
+            },
+            {
+              "id": "caption",
+              "target": "douyin.com.update",
+              "safety": "write"
+            },
+            {
+              "id": "reschedule",
+              "target": "douyin.com.update",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "douyin.com.delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douyin.com.drafts",
+          "module": "extension/commands/drafts.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Draft rows identify unpublished drafts. No draft-detail, edit, publish or draft-delete command exists; the published-work delete and stats commands must not be used for draft IDs."
+          ]
+        },
+        {
+          "name": "douyin.com.collections",
+          "module": "extension/commands/collections.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Creator mix metadata is returned. No collection-items, collection-detail or collection-edit command accepts mix_id; video IDs must not be substituted for mix IDs."
+          ]
+        },
+        {
+          "name": "douyin.com.activities",
+          "module": "extension/commands/activities.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Activity metadata is returned. No activity-detail or enrollment command accepts activity_id; participation is an unavailable downstream capability."
+          ]
+        },
+        {
+          "name": "douyin.com.location",
+          "module": "extension/commands/location.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "POI suggestions are returned. No POI-detail, map or publish-with-location command accepts poi_id; coordinates or video identities cannot be invented."
+          ]
+        },
+        {
+          "name": "douyin.com.hashtag",
+          "module": "extension/commands/hashtag.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "search",
+              "target": "douyin.com.search",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douyin.com.stats",
+          "module": "extension/commands/stats.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "The selected owned work metrics are already returned in full. No per-metric detail command exists; a metric name is not an aweme_id."
+          ]
+        },
+        {
+          "name": "douyin.com.update",
+          "module": "extension/commands/update.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "douyin.com.user-videos",
+          "module": "extension/commands/user-videos.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Public user videos and optional top comments are returned. No public video-detail, selected-video comments or download command exists; owned-work stats/update/delete cannot be applied to another user videos."
+          ]
+        },
+        {
+          "name": "douyin.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Public video cards contain video URLs and display names only. No public video-detail or selected-video comments command exists, and author names are not sec_uid. Creator stats/update/delete are not valid public-card follow-ups."
+          ]
+        },
+        {
+          "name": "douyin.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "douyin.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "videos",
+              "target": "douyin.com.videos",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "douyin.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "douyin.com.delete",
+          "module": "extension/commands/delete.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "gitee.com",
+      "digest": "42ee3865b87fe34e808afac5cae48bbe6c9db60954b1db19e4c1eab093c40668",
+      "commands": [
+        {
+          "name": "gitee.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "owner",
+              "target": "gitee.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "gitee.com.trending",
+          "module": "extension/commands/trending.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "owner",
+              "target": "gitee.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "gitee.com.user",
+          "module": "extension/commands/user.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Profile metrics are terminal in this package; there is no username-scoped repository list, follower list or account-edit command. Keyword repository search is not an owner-scoped list."
+          ]
+        },
+        {
+          "name": "gitee.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "gitee.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "gitee.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "github.com",
+      "digest": "509ad66dbab6e983811ef2895bdc566b9957103e50aff248706caa8370abebd9",
+      "commands": [
+        {
+          "name": "github.com.repos",
+          "module": "extension/commands/repos.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "github.com.get-repository-detail",
+              "safety": "read"
+            },
+            {
+              "id": "star",
+              "target": "github.com.star-current-repository",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "github.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Diagnostic login state; no per-account detail or settings command exists. Repository search is a separate user query."
+          ]
+        },
+        {
+          "name": "github.com.search-repositories",
+          "module": "extension/commands/search-repositories.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "github.com.get-repository-detail",
+              "safety": "read"
+            },
+            {
+              "id": "star",
+              "target": "github.com.star-current-repository",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "github.com.get-repository-detail",
+          "module": "extension/commands/get-repository-detail.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "star",
+              "target": "github.com.star-current-repository",
+              "safety": "write"
+            },
+            {
+              "id": "issue",
+              "target": "github.com.get-issue-or-pr-detail",
+              "safety": "read"
+            },
+            {
+              "id": "pull",
+              "target": "github.com.get-issue-or-pr-detail",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "github.com.get-issue-or-pr-detail",
+          "module": "extension/commands/get-issue-or-pr-detail.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "repository",
+              "target": "github.com.get-repository-detail",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "github.com.star-current-repository",
+          "module": "extension/commands/star-current-repository.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "goofish.com",
+      "digest": "bc94c71114df232383e43c62a2f61addfa3ce1ebb76122651c199fb9847d3e88",
+      "commands": [
+        {
+          "name": "goofish.com.get-login-qrcode",
+          "module": "extension/commands/get-login-qrcode.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Host login diagnostic only; not a selectable business entity."
+          ]
+        },
+        {
+          "name": "goofish.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Account diagnostic; no own-item inventory, account-profile or account-settings command. Inbox is a separate query."
+          ]
+        },
+        {
+          "name": "goofish.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.chat",
+          "module": "extension/commands/chat.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.inbox",
+          "module": "extension/commands/inbox.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "goofish.com.messages",
+              "safety": "read"
+            },
+            {
+              "id": "reply",
+              "target": "goofish.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "item",
+              "target": "goofish.com.item",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.item",
+          "module": "extension/commands/item.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "chat",
+              "target": "goofish.com.chat",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.messages",
+          "module": "extension/commands/messages.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "reply",
+              "target": "goofish.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "item",
+              "target": "goofish.com.item",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.publish",
+          "module": "extension/commands/publish.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.reply",
+          "module": "extension/commands/reply.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "goofish.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "goofish.com.item",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "jd.com",
+      "digest": "61243838a6236badcce06c5fd2398000c9196c5afba2993255f85b1bee41eb38",
+      "commands": [
+        {
+          "name": "jd.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Host login/navigation diagnostic only; not a selectable business result."
+          ]
+        },
+        {
+          "name": "jd.com.get-login-qrcode",
+          "module": "extension/commands/get-login-qrcode.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Host login/navigation diagnostic only; not a selectable business result."
+          ]
+        },
+        {
+          "name": "jd.com.search-products",
+          "module": "extension/commands/search-products.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "jd.com.open-product",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "jd.com.navigate-to-homepage",
+          "module": "extension/commands/navigate-to-homepage.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Host login/navigation diagnostic only; not a selectable business result."
+          ]
+        },
+        {
+          "name": "jd.com.view-cart",
+          "module": "extension/commands/view-cart.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "jd.com.open-product",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "jd.com.view-orders",
+          "module": "extension/commands/view-orders.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Order records are terminal: no order-detail, cancellation or selected-order payment command. Product details are nested and must not be guessed from an order ID."
+          ]
+        },
+        {
+          "name": "jd.com.open-product",
+          "module": "extension/commands/open-product.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "buy",
+              "target": "jd.com.buy-now",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "jd.com.buy-now",
+          "module": "extension/commands/buy-now.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "jd.com.pay-now",
+          "module": "extension/commands/pay-now.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "juejin.cn",
+      "digest": "90fab2560a2c9a9af6eee957f823667e0d7a7ed32158a15873911c9854e9714b",
+      "commands": [
+        {
+          "name": "juejin.cn.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Diagnostic login state; it is not a content object and has no account-detail command."
+          ]
+        },
+        {
+          "name": "juejin.cn.like-current-item",
+          "module": "extension/commands/like-current-item.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "juejin.cn.favorite-current-item",
+          "module": "extension/commands/favorite-current-item.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "juejin.cn.list-detail-candidates",
+          "module": "extension/commands/list-detail-candidates.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "The current source is an inspect_only stub returning empty candidate arrays unconditionally. Candidate discovery and content reading need implementation; do not claim that actual content has no follow-up actions."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mail.163.com",
+      "digest": "9706e478f892d9e0439819aebcd88028e14d5f852efd2acb11c646b2ac7d3645",
+      "commands": [
+        {
+          "name": "mail.163.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+          ]
+        },
+        {
+          "name": "mail.163.com.get-login-qrcode",
+          "module": "extension/commands/get-login-qrcode.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回登录二维码/提示，登录须由用户在页面完成；不把验证码、二维码或临时凭证保存为对象。"
+          ]
+        },
+        {
+          "name": "mail.163.com.navigate-to-inbox",
+          "module": "extension/commands/navigate-to-inbox.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+          ]
+        },
+        {
+          "name": "mail.163.com.search-emails",
+          "module": "extension/commands/search-emails.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "mail.163.com.open-email",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.163.com.get-unread-emails",
+          "module": "extension/commands/get-unread-emails.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "mail.163.com.open-email",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.163.com.open-email",
+          "module": "extension/commands/open-email.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "download",
+              "target": "mail.163.com.download-attachment",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.163.com.download-attachment",
+          "module": "extension/commands/download-attachment.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.163.com.get-current-page-info",
+          "module": "extension/commands/get-current-page-info.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+          ]
+        },
+        {
+          "name": "mail.163.com.compose-email",
+          "module": "extension/commands/compose-email.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "mail.google.com",
+      "digest": "a5665011121bfe81088d6b20285ae6a61d538669cac61d2a9abb7a998fb038d3",
+      "commands": [
+        {
+          "name": "mail.google.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+          ]
+        },
+        {
+          "name": "mail.google.com.navigate-to-inbox",
+          "module": "extension/commands/navigate-to-inbox.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+          ]
+        },
+        {
+          "name": "mail.google.com.search-emails",
+          "module": "extension/commands/search-emails.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "mail.google.com.open-email",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.google.com.get-unread-emails",
+          "module": "extension/commands/get-unread-emails.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "mail.google.com.open-email",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.google.com.open-email",
+          "module": "extension/commands/open-email.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "download",
+              "target": "mail.google.com.download-attachment",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.google.com.download-attachment",
+          "module": "extension/commands/download-attachment.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.google.com.get-current-page-info",
+          "module": "extension/commands/get-current-page-info.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mail.qq.com",
+      "digest": "ad32fde7a826fa6775f6b031900688a5943529d1fa6b365646dc84d2b562d66b",
+      "commands": [
+        {
+          "name": "mail.qq.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "只返回登录检测结果，不含可可靠绑定的账户身份；不把检测状态当作邮件。"
+          ]
+        },
+        {
+          "name": "mail.qq.com.navigate-to-inbox",
+          "module": "extension/commands/navigate-to-inbox.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "导航回执，不返回邮件对象；需独立调用未读或搜索查询获取邮件列表。"
+          ]
+        },
+        {
+          "name": "mail.qq.com.search-emails",
+          "module": "extension/commands/search-emails.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "mail.qq.com.open-email",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.qq.com.get-unread-emails",
+          "module": "extension/commands/get-unread-emails.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "mail.qq.com.open-email",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.qq.com.open-email",
+          "module": "extension/commands/open-email.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "download",
+              "target": "mail.qq.com.download-attachment",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.qq.com.download-attachment",
+          "module": "extension/commands/download-attachment.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.qq.com.get-current-page-info",
+          "module": "extension/commands/get-current-page-info.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "页面状态诊断，不返回邮件ID或附件列表；不按页面标题猜邮件，也不把可能带会话参数的页面URL保存为对象身份。"
+          ]
+        },
+        {
+          "name": "mail.qq.com.cancel-download-invoices-by-invoice",
+          "module": "extension/commands/cancel-download-invoices-by-invoice.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "mail.qq.com.download-invoices-by-invoice",
+          "module": "extension/commands/download-invoices-by-invoice.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "news.ycombinator.com",
+      "digest": "2697de2989a3ef38fbdf5ffbe409087ecd6e92e8da4fcf52e7476a7bdf9d638b",
+      "commands": [
+        {
+          "name": "news.ycombinator.com.top",
+          "module": "extension/commands/top.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.best",
+          "module": "extension/commands/best.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.new",
+          "module": "extension/commands/new.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.ask",
+          "module": "extension/commands/ask.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.show",
+          "module": "extension/commands/show.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.jobs",
+          "module": "extension/commands/jobs.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.read",
+          "module": "extension/commands/read.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "news.ycombinator.com.read",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "news.ycombinator.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "news.ycombinator.com.user",
+          "module": "extension/commands/user.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "当前命令只返回用户资料（username/karma/created/about）；现有包不提供按用户列帖子、用户详情下钻或用户写操作。"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "nnfp.jss.com.cn",
+      "digest": "81dbc79d0a013c11ec3bd9ab0f1044afa092961e8152030cc069b0e6dc59b836",
+      "commands": [
+        {
+          "name": "nnfp.jss.com.cn.get-invoice-info",
+          "module": "extension/commands/get-invoice-info.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "download-pdf",
+              "target": "nnfp.jss.com.cn.download-invoice",
+              "safety": "write"
+            },
+            {
+              "id": "download-ofd",
+              "target": "nnfp.jss.com.cn.download-invoice",
+              "safety": "write"
+            },
+            {
+              "id": "download-xml",
+              "target": "nnfp.jss.com.cn.download-invoice",
+              "safety": "write"
+            },
+            {
+              "id": "download-return",
+              "target": "nnfp.jss.com.cn.auto-download-and-return",
+              "safety": "write"
+            },
+            {
+              "id": "return",
+              "target": "nnfp.jss.com.cn.return-to-qqmail",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "nnfp.jss.com.cn.download-invoice",
+          "module": "extension/commands/download-invoice.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "nnfp.jss.com.cn.auto-download-and-return",
+          "module": "extension/commands/auto-download-and-return.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "nnfp.jss.com.cn.return-to-qqmail",
+          "module": "extension/commands/return-to-qqmail.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "note.youdao.com",
+      "digest": "b2ba193222bed1dc70645c2a5e69c8cc33413349e69acbe45e3b443060bb65f5",
+      "commands": [
+        {
+          "name": "note.youdao.com.note",
+          "module": "extension/commands/note.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Returns public shared-note text, summary and keywords. This package has no per-block, attachment, edit or delete operation; share URL resolution remains part of this read."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "smzdm.com",
+      "digest": "7d05842405367d0051d549472ed7746c4df8018b66e3148628d778f67cca2efd",
+      "commands": [
+        {
+          "name": "smzdm.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "This package contains only search. Result links cannot become detail, comment, purchase or save actions until those Adapter commands exist."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tieba.baidu.com",
+      "digest": "98cc65c520e49bf050176943b9664e820703119d034c224250b8898b6c99da20",
+      "commands": [
+        {
+          "name": "tieba.baidu.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "tieba.baidu.com.search",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "tieba.baidu.com.posts",
+          "module": "extension/commands/posts.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "tieba.baidu.com.read",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "tieba.baidu.com.read",
+          "module": "extension/commands/read.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回当前主题页的正文和回复；现有 Adapter 无单条回复详情、作者或回复写操作。翻页使用 read 的显式 page 参数。"
+          ]
+        },
+        {
+          "name": "tieba.baidu.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "tieba.baidu.com.read",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "toutiao.com",
+      "digest": "1fbc4a15d135554ce011fda0010eb028a9b17cf04936928badb84723ba0d7383",
+      "commands": [
+        {
+          "name": "toutiao.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Public headline candidates have no article-detail command in this package. Creator articles is the signed-in account management list, not a public article reader."
+          ]
+        },
+        {
+          "name": "toutiao.com.recommend",
+          "module": "extension/commands/recommend.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Public feed candidates have no article-detail command in this package. Do not route their group IDs into the unrelated creator management list."
+          ]
+        },
+        {
+          "name": "toutiao.com.articles",
+          "module": "extension/commands/articles.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Creator rows contain title/date/metrics but no stable article ID or detail/edit/publish command. Both source identity extraction and target capabilities would be required for per-article actions."
+          ]
+        },
+        {
+          "name": "toutiao.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "articles",
+              "target": "toutiao.com.articles",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "toutiao.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "v2ex.com",
+      "digest": "dd6b381127a29cb93ed88de4f6b3431b0db2254b4619f281f4847fc6633966f1",
+      "commands": [
+        {
+          "name": "v2ex.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.topic",
+              "safety": "read"
+            },
+            {
+              "id": "replies",
+              "target": "v2ex.com.replies",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.latest",
+          "module": "extension/commands/latest.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.topic",
+              "safety": "read"
+            },
+            {
+              "id": "replies",
+              "target": "v2ex.com.replies",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.topic",
+          "module": "extension/commands/topic.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.replies",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "v2ex.com.member",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.member",
+          "module": "extension/commands/member.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.node",
+          "module": "extension/commands/node.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.topic",
+              "safety": "read"
+            },
+            {
+              "id": "replies",
+              "target": "v2ex.com.replies",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.nodes",
+          "module": "extension/commands/nodes.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.node",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.replies",
+          "module": "extension/commands/replies.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.member",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.user",
+          "module": "extension/commands/user.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.topic",
+              "safety": "read"
+            },
+            {
+              "id": "replies",
+              "target": "v2ex.com.replies",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.me",
+          "module": "extension/commands/me.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "notifications",
+              "target": "v2ex.com.notifications",
+              "safety": "read"
+            },
+            {
+              "id": "daily",
+              "target": "v2ex.com.daily",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.notifications",
+          "module": "extension/commands/notifications.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.topic",
+              "safety": "read"
+            },
+            {
+              "id": "replies",
+              "target": "v2ex.com.replies",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.daily",
+          "module": "extension/commands/daily.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "v2ex.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "notifications",
+              "target": "v2ex.com.notifications",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "v2ex.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "weibo.com",
+      "digest": "8298451422044a2c427c92f7d83f0df35bac7877ebcc712e26003aa6fc35d90d",
+      "commands": [
+        {
+          "name": "weibo.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "posts",
+              "target": "weibo.com.user-posts",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.comments",
+          "module": "extension/commands/comments.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "post",
+              "target": "weibo.com.post",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "weibo.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.delete",
+          "module": "extension/commands/delete.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.favorites",
+          "module": "extension/commands/favorites.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.post",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.feed",
+          "module": "extension/commands/feed.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.post",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "weibo.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "weibo.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "delete",
+              "target": "weibo.com.delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "search",
+              "target": "weibo.com.search",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.me",
+          "module": "extension/commands/me.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.user-posts",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.post",
+          "module": "extension/commands/post.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "comments",
+              "target": "weibo.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "weibo.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "delete",
+              "target": "weibo.com.delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.publish",
+          "module": "extension/commands/publish.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.post",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.user",
+          "module": "extension/commands/user.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.user-posts",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weibo.com.user-posts",
+          "module": "extension/commands/user-posts.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weibo.com.post",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "weibo.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "weibo.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "delete",
+              "target": "weibo.com.delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "weread.qq.com",
+      "digest": "28c5384bac22cf0c76315228c70f0a275cd8f3d2e0eb726a63e208cef688f153",
+      "commands": [
+        {
+          "name": "weread.qq.com.ai-outline",
+          "module": "extension/commands/ai-outline.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回大纲正文或结构化大纲行；当前包没有章节正文读取或大纲节点操作命令。"
+          ]
+        },
+        {
+          "name": "weread.qq.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weread.qq.com.shelf",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weread.qq.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "weread.qq.com.book",
+          "module": "extension/commands/book.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weread.qq.com.notes",
+              "safety": "read"
+            },
+            {
+              "id": "highlights",
+              "target": "weread.qq.com.highlights",
+              "safety": "read"
+            },
+            {
+              "id": "outline",
+              "target": "weread.qq.com.ai-outline",
+              "safety": "read"
+            },
+            {
+              "id": "search",
+              "target": "weread.qq.com.book-search",
+              "safety": "read"
+            },
+            {
+              "id": "book",
+              "target": "weread.qq.com.book",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weread.qq.com.book-search",
+          "module": "extension/commands/book-search.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回书内命中片段；当前包没有按章节或命中位置读取正文的命令，不把片段当作全文。"
+          ]
+        },
+        {
+          "name": "weread.qq.com.highlights",
+          "module": "extension/commands/highlights.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回该书划线文本；当前包没有单条划线下钻、编辑或删除命令。"
+          ]
+        },
+        {
+          "name": "weread.qq.com.notebooks",
+          "module": "extension/commands/notebooks.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weread.qq.com.notes",
+              "safety": "read"
+            },
+            {
+              "id": "highlights",
+              "target": "weread.qq.com.highlights",
+              "safety": "read"
+            },
+            {
+              "id": "outline",
+              "target": "weread.qq.com.ai-outline",
+              "safety": "read"
+            },
+            {
+              "id": "search",
+              "target": "weread.qq.com.book-search",
+              "safety": "read"
+            },
+            {
+              "id": "book",
+              "target": "weread.qq.com.book",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weread.qq.com.notes",
+          "module": "extension/commands/notes.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回该书的笔记全文；当前包没有单条笔记下钻、编辑或删除命令。"
+          ]
+        },
+        {
+          "name": "weread.qq.com.ranking",
+          "module": "extension/commands/ranking.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weread.qq.com.book",
+              "safety": "read"
+            },
+            {
+              "id": "highlights",
+              "target": "weread.qq.com.highlights",
+              "safety": "read"
+            },
+            {
+              "id": "outline",
+              "target": "weread.qq.com.ai-outline",
+              "safety": "read"
+            },
+            {
+              "id": "search",
+              "target": "weread.qq.com.book-search",
+              "safety": "read"
+            },
+            {
+              "id": "notes",
+              "target": "weread.qq.com.notes",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weread.qq.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weread.qq.com.book",
+              "safety": "read"
+            },
+            {
+              "id": "highlights",
+              "target": "weread.qq.com.highlights",
+              "safety": "read"
+            },
+            {
+              "id": "outline",
+              "target": "weread.qq.com.ai-outline",
+              "safety": "read"
+            },
+            {
+              "id": "search",
+              "target": "weread.qq.com.book-search",
+              "safety": "read"
+            },
+            {
+              "id": "notes",
+              "target": "weread.qq.com.notes",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "weread.qq.com.shelf",
+          "module": "extension/commands/shelf.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "weread.qq.com.book",
+              "safety": "read"
+            },
+            {
+              "id": "highlights",
+              "target": "weread.qq.com.highlights",
+              "safety": "read"
+            },
+            {
+              "id": "outline",
+              "target": "weread.qq.com.ai-outline",
+              "safety": "read"
+            },
+            {
+              "id": "search",
+              "target": "weread.qq.com.book-search",
+              "safety": "read"
+            },
+            {
+              "id": "notes",
+              "target": "weread.qq.com.notes",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "wikipedia.org",
+      "digest": "5abee0da5ba70fa8e20de1b9662db828e2933891aa64381313379d02d1f0e15a",
+      "commands": [
+        {
+          "name": "wikipedia.org.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "wikipedia.org.summary",
+              "safety": "read"
+            },
+            {
+              "id": "read",
+              "target": "wikipedia.org.page",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "wikipedia.org.summary",
+          "module": "extension/commands/summary.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "wikipedia.org.page",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "wikipedia.org.random",
+          "module": "extension/commands/random.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "wikipedia.org.page",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "wikipedia.org.trending",
+          "module": "extension/commands/trending.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "wikipedia.org.summary",
+              "safety": "read"
+            },
+            {
+              "id": "read",
+              "target": "wikipedia.org.page",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "wikipedia.org.page",
+          "module": "extension/commands/page.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Plain-text article extract is terminal in this package; no section, linked-page list, category or edit command exists. Re-reading with another paragraph limit is a new explicit query, not an object action."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "x.com",
+      "digest": "a2e2efc89acc1efe3ce84b501ac154a7980c7eb26cd64746f93d3f6db1e35750",
+      "commands": [
+        {
+          "name": "x.com.accept",
+          "module": "extension/commands/accept.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.article",
+          "module": "extension/commands/article.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "thread",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "tweets",
+              "target": "x.com.tweets",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.block",
+          "module": "extension/commands/block.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.bookmark",
+          "module": "extension/commands/bookmark.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.bookmark-folder",
+          "module": "extension/commands/bookmark-folder.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.bookmark-folders",
+          "module": "extension/commands/bookmark-folders.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.bookmark-folder",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.bookmarks",
+          "module": "extension/commands/bookmarks.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.collection",
+          "module": "extension/commands/collection.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.delete",
+          "module": "extension/commands/delete.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.device-follow",
+          "module": "extension/commands/device-follow.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.download",
+          "module": "extension/commands/download.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "source",
+              "target": "x.com.thread",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.follow",
+          "module": "extension/commands/follow.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.follow-batch",
+          "module": "extension/commands/follow-batch.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.followers",
+          "module": "extension/commands/followers.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "tweets",
+              "target": "x.com.tweets",
+              "safety": "read"
+            },
+            {
+              "id": "likes",
+              "target": "x.com.likes",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "followers",
+              "target": "x.com.followers",
+              "safety": "read"
+            },
+            {
+              "id": "following",
+              "target": "x.com.following",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "x.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "unfollow",
+              "target": "x.com.unfollow",
+              "safety": "write"
+            },
+            {
+              "id": "block",
+              "target": "x.com.block",
+              "safety": "write"
+            },
+            {
+              "id": "unblock",
+              "target": "x.com.unblock",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.following",
+          "module": "extension/commands/following.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "tweets",
+              "target": "x.com.tweets",
+              "safety": "read"
+            },
+            {
+              "id": "likes",
+              "target": "x.com.likes",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "followers",
+              "target": "x.com.followers",
+              "safety": "read"
+            },
+            {
+              "id": "following",
+              "target": "x.com.following",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "x.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "unfollow",
+              "target": "x.com.unfollow",
+              "safety": "write"
+            },
+            {
+              "id": "block",
+              "target": "x.com.block",
+              "safety": "write"
+            },
+            {
+              "id": "unblock",
+              "target": "x.com.unblock",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.hide-reply",
+          "module": "extension/commands/hide-reply.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.like",
+          "module": "extension/commands/like.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.likes",
+          "module": "extension/commands/likes.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.lists",
+          "module": "extension/commands/lists.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.list-tweets",
+              "safety": "read"
+            },
+            {
+              "id": "add",
+              "target": "x.com.list-add",
+              "safety": "write"
+            },
+            {
+              "id": "remove",
+              "target": "x.com.list-remove",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.list-delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-add",
+          "module": "extension/commands/list-add.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-add-batch",
+          "module": "extension/commands/list-add-batch.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-create",
+          "module": "extension/commands/list-create.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-delete",
+          "module": "extension/commands/list-delete.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-remove",
+          "module": "extension/commands/list-remove.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-remove-batch",
+          "module": "extension/commands/list-remove-batch.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.list-tweets",
+          "module": "extension/commands/list-tweets.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.mute-word",
+          "module": "extension/commands/mute-word.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.notifications",
+          "module": "extension/commands/notifications.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.post",
+          "module": "extension/commands/post.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.profile",
+          "module": "extension/commands/profile.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.tweets",
+              "safety": "read"
+            },
+            {
+              "id": "likes",
+              "target": "x.com.likes",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "followers",
+              "target": "x.com.followers",
+              "safety": "read"
+            },
+            {
+              "id": "following",
+              "target": "x.com.following",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "x.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "unfollow",
+              "target": "x.com.unfollow",
+              "safety": "write"
+            },
+            {
+              "id": "block",
+              "target": "x.com.block",
+              "safety": "write"
+            },
+            {
+              "id": "unblock",
+              "target": "x.com.unblock",
+              "safety": "write"
+            },
+            {
+              "id": "collection",
+              "target": "x.com.collection",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.quote",
+          "module": "extension/commands/quote.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.reply",
+          "module": "extension/commands/reply.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.reply-dm",
+          "module": "extension/commands/reply-dm.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.retweet",
+          "module": "extension/commands/retweet.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.thread",
+          "module": "extension/commands/thread.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.timeline",
+          "module": "extension/commands/timeline.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.trending",
+          "module": "extension/commands/trending.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "search",
+              "target": "x.com.search",
+              "safety": "read"
+            },
+            {
+              "id": "mute",
+              "target": "x.com.mute-word",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.tweets",
+          "module": "extension/commands/tweets.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "x.com.thread",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "x.com.profile",
+              "safety": "read"
+            },
+            {
+              "id": "media",
+              "target": "x.com.download",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "x.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "unlike",
+              "target": "x.com.unlike",
+              "safety": "write"
+            },
+            {
+              "id": "bookmark",
+              "target": "x.com.bookmark",
+              "safety": "write"
+            },
+            {
+              "id": "unbookmark",
+              "target": "x.com.unbookmark",
+              "safety": "write"
+            },
+            {
+              "id": "retweet",
+              "target": "x.com.retweet",
+              "safety": "write"
+            },
+            {
+              "id": "unretweet",
+              "target": "x.com.unretweet",
+              "safety": "write"
+            },
+            {
+              "id": "delete",
+              "target": "x.com.delete",
+              "safety": "write"
+            },
+            {
+              "id": "hide-reply",
+              "target": "x.com.hide-reply",
+              "safety": "write"
+            },
+            {
+              "id": "reply",
+              "target": "x.com.reply",
+              "safety": "write"
+            },
+            {
+              "id": "quote",
+              "target": "x.com.quote",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.unblock",
+          "module": "extension/commands/unblock.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.unbookmark",
+          "module": "extension/commands/unbookmark.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.unfollow",
+          "module": "extension/commands/unfollow.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.unlike",
+          "module": "extension/commands/unlike.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "x.com.unretweet",
+          "module": "extension/commands/unretweet.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "xiaohongshu.com",
+      "digest": "77f6bf199890a4f6edbc981524aa79192e5bb551423c800e0231f742639762c0",
+      "commands": [
+        {
+          "name": "xiaohongshu.com.ask",
+          "module": "extension/commands/ask.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.comments",
+          "module": "extension/commands/comments.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "xiaohongshu.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "unfollow",
+              "target": "xiaohongshu.com.unfollow",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.creator-note-detail",
+          "module": "extension/commands/creator-note-detail.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "delete",
+              "target": "xiaohongshu.com.delete-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.creator-notes",
+          "module": "extension/commands/creator-notes.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.creator-note-detail",
+              "safety": "read"
+            },
+            {
+              "id": "delete",
+              "target": "xiaohongshu.com.delete-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.creator-notes-summary",
+          "module": "extension/commands/creator-notes-summary.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.creator-note-detail",
+              "safety": "read"
+            },
+            {
+              "id": "delete",
+              "target": "xiaohongshu.com.delete-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.creator-profile",
+          "module": "extension/commands/creator-profile.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回完整账号资料及汇总字段，不含可选择的作品或用户ID；作品列表应独立调用creator-notes，不将字段行映射为作品操作。"
+          ]
+        },
+        {
+          "name": "xiaohongshu.com.creator-stats",
+          "module": "extension/commands/creator-stats.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回所选周期的账号指标及趋势；指标不是笔记对象，当前无按指标下钻或修改指标的命令。"
+          ]
+        },
+        {
+          "name": "xiaohongshu.com.delete-note",
+          "module": "extension/commands/delete-note.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.download",
+          "module": "extension/commands/download.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.draft-clear",
+          "module": "extension/commands/draft-clear.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.draft-delete",
+          "module": "extension/commands/draft-delete.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.draft-open",
+          "module": "extension/commands/draft-open.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "delete",
+              "target": "xiaohongshu.com.draft-delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.drafts",
+          "module": "extension/commands/drafts.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.draft-open",
+              "safety": "read"
+            },
+            {
+              "id": "delete",
+              "target": "xiaohongshu.com.draft-delete",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.feed",
+          "module": "extension/commands/feed.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.note",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.follow",
+          "module": "extension/commands/follow.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.liked",
+          "module": "extension/commands/liked.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.note",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.note",
+          "module": "extension/commands/note.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.notifications",
+          "module": "extension/commands/notifications.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "xiaohongshu.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "unfollow",
+              "target": "xiaohongshu.com.unfollow",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.publish",
+          "module": "extension/commands/publish.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.saved",
+          "module": "extension/commands/saved.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.note",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.note",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.unfollow",
+          "module": "extension/commands/unfollow.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.user",
+          "module": "extension/commands/user.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.note",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.creator-notes",
+              "safety": "read"
+            },
+            {
+              "id": "profile",
+              "target": "xiaohongshu.com.creator-profile",
+              "safety": "read"
+            },
+            {
+              "id": "stats",
+              "target": "xiaohongshu.com.creator-stats",
+              "safety": "read"
+            },
+            {
+              "id": "drafts",
+              "target": "xiaohongshu.com.drafts",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.search-notes",
+          "module": "extension/commands/search-notes.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.note",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.open-note",
+          "module": "extension/commands/open-note.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "comments",
+              "target": "xiaohongshu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "download",
+              "target": "xiaohongshu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "xiaohongshu.com.like-note",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "xiaohongshu.com.favorite-note",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.read-comments",
+          "module": "extension/commands/read-comments.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "xiaohongshu.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "unfollow",
+              "target": "xiaohongshu.com.unfollow",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.check-login-status",
+          "module": "extension/commands/check-login-status.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xiaohongshu.com.creator-notes",
+              "safety": "read"
+            },
+            {
+              "id": "profile",
+              "target": "xiaohongshu.com.creator-profile",
+              "safety": "read"
+            },
+            {
+              "id": "stats",
+              "target": "xiaohongshu.com.creator-stats",
+              "safety": "read"
+            },
+            {
+              "id": "drafts",
+              "target": "xiaohongshu.com.drafts",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.navigate-to-homepage",
+          "module": "extension/commands/navigate-to-homepage.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "仅导航回首页的回执，不返回候选对象；需要推荐列表时调用feed。"
+          ]
+        },
+        {
+          "name": "xiaohongshu.com.like-note",
+          "module": "extension/commands/like-note.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xiaohongshu.com.favorite-note",
+          "module": "extension/commands/favorite-note.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "xueqiu.com",
+      "digest": "67e9944396d35e9823a9fb93e780751176059952a1d666c4e28cebf3faa40d87",
+      "commands": [
+        {
+          "name": "xueqiu.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xueqiu.com.groups",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xueqiu.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "xueqiu.com.comments",
+          "module": "extension/commands/comments.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+          ]
+        },
+        {
+          "name": "xueqiu.com.earnings-date",
+          "module": "extension/commands/earnings-date.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回财报发布日期和状态，当前包没有财报正文或按财报事件下钻的命令。"
+          ]
+        },
+        {
+          "name": "xueqiu.com.feed",
+          "module": "extension/commands/feed.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+          ]
+        },
+        {
+          "name": "xueqiu.com.fund-holdings",
+          "module": "extension/commands/fund-holdings.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Fund holding detail is already returned; no fund-detail, fund purchase/redemption or position-management command. Fund codes must not be used as stock symbols."
+          ]
+        },
+        {
+          "name": "xueqiu.com.fund-snapshot",
+          "module": "extension/commands/fund-snapshot.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Aggregate already includes complete returned account and holding fields; no individual account-detail or account-management command. fund-holdings is a separate filtered query over the same holdings."
+          ]
+        },
+        {
+          "name": "xueqiu.com.groups",
+          "module": "extension/commands/groups.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xueqiu.com.watchlist",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xueqiu.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Post discussion results; no post-detail, author-profile or reply/like command. Stock quote commands are not valid targets for post IDs."
+          ]
+        },
+        {
+          "name": "xueqiu.com.hot-stock",
+          "module": "extension/commands/hot-stock.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xueqiu.com.stock",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xueqiu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "kline",
+              "target": "xueqiu.com.kline",
+              "safety": "read"
+            },
+            {
+              "id": "earnings",
+              "target": "xueqiu.com.earnings-date",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xueqiu.com.kline",
+          "module": "extension/commands/kline.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "返回按日K线时间序列，当前包没有单个交易日详情或针对该日期的操作。股票的其他查询须使用原symbol。"
+          ]
+        },
+        {
+          "name": "xueqiu.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xueqiu.com.stock",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xueqiu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "kline",
+              "target": "xueqiu.com.kline",
+              "safety": "read"
+            },
+            {
+              "id": "earnings",
+              "target": "xueqiu.com.earnings-date",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xueqiu.com.stock",
+          "module": "extension/commands/stock.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xueqiu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "kline",
+              "target": "xueqiu.com.kline",
+              "safety": "read"
+            },
+            {
+              "id": "earnings",
+              "target": "xueqiu.com.earnings-date",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "xueqiu.com.watchlist",
+          "module": "extension/commands/watchlist.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "xueqiu.com.stock",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "xueqiu.com.comments",
+              "safety": "read"
+            },
+            {
+              "id": "kline",
+              "target": "xueqiu.com.kline",
+              "safety": "read"
+            },
+            {
+              "id": "earnings",
+              "target": "xueqiu.com.earnings-date",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "zhihu.com",
+      "digest": "5443a953e9d5600c16c0ba02db40b024e97714e1033d51a6098e5880cc7bfef4",
+      "commands": [
+        {
+          "name": "zhihu.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.answer-detail",
+              "safety": "read"
+            },
+            {
+              "id": "detail",
+              "target": "zhihu.com.question",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "zhihu.com.answer-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "follow",
+              "target": "zhihu.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "answer",
+              "target": "zhihu.com.answer",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.recommend",
+          "module": "extension/commands/recommend.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.answer-detail",
+              "safety": "read"
+            },
+            {
+              "id": "detail",
+              "target": "zhihu.com.question",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "zhihu.com.answer-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "follow",
+              "target": "zhihu.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "answer",
+              "target": "zhihu.com.answer",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.question",
+          "module": "extension/commands/question.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.answer-detail",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "zhihu.com.answer-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.answer-detail",
+          "module": "extension/commands/answer-detail.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "comments",
+              "target": "zhihu.com.answer-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "question",
+              "target": "zhihu.com.question",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "zhihu.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.answer-comments",
+          "module": "extension/commands/answer-comments.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "answer",
+              "target": "zhihu.com.answer-detail",
+              "safety": "read"
+            },
+            {
+              "id": "author",
+              "target": "zhihu.com.user",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.collections",
+          "module": "extension/commands/collections.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.collection",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.collection",
+          "module": "extension/commands/collection.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.answer-detail",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "zhihu.com.answer-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.user",
+          "module": "extension/commands/user.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "user-answers",
+              "target": "zhihu.com.user-answers",
+              "safety": "read"
+            },
+            {
+              "id": "user-articles",
+              "target": "zhihu.com.user-articles",
+              "safety": "read"
+            },
+            {
+              "id": "followers",
+              "target": "zhihu.com.followers",
+              "safety": "read"
+            },
+            {
+              "id": "following",
+              "target": "zhihu.com.following",
+              "safety": "read"
+            },
+            {
+              "id": "pins",
+              "target": "zhihu.com.pins",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "zhihu.com.follow",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.user-answers",
+          "module": "extension/commands/user-answers.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.answer-detail",
+              "safety": "read"
+            },
+            {
+              "id": "comments",
+              "target": "zhihu.com.answer-comments",
+              "safety": "read"
+            },
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.user-articles",
+          "module": "extension/commands/user-articles.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "like",
+              "target": "zhihu.com.like",
+              "safety": "write"
+            },
+            {
+              "id": "favorite",
+              "target": "zhihu.com.favorite",
+              "safety": "write"
+            },
+            {
+              "id": "comment",
+              "target": "zhihu.com.comment",
+              "safety": "write"
+            },
+            {
+              "id": "download",
+              "target": "zhihu.com.download",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.followers",
+          "module": "extension/commands/followers.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "zhihu.com.follow",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.following",
+          "module": "extension/commands/following.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "zhihu.com.follow",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.pins",
+          "module": "extension/commands/pins.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "No individual pin-detail, pin-reply or pin-like command. Answer/article operations must not receive a pin ID."
+          ]
+        },
+        {
+          "name": "zhihu.com.hot",
+          "module": "extension/commands/hot.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.question",
+              "safety": "read"
+            },
+            {
+              "id": "follow",
+              "target": "zhihu.com.follow",
+              "safety": "write"
+            },
+            {
+              "id": "answer",
+              "target": "zhihu.com.answer",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhihu.com.user",
+              "safety": "read"
+            },
+            {
+              "id": "user-answers",
+              "target": "zhihu.com.user-answers",
+              "safety": "read"
+            },
+            {
+              "id": "user-articles",
+              "target": "zhihu.com.user-articles",
+              "safety": "read"
+            },
+            {
+              "id": "followers",
+              "target": "zhihu.com.followers",
+              "safety": "read"
+            },
+            {
+              "id": "following",
+              "target": "zhihu.com.following",
+              "safety": "read"
+            },
+            {
+              "id": "pins",
+              "target": "zhihu.com.pins",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.follow",
+          "module": "extension/commands/follow.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.like",
+          "module": "extension/commands/like.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.favorite",
+          "module": "extension/commands/favorite.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.comment",
+          "module": "extension/commands/comment.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.answer",
+          "module": "extension/commands/answer.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhihu.com.download",
+          "module": "extension/commands/download.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        }
+      ]
+    },
+    {
+      "name": "zhipin.com",
+      "digest": "ae2afe7371eb31354e06482828653326541378a42fc651273a091dbd3cb10018",
+      "commands": [
+        {
+          "name": "zhipin.com.recommend",
+          "module": "extension/commands/recommend.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhipin.com.resume",
+              "safety": "read"
+            },
+            {
+              "id": "history",
+              "target": "zhipin.com.chatmsg",
+              "safety": "read"
+            },
+            {
+              "id": "send",
+              "target": "zhipin.com.send",
+              "safety": "write"
+            },
+            {
+              "id": "mark",
+              "target": "zhipin.com.mark",
+              "safety": "write"
+            },
+            {
+              "id": "exchange",
+              "target": "zhipin.com.exchange",
+              "safety": "write"
+            },
+            {
+              "id": "invite",
+              "target": "zhipin.com.invite",
+              "safety": "write"
+            },
+            {
+              "id": "greet",
+              "target": "zhipin.com.greet",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.joblist",
+          "module": "extension/commands/joblist.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhipin.com.detail",
+              "safety": "read"
+            },
+            {
+              "id": "stats",
+              "target": "zhipin.com.stats",
+              "safety": "read"
+            },
+            {
+              "id": "chats",
+              "target": "zhipin.com.chatlist",
+              "safety": "read"
+            },
+            {
+              "id": "batchgreet",
+              "target": "zhipin.com.batchgreet",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.chatlist",
+          "module": "extension/commands/chatlist.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhipin.com.chatmsg",
+              "safety": "read"
+            },
+            {
+              "id": "resume",
+              "target": "zhipin.com.resume",
+              "safety": "read"
+            },
+            {
+              "id": "send",
+              "target": "zhipin.com.send",
+              "safety": "write"
+            },
+            {
+              "id": "mark",
+              "target": "zhipin.com.mark",
+              "safety": "write"
+            },
+            {
+              "id": "exchange",
+              "target": "zhipin.com.exchange",
+              "safety": "write"
+            },
+            {
+              "id": "invite",
+              "target": "zhipin.com.invite",
+              "safety": "write"
+            },
+            {
+              "id": "detail",
+              "target": "zhipin.com.chatmsg",
+              "safety": "read"
+            },
+            {
+              "id": "detail",
+              "target": "zhipin.com.chatmsg",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.chatmsg",
+          "module": "extension/commands/chatmsg.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "send",
+              "target": "zhipin.com.send",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": [
+            "Read history may resolve either identity side; send supports recruiters only. Requery with side=boss before preparing a recruiter reply.",
+            "No job-seeker send or individual message-detail command; recruiter send must not receive a job-seeker conversation UID."
+          ]
+        },
+        {
+          "name": "zhipin.com.resume",
+          "module": "extension/commands/resume.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "history",
+              "target": "zhipin.com.chatmsg",
+              "safety": "read"
+            },
+            {
+              "id": "send",
+              "target": "zhipin.com.send",
+              "safety": "write"
+            },
+            {
+              "id": "mark",
+              "target": "zhipin.com.mark",
+              "safety": "write"
+            },
+            {
+              "id": "exchange",
+              "target": "zhipin.com.exchange",
+              "safety": "write"
+            },
+            {
+              "id": "invite",
+              "target": "zhipin.com.invite",
+              "safety": "write"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.stats",
+          "module": "extension/commands/stats.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "chats",
+              "target": "zhipin.com.chatlist",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.mark",
+          "module": "extension/commands/mark.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.exchange",
+          "module": "extension/commands/exchange.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.invite",
+          "module": "extension/commands/invite.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.greet",
+          "module": "extension/commands/greet.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.batchgreet",
+          "module": "extension/commands/batchgreet.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.send",
+          "module": "extension/commands/send.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.detail",
+          "module": "extension/commands/detail.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Public job detail has no application or recruiter-contact target. Candidate greet requires unrelated recruiter-side candidate IDs."
+          ]
+        },
+        {
+          "name": "zhipin.com.whoami",
+          "module": "extension/commands/whoami.js",
+          "safety": "read",
+          "status": "declared_no_actions",
+          "actions": [],
+          "noActionReasons": [
+            "Local-cookie login diagnostic, not verified account identity; do not bind account actions."
+          ]
+        },
+        {
+          "name": "zhipin.com.login",
+          "module": "extension/commands/login.js",
+          "safety": "write",
+          "status": "write_command",
+          "actions": [],
+          "noActionReasons": []
+        },
+        {
+          "name": "zhipin.com.search",
+          "module": "extension/commands/search.js",
+          "safety": "read",
+          "status": "mapped_query",
+          "actions": [
+            {
+              "id": "detail",
+              "target": "zhipin.com.detail",
+              "safety": "read"
+            }
+          ],
+          "noActionReasons": []
+        }
+      ]
+    }
+  ]
+}

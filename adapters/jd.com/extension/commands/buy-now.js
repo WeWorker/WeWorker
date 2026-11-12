@@ -4,6 +4,7 @@
   function sleep(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
   function text(el) { return el ? String(el.textContent || "").replace(/\s+/g, "") : ""; }
   function visible(el) { var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }
+  function matchesProduct(sku) { return /^\d+$/.test(sku) && /^item\.jd\.(com|hk)$/.test(location.hostname) && location.pathname === "/" + sku + ".html"; }
 
   // The page header also shows 「立即购买」 on recommendation cards for other products.
   var FOREIGN = "#shortcut, .shortcut, li.shortcut_btn, .cross_platform_entry, .recommend, #J_recommend";
@@ -30,9 +31,12 @@
     return document.querySelector('iframe[src*="pc-settlement"], iframe[src*="trade.jd."], iframe[src*="settlement"]');
   }
 
-  __webcliRegisterCommand("buy-now", async function () {
+  __webcliRegisterCommand("buy-now", async function (params) {
     if (!/^item\.jd\.(com|hk)$/.test(location.hostname)) {
       return { error: "Not on product page", message: "请先用 jd.com.open-product 打开商品页。" };
+    }
+    if (params && params.sku !== undefined && !matchesProduct(params.sku)) {
+      return { error: "Product changed", message: "当前商品与所选 SKU 不一致，请重新打开所选商品。" };
     }
     var area = null, button = null;
     for (var i = 0; i < 20 && !button; i++) {
@@ -54,6 +58,7 @@
       return { error: "Buy button unavailable", message: "「立即购买」按钮当前不可点击（可能需要先选择规格或商品已无货）。" };
     }
 
+    if (params && params.sku !== undefined && !matchesProduct(params.sku)) return { error: "Product changed", message: "等待期间商品页面已切换，未执行购买。" };
     button.click();
     for (var j = 0; j < 32; j++) {
       await sleep(250);

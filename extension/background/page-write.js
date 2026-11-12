@@ -8,10 +8,9 @@ const fail = (code, message) => Object.assign(new Error(message), { code });
 /** Mirrors the host's string-only bindings; tests compare both dispatch builders. */
 export function pageWriteRequest(command, args) {
   const spec = command.pageWrite;
-  if (!spec || spec.version !== 1 || command.runtime !== 'extension' || command.safety !== 'write' || command.requires_confirmation === false
+  if (!spec || spec.version !== 1 || command.runtime !== 'extension' || command.safety !== 'write'
     || !command.pageRoute || command.execution || command.pageWorkflow || spec.idempotency?.serverDeduplicates !== true
     || !['idempotency-key', 'x-idempotency-key'].includes(spec.idempotency?.header)) throw fail('INVALID_PAGE_WRITE', 'Unsupported page write contract.');
-  if (args?.__confirmed !== true) throw fail('CONFIRMATION_REQUIRED', 'Explicit confirmation is required.');
   const bindings = spec.bodyParameters;
   if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings) || Object.keys(bindings).length > 30) throw fail('INVALID_PAGE_WRITE', 'Invalid page write bindings.');
   const names = Object.values(bindings);

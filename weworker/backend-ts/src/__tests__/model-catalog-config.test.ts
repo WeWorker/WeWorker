@@ -58,7 +58,7 @@ it('preserves legacy catalog settings while new configurations start with empty 
 it('uses the exact catalog URL and independent auth header while conversation requests keep their original address', async () => {
   const fetchMock = vi.fn<typeof fetch>(async (url) => String(url) === catalogUrl
     ? Response.json({ data: [{ id: 'fixture-model' }] })
-    : Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { ok: true } }] }))
+    : Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] }))
   expect(await listProviderModels(input, fetchMock)).toEqual({ source: 'remote', models: ['fixture-model'] })
   expect(fetchMock.mock.calls[0][0]).toBe(catalogUrl)
   expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('authorization')).toBe('Bearer fixture-main-key')

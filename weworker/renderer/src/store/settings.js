@@ -7,12 +7,15 @@ import {
 } from '../utils/resource-preview-extensions.js'
 import { backendFetch } from '../api/http.js'
 import { isFixedProvider } from '../utils/model-selection.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT } from '../utils/context-window.js'
 
 const API = 'http://127.0.0.1:8765'
 
 const DEFAULT_STYLE = { subtitle: '', color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' }
 const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
 const DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD = 20000
+const defaultContextLimit = providerId => BUILD_PROVIDERS.find(provider => provider.id === providerId)?.builtin
+  ? DEFAULT_BUILTIN_CONTEXT_LIMIT : DEFAULT_CONTEXT_LIMIT
 
 function settingsPatch(data, fallback = {}) {
   const hasPreviewApi = Object.prototype.hasOwnProperty.call(data, 'resource_preview_extensions')
@@ -31,9 +34,13 @@ function settingsPatch(data, fallback = {}) {
     activeProvider: data.active_provider,
     onboardingCompleted: data.onboarding_completed ?? fallback.onboardingCompleted ?? false,
     webcliRouteEnabled: data.webcli_route_enabled ?? fallback.webcliRouteEnabled ?? false,
+    modelDiscoveryEnabled: data.model_discovery_enabled ?? fallback.modelDiscoveryEnabled ?? true,
     baseUrl: data.base_url,
     model: data.model,
-    contextLimit: data.context_limit || fallback.contextLimit || 1000000,
+    contextLimit: data.context_limit || data.providers?.[data.active_provider]?.context_limit
+      || (data.active_provider === fallback.activeProvider ? fallback.contextLimit : undefined)
+      || defaultContextLimit(data.active_provider || fallback.activeProvider || BUILD_DEFAULT_PROVIDER),
+    compactionRatio: data.compaction_ratio ?? fallback.compactionRatio ?? 80,
     hasApiKey: data.has_api_key,
     userDirectory: data.user_directory || fallback.userDirectory || '',
     downloadSubdirectory: data.download_subdirectory || fallback.downloadSubdirectory || 'download',
@@ -67,9 +74,11 @@ export const useSettingsStore = create((set, get) => ({
   activeProvider: BUILD_DEFAULT_PROVIDER,
   onboardingCompleted: false,
   webcliRouteEnabled: false,
+  modelDiscoveryEnabled: true,
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
-  contextLimit: 1000000,
+  contextLimit: defaultContextLimit(BUILD_DEFAULT_PROVIDER),
+  compactionRatio: 80,
   hasApiKey: false,
   userDirectory: '',
   downloadSubdirectory: 'download',
@@ -87,7 +96,7 @@ export const useSettingsStore = create((set, get) => ({
   zcfEnabledRoles: ['default'],
   zcfCustomRoles: [],
   providers: Object.fromEntries(BUILD_PROVIDERS.map(provider => [provider.id, {
-    has_key: false, model: provider.defaultModel, context_limit: 1000000,
+    has_key: false, model: provider.defaultModel, context_limit: defaultContextLimit(provider.id),
     readonly: provider.builtin === true, added: provider.fixed === true || provider.builtin === true,
     visible: provider.fixed === true || provider.builtin === true,
   }])),
@@ -115,6 +124,36 @@ export const useSettingsStore = create((set, get) => ({
   },
 
   // Save config for one provider (does not switch active)
+  detectProviders: async (signal) => {
+    const res = await backendFetch(`${API}/settings/provider/detect`, { method: 'POST', signal })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '自动识别失败')
+    return data
+  },
+
+  revealProviderKey: async (sourceId) => {
+    const res = await backendFetch(`${API}/settings/provider/reveal-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: sourceId }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '读取 API Key 失败')
+    return data.api_key || ''
+  },
+
+  importLocalProvider: async (sourceId) => {
+    const res = await backendFetch(`${API}/settings/provider/import`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_id: sourceId }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '导入模型配置失败')
+    set(settingsPatch(data, get()))
+    return data.imported_provider
+  },
+
   addProvider: async (provider) => {
     const res = await backendFetch(`${API}/settings/provider/add`, {
       method: 'POST',
@@ -250,6 +289,17 @@ export const useSettingsStore = create((set, get) => ({
     return data.paste_text_attachment_threshold || DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD
   },
 
+  saveCompactionRatio: async (ratio) => {
+    const res = await backendFetch(`${API}/settings/compaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compaction_ratio: ratio }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '保存压缩设置失败')
+    set({ compactionRatio: data.compaction_ratio ?? ratio })
+  },
+
   saveWebcliRouteEnabled: async (enabled) => {
     const response = await backendFetch(`${API}/settings/extensions/webcli-route`, {
       method: 'POST',
@@ -259,6 +309,17 @@ export const useSettingsStore = create((set, get) => ({
     const data = await response.json()
     if (!response.ok) throw new Error(data.detail || '保存 WebCLI 路由设置失败')
     set({ webcliRouteEnabled: (data.webcli_route_enabled ?? enabled) !== false })
+  },
+
+  saveModelDiscoveryEnabled: async (enabled) => {
+    const res = await backendFetch(`${API}/settings/extensions/model-discovery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_discovery_enabled: enabled }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '保存模型识别设置失败')
+    set({ modelDiscoveryEnabled: data.model_discovery_enabled ?? enabled })
   },
 
   saveWelcomeFeaturedSiteLimit: async (welcomeFeaturedSiteLimit) => {
@@ -349,11 +410,12 @@ export const useSettingsStore = create((set, get) => ({
     if (!profile) throw new Error('机器人配置不存在，请重新选择')
     if (get().channelProfileQrSaving[id]) throw new Error('机器人配置正在保存，请稍候')
     if (!credentials) throw new Error('未获取完整机器人配置')
+    const identity = profile.type === 'wecom' ? 'bot_id' : 'app_id'
+    if (profile.config[identity] && profile.config[identity] !== credentials[identity]) throw new Error('当前配置已关联机器人，请添加独立配置后再扫码')
     set(state => ({ channelProfileQrPending: { ...state.channelProfileQrPending, [id]: credentials }, channelProfileQrSaving: { ...state.channelProfileQrSaving, [id]: true } }))
     try {
-      const identity = profile.type === 'wecom' ? 'bot_id' : 'app_id'
       const changed = profile.config[identity] !== credentials[identity]
-      await get().channelProfileAction(profile.type, 'save', id, { config: { ...credentials, enabled: true,
+      await get().channelProfileAction(profile.type, 'qr-import', id, { config: { ...credentials, enabled: true,
         ...(changed ? { owner_user_id: '', owner_permission_level: 'qa_only' } : {}) } })
       set(state => ({ channelProfileQrPending: { ...state.channelProfileQrPending, [id]: null } }))
     } catch {
@@ -361,6 +423,24 @@ export const useSettingsStore = create((set, get) => ({
     } finally {
       set(state => ({ channelProfileQrSaving: { ...state.channelProfileQrSaving, [id]: false } }))
     }
+  },
+
+  // Poll only pairing fields; never replace credentials or resurrect deleted profiles.
+  refreshChannelOwnerBinding: async (id) => {
+    const before = get().channels.configurations?.[id]
+    if (before?.type !== 'wecom') return
+    const res = await backendFetch(`${API}/settings/channels`, { cache: 'no-store' })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '刷新绑定状态失败')
+    const next = data.configurations?.[id]
+    if (next?.type !== 'wecom' || next.config.bot_id !== before.config.bot_id) return
+    set(state => {
+      if (state.channels.configurations?.[id] !== before) return state
+      const binding = { owner_user_id: next.config.owner_user_id || '', pairing_code: next.config.pairing_code || '', owner_permission_level: next.config.owner_permission_level || 'qa_only' }
+      const channels = { ...state.channels, configurations: { ...state.channels.configurations, [id]: { ...before, config: { ...before.config, ...binding } } } }
+      if (channels.active_ids?.wecom === id && data.active_ids?.wecom === id) channels.wecom = { ...channels.wecom, ...binding }
+      return { channels }
+    })
   },
 
   channelProfileAction: async (channel, action, id, input = {}) => {

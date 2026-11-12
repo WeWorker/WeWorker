@@ -133,9 +133,7 @@ Task status:
 queued
 starting_browser
 running
-pause_requested
 waiting_for_user
-paused
 cancel_requested
 succeeded
 failed
@@ -151,16 +149,6 @@ succeeded
 failed
 cancelled
 ```
-
-`pause_requested` means the server has written a cooperative pause request, but the
-child process may still be inside a model request or browser step. The UI should not
-tell the user to take over the browser until the task reaches `waiting_for_user`.
-
-`waiting_for_user` should be used when the child process has actually paused and the
-user may safely perform manual browser work, such as login, MFA, CAPTCHA, or
-permission approval. The first implementation may reach this state only after
-`POST /api/tasks/{task_id}/pause`; later implementations can add agent or heuristic
-detection.
 
 `cancel_requested` means cooperative cancellation has been requested and the child is
 expected to exit after the current step.
@@ -425,7 +413,6 @@ Event names:
 ```text
 task_created
 task_started
-pause_requested
 cancel_requested
 step_finished
 waiting_for_user
@@ -563,36 +550,9 @@ The server passes the task's current `active_target_id` as a resume target overr
 so a follow-up continues in the same tab used by the latest task or replay. After the
 child exits, the actual trajectory target replaces `active_target_id`.
 
-### POST /api/tasks/{task_id}/pause
-
-Requests the task to pause after the current step finishes.
-
-Request:
-
-```json
-{
-  "reason": "需要用户手动扫码登录"
-}
-```
-
-Response:
-
-```json
-{
-  "task_id": "mail_apple_20260708_153000",
-  "status": "pause_requested"
-}
-```
-
-The task becomes `waiting_for_user` only after the child process observes the control
-file, writes a `Paused` exit message, and exits. Until then, the browser may still be
-under agent control.
-
 ### POST /api/tasks/{task_id}/resume
 
-Resumes a task whose status is `waiting_for_user` or `paused`. Resuming a task that
-is still `pause_requested` should return `409` because the previous child process has
-not actually stopped yet.
+Resumes an existing task in `waiting_for_user`.
 
 Request:
 
@@ -757,7 +717,7 @@ Security rules:
 8. Server emits `step_finished` events as completed step artifacts become stable
    and readable.
 9. UI reads `GET /api/tasks/{task_id}/steps` and screenshot files to display progress.
-10. Existing pause/resume remains available for non-login intervention during execution.
+10. Stop the running exploration, then send a follow-up when ready.
 11. When done, UI displays `final_response`.
 12. UI may call `POST /api/tasks/{task_id}/replay` to replay generated steps.
 

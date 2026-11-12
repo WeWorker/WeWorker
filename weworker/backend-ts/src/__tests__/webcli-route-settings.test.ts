@@ -43,15 +43,17 @@ it('settings API rejects non-booleans and persists only the requested extension 
   const end = source.indexOf("app.post('/settings/permissions'", start)
   expect(start).toBeGreaterThan(0)
   expect(end).toBeGreaterThan(start)
-  let settings = { webcli_route_enabled: false, api_query_llm_route: true }
-  let handler: (req: { body: unknown }, res: any) => void = () => { throw new Error('route not registered') }
+  let settings = { webcli_route_enabled: false, api_query_llm_route: true, model_discovery_enabled: true }
+  const routes = new Map<string, (req: { body: unknown }, res: any) => void>()
   vm.runInNewContext(ts.transpileModule(source.slice(start, end), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText, {
-    app: { post: (_path: string, callback: typeof handler) => { handler = callback } },
+    app: { post: (route: string, callback: (req: { body: unknown }, res: any) => void) => { routes.set(route, callback) } },
     updateSettings: (patch: Partial<typeof settings>) => (settings = { ...settings, ...patch }),
     buildSettingsResponse: (value: typeof settings) => value,
   })
+  const handler = routes.get('/settings/extensions/webcli-route')
+  if (handler === undefined) throw new Error('WebCLI route not registered')
   for (const body of [null, {}, { webcli_route_enabled: 'true' }, { webcli_route_enabled: 1 }]) {
     const response = { status: vi.fn().mockReturnThis(), json: vi.fn() }
     handler({ body }, response)
@@ -59,8 +61,9 @@ it('settings API rejects non-booleans and persists only the requested extension 
     expect(settings.webcli_route_enabled).toBe(false)
   }
   const response = { status: vi.fn().mockReturnThis(), json: vi.fn() }
-  handler({ body: { webcli_route_enabled: true, api_query_llm_route: false } }, response)
-  expect(response.json).toHaveBeenCalledWith({ webcli_route_enabled: true, api_query_llm_route: true })
+  handler({ body: { webcli_route_enabled: true, api_query_llm_route: false, model_discovery_enabled: false } }, response)
+  expect(response.status).not.toHaveBeenCalled()
+  expect(response.json).toHaveBeenCalledWith({ webcli_route_enabled: true, api_query_llm_route: true, model_discovery_enabled: true })
   handler({ body: { webcli_route_enabled: false } }, response)
   expect(settings.webcli_route_enabled).toBe(false)
 })

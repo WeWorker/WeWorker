@@ -78,7 +78,7 @@ function parseModernEmailList() {
     const subject = textOf(item.querySelector(".mail-text")) || textOf(item.querySelector(".mail-subject"));
     const sender = textOf(item.querySelector(".cmp-account-nick")) || textOf(item.querySelector(".mail-sender"));
     const date = textOf(item.querySelector(".mail-time"));
-    const id = item.getAttribute("data-mailid") || subject.slice(0, 50);
+    const id = item.getAttribute("data-mailid") || "";
     if (id && seen.has(id)) continue;
     if (id) seen.add(id);
     if (!subject && !id) continue;
@@ -269,17 +269,14 @@ async function searchModernEmails(keyword) {
 
 async function openModernEmail(emailId) {
   const items = document.querySelectorAll(".mail-list-page-item, .mail-list-search-item");
-  let target = null;
-  let subjectInList = "";
-  for (const item of items) {
-    const id = item.getAttribute("data-mailid") || "";
+  const exact = Array.from(items).filter(item => item.getAttribute("data-mailid") === emailId);
+  const candidates = exact.length ? exact : Array.from(items).filter(item => {
     const subject = textOf(item.querySelector(".mail-text")) || textOf(item.querySelector(".mail-subject"));
-    if (id === emailId || (subject && emailId && subject.includes(emailId))) {
-      target = item;
-      subjectInList = subject;
-      break;
-    }
-  }
+    return emailId && subject.includes(emailId);
+  });
+  if (candidates.length > 1) throw new Error("Ambiguous email selection; use an exact email ID");
+  const target = candidates[0];
+  const subjectInList = target ? textOf(target.querySelector(".mail-text")) || textOf(target.querySelector(".mail-subject")) : "";
   if (!target) {
     return { error: "Email not found", emailId, message: "指定的邮件不存在，可能已被删除或 ID 不正确" };
   }
@@ -767,55 +764,21 @@ async function openEmail(emailId) {
   try {
     if (isModernQqMail()) return openModernEmail(emailId);
     const { doc } = getMainDocument();
-    let mailElement = null;
-    let subjectInList = "";
-
-    // 首先尝试通过 input[name="mailid"] 的 value 查找（新版DOM结构）
-    const mailTables = doc.querySelectorAll("table.i.M, table.i");
-    for (const table of mailTables) {
-      const mailIdInput = table.querySelector('input[name="mailid"]');
-      const id = mailIdInput?.value || "";
-      const subjectU = table.querySelector(".gt.sall .tt, .gt .tt");
-      const subject = subjectU?.textContent?.trim() || "";
-
-      if (id === emailId || (subject && subject.includes(emailId))) {
-        mailElement = table;
-        subjectInList = subject;
-        break;
-      }
+    const candidates = new Map();
+    const add = (element, id, subject) => { if (element && !candidates.has(element)) candidates.set(element, { element, id, subject }); };
+    for (const table of doc.querySelectorAll("table.i.M, table.i")) {
+      add(table, table.querySelector('input[name="mailid"]')?.value || "", table.querySelector(".gt.sall .tt, .gt .tt")?.textContent?.trim() || "");
     }
-
-    // 如果没找到，尝试旧版DOM结构
-    if (!mailElement) {
-      mailElement =
-        doc.getElementById(emailId) || doc.querySelector(`[data-id="${emailId}"]`);
+    add(doc.getElementById(emailId), emailId, "");
+    for (const element of doc.querySelectorAll("[data-id]")) add(element, element.getAttribute("data-id"), "");
+    for (const selector of ["#div_showbefore table tbody tr", ".maillist tbody tr", "#mail_list_container tr", "table tbody tr"]) {
+      for (const row of doc.querySelectorAll(selector)) add(row, row.id || row.getAttribute("data-id"), row.querySelectorAll("td")[2]?.textContent?.trim() || "");
     }
-
-    if (!mailElement) {
-      const rowSelectors = [
-        "#div_showbefore table tbody tr",
-        ".maillist tbody tr",
-        "#mail_list_container tr",
-        "table tbody tr",
-      ];
-      for (const sel of rowSelectors) {
-        const rows = doc.querySelectorAll(sel);
-        for (const row of rows) {
-          const id = row.id || row.getAttribute("data-id");
-          const tds = row.querySelectorAll("td");
-          const subject = tds[2]?.textContent?.trim() ?? "";
-          if (
-            id === emailId ||
-            (subject && subject.includes(emailId))
-          ) {
-            mailElement = row;
-            subjectInList = subject;
-            break;
-          }
-        }
-        if (mailElement) break;
-      }
-    }
+    const exact = [...candidates.values()].filter(item => item.id === emailId);
+    const matches = exact.length ? exact : [...candidates.values()].filter(item => emailId && item.subject.includes(emailId));
+    if (matches.length > 1) throw new Error("Ambiguous email selection; use an exact email ID");
+    const mailElement = matches[0]?.element;
+    const subjectInList = matches[0]?.subject || "";
 
     if (!mailElement) {
       return {

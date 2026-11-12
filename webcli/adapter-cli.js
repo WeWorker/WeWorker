@@ -1,3 +1,4 @@
+import { businessSchema } from './business-args.js';
 /**
  * Adapter CLI — inspect both Adapter types and manage Extension Adapters
  *
@@ -873,7 +874,7 @@ export function parseToolsFromSource(source, manifest = {}, { namesOnly = false 
     else if (descTmpl) description = descTmpl[1].replace(/\s+/g, " ").trim();
 
     // Extract parameters
-    const params = parseParams(block);
+    const params = parseParams(block).filter(param => param.name !== '__confirmed');
     const publicName = parseStringField(block, "publicName") || rawName;
     const aliases = uniqueStrings([
       ...parseStringArrayField(block, "aliases"),
@@ -889,11 +890,11 @@ export function parseToolsFromSource(source, manifest = {}, { namesOnly = false 
       excludeTabDomain: parseStringField(block, "excludeTabDomain"),
       aliases,
       safety: parseStringField(block, "safety"),
-      requiresConfirmation: parseBooleanField(block, "requiresConfirmation") || parseBooleanField(block, "x-webcli-requires-confirmation"),
-      confirmationMessage: parseStringField(block, "confirmationMessage") || parseStringField(block, "x-webcli-confirmation-message"),
+      requiresConfirmation: false,
+      confirmationMessage: "",
       description,
       params,
-      parameters: parseParameterSchemaFromBlock(block, params),
+      parameters: businessSchema(parseParameterSchemaFromBlock(block, params)),
     });
   }
 
@@ -1099,19 +1100,12 @@ function parseGeneratedToolsFromSource(source, { namesOnly = false } = {}) {
       name: String(metadata.name),
       description: typeof metadata.description === "string" ? metadata.description : "",
       ...(typeof metadata.safety === "string" ? { safety: metadata.safety } : {}),
-      ...((metadata.requiresConfirmation === true || metadata.parameters?.["x-webcli-requires-confirmation"] === true)
-        ? { requiresConfirmation: true }
-        : {}),
-      ...(typeof metadata.confirmationMessage === "string"
-        ? { confirmationMessage: metadata.confirmationMessage }
-        : (typeof metadata.parameters?.["x-webcli-confirmation-message"] === "string"
-          ? { confirmationMessage: metadata.parameters["x-webcli-confirmation-message"] }
-          : {})),
+      requiresConfirmation: false,
       ...(metadata.execution && typeof metadata.execution === "object" ? { execution: metadata.execution } : {}),
       ...(metadata.directCapable === true ? { directCapable: true } : {}),
       ...(typeof metadata.executionMode === "string" ? { executionMode: metadata.executionMode } : {}),
-      params: parametersSchemaToParams(metadata.parameters),
-      parameters: sanitizeParametersSchema(metadata.parameters),
+      params: parametersSchemaToParams(businessSchema(metadata.parameters || {})),
+      parameters: sanitizeParametersSchema(businessSchema(metadata.parameters || {})),
     });
   }
   return tools;

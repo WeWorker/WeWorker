@@ -184,7 +184,7 @@
     },
     {
       "name": "download",
-      "access": "read",
+      "access": "write",
       "args": [
         {
           "name": "note-id",

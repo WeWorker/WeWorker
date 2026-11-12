@@ -124,6 +124,8 @@
       key,
       row: {
         title,
+        context_title: window.__zhihu.contextTitle(title),
+        question_id: obj.type === 'question' ? (obj.id == null ? null : String(obj.id)) : question.id == null ? null : String(question.id),
         type: obj.type,
         author: obj.author?.name || "",
         votes: obj.voteup_count || 0,

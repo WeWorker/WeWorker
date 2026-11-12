@@ -41,4 +41,4 @@ const run=async (kwargs) => {
         }
         return results;
     };
-__webcliRegisterCommand("batchgreet",async(args={})=>{args={...{"job-id":"","limit":5,"text":""},...args};args["limit"]=integer(args["limit"],5,1000);if(location.hostname!=='www.zhipin.com'||!location.pathname.startsWith('/web/chat/'))return {__webcli_navigation:{version:1,url:'https://www.zhipin.com/web/chat/index',resume:false,result:{status:'prepared',message:'聊天页已准备，请核对目标后重新确认调用；尚未执行业务写操作。'}}};guard();return run(args);});})();
+__webcliRegisterCommand("batchgreet",async(args={})=>{args={...{"job-id":"","limit":5,"text":""},...args};args["limit"]=integer(args["limit"],5,1000);if(location.hostname!=='www.zhipin.com'||!location.pathname.startsWith('/web/chat/'))return {__webcli_navigation:{version:1,url:'https://www.zhipin.com/web/chat/index',resume:false,phase:'prepare',result:{status:'prepared',message:'聊天页已准备，请核对目标后重新确认调用；尚未执行业务写操作。'}}};guard();return run(args);});})();

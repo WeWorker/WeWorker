@@ -54,6 +54,46 @@ const sentTo = (ws) => ws.send.mock.calls.map(([value]) => JSON.parse(value))
 const flush = () => new Promise((resolve) => setImmediate(resolve))
 
 describe('Bridge login wiring', () => {
+  it.each(['unknown', 'closed'])('does not start login after an %s observation', async state => {
+    const bridge = createBridge()
+    bridge.openBrowser = vi.fn(async () => ({ success: true, tabId: 7 }))
+    bridge._request = vi.fn(async () => ({ state, tabId: 7 }))
+    bridge._siteLoginCoordinator = { check: vi.fn(), login: vi.fn() }
+    await expect(bridge.callTool('open_browser', { url: 'https://www.example.com/', adapter: fixture.manifest.name }))
+      .resolves.toMatchObject({ auth: { status: state === 'closed' ? 'tab_closed' : 'unverified', flowActive: false } })
+    expect(bridge._siteLoginCoordinator.check).not.toHaveBeenCalled()
+    expect(bridge._siteLoginCoordinator.login).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [true, 'already_logged_in'], [null, 'unverified'], [new Error('Check unavailable'), 'unverified'],
+  ])('does not start a login flow for a business page when check returns %s', async (loggedIn, status) => {
+    const bridge = createBridge()
+    bridge.openBrowser = vi.fn(async () => ({ success: true, tabId: 7 }))
+    bridge._request = vi.fn(async () => ({ state: 'business', tabId: 7 }))
+    bridge._siteLoginCoordinator = {
+      check: vi.fn(async () => { if (loggedIn instanceof Error) throw loggedIn; return { logged_in: loggedIn } }),
+      login: vi.fn(),
+    }
+    await expect(bridge.callTool('open_browser', { url: 'https://www.example.com/', adapter: fixture.manifest.name }))
+      .resolves.toMatchObject({ success: true, auth: { status, flowActive: false } })
+    expect(bridge._siteLoginCoordinator.login).not.toHaveBeenCalled()
+    expect(bridge.openBrowser).toHaveBeenCalledTimes(1)
+  })
+
+  it('still starts login when the declared check confirms logged out', async () => {
+    const bridge = createBridge()
+    bridge.openBrowser = vi.fn(async () => ({ success: true, tabId: 7 }))
+    bridge._request = vi.fn(async () => ({ state: 'business', tabId: 7 }))
+    bridge._siteLoginCoordinator = {
+      check: vi.fn(async () => ({ logged_in: false })),
+      login: vi.fn(async () => ({ status: 'waiting_user' })),
+    }
+    await expect(bridge.callTool('open_browser', { url: 'https://www.example.com/', adapter: fixture.manifest.name }))
+      .resolves.toMatchObject({ auth: { status: 'waiting_user', flowActive: true } })
+    expect(bridge._siteLoginCoordinator.login).toHaveBeenCalledTimes(1)
+  })
+
   it('hands AUTH_REQUIRED from an Extension command to the login flow with the caller\'s wait', async () => {
     const bridge = createBridge()
     const failure = Object.assign(new Error('Session expired'), { code: 'AUTH_REQUIRED', auth: { site: 'fixture.example.com', phase: 'handler' } })
@@ -88,7 +128,7 @@ describe('Bridge login wiring', () => {
     bridge.callTool = vi.fn(async () => { throw Object.assign(new Error('需要登录'), { code: 'AUTH_REQUIRED', auth: { site: 'fixture.example.com', status: 'waiting_user' } }) })
     const client = connect(bridge)
     await bridge._handleClientRequest({ type: 'call_tool', id: 'cli-1', toolName: 'fixture.example.com.list', args: {}, loginWaitMs: 5000 }, client)
-    expect(bridge.callTool).toHaveBeenCalledWith('fixture.example.com.list', {}, null, undefined, { loginWaitMs: 5000 })
+    expect(bridge.callTool).toHaveBeenCalledWith('fixture.example.com.list', {}, null, undefined, expect.objectContaining({ loginWaitMs: 5000, onPrepared: expect.any(Function) }))
     expect(sentTo(client)).toContainEqual(expect.objectContaining({ type: 'call_tool_error', id: 'cli-1', code: 'AUTH_REQUIRED', auth: { site: 'fixture.example.com', status: 'waiting_user' } }))
   })
 

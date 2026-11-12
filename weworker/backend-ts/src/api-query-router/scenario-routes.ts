@@ -6,14 +6,16 @@
  *   - 形态二 `plan`   ：只产出「入口 terminal + 输入装配」，链路语义交给锚点 DAG（第 9 层）
  *   - 形态三 `optout` ：不派发任何工具，仅**抑制**下层宽泛层抢答，整条交还 LLM
  *
- * 数据来源优先级：
- *   1) `router-config/scenario-routes.json`（`gen:routes` 编译产物，进 git、可评审、受逐层开关控制）；
- *   2) 产物缺失/为空 → 按当前 adapter 目录**内存重建**（写入方只用改 manifest 即可生效）。
+ * 数据来源优先级：用户覆盖层（包括显式空表）优先；内置 Adapter 当前声明按同一编译器
+ * 内存重建，避免旧 JSON 覆盖热更新；只有运行时未提供对应声明时才使用内置编译产物。
+ * manifest.layers.scenarioRoutes=false 和急停开关均优先于所有来源。
  *
  * 精度姿态：任一环节不确定即返回 `null`（fail-closed），由调用方落回既有级联。漏判免费，
  * 误判致命——用错误答案短路模型是本设计唯一要防的事故。
  */
 
+import fs from 'node:fs'
+import path from 'node:path'
 import { parseAllAdapters, type ParsedAdapter } from '../adapter-parser.js'
 import { findAdaptersDirectory, resolveToolsForAdapter } from '../adapter-tool-list.js'
 import { getSiteEnabled } from '../config.js'
@@ -125,6 +127,10 @@ export function filterRoutesByCatalog(
       dropped.push(`${label} (enabled:false)`)
       continue
     }
+    if (!catalog.adapterIds.has(route.adapter)) {
+      dropped.push(`${label} (adapter 不在当前启用集合)`)
+      continue
+    }
     if (route.optout) {
       out.push(route)
       continue
@@ -135,8 +141,8 @@ export function filterRoutesByCatalog(
       continue
     }
     const tool = catalog.byName.get(target) ?? catalog.byName.get(`${route.adapter}.${target}`)
-    if (!tool) {
-      dropped.push(`${label} (工具不存在：${target})`)
+    if (!tool || tool.adapterId !== route.adapter) {
+      dropped.push(`${label} (工具不存在或不属于当前 adapter：${target})`)
       continue
     }
     if (!tool.direct) {
@@ -176,8 +182,8 @@ function currentSignature(): string {
  * 取当前生效的第 0 层路由。
  *
  * - `WEWORKER_SCENARIO_ROUTE=0` 为急停总开关（与其它层同机制）；
- * - 配置层有产物 → 用它（已过校验、已按作用域过滤）；
- * - 配置层为空 → 按当前 adapter 内存重建（改 manifest 即生效，无需跑编译脚本）；
+ * - 显式禁用 / 用户覆盖 → 使用关闭或覆盖后的结果；
+ * - 内置声明优先按当前 manifest 重建；运行时无对应 adapter 时保留已打包的编译产物；
  * - 任何异常 → 返回 `[]`，绝不炸主链路。
  */
 export function loadScenarioRoutes(): CompiledScenarioRoute[] {
@@ -188,11 +194,25 @@ export function loadScenarioRoutes(): CompiledScenarioRoute[] {
   let routes: CompiledScenarioRoute[] = []
   try {
     const { bundle } = loadRouterConfig()
-    const fromConfig = Array.isArray(bundle.scenarioRoutes?.routes) ? bundle.scenarioRoutes.routes : []
-    if (fromConfig.length) {
-      routes = fromConfig.filter((route) => route?.enabled !== false)
+    const source = bundle.sources?.find((entry) => entry.layer === 'scenarioRoutes')
+    if (bundle.manifest?.layers?.scenarioRoutes === false || source?.rejected?.startsWith('disabled by manifest')) {
+      routes = []
+    } else if (source?.origin === 'user') {
+      // An explicit user override (including an empty list) is authoritative.
+      routes = bundle.scenarioRoutes?.routes ?? []
     } else {
-      routes = compileInMemory()
+      // A bundled artifact may contain adapters not loaded as live declarations
+      // in the current package profile. Keep those only; current adapters always
+      // replace their stale artifact entries (including removed route declarations).
+      const inputs = buildCompileInputsFromRuntime()
+      const adaptersDir = findAdaptersDirectory()
+      const liveIds = new Set(inputs.filter((input) => input.scenarios.length > 0 ||
+        (adaptersDir && fs.existsSync(path.join(adaptersDir, input.adapterId, 'manifest.json'))),
+      ).map((input) => input.adapterId))
+      routes = [
+        ...(bundle.scenarioRoutes?.routes ?? []).filter((route) => !liveIds.has(route.adapter)),
+        ...compileInMemory(inputs),
+      ]
     }
   } catch (error) {
     log.warn('scenario-routes load failed', error)
@@ -205,9 +225,8 @@ export function loadScenarioRoutes(): CompiledScenarioRoute[] {
   return usable
 }
 
-/** 内存重建：把配置层的空产物当作「未编译」，直接用运行时输入编译一份。 */
-function compileInMemory(): CompiledScenarioRoute[] {
-  const inputs = buildCompileInputsFromRuntime()
+/** 当前 Adapter 声明用同一编译器重建，不信任陈旧的内置编译产物。 */
+function compileInMemory(inputs: CompileAdapterInput[]): CompiledScenarioRoute[] {
   if (!inputs.length) return []
   const result = compileScenarioRoutes(inputs, { planTerminals: getPlanTerminals() })
   if (result.errors.length) {
@@ -353,7 +372,7 @@ export function buildScenarioMatcher(
       if (route.guards.some((guard) => guard?.test(normalized))) continue
       for (const re of route.patterns) {
         const match = re.exec(normalized)
-        if (!match?.groups) continue
+        if (!match) continue
         const args = assembleArgs(route.def.args, match.groups)
         if (!args) continue
         return { tool: route.def.tool, args, confidence: 1, source: 'scenario' }
@@ -400,7 +419,7 @@ export function buildScenarioPlanMatcher(
       if (route.guards.some((guard) => guard?.test(normalized))) continue
       for (const re of route.patterns) {
         const match = re.exec(normalized)
-        if (!match?.groups) continue
+        if (!match) continue
         const input = assembleArgs(route.def.plan.input, match.groups)
         if (!input) continue
         return {

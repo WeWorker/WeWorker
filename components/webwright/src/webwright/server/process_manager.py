@@ -15,6 +15,7 @@ from webwright.server.artifacts import (
     exit_status,
     task_artifact_summary,
     try_read_json,
+    waiting_intervention,
 )
 from webwright.server.browser import (
     DEFAULT_CDP_URL,
@@ -172,6 +173,10 @@ class ProcessManager:
             )
             raise InvalidStateError("请先在 WeWorker 中配置可用于 Webwright 的模型。") from exc
         endpoint = active.base_url.rstrip("/")
+        overrides.extend([
+            f"agent.context_limit={active.context_limit}",
+            f"agent.compaction_ratio={active.compaction_ratio}",
+        ])
         if active.model_class == "anthropic":
             model_config_file = "model_claude.yaml"
             overrides.extend([
@@ -859,6 +864,7 @@ class ProcessManager:
                 error="",
                 error_code="",
                 error_stage="",
+                user_intervention=None,
             )
             self.active_process = process
             self.active_kind = "task"
@@ -879,8 +885,17 @@ class ProcessManager:
                 raise InvalidStateError(f"Task is not waiting for user: {status}")
             output_dir = Path(task["output_dir"]).resolve()
             trajectory_path = output_dir / "trajectory.json"
-            if not trajectory_path.is_file():
-                raise InvalidStateError("Task has no trajectory.json to resume from.")
+            has_trajectory = trajectory_path.is_file()
+            restart_before_first_step = (
+                not has_trajectory and task.get("activity_type") == "exploration"
+                and (
+                    status in {TaskStatus.CANCELLED.value, TaskStatus.FAILED.value}
+                    or (status == TaskStatus.WAITING_FOR_USER.value
+                        and task.get("error_code") == "navigation_blocked_by_client")
+                )
+            )
+            if not has_trajectory and not restart_before_first_step:
+                raise InvalidStateError("探索记录暂不可用，请新建探索后重试。")
             model_config_file, model_overrides, env_extra = self._resolve_model()
             run_id = make_run_id()
             self._clear_control(task_id)
@@ -905,6 +920,28 @@ class ProcessManager:
                 "toolkit_id": task.get("toolkit_id", ""),
                 "tool_id": task.get("tool_id", ""),
             }
+            if restart_before_first_step:
+                # No saved actions to resume. Keep the original page, scope and all
+                # instructions, including any earlier turns stopped before startup.
+                prior_spec = json.loads(self.store.spec_path(task_id).read_text(encoding="utf-8"))
+                spec.update(
+                    mode="start", target_id=task.get("active_target_id", ""),
+                    resume_target_id="", resume_from=None, followup=None,
+                    instruction=f"{prior_spec['instruction']}\n\n{followup}",
+                )
+                spec["config_spec"].extend(
+                    item for item in prior_spec["config_spec"]
+                    if item.startswith("environment.allowed_domains=")
+                )
+                if task.get("error_code") == "navigation_blocked_by_client":
+                    attention = try_read_json(output_dir / "browser_attention.json") or {}
+                    if attention.get("target_id"):
+                        spec.update(target_id="", resume_target_id=attention["target_id"])
+                        spec["config_spec"].append("environment.resume_existing_page=true")
+                    if attention.get("browser_instance_id"):
+                        spec["config_spec"].append(
+                            f"environment.expected_browser_instance_id={attention['browser_instance_id']}"
+                        )
             atomic_write_json(self.store.spec_path(task_id), spec)
             process = self._spawn(
                 self.launcher.worker_command(
@@ -934,6 +971,7 @@ class ProcessManager:
                 error="",
                 error_code="",
                 error_stage="",
+                user_intervention=None,
             )
             self.active_process = process
             self.active_kind = "task"
@@ -942,26 +980,6 @@ class ProcessManager:
             self.active_run_id = run_id
             self._start_watcher(kind="task", active_id=task_id, task_id=task_id, process=process)
             return record
-
-    def pause_task(self, task_id: str, *, reason: str = "") -> dict[str, Any]:
-        with self.lock:
-            task = self._read_task_or_raise(task_id)
-            if not self._active_running_locked() or self.active_kind != "task" or self.active_task_id != task_id:
-                raise InvalidStateError("Task is not currently running.")
-            payload = {
-                "run_id": self.active_run_id,
-                "action": "pause",
-                "reason": reason,
-                "created_at": now_iso(),
-            }
-            atomic_write_json(self.store.control_path(task_id), payload)
-            return self.store.update_task(
-                task_id,
-                status=TaskStatus.PAUSE_REQUESTED.value,
-                error="",
-                error_code="",
-                error_stage="",
-            )
 
     def cancel_task(self, task_id: str, *, force: bool = False, reason: str = "") -> dict[str, Any]:
         with self.lock:
@@ -1648,6 +1666,10 @@ class ProcessManager:
             error = child_error.get("error") or f"Child process exited with code {returncode}."
             error_code = child_error.get("error_code") or "worker_crashed"
             error_stage = child_error.get("error_stage") or "worker"
+            if (task.get("activity_type") == "exploration"
+                    and error_code == "navigation_blocked_by_client"
+                    and error_stage == "initial_navigation"):
+                mapped_status = TaskStatus.WAITING_FOR_USER.value
         elif agent_exit_status is not None:
             mapped_status = AGENT_EXIT_TO_TASK_STATUS[agent_exit_status]
             error = AGENT_EXIT_ERROR_MESSAGES.get(agent_exit_status, "")
@@ -1658,6 +1680,8 @@ class ProcessManager:
 
         summary = task_artifact_summary(task_id, output_dir)
         runtime_state = environment_runtime_state(output_dir)
+        if error_code == "navigation_blocked_by_client" and error_stage == "initial_navigation":
+            runtime_state = try_read_json(output_dir / "browser_attention.json") or runtime_state
         active_target_id = str(runtime_state.get("target_id", "") or "") or str(
             task.get("active_target_id", "") or ""
         )
@@ -1670,6 +1694,8 @@ class ProcessManager:
             error_code=error_code,
             error_stage=error_stage,
             active_target_id=active_target_id,
+            user_intervention=(waiting_intervention(output_dir)
+                               if mapped_status == TaskStatus.WAITING_FOR_USER.value else None),
         )
 
     def _finish_replay(self, replay_id: str, returncode: int) -> None:

@@ -56,6 +56,11 @@
         const [locRaw, workYear, degree] = (data.meta || '').split('|').map(s => s.trim());
         // companyTag looks like "国企\n\n150-500人\n\n电子技术/半导体/集成电路"
         const tagParts = (data.companyTag || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+        let encCoId = '';
+        try {
+            const companyUrl = new URL(data.companyUrl);
+            if (companyUrl.origin === JOBS_ORIGIN) encCoId = /^\/all\/co([A-Za-z0-9_=-]+)\.html$/.exec(companyUrl.pathname)?.[1] || '';
+        } catch { /* Missing company link leaves the follow-up unavailable. */ }
 
         return [{
             jobId,
@@ -70,6 +75,7 @@
             description: data.description || '',
             welfare: (data.welfare || []).join(','),
             company: data.company || '',
+            encCoId,
             companyType: tagParts[0] || '',
             companySize: tagParts[1] || '',
             companyIndustry: tagParts.slice(2).join(' / '),

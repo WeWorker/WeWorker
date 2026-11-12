@@ -6,13 +6,12 @@ const run = args => spawnSync(process.execPath, [entry, 'adapterhub', ...args], 
   encoding: 'utf8', env: { ...process.env, WEBCLI_ADAPTERHUB_ENDPOINT: 'https://example.com/hub' },
 });
 it('routes explicit formats and preserves default JSON output without requests', () => {
-  const legacy = run(['endpoint', '--json']);
+  const legacy = run(['status', '--json']);
   expect(legacy.status).toBe(0);
-  expect(JSON.parse(legacy.stdout)).toEqual({ endpoint: 'https://example.com/hub' });
+  expect(JSON.parse(legacy.stdout)).toHaveProperty('configured');
   for (const format of ['json', 'yaml', 'csv', 'table', 'plain', 'markdown']) {
-    const output = run(['endpoint', '--output-format=' + format]);
+    const output = run(['status', '--output-format=' + format]);
     expect(output.status).toBe(0); expect(output.stderr).toBe('');
-    expect(output.stdout).toContain('https://example.com/hub');
   }
   expect(JSON.parse(run(['--help', '--output-format=json']).stdout).commands).toContain('install');
 });

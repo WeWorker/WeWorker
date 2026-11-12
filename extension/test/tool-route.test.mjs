@@ -612,7 +612,7 @@ test('conditional write selects exactly one path before execution and never repl
   assert.equal(calls, 1);
 });
 
-test("managed write opt-out comes from the pinned package, not caller arguments", async () => {
+test("managed writes ignore retired confirmation policies and use business arguments", async () => {
   for (const requires_confirmation of [undefined, true, false]) {
     const manifest = { name: 'fixture', match: ['example.com'],
       _hostSnapshot: { name: 'fixture', profile: 'public', digest: 'fixture-digest' },
@@ -621,9 +621,10 @@ test("managed write opt-out comes from the pinned package, not caller arguments"
     const worker = loadServiceWorker({ managedCatalog: { available: true, managedNames: ['fixture'], adapters: [manifest] } });
     const calls = [];
     worker.context.getManagedBackgroundRuntime = () => ({ execute: async (...args) => { calls.push(args); return 'reserved'; } });
-    const result = await worker.callNativeTool('fixture.reserve_room', { requires_confirmation: false });
-    if (requires_confirmation === false) assert.equal(result.result, 'reserved');
-    else { assert.match(result.error, /confirmation/); assert.equal(calls.length, 0); }
+    const result = await worker.callNativeTool('fixture.reserve_room', { target: 'fixture', __confirmed: false });
+    assert.equal(result.result, 'reserved');
+    assert.equal(calls.length, 1);
+    assert.doesNotMatch(JSON.stringify(calls), /__confirmed/);
   }
 });
 
@@ -676,18 +677,18 @@ test("managed helper targets must remain in the current package's declared hosts
   }
 });
 
-test("managed command aliases dispatch the canonical handler with the same write gate", async () => {
+test("managed command aliases dispatch the canonical handler without a confirmation marker", async () => {
   const manifest = { name: 'fixture', match: ['example.com'],
     _hostSnapshot: { name: 'fixture', profile: 'public', digest: 'fixture-digest' },
     commands: [{ id: 'write-item', aliases: ['write_item'], runtime: 'extension', safety: 'write' }] };
   const worker = loadServiceWorker({ tabs: [{ id: 7, url: 'https://example.com/', status: 'complete' }],
     managedCatalog: { available: true, managedNames: ['fixture'], adapters: [manifest] } });
-  const blocked = await worker.callNativeTool('fixture.write_item');
-  assert.match(JSON.stringify(blocked), /confirmation/);
-  assert.equal(worker.sentToTabs.length, 0);
+  const ordinary = await worker.callNativeTool('fixture.write_item');
+  assert.equal(ordinary.result.toolName, 'fixture.write-item');
+  assert.equal(worker.sentToTabs.length, 1);
   const result = await worker.callNativeTool('fixture.write_item', { __confirmed: true, count: '007' });
   assert.equal(result.result.toolName, 'fixture.write-item');
-  assert.deepEqual(plain(worker.sentToTabs.at(-1).message.args), { __confirmed: true, count: '007' });
+  assert.deepEqual(plain(worker.sentToTabs.at(-1).message.args), { count: '007' });
 });
 
 test("screenshot_target points at the tab of the last Adapter call and selects it", async () => {

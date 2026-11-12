@@ -79,6 +79,7 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
           if (continuation && result?.__webcli_navigation) throw new Error('A resumed page query cannot request another navigation.');
           const next = result?.__webcli_navigation;
           if (!next) return result;
+          if (next.phase !== undefined && (next.phase !== 'prepare' || next.resume !== false || policy?.safety !== 'write')) throw new Error('Invalid Adapter preparation navigation.');
           if (!policy || !navigate || next.version !== 1 || typeof next.resume !== 'boolean') throw new Error('Invalid Adapter navigation continuation.');
           // Never replay writes, regardless of confirmation policy. A write may
           // request terminal navigation only; errors and timeouts are never replayed.
@@ -90,7 +91,10 @@ export function createHostAdapterRuntime({ bundle, prepare, clear, inject, navig
           currentUrl = await navigate(tabId, target, manifest, next.resume, Math.min(25000, deadline - now()));
           assertAdapterNavigationUrl(manifest, currentUrl, next.resume);
           if (now() >= deadline) throw new Error('Adapter page execution timed out.');
-          if (!next.resume) return next.result ?? { status: 'navigation_complete', url: currentUrl };
+          if (!next.resume) {
+            if (next.phase === 'prepare') options.onPrepared?.();
+            return next.result ?? { status: 'navigation_complete', url: currentUrl };
+          }
           step++;
         }
       });

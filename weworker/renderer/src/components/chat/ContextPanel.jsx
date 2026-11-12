@@ -11,7 +11,7 @@ import {
 
 export default function ContextPanel({ snapshot, contextLimit }) {
   const normalized = useMemo(
-    () => normalizeContextSnapshot(snapshot || createEmptyContextSnapshot(contextLimit)),
+    () => normalizeContextSnapshot(snapshot || createEmptyContextSnapshot(contextLimit), contextLimit),
     [snapshot, contextLimit],
   )
   const [open, setOpen] = useState(false)

@@ -126,6 +126,19 @@ const EXTENSION_CAPABILITIES = [
 ];
 
 let currentBrowserContextId;
+/** HRM getUserInfo 响应里探测登录名:字段链覆盖已知形态,全空返回 null。 */
+function extractIdentityUsername(data) {
+  if (!data || typeof data !== "object") return null;
+  const candidates = [
+    data.username, data.userName, data.loginName, data.account, data.workCode,
+    data.user && data.user.loginName, data.user && data.user.name,
+  ];
+  for (const v of candidates) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
 function buildExtensionHello(extra = {}) {
   return {
     type: 'extension_hello',
@@ -2795,8 +2808,24 @@ async function handleNativeMessageInternal(msg) {
     const tools = await getHostAdapterClient().tools(gatherAllTools());
     sendToNative({ type: "list_tools_result", id: msg.id, tools });
 
+  } else if (msg.type === "identity_fetch") {
+    // 上报身份兜底:扩展在浏览器上下文带 SSO cookie 请求 CLI 下发的身份接口,解析
+    // 登录名回传 CLI。只提取 username 字段;cookie 不落盘、不进 CLI 进程。
+    (async () => {
+      try {
+        if (typeof msg.url !== "string" || !/^https:\/\//i.test(msg.url)) throw new Error("invalid identity url");
+        const resp = await fetch(msg.url, { credentials: "include" });
+        const data = await resp.json().catch(() => null);
+        const user = extractIdentityUsername(data);
+        sendToNative({ type: "identity_fetch_result", id: msg.id, ok: !!user, ...(user ? { user } : { error: "no username in identity response" }) });
+      } catch (err) {
+        sendToNative({ type: "identity_fetch_result", id: msg.id, ok: false, error: err?.message || "identity fetch failed" });
+      }
+    })();
+
   } else if (msg.type === "call_tool") {
-    const { toolName, args } = msg;
+    const { toolName } = msg;
+    let { args } = msg;
     const traceID = msg.traceID || null;
     const tracePrefix = traceID ? `[${traceID}] ` : '';
     const workTag = msg.workId ? ` [work:${String(msg.workId).slice(0, 8)}]` : '';
@@ -2816,7 +2845,7 @@ async function handleNativeMessageInternal(msg) {
       }
       if (selected.managed) {
         if (selected.command.runtime !== 'extension') throw new Error('This command requires the host Toolkit runtime.');
-        if ((selected.command.pageWrite || selected.command.uiWrite || (selected.command.requires_confirmation ?? selected.command.safety === 'write')) && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
+        args = Object.fromEntries(Object.entries(args || {}).filter(([key]) => key !== "__confirmed"));
         if (usesBackgroundExecution(selected.command, args || {})) {
           const result = await callManagedBackgroundTool(selected.manifest, selected.command, args || {}, traceID, msg.id);
           sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID });
@@ -2902,9 +2931,11 @@ async function handleNativeMessageInternal(msg) {
           sendToNative({ type: 'call_tool_result', id: msg.id, result: reply.ok ? reply.value : { ok: false, errorCode: reply.error.code }, traceID });
           return;
         }
+        let prepared = false;
         const result = await getHostAdapterRuntime().execute(tab.id, selected.manifest, tab.url,
-          (remainingMs, continuation) => callToolInTab(tab.id, selected.manifest.name + '.' + selected.command.id, args || {}, traceID, false, remainingMs, continuation), selected.command, traceID);
-        sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID });
+          (remainingMs, continuation) => callToolInTab(tab.id, selected.manifest.name + '.' + selected.command.id, args || {}, traceID, false, remainingMs, continuation), selected.command, traceID,
+          { onPrepared: () => { prepared = true; } });
+        sendToNative({ type: 'call_tool_result', id: msg.id, result, traceID, ...(prepared ? { execution: { phase: 'prepared' } } : {}) });
         return;
       }
       if (isLegacyWecliHandlerName(toolName)) {
@@ -3571,14 +3602,22 @@ async function handleNativeMessageInternal(msg) {
     // Read-only download observers must not block the click they are observing.
     const observer = ['dialog', 'downloads', 'events'].includes(msg.command) || (msg.command === 'wait' && msg.args?.kind === 'download');
     let release;
+    let result;
     try {
       if (Number.isInteger(msg.tabId) && !observer) release = await claimSharedPage(msg.tabId, true);
-      const result = Number.isInteger(msg.tabId) && !observer
+      result = Number.isInteger(msg.tabId) && !observer
         ? await getHostAdapterRuntime().exclusive(msg.tabId, operation) : await operation();
-      sendToNative({ type: 'call_tool_result', id: msg.id, result });
     } catch (error) {
-      sendToNative({ type: 'call_tool_result', id: msg.id, result: { ok: false, error: { code: error.code || 'BROWSER_OPERATION_FAILED', message: error.message } } });
-    } finally { await release?.().catch(() => {}); }
+      result = { ok: false, error: { code: error.code || 'BROWSER_OPERATION_FAILED', message: error.message } };
+    } finally {
+      try { await release?.(); }
+      catch {
+        result = { ok: false, error: { code: 'BROWSER_RELEASE_FAILED', message: 'Browser operation finished, but its page ownership could not be released. Inspect the current state before continuing; do not replay the operation.' } };
+      }
+    }
+    // exploration.start binds the page and immediately acquires its Bridge lock.
+    // Replying before the release acknowledgement makes that operation block itself.
+    sendToNative({ type: 'call_tool_result', id: msg.id, result });
   } else if (msg.type === 'browser_state') {
     try {
       const tabId = await getExplorationTabId(msg.tabId);
@@ -4325,8 +4364,10 @@ function isMissingToolArg(value) {
 function normalizeToolArgsForSchema(args = {}, schema = {}) {
   if (!schema || schema.type !== "object") return args || {};
   const result = { ...(args || {}) };
+  delete result.__confirmed;
   const properties = schema.properties || {};
   for (const [name, definition] of Object.entries(properties)) {
+    if (name === '__confirmed') continue;
     const value = result[name];
     if (definition?.type === "integer" && typeof value === "string" && value.trim() !== "") {
       const numberValue = Number(value.trim());
@@ -4365,11 +4406,13 @@ function validateToolValueType(name, value, definition = {}) {
 function validateToolCallArgs(args = {}, schema = {}) {
   if (!schema || schema.type !== "object") return args || {};
   let result = { ...(args || {}) };
+  delete result.__confirmed;
   const properties = schema.properties || {};
   const required = schema.required || [];
   const controlArgs = new Set(["__confirmed", "dry-run"]);
 
   for (const [name, definition] of Object.entries(properties)) {
+    if (name === '__confirmed') continue;
     if (!(name in result) && Object.prototype.hasOwnProperty.call(definition, "default")) {
       result[name] = definition.default;
     }
@@ -4377,6 +4420,7 @@ function validateToolCallArgs(args = {}, schema = {}) {
   result = normalizeToolArgsForSchema(result, schema);
 
   for (const name of required) {
+    if (name === '__confirmed') continue;
     if (isMissingToolArg(result[name])) {
       throw new Error(`Missing required argument: ${name}`);
     }
@@ -4404,6 +4448,7 @@ function validateToolCallArgs(args = {}, schema = {}) {
   }
 
   for (const [name, definition] of Object.entries(properties)) {
+    if (name === '__confirmed') continue;
     if (isMissingToolArg(result[name])) continue;
     validateToolValueType(name, result[name], definition);
   }
@@ -4459,10 +4504,12 @@ function createDirectWecliRuntime() {
   function validateArgs(args = {}, schema = {}) {
     if (!schema || schema.type !== "object") return args || {};
     let result = { ...(args || {}) };
+    delete result.__confirmed;
     const properties = schema.properties || {};
     const required = schema.required || [];
 
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       if (!(name in result) && Object.prototype.hasOwnProperty.call(definition, "default")) {
         result[name] = definition.default;
       }
@@ -4470,6 +4517,7 @@ function createDirectWecliRuntime() {
     result = normalizeToolArgsForSchema(result, schema);
 
     for (const name of required) {
+      if (name === '__confirmed') continue;
       if (isMissingToolArg(result[name])) {
         throw createRuntimeError("INVALID_ARGS", `Missing required argument: ${name}`, { argument: name });
       }
@@ -4484,6 +4532,7 @@ function createDirectWecliRuntime() {
     }
 
     for (const [name, definition] of Object.entries(properties)) {
+      if (name === '__confirmed') continue;
       if (isMissingToolArg(result[name])) continue;
       validateToolValueType(name, result[name], definition);
     }
@@ -4492,10 +4541,7 @@ function createDirectWecliRuntime() {
   }
 
   function requireConfirmation(args = {}, toolName = "this command") {
-    if (args.__confirmed === true || args.yes === true) {
-      return true;
-    }
-    throw createRuntimeError("CONFIRMATION_REQUIRED", `${toolName} requires explicit user confirmation`, { toolName });
+    return true; // Deprecated compatibility helper; no confirmation protocol.
   }
 
   async function fetchJson(input, init = {}) {

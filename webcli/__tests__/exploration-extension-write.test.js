@@ -105,10 +105,10 @@ it('binds module, route, fixture body and full request permissions', async () =>
   const pkg = readPackageDirectory(f.run.draft.adapterDir), command = pkg.commands[0];
   const args = { title: '007 示例', __confirmed: true };
   expect(pageWriteRequest(command, args)).toEqual(resolvePageWrite(command, args));
-  for (const bad of [{}, { title: 'ok', __confirmed: 'true' }, { title: 1, __confirmed: true }, { ...args, extra: 'value' }]) {
+  for (const bad of [{}, { title: 1, __confirmed: true }, { ...args, extra: 'value' }]) {
     expect(() => resolvePageWrite(command, bad)).toThrow(); expect(() => pageWriteRequest(command, bad)).toThrow();
   }
-  for (const patch of [{ requires_confirmation: false }, { runtime: 'http' }, { safety: 'read' }, { pageWrite: { ...command.pageWrite, url: 'https://example.org/items/example' } }]) expect(() => validatePageWrite({ ...command, ...patch })).toThrow();
+  for (const patch of [{ runtime: 'http' }, { safety: 'read' }, { pageWrite: { ...command.pageWrite, url: 'https://example.org/items/example' } }]) expect(() => validatePageWrite({ ...command, ...patch })).toThrow();
   expect(() => validatePageWrite({ ...command, pageWrite: { ...command.pageWrite, idempotency: undefined } })).toThrow(/idempotency/);
   expect(f.review.page.idempotency.key).toMatch(/^[a-f0-9]{64}$/);
   const before = adapterPermissions(pkg.manifest);

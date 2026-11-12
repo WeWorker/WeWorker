@@ -17,6 +17,24 @@ vi.mock('../provider-config.js', async importOriginal => {
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules() })
 
+it('persists the built-in context window across unrelated saves, reload and reactivation', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-context-fixture-'))
+  vi.spyOn(os, 'homedir').mockReturnValue(root)
+  vi.resetModules()
+  const config = await import('../config.js')
+  const { activateBuiltinProvider, BUILTIN_PROVIDER } = await import('../builtin-provider.js')
+  expect(config.updateSettings(activateBuiltinProvider(BUILTIN_PROVIDER)).context_limit).toBe(200000)
+  config.updateSettings({ builtin_context_limits: { builtin: 128000 } })
+  expect(config.updateSettings({ welcome_featured_site_limit: 12 }).context_limit).toBe(128000)
+  config.resetSettingsStateForTests()
+  expect(config.getSettings().context_limit).toBe(128000)
+  config.updateSettings({ active_provider: 'anthropic', context_limit: 1000000 })
+  expect(config.updateSettings(activateBuiltinProvider(BUILTIN_PROVIDER)).context_limit).toBe(128000)
+  config.updateSettings({ builtin_context_limits: { builtin: -1 } })
+  config.resetSettingsStateForTests()
+  expect(config.getSettings().context_limit).toBe(200000)
+})
+
 it('keeps deployment keys out of settings during activation, unrelated saves and reload', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-fixture-'))
   vi.spyOn(os, 'homedir').mockReturnValue(root)
@@ -46,6 +64,25 @@ it('starts a fresh settings file in onboarding and persists completion', async (
   config.updateSettings({ onboarding_completed: true })
   config.resetSettingsStateForTests()
   expect(config.getSettings().onboarding_completed).toBe(true)
+})
+
+it('loads a built-in with its preset protocol even when disk retains a prior custom protocol', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-protocol-fixture-'))
+  vi.spyOn(os, 'homedir').mockReturnValue(root)
+  vi.stubEnv('WEWORKER_BUILTIN_API_KEY', 'fixture-runtime-only-key')
+  vi.resetModules()
+  const config = await import('../config.js')
+  const { BUILTIN_PROVIDER, activateBuiltinProvider } = await import('../builtin-provider.js')
+  const { prepareModelRuntime } = await import('../anthropic-endpoint-relay.js')
+  config.updateSettings({ ...activateBuiltinProvider(BUILTIN_PROVIDER), active_weworker_protocol: 'openai_responses' })
+  config.resetSettingsStateForTests()
+  const settings = config.getSettings()
+  expect(settings.active_weworker_protocol).toBe(BUILTIN_PROVIDER.weworker.protocol)
+  const runtime = await prepareModelRuntime(settings)
+  try {
+    expect(runtime.settings.base_url).toBe(BUILTIN_PROVIDER.weworker.baseUrl)
+    expect(runtime.settings.active_weworker_protocol).toBe('anthropic_messages')
+  } finally { await runtime.close() }
 })
 
 it('encrypts the user coding key and restores it across reload and provider switching', async () => {

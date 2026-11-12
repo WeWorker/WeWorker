@@ -168,6 +168,7 @@
         return {
           rank: i + 1,
           question: String(q.title || ""),
+          context_title: window.__zhihu.contextTitle(q.title),
           votes: a.voteup_count ?? a.reaction?.statistics?.like_count ?? null,
           comments: a.comment_count ?? null,
           created: a.created_time ?? a.created ?? null,

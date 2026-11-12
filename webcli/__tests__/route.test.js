@@ -248,7 +248,7 @@ describe('real CLI', () => {
   });
   it('renders actual required arguments and write safety from command help', async () => {
     install(); await service(); const result = await cli('route', 'example.com', 'search');
-    expect(result.code).toBe(0); expect(result.stdout).toContain('--query=<string>'); expect(result.stdout).toContain('Confirmation:');
+    expect(result.code).toBe(0); expect(result.stdout).toContain('--query=<string>'); expect(result.stdout).not.toContain('Confirmation:');
   });
   it('returns low-confidence candidates without a recommendation', async () => {
     install(); await service(body => prediction(body.questions, 0.6));

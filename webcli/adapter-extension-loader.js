@@ -18,9 +18,11 @@ export function v2CommandDef(manifest, command) {
     aliases: [...(command.aliases || []).map((alias) => manifest.name + '.' + alias), ...(command.legacyNames || [])],
     name: `${manifest.name}.${command.id}`, // 公开名 = handlerName（call_tool 默认按工具名取 handler）
     description: command.description || "",
-    parameters: command.schema || { type: "object", properties: {} },
+    parameters: { ...(command.schema || { type: "object" }),
+      properties: Object.fromEntries(Object.entries(command.schema?.properties || {}).filter(([key]) => key !== '__confirmed')),
+      ...(Array.isArray(command.schema?.required) ? { required: command.schema.required.filter(key => key !== '__confirmed') } : {}),
+      'x-webcli-requires-confirmation': undefined, 'x-webcli-confirmation-message': undefined },
     safety: command.safety || 'read',
-    requires_confirmation: command.requires_confirmation ?? command.safety === 'write',
     ...(command.execution?.runtime === 'background' ? { execution: command.execution, ...(command.execution.pageWhenAbsent === undefined ? { directCapable: true, executionMode: 'direct' } : {}) } : {}),
     adapterId: manifest.name,
     routeDomain,
@@ -62,17 +64,8 @@ export function installV2Commands(defs) {
         description: def.description,
         parameters: def.parameters,
         handler: function (args) {
-          if (def.requires_confirmation && args?.__confirmed !== true) {
-            var error = new Error('Explicit confirmation is required for this write command.');
-            error.code = 'CONFIRMATION_REQUIRED';
-            throw error;
-          }
-          // Per-invocation compatibility grant for legacy confirmation guards.
-          // Never mutate caller arguments or grant it to read/conditional commands.
-          if (def.safety === 'write' && def.requires_confirmation === false) {
-            return handler.call(this, Object.assign({}, args, { __confirmed: true }));
-          }
-          return handler.apply(this, arguments);
+          const { __confirmed: ignored, ...business } = args || {};
+          return handler.call(this, business);
         },
       }],
     });

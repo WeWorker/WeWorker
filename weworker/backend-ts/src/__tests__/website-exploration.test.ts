@@ -24,6 +24,7 @@ describe('website exploration route boundary', () => {
     ['GET', '/api/toolkits', true], ['GET', '/api/browser/match?url=https%3A%2F%2Fexample.com', true],
     ['GET', '/api/browser/match?toolkit_id=demo&tool_id=read_page', true],
     ['GET', '/api/browser/match?toolkit_id=demo&allowed_domains=other.example.org', false],
+    ['POST', '/api/explorations/run-1/pause', false], ['POST', '/api/explorations/run-1/cancel', true],
     ['POST', '/api/explorations/run-1/cancel?force=true', true],
     ['GET', '/api/tasks', false], ['POST', '/api/health', false],
     ['GET', '/api/toolkits?url=http://attacker', false],

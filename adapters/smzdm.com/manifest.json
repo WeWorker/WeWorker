@@ -50,7 +50,13 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "This package contains only search. Result links cannot become detail, comment, purchase or save actions until those Adapter commands exist."
+        }
+      ]
     }
   ]
 }

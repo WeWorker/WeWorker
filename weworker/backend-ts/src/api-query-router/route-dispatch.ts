@@ -1,17 +1,21 @@
 /**
- * 路由派发的**结果判定**：把「接口报错 / 超时 / 空结果 / 无法渲染」统一识别成「落回 LLM」，
+ * 路由派发的**结果判定**：把「接口报错 / 超时 / 没有内容 / 无法渲染」统一识别成「落回 LLM」，
  * 而不是把一句 `⚠️ 查询失败：…` 当成答案交给用户。
  *
  * 为什么要有这个模块：快速路（`llmMs = 0`）是**无模型兜底**的通道——一旦它把错误文案渲染成
  * 正文，这条回合就结束了，模型没有机会补答，用户也不知道自己看到的不是答案。所以在
  * dispatch 回来的那一刻就必须判出「这不是答案」，让调用方照常走 `streamChat`。
  *
- * 三条判定口径（与 `generic-renderer` 的渲染分支逐条对齐，避免「渲染当失败、判定当成功」）：
- * 1. **空**：`raw` 为空/全空白，或查询结果数组为空 → 没有可展示的记录；
+ * 判定口径（与 `generic-renderer` 的渲染分支逐条对齐，避免「渲染当失败、判定当成功」）：
+ * 1. **没有内容**：`raw` 为空/全空白（CLI 什么都没吐）→ 没答出来；
  * 2. **错误信封**：`raw` 解析出对象且 `error` 为真值（webcli `--output-format=json` 的错误形状，
  *    见 `webcli/output-format.js` 的 `isErrorEnvelope`），或 `ok: false` / `success: false`；
  * 3. **进程级报错**：非 JSON 输出以 `Error:` 开头 / 含栈帧 / 含网络错误码——这类文本是 CLI 崩溃，
  *    不是工具结果（正常结果一律 JSON，见 `buildCliCallArgs` 强制 `--output-format=json`）。
+ *
+ * **空数组不算失败**：查询结果为空是「查完了，就是没有」这一事实，必须由渲染层给用户一句
+ * 场景化话术（`emptyMessage` / `DEFAULT_EMPTY_ANSWER`），而不是丢掉结果让模型重查一遍。
+ * 鉴权失败与接口报错仍是失败——即使它们顺手带了个空数组，也按失败处理（见下面的顺序）。
  *
  * 另外两个失败来源由本模块兜住：
  * - **超时**：dispatch 超过预算（`WEWORKER_API_QUERY_ROUTE_TIMEOUT_MS`，默认 20s）即判超时。
@@ -23,10 +27,11 @@
  * 捕获并 `return false`（= 落回 LLM）。这是红线「不确定即落回」在执行期的落点。
  */
 
-import { detectMainArray } from '../webcli-result-project.js'
+// 空数组的判定已下移到渲染层（见文件头），本模块不再需要结果形状探测。
+
 
 /** 路由派发失败的四类来源（日志与测试断言用，不含用户数据）。 */
-export type RouteDispatchFailure = 'timeout' | 'thrown' | 'error_payload' | 'process_error' | 'empty'
+export type RouteDispatchFailure = 'timeout' | 'thrown' | 'authentication' | 'error_payload' | 'process_error' | 'empty'
 
 export type DispatchOutcome =
   | { ok: true; raw: string; ms: number }
@@ -66,6 +71,28 @@ function tryParseJson(raw: string): unknown {
 }
 
 /**
+ * 空数组却自称还有数据（`count`/`total` > 0）→ 自相矛盾，不能拿去回答「没有数据」。
+ * 只看顶层与一层 `data`/`result` 包装，够覆盖 WebCLI 的两种信封，不做深度猜测。
+ */
+function contradictoryEmptyList(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false
+  const visit = (record: Record<string, unknown>): boolean => {
+    const arrays = Object.values(record).filter(Array.isArray) as unknown[][]
+    if (!arrays.length || arrays.some((array) => array.length > 0)) return false
+    const counts = [record.count, record.total]
+    return counts.some((value) => (typeof value === 'number' && value > 0)
+      || (typeof value === 'string' && Number(value) > 0))
+  }
+  const root = parsed as Record<string, unknown>
+  if (visit(root)) return true
+  return ['data', 'result'].some((key) => {
+    const nested = root[key]
+    return !!nested && typeof nested === 'object' && !Array.isArray(nested)
+      && visit(nested as Record<string, unknown>)
+  })
+}
+
+/**
  * 判一条 dispatch 原始输出是不是「可渲染的答案」。
  * 返回 `null` = 可渲染；否则给失败类别与可读原因。
  */
@@ -85,30 +112,42 @@ export function classifyDispatchPayload(raw: string): { kind: RouteDispatchFailu
     const failureValue = record.error
     const failedFlag = record.ok === false || record.success === false
     const apiCode = record.code
-    const apiFailure = (typeof apiCode === 'number' || typeof apiCode === 'string')
-      && /^(?:4001|401|403|UNAUTHORIZED|AUTH_ERROR|NOT_LOGGED_IN)$/i.test(String(apiCode))
     const status = record.status
-    const authStatus = status === 401 || status === 403 || status === '401' || status === '403'
+    const authStatus = record.ok !== true && record.success !== true
+      && (status === 401 || status === 403 || status === '401' || status === '403')
     const authMessage = record.msg ?? record.message
-    const missingLogin = (record.level === 'error' || record.data == null)
+    const missingLogin = record.ok !== true && record.success !== true && (record.level === 'error' || record.data == null)
       && typeof authMessage === 'string' && AUTH_MESSAGE_RE.test(authMessage)
-    if (failureValue || failedFlag || apiFailure || authStatus || missingLogin) {
+    // Only a structured failure may classify an authentication error. A successful
+    // business payload can legitimately contain words such as "login required".
+    const authCode = record.ok !== true && record.success !== true
+      && /^(?:4001|401|403|UNAUTHORIZED|AUTH_ERROR|AUTH_REQUIRED|NOT_LOGGED_IN)$/i.test(String(apiCode ?? ''))
+    const authDetail = typeof failureValue === 'string' ? failureValue : authMessage
+    const authFailure = authCode || authStatus || (record.ok !== true && record.success !== true && (missingLogin
+      || ((failedFlag || !!failureValue) && typeof authDetail === 'string' && AUTH_MESSAGE_RE.test(authDetail))))
+    if (failureValue || failedFlag || authStatus || missingLogin || authCode) {
       const message =
         typeof failureValue === 'string'
           ? failureValue
           : failureValue
             ? JSON.stringify(failureValue)
             : String(record.msg ?? record.message ?? apiCode ?? 'failed')
-      const kind: RouteDispatchFailure = TIMEOUT_MESSAGE_RE.test(message) ? 'timeout' : 'error_payload'
+      const kind: RouteDispatchFailure = authFailure ? 'authentication'
+        : TIMEOUT_MESSAGE_RE.test(message) ? 'timeout' : 'error_payload'
       return { kind, detail: message.slice(0, 200) }
     }
   }
 
-  // A successful response with an empty result set is not a complete fast-path answer.
-  // Let the caller continue with the ordinary model turn without emitting an empty-result notice.
-  if (Array.isArray(parsed) && parsed.length === 0) return { kind: 'empty', detail: 'empty result array' }
-  const main = detectMainArray(parsed)
-  if (main && main.array.length === 0) return { kind: 'empty', detail: 'empty result array' }
+  // 空数组**不是**派发失败：它是「查完了，确实没有」这一事实，交给渲染层说一句友好话术
+  // （见 declarative-renderer 的 DEFAULT_EMPTY_ANSWER）。只有「连内容都没有」（空文本、
+  // 错误信封、鉴权、超时、进程报错）才算没答出来、才落回 LLM。
+  //
+  // 唯一的例外是**自相矛盾**的空结果：自称 count/total > 0 却给了空数组。这种 payload
+  // 说不清「到底有没有」，既不能答「没有数据」（可能是分页/筛选把数据切没了），也不能
+  // 拿空表当真，一律按没答出来落回模型。
+  if (contradictoryEmptyList(parsed)) {
+    return { kind: 'empty', detail: 'empty array contradicts a positive count' }
+  }
 
   if (typeof parsed === 'string' && AUTH_MESSAGE_RE.test(parsed)) {
     return { kind: 'error_payload', detail: parsed.slice(0, 200) }
@@ -124,7 +163,10 @@ export function classifyDispatchPayload(raw: string): { kind: RouteDispatchFailu
 
 /**
  * 渲染结果是否「什么都没答出来」：去掉标题行、表格分隔行、空白后为空即视为不可渲染。
- * 空结果提示不是完整答案；也要在推流前落回 LLM（包括声明式渲染的空数组）。
+ *
+ * 注意这里**不再按文案白名单**判定「空结果」：空数组会渲染成一句场景化话术
+ * （「经查询，没有…」），那是**有效回答**，不能因为它是"没有数据"就丢掉重查。
+ * 仍然拦的只有两类：正文为空，以及渲染器自己产出的失败/落盘指针文案。
  */
 export function isUnrenderableAnswer(text: string): boolean {
   const body = String(text ?? '')
@@ -134,7 +176,6 @@ export function isUnrenderableAnswer(text: string): boolean {
   // The generic renderer can return a human-readable failure or a spill pointer rather
   // than actual data. Neither is a complete answer on a zero-LLM fast path.
   return body.length === 0 || /^⚠️\s*(?:查询失败|查询返回为空|结果过大已落盘)/.test(body)
-    || body === '未查询到相关数据。' || body === '（无数据）'
 }
 
 /** 派发失败：路由执行层据此落回 LLM（消息自带类别，日志不用二次解析）。 */

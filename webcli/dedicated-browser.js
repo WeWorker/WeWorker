@@ -135,6 +135,9 @@ export function buildBrowserArgs({ userDataDir }) {
     '--enable-unsafe-extension-debugging',
     '--no-first-run',
     '--no-default-browser-check',
+    // Explicit HTTP URLs are supported in the managed browser. The matching
+    // profile setting is disabled through Settings below, including old profiles.
+    '--disable-features=HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites,HttpsFirstModeV2ForTypicallySecureUsers,HttpsFirstModeDefaultSettingPairsWithEsb',
     // No window at launch; the Bridge opens one off-screen, which later windows inherit.
     '--no-startup-window',
     `--window-position=${OFFSCREEN_POSITION},${OFFSCREEN_POSITION}`,
@@ -238,6 +241,39 @@ export function createCdpPipe(writable, readable, { timeoutMs = COMMAND_TIMEOUT_
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Change only our owned browser's HTTP confirmation setting through its Settings API. */
+export async function configureHttpNavigation(cdp, { browserName = 'Chrome', timeoutMs = 5000, pollMs = 100 } = {}) {
+  const url = browserName === 'Microsoft Edge' ? 'edge://settings/privacy' : 'chrome://settings/security';
+  let targetId, sessionId;
+  try {
+    ({ targetId } = await cdp.send('Target.createTarget', { url, background: true }));
+    ({ sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true }));
+    const deadline = Date.now() + timeoutMs;
+    const expression = `(async () => {
+      const api = globalThis.chrome?.settingsPrivate;
+      if (!api?.getAllPrefs) return { pending: true };
+      const prefs = await new Promise(resolve => api.getAllPrefs(resolve));
+      const pref = prefs.find(p => p.key === 'generated.https_first_mode_enabled')
+        || prefs.find(p => p.key === 'https_only_mode_enabled');
+      if (!pref) return { configured: false, reason: 'unsupported' };
+      const value = pref.type === 'BOOLEAN' ? false : 0;
+      if (pref.enforcement === 'ENFORCED') return { configured: pref.value === value, reason: 'policy' };
+      const changed = await new Promise(resolve => api.setPref(pref.key, value, '', resolve));
+      const current = await new Promise(resolve => api.getPref(pref.key, resolve));
+      return { configured: Boolean(changed && current.value === value), reason: 'setting' };
+    })()`;
+    for (;;) {
+      const result = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
+      if (result.result?.value?.configured !== undefined) return result.result.value;
+      if (result.exceptionDetails || Date.now() >= deadline) return { configured: false, reason: 'unavailable' };
+      await wait(pollMs);
+    }
+  } finally {
+    if (sessionId) await cdp.send('Target.detachFromTarget', { sessionId }).catch(() => {});
+    if (targetId) await cdp.send('Target.closeTarget', { targetId }).catch(() => {});
+  }
+}
+
 function localJson(port, pathname) {
   return new Promise((resolve, reject) => {
     const request = http.get({ host: '127.0.0.1', port, path: pathname, timeout: 1000 }, response => {
@@ -267,6 +303,35 @@ export async function discoverCdpEndpoint(userDataDir, targetId, { timeoutMs = R
     await wait(100);
   }
   throw new Error('无法确认本次 WeWorker 浏览器的 CDP 地址');
+}
+
+/**
+ * Attach to an already-running Chrome owned by this profile (Browser Keeper design).
+ * Reads DevToolsActivePort, verifies the endpoint matches the file, then opens a
+ * ws CDP client against the browser endpoint — no pipe required, so the Bridge
+ * can attach to a browser that outlives it.
+ * @returns {Promise<object>} ws CDP client (send/onEvent/closed/close)
+ */
+export async function attachExistingBrowser(userDataDir, { timeoutMs = READY_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = new Error('DevToolsActivePort 不存在或已失效');
+  while (Date.now() < deadline) {
+    try {
+      const [portText, browserPath] = fs.readFileSync(path.join(userDataDir, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+      const port = Number(portText);
+      if (!Number.isInteger(port) || port < 1 || port > 65535 || !/^\/devtools\/browser\/[\w-]+$/.test(browserPath)) throw new Error('Invalid discovery file');
+      const version = await localJson(port, '/json/version');
+      if (new URL(version.webSocketDebuggerUrl).pathname !== browserPath) throw new Error('Endpoint mismatch');
+      const { createCdpWebSocket } = await import('./cdp-websocket.js');
+      const cdp = await createCdpWebSocket(`ws://127.0.0.1:${port}${browserPath}`);
+      await cdp.send('Browser.getVersion'); // 活性验证
+      return cdp;
+    } catch (error) {
+      lastError = error;
+    }
+    await wait(200);
+  }
+  throw new Error(`无法连接已运行的 WeWorker 浏览器: ${lastError.message}`);
 }
 
 async function withTimeout(promise, ms, message) {
@@ -515,6 +580,13 @@ export class DedicatedBrowserManager {
 
     try {
       const version = await withTimeout(cdp.send('Browser.getVersion'), READY_TIMEOUT_MS, 'Browser did not respond');
+      try {
+        const http = await configureHttpNavigation(cdp, { browserName: executable.name });
+        if (!http.configured) this._log(`[browser] HTTP confirmation setting unchanged (${http.reason})`);
+      } catch {
+        // Enterprise policy or an unsupported Settings API must not prevent startup.
+        this._log('[browser] HTTP confirmation setting unavailable; manual confirmation may be needed');
+      }
       let { id: extensionId } = await cdp.send('Extensions.loadUnpacked', { path: this._extensionDir });
       let digest = this._extensionDigest();
       try {

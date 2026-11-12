@@ -63,8 +63,11 @@ describe('Property 6: 日志前缀统一更新', () => {
     expect(indexSource).not.toContain('[WebMCP]')
   })
 
-  it('webcli/index.js source contains "[WebCLI]" prefix', () => {
-    expect(indexSource).toContain('[WebCLI]')
+  it('webcli/index.js 日志前缀统一由 cliName.js 派生(webgo 包输出 [WebGo],webcli 包输出 [WebCLI])', () => {
+    // 品牌自适应:前缀不再硬编码 [WebCLI],统一经 cliLabel() 按包身份派生
+    expect(indexSource).toContain('cliLabel()')
+    expect(indexSource).not.toContain('[WebCLI]')
+    expect(indexSource).not.toContain('[WebMCP]')
   })
 
   it('webcli/bridge.js source does NOT contain "[WebMCP]"', () => {

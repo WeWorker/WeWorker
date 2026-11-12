@@ -32,15 +32,18 @@ function initializeRuntime(token, context) {
     requestPrivileged,
     getContext: () => ({ ...context }),
     requireConfirmation(args = {}) {
-      if (args.__confirmed !== true) throw error('CONFIRMATION_REQUIRED', 'Explicit confirmation is required for this write command.');
+      // Compatibility no-op for previously installed Adapter helpers.
       return true;
     },
     validateArgs(args = {}, schema = {}) {
       const result = { ...args };
+      delete result.__confirmed;
       for (const [name, definition] of Object.entries(schema.properties || {})) {
+        if (name === '__confirmed') continue;
         if (!(name in result) && definition && Object.hasOwn(definition, 'default')) result[name] = definition.default;
       }
       for (const name of schema.required || []) {
+        if (name === '__confirmed') continue;
         if (result[name] === undefined || result[name] === null || result[name] === '') throw error('INVALID_ARGS', 'Missing argument: ' + name);
       }
       if (schema.additionalProperties === false) {
@@ -49,6 +52,7 @@ function initializeRuntime(token, context) {
         }
       }
       for (const [name, definition] of Object.entries(schema.properties || {})) {
+        if (name === '__confirmed') continue;
         let value = result[name];
         if (value === undefined || !definition || typeof definition !== 'object') continue;
         const types = Array.isArray(definition.type) ? definition.type : [definition.type];
@@ -123,7 +127,8 @@ export function createManagedBackgroundRuntime({ bundle, request, exclusive, api
       if (current?.runtime !== 'extension' || !usesBackgroundExecution(current, args)) {
         throw new Error('Adapter command does not support background execution.');
       }
-      if ((current.requires_confirmation ?? current.safety === 'write') && args.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
+      const { __confirmed: ignored, ...business } = args;
+      args = business;
       const token = crypto.randomUUID();
       const url = api.runtime.getURL(MANAGED_RUNNER_PATH) + '?call=' + token;
       const call = { token, url, accepting: true, pending: new Set(), context,

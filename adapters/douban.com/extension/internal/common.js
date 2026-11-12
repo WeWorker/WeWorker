@@ -474,6 +474,7 @@ async function loadDoubanBookHot(limit) {
             .join(' / ');
 
           books.push({
+            id: url.match(/^https:\/\/book\.douban\.com\/subject\/(\d+)\/?(?:[?#]|$)/)?.[1] || '',
             rank: parseInt(normalize(el.querySelector('.green-num-box')?.textContent), 10) || books.length + 1,
             title,
             rating: parseFloat(ratingText) || null,

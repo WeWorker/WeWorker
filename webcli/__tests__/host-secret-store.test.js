@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createHostSecretStore } from '../host-secret-store.js';
+import { createHostSecretStore, resolveHostStateDirectory } from '../host-secret-store.js';
 
 const roots = [];
 async function fixture() {
@@ -12,7 +12,7 @@ async function fixture() {
   roots.push(root);
   return path.join(root, 'secrets');
 }
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 // Stand-in only for tests; production uses the OS-backed protector.
 const backend = {
@@ -22,6 +22,21 @@ const backend = {
 };
 
 describe('host secret store', () => {
+  it('keeps embedded host secrets separate from standalone state and from other hosts', async () => {
+    const directory = await fixture();
+    expect(resolveHostStateDirectory({})).toBe(path.join(os.homedir(), '.webcli'));
+    expect(() => resolveHostStateDirectory({ WEBCLI_HOST_STATE_DIR: 'relative' })).toThrow(/absolute/);
+    const standalone = createHostSecretStore({ scope: 'fixture-provider', directory, backend });
+    await standalone.putSecret('account', 'standalone-placeholder');
+    vi.stubEnv('WEBCLI_HOST_STATE_DIR', path.dirname(directory));
+    const embedded = createHostSecretStore({ scope: 'fixture-provider', directory, backend });
+    expect(await embedded.getSecret('account')).toBeNull();
+    await embedded.putSecret('account', 'embedded-placeholder');
+    expect(await standalone.getSecret('account')).toBe('standalone-placeholder');
+    expect(await createHostSecretStore({ scope: 'fixture-provider', directory, backend }).getSecret('account')).toBe('embedded-placeholder');
+    vi.stubEnv('WEBCLI_HOST_STATE_DIR', path.join(path.dirname(directory), 'another-host'));
+    expect(await createHostSecretStore({ scope: 'fixture-provider', directory, backend }).getSecret('account')).toBeNull();
+  });
   it('isolates scopes and accounts and preserves the exact secret value', async () => {
     const directory = await fixture();
     const a = createHostSecretStore({ scope: 'provider-a', directory, backend });

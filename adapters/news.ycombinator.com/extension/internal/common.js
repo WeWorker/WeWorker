@@ -190,7 +190,8 @@
     if (storyBody) storyParts.push('\n' + storyBody);
     if (story.url) storyParts.push('\n' + story.url);
     results.push({
-      type: 'POST',
+      item_id: story.id ?? id,
+      type: story.type === 'comment' ? 'COMMENT' : 'POST',
       /* Missing by/score stay null (unknown); a real 0 score is preserved.
        * "[deleted]" is only used when the API itself reports deleted items,
        * and those are skipped before rendering. */
@@ -206,6 +207,7 @@
         ? bodyText.slice(0, maxLength) + '...'
         : bodyText;
       results.push({
+        item_id: node.id ?? null,
         type: depth === 0 ? 'L0' : 'L' + depth,
         /* Missing author stays null (unknown); deleted/dead comments are
          * skipped above, so absence here never implies deletion. */
@@ -273,7 +275,8 @@
         text: '[' + failedFetches + ' comment fetch(es) failed and were skipped]',
       });
     }
-    return results;
+    return results.map((row, index) => ({ row_ref: index + 1, item_id: null, ...row,
+      selection_title: Array.from(row.text.replace(/\s+/g, ' ').trim()).slice(0, 60).join('') }));
   }
 
   async function userProfile(args) {

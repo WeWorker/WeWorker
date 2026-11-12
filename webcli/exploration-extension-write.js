@@ -9,8 +9,8 @@ export function validatePageWrite(command) {
   if (command.pageWrite === undefined) return;
   const spec = command.pageWrite, route = command.pageRoute;
   if (!object(spec) || spec.version !== 1 || Object.keys(spec).some(key => !['version', 'url', 'method', 'bodyParameters', 'idempotency'].includes(key))
-    || command.runtime !== 'extension' || command.safety !== 'write' || command.requires_confirmation === false || command.execution
-    || command.uiWrite || command.pageWorkflow || command.pageStrategy || !route || Object.keys(route).some(key => !['origin', 'pathname'].includes(key))) fail('Page writes require an exact foreground route, write safety and confirmation.');
+    || command.runtime !== 'extension' || command.safety !== 'write' || command.execution
+    || command.uiWrite || command.pageWorkflow || command.pageStrategy || !route || Object.keys(route).some(key => !['origin', 'pathname'].includes(key))) fail('Page writes require an exact foreground route and write safety.');
   let page;
   try { page = new URL(route.origin + route.pathname); } catch { fail('Invalid page write route.'); }
   if (typeof route.pathname !== 'string' || !/^\/(?!\/)/.test(route.pathname) || page.origin !== route.origin || page.pathname !== route.pathname
@@ -24,15 +24,14 @@ export function validatePageWrite(command) {
   if (!object(spec.idempotency) || Object.keys(spec.idempotency).sort().join(',') !== 'header,serverDeduplicates' || !['idempotency-key', 'x-idempotency-key'].includes(spec.idempotency.header) || spec.idempotency.serverDeduplicates !== true) fail('Page writes require an explicit server idempotency header contract with serverDeduplicates:true. Browser transport can resend requests.');
   const schema = command.schema;
   const names = Object.values(spec.bodyParameters).sort();
-  if (!schema || schema.type !== 'object' || schema.additionalProperties !== false || schema['x-webcli-requires-confirmation'] !== true
-    || JSON.stringify(Object.keys(schema.properties || {}).sort()) !== JSON.stringify([...names, '__confirmed'].sort())
-    || schema.properties.__confirmed?.type !== 'boolean' || JSON.stringify([...(schema.required || [])].sort()) !== JSON.stringify(names)
-    || names.some(name => schema.properties[name]?.type !== 'string' || Object.hasOwn(schema.properties[name], 'default'))) fail('Page write arguments must be required strings without defaults, plus boolean __confirmed.');
+  if (!schema || schema.type !== 'object' || schema.additionalProperties !== false
+    || JSON.stringify(Object.keys(schema.properties || {}).filter(key => key !== '__confirmed').sort()) !== JSON.stringify([...names].sort())
+    || JSON.stringify([...(schema.required || [])].filter(key => key !== '__confirmed').sort()) !== JSON.stringify(names)
+    || names.some(name => schema.properties[name]?.type !== 'string' || Object.hasOwn(schema.properties[name], 'default'))) fail('Page write arguments must be required strings without defaults, without control parameters.');
 }
 
 export function resolvePageWrite(command, args) {
   validatePageWrite(command);
-  if (args?.__confirmed !== true) throw Object.assign(new Error('Explicit confirmation is required.'), { code: 'CONFIRMATION_REQUIRED' });
   const names = Object.values(command.pageWrite.bodyParameters);
   if (!object(args) || Object.keys(args).some(key => key !== '__confirmed' && !names.includes(key))
     || names.some(name => typeof args[name] !== 'string' || args[name].length > 10000)) fail('Provide the declared string arguments (10000 characters maximum each).');
@@ -44,7 +43,6 @@ export function resolvePageWrite(command, args) {
 // manifest; neither preview nor normal calls execute author JavaScript live.
 export function pageWriteModule(id) {
   return `(function () { window.__webcliRegisterCommand(${JSON.stringify(id)}, function (args = {}) {
-  if (args.__confirmed !== true) return {blocked:true, requiresConfirmation:true};
   throw new Error('PAGE_WRITE_DISPATCH_REQUIRED');
 }); })();\n`;
 }
@@ -56,16 +54,16 @@ export function buildExtensionWriteTool(site, tool, candidate, origin) {
   const names = Object.values(pageWrite.bodyParameters);
   if (JSON.stringify(Object.keys(pageWrite.bodyParameters).sort()) !== JSON.stringify([...(candidate.requestEvidence?.bodyKeys || [])].sort())) fail('Page write JSON fields must match the declared or observed source fields.');
   const schema = { type: 'object', additionalProperties: false, required: names,
-    properties: { ...Object.fromEntries(names.map(name => [name, { type: 'string', maxLength: 10000 }])), __confirmed: { type: 'boolean' } },
-    'x-webcli-requires-confirmation': true, 'x-webcli-agent-authored': true };
+    properties: { ...Object.fromEntries(names.map(name => [name, { type: 'string', maxLength: 10000 }])) },
+    'x-webcli-agent-authored': true };
   const command = { runtime: 'extension', safety: 'write', pageWrite, pageRoute: { origin, pathname: tool.pagePathname }, schema };
   validatePageWrite(command);
-  return { toolDefinition: { name: site + '.' + tool.name, access: 'write', description: tool.purpose || 'Perform one confirmed same-origin page JSON request.',
+  return { toolDefinition: { name: site + '.' + tool.name, access: 'write', description: tool.purpose || 'Perform one same-origin page JSON request.',
     pageWrite, pageRoute: command.pageRoute, parameters: schema,
     generationSource: { ...buildApiSourceEvidence(candidate, { sourceKind: candidate.declared ? 'authored_write_declaration' : 'observed_write' }), risk: { level: 'write', confidence: 1 } } },
     v2Content: pageWriteModule(id) };
 }
 
 export function assertPageWriteModule(command, files) {
-  if (command.pageWrite && files.get(command.module)?.toString('utf8') !== pageWriteModule(command.id)) fail('Page write modules are fixed registration stubs. Author request bindings in the manifest; arbitrary page code is not supported.');
+  if (command.pageWrite && files.get(command.module)?.toString('utf8').replace('  if (args.__confirmed !== true) return {blocked:true, requiresConfirmation:true};\n', '') !== pageWriteModule(command.id)) fail('Page write modules are fixed registration stubs. Author request bindings in the manifest; arbitrary page code is not supported.');
 }

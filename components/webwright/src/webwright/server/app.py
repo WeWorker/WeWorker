@@ -23,15 +23,18 @@ from webwright.resources import BundledResources
 from webwright.runtime_identity import RuntimeIdentity
 from webwright.runtime_launcher import RuntimeLauncher
 from webwright.server.artifacts import (
+    environment_runtime_state,
     read_messages,
     read_script,
     read_steps,
     resolve_task_file,
     task_artifact_summary,
+    try_read_json,
 )
 from webwright.server.browser import (
     DEFAULT_CDP_URL,
     browser_match,
+    browser_activate,
     browser_open,
     browser_status,
     browser_tabs,
@@ -162,9 +165,6 @@ def _openapi_spec() -> dict[str, Any]:
                 "get": op("Get Exploration messages"),
                 "post": op("Add an Exploration follow-up"),
             },
-            "/api/explorations/{exploration_id}/pause": {
-                "post": op("Pause an Exploration")
-            },
             "/api/explorations/{exploration_id}/resume": {
                 "post": op("Resume an Exploration")
             },
@@ -190,7 +190,6 @@ def _openapi_spec() -> dict[str, Any]:
                 "get": op("Get UI-safe trajectory messages"),
                 "post": op("Add a follow-up instruction and continue"),
             },
-            "/api/tasks/{task_id}/pause": {"post": op("Request cooperative pause")},
             "/api/tasks/{task_id}/resume": {"post": op("Resume a waiting task")},
             "/api/tasks/{task_id}/cancel": {"post": op("Cancel a task")},
             "/api/tasks/{task_id}/replay": {"post": op("Start replaying generated steps")},
@@ -223,7 +222,7 @@ Base URL: `{base_url}`
 ## Browser
 
 - `GET /api/browser/status` - check whether `http://127.0.0.1:9222` is reachable; tasks may auto-start Chrome/Edge.
-- `POST /api/browser/open` - open or focus the Agent browser. Optional body: `{{"url":"https://example.com/"}}` opens or reuses that exact page.
+- `POST /api/browser/open` - open or focus the WeWorker browser. Optional body: `{{"url":"https://example.com/"}}` opens or reuses that exact page; `{{"exploration_id":"exp_example"}}` focuses the original page of an Exploration waiting for human intervention.
 - `GET /api/browser/match?url=https://example.com` - find the first exact open tab for a URL.
 - `GET /api/browser/tabs` - list CDP page targets.
 
@@ -280,7 +279,6 @@ It has no independent model configuration API or persistent model store.
 - `GET /api/explorations/{{exploration_id}}/timeline` - get the user-facing Agent conversation timeline.
 - `GET /api/explorations/{{exploration_id}}/messages` - get internal diagnostic trajectory messages.
 - `POST /api/explorations/{{exploration_id}}/messages` - add a follow-up.
-- `POST /api/explorations/{{exploration_id}}/pause` - request cooperative pause.
 - `POST /api/explorations/{{exploration_id}}/resume` - resume after waiting for user.
 - `POST /api/explorations/{{exploration_id}}/cancel` - cancel an Exploration.
 - `POST /api/explorations/{{exploration_id}}/replay` - replay generated steps.
@@ -299,8 +297,6 @@ It has no independent model configuration API or persistent model store.
 - `GET /api/tasks/{{task_id}}/messages` - get UI-safe trajectory messages.
 - `POST /api/tasks/{{task_id}}/messages` - continue with follow-up.
   Body: `{{"content":"..."}}`
-- `POST /api/tasks/{{task_id}}/pause` - request cooperative pause.
-  Body: `{{"reason":"optional"}}`; response status is `{TaskStatus.PAUSE_REQUESTED.value}`.
 - `POST /api/tasks/{{task_id}}/resume` - resume after status becomes `{TaskStatus.WAITING_FOR_USER.value}`.
   Body: `{{"note":"optional"}}`
 - `POST /api/tasks/{{task_id}}/cancel?force=false` - cancel cooperatively; `force=true` terminates the child process.
@@ -387,16 +383,16 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
     )
     status = view["status"]
     active_issue = None
-    if status == TaskStatus.PAUSE_REQUESTED.value:
+    if status == TaskStatus.WAITING_FOR_USER.value:
         active_issue = {
-            "type": "pause_requested",
-            "message": "等待当前步骤完成后暂停；如步骤长时间无响应，可取消本次探索。",
+            "type": ("browser_confirmation_required" if view["error_code"] == "navigation_blocked_by_client"
+                     else "user_takeover_required"),
+            "message": (view["error"] if view["error_code"] == "navigation_blocked_by_client"
+                        else "请在 WeWorker 浏览器中完成所需操作，然后输入指令继续探索。"),
         }
-    elif status == TaskStatus.WAITING_FOR_USER.value:
-        active_issue = {
-            "type": "user_takeover_required",
-            "message": "请在 Agent 浏览器中完成所需操作，然后输入指令继续探索。",
-        }
+        intervention = task.get("user_intervention")
+        if isinstance(intervention, dict):
+            active_issue = {"type": "user_takeover_required", **intervention}
     elif status == TaskStatus.FAILED.value:
         active_issue = {
             "type": "failed",
@@ -482,6 +478,7 @@ def _exploration_timeline(
     append_turns(0)
     for step in sorted(steps, key=lambda item: int(item.get("step") or 0)):
         step_number = int(step.get("step") or 0)
+        intervention = step.get("user_intervention") or {}
         items.append(
             {
                 "id": f"step_{step_number}",
@@ -489,7 +486,7 @@ def _exploration_timeline(
                 "step": step_number,
                 "status": step.get("status", ""),
                 "done": bool(step.get("done", False)),
-                "thought": str(step.get("thought") or ""),
+                "thought": str(intervention.get("message") or step.get("thought") or ""),
                 "code": str(step.get("code") or ""),
                 "observation": _timeline_observation(step),
             }
@@ -755,6 +752,20 @@ def create_app(
     def open_browser():
         try:
             payload = _request_json()
+            if payload.get("exploration_id"):
+                task = task_store.read_exploration(str(payload["exploration_id"]))
+                if task.get("status") != TaskStatus.WAITING_FOR_USER.value:
+                    raise InvalidStateError("当前探索未在等待人工处理。")
+                output_dir = Path(task["output_dir"])
+                attention = (try_read_json(output_dir / "browser_attention.json") or {}
+                             if task.get("error_code") == "navigation_blocked_by_client"
+                             else environment_runtime_state(output_dir))
+                target_id = str(attention.get("target_id") or task.get("active_target_id") or "")
+                if target_id:
+                    browser_activate(app.config["WEBWRIGHT_CDP_URL"], target_id,
+                                     str(attention.get("browser_instance_id") or ""))
+                    return jsonify({"available": True})
+                raise InvalidStateError("原探索页面不可用，请重新选择页面发起探索。")
             return jsonify(
                 browser_open(
                     app.config["WEBWRIGHT_CDP_URL"],
@@ -1412,19 +1423,6 @@ def create_app(
             {"exploration_id": exploration_id, "status": exploration["status"]}
         )
 
-    @app.post("/api/explorations/<exploration_id>/pause")
-    def pause_exploration(exploration_id: str):
-        task_store.read_exploration(exploration_id)
-        payload = request.get_json(silent=True) or {}
-        if not isinstance(payload, dict):
-            raise ValueError("Request body must be a JSON object.")
-        exploration = manager.pause_task(
-            exploration_id, reason=str(payload.get("reason") or "")
-        )
-        return jsonify(
-            {"exploration_id": exploration_id, "status": exploration["status"]}
-        )
-
     @app.post("/api/explorations/<exploration_id>/resume")
     def resume_exploration(exploration_id: str):
         task_store.read_exploration(exploration_id)
@@ -1614,14 +1612,6 @@ def create_app(
         payload = _request_json()
         task = manager.continue_task(task_id=task_id, followup=str(payload.get("content") or ""))
         return jsonify({"task_id": task_id, "status": task["status"], "message": "Follow-up queued."})
-
-    @app.post("/api/tasks/<task_id>/pause")
-    def pause_task(task_id: str):
-        payload = request.get_json(silent=True) or {}
-        if not isinstance(payload, dict):
-            raise ValueError("Request body must be a JSON object.")
-        task = manager.pause_task(task_id, reason=str(payload.get("reason") or ""))
-        return jsonify({"task_id": task_id, "status": task["status"]})
 
     @app.post("/api/tasks/<task_id>/resume")
     def resume_task(task_id: str):

@@ -87,8 +87,18 @@ function weekdayField(weekdays) {
   return days.length === ALL_WEEKDAYS.length ? '*' : days.join(',')
 }
 
-export function buildCron({ frequency, hour, minute, weekday, weekdays, minuteInterval }) {
-  const days = weekdayField(weekdays)
+function executionWeekdays({ frequency, weekday, weekdays, weekdayPreset }) {
+  const days = normalizeWeekdays(weekdays)
+  // Explicit weekday selections define all weekly runs; presets retain the single-day selector.
+  if (frequency === 'weekly' && weekdayPreset !== null) {
+    return days.filter((day) => day === Number(weekday ?? 1))
+  }
+  return days
+}
+
+export function buildCron(schedule) {
+  const { frequency, hour, minute, minuteInterval } = schedule
+  const days = weekdayField(executionWeekdays(schedule))
   if (!days) return ''
 
   switch (frequency) {
@@ -97,11 +107,8 @@ export function buildCron({ frequency, hour, minute, weekday, weekdays, minuteIn
     case 'hourly':
       return `${minute || 0} * * * ${days}`
     case 'daily':
-      return `${minute ?? 0} ${hour ?? 9} * * ${days}`
     case 'weekly':
-      return normalizeWeekdays(weekdays).includes(Number(weekday))
-        ? `${minute ?? 0} ${hour ?? 9} * * ${weekday ?? 1}`
-        : ''
+      return `${minute ?? 0} ${hour ?? 9} * * ${days}`
     default:
       return '0 * * * *'
   }
@@ -127,19 +134,17 @@ export function parseCron(expression) {
     return { ...fallback, frequency: 'hourly', minute: parseInt(min, 10), weekdays, weekdayPreset: getWeekdayPreset(weekdays) }
   }
 
-  if (/^\d+$/.test(min) && /^\d+$/.test(hr) && /^\d$/.test(dow)) {
-    return { ...fallback, frequency: 'weekly', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekday: String(Number(dow) % 7) }
-  }
-
   if (/^\d+$/.test(min) && /^\d+$/.test(hr)) {
-    return { ...fallback, frequency: 'daily', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekdays, weekdayPreset: getWeekdayPreset(weekdays) }
+    const weekdayPreset = getWeekdayPreset(weekdays)
+    return { ...fallback, frequency: weekdayPreset === null ? 'weekly' : 'daily', hour: parseInt(hr, 10), minute: parseInt(min, 10), weekday: String(weekdays[0] ?? 1), weekdays, weekdayPreset }
   }
 
   return fallback
 }
 
-export function getNextRuns({ frequency, hour, minute, weekday, weekdays, minuteInterval }, count = 3, now = new Date()) {
-  const allowedDays = new Set(normalizeWeekdays(weekdays))
+export function getNextRuns(schedule, count = 3, now = new Date()) {
+  const { frequency, hour, minute, minuteInterval } = schedule
+  const allowedDays = new Set(executionWeekdays(schedule))
   if (allowedDays.size === 0) return []
   const runs = []
 
@@ -161,25 +166,13 @@ export function getNextRuns({ frequency, hour, minute, weekday, weekdays, minute
       if (allowedDays.has(candidate.getDay())) runs.push(new Date(candidate))
       candidate.setHours(candidate.getHours() + 1)
     }
-  } else if (frequency === 'daily') {
+  } else if (frequency === 'daily' || frequency === 'weekly') {
     const candidate = new Date(now)
     candidate.setHours(hour ?? 9, minute || 0, 0, 0)
     if (candidate <= now) candidate.setDate(candidate.getDate() + 1)
     while (runs.length < count) {
       if (allowedDays.has(candidate.getDay())) runs.push(new Date(candidate))
       candidate.setDate(candidate.getDate() + 1)
-    }
-  } else if (frequency === 'weekly') {
-    const day = Number(weekday ?? 1)
-    if (!allowedDays.has(day)) return []
-    const candidate = new Date(now)
-    candidate.setHours(hour ?? 9, minute ?? 0, 0, 0)
-    let diff = (day - candidate.getDay() + 7) % 7
-    if (diff === 0 && candidate <= now) diff = 7
-    candidate.setDate(candidate.getDate() + diff)
-    for (let index = 0; index < count; index += 1) {
-      runs.push(new Date(candidate))
-      candidate.setDate(candidate.getDate() + 7)
     }
   }
 

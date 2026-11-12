@@ -62,7 +62,6 @@
         "to": "backend-ts",
         "filter": [
           "server.cjs",
-          "query-routes.json",
           "router-config/**",
           "api-exploration-skills/**",
           "node_modules/**"
@@ -158,6 +157,15 @@
           "to": "tools",
           "filter": [
             "sd_decrypt.exe"
+          ]
+        },
+        {
+          "from": "build/node-runtime/",
+          "to": "node-runtime",
+          "filter": [
+            "node.exe",
+            "LICENSE",
+            "provenance.json"
           ]
         }
       ],

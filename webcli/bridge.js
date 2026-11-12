@@ -1,3 +1,4 @@
+import { businessArgs } from './business-args.js';
 import { usesWorkflowOrigins } from './page-workflow-origins.js';
 import { requiresWorkflowFrameCapability } from './page-workflow-frames.js';
 import { usesWorkflowControl } from './page-workflow-control.js';
@@ -33,12 +34,12 @@ import { SiteLoginCoordinator, DEFAULT_LOGIN_WAIT_MS, MAX_LOGIN_WAIT_MS } from "
 import { CredentialVault } from "./credential-vault.js";
 import { executeHostCli } from './host-cli-provider.js';
 import { invokeHostCli } from './host-cli-runtime.js';
+import { hostArgumentDiagnostic } from './host-cli-arguments.js';
 import { usesBackgroundExecution } from './conditional-execution.js';
-import { authorizeHostCliWrite } from './host-cli-write-authorization.js';
 import { adapterHelperPatterns, adapterPrimaryHost, hostMatchesPattern } from './host-scope.js';
 import { watchAdapterState } from './adapter-state-watch.js';
 import { describeAdapterCatalog, readAdapterBundle, resolveAdapterCall } from './adapter-host.js';
-import { reportMetric, buildUploadConfig } from "./metrics.js";
+import { reportMetric, buildUploadConfig, loadIdentityCache, saveIdentityCache } from "./metrics.js";
 import {
   assertAllowedOpenBrowserUrl,
   buildAllowedOpenBrowserOrigins,
@@ -619,6 +620,10 @@ export class WebSocketBridge extends EventEmitter {
       if (this._metricsCfg.endpoint) {
         process.stderr.write(`[Bridge] Metrics upload enabled → ${this._metricsCfg.endpoint}\n`);
       }
+      // 身份兜底:whoami 失败(client-xx)时异步经扩展代取 HRM 用户名,绝不阻塞 init
+      if (this._metricsCfg.meta?.userSource === "client-id-fallback") {
+        this.maybeResolveIdentity().catch(() => {});
+      }
     } catch {
       /* 上报初始化失败不影响服务 */
     }
@@ -715,7 +720,7 @@ export class WebSocketBridge extends EventEmitter {
                 });
                 return;
               }
-              if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result') {
+              if (msg.type === 'list_tools_result' || msg.type === 'call_tool_result' || msg.type === 'call_tool_error' || msg.type === 'get_active_tab_result' || msg.type === 'get_trace_logs_result' || msg.type === 'validate_generation_preview_result' || msg.type === 'identity_fetch_result') {
                 // 来自Chrome扩展的消息
                 this._handleExtensionMessage(msg, ws);
               } else if (msg.type === 'profile_command') {
@@ -886,17 +891,19 @@ export class WebSocketBridge extends EventEmitter {
   _handleExtensionMessage(msg, ws) {
     const pending = this._pendingRequests.get(msg.id);
     if (!pending || pending.ws !== ws) return;
-    const accepted = new Set(['call_tool_result', 'call_tool_error', 'list_tools_result', 'get_active_tab_result', 'get_trace_logs_result', 'validate_generation_preview_result']);
+    const accepted = new Set(['call_tool_result', 'call_tool_error', 'list_tools_result', 'get_active_tab_result', 'get_trace_logs_result', 'validate_generation_preview_result', 'identity_fetch_result']);
     if (!accepted.has(msg.type)) return;
     clearTimeout(pending.timer);
     pending.detachClient?.();
     pending.controller?.abort();
     this._pendingRequests.delete(msg.id);
-    if (msg.type === 'call_tool_error' || msg.ok === false) {
-      const error = new Error(pending.hostWriteDispatched ? 'The write result is unknown; inspect the target before retrying.' : msg.error || 'Extension request failed');
+    if (pending.hostArgumentError || msg.type === 'call_tool_error' || msg.ok === false) {
+      const error = !pending.hostWriteDispatched && pending.hostArgumentError
+        ? pending.hostArgumentError
+        : new Error(pending.hostWriteDispatched ? 'The write result is unknown; inspect the target before retrying.' : msg.error || 'Extension request failed');
       error.fromExtension = true;
       if (pending.hostWriteDispatched) error.code = 'HOST_CLI_OUTCOME_UNKNOWN';
-      else if (typeof msg.code === 'string' && msg.code) error.code = msg.code;
+      else if (!pending.hostArgumentError && typeof msg.code === 'string' && msg.code) error.code = msg.code;
       if (!pending.hostWriteDispatched && error.code === 'HOST_CLI_REQUIRED_FIELDS') {
         const details = safeRequiredFields(msg.details);
         if (details) error.details = details;
@@ -1108,8 +1115,10 @@ export class WebSocketBridge extends EventEmitter {
       process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 收到调用: ${toolName}\n`);
 
       try {
-        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId });
-        this._reply(ws, { type: 'call_tool_result', id, result, traceID });
+        let prepared = false;
+        const result = await this.callTool(toolName, args, traceID, msg.adapterSnapshot, { loginWaitMs: msg.loginWaitMs, workId: msg.workId,
+          onPrepared: () => { prepared = true; } });
+        this._reply(ws, { type: 'call_tool_result', id, result, traceID, ...(prepared ? { execution: { phase: 'prepared' } } : {}) });
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用成功: ${toolName} (${callTiming ? Date.now() - callTiming.entry.receivedAt : '?'}ms)\n`);
       } catch (err) {
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用失败: ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
@@ -1117,6 +1126,7 @@ export class WebSocketBridge extends EventEmitter {
           type: 'call_tool_error', id, error: err.message, traceID,
           ...(typeof err.code === 'string' && err.code ? { code: err.code } : {}),
           ...(err.code === 'HOST_CLI_REQUIRED_FIELDS' && safeRequiredFields(err.details) ? { details: safeRequiredFields(err.details) } : {}),
+          ...(hostArgumentDiagnostic(err) ? { details: hostArgumentDiagnostic(err).details } : {}),
           ...(err.auth && typeof err.auth === 'object' ? { auth: err.auth } : {}),
         });
       } finally {
@@ -1713,11 +1723,46 @@ export class WebSocketBridge extends EventEmitter {
     return this._requestNow(msg, timeout, traceID, raw);
   }
 
+  // ─── 上报身份兜底:whoami 失败时经扩展代取 HRM 用户名 ─────────────────────
+
+  static IDENTITY_BACKOFF_MS = 60 * 60 * 1000;
+  static IDENTITY_TIMEOUT_MS = 5000;
+
+  async maybeResolveIdentity() {
+    try {
+      // 身份接口 URL 由部署侧注入(WEBCLI_IDENTITY_URL,与 WEBCLI_METRICS_ENDPOINT 同
+      // 机制);公开源码不包含任何内部域名。未配置 = 环境不支持身份兜底,静默不解析。
+      const identityUrl = process.env.WEBCLI_IDENTITY_URL;
+      if (!identityUrl || !/^https:\/\//i.test(identityUrl)) return;
+      const cache = await loadIdentityCache();
+      const now = Date.now();
+      if (cache.user) return;                                              // 已有真实名
+      if (cache.lastFailedAt && now - cache.lastFailedAt < Bridge.IDENTITY_BACKOFF_MS) return; // 退避中
+      const ws = this._currentConnection()?.ws ?? this._extensionWs;
+      if (!ws || ws.readyState !== 1) {                                    // 扩展未连接:绝不为此启动浏览器
+        await saveIdentityCache({ lastFailedAt: now });
+        return;
+      }
+      await saveIdentityCache({ lastAttemptAt: now });
+      const response = await this._requestNow({ type: "identity_fetch", url: identityUrl }, Bridge.IDENTITY_TIMEOUT_MS);
+      const user = response && response.ok ? response.user : null;
+      if (typeof user === "string" && user) {
+        await saveIdentityCache({ user, resolvedAt: Date.now(), lastFailedAt: null });
+        if (this._metricsCfg?.meta) {
+          this._metricsCfg.meta.user = user;
+          this._metricsCfg.meta.userSource = "hrm";
+        }
+      } else {
+        await saveIdentityCache({ lastFailedAt: Date.now() });
+      }
+    } catch { /* 身份解析永不影响主流程 */ }
+  }
+
   async _handleHostCliRequest(msg, ws) {
     try {
       const result = await invokeHostCli({
         parentId: msg.parentId, ws, payload: msg.payload,
-        pendingRequests: this._pendingRequests, resolveAdapterCall, execute: executeHostCli, authorizeWrite: authorizeHostCliWrite,
+        pendingRequests: this._pendingRequests, resolveAdapterCall, execute: executeHostCli,
         credentials: async (request, selected) => {
           let url;
           try { url = new URL(request?.url); } catch { throw new Error('Invalid credential scope.'); }
@@ -1754,8 +1799,12 @@ export class WebSocketBridge extends EventEmitter {
         HOST_CLI_REQUIRED_FIELDS: 'Required fields are missing.',
         AUTH_REQUIRED: 'Sign in to the service before retrying.',
       };
-      const details = code === 'HOST_CLI_REQUIRED_FIELDS' ? safeRequiredFields(error.details) : undefined;
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: false, code, error: Object.hasOwn(messages, code) ? messages[code] : 'Host CLI request failed.', ...(details ? { details } : {}) }));
+      const diagnostic = hostArgumentDiagnostic(error);
+      const pending = this._pendingRequests.get(msg.parentId);
+      if (diagnostic && pending?.ws === ws && !pending.hostWriteDispatched) pending.hostArgumentError = error;
+      const details = diagnostic?.details || (code === 'HOST_CLI_REQUIRED_FIELDS' ? safeRequiredFields(error.details) : undefined);
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'wecli_host_cli_result', id: msg.id, ok: false, code,
+        error: diagnostic?.message || (Object.hasOwn(messages, code) ? messages[code] : 'Host CLI request failed.'), ...(details ? { details } : {}) }));
     }
   }
 
@@ -1848,7 +1897,7 @@ export class WebSocketBridge extends EventEmitter {
     this._scheduleLoginWatchdog(toolName, options);
     const workId = options.workId || null;
     const pinnedRoute = this._route?.getStore() || null;
-    const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot, workId);
+    const invoke = () => this._callToolInner(toolName, args, traceID, adapterSnapshot, workId, options.onPrepared);
     // Login may span an extension reconnect. Re-resolve the socket by the same
     // contextId for the safe post-login retry; never select another profile.
     const run = () => {
@@ -2099,7 +2148,7 @@ export class WebSocketBridge extends EventEmitter {
     }
   }
 
-  async _callToolInner(toolName, args, traceID = null, adapterSnapshot = null, workId = null) {
+  async _callToolInner(toolName, args, traceID = null, adapterSnapshot = null, workId = null, onPrepared = null) {
     if (isLegacyWecliHandlerName(toolName)) {
       throw new Error(`"${toolName}" is an internal handler name. Use the public WebCLI command name without "wecli_".`);
     }
@@ -2134,7 +2183,7 @@ export class WebSocketBridge extends EventEmitter {
       || adapterSnapshot.digest !== selected.snapshot.digest || adapterSnapshot.profile !== selected.snapshot.profile)) {
       throw new Error('Adapter changed since this call started; refresh the catalog.');
     }
-    if ((selected?.command.requires_confirmation ?? selected?.command.safety === 'write') && args?.__confirmed !== true) throw new Error('Explicit confirmation is required for this command.');
+    args = businessArgs(args);
     if (selected?.command.runtime === 'http') {
       const { runHttpTool } = await import('./http-runner.js');
       const completed = await runHttpTool(selected, args || {}, { traceID,
@@ -2184,7 +2233,11 @@ export class WebSocketBridge extends EventEmitter {
     if (selected?.command.pageWrite && !this._extensionCapabilities?.includes('page_write_v1')) throw new Error('Reload the browser extension before calling page writes.');
     if (selected?.command.pageStrategy === 'INTERCEPT' && !this._extensionCapabilities?.includes('intercept_read_v1')) throw new Error('Reload the browser extension before calling intercepted page queries.');
     const timeout = resolveToolCallTimeout(toolName);
-    return this._request({ type: "call_tool", toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) }, timeout, traceID);
+    const request = { type: 'call_tool', toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) };
+    if (typeof onPrepared !== 'function') return this._request(request, timeout, traceID);
+    const response = await this._request(request, timeout, traceID, true);
+    if (selected?.command.safety === 'write' && response.execution?.phase === 'prepared') onPrepared();
+    return response.result;
   }
 
   async getPageState(tabId = null) {
@@ -2435,6 +2488,17 @@ export class WebSocketBridge extends EventEmitter {
     // navigation. Bind that exact tab and skip a global check that could select
     // an older business tab in the same Profile.
     const observedLogin = observation?.state === 'login';
+    if (!observedLogin) {
+      // Opening a business page is not evidence that authentication is needed.
+      // Missing/failed checks must not start a login flow or claim logged-out.
+      const current = await this._siteLogin().check(adapter).catch(() => null);
+      if (current?.logged_in !== false) {
+        return {
+          ...opened,
+          auth: { site: adapter, status: current?.logged_in === true ? 'already_logged_in' : 'unverified', flowActive: false },
+        };
+      }
+    }
     const auth = await this._siteLogin().login(adapter, {
       waitMs: 0,
       ...(observedLogin ? {

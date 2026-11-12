@@ -43,9 +43,9 @@ export async function verifySharedRepairs({ call, waitTask, startBridge, stopBri
     await call('exploration.draft-add', { taskId: initial, file: shared, content: mapper('title') });
     for (const command of manifest.commands) {
       const write = command.safety === 'write';
-      if (write) command.schema = { type: 'object', additionalProperties: false, required: ['title'], properties: { title: { type: 'string' }, __confirmed: { type: 'boolean' } }, 'x-webcli-agent-authored': true, 'x-webcli-requires-confirmation': true };
+      if (write) command.schema = { type: 'object', additionalProperties: false, required: ['title'], properties: { title: { type: 'string' } }, 'x-webcli-agent-authored': true };
       await edit(initial, command.module, write
-        ? `module.exports = async (args,api) => { if(args.__confirmed !== true)return {blocked:true,requiresConfirmation:true}; try { const value=await api.request({url:${JSON.stringify(origin + '/items')},method:'PUT',json:{title:args.title}});return {ok:true,...require('../internal/fields.js')(value)};}catch(error){return {ok:false,errorCode:error.code};}};`
+        ? `module.exports = async (args,api) => { try { const value=await api.request({url:${JSON.stringify(origin + '/items')},method:'PUT',json:{title:args.title}});return {ok:true,...require('../internal/fields.js')(value)};}catch(error){return {ok:false,errorCode:error.code};}};`
         : `module.exports = async (args,api) => require('../internal/fields.js')(await api.request({url:${JSON.stringify(origin + '/items')}}));`);
     }
     await edit(initial, 'manifest.json', JSON.stringify(manifest));

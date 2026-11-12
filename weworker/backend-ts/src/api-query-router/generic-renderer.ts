@@ -12,7 +12,7 @@
  */
 
 import { detectMainArray, projectResult } from '../webcli-result-project.js'
-import { hasTitleHeading, renderFromSchema, type RenderSchemaContext } from './declarative-renderer.js'
+import { DEFAULT_EMPTY_ANSWER, hasTitleHeading, renderFromSchema, type RenderSchemaContext } from './declarative-renderer.js'
 import type { RouterRenderSchema } from '../router-config/types.js'
 import { createLogger } from '../logger.js'
 
@@ -50,7 +50,7 @@ function escapeCell(value: unknown, maxChars = CELL_MAX_CHARS): string {
 }
 
 function renderTable(rows: readonly unknown[], columns?: string[], maxChars = CELL_MAX_CHARS): string {
-  if (!rows.length) return '（无数据）'
+  if (!rows.length) return ''
   const cols: string[] = []
   for (const row of rows) {
     if (row && typeof row === 'object' && !Array.isArray(row)) {
@@ -79,27 +79,61 @@ function renderTable(rows: readonly unknown[], columns?: string[], maxChars = CE
 
 function renderKv(obj: Record<string, unknown>): string {
   const entries = Object.entries(obj).filter(([, value]) => value != null && value !== '')
-  if (!entries.length) return '（无数据）'
+  if (!entries.length) return ''
   return entries.map(([key, value]) => `- **${key}**: ${escapeCell(value)}`).join('\n')
 }
 
-/** 列表查询命中但为空（count:0 / items:[]）→ 给一句友好提示，而非把元数据当 JSON 甩出。 */
+/**
+ * 列表查完但零条 → 一句友好话术（空数组是事实，不是失败）。
+ * 各业务可用声明式 schema 的 `emptyMessage` 写得更贴合场景，这里只做兜底。
+ */
 function renderEmptyResult(): string {
-  return '未查询到相关数据。'
+  return DEFAULT_EMPTY_ANSWER
+}
+
+/** 单键信封（`result` / `data` + 状态字段）逐层剥掉，与派发判定的拆包口径保持一致。 */
+const ENVELOPE_KEYS = new Set(['result', 'data', 'trace_id', 'ok', 'success', 'code', 'status', 'message', 'msg'])
+function unwrapEnvelope(value: unknown): unknown {
+  let current = value
+  for (let depth = 0; depth < 3; depth++) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return current
+    const record = current as Record<string, unknown>
+    const inner = record.result ?? record.data
+    if (!inner || typeof inner !== 'object' || Array.isArray(inner)) return current
+    if (!Object.keys(record).every((key) => ENVELOPE_KEYS.has(key))) return current
+    current = inner
+  }
+  return current
+}
+
+/**
+ * `{ _rawText: "..." }` 是「落盘内容读不出 JSON」的兜底形状（见
+ * `webcli-result-cache.readCacheResult`）。它没有任何可展示字段：按 KV 渲染出来就是一行
+ * `- **_rawText**: {…` 被 80 字截断的乱码。这类内容一律不渲染（正文为空），让调用方按
+ * 「没答出来」落回模型，而不是把半份 JSON 当答案发给用户。
+ */
+function isRawTextEnvelope(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = Object.keys(value as Record<string, unknown>)
+  return keys.length === 1 && keys[0] === '_rawText'
 }
 
 function toMarkdownBody(obj: unknown): string {
-  const main = detectMainArray(obj)
+  // 先剥信封：`{result:{items:[]}}` / `{data:{items:[]}}` 这类包装若直接按 KV 渲染，
+  // 用户看到的是一坨 JSON，而不是「没有数据」这句人话。
+  const target = unwrapEnvelope(obj)
+  if (isRawTextEnvelope(target)) return ''
+  const main = detectMainArray(target)
   if (main?.array.length && main.array.some((item) => item && typeof item === 'object')) {
     return renderTable(main.array)
   }
-  if ((main && main.array.length === 0) || (Array.isArray(obj) && obj.length === 0)) {
+  if ((main && main.array.length === 0) || (Array.isArray(target) && target.length === 0)) {
     return renderEmptyResult()
   }
-  if (obj && typeof obj === 'object' && !Array.isArray(obj) && Object.keys(obj).length) {
-    return renderKv(obj as Record<string, unknown>)
+  if (target && typeof target === 'object' && !Array.isArray(target) && Object.keys(target).length) {
+    return renderKv(target as Record<string, unknown>)
   }
-  return projectResult(obj, { mode: 'summary' })
+  return projectResult(target, { mode: 'summary' })
 }
 
 function tryParseJson(raw: string): unknown {
@@ -126,6 +160,8 @@ export function renderGeneric(
   deps: GenericRenderDeps = {},
 ): string {
   const body = renderGenericBody(raw, schemaRef, deps)
+  // 没有任何可展示内容时不要只留一个标题：空正文就是「没答出来」，交给调用方落回模型。
+  if (!body) return ''
   // schema 渲染出的正文自带同级标题（通常是同一个词的节标题），别再叠一层。
   if (!title || hasTitleHeading(body, title)) return body
   return `### ${title}\n\n${body}`
@@ -174,17 +210,22 @@ function renderGenericBody(
     const parts: string[] = []
     for (const section of record.sections) {
       if (!section || typeof section !== 'object' || Array.isArray(section)) continue
-      if (typeof section.title === 'string' && section.title) parts.push(`## ${section.title}`)
+      // 先算出这一节自己的正文：空节直接跳过（不输出只有标题的空分组）。
+      const body: string[] = []
       if (typeof section.content === 'string' && section.content.trim()) {
-        parts.push(section.content)
+        body.push(section.content)
       } else {
         const rows = Array.isArray(section.rows) ? section.rows : []
         const columns = Array.isArray(section.columns)
           ? section.columns.filter((col: unknown): col is string => typeof col === 'string')
           : undefined
         // Rules must remain complete; ordinary list cell limits can remove required conditions.
-        parts.push(renderTable(rows, columns, Infinity))
+        const table = renderTable(rows, columns, Infinity)
+        if (table) body.push(table)
       }
+      if (!body.length) continue
+      if (typeof section.title === 'string' && section.title) parts.push(`## ${section.title}`)
+      parts.push(...body)
     }
     return parts.join('\n\n') || renderEmptyResult()
   }

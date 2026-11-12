@@ -61,6 +61,7 @@ def build_resume_state(trajectory: dict[str, Any]) -> dict[str, Any]:
             "local_cdp_url": str(environment_config.get("local_cdp_url", "") or ""),
         },
         "environment_runtime_state": {
+            "browser_instance_id": str(runtime_state.get("browser_instance_id", "") or ""),
             "target_id": str(runtime_state.get("target_id", "") or ""),
             "last_url": str(runtime_state.get("last_url", "") or ""),
             "last_title": str(runtime_state.get("last_title", "") or ""),

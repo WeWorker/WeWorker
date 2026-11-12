@@ -2,6 +2,10 @@
 
 AI 操作网站的桌面应用。基于 Electron，提供对话式交互界面，通过浏览器扩展实现对网站的自动化操控。
 
+Windows x64 安装包的 Bridge 使用随包携带的 Node 24.20.0，宿主 HTTP 与 CLI 子进程均由该运行时执行，不依赖系统 PATH 中的 Node。标准 `npm run build:win` 在打包入口下载官方固定版本归档，校验归档及 `node.exe` 的 SHA-256，并随包保留 Node LICENSE；`afterPack` 再校验实际资源。下载、校验或文件缺失会阻止打包，不回退到 Electron 的内置 Node。macOS 继续使用现有 utility process。
+
+开发启动先生成 WebCLI bundle，Bridge 也运行该 bundle，以加载相同的构建时 Provider 配置。运行时版本、摘要及准备逻辑见 `scripts/prepare-node-runtime.cjs`。源码测试通过不代表安装包业务验收通过；验证 Windows 包时应确认 Bridge 进程来自 `resources/node-runtime/node.exe`，并使用该包自带的 WebCLI 执行一次真实只读调用。
+
 ## 目录结构
 
 ```

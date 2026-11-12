@@ -13,6 +13,8 @@
     const questionId = t.id == null ? '' : String(t.id);
     return {
       title: t.title,
+      context_title: c.contextTitle(t.title),
+      question_id: questionId,
       url: 'https://www.zhihu.com/question/' + questionId,
       answer_count: t.answer_count,
       follower_count: t.follower_count,
@@ -20,4 +22,4 @@
     };
   });
 })()
-);if(!Array.isArray(rows)||!rows.length)throw new c.CommandExecutionError('No hot list extracted; response or empty status unknown');return rows.slice(0,limit).map((x,i)=>({rank:i+1,title:x.title,heat:x.heat,answers:x.answer_count??null,url:x.url}));});})();
+);if(!Array.isArray(rows)||!rows.length)throw new c.CommandExecutionError('No hot list extracted; response or empty status unknown');return rows.slice(0,limit).map((x,i)=>({rank:i+1,title:x.title,context_title:x.context_title,question_id:x.question_id,heat:x.heat,answers:x.answer_count??null,url:x.url}));});})();

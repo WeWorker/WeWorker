@@ -1,4 +1,5 @@
 export const DEFAULT_CONTEXT_LIMIT = 1_000_000
+export const DEFAULT_BUILTIN_CONTEXT_LIMIT = 200_000
 
 export const CONTEXT_LIMIT_PRESETS = [
   '32K',

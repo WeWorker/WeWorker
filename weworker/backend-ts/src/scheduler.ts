@@ -83,16 +83,35 @@ class Scheduler {
       const task = store.getScheduledTask(taskId)
       if (!task || !task.enabled || this.running.has(taskId)) return
       this.running.add(taskId)
-      try {
-        await executeTask(task)
-      } catch (err) {
-        log.error(`Failed to execute task ${taskId}:`, err)
-      } finally {
-        this.running.delete(taskId)
-      }
+      await this.execute(task)
     })
 
     this.jobs.set(taskId, job)
+  }
+
+  /** Manual and scheduled runs share the same lock; manual runs allow disabled tasks. */
+  runNow(taskId: string): 'started' | 'not_found' | 'running' | 'empty_prompt' {
+    const task = store.getScheduledTask(taskId)
+    if (!task) return 'not_found'
+    if (this.running.has(taskId)) return 'running'
+    if (!task.prompt_template.trim()) return 'empty_prompt'
+    this.running.add(taskId)
+    void this.execute(task)
+    return 'started'
+  }
+
+  isRunning(taskId: string): boolean {
+    return this.running.has(taskId)
+  }
+
+  private async execute(task: NonNullable<ReturnType<typeof store.getScheduledTask>>): Promise<void> {
+    try {
+      await executeTask(task)
+    } catch (err) {
+      log.error(`Failed to execute task ${task.id}:`, err)
+    } finally {
+      this.running.delete(task.id)
+    }
   }
 
   /**

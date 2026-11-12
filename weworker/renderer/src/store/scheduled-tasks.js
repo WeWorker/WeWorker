@@ -8,6 +8,25 @@ export const useScheduledTasksStore = create((set, get) => ({
   tasksStatus: 'idle',
   activeTaskId: null,
   executions: {}, // taskId -> TaskExecution[]
+  runningTasks: {},
+  startingTasks: {},
+
+  runTask: async (id) => {
+    if (get().startingTasks[id] || get().runningTasks[id]) return
+    set((s) => ({ startingTasks: { ...s.startingTasks, [id]: true } }))
+    try {
+      const res = await backendFetch(`/scheduled-tasks/${id}/run`, { method: 'POST' })
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.error || '启动任务失败，请重试')
+      }
+      set((s) => ({ runningTasks: { ...s.runningTasks, [id]: true } }))
+      // A refresh failure must not turn an accepted run into a retryable start error.
+      await get().loadExecutions(id).catch(() => {})
+    } finally {
+      set((s) => ({ startingTasks: { ...s.startingTasks, [id]: false } }))
+    }
+  },
 
   loadTasks: async () => {
     set({ tasksStatus: 'loading' })
@@ -89,6 +108,9 @@ export const useScheduledTasksStore = create((set, get) => ({
     const res = await backendFetch(`/scheduled-tasks/${taskId}`)
     if (!res.ok) return
     const data = await res.json()
-    set((s) => ({ executions: { ...s.executions, [taskId]: Array.isArray(data.executions) ? data.executions : [] } }))
+    set((s) => ({
+      executions: { ...s.executions, [taskId]: Array.isArray(data.executions) ? data.executions : [] },
+      runningTasks: { ...s.runningTasks, [taskId]: Boolean(data.running) },
+    }))
   },
 }))

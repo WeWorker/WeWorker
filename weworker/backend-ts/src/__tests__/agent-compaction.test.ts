@@ -30,14 +30,15 @@ vi.mock('../user-directory-access.js', () => ({
 import { clearStoredConversationCompaction, streamChat } from '../agent.js'
 import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 import { disposeAllChatSessions } from '../chat-session.js'
+import { hasPendingAskUser, requestUserChoice } from '../ask-user-pending.js'
 
 function message(id: string, text: string, role: Message['role'] = 'user'): Message {
   return { id, work_id: 'compaction-test', role, content: [{ type: 'text', text }], created_at: '' }
 }
 
 const history = () => [
-  message('old-user', '旧目标：保留订单号A123。' + '历史内容'.repeat(600)),
-  message('old-assistant', '历史查询结果'.repeat(600), 'assistant'),
+  message('old-user', '旧目标：保留订单号A123。' + '历史内容。'.repeat(600)),
+  message('old-assistant', '历史查询结果。'.repeat(600), 'assistant'),
   message('current', '继续检查订单A123'),
 ]
 const settings = { active_provider: 'anthropic', api_key: 'test-only', base_url: 'https://api.anthropic.com', model: 'test-model', context_limit: 1_000_000 } as Settings
@@ -124,6 +125,72 @@ it('refreshes route context on a reused Agent session without restarting it', as
 it('excludes route preprocessing from no-tool notification summaries', async () => {
   await collect([message('summary', 'summarize')], { notificationSummaryOnly: true, directRoute: { status: 'miss' } }, { ...settings, webcli_route_enabled: true })
   expect(mocks.prompts.join('')).not.toContain('<turn_routing>')
+})
+
+it('aborts a blocked turn and replays its partial answer and tool results before the correction', async () => {
+  const controller = new AbortController()
+  const workId = options.workId
+  let ready!: () => void
+  const waiting = new Promise<void>(resolve => { ready = resolve })
+  let oldClosed = false
+  let choiceResult: string | undefined
+  mocks.query.mockImplementationOnce(request => ({
+    async *[Symbol.asyncIterator]() {
+      await request.prompt[Symbol.asyncIterator]().next()
+      yield { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'partial answer before interruption' } } }
+      const choice = requestUserChoice({
+        workId, toolCallId: 'fixture-obsolete-choice', question: 'Old question', options: [],
+        signal: request.options.abortController.signal, onChoice: () => ready(),
+      })
+      choiceResult = await choice
+    },
+    close() { oldClosed = true },
+  }))
+  const turnSettings = { ...settings, webcli_route_enabled: false }
+  const turnOptions = { ...options, reuseSession: true, channelPermissionMode: 'full' as const }
+  const events = streamChat([message('first', 'original goal')], turnSettings, controller, turnOptions)
+  let first = await events.next()
+  while (!first.done && first.value.type !== 'text_delta') first = await events.next()
+  expect(first.value).toMatchObject({ type: 'text_delta', content: 'partial answer before interruption' })
+  const finishing = events.next()
+  await waiting
+  expect(hasPendingAskUser(workId)).toBe(true)
+  controller.abort()
+  expect(oldClosed).toBe(true)
+  await finishing
+  while (!(await events.next()).done) { /* drain cancellation events */ }
+  expect(choiceResult).toBe('用户取消了本次操作')
+  expect(hasPendingAskUser(workId)).toBe(false)
+
+  const partial = message('partial', first.value!.content!, 'assistant')
+  partial.content.push(
+    { type: 'tool_use', id: 'completed-tool', name: 'Read', args: {}, status: 'done', result: 'completed tool result marker' },
+    { type: 'tool_use', id: 'interrupted-tool', name: 'Read', args: {}, status: 'cancelled' },
+  )
+  const correction = message('correction', 'use the corrected context limit')
+  await collect([message('first', 'original goal'), partial, correction], turnOptions, turnSettings)
+  expect(mocks.query).toHaveBeenCalledTimes(2)
+  const prompt = mocks.prompts.at(-1)!
+  expect(prompt).toContain('original goal')
+  expect(prompt).toContain('partial answer before interruption')
+  expect(prompt).toContain('completed tool result marker')
+  expect(prompt).toContain('status: cancelled')
+  expect(prompt.indexOf('partial answer')).toBeLessThan(prompt.indexOf('use the corrected context limit'))
+})
+
+it('reports the SDK compaction failure instead of leaving an unmatched start event', async () => {
+  mocks.query.mockImplementation(() => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'system', subtype: 'status', status: 'compacting' }
+      yield { type: 'system', subtype: 'status', status: null, compact_result: 'failed', compact_error: 'fixture summary request rejected' }
+      yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['fixture summary request rejected'] }
+    },
+    close() {},
+  }))
+  const events = await collect([message('question', 'fixture question')])
+  expect(events.filter(event => event.type === 'context_compaction_end')).toEqual([
+    expect.objectContaining({ compaction: expect.objectContaining({ status: 'failed', error: 'fixture summary request rejected' }) }),
+  ])
 })
 
 it('streams a visible WebCLI route command before starting the Agent', async () => {
@@ -447,4 +514,28 @@ describe('agent conversation compaction', () => {
       else process.env.WEWORKER_COMPACTION_TIMEOUT_MS = previous
     }
   })
+})
+
+it('excludes the entire current turn including an overflowing assistant result from the summary', async () => {
+  const messages = [...history(), message('overflow-result', 'OVERSIZED-CURRENT-RESULT'.repeat(10000), 'assistant')]
+  const original = structuredClone(messages)
+  await collect(messages, { forceCompaction: true, compactionOnly: true })
+  const request = mocks.query.mock.calls.find(([request]) => request.options.tools)?.[0]
+  expect(request.prompt).toContain('旧目标')
+  expect(request.prompt).not.toContain('继续检查订单A123')
+  expect(request.prompt).not.toContain('OVERSIZED-CURRENT-RESULT')
+  expect(messages).toEqual(original)
+})
+
+it('bounds the summary request and restores every unsummarized sentence and the current turn', async () => {
+  const messages = history()
+  await collect(messages, { forceCompaction: true, compactionOnly: true }, { ...settings, context_limit: 4000, compaction_ratio: 65 })
+  const summaryRequest = mocks.query.mock.calls.find(([request]) => request.options.tools)?.[0]
+  const recentRequest = mocks.query.mock.calls.find(([request]) => !request.options.tools)?.[0]
+  expect(summaryRequest.options.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS).toBe('400')
+  expect(contextAssembly.estimateContextTokens(summaryRequest.prompt) + 1024 + 400).toBeLessThan(4000)
+  const original = messages.slice(0, -1).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content[0].type === 'text' ? m.content[0].text : ''}`).join('\n\n')
+  expect(original.startsWith(summaryRequest.prompt)).toBe(true)
+  expect(recentRequest.prompt).toContain(original.slice(summaryRequest.prompt.length).trim())
+  expect(recentRequest.prompt).toContain('继续检查订单A123')
 })

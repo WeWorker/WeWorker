@@ -92,6 +92,7 @@ export async function runWebcliCall(
     ...process.env,
     ...(isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
     WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
+    WEBCLI_EMBEDDED: '1', // 桌面端内嵌 webcli:关闭版本自检与 npm 升级(随应用更新)
   }
   let output: string
   try {
@@ -104,6 +105,9 @@ export async function runWebcliCall(
   } catch (e: any) {
     // 超时被 SIGTERM 杀掉：半截 stdout 不可信，直接抛超时，别把残缺输出当结果缓存/渲染。
     if (timeoutMs && (e?.killed === true || e?.signal === 'SIGTERM')) throw new WebcliTimeoutError(toolName, timeoutMs)
+    // 缓冲溢出、或子进程被信号杀掉时，stdout 只可能是残片。残片仍是「像结果」的文本，
+    // 大结果还会被落盘缓存，最后渲染成半截 JSON —— 宁可让这次调用失败落回模型。
+    if (e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || e?.signal) throw e
     output = (e.stdout || e.stderr || '').trim()
     if (!output) throw e
   }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { WarningOutlined } from '@ant-design/icons'
 import Tooltip from '../Tooltip.jsx'
+import UpdatePrompt from '../sidebar/UpdatePrompt.jsx'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
@@ -9,7 +10,7 @@ import { useStatusStore } from '../../store/status.js'
 import { getPortConflictHelp } from '../../utils/port-conflict-help.js'
 
 export default function AppRail({ activeSection, settingsOpen = false, extensionOpen = false, onOpenConversation, onOpenTasks, onOpenSkills, onOpenExploration, onOpenWebsiteExploration, onOpenDedicatedAgents, onOpenExtension, onOpenSettings }) {
-  const [moreOpen, setMoreOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(true)
   const [issuesOpen, setIssuesOpen] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState('unknown')
   const [backendStatus, setBackendStatus] = useState('unknown')
@@ -98,7 +99,7 @@ export default function AppRail({ activeSection, settingsOpen = false, extension
             <RailMenuButton label="SKILLS与场景" active={activeKey === 'skills'} disabled={!moreOpen} onClick={() => openFeature(onOpenSkills)}>
               <SkillsIcon />
             </RailMenuButton>
-            <RailMenuButton label="网站探索agent" active={activeKey === 'website'} disabled={!moreOpen} onClick={() => openFeature(onOpenWebsiteExploration)}>
+            <RailMenuButton label="Adapter工坊" active={activeKey === 'website'} disabled={!moreOpen} onClick={() => openFeature(onOpenWebsiteExploration)}>
               <GlobeIcon />
             </RailMenuButton>
           </div>
@@ -108,6 +109,7 @@ export default function AppRail({ activeSection, settingsOpen = false, extension
       <div className="app-rail__spacer" />
 
       <nav className="app-rail__nav app-rail__nav--bottom" aria-label="工具">
+        <UpdatePrompt />
         {/* Always reachable: the panel also shows and hides WeWorker 浏览器 (for sign-in or checking a task). */}
         <div className="app-rail__issues-wrap">
           <Tooltip text={issueCount > 0 ? `有 ${issueCount} 个问题` : '浏览器与扩展'} placement="right">

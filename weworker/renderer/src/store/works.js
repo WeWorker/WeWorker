@@ -7,7 +7,8 @@ import { calibrateContextSnapshot, calibrateCompactedContextSnapshot, createCont
 import { backendFetch } from '../api/http.js'
 import { leaveWebsiteExploration } from './website-exploration.js'
 import { showAlert } from './dialog.js'
-import { discardMessageQueue } from './message-queue.js'
+import { discardMessageQueue, getMessageQueue } from './message-queue.js'
+import { createBackgroundChatSync } from '../utils/scheduled-task-sync.js'
 import { useChatDraftStore } from './chat-drafts.js'
 
 const API = 'http://127.0.0.1:8765'
@@ -39,6 +40,8 @@ export const useWorksStore = create((set, get) => ({
   healthCheckMeta: null, // { siteId, siteName, toolNames } | null
   streamingWorkIds: new Set(), // workIds currently streaming — don't overwrite their messages
   abortControllers: {}, // workId -> AbortController — for stopping streaming from any view
+  backgroundChatRuns: {}, // workId -> executionId; background turns own the same busy state.
+  syncBackgroundChatRuns: () => syncBackgroundChatRuns(),
   pendingThinkingEffort: 'off',
   pendingPermissionMode: 'workspace',
   labelFilter: null, // null = show all, string = filter by label color
@@ -186,6 +189,7 @@ export const useWorksStore = create((set, get) => ({
   selectWork: async (id) => {
     if (!await leaveWebsiteExploration()) return
     set({ activeWorkId: id, draftProjectId: null })
+    await get().syncBackgroundChatRuns().catch(() => {})
     try { getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })) } catch {}
     // If this work is currently streaming, don't overwrite in-memory messages with backend data
     // (assistant message hasn't been persisted yet)
@@ -194,6 +198,7 @@ export const useWorksStore = create((set, get) => ({
     try {
       const res = await backendFetch(`${API}/works/${id}`)
       const data = await res.json()
+      if (get().streamingWorkIds.has(id)) return
       set((s) => ({ messages: { ...s.messages, [id]: data.messages } }))
     } catch (e) {
       console.error('[works] selectWork fetch failed:', e)
@@ -201,16 +206,23 @@ export const useWorksStore = create((set, get) => ({
   },
 
   /** Reload a work's messages without making it the active main chat. */
-  refreshWorkMessages: async (id) => {
-    if (!id || get().streamingWorkIds.has(id)) return
+  refreshWorkMessages: async (id, { required = false } = {}) => {
     try {
+      if (!id || get().streamingWorkIds.has(id)) {
+        if (required) throw new Error('当前回复尚未结束，排队消息已保留')
+        return
+      }
       const res = await backendFetch(`${API}/works/${id}`)
-      if (!res.ok) return
+      if (!res.ok) throw new Error('无法加载中断处的对话，排队消息已保留')
       const data = await res.json()
-      if (get().streamingWorkIds.has(id)) return
+      if (get().streamingWorkIds.has(id)) {
+        if (required) throw new Error('当前回复尚未结束，排队消息已保留')
+        return
+      }
       set((s) => ({ messages: { ...s.messages, [id]: data.messages } }))
     } catch (e) {
       console.error('[works] refreshWorkMessages failed:', e)
+      if (required) throw e
     }
   },
 
@@ -516,3 +528,21 @@ export const useWorksStore = create((set, get) => ({
     return work
   },
 }))
+
+const syncBackgroundChatRuns = createBackgroundChatSync({
+  getState: useWorksStore.getState,
+  setState: useWorksStore.setState,
+  fetchRuns: async () => {
+    const res = await backendFetch(`${API}/background-chat-runs`)
+    if (!res.ok) throw new Error('Failed to load background chat progress')
+    return res.json()
+  },
+  fetchWork: async workId => {
+    const res = await backendFetch(`${API}/works/${workId}`)
+    if (res.status === 404) return { messages: [] }
+    if (!res.ok) throw new Error('Failed to load background chat result')
+    return res.json()
+  },
+  onStarted: () => { void useWorksStore.getState().loadWorks().catch(() => {}) },
+  onFinished: workId => getMessageQueue(workId).wake(),
+})

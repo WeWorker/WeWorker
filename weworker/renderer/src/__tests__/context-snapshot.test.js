@@ -5,6 +5,18 @@ import { formatContextLimitInput, parseContextLimitInput } from '../utils/contex
 import { useWorksStore } from '../store/works.js'
 
 describe('context snapshot display helpers', () => {
+  it('uses the current configured window for old snapshots without losing measured usage', () => {
+    const previous = { ...createEmptyContextSnapshot(1000000), estimated_total_tokens: 40000,
+      displayed_total_tokens: 50000, actual_input_tokens: 50000, token_source: 'provider_calibrated' }
+    const snapshot = normalizeContextSnapshot(previous, 200000)
+    assert.equal(snapshot.context_limit, 200000)
+    assert.equal(snapshot.displayed_total_tokens, 50000)
+    assert.equal(snapshot.token_source, 'provider_calibrated')
+    assert.equal(contextUsagePercent(snapshot), 25)
+    assert.equal(previous.context_limit, 1000000)
+    assert.equal(normalizeContextSnapshot(previous).context_limit, 1000000)
+  })
+
   it('provides a resident empty snapshot before a task has context usage', () => {
     const snapshot = normalizeContextSnapshot(createEmptyContextSnapshot(68000))
 

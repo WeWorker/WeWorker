@@ -72,10 +72,10 @@ test('UI dispatch shares exact document/confirmation and cancellation guards wit
   changed=true;assert.equal((await execute({expectedDocument:{frameId:'main',loaderId:'old',url:origin+'/editor'}})).dispatched,false);
   const cancelled=await executePageRequest({chrome,tabId:7,ensureCdpAttached:async()=>{},payload,assertRunning:()=>{throw new Error('Example cancel');}});assert.equal(cancelled.dispatched,false);
 });
-test('ordinary UI arguments require exact booleans and strings',()=>{
+test('ordinary UI arguments require declared strings without a confirmation marker',()=>{
   const command={runtime:'extension',safety:'write',uiWrite:ui};
-  assert.equal(uiWriteRequest(command,{title:'007 示例',__confirmed:true}).body.title,'007 示例');
-  for(const args of [{title:'After'},{title:'After',__confirmed:'true'},{title:1,__confirmed:true},{title:'After',extra:'x',__confirmed:true},{title:'\n',__confirmed:true}])assert.throws(()=>uiWriteRequest(command,args));
+  for (const args of [{title:'007 示例'}, {title:'007 示例',__confirmed:'true'}]) assert.equal(uiWriteRequest(command,args).body.title,'007 示例');
+  for(const args of [{title:1,__confirmed:true},{title:'After',extra:'x',__confirmed:true},{title:'\n',__confirmed:true}])assert.throws(()=>uiWriteRequest(command,args));
 });
 
 test('fresh UI result IDs preserve strings and parse only explicitly typed canonical safe integers', async () => {

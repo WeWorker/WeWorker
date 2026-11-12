@@ -28,9 +28,21 @@ test('QR retry stays bound to its original profile and never uses another robot 
   failed = false
   await useSettingsStore.getState().saveChannelProfileQr('second')
   assert.ok(requests.every(body => body.id === 'second' && body.channel === 'qq'))
+  assert.ok(requests.every(body => body.action === 'qr-import'))
   assert.equal(requests[1].config.owner_permission_level, 'qa_only')
   assert.equal(useSettingsStore.getState().channelProfileQrPending.second, null)
   assert.ok(useSettingsStore.getState().channels.configurations.other)
+})
+
+test('scanning cannot overwrite an existing robot or leave replacement credentials pending', async t => {
+  setup(t)
+  let requests = 0
+  t.mock.method(globalThis, 'fetch', async () => { requests++; return Response.json({}) })
+  const before = useSettingsStore.getState().channels
+  await assert.rejects(useSettingsStore.getState().saveChannelProfileQr('first', { app_id: 'fixture-new', app_secret: 'fixture-secret' }), /已关联机器人/)
+  assert.equal(requests, 0)
+  assert.equal(useSettingsStore.getState().channels, before)
+  assert.equal(useSettingsStore.getState().channelProfileQrPending.first, undefined)
 })
 
 test('out of order responses for different types cannot drop each other profiles', async t => {
@@ -64,4 +76,37 @@ test('deleting a robot clears its failed QR import from memory', async t => {
   await useSettingsStore.getState().channelProfileAction('qq', 'delete', 'second')
   assert.equal(useSettingsStore.getState().channelProfileQrPending.second, undefined)
   assert.equal(useSettingsStore.getState().channelProfileQrSaving.second, undefined)
+})
+
+test('binding refresh updates only owner state and preserves another robot configuration', async t => {
+  setup(t)
+  const saved = { id: 'main', type: 'wecom', name: 'Fixture', config: { bot_id: 'fixture-bot', enabled: true, has_secret: true, pairing_code: '123456', owner_user_id: '', owner_permission_level: 'qa_only' } }
+  useSettingsStore.setState({ channels: { configurations: { main: saved, other: profile('other', 'qq') }, active_ids: { wecom: 'main' }, wecom: saved.config } })
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ configurations: { main: { ...saved, config: { ...saved.config, owner_user_id: 'fixture-owner', pairing_code: '' } } }, active_ids: { wecom: 'main' } }))
+  await useSettingsStore.getState().refreshChannelOwnerBinding('main')
+  assert.equal(useSettingsStore.getState().channels.configurations.main.config.owner_user_id, 'fixture-owner')
+  assert.equal(useSettingsStore.getState().channels.configurations.main.config.pairing_code, '')
+  assert.equal(useSettingsStore.getState().channels.wecom.owner_user_id, 'fixture-owner')
+  assert.ok(useSettingsStore.getState().channels.configurations.other)
+})
+
+test('a delayed binding poll cannot overwrite a newer save or restore a deleted profile', async t => {
+  setup(t)
+  const saved = { id: 'main', type: 'wecom', name: 'Fixture', config: { bot_id: 'fixture-bot', pairing_code: '123456' } }
+  useSettingsStore.setState({ channels: { configurations: { main: saved }, active_ids: { wecom: 'main' } } })
+  let reply
+  t.mock.method(globalThis, 'fetch', async () => new Promise(resolve => { reply = resolve }))
+  const polling = useSettingsStore.getState().refreshChannelOwnerBinding('main')
+  await new Promise(resolve => setImmediate(resolve))
+  const newer = { ...saved, config: { ...saved.config, pairing_code: '654321' } }
+  useSettingsStore.setState({ channels: { configurations: { main: newer }, active_ids: { wecom: 'main' } } })
+  reply(Response.json({ configurations: { main: saved } }))
+  await polling
+  assert.equal(useSettingsStore.getState().channels.configurations.main.config.pairing_code, '654321')
+  const deletedPoll = useSettingsStore.getState().refreshChannelOwnerBinding('main')
+  await new Promise(resolve => setImmediate(resolve))
+  useSettingsStore.setState({ channels: { configurations: {}, active_ids: {} } })
+  reply(Response.json({ configurations: { main: saved } }))
+  await deletedPoll
+  assert.equal(useSettingsStore.getState().channels.configurations.main, undefined)
 })

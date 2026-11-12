@@ -11,6 +11,8 @@ import { modelCatalogConfigPatch, type ModelCatalogConfig } from './model-catalo
 
 export interface ModelConfiguration extends ModelCatalogConfig {
   name?: string
+  external_source_id?: string
+  external_product?: string
   provider_id: string
   model: string
   api_key: string
@@ -145,13 +147,32 @@ export function getModelConfiguration(settings: Settings, id: string | undefined
   }
 }
 
+// Only user-managed credentials may be revealed. Deployment-owned built-in
+// keys must never pass through the settings UI, including stale saved entries.
+export function savedModelConfigurationKey(settings: Settings, id: string, target: 'weworker' | 'webwright'): string {
+  const configuration = getModelConfiguration(settings, id)
+  const provider = getProvider(configuration?.provider_id || id)
+  if (!provider || isBuiltinProvider(provider.id)) throw new Error('该模型配置不支持查看 API Key')
+  if (configuration) return target === 'webwright' ? configuration.openai_api_key || configuration.api_key : configuration.api_key
+  const keys: Record<string, string | undefined> = {
+    anthropic: settings.api_key_anthropic, glm: settings.api_key_glm,
+    deepseek: settings.api_key_deepseek, bank_coding: settings.api_key_bank_coding,
+    custom: settings.api_key_custom,
+  }
+  const key = Object.hasOwn(keys, id) ? keys[id] || '' : ''
+  return target === 'webwright' && id === 'custom' ? settings.openai_api_key_custom || key : key
+}
+
 export function deleteModelConfiguration(settings: Settings, id: string): Partial<Settings> {
   if (isFixedProvider(id)) throw new Error('固定供应商不能删除')
   if (!getModelConfiguration(settings, id)) throw new Error('模型配置不存在')
   if (settings.active_model_configuration === id) throw new Error('当前使用中的模型配置不能删除，请先切换其他模型')
   const model_configurations = { ...(settings.model_configurations || {}) }
   delete model_configurations[id]
-  return { model_configurations }
+  const sourceId = settings.model_configurations?.[id]?.external_source_id
+  return { model_configurations, ...(sourceId ? {
+    dismissed_model_sources: [...new Set([...(Array.isArray(settings.dismissed_model_sources) ? settings.dismissed_model_sources : []), sourceId])],
+  } : {}) }
 }
 
 export function activateModelConfiguration(settings: Settings, id: string): Partial<Settings> {

@@ -128,4 +128,4 @@ const run=async (kwargs={}) => {
             }
         }
         throw new CommandExecutionError(`抖音作品 ${awemeId} 删除后仍在作品列表中，删除未确认`);
-    };__webcliRegisterCommand('delete',async(args={})=>{readAwemeId(args.aweme_id);if(!window.__douyin.same(CREATOR_MANAGE_URL))return {__webcli_navigation:{version:1,url:CREATOR_MANAGE_URL,resume:false,result:{status:'prepared',message:'作品管理页已准备，核对目标后再次确认；尚未删除。'}}};return run(args);});})();
+    };__webcliRegisterCommand('delete',async(args={})=>{readAwemeId(args.aweme_id);if(!window.__douyin.same(CREATOR_MANAGE_URL))return {__webcli_navigation:{version:1,url:CREATOR_MANAGE_URL,resume:false,phase:'prepare',result:{status:'prepared',message:'作品管理页已准备，核对目标后再次确认；尚未删除。'}}};return run(args);});})();

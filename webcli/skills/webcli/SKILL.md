@@ -105,8 +105,8 @@ webcli call <domain>.<action> --key=value          # 标量参数推荐这种
 webcli call jd.com.search_products --keyword=手机
 webcli call mail.163.com.get_unread_emails --limit=5
 
-webcli call <domain>.<action> --args '<json>'      # 数组/对象参数用 JSON
-webcli call <domain>.<action> --args '{"key":"value","arr":[1,2]}'
+# 数组、对象或严格数值类型：先将参数保存为 UTF-8 文件，如 args.json 内容为 {"key":"value","arr":[1,2]}
+webcli call <domain>.<action> --args-file=./args.json
 ```
 
 ### 打开浏览器
@@ -142,8 +142,8 @@ webcli call open_browser --url="<Homepage URL>" --adapter=<adapter-id>
 ### 截图
 
 ```bash
-webcli call capture_screenshot --args '{}'
-webcli call capture_screenshot --args '{"fullPage":true}'
+webcli call capture_screenshot
+webcli call capture_screenshot --fullPage=true
 ```
 
 ## 适配器管理
@@ -161,7 +161,7 @@ webcli adapter skill <id>        # 输出某适配器的 SKILL.md
 2. 用 `open_browser` 打开已知 Adapter 网站时，传入 `--adapter=<adapter-id>` 并使用该 Adapter Skill 的 **Homepage** URL；Bridge 会校验二者归属并接入登录 flow。探索未知网页时省略 `--adapter`。不要默认猜测 http/https。
 3. 页面型命令打开网站后等待页面和 Adapter 就绪；后台型命令不等待页面注入。
 4. 工具名遵循 `<domain>.<action>` 格式，如 `jd.com.search_products`。
-5. 参数优先用 `--key=value`；数组/对象用 `--args '<json>'`；重复 flag 会聚合成数组。数字文本保持字符串，由适配器按自身 schema 解析。
+5. 参数优先用 `--key=value`；数组/对象用 `--args-file=./args.json`；重复 flag 会聚合成数组。数字文本保持字符串，由适配器按自身 schema 解析。
 6. 工具返回错误时，最多重试 2 次。仍失败则告知用户。
 7. 如果调用报 `Extension not connected` / `Chrome扩展未连接`，检查浏览器、插件和 Bridge 连接；该错误不能证明需要业务页面。
 8. `open_browser` 返回 `auth.status=waiting_user` 时，页面已打开但登录尚未完成；提示用户登录并停止后续网站调用，不要重试 `open_browser`。登录态按命令实际 Cookie、宿主环境或缓存来源检查。仅在包确有对应工具且其运行时适合时使用登录检查；页面就绪辅助命令不能证明后台鉴权可用。

@@ -87,7 +87,7 @@ describe('user-configured coding provider', () => {
   })
 
   it('probes the gateway with Bearer authentication and the selected model', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { ok: true } }] }))
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] }))
     expect((await probeMainConnection({ ...providerInput(), model: 'fixture-selected-model' }, fetchMock)).ok).toBe(true)
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('https://example.com/public/v1/messages')

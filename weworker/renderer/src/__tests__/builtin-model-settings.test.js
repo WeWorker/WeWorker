@@ -16,6 +16,7 @@ test('built-in metadata is visible before configuration without claiming a key e
   assert.ok(PROVIDERS.some(provider => provider.id === 'builtin'))
   assert.equal(initialState.providers.builtin.has_key, false)
   assert.equal(initialState.providers.builtin.readonly, true)
+  assert.equal(initialState.providers.builtin.context_limit, 200000)
 })
 
 test('renderer initial state lists the built-ins and fixed presets declared in JSON before settings load', () => {

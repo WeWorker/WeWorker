@@ -12,7 +12,7 @@ kwargs={...{},...kwargs};if(location.hostname!=='creator.douyin.com')return navi
             throw new CommandExecutionError('用户信息获取失败，请确认已登录 creator.douyin.com');
         return [
             {
-                uid: u.uid,
+                uid: u.uid == null ? null : String(u.uid),
                 nickname: u.nickname,
                 follower_count: u.follower_count,
                 following_count: u.following_count,

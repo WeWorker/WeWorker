@@ -48,13 +48,13 @@ function isSameUrl(targetUrl) {
   return current.origin === target.origin && current.pathname.replace(/\/$/, '') === target.pathname.replace(/\/$/, '') && current.search === target.search;
 }
 
-function navigateAndAskRetry(targetUrl, reason) {
-  window.location.assign(targetUrl);
+function navigateAndAskRetry(targetUrl, reason, resume = true) {
   return {
-    ok: true,
-    needs_retry: true,
-    url: targetUrl,
-    message: reason || '已跳转页面，请等待页面加载完成后再次调用该工具。',
+    __webcli_navigation: {
+      version: 1, url: targetUrl, resume,
+      result: { ok: true, needs_retry: true, url: targetUrl,
+        message: reason || '已跳转页面，请等待页面加载完成后再次调用该工具。' },
+    },
   };
 }
 
@@ -289,6 +289,7 @@ async function getIssueOrPrDetail({ issue_url = '', max_comments = 3 } = {}) {
 
   return {
     kind,
+    repository_url: `https://github.com/${route[1]}/${route[2]}`,
     title,
     state,
     author,
@@ -317,7 +318,7 @@ function detectStarState() {
 async function starCurrentRepository({ repository_url = '', confirm = false } = {}) {
   const targetUrl = normalizeRepositoryUrl(repository_url);
   if (!isGitHubRepositoryPath() || !isSameUrl(targetUrl)) {
-    return navigateAndAskRetry(targetUrl, '已打开 GitHub 仓库页，请等待页面加载完成后再次调用该工具。');
+    return navigateAndAskRetry(targetUrl, '已打开 GitHub 仓库页，请等待页面加载完成后再次调用该工具。', false);
   }
 
   const repository = repositoryFromPath();

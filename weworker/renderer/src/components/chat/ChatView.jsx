@@ -11,13 +11,14 @@ import MessageQueue from './MessageQueue.jsx'
 import { EMPTY_MESSAGE_QUEUE, getMessageQueue, useMessageQueueStore } from '../../store/message-queue.js'
 import WelcomeScreen from '../welcome/WelcomeScreen.jsx'
 import HealthCheckPanel from './HealthCheckPanel.jsx'
-import { requestChatWarmup, setContextCompactionLifecycleHandler, steerChat, stopChat, streamChat, submitUserChoice } from '../../api/backend.js'
+import { requestChatWarmup, setContextCompactionLifecycleHandler, stopChat, streamChat, submitUserChoice } from '../../api/backend.js'
 import { backendFetch } from '../../api/http.js'
 import { displayToolName } from '../../utils/tool-name.js'
 import { formatDuration } from '../../utils/format-duration.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
-import { useChatDraft } from '../../store/chat-drafts.js'
+import { useChatDraft, useChatDraftStore } from '../../store/chat-drafts.js'
+import { scenarioForSend } from '../../utils/scenario-hint.js'
 import { buildResumePrompt, isPlanChangeIntent, isResumeIntent } from '../../utils/chat-generation-stop.js'
 import { buildOpenWarmupRequest } from '../../utils/chat-warmup.js'
 import { applyAssistantStreamEvent, insertSteeringIntoMessages, updateAssistantMessages } from '../../utils/chat-stream-events.js'
@@ -58,6 +59,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   const { inputText, setInputText, attachments, setAttachments } = useChatDraft(`work:${workId}`)
   const fillSeq = useChatInputFillStore((s) => s.seq)
   const fillText = useChatInputFillStore((s) => s.text)
+  const fillScenario = useChatInputFillStore((s) => s.scenario)
   const handledFillSeqRef = useRef(fillSeq)
   const [messageSelectMode, setMessageSelectMode] = useState(false)
   const [toolbarContextTarget, setToolbarContextTarget] = useState(null)
@@ -96,9 +98,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     if (streaming || embedded) return
     const nextText = String(fillText || '').trim()
     if (!nextText) return
-    setInputText(nextText)
+    useChatDraftStore.getState().fillScenario(`work:${workId}`, nextText, fillScenario)
     setAttachments([])
-  }, [fillSeq, fillText, streaming])
+  }, [fillSeq, fillText, fillScenario, streaming, workId])
 
   // Download this conversation's diagnostic log (header + message timeline + the
   // [work:xxxxxxxx] tagged backend/bridge chain logs) as a txt for developers.
@@ -145,7 +147,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     }
   }
 
-  const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode })) => {
+  const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode }), scenarioHint = null) => {
+    await useWorksStore.getState().syncBackgroundChatRuns().catch(() => {})
     if ((!text.trim() && !files.length) || useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting') return { status: 'failed', accepted: false }
     if (files.length > maxChatAttachments) {
       setError(`已选 ${files.length}/${maxChatAttachments} 个文件，请删减后再发送`)
@@ -399,7 +402,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
 
           return msg
         })
-      }, controller.signal, files, maxChatAttachments, modelText, false, thinkingEffort, permissionMode)
+      }, controller.signal, files, maxChatAttachments, modelText, false, thinkingEffort, permissionMode, scenarioForSend(scenarioHint, text, files, modelText))
     } catch (e) {
       failed = true
       if (e.name === 'AbortError') {
@@ -449,18 +452,16 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
 
   queue.setHandlers({
     isBlocked: () => useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting',
-    send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort, item.permissionMode),
-    steer: async item => {
-      if (item.command) throw new Error('命令行消息只能排队执行，请等待当前回复完成')
-      await steerChat(workId, item)
-      // Only SSE has a total order with text/tool events. A faster POST response
-      // must not split the reply before earlier buffered deltas have arrived.
-      if (!useWorksStore.getState().streamingWorkIds.has(workId)) {
-        await useWorksStore.getState().refreshWorkMessages(workId)
-      }
-    },
+    isExternalRunning: () => Boolean(useWorksStore.getState().backgroundChatRuns[workId]),
+    send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort, item.permissionMode, item.scenarioHint),
+    afterStop: () => useWorksStore.getState().refreshWorkMessages(workId, { required: true }),
     stop: async () => {
       const controller = useWorksStore.getState().abortControllers[workId]
+      if (useWorksStore.getState().backgroundChatRuns[workId]) {
+        await stopChat(workId)
+        await useWorksStore.getState().syncBackgroundChatRuns()
+        return
+      }
       if (!controller) throw new Error('命令正在执行，请在终端停止；队列已暂停')
       await stopChat(workId)
       controller.abort()
@@ -471,8 +472,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   // showing an editable draft and waiting for the history request.
   useLayoutEffect(() => { if (isHandoffChat) queue.wake() }, [queue, isHandoffChat])
   useEffect(() => { queue.wake() }, [queue, streaming, contextCompactionStatus])
-  const handleSend = (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode })) => {
-    const id = queue.enqueue({ text, files, thinkingEffort, permissionMode })
+  const handleSend = (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode }), explicitScenario = undefined) => {
+    const scenario = explicitScenario === undefined ? scenarioForSend(useChatDraftStore.getState().drafts[`work:${workId}`]?.scenarioHint, text, files) : explicitScenario
+    const id = queue.enqueue({ text, files, thinkingEffort, permissionMode, scenarioHint: scenario ? { text, scenario } : null })
     if (id) { setInputText(''); setAttachments([]) }
   }
 
@@ -616,8 +618,9 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       const pendingShellCommand = useWorksStore.getState().pendingShellCommand
       if (pending || pendingAttachments.length) {
         const pendingPermissionMode = useWorksStore.getState().pendingPermissionMode || 'workspace'
-        useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingThinkingEffort: 'off', pendingPermissionMode: 'workspace' })
-        handleSendRef.current(pending || '', pendingAttachments, pendingThinkingEffort, pendingPermissionMode)
+        const pendingScenario = useWorksStore.getState().pendingScenario || null
+        useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingScenario: null, pendingThinkingEffort: 'off', pendingPermissionMode: 'workspace' })
+        handleSendRef.current(pending || '', pendingAttachments, pendingThinkingEffort, pendingPermissionMode, pendingScenario)
         return
       }
       if (pendingShellCommand?.command) {

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "x.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "Twitter/X：搜索、时间线、推文/资料、书签/列表、互动发布和登录检查",
   "homepage_url": "https://x.com/",
@@ -95,7 +95,6 @@
       "routeDomain": "x.com",
       "description": "Auto-accept DM requests containing specific keywords",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -132,14 +131,44 @@
         "properties": {
           "tweet-id": {
             "type": "string",
-            "description": "Tweet ID or URL containing the article"
+            "description": "Tweet ID or URL containing the article",
+            "minLength": 1
           }
         },
         "required": [
           "tweet-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "thread",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -153,7 +182,36 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "username",
+          "titleField": "username",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看本人资料",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.username"
+                }
+              }
+            },
+            {
+              "id": "tweets",
+              "label": "查看本人帖子",
+              "command": "tweets",
+              "args": {
+                "username": {
+                  "from": "item.username"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -162,7 +220,6 @@
       "routeDomain": "x.com",
       "description": "Open the twitter login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},
@@ -177,13 +234,13 @@
       "routeDomain": "x.com",
       "description": "Block a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (without @)"
+            "description": "Twitter screen name (without @)",
+            "minLength": 1
           }
         },
         "required": [
@@ -199,13 +256,13 @@
       "routeDomain": "x.com",
       "description": "Bookmark a tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "Tweet URL to bookmark"
+            "description": "Tweet URL to bookmark",
+            "minLength": 1
           }
         },
         "required": [
@@ -226,7 +283,8 @@
         "properties": {
           "folder-id": {
             "type": "string",
-            "description": "Folder id from `opencli twitter bookmark-folders`."
+            "description": "Folder id from `opencli twitter bookmark-folders`.",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -243,7 +301,152 @@
           "folder-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "bookmark-folders",
@@ -257,7 +460,26 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看收藏夹帖子",
+              "command": "bookmark-folder",
+              "args": {
+                "folder-id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "bookmarks",
@@ -291,7 +513,152 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "collection",
@@ -305,7 +672,8 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (with or without @)."
+            "description": "Twitter screen name (with or without @).",
+            "minLength": 1
           },
           "until": {
             "type": "string",
@@ -327,7 +695,152 @@
           "until"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$.posts",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "delete",
@@ -336,13 +849,13 @@
       "routeDomain": "x.com",
       "description": "Delete a specific tweet by URL",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to delete"
+            "description": "The URL of the tweet to delete",
+            "minLength": 1
           }
         },
         "required": [
@@ -374,7 +887,152 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "download",
@@ -388,11 +1046,13 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter username (with or without @) to scan their profile media. Either <username> or --tweet-url is required."
+            "description": "Twitter username (with or without @) to scan their profile media. Either <username> or --tweet-url is required.",
+            "minLength": 1
           },
           "tweet-url": {
             "type": "string",
-            "description": "Single tweet URL to download. Use this OR <username>, not both required at once."
+            "description": "Single tweet URL to download. Use this OR <username>, not both required at once.",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -402,7 +1062,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "source",
+              "label": "查看原帖",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "follow",
@@ -411,13 +1090,13 @@
       "routeDomain": "x.com",
       "description": "Follow a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (without @)"
+            "description": "Twitter screen name (without @)",
+            "minLength": 1
           }
         },
         "required": [
@@ -433,7 +1112,6 @@
       "routeDomain": "x.com",
       "description": "Follow multiple Twitter/X users from a comma-separated username list",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -465,7 +1143,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "Twitter/X handle (with or without @). Omit to fetch followers of the currently logged-in account."
+            "description": "Twitter/X handle (with or without @). Omit to fetch followers of the currently logged-in account.",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -475,7 +1154,116 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "screen_name",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户资料",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "tweets",
+              "label": "查看用户帖子",
+              "command": "tweets",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "likes",
+              "label": "查看用户点赞",
+              "command": "likes",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "查看用户媒体",
+              "command": "download",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "followers",
+              "label": "查看粉丝",
+              "command": "followers",
+              "args": {
+                "user": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "following",
+              "label": "查看关注",
+              "command": "following",
+              "args": {
+                "user": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注用户",
+              "command": "follow",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "unfollow",
+              "label": "取消关注",
+              "command": "unfollow",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "block",
+              "label": "屏蔽用户",
+              "command": "block",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "unblock",
+              "label": "取消屏蔽",
+              "command": "unblock",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "following",
@@ -489,7 +1277,8 @@
         "properties": {
           "user": {
             "type": "string",
-            "description": "Twitter/X handle (with or without @). Omit to fetch the accounts the currently logged-in user follows."
+            "description": "Twitter/X handle (with or without @). Omit to fetch the accounts the currently logged-in user follows.",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -499,7 +1288,116 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "screen_name",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户资料",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "tweets",
+              "label": "查看用户帖子",
+              "command": "tweets",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "likes",
+              "label": "查看用户点赞",
+              "command": "likes",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "查看用户媒体",
+              "command": "download",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "followers",
+              "label": "查看粉丝",
+              "command": "followers",
+              "args": {
+                "user": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "following",
+              "label": "查看关注",
+              "command": "following",
+              "args": {
+                "user": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注用户",
+              "command": "follow",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "unfollow",
+              "label": "取消关注",
+              "command": "unfollow",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "block",
+              "label": "屏蔽用户",
+              "command": "block",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "unblock",
+              "label": "取消屏蔽",
+              "command": "unblock",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "hide-reply",
@@ -508,13 +1406,13 @@
       "routeDomain": "x.com",
       "description": "Hide a reply on your tweet (useful for hiding bot/spam replies)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the reply tweet to hide"
+            "description": "The URL of the reply tweet to hide",
+            "minLength": 1
           }
         },
         "required": [
@@ -530,13 +1428,13 @@
       "routeDomain": "x.com",
       "description": "Like a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to like"
+            "description": "The URL of the tweet to like",
+            "minLength": 1
           }
         },
         "required": [
@@ -557,7 +1455,8 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (with or without @). Defaults to the logged-in user when omitted."
+            "description": "Twitter screen name (with or without @). Defaults to the logged-in user when omitted.",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -581,7 +1480,152 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "lists",
@@ -601,7 +1645,65 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看列表帖子",
+              "command": "list-tweets",
+              "args": {
+                "listId": {
+                  "from": "item.id"
+                }
+              }
+            },
+            {
+              "id": "add",
+              "label": "添加列表成员",
+              "command": "list-add",
+              "args": {
+                "listId": {
+                  "from": "item.id"
+                }
+              },
+              "inputs": [
+                "username"
+              ]
+            },
+            {
+              "id": "remove",
+              "label": "移除列表成员",
+              "command": "list-remove",
+              "args": {
+                "listId": {
+                  "from": "item.id"
+                }
+              },
+              "inputs": [
+                "username"
+              ]
+            },
+            {
+              "id": "delete",
+              "label": "删除列表",
+              "command": "list-delete",
+              "args": {
+                "listId": {
+                  "from": "item.id"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "list-add",
@@ -610,17 +1712,18 @@
       "routeDomain": "x.com",
       "description": "Add a user to a Twitter/X list you own (no-op if already a member)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "listId": {
             "type": "string",
-            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)"
+            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)",
+            "minLength": 1
           },
           "username": {
             "type": "string",
-            "description": "Twitter/X handle to add (with or without @)"
+            "description": "Twitter/X handle to add (with or without @)",
+            "minLength": 1
           }
         },
         "required": [
@@ -637,13 +1740,13 @@
       "routeDomain": "x.com",
       "description": "Add multiple users to a Twitter/X list you own from a comma-separated username list",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "listId": {
             "type": "string",
-            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)"
+            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)",
+            "minLength": 1
           },
           "usernames": {
             "type": "string",
@@ -674,7 +1777,6 @@
       "routeDomain": "x.com",
       "description": "Create a new Twitter/X list (returns the new list id)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -706,13 +1808,13 @@
       "routeDomain": "x.com",
       "description": "Delete a Twitter/X list you own after explicit confirmation",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "listId": {
             "type": "string",
-            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)"
+            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)",
+            "minLength": 1
           },
           "confirm": {
             "type": "boolean",
@@ -738,17 +1840,18 @@
       "routeDomain": "x.com",
       "description": "Remove a user from a Twitter/X list you own (toggles via UI; no-op if not currently a member)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "listId": {
             "type": "string",
-            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)"
+            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)",
+            "minLength": 1
           },
           "username": {
             "type": "string",
-            "description": "Twitter/X handle to remove (with or without @)"
+            "description": "Twitter/X handle to remove (with or without @)",
+            "minLength": 1
           }
         },
         "required": [
@@ -765,13 +1868,13 @@
       "routeDomain": "x.com",
       "description": "Remove multiple users from a Twitter/X list you own from a comma-separated username list",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "listId": {
             "type": "string",
-            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)"
+            "description": "Numeric ID of the list you own (e.g. from `opencli twitter lists`)",
+            "minLength": 1
           },
           "usernames": {
             "type": "string",
@@ -807,7 +1910,8 @@
         "properties": {
           "listId": {
             "type": "string",
-            "description": "Numeric ID of a Twitter/X list (e.g. from `opencli twitter lists`)"
+            "description": "Numeric ID of a Twitter/X list (e.g. from `opencli twitter lists`)",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -823,7 +1927,152 @@
           "listId"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "mute-word",
@@ -832,7 +2081,6 @@
       "routeDomain": "x.com",
       "description": "Add a muted word or phrase on Twitter/X",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -865,7 +2113,152 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "post",
@@ -874,7 +2267,6 @@
       "routeDomain": "x.com",
       "description": "Post a new tweet (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -901,12 +2293,125 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (with or without @). Defaults to the logged-in user when omitted."
+            "description": "Twitter screen name (with or without @). Defaults to the logged-in user when omitted.",
+            "minLength": 1
           }
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "screen_name",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看用户帖子",
+              "command": "tweets",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "likes",
+              "label": "查看用户点赞",
+              "command": "likes",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "查看用户媒体",
+              "command": "download",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "followers",
+              "label": "查看粉丝",
+              "command": "followers",
+              "args": {
+                "user": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "following",
+              "label": "查看关注",
+              "command": "following",
+              "args": {
+                "user": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "follow",
+              "label": "关注用户",
+              "command": "follow",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "unfollow",
+              "label": "取消关注",
+              "command": "unfollow",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "block",
+              "label": "屏蔽用户",
+              "command": "block",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "unblock",
+              "label": "取消屏蔽",
+              "command": "unblock",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              }
+            },
+            {
+              "id": "collection",
+              "label": "追溯用户历史帖子",
+              "command": "collection",
+              "args": {
+                "username": {
+                  "from": "item.context_username"
+                }
+              },
+              "inputs": [
+                "until"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "quote",
@@ -915,13 +2420,13 @@
       "routeDomain": "x.com",
       "description": "Quote-tweet a specific tweet with your own text (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to quote"
+            "description": "The URL of the tweet to quote",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -942,13 +2447,13 @@
       "routeDomain": "x.com",
       "description": "Reply to a specific tweet (text only)",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to reply to"
+            "description": "The URL of the tweet to reply to",
+            "minLength": 1
           },
           "text": {
             "type": "string",
@@ -969,7 +2474,6 @@
       "routeDomain": "x.com",
       "description": "Send a message to recent DM conversations",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
@@ -1006,13 +2510,13 @@
       "routeDomain": "x.com",
       "description": "Retweet a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to retweet"
+            "description": "The URL of the tweet to retweet",
+            "minLength": 1
           }
         },
         "required": [
@@ -1071,7 +2575,152 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "thread",
@@ -1085,7 +2734,8 @@
         "properties": {
           "tweet-id": {
             "type": "string",
-            "description": "Tweet numeric ID (e.g. 1234567890) or full status URL"
+            "description": "Tweet numeric ID (e.g. 1234567890) or full status URL",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -1101,7 +2751,152 @@
           "tweet-id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "timeline",
@@ -1131,7 +2926,152 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "trending",
@@ -1151,7 +3091,36 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "rank",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "search",
+              "label": "搜索话题",
+              "command": "search",
+              "args": {
+                "query": {
+                  "from": "item.topic"
+                }
+              }
+            },
+            {
+              "id": "mute",
+              "label": "屏蔽词语",
+              "command": "mute-word",
+              "args": {
+                "keyword": {
+                  "from": "item.topic"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "tweets",
@@ -1165,7 +3134,8 @@
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (with or without @). Defaults to the logged-in user when omitted."
+            "description": "Twitter screen name (with or without @). Defaults to the logged-in user when omitted.",
+            "minLength": 1
           },
           "limit": {
             "type": "integer",
@@ -1185,7 +3155,152 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子与回复",
+              "command": "thread",
+              "args": {
+                "tweet-id": {
+                  "from": "item.context_post_id"
+                }
+              }
+            },
+            {
+              "id": "author",
+              "label": "查看作者",
+              "command": "profile",
+              "args": {
+                "username": {
+                  "from": "item.context_author"
+                }
+              }
+            },
+            {
+              "id": "media",
+              "label": "查看媒体链接",
+              "command": "download",
+              "args": {
+                "tweet-url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unlike",
+              "label": "取消点赞",
+              "command": "unlike",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "bookmark",
+              "label": "收藏",
+              "command": "bookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unbookmark",
+              "label": "取消收藏",
+              "command": "unbookmark",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "retweet",
+              "label": "转发",
+              "command": "retweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "unretweet",
+              "label": "取消转发",
+              "command": "unretweet",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "delete",
+              "label": "删除帖子",
+              "command": "delete",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "hide-reply",
+              "label": "隐藏回复",
+              "command": "hide-reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              }
+            },
+            {
+              "id": "reply",
+              "label": "回复帖子",
+              "command": "reply",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            },
+            {
+              "id": "quote",
+              "label": "引用帖子",
+              "command": "quote",
+              "args": {
+                "url": {
+                  "from": "item.context_post_url"
+                }
+              },
+              "inputs": [
+                "text"
+              ]
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "unblock",
@@ -1194,13 +3309,13 @@
       "routeDomain": "x.com",
       "description": "Unblock a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (without @)"
+            "description": "Twitter screen name (without @)",
+            "minLength": 1
           }
         },
         "required": [
@@ -1216,13 +3331,13 @@
       "routeDomain": "x.com",
       "description": "Remove a tweet from bookmarks",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "Tweet URL to unbookmark"
+            "description": "Tweet URL to unbookmark",
+            "minLength": 1
           }
         },
         "required": [
@@ -1238,13 +3353,13 @@
       "routeDomain": "x.com",
       "description": "Unfollow a Twitter user",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "username": {
             "type": "string",
-            "description": "Twitter screen name (without @)"
+            "description": "Twitter screen name (without @)",
+            "minLength": 1
           }
         },
         "required": [
@@ -1260,13 +3375,13 @@
       "routeDomain": "x.com",
       "description": "Remove a like from a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to unlike"
+            "description": "The URL of the tweet to unlike",
+            "minLength": 1
           }
         },
         "required": [
@@ -1282,13 +3397,13 @@
       "routeDomain": "x.com",
       "description": "Undo a retweet on a specific tweet",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {
           "url": {
             "type": "string",
-            "description": "The URL of the tweet to unretweet"
+            "description": "The URL of the tweet to unretweet",
+            "minLength": 1
           }
         },
         "required": [

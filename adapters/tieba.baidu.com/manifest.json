@@ -65,7 +65,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "搜索相关帖子",
+              "command": "search",
+              "args": {
+                "keyword": {
+                  "from": "item.title"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "posts",
@@ -96,7 +115,26 @@
           "forum"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "read",
@@ -127,7 +165,13 @@
           "id"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回当前主题页的正文和回复；现有 Adapter 无单条回复详情、作者或回复写操作。翻页使用 read 的显式 page 参数。"
+        }
+      ]
     },
     {
       "id": "search",
@@ -158,7 +202,26 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看帖子",
+              "command": "read",
+              "args": {
+                "id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { isContextOverflowError, shouldAutoCompactAfterTurn, streamChat } from '../api/backend.js'
+import { compactConversation, isContextOverflowError, setContextCompactionLifecycleHandler, shouldAutoCompactAfterTurn, streamChat } from '../api/backend.js'
 
 const originalFetch = global.fetch
 const originalWindow = global.window
@@ -39,10 +39,120 @@ function createJsonResponse(payload, ok = true, status = 200) {
 afterEach(() => {
   global.fetch = originalFetch
   global.window = originalWindow
+  setContextCompactionLifecycleHandler(null)
 })
 
 describe('chat compaction triggers', () => {
+  for (const ending of ['eof', 'transport-error', 'done', 'turn-end', 'cancel']) {
+    it(`settles an unfinished compaction when the chat stream ends with ${ending}`, async () => {
+      const controller = new AbortController()
+      const events = []
+      const states = []
+      setContextCompactionLifecycleHandler((_id, status) => states.push(status))
+      const start = { type: 'context_compaction_start', compaction: { status: 'started' } }
+      const tail = ending === 'done' ? 'data: [DONE]\n\n'
+        : ending === 'turn-end' ? 'data: {"type":"turn_end"}\n\n' : ''
+      const reader = createChunkReader(`data: ${JSON.stringify(start)}\n\n${tail}`)
+      let reads = 0
+      global.window = {}
+      global.fetch = async () => ({ ok: true, status: 200, body: { getReader: () => ({
+        async read() {
+          if (reads++ > 0 && ending === 'transport-error') throw new Error('Example transport failure')
+          if (reads > 1 && ending === 'cancel') {
+            controller.abort()
+            throw new DOMException('Example cancelled request', 'AbortError')
+          }
+          return reader.read()
+        },
+      }) } })
+      await assert.rejects(streamChat('example-exploration-work', 'Example', event => events.push(event), controller.signal))
+      const terminals = events.filter(event => event.type === 'context_compaction_end')
+      assert.equal(terminals.length, 1)
+      assert.equal(terminals[0].compaction.status, 'failed')
+      assert.equal(states.at(-1), 'failed')
+    })
+  }
+
+  it('preserves a completed compaction when a later stream read fails', async () => {
+    const events = []
+    let reads = 0
+    global.window = {}
+    global.fetch = async () => ({ ok: true, status: 200, body: { getReader: () => ({
+      async read() {
+        if (reads++ > 0) throw new Error('Example transport failure')
+        return { done: false, value: new TextEncoder().encode(
+          'data: {"type":"context_compaction_start","compaction":{"status":"started"}}\n\n'
+          + 'data: {"type":"context_compaction_end","compaction":{"status":"completed"}}\n\n',
+        ) }
+      },
+    }) } })
+    await assert.rejects(streamChat('example-exploration-work', 'Example', event => events.push(event), new AbortController().signal))
+    assert.deepEqual(events.filter(event => event.type === 'context_compaction_end').map(event => event.compaction.status), ['completed'])
+  })
+
+  it('cancels a pending compaction with the parent chat request', async () => {
+    const controller = new AbortController()
+    const states = []
+    setContextCompactionLifecycleHandler((_id, status) => states.push(status))
+    let receivedSignal, release, started
+    const requested = new Promise(resolve => { started = resolve })
+    global.window = {}
+    global.fetch = async (_url, options) => {
+      receivedSignal = options.signal
+      return new Promise((resolve, reject) => {
+        release = () => resolve(createJsonResponse({ status: 'completed', events: [] }))
+        options.signal?.addEventListener('abort', () => reject(new DOMException('Example cancelled request', 'AbortError')), { once: true })
+        started()
+      })
+    }
+    const request = compactConversation('example-exploration-work', { signal: controller.signal })
+    const outcome = request.then(() => 'completed', error => error.name)
+    await requested
+    controller.abort()
+    try {
+      assert.equal(receivedSignal, controller.signal)
+      assert.equal(await outcome, 'AbortError')
+      assert.equal(states.at(-1), 'failed')
+    } finally {
+      release()
+      await outcome
+    }
+  })
+
   for (const trigger of ['threshold', 'http-overflow', 'sse-overflow']) {
+    it(`passes cancellation to the ${trigger} compaction request`, async () => {
+      const controller = new AbortController()
+      const events = []
+      let receivedSignal, started, release
+      const requested = new Promise(resolve => { started = resolve })
+      global.window = {}
+      global.fetch = async (url, options) => {
+        if (!String(url).endsWith('/compact')) {
+          if (trigger === 'http-overflow') return createJsonResponse({ detail: 'context length exceeded' }, false, 413)
+          if (trigger === 'sse-overflow') return createSseResponse([{ type: 'error', content: 'context length exceeded' }])
+          return createSseResponse([{ type: 'context_snapshot', context: { actual_input_tokens: 900, context_limit: 1000 } }])
+        }
+        receivedSignal = options.signal
+        return new Promise((resolve, reject) => {
+          release = () => resolve(createJsonResponse({ status: 'skipped', events: [] }))
+          options.signal?.addEventListener('abort', () => reject(new DOMException('Example cancelled request', 'AbortError')), { once: true })
+          started()
+        })
+      }
+      const request = streamChat('example-exploration-work', 'Example', event => events.push(event), controller.signal)
+      const outcome = request.catch(() => {})
+      await requested
+      controller.abort()
+      try {
+        assert.equal(receivedSignal, controller.signal)
+        await outcome
+        assert.equal(events.filter(event => event.type === 'context_compaction_end').at(-1)?.compaction.status, 'failed')
+      } finally {
+        release()
+        await outcome
+      }
+    })
+
     it(`shows compaction start while ${trigger} compression is pending and waits before continuing`, async () => {
       const events = []
       let chatRequests = 0

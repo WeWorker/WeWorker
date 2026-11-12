@@ -40,12 +40,12 @@ flowchart LR
   PM -->|"create/update metadata"| Store
   PM -->|"start/resume task"| TaskChild
   PM -->|"start replay"| ReplayChild
-  PM -->|"pause/cancel request"| Control
+  PM -->|"cancel request"| Control
   PM -->|"watch exit code + trajectory"| Artifacts
 
   TaskChild --> RunOne
   RunOne --> Agent
-  Agent -->|"read pause/cancel after step"| Control
+  Agent -->|"read cancel after step"| Control
   Agent -->|"Playwright over CDP"| Browser
   Agent -->|"write task outputs"| Artifacts
 
@@ -156,7 +156,7 @@ src/webwright/run/
 - `app.py`: Flask app、HTTP routes、SSE、运行时 Markdown/OpenAPI 文档。
 - `artifacts.py`: 读取 task 输出目录，构造 steps、script、messages、file response。
 - `browser.py`: CDP status 和 tabs 查询。
-- `process_manager.py`: 单 active subprocess、pause/cancel、进程状态监控。
+- `process_manager.py`: 单 active subprocess、cancel、进程状态监控。
 - `records.py`: task/replay 元数据读写、ID sanitize、原子 JSON 写入。
 - `ui.py`: 内置单页 UI，访问 `/` 或 `/ui` 即可使用。
 - `run/server.py`: server 启动入口。
@@ -405,22 +405,11 @@ write .<name>.tmp -> replace final file
 ```
 
 每次 start/resume/replay 前，`ProcessManager` 都会删除旧的 `.server/control.json`，
-避免上一次 pause/cancel 污染新 run。
+避免上一次 cancel 污染新 run。
 
 ### `.server/control.json`
 
 server 通过控制文件向 task 子进程发送协作式控制信号。
-
-暂停：
-
-```json
-{
-  "run_id": "run_20260708_153000_001",
-  "action": "pause",
-  "reason": "需要用户扫码登录",
-  "created_at": "2026-07-08T15:31:00+08:00"
-}
-```
 
 取消：
 
@@ -521,21 +510,7 @@ if control_exit is not None:
 - `OSError` 或 `JSONDecodeError` 时返回 `None`，下一步后再检查。
 - control payload 不是 JSON object 时忽略。
 - 如果配置了 `control_run_id`，payload 中的 `run_id` 必须完全匹配。
-- 只接受 `pause` 和 `cancel` 两种 action。
-
-pause 会追加：
-
-```json
-{
-  "role": "exit",
-  "content": "Task paused by server.",
-  "extra": {
-    "exit_status": "Paused",
-    "submission": "",
-    "final_response": ""
-  }
-}
-```
+- 只接受 `cancel`。
 
 cancel 会追加：
 
@@ -551,7 +526,7 @@ cancel 会追加：
 }
 ```
 
-这是一种协作式控制：pause/cancel 只有在当前模型请求和当前 browser step 完成后才会被
+这是一种协作式控制：cancel 只有在当前模型请求和当前 browser step 完成后才会被
 agent 观察到。浏览器处于 `local_cdp` 模式时，`env.close()` 只断开 Playwright 连接；
 默认不关闭用户真实浏览器。
 
@@ -597,27 +572,13 @@ lock: threading.Lock
 1. 获取 lock。
 2. 如果已有 active process，返回 `409`。
 3. 读取原 task。
-4. 若是 `/resume`，要求 task 状态为 `waiting_for_user` 或 `paused`。
+4. 若是 `/resume`，要求 task 状态为 `waiting_for_user`。
 5. 确认原 output dir 下存在 `trajectory.json`。
 6. 生成新的 run_id。
 7. 删除旧 `.server/control.json`。
 8. 写 resume spec，`resume_from` 指向原 task 的 absolute `trajectory.json`。
 9. 启动新的 `local_cdp_task` 子进程。
 10. 更新 task 状态为 `running`，记录新的 pid、run_id。
-
-### pause task
-
-流程：
-
-1. 只能暂停当前 active task；否则返回 `409`。
-2. 写 `.server/control.json`，其中 `run_id` 等于当前 active run。
-3. 更新 task 状态为 `pause_requested`。
-4. HTTP 响应立即返回 `pause_requested`。
-5. 子进程在当前 step 完成、保存 artifacts、检查 control file 后自然退出。
-6. watcher 读取 `trajectory.json`，看到 `exit_status=Paused` 后把 task 更新为
-   `waiting_for_user`。
-
-UI 只有在 task 进入 `waiting_for_user` 后才应提示用户可以接管浏览器。
 
 ### cancel task
 
@@ -670,9 +631,7 @@ Task status:
 ```text
 queued
 running
-pause_requested
 waiting_for_user
-paused
 cancel_requested
 succeeded
 failed
@@ -680,7 +639,6 @@ cancelled
 ```
 
 API 文档里保留 `starting_browser` 作为状态枚举，但当前实现没有单独写入这个状态。
-`paused` 也作为兼容状态保留；当前 pause watcher 的目标状态是 `waiting_for_user`。
 
 子进程退出时，watcher 读取 `trajectory.json` 最后一条 `exit` message：
 
@@ -805,13 +763,12 @@ trajectory.json
 2. 每 750ms 读取 task、steps 和截图。
 3. 对新 step 发送 `step_finished`。
 4. 对 task 状态变化发送对应事件。
-5. 当状态进入 `waiting_for_user`、`paused`、`succeeded`、`failed`、`cancelled` 时结束 SSE。
+5. 当状态进入 `waiting_for_user`、`succeeded`、`failed`、`cancelled` 时结束 SSE。
 
 Task 事件映射：
 
 ```text
 running           -> task_started
-pause_requested   -> pause_requested
 cancel_requested  -> cancel_requested
 waiting_for_user  -> waiting_for_user
 succeeded         -> task_succeeded
@@ -857,7 +814,6 @@ GET  /api/tasks/{task_id}/steps/{step}
 GET  /api/tasks/{task_id}/script
 GET  /api/tasks/{task_id}/messages
 POST /api/tasks/{task_id}/messages
-POST /api/tasks/{task_id}/pause
 POST /api/tasks/{task_id}/resume
 POST /api/tasks/{task_id}/cancel
 POST /api/tasks/{task_id}/replay
@@ -885,7 +841,6 @@ schema-first OpenAPI 规范。
 当前已加入的测试覆盖：
 
 - `tests/unit/test_agent_control.py`
-  - pause control file 写入 `Paused` exit message。
   - 不匹配 run_id 的 control file 会被忽略。
 - `tests/unit/test_server_app.py`
   - health、UI、docs、OpenAPI endpoint。
@@ -897,7 +852,6 @@ schema-first OpenAPI 规范。
   - path traversal 拒绝。
 - `tests/unit/test_server_process_manager.py`
   - start task 写绝对 spec 并清理旧 control。
-  - pause 写带 run_id 的 control 并设置 `pause_requested`。
   - paused exit 映射到 `waiting_for_user`。
   - busy 时拒绝新的 task/replay。
   - replay 启动、取消和状态更新。
@@ -922,7 +876,7 @@ uv run webwright-server
 ```
 
 冻结模式还必须在不依赖源码仓库、Python 或 uv 的干净环境中，从 InstallRoot 启动
-Webwright，完成 Exploration、Replay、暂停／继续、取消和浏览器自动启动；重启后确认
+Webwright，完成 Exploration、Replay、停止、续聊和浏览器自动启动；重启后确认
 `~/.weworker/webwright/tasks` 与浏览器 Profile 保留。macOS 和 Windows 必须分别实机验证。
 
 打开 UI：
@@ -946,13 +900,7 @@ curl -X POST http://127.0.0.1:8765/api/tasks \
   -d '{"start_url":"https://mail.163.com","instruction":"搜一下 apple 给我发了哪些邮件"}'
 ```
 
-暂停/人工接管流程：
-
-1. 在 UI 或 API 请求 pause。
-2. API 立即返回 `pause_requested`。
-3. 等 task 状态变为 `waiting_for_user`。
-4. 用户在真实浏览器中完成登录、MFA、验证码或授权。
-5. 在 UI 或 API 请求 resume。
+人工接管前先停止探索；处理完成后在原对话发送补充消息。
 
 ## 第一版边界
 
@@ -975,7 +923,7 @@ curl -X POST http://127.0.0.1:8765/api/tasks \
 
 ```text
 把现有 CLI harness 稳定包装成本机 HTTP API 和内置 UI，
-让用户能创建任务、看步骤、暂停给人登录、续聊、回放。
+让用户能创建任务、看步骤、停止后手动登录、续聊、回放。
 ```
 
 ## 后续可演进方向

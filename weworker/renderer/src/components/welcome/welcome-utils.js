@@ -1,11 +1,32 @@
 export const FEATURED_ORDER_KEY = 'weworker.welcome.featuredSiteOrder'
 export const FEATURED_VISIBLE_COUNT_KEY = 'weworker.welcome.featuredVisibleCount.v2'
-export const FEATURED_SQUARE_CARDS_KEY = 'weworker.welcome.featuredSquareCards'
 export const CONVERSATION_EXAMPLE_VISIBLE_KEY = 'weworker.welcome.conversationExampleVisible'
 export const DEFAULT_FEATURED_VISIBLE_COUNT = 5
 export const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
-export const DEFAULT_FEATURED_SQUARE_CARDS = true
 export const ADD_FEATURED_DROP_TARGET = '__add-featured-drop-target__'
+
+export function featuredSiteScrollState(element) {
+  const maxScroll = Math.max(0, element.scrollWidth - element.clientWidth)
+  return { overflow: maxScroll > 1, left: element.scrollLeft > 1, right: element.scrollLeft < maxScroll - 1 }
+}
+
+export function scrollFeaturedSitesByPage(element, direction, reducedMotion = false) {
+  if (!element) return
+  const maxScroll = Math.max(0, element.scrollWidth - element.clientWidth)
+  const left = Math.max(0, Math.min(maxScroll, element.scrollLeft + direction * element.clientWidth * 0.8))
+  element.scrollTo({ left, behavior: reducedMotion ? 'auto' : 'smooth' })
+}
+
+export function scrollFeaturedSitesHorizontally(event, element) {
+  if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return
+  const maxScroll = element.scrollWidth - element.clientWidth
+  if (maxScroll <= 0) return
+  const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1
+  const nextScroll = Math.max(0, Math.min(maxScroll, element.scrollLeft + event.deltaY * unit))
+  if (Math.abs(nextScroll - element.scrollLeft) < 1) return
+  event.preventDefault()
+  element.scrollLeft = nextScroll
+}
 
 export function getFeaturedSiteAvailability({ siteLimit, visibleCount, availableCount }) {
   const limit = Math.max(1, Number(siteLimit) || DEFAULT_WELCOME_FEATURED_SITE_LIMIT)
@@ -47,13 +68,6 @@ export function readFeaturedVisibleCount() {
   if (raw === null) return DEFAULT_FEATURED_VISIBLE_COUNT
   const saved = Number(raw)
   return Number.isFinite(saved) ? Math.max(0, saved) : DEFAULT_FEATURED_VISIBLE_COUNT
-}
-
-export function readFeaturedSquareCards() {
-  if (typeof window === 'undefined') return DEFAULT_FEATURED_SQUARE_CARDS
-  const raw = window.localStorage.getItem(FEATURED_SQUARE_CARDS_KEY)
-  if (raw === null) return DEFAULT_FEATURED_SQUARE_CARDS
-  return raw === 'true'
 }
 
 export function readConversationExampleVisible() {

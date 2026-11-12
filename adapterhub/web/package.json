@@ -1,0 +1,25 @@
+{
+  "name": "@weworker/adapterhub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:server": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "package:deploy": "node tools/package-deploy.js",
+    "import:builtins": "node tools/import-builtins.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "vite": "^8.1.0"
+  }
+}

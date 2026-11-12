@@ -7,6 +7,7 @@ import SiteIcon from '../icons/SiteIcon.jsx'
 import EditablePromptTemplate from '../prompt/EditablePromptTemplate.jsx'
 import { setSiteDragData } from '../../utils/site-drag.js'
 import { buildPromptFromTemplate } from '../../utils/prompt-template.js'
+import { scenarioHintForCard } from '../../utils/scenario-hint.js'
 import AnimatedCollapse from '../common/AnimatedCollapse.jsx'
 
 const GRID_TILE_MIN_WIDTH = 86
@@ -38,9 +39,9 @@ export default function SitesCapabilitiesView({
   const previousScrollTop = useRef(0)
   const requestFill = useChatInputFillStore((s) => s.requestFill)
 
-  const handleScenarioClick = (site, scenario, editedPrompt) => {
+  const handleScenarioClick = (site, scenario, editedPrompt, values) => {
     const text = editedPrompt || getScenarioPromptText(site, scenario)
-    if (text) requestFill(text)
+    if (text) requestFill(text, scenarioHintForCard(site, scenario, text, scenario.prompts?.find(prompt => prompt?.text?.trim())?.text, values))
   }
 
   const siteDragProps = (site) => ({
@@ -407,7 +408,7 @@ function SiteListRow({
                 scenario={scenario}
                 index={index}
                 compact={false}
-                onUse={(promptText) => onScenarioClick?.(site, scenario, promptText)}
+                onUse={(promptText, values) => onScenarioClick?.(site, scenario, promptText, values)}
               />
             ))}
           </div>
@@ -542,13 +543,13 @@ function ScenarioTile({ site, scenario, index, compact, onUse }) {
       className={`cap-scenario ${compact ? 'cap-scenario--compact' : ''} ${onUse ? 'cap-scenario--clickable' : ''}`}
       onClick={(e) => {
         e.stopPropagation()
-        onUse?.(buildEditedPrompt())
+        onUse?.(buildEditedPrompt(), promptValues[0] || {})
       }}
       onKeyDown={(e) => {
         if (!onUse || (e.key !== 'Enter' && e.key !== ' ')) return
         e.preventDefault()
         e.stopPropagation()
-        onUse(buildEditedPrompt())
+        onUse(buildEditedPrompt(), promptValues[0] || {})
       }}
       title={onUse ? '点击填入对话框' : undefined}
     >

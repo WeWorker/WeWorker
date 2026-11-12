@@ -128,10 +128,10 @@ it('binds all inputs and changed correlation to independent after fields; forbid
 it('validates route, controls, args and immutable module on both call paths', async () => {
   const f = await setup(), pkg = readPackageDirectory(f.run.draft.adapterDir), command = pkg.commands[0], args = { title: '007 示例', __confirmed: true };
   expect(uiWriteRequest(command, args)).toEqual(resolveUiWrite(command, args));
-  for (const bad of [{}, { ...args, __confirmed: 'true' }, { ...args, title: 1 }, { ...args, extra: 'value' }, { ...args, title: 'one\ntwo' }]) {
+  for (const bad of [{}, { ...args, title: 1 }, { ...args, extra: 'value' }, { ...args, title: 'one\ntwo' }]) {
     expect(() => resolveUiWrite(command, bad)).toThrow(); expect(() => uiWriteRequest(command, bad)).toThrow();
   }
-  for (const patch of [{ requires_confirmation: false }, { runtime: 'http' }, { safety: 'read' }, { pageWrite: {} }, { uiWrite: { ...command.uiWrite, url: 'https://example.org/items/example' } },
+  for (const patch of [{ runtime: 'http' }, { safety: 'read' }, { pageWrite: {} }, { uiWrite: { ...command.uiWrite, url: 'https://example.org/items/example' } },
     { uiWrite: { ...command.uiWrite, inputMode: 'input-events' } }, { uiWrite: { ...command.uiWrite, confirmation: { selector: '#receipt', attribute: 'data-title', parameter: 'unknown' } } }]) expect(() => validateUiWrite({ ...command, ...patch })).toThrow();
   const permissions = adapterPermissions(pkg.manifest), manifest = structuredClone(pkg.manifest); manifest.commands[0].uiWrite.submit.text = 'Other';
   expect(adapterPermissions(manifest)).not.toEqual(permissions);

@@ -21,11 +21,11 @@ const run=async (kwargs) => {
         }
         await new Promise(r=>setTimeout(r,2000));
         const msgText = kwargs.text || '你好，请问您对这个职位感兴趣吗？';
-        const sent = await typeAndSendMessage(msgText);
+        const sent = await typeAndSendMessage(msgText, numericUid);
         if (!sent) {
             throw new Error('找不到消息输入框');
         }
         await new Promise(r=>setTimeout(r,1000));
-        return [{ status: '✅ 招呼已发送', detail: `已向 ${friendName} 发送: ${msgText}` }];
+        return [{ status: '已点击发送，送达未验证', detail: `已向 ${friendName} 点击发送: ${msgText}` }];
     };
-__webcliRegisterCommand("greet",async(args={})=>{args={...{"text":""},...args};if(typeof args["uid"]!=='string'||!args["uid"].trim())throw new ArgumentError("uid is required");if(typeof args["security-id"]!=='string'||!args["security-id"].trim())throw new ArgumentError("security-id is required");if(typeof args["job-id"]!=='string'||!args["job-id"].trim())throw new ArgumentError("job-id is required");if(location.hostname!=='www.zhipin.com'||!location.pathname.startsWith('/web/chat/'))return {__webcli_navigation:{version:1,url:'https://www.zhipin.com/web/chat/index',resume:false,result:{status:'prepared',message:'聊天页已准备，请核对目标后重新确认调用；尚未执行业务写操作。'}}};guard();return run(args);});})();
+__webcliRegisterCommand("greet",async(args={})=>{args={...{"text":""},...args};if(typeof args["uid"]!=='string'||!args["uid"].trim())throw new ArgumentError("uid is required");if(typeof args["security-id"]!=='string'||!args["security-id"].trim())throw new ArgumentError("security-id is required");if(typeof args["job-id"]!=='string'||!args["job-id"].trim())throw new ArgumentError("job-id is required");if(location.hostname!=='www.zhipin.com'||!location.pathname.startsWith('/web/chat/'))return {__webcli_navigation:{version:1,url:'https://www.zhipin.com/web/chat/index',resume:false,phase:'prepare',result:{status:'prepared',message:'聊天页已准备，请核对目标后重新确认调用；尚未执行业务写操作。'}}};guard();return run(args);});})();

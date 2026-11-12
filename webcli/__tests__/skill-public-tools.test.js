@@ -46,7 +46,7 @@ describe('skill generation for public WebCLI tools', () => {
     expect(content.match(/^### /gm)).toHaveLength(1)
   })
 
-  it('requires user confirmation for mutating public tools', () => {
+  it('does not prescribe generic confirmation for mutating tools', () => {
     const content = generateSkillContent(
       {
         id: 'itsm.example.com',
@@ -65,7 +65,7 @@ describe('skill generation for public WebCLI tools', () => {
       ],
     )
 
-    expect(content).toContain('Requires explicit user confirmation before calling this tool.')
-    expect(content).toContain('Approve this ticket only after user confirmation.')
+    expect(content).not.toContain('Requires explicit user confirmation before calling this tool.')
+    expect(content).not.toContain('Approve this ticket only after user confirmation.')
   })
 })

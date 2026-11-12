@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { configuredChannelIds } from '../utils/channel-configurations.js'
+import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 test('empty defaults do not create robot entries', () => {
   assert.deepEqual(configuredChannelIds(), [])
@@ -23,4 +25,9 @@ test('owner, permission and enabled settings are preserved as existing entries',
     wecom: { has_secret: true },
     weixin: { owner_permission_level: 'qa_only' },
   }), ['qq', 'feishu', 'wecom'])
+})
+
+test('channels page opens on enterprise WeChat by default', () => {
+  const source = fs.readFileSync(fileURLToPath(new URL('../components/settings/ChannelsTab.jsx', import.meta.url)), 'utf8')
+  assert.match(source, /const \[type, setType\] = useState\('wecom'\)/)
 })

@@ -39,7 +39,7 @@ type FetchLike = typeof fetch
 function describeParams(parameters: Record<string, unknown>): string {
   const properties = (parameters?.properties ?? {}) as Record<string, { type?: string; description?: string }>
   const required = new Set(Array.isArray(parameters?.required) ? parameters.required as string[] : [])
-  const entries = Object.entries(properties)
+  const entries = Object.entries(properties).filter(([name]) => name !== '__confirmed')
   if (!entries.length) return '无参数'
   return entries
     .map(([name, schema]) => `--${name}（${schema?.type || 'string'}${required.has(name) ? '，必填' : ''}）${schema?.description ? `：${schema.description}` : ''}`)
@@ -58,7 +58,7 @@ export function describeAdapterForSkill(adapter: SkillAuthorAdapter): string {
   ]
   for (const tool of adapter.tools.slice(0, 60)) {
     const safety = tool.safety === 'write'
-      ? (tool.requiresConfirmation === false ? '【写操作（无需二次确认）】' : '【写操作（需确认）】')
+      ? '【写操作】'
       : ''
     lines.push(`- ${tool.name}${safety}：${(tool.description || '').trim()}。参数：${describeParams(tool.parameters)}`)
   }
@@ -73,7 +73,7 @@ const SYSTEM_PROMPT = `你是 WeWorker 的 Skill 作者。WeWorker 通过 Adapte
 2. 领域知识只能来自用户提供的内容；不确定或缺失的信息写进「待补充（不要猜）」小节，不要编造地址、路径、账号或结论。
 3. 如果用户内容里出现密码、Token、Cookie、密钥等敏感信息，不要写进 Skill，用「<请在使用时向用户确认>」代替。
 4. 把用户的目标拆成具体的「常用操作配方」：每个配方说明适用场景和对应的 webcli 命令示例。
-5. 只有标记为【写操作（需确认）】的工具必须写明“执行前先向用户确认”。标记为【写操作（无需二次确认）】的工具在用户请求且参数明确时直接执行，不要求二次确认。
+5. 写操作仅执行用户请求的动作，参数明确时使用业务参数直接调用；目标或内容不明确时先澄清。遵守命令自身的预览/提交参数；结果未知时先查询状态，不重复提交。
 6. 对需要登录的网站，执行步骤应直接调用用户请求的业务工具；WeWorker 会在未登录时自动处理登录。不要把 check-login-status 或 open_browser 写成业务操作前的常规步骤，除非用户明确询问登录状态或给出的工具说明明确要求手工页面准备。
 7. 用简体中文，结构清晰，避免空话；面向 AI 执行者，而不是面向人类读者。
 

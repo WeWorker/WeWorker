@@ -59,14 +59,14 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
       <button type="button" className="sidebar-new-chat sidebar-conversation-action" title="新探索" aria-label="新探索" disabled={submitting} onClick={() => { useStore.setState({ explorationContext: null }); setCurrentId('') }}>
         <FormOutlined aria-hidden="true" /><span>新探索</span>
       </button>
-      <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">探索列表</span></header>
+      <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">工作记录</span></header>
       <div className="wx-history-records">
       <ErrorMessage>{list.error || developments.error}</ErrorMessage>
       {list.loading && <p>正在加载…</p>}
       {records.map(item => <ExplorationRecord key={item.exploration_id} item={item} selected={!showNew && currentId === item.exploration_id}
-        inProgress={isExplorationInProgress(item, activeExplorationId, developingIds)} disabled={submitting}
+        inProgress={isExplorationInProgress(item, activeExplorationId, developingIds)} generating={developingIds.has(item.exploration_id)} disabled={submitting}
         onSelect={() => { useStore.getState().selectRecord(key + '/exploration', item.exploration_id); useStore.setState({ explorationContext: null }); setCurrentId(item.exploration_id) }} />)}
-      {!list.loading && !list.error && !records.length && <p className="wx-empty">从一个网址开始，探索会保存在这里。</p>}
+      {!list.loading && !list.error && !records.length && <p className="wx-empty">从一个网址开始探索；探索和适配器生成记录会保存在这里。</p>}
       </div>
     </aside>
     {showNew ? <NewExploration key={context ? context.toolkitId + '/' + context.tool.tool_id : 'site'} context={context} disabled={disabled || globalBusy || !modelReady} onCreated={onCreated} onBusyChange={setSubmitting} />
@@ -75,11 +75,11 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
   </div>
 }
 
-export function ExplorationRecord({ item, selected = false, inProgress = false, disabled = false, onSelect }) {
+export function ExplorationRecord({ item, selected = false, inProgress = false, generating = false, disabled = false, onSelect }) {
   return <button type="button" className={'wx-record' + (selected ? ' is-active' : '') + (inProgress ? ' is-in-progress' : '')}
     aria-current={selected ? 'true' : undefined} disabled={disabled} onClick={onSelect}>
     <strong>{item.title || item.instruction || item.created_at || '探索'}</strong>
-    {inProgress && <span className="wx-status wx-record-progress"><SettingOutlined className="wx-record-progress-gear" aria-hidden="true" /><span>进行中</span></span>}
+    {inProgress && <span className="wx-status wx-record-progress"><SettingOutlined className="wx-record-progress-gear" aria-hidden="true" /><span>{generating ? '生成中' : '探索中'}</span></span>}
     <small>{item.start_url}</small><small>{item.created_at}</small>
   </button>
 }
@@ -87,8 +87,8 @@ export function ExplorationRecord({ item, selected = false, inProgress = false, 
 export function ExplorationComposer({ value, onChange, onAction, inputRef, actionMode = 'send', disabled = false, actionDisabled = false, placeholder = '发送消息，补充探索目标或要求…', children, hint = 'Enter 发送 · Shift + Enter 换行' }) {
   const internalInput = useRef(null)
   const input = inputRef || internalInput
-  const pausing = actionMode === 'pause'
-  const actionLabel = pausing ? '暂停探索' : actionMode === 'resume' && !value.trim() ? '继续探索' : '发送消息'
+  const stopping = actionMode === 'stop'
+  const actionLabel = stopping ? '停止探索' : '发送消息'
   useEffect(() => {
     if (!input.current) return
     input.current.style.height = 'auto'
@@ -103,7 +103,7 @@ export function ExplorationComposer({ value, onChange, onAction, inputRef, actio
         <small className="wx-composer-hint">{hint}</small>
         <div className="chat-input-toolbar-actions wx-chat-controls">
           {children}
-          <button type="button" className={'chat-input-action wx-chat-send ' + (pausing ? 'chat-input-action-stop' : 'chat-input-action-send')} aria-label={actionLabel} title={actionLabel} disabled={disabled || actionDisabled} onClick={onAction} />
+          <button type="button" className={'chat-input-action wx-chat-send ' + (stopping ? 'chat-input-action-stop' : 'chat-input-action-send')} aria-label={actionLabel} title={actionLabel} disabled={disabled || actionDisabled} onClick={onAction} />
         </div>
       </div>
     </div>
@@ -166,17 +166,13 @@ function NewExploration({ context, disabled, onCreated, onBusyChange }) {
         <ErrorMessage>{startAction.error || action.error}</ErrorMessage>
       </article>
     </div>
-    <ExplorationComposer inputRef={composerInput} value={instruction} onChange={setInstruction} onAction={submit} actionMode={explorationComposerMode(undefined, startAction.busy)} disabled={busy} actionDisabled={!canSubmit} placeholder="告诉我你想在这个网站上干什么" hint={disabled ? '等待服务、模型和浏览器任务就绪' : '填写起始网址后发送，即可开始探索'}>
-      <ExplorationControls controls={explorationControls({})} />
-    </ExplorationComposer>
+    <ExplorationComposer inputRef={composerInput} value={instruction} onChange={setInstruction} onAction={submit} actionMode={explorationComposerMode(undefined, startAction.busy)} disabled={busy} actionDisabled={!canSubmit} placeholder="告诉我你想在这个网站上干什么" hint={disabled ? '等待服务、模型和浏览器任务就绪' : '填写起始网址后发送，即可开始探索'} />
   </section>
 }
 
-export function ExplorationControls({ controls, onReplay, onCancel, replayActive = false, cancelReplayDisabled = true, onCancelReplay }) {
-  return <>
-    <button type="button" className="wx-chat-control" title={replayActive ? '停止当前回放' : '回放探索过程'} disabled={replayActive ? cancelReplayDisabled : !controls.canReplay} onClick={replayActive ? onCancelReplay : onReplay}>{replayActive ? '停止回放' : '回放'}</button>
-    <button type="button" className="wx-chat-control" title="取消本次探索" disabled={!controls.canCancel} onClick={onCancel}>取消</button>
-  </>
+export function ExplorationControls({ replayActive = false, cancelReplayDisabled = true, onCancelReplay }) {
+  if (!replayActive) return null
+  return <button type="button" className="wx-chat-control" title="停止当前回放" disabled={cancelReplayDisabled} onClick={onCancelReplay}>停止回放</button>
 }
 
 export function CompletionQuestion({ submitted = false, developing = false, developDisabled = false, continueDisabled = false, onDevelop, onContinue }) {
@@ -200,6 +196,30 @@ export function CompletionQuestion({ submitted = false, developing = false, deve
   </div>
 }
 
+export function BrowserConfirmation({ issue, disabled, onOpen, onContinue }) {
+  if (issue?.type !== 'browser_confirmation_required') return null
+  return <article className="wx-chat-message wx-chat-assistant" role="status">
+    <h3>需要在浏览器中确认</h3>
+    <p>{issue.message}</p>
+    <button type="button" className="wx-quiet" disabled={disabled} onClick={onOpen}>打开浏览器</button>
+    <button type="button" className="wx-quiet" disabled={disabled} onClick={onContinue}>已处理，继续探索</button>
+  </article>
+}
+
+export function UserIntervention({ issue, disabled, onOpen, onContinue }) {
+  if (issue?.type !== 'user_takeover_required') return null
+  const needsInput = issue.mode === 'input'
+  return <article className="wx-chat-message wx-chat-assistant" role="status">
+    <h3>{needsInput ? '需要你补充信息' : '需要你处理'}</h3>
+    <p>{issue.message}</p>
+    <p className="wx-muted">探索已暂停。{needsInput ? '请在下方输入框补充信息，发送后继续探索。' : '请在浏览器中处理后继续，也可以在下方补充信息。'}</p>
+    {!needsInput && <>
+      <button type="button" className="wx-quiet" disabled={disabled} onClick={onOpen}>打开当前页面</button>
+      <button type="button" className="wx-quiet" disabled={disabled} onClick={onContinue}>我已处理，继续探索</button>
+    </>}
+  </article>
+}
+
 function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelReady, onBusyChange }) {
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
   const [historyWorkId, setHistoryWorkId] = useState(null)
@@ -210,7 +230,7 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
   const action = useAction(snapshot.refresh)
   const messageAction = useAction(snapshot.refresh)
   const [prompt, setPrompt] = useDraft(id + '/prompt')
-  const [replayId, setReplayId] = useDraft(id + '/replay')
+  const [replayId] = useDraft(id + '/replay')
   const replay = useSnapshot(() => replayId ? api.request('/api/replays/' + replayId) : Promise.resolve(null), [replayId], replayId ? '/api/replays/' + replayId + '/events' : undefined)
   const replayAction = useAction(replay.refresh)
   const rounds = Object.values(sessions).filter(s => s.explorationId === id)
@@ -237,7 +257,7 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
   const submitted = Boolean(development)
   const developDisabled = !developmentReady || submitted || disabled || globalBusy || action.busy || messageAction.busy || transferBusy || replayActive
   const sendMessage = content => {
-    if (controls.resumable ? !controls.canResume : !controls.canSend || !content.trim()) return
+    if (!controls.canSend || !content.trim()) return
     void messageAction.run(async () => {
       await continueWebsiteExploration(id, content, controls.resumable)
       setPrompt('')
@@ -261,21 +281,27 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
       {development && <div className="wx-development-transition" role="status">{needsStart ? '网站适配器生成已准备，尚未发送。' : '网站适配器生成'}</div>}
       {needsStart && <button type="button" className="wx-quiet" disabled={transferBusy} onClick={() => transferAction.run(() => startDevelopmentSession(development))}>继续生成网站适配器</button>}
       {rounds.length > 0 && (!development || rounds.length > 1 || historyWorkId) && <details className="wx-development-rounds"><summary>网站适配器生成（{rounds.length}）</summary>{rounds.map((round, index) => <button key={round.work.id} type="button" className="wx-quiet" onClick={() => setHistoryWorkId(round.work.id)} aria-pressed={development?.work.id === round.work.id}>第 {index + 1} 次生成</button>)}{historyWorkId && <button type="button" className="wx-quiet" onClick={() => setHistoryWorkId(null)}>返回当前探索</button>}</details>}
-      {data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'} role="status">{data.active_issue.message}</p>}
+      {data.active_issue?.type === 'browser_confirmation_required'
+        ? <BrowserConfirmation issue={data.active_issue} disabled={!controls.canSend}
+          onOpen={() => action.run(() => api.openExplorationBrowser(id))}
+          onContinue={() => sendMessage(prompt.trim() || '我已处理浏览器提示，网站可以正常打开，请继续探索。')} />
+        : data.active_issue?.type === 'user_takeover_required'
+          ? <UserIntervention issue={data.active_issue} disabled={!controls.canSend}
+            onOpen={() => action.run(() => api.openExplorationBrowser(id))}
+            onContinue={() => sendMessage(prompt.trim() || '我已处理好，请先检查当前页面，再继续探索。')} />
+          : data.active_issue?.message && <p className={data.active_issue.type === 'failed' ? 'wx-error' : 'wx-muted'} role="status">{data.active_issue.message}</p>}
       {replayId && <div className="wx-replay-status" role="status">回放 <Status value={replay.data?.status} /></div>}
       <ErrorMessage>{snapshot.error || messageAction.error || action.error || transferAction.error || replay.error || replayAction.error}</ErrorMessage>
     </>
   return <section className="wx-detail wx-chat-detail">
-    <header><div><h2>{data.title || '网站探索'}</h2>{development ? <span className="wx-status">网站适配器生成</span> : <Status value={data.status} />}</div></header>
+    <header><div><h2>{data.title || '网站探索'}</h2>{development ? <span className="wx-status">网站适配器生成</span> : <Status value={data.status === 'cancelled' ? 'stopped' : data.status === 'cancel_requested' ? 'stopping' : data.status} />}</div></header>
     {development ? <ChatView key={development.work.id} workId={development.work.id} embedded {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
     <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, transferring, submitted])}>{explorationMessages}</ScrollArea>
     <ExplorationComposer value={prompt} onChange={setPrompt} actionMode={actionMode}
-      onAction={actionMode === 'pause' ? () => action.run(() => api.pauseExploration(id)) : () => sendMessage(prompt)}
-      actionDisabled={actionMode === 'pause' ? !controls.canPause : controls.resumable ? !controls.canResume : !controls.canSend || !prompt.trim()} disabled={action.busy || messageAction.busy || transferBusy}
-      hint={actionMode === 'pause' ? '正在探索，可点击右侧按钮暂停' : controls.resumable ? '发送补充说明，或直接继续探索' : 'Enter 发送 · Shift + Enter 换行'}>
-      <ExplorationControls controls={controls} replayActive={replayActive} cancelReplayDisabled={disabled || action.busy || messageAction.busy || replayAction.busy || transferBusy || !replay.data || replay.data.status === 'cancel_requested'}
-        onReplay={() => action.run(async () => { const result = await api.replayExploration(id); setReplayId(result.replay_id) })}
-        onCancel={() => action.run(() => api.cancelExploration(id))}
+      onAction={actionMode === 'stop' ? () => action.run(() => api.stopExploration(id)) : () => sendMessage(prompt)}
+      actionDisabled={actionMode === 'stop' ? !controls.canStop : !controls.canSend || !prompt.trim()} disabled={action.busy || messageAction.busy || transferBusy}
+      hint={data.status === 'cancel_requested' ? '正在停止探索…' : actionMode === 'stop' ? '点击右侧按钮停止探索' : 'Enter 发送 · Shift + Enter 换行'}>
+      <ExplorationControls replayActive={replayActive} cancelReplayDisabled={disabled || action.busy || messageAction.busy || replayAction.busy || transferBusy || !replay.data || replay.data.status === 'cancel_requested'}
         onCancelReplay={() => replayAction.run(() => api.request('/api/replays/' + replayId + '/cancel', { method: 'POST' }))} />
     </ExplorationComposer>
     </>}

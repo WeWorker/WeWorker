@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from webwright.paths import WebwrightPaths
-from webwright.server.app import create_app
+from webwright.server.app import _exploration_view, create_app
 from webwright.server.records import TaskStore
 from webwright.server.toolkit_store import ToolkitStore
 from webwright.server.status import (
@@ -36,6 +36,78 @@ class FakeDevelopmentManager:
 
 def _paths(tmp_path: Path) -> WebwrightPaths:
     return WebwrightPaths.resolve(home=tmp_path)
+
+
+def test_browser_confirmation_is_a_recoverable_exploration_issue(tmp_path):
+    store = TaskStore(tmp_path / "tasks")
+    task_id = store.new_task_id("confirmation")
+    task = store.create_task_record(
+        task_id=task_id, title="Explore", instruction="Read the site",
+        start_url="http://example.com/", output_dir=store.task_dir(task_id),
+        run_id="run-1", activity_type="exploration",
+    )
+    task = store.update_task(task_id, status=TaskStatus.WAITING_FOR_USER.value,
+                            error_code="navigation_blocked_by_client",
+                            error="请在浏览器中确认后继续探索。")
+    issue = _exploration_view(task)["active_issue"]
+    assert issue == {"type": "browser_confirmation_required", "message": task["error"]}
+
+
+@pytest.mark.parametrize("mode", ["browser", "input", "either"])
+def test_intervention_survives_service_restart_and_focuses_original_page(tmp_path, monkeypatch, mode):
+    from webwright.server.records import atomic_write_json
+
+    paths = _paths(tmp_path)
+    store = TaskStore(paths.tasks)
+    task_id = store.new_task_id("help")
+    store.create_task_record(task_id=task_id, title="Explore", instruction="Inspect",
+                             start_url="https://example.com/", output_dir=store.task_dir(task_id),
+                             run_id="run-1", activity_type="exploration", active_target_id="owned-page")
+    intervention = {"reason": "arbitrary_model_reason", "message": "请确认目标项目。", "mode": mode}
+    store.update_task(task_id, status=TaskStatus.WAITING_FOR_USER.value, user_intervention=intervention)
+    atomic_write_json(store.task_dir(task_id) / "trajectory.json", {
+        "environment": {"runtime_state": {"target_id": "owned-page", "browser_instance_id": "owned-browser"}},
+    })
+    calls = []
+    monkeypatch.setattr("webwright.server.app.browser_activate", lambda *args: calls.append(args))
+    monkeypatch.setattr("webwright.server.app.browser_open", lambda *args: pytest.fail("must not navigate"))
+    for _ in range(2):
+        client = create_app(paths=paths).test_client()
+        detail = client.get(f"/api/explorations/{task_id}").get_json()
+        assert detail["status"] == "waiting_for_user"
+        assert detail["completed_goal"] is False
+        assert detail["active_issue"] == {"type": "user_takeover_required", **intervention}
+        assert client.post("/api/browser/open", json={"exploration_id": task_id}).status_code == 200
+    assert calls[-1][1:] == ("owned-page", "owned-browser")
+    def missing_page(*args):
+        raise RuntimeError("原探索页面已关闭")
+    monkeypatch.setattr("webwright.server.app.browser_activate", missing_page)
+    assert client.post("/api/browser/open", json={"exploration_id": task_id}).status_code == 503
+
+
+def test_open_confirmation_browser_activates_saved_page_without_navigating(tmp_path, monkeypatch):
+    from webwright.server.records import atomic_write_json
+
+    paths = _paths(tmp_path)
+    store = TaskStore(paths.tasks)
+    task_id = store.new_task_id("confirmation")
+    store.create_task_record(
+        task_id=task_id, title="Explore", instruction="Read the site",
+        start_url="http://example.com/", output_dir=store.task_dir(task_id),
+        run_id="run-1", activity_type="exploration",
+    )
+    store.update_task(task_id, status=TaskStatus.WAITING_FOR_USER.value,
+                      error_code="navigation_blocked_by_client")
+    atomic_write_json(store.task_dir(task_id) / "browser_attention.json", {
+        "target_id": "owned-page", "browser_instance_id": "owned-browser",
+    })
+    calls = []
+    monkeypatch.setattr("webwright.server.app.browser_activate", lambda *args: calls.append(args))
+    monkeypatch.setattr("webwright.server.app.browser_open", lambda *args: pytest.fail("must preserve the original page"))
+    client = create_app(paths=paths).test_client()
+    response = client.post("/api/browser/open", json={"exploration_id": task_id, "url": "https://other.example.org/"})
+    assert response.status_code == 200
+    assert calls[0][1:] == ("owned-page", "owned-browser")
 
 
 def test_exploration_match_reads_domains_and_start_url_from_store(tmp_path, monkeypatch):
@@ -174,6 +246,16 @@ def test_ui_endpoints_are_removed(tmp_path: Path) -> None:
     assert client.get("/").status_code == 404
     assert client.get("/ui").status_code == 404
     assert client.get("/web/app.js").status_code == 404
+
+
+def test_pause_endpoints_are_removed(tmp_path: Path) -> None:
+    app = create_app(paths=_paths(tmp_path))
+    client = app.test_client()
+    paths = client.get("/api/openapi.json").get_json()["paths"]
+    for resource, key in (("tasks", "task_id"), ("explorations", "exploration_id")):
+        assert client.post(f"/api/{resource}/demo/pause").status_code == 404
+        assert f"/api/{resource}/{{{key}}}/pause" not in paths
+        assert f"/api/{resource}/{{{key}}}/resume" in paths
 
 
 def test_docs_endpoint(tmp_path: Path) -> None:

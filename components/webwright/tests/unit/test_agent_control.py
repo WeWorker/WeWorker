@@ -3,10 +3,62 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 from webwright.agents.default import DefaultAgent
 from webwright.exceptions import FormatError
 from webwright.server.status import AgentExitStatus
+
+
+def test_agent_stops_and_persists_arbitrary_intervention_without_executing(tmp_path):
+    from webwright.server.artifacts import waiting_intervention
+
+    request = {"reason": "ambiguous_project", "message": "请选择目标项目。", "mode": "input"}
+    model = ControlModel()
+    model.query = Mock(return_value=model.format_message(
+        role="assistant", content="Cannot choose for the user",
+        extra={"actions": [], "done": False, "final_response": "", "user_intervention": request},
+    ))
+    env = ControlEnv()
+    env.execute = Mock(side_effect=AssertionError("must not execute while requesting help"))
+    agent = DefaultAgent(model, env, system_template="System", instance_template="Task: {{ task }}",
+                         output_path=tmp_path / "trajectory.json", checkpoint_path=tmp_path / "checkpoint.json")
+    result = agent.run("Select the project")
+    assert result["exit_status"] == AgentExitStatus.PAUSED.value
+    assert result["final_response"] == ""
+    assert model.query.call_count == 1
+    env.execute.assert_not_called()
+    assert waiting_intervention(tmp_path) == request
+    assert json.loads((tmp_path / "checkpoint.json").read_text())["phase"] == "waiting_for_user"
+    # The requested question remains in the model context after removing the
+    # exit record, so a short user reply can be interpreted correctly.
+    prior = json.loads((tmp_path / "trajectory.json").read_text(encoding="utf-8"))
+    from webwright.utils.trajectory import build_resume_state
+    model.query.reset_mock()
+    result = agent.resume(prior_state=build_resume_state(prior), followup="Project A")
+    assert result["exit_status"] == AgentExitStatus.PAUSED.value
+    assert model.query.call_count == 1
+    messages = model.query.call_args.args[0]
+    prior_request = next(message for message in messages if message["role"] == "assistant")
+    assert json.loads(prior_request["content"])["user_intervention"] == request
+    assert agent.n_calls == 2
+    env.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("conflict", [{"actions": [{"python_code": "print('unsafe')"}]}, {"done": True}])
+def test_agent_never_executes_conflicting_intervention(conflict):
+    model = ControlModel()
+    env = ControlEnv()
+    env.execute = Mock(side_effect=AssertionError("must not execute"))
+    agent = DefaultAgent(model, env, system_template="System", instance_template="Task")
+    message = model.format_message(role="assistant", extra={
+        "user_intervention": {"reason": "other", "message": "Help", "mode": "either"}, **conflict,
+    })
+    with pytest.raises(FormatError):
+        agent.execute_actions(message)
+    env.execute.assert_not_called()
 
 
 class ControlModel:
@@ -177,7 +229,7 @@ class CompactionModel(ControlModel):
         )
 
 
-def test_history_compaction_receives_latest_complete_action_json(tmp_path: Path) -> None:
+def test_history_compaction_receives_older_complete_action_json_and_excludes_current_step(tmp_path: Path) -> None:
     model = CompactionModel()
     agent = DefaultAgent(
         model,
@@ -188,18 +240,26 @@ def test_history_compaction_receives_latest_complete_action_json(tmp_path: Path)
         summary_every_n_steps=1,
     )
 
-    agent.run("demo")
+    model.queries = 1
+    agent.messages = [
+        model.format_message(role="system", content="System"),
+        model.format_message(role="assistant", content="Earlier facts. " * 100,
+                             extra={"actions": [{"python_code": "print('page')"}]}),
+        model.format_message(role="user", content="Older observations. " * 100),
+        model.format_message(role="assistant", content="CURRENT-ACTION"),
+        model.format_message(role="user", content="CURRENT-OBSERVATION"),
+    ]
+    agent._compact_history()
+    summary_input = model.requests[0][1]["content"]
+    assert '"python_code": "print(\'page\')"' in summary_input
+    assert "CURRENT-ACTION" not in summary_input
+    assert "CURRENT-OBSERVATION" not in summary_input
 
-    assistant_message = next(
-        message for message in model.requests[1] if message["role"] == "assistant"
-    )
-    assert json.loads(assistant_message["content"])["python_code"] == "print('page')"
 
-
-def test_default_agent_pause_control_file_writes_paused_exit(tmp_path: Path) -> None:
+def test_default_agent_cancel_control_file_writes_cancelled_exit(tmp_path: Path) -> None:
     control_path = tmp_path / "control.json"
     control_path.write_text(
-        json.dumps({"run_id": "run-1", "action": "pause"}),
+        json.dumps({"run_id": "run-1", "action": "cancel"}),
         encoding="utf-8",
     )
     output_path = tmp_path / "trajectory.json"
@@ -215,10 +275,10 @@ def test_default_agent_pause_control_file_writes_paused_exit(tmp_path: Path) -> 
 
     result = agent.run("demo")
 
-    assert result["exit_status"] == AgentExitStatus.PAUSED.value
+    assert result["exit_status"] == AgentExitStatus.CANCELLED.value
     saved = json.loads(output_path.read_text(encoding="utf-8"))
-    assert saved["info"]["exit_status"] == AgentExitStatus.PAUSED.value
-    assert saved["messages"][-1]["content"] == "Task paused by server."
+    assert saved["info"]["exit_status"] == AgentExitStatus.CANCELLED.value
+    assert saved["messages"][-1]["content"] == "Task cancelled by server."
 
 
 def test_default_agent_saves_initial_observation_and_action_checkpoint_before_execute(
@@ -259,7 +319,7 @@ def test_default_agent_saves_initial_observation_and_action_checkpoint_before_ex
 def test_default_agent_ignores_mismatched_control_run_id(tmp_path: Path) -> None:
     control_path = tmp_path / "control.json"
     control_path.write_text(
-        json.dumps({"run_id": "old-run", "action": "pause"}),
+        json.dumps({"run_id": "old-run", "action": "cancel"}),
         encoding="utf-8",
     )
     agent = DefaultAgent(

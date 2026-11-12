@@ -49,7 +49,42 @@
           "query"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "title",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "summary",
+              "args": {
+                "title": {
+                  "from": "item.title"
+                },
+                "lang": {
+                  "from": "query.lang"
+                }
+              }
+            },
+            {
+              "id": "read",
+              "label": "阅读全文",
+              "command": "page",
+              "args": {
+                "title": {
+                  "from": "item.title"
+                },
+                "lang": {
+                  "from": "query.lang"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "summary",
@@ -79,7 +114,29 @@
           "title"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "title",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "阅读全文",
+              "command": "page",
+              "args": {
+                "title": {
+                  "from": "item.title"
+                },
+                "lang": {
+                  "from": "query.lang"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "random",
@@ -103,7 +160,29 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "title",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "阅读全文",
+              "command": "page",
+              "args": {
+                "title": {
+                  "from": "item.title"
+                },
+                "lang": {
+                  "from": "query.lang"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "trending",
@@ -132,7 +211,42 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "title",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看详情",
+              "command": "summary",
+              "args": {
+                "title": {
+                  "from": "item.title"
+                },
+                "lang": {
+                  "from": "query.lang"
+                }
+              }
+            },
+            {
+              "id": "read",
+              "label": "阅读全文",
+              "command": "page",
+              "args": {
+                "title": {
+                  "from": "item.title"
+                },
+                "lang": {
+                  "from": "query.lang"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "page",
@@ -167,7 +281,13 @@
           "title"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Plain-text article extract is terminal in this package; no section, linked-page list, category or edit command exists. Re-reading with another paragraph limit is a new explicit query, not an object action."
+        }
+      ]
     }
   ]
 }

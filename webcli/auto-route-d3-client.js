@@ -21,8 +21,10 @@ export async function d3Predict(state, questions, opts = {}) {
       continue;
     }
     apiKey ||= await loadDecisionApiKey({ defaultKey: config.apiKey, optional: config.apiKey === undefined && !process.env.DECISION_API_KEY?.trim() });
+    const remaining = Math.min(10_000, (opts.deadline ?? Date.now() + 10_000) - Date.now());
+    if (remaining <= 0) throw new Error('choice_timeout');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
+    const timer = setTimeout(() => controller.abort(), remaining);
     try {
       const response = await fetch(`${decisionServiceUrl(opts.url ?? d3Url(), 'WEBCLI_D3_URL')}/v1/systemone`, {
         method: 'POST', redirect: 'error',
@@ -31,7 +33,22 @@ export async function d3Predict(state, questions, opts = {}) {
       });
       if (!response.ok) throw new Error(`Decision service /v1/systemone HTTP ${response.status}`);
       let json;
-      try { json = await response.json(); }
+      try {
+        if (opts.maxResponseBytes && response.body?.getReader) {
+          const reader = response.body.getReader(), chunks = [];
+          let size = 0;
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              size += value.byteLength;
+              if (size > opts.maxResponseBytes) { await reader.cancel(); throw new Error('choice_response_limit'); }
+              chunks.push(value);
+            }
+            json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          } finally { reader.releaseLock(); }
+        } else json = await response.json();
+      }
       catch { throw new Error('Decision service response is not valid JSON.'); }
       if (typeof json?.model === 'string') serverModel = json.model;
       const answer = json?.answers?.[id];

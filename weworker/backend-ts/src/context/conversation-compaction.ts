@@ -1,6 +1,37 @@
 export const CONVERSATION_COMPACTION_TRIGGER_RATIO = 0.9
 export const CONVERSATION_COMPACTION_TARGET_RATIO = 0.55
 export const MIN_CONVERSATION_COMPACTION_TOKENS = 256
+export const DEFAULT_COMPACTION_RATIO = 80
+
+export function normalizeCompactionRatio(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 99
+    ? value : DEFAULT_COMPACTION_RATIO
+}
+
+export function selectCompactionSource(input: {
+  history: string
+  ratio?: number
+  contextLimit: number
+  reservedTokens: number
+  estimateTokens: (text: string) => number
+}): { source: string; retained: string } {
+  const safeTokens = Math.max(0, input.contextLimit - input.reservedTokens)
+  const budget = Math.floor(Math.min(input.estimateTokens(input.history), safeTokens) * normalizeCompactionRatio(input.ratio) / 100)
+  const boundaries = [0]
+  // Keep complete sentences (including their whitespace), never a truncated payload.
+  for (const part of new Intl.Segmenter('zh', { granularity: 'sentence' }).segment(input.history)) {
+    boundaries.push(part.index + part.segment.length)
+  }
+  let low = 0
+  let high = boundaries.length - 1
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2)
+    if (input.estimateTokens(input.history.slice(0, boundaries[middle])) <= budget) low = middle
+    else high = middle - 1
+  }
+  const end = boundaries[low]
+  return { source: input.history.slice(0, end), retained: input.history.slice(end) }
+}
 
 export interface ConversationCompactionPlan {
   shouldCompact: boolean

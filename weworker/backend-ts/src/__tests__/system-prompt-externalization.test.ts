@@ -141,7 +141,7 @@ describe('System Prompt - complete output contract before externalization', () =
       ## Skill、Adapter 与 PowerShell
 
       优先按已激活的标准 Skill 指令执行。执行 Extension Adapter 或 Toolkit Adapter 时，可以使用所有可用命令工具运行 \`webcli call\`。
-      必须使用 Claude Code 内置 PowerShell 执行本地命令、构建、测试、git、npm 和 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。
+      单步查询现有已启用的只读直调 Adapter 工具时，优先使用结构化 weworker_read_query（name 与 args），由后端校验并执行真实 WebCLI；不适用或失败时仍可按 Skill 用原生命令工具执行 webcli call。必须使用 Claude Code 内置 PowerShell 执行本地命令、构建、测试、git、npm 和其他 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。
       Claude Code 内置 PowerShell、WeWorker Shell 及其他可用工具均已开放，可执行构建、测试、git、npm 和其他本地命令。
       完全权限允许使用所有可用工具、任意命令和任意文件路径，不受工作区、站点或文件白名单/黑名单设置限制。
       WebCLI 会按 Adapter 类型分别选择 Chrome 扩展 Bridge 或内嵌 Toolkit Runtime；不要直接调用 Adapter 脚本路径。
@@ -177,7 +177,7 @@ describe('System Prompt - complete output contract before externalization', () =
 
       ## 本地命令执行规则
 
-      必须使用 Claude Code 内置 PowerShell 执行本地命令、构建、测试、git、npm 和 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。 权限边界由当前模式决定。
+      单步查询现有已启用的只读直调 Adapter 工具时，优先使用结构化 weworker_read_query（name 与 args），由后端校验并执行真实 WebCLI；不适用或失败时仍可按 Skill 用原生命令工具执行 webcli call。必须使用 Claude Code 内置 PowerShell 执行本地命令、构建、测试、git、npm 和其他 webcli call。WeWorker Shell（weworker_powershell）只是兜底：只有在原生命令工具不存在、调用被平台拒绝或执行报错时，才允许对失败的那条命令改用 WeWorker Shell，并在下一次调用时回到原生工具。不得因为习惯、方便、参数复杂、输出较长或不确定而直接使用 weworker_powershell。 权限边界由当前模式决定。
       \`weworker_powershell\` 在当前平台默认使用 \`shell: "powershell"\`。
       \`xcopy\`、\`copy\`、\`dir\`、\`del\`、\`mklink\` 等 Windows 原生命令，或命令中包含 \`C:\\...\` 这类 Windows 路径时，应使用 \`shell: "powershell"\`，必要时设置 \`outputEncoding: "gbk"\` 读取中文输出，避免 bash 误解释反斜杠和 \`/E\` 等参数。
       \`weworker_powershell\` 默认已在用户目录执行，通常无需先 cd 到用户目录。

@@ -121,8 +121,8 @@ function formatToolLine(tool: StaticToolDef): string {
   // （仅 toolsReady: false 时需等 5 秒）。
   const nav = typeof tool.execution?.navigate_before === 'string' ? tool.execution.navigate_before.trim() : ''
   const navText = nav ? `。需先 open_browser ${nav}（返回即可调用；返回 toolsReady: false 时等 5 秒）` : ''
-  const confirmationText = tool.safety === 'write' && tool.requiresConfirmation === false
-    ? '。无需显式确认；用户请求且参数明确时直接调用，不要要求用户手动执行或传入 __confirmed'
+  const confirmationText = tool.safety === 'write'
+    ? '。仅执行用户请求的操作；参数不明确时先澄清，结果未知时先查询状态，不要重复提交'
     : ''
   const desc = String(tool.description || '').replace(/\s+/g, ' ').trim()
   return `- \`${tool.name}\`：${desc || '（说明见该站点 Skill 文档）'}${paramText}${navText}${confirmationText}`

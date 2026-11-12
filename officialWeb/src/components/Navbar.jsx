@@ -1,8 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { GITHUB_ISSUES, GITHUB_REPO } from '../lib/siteConfig.js'
 
-const SHOW_STATS_NAV = false
-
 export default function Navbar({ theme, onToggleTheme }) {
   const { pathname } = useLocation()
   const isDark = theme === 'dark'
@@ -39,18 +37,16 @@ export default function Navbar({ theme, onToggleTheme }) {
           >
             下载
           </Link>
-          {SHOW_STATS_NAV && (
-            <Link
-              to="/stats"
-              className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
-                pathname === '/stats'
-                  ? 'text-[rgb(var(--color-text))] bg-surface'
-                  : 'text-muted hover:text-[rgb(var(--color-text))] hover:bg-surface/70'
-              }`}
-            >
-              统计
-            </Link>
-          )}
+          <Link
+            to="/stats"
+            className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+              pathname === '/stats'
+                ? 'text-[rgb(var(--color-text))] bg-surface'
+                : 'text-muted hover:text-[rgb(var(--color-text))] hover:bg-surface/70'
+            }`}
+          >
+            统计
+          </Link>
           <a
             href={GITHUB_ISSUES}
             target="_blank"

@@ -37,7 +37,7 @@ describe('backend profile query route', () => {
       ],
     }, {
       listCatalogTools: () => [
-        { adapterId: 'mail.example.com', toolName: 'mail.example.com.search', directCapable: true },
+        { adapterId: 'mail.example.com', toolName: 'mail.example.com.search', directCapable: true, safety: 'read' },
       ],
       dispatch,
       persistAssistantMessage,
@@ -58,6 +58,29 @@ describe('backend profile query route', () => {
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'text_delta', content: expect.stringContaining('邮件查询') }))
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'turn_end', totalMs: 100, llmMs: 100, execMs: 0, steps: 1 }))
     expect(persistAssistantMessage).toHaveBeenCalled()
+  })
+
+  it.each([
+    ['unspecified safety', { directCapable: true }],
+    ['write tool', { directCapable: true, safety: 'write' }],
+    ['confirmation-required read', { directCapable: true, safety: 'read', requiresConfirmation: true }],
+    ['page-only read', { directCapable: false, safety: 'read' }],
+  ])('never dispatches %s through legacy profile route', async (_label, capability) => {
+    const dispatch = vi.fn(async () => '{"items":[{"id":1}]}')
+    const send = vi.fn()
+    const persistAssistantMessage = vi.fn()
+    registerBackendProfileQueryRouteConfig({ routes: [
+      { id: 'unsafe', tool: 'mail.example.com.search', match: { aliases: ['查邮件'] } },
+    ] }, {
+      listCatalogTools: () => [{ adapterId: 'mail.example.com', toolName: 'mail.example.com.search', ...capability }],
+      dispatch, persistAssistantMessage,
+    })
+    expect(await tryBackendProfileQueryRoute({
+      message: '查邮件', workId: 'w1', turnId: 't1', chatStartTime: 0, send,
+    })).toBe(false)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
+    expect(persistAssistantMessage).not.toHaveBeenCalled()
   })
 
   it('does not route unavailable or non-direct tools', async () => {

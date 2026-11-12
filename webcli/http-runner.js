@@ -1,3 +1,4 @@
+import { businessArgs } from './business-args.js';
 import { Worker } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { readPackageDirectory, adapterError } from './adapter-package-files.js';
@@ -31,8 +32,7 @@ export async function runHttpTool(match, args = {}, options = {}) {
   const command = pkg.commands.find(entry => entry.id === match.command.id);
   if (!command || command.runtime !== 'http') throw fail('COMMAND_UNAVAILABLE', 'HTTP command is unavailable.');
   validateHttpContract(command);
-  args = normalizeHttpArguments(args, command.schema);
-  if (!options.mockRequest && (command.requires_confirmation || command.safety === 'write') && args.__confirmed !== true) throw fail('CONFIRMATION_REQUIRED', 'Explicit confirmation is required for this command.');
+  args = normalizeHttpArguments(businessArgs(args), command.schema);
   if (options.signal?.aborted) throw fail('ABORTED', 'HTTP operation cancelled.');
   const controller = new AbortController();
   // The mock transport exists only in the host verifier. It receives no auth

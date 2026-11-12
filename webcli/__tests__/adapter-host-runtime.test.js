@@ -56,16 +56,16 @@ describe('managed page execution', () => {
 });
 
 describe('v2 page registration', () => {
-  it('allows writes without a second confirmation only when the package opts out', () => {
+  it('allows writes without a second confirmation regardless of retired policy', () => {
     const registrations = [];
     const context = vm.createContext({ window: { __webmcpRegister: entry => registrations.push(entry) } });
     vm.runInContext(buildV2Bootstrap({ name: 'demo', match: ['example.com'], commands: [{
       id: 'reserve', runtime: 'extension', safety: 'write', requires_confirmation: false, schema: {}
     }] }), context);
     vm.runInContext('window.__webcliRegisterCommand("reserve", args => args)', context);
-    expect(registrations[0].tools[0].handler({ value: 'requested' })).toEqual({ value: 'requested', __confirmed: true });
+    expect(registrations[0].tools[0].handler({ value: 'requested' })).toEqual({ value: 'requested' });
   });
-  it('refreshes definitions after update and enforces the declared write gate', () => {
+  it('refreshes definitions after update and preserves the new command identity', () => {
     const registrations = [];
     const context = vm.createContext({ window: { __webmcpRegister: (entry) => registrations.push(entry) } });
     const pkg = (id, safety) => ({ name: 'demo', match: ['example.com'], commands: [{ id, safety, runtime: 'extension', description: id, schema: {} }] });
@@ -74,7 +74,7 @@ describe('v2 page registration', () => {
     vm.runInContext(buildV2Bootstrap(pkg('new', 'write')), context);
     vm.runInContext('window.__webcliRegisterCommand("new", (args) => args.value)', context);
     expect(registrations[1].tools[0].name).toBe('demo.new');
-    expect(() => registrations[1].tools[0].handler({ value: 'blocked' })).toThrow(/confirmation/);
+    expect(registrations[1].tools[0].handler({ value: 'requested' })).toBe('requested');
     expect(registrations[1].tools[0].handler({ value: 'approved', __confirmed: true })).toBe('approved');
     expect(() => vm.runInContext('window.__webcliRegisterCommand("old", () => "stale")', context)).toThrow(/unknown command/);
   });
@@ -82,7 +82,7 @@ describe('v2 page registration', () => {
 
 
 describe('legacy confirmation compatibility', () => {
-  it('scopes grants to opted-out writes without mutating args or read branches', async () => {
+  it('strips retired grants without mutating args or business branches', async () => {
     const registrations = [];
     const scope = vm.createContext({ window: { __webmcpRegister: entry => registrations.push(...entry.tools) } });
     vm.runInContext(buildV2Bootstrap({ name: 'demo', commands: [
@@ -94,7 +94,7 @@ describe('legacy confirmation compatibility', () => {
       ['write', 'read', 'guarded'].forEach(id => window.__webcliRegisterCommand(id, async args => {
         await Promise.resolve();
         if (args['dry-run']) return 'preview';
-        if (args.__confirmed !== true) throw new Error('legacy confirmation required');
+        if (Object.hasOwn(args, '__confirmed')) throw new Error('retired flag leaked');
         return { action: args.submit ? 'submit' : 'save', value: args.value };
       }));
     `, scope);
@@ -103,10 +103,10 @@ describe('legacy confirmation compatibility', () => {
     expect(await write.handler(args)).toEqual({ action: 'save', value: 'requested' });
     expect(args).toEqual({ value: 'requested' });
     expect(await write.handler({ 'dry-run': true })).toBe('preview');
-    await expect(read.handler({ requires_confirmation: false })).rejects.toThrow('legacy confirmation');
-    expect(() => guarded.handler({ requires_confirmation: false })).toThrow('confirmation');
+    expect(await read.handler({ requires_confirmation: false })).toMatchObject({action:'save'});
+    expect(await guarded.handler({ requires_confirmation: false })).toMatchObject({action:'save'});
     const results = await Promise.allSettled([write.handler(args), read.handler(args)]);
-    expect(results.map(result => result.status)).toEqual(['fulfilled', 'rejected']);
+    expect(results.map(result => result.status)).toEqual(['fulfilled', 'fulfilled']);
   });
 });
 

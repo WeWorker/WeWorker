@@ -24,7 +24,7 @@
           const movieTitle = movieLinkEl?.getAttribute('title') || movieLinkEl?.textContent?.trim() || '';
 
           const reviewHref = reviewTitleEl?.href || '';
-          const reviewId = reviewHref.match(/reviews\/(\d+)/)?.[1] || '';
+          const reviewId = reviewHref.match(/reviews?\/(\d+)/)?.[1] || '';
           const title = reviewTitleEl?.textContent?.trim() || '';
 
           let myRating = 0;

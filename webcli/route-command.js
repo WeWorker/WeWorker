@@ -1,11 +1,13 @@
 import { buildRouteCatalog } from './auto-route-catalog.js';
 import { routeRequest } from './auto-route-decision-tree.js';
 import { renderCommandHelp } from './progressive-help.js';
+import { cliName } from './cli-name.js';
 
-export const ROUTE_HELP = `Usage: webcli route [options] [<adapter-id>] <request...>
+export const ROUTE_HELP = `Usage: ${cliName()} route [options] [<adapter-id>] <request...>
 
 Recommend an available Adapter command for a natural-language request.
-The recommendation does not execute the command or fill its arguments.
+Without context, the recommendation does not execute the command or fill its arguments.
+With context, bind declared actions to delivered objects; execution remains a separate call.
 
 Arguments:
   <adapter-id>  Optional exact Adapter ID; skip site selection
@@ -13,6 +15,9 @@ Arguments:
 
 Options:
   --json        Output the routing result as JSON
+  --context ID  Resolve a follow-up using up to three previous conversation rounds
+  --new-context Generate a UUID for a new independently callable conversation
+  --reply-to ID Answer the exact clarification returned for this conversation
   -v, --verbose Print stage timings to stderr
   -h, --help    Show this help
   --            Treat the remaining words as request text
@@ -23,8 +28,8 @@ Environment:
   WEBCLI_D3_MODEL   Model override; empty omits the model field
 
 Examples:
-  webcli route "Search for browser automation projects"
-  webcli route github.com "List repository issues" --json
+  ${cliName()} route "Search for browser automation projects"
+  ${cliName()} route github.com "List repository issues" --json
 
 Site and command confidence passes at 0.85, or at 0.60 with a lead over the
 runner-up of at least 0.35 (site) / 0.25 (command). Otherwise up to three

@@ -69,6 +69,8 @@
             rows.push({
                 rank: rows.length + 1,
                 ...job,
+                resultId: job.jobId,
+                resultTitle: job.title,
                 companyName: data.companyName,
                 companyType,
                 companySize,
@@ -83,6 +85,8 @@
             return [{
                 rank: 0,
                 jobId: '',
+                resultId: `company:${encCoId}`,
+                resultTitle: data.companyName,
                 title: null, extraction_status: 'no_job_cards', note: '未取得职位卡片，不能据此推断没有在招职位',
                 salary: '', city: '', workYear: '', degree: '',
                 funcType: '', issueDate: '', url: '',

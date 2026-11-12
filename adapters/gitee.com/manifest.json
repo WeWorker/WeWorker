@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "gitee.com",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "enabled": true,
   "description": "Gitee：仓库搜索、推荐项目、用户资料和登录检查",
   "homepage_url": "https://gitee.com/",
@@ -85,7 +85,26 @@
           "keyword"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "owner",
+              "label": "查看所有者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.owner"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "trending",
@@ -105,7 +124,26 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$",
+          "idField": "url",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "owner",
+              "label": "查看所有者",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.owner"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "user",
@@ -126,7 +164,13 @@
           "username"
         ],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "Profile metrics are terminal in this package; there is no username-scoped repository list, follower list or account-edit command. Keyword repository search is not an owner-scoped list."
+        }
+      ]
     },
     {
       "id": "whoami",
@@ -140,7 +184,26 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "results": [
+        {
+          "itemPath": "$",
+          "idField": "user_id",
+          "titleField": "username",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看资料",
+              "command": "user",
+              "args": {
+                "username": {
+                  "from": "item.username"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "login",
@@ -149,7 +212,6 @@
       "routeDomain": "gitee.com",
       "description": "Open the gitee login page; finish signing in on the page, then verify with whoami",
       "safety": "write",
-      "requires_confirmation": true,
       "schema": {
         "type": "object",
         "properties": {},

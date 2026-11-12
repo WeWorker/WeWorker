@@ -1,0 +1,39 @@
+{
+  "status": "public_pr_created_awaiting_manual_acceptance",
+  "source": "e8b77b8c",
+  "baseline": "e3b7380f",
+  "branch": "codex/webcli-context-dev110-latest",
+  "activeTestSessions": [],
+  "evidence": [
+    "context-test-evidence.json",
+    "context-package-evidence.json",
+    "context-adapter-inventory.json",
+    "context-adapter-followups.json"
+  ],
+  "fullRun": {
+    "source": "204d777a",
+    "passed": 2452,
+    "total": 2453,
+    "onlyFailure": "upload-files.test.js; fixed in e8b77b8c and reverified 47/47"
+  },
+  "affectedUpstreamVerification": {
+    "passed": 52,
+    "total": 52
+  },
+  "latestPerFile": {
+    "assertions": 2468,
+    "failed": 0,
+    "note": "Combined provenance; not one all-green full run"
+  },
+  "remaining": [
+    "Current WeWorker integration",
+    "Real model accuracy/latency/cost",
+    "Real-site business effects and file persistence",
+    "Remaining complex write DOM branches",
+    "Controlled deployment assets",
+    "HTML visual acceptance"
+  ],
+  "localReportUrl": "http://127.0.0.1:62241/redesign-product.html",
+  "pr": "https://github.com/WeWorker/WeWorker/pull/344",
+  "headRepository": "eddiezywang/WeWorker-contributions"
+}

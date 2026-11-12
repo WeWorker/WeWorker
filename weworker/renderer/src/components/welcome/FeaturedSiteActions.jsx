@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { EyeIcon, TrialChatIcon } from './WelcomeIcons.jsx'
+import { ClosePanelIcon, EyeIcon, TrialChatIcon } from './WelcomeIcons.jsx'
 import SiteSkillsScenariosAction from './SiteSkillsScenariosAction.jsx'
 import {
   actionVisibilityStyle,
@@ -97,6 +97,29 @@ export default function FeaturedSiteActions({
   const effectiveShowActions = layout === 'column'
     ? showActions && allActionsFit
     : showActions
+
+  // Compact website chips only need a remove affordance, independent of card height.
+  if (layout === 'chip') {
+    return <button
+      type="button"
+      className="featured-site-remove"
+      aria-label={`从常用网站移除 ${site.name}`}
+      title="从常用网站移除"
+      data-remove-action
+      data-featured-action
+      onClick={(event) => {
+        event.stopPropagation()
+        removeFeaturedSite(site.id)
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          event.stopPropagation()
+          removeFeaturedSite(site.id)
+        }
+      }}
+    ><ClosePanelIcon size={16} /></button>
+  }
 
   const bindHover = (actionKey) => ({
     onMouseEnter: () => setHoveredFeaturedAction(actionKey),

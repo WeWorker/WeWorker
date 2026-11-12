@@ -1,8 +1,9 @@
 import { DEFAULT_PROVIDER, configuredProvider, explorationResetPatch, resolveConfiguredSettings } from './provider-config.js'
 import { migrateChannelConfigurations, type ChannelConfigurations, type ChannelType } from './channels/channel-configurations.js'
-import { resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
+import { normalizeBuiltinContextLimits, resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
 import { PROVIDERS } from './provider-registry.js'
 import fs from 'node:fs'
+import { normalizeCompactionRatio } from './context/conversation-compaction.js'
 
 import path from 'node:path'
 
@@ -143,6 +144,9 @@ export interface WecomChannelConfig {
 
   owner_permission_level: OwnerPermissionLevel
 
+  /** One-time owner binding code; cleared after successful pairing. */
+  pairing_code?: string
+
 }
 
 export interface FeishuChannelConfig {
@@ -257,6 +261,8 @@ export interface Settings {
   model: string
 
   context_limit: number
+  builtin_context_limits?: Record<string, number>
+  compaction_ratio: number
 
   // Per-provider stored configs
 
@@ -314,6 +320,7 @@ export interface Settings {
 
   model_configurations?: Record<string, import('./model-configurations.js').ModelConfiguration>
   model_configuration_names?: Record<string, string>
+  dismissed_model_sources?: string[]
   active_model_configuration?: string
   active_auth_type?: import('./anthropic-auth.js').AnthropicAuthType
   active_weworker_protocol?: import('./llm-egress.js').LlmProtocol
@@ -358,6 +365,7 @@ export interface Settings {
 
   /** WebCLI recommendation before the Agent (default disabled until routing quality is validated); independent of direct routing. */
   webcli_route_enabled: boolean
+  model_discovery_enabled: boolean
 
   /**
    * 当前生效的风格 id（默认 / 预定义内置风格 / 自定义风格）。
@@ -405,6 +413,8 @@ const DEFAULTS: Settings = {
   model: configuredProvider(DEFAULT_PROVIDER)?.defaultModel || '',
 
   context_limit: DEFAULT_CONTEXT_LIMIT,
+  builtin_context_limits: {},
+  compaction_ratio: 80,
 
   api_key_anthropic: '',
 
@@ -445,6 +455,7 @@ const DEFAULTS: Settings = {
   api_query_llm_route: true,
   // 默认关闭：先由开发和测试同学验证路由质量，确认无问题后再改为默认开启。
   webcli_route_enabled: false,
+  model_discovery_enabled: true,
 
   openai_base_url_custom: '',
   openai_base_url_is_full_custom: false,
@@ -547,9 +558,7 @@ function readRawSettingsFile(): Record<string, unknown> | null {
     const data = JSON.parse(raw)
 
     if (!data || typeof data !== 'object' || Array.isArray(data)) return null
-    const settings = data as Record<string, unknown>
-    migrateLegacyProjectsDirectory(settings)
-    return settings
+    return data as Record<string, unknown>
 
   } catch (error) {
     return null
@@ -557,24 +566,6 @@ function readRawSettingsFile(): Record<string, unknown> | null {
   }
 
 }
-
-function migrateLegacyProjectsDirectory(settings: Record<string, unknown>): void {
-  const configured = typeof settings.user_directory === 'string'
-    ? path.resolve(expandHomePath(settings.user_directory))
-    : path.resolve(DEFAULT_USER_DIRECTORY)
-  const previousProjectsRoot = path.join(CONFIG_DIR, 'projects')
-  if (!samePath(configured, previousProjectsRoot)) return
-  settings.user_directory = DEFAULT_USER_DIRECTORY
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
-}
-
-function samePath(left: string, right: string): boolean {
-  const a = path.resolve(left)
-  const b = path.resolve(right)
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
-}
-
-
 
 function normalizeOwnerPermissionLevel(value: unknown, ownerId: string): OwnerPermissionLevel {
   if (!ownerId?.trim()) return 'qa_only'
@@ -628,6 +619,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   merged.added_providers = normalizeAddedProviders(raw?.added_providers)
 
   merged.context_limit_anthropic = normalizeContextLimit(raw?.context_limit_anthropic)
+  merged.builtin_context_limits = normalizeBuiltinContextLimits(raw?.builtin_context_limits)
   merged.context_limit_glm = normalizeContextLimit(raw?.context_limit_glm)
   merged.context_limit_bank_coding = normalizeContextLimit(raw?.context_limit_bank_coding)
   merged.context_limit_deepseek = normalizeContextLimit(raw?.context_limit_deepseek)
@@ -657,8 +649,13 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   )
 
   merged.channels = normalizeChannelsConfig(merged.channels)
+  merged.dismissed_model_sources = Array.isArray(merged.dismissed_model_sources)
+    ? [...new Set(merged.dismissed_model_sources.filter(value => typeof value === 'string' && value.length <= 100))]
+    : []
   // 非布尔或缺失一律按关闭处理，避免历史配置把「未设置」误读成开启。
   merged.webcli_route_enabled = merged.webcli_route_enabled === true
+  merged.model_discovery_enabled = merged.model_discovery_enabled !== false
+  merged.compaction_ratio = normalizeCompactionRatio(merged.compaction_ratio)
 
   merged.user_directory_blacklist = normalizeUserDirectoryBlacklist(merged.user_directory_blacklist)
   merged.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(merged.open_browser_allowed_origins)
@@ -822,6 +819,7 @@ export function getSettings(): Settings {
 export function updateSettings(updates: Partial<Settings>): Settings {
 
   getSettings() // Ensure the persisted settings have been loaded.
+  const previousSettings = _settings
   // Merge the stored state, not the runtime projection containing deployment credentials.
   _settings = deepMerge(_settings!, updates) as Settings
   // Model configuration operations supply the complete collection. Deep merging
@@ -852,7 +850,10 @@ export function updateSettings(updates: Partial<Settings>): Settings {
 
   _settings.max_chat_attachments = normalizeMaxChatAttachments(_settings.max_chat_attachments)
   _settings.webcli_route_enabled = _settings.webcli_route_enabled === true
+  _settings.model_discovery_enabled = _settings.model_discovery_enabled !== false
+  _settings.compaction_ratio = normalizeCompactionRatio(_settings.compaction_ratio)
   _settings.context_limit = normalizeContextLimit(_settings.context_limit)
+  _settings.builtin_context_limits = normalizeBuiltinContextLimits(_settings.builtin_context_limits)
   _settings.context_limit_anthropic = normalizeContextLimit(_settings.context_limit_anthropic)
   _settings.context_limit_glm = normalizeContextLimit(_settings.context_limit_glm)
   _settings.context_limit_bank_coding = normalizeContextLimit(_settings.context_limit_bank_coding)
@@ -877,7 +878,13 @@ export function updateSettings(updates: Partial<Settings>): Settings {
 
   _settings.added_providers = normalizeAddedProviders(_settings.added_providers)
 
-  persistSettingsToDisk(_settings)
+  try {
+    persistSettingsToDisk(_settings)
+  } catch (error) {
+    // A failed save must not grant a new owner permissions only in memory.
+    _settings = previousSettings
+    throw error
+  }
 
   _settingsInitialized = true
 

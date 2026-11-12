@@ -40,7 +40,6 @@ export function adapterPermissions(manifest) {
     ] : []),
     ...manifest.commands.filter((command) => command.execution?.runtime === 'background').map(() => 'execution:background'),
     ...manifest.commands.filter((command) => command.safety === 'write').map((command) => 'write:' + command.id),
-    ...manifest.commands.filter((command) => command.safety === 'write' && command.requires_confirmation === false).map((command) => 'unconfirmed-write:' + command.id),
   ])].sort();
 }
 

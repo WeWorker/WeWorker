@@ -50,7 +50,7 @@ export default function ApplyAdapter({ toolkitId, revision, disabled, onInstalle
       <p>{pending.name} v{pending.version}</p>
       <p>将应用全部已保存变更：{pending.changedTools?.join('、') || '无代码变更'}</p>
       <p>新增权限：{pending.addedPermissions.join('、') || '无'}</p>
-      {pending.sourceChange && <p>来源将从 {pending.currentSource} 切换为网站探索agent生成版本。</p>}
+      {pending.sourceChange && <p>来源将从 {pending.currentSource} 切换为Adapter工坊生成版本。</p>}
       {pending.downgrade && <p>版本将从 {pending.currentVersion} 降至 {pending.version}。</p>}
       {pending.overwritesNewerBase && <p>将覆盖草稿创建后安装的更新。</p>}
       <ErrorMessage>{action.error}</ErrorMessage>

@@ -18,31 +18,27 @@ test('only a non-composing unshifted Enter sends a message', () => {
   assert.equal(shouldSubmitExploration({ key: 'Enter' }), true)
   for (const event of [{ key: 'Enter', shiftKey: true }, { key: 'Enter', nativeEvent: { isComposing: true } }, { key: 'Enter', isComposing: true }, { key: 'Enter', keyCode: 229 }, { key: 'a' }]) assert.equal(shouldSubmitExploration(event), false)
 })
-test('running exploration permits pause/cancel, never concurrent sends/replay', () => {
-  assert.deepEqual(controls('running', { globalBusy: true }), { resumable: false, canPause: true, canResume: false, canCancel: true, canSend: false, canReplay: false })
-  for (const status of ['queued', 'pending', 'starting', 'pause_requested', 'cancel_requested']) {
+test('running exploration permits stopping, never concurrent sends/replay', () => {
+  assert.deepEqual(controls('running', { globalBusy: true }), { resumable: false, canStop: true, canSend: false, canReplay: false })
+  for (const status of ['queued', 'pending', 'starting', 'cancel_requested']) {
     const value = controls(status)
-    assert.equal(value.canPause, false)
     assert.equal(value.canSend, false)
     assert.equal(value.canReplay, false)
-    assert.equal(value.canCancel, status !== 'cancel_requested')
+    assert.equal(value.canStop, status !== 'cancel_requested')
   }
 })
 test('waiting and completed runs can continue only when the runner is free', () => {
   for (const status of ['paused', 'waiting_for_user', 'succeeded', 'failed', 'cancelled']) {
     assert.equal(controls(status).canSend, true)
     assert.equal(controls(status).canReplay, true)
-    assert.equal(controls(status).canResume, ['paused', 'waiting_for_user'].includes(status))
     for (const extra of [{ globalBusy: true }, { replayActive: true }, { disabled: true }, { busy: true }]) {
       assert.equal(controls(status, extra).canSend, false)
       assert.equal(controls(status, extra).canReplay, false)
-      assert.equal(controls(status, extra).canResume, false)
     }
   }
   assert.equal(controls('succeeded', { timeline: [] }).canReplay, false)
   assert.equal(controls('succeeded', { modelReady: false }).canSend, false)
-  assert.equal(controls('running', { modelReady: false }).canCancel, true)
-  assert.equal(controls('running', { modelReady: false }).canPause, true)
+  assert.equal(controls('running', { modelReady: false }).canStop, true)
   assert.equal(controls(undefined).canSend, false)
 })
 
@@ -58,15 +54,51 @@ test('composer renders the main chat send icon and lower-right controls without 
   assert.match(html, /chat-input-action-send/)
   assert.match(html, /aria-label="发送消息"[^>]+disabled/)
   assert.doesNotMatch(html, /追加指令|发送指令/)
-  assert.ok(html.indexOf('wx-chat-toolbar') < html.indexOf('回放'))
+  assert.doesNotMatch(html, /回放/)
+  assert.equal((html.match(/<button/g) || []).length, 1)
   assert.doesNotMatch(html, />暂停<|>继续</)
-  assert.match(html, /title="取消本次探索">取消/)
+  assert.doesNotMatch(html, /取消本次探索|>取消</)
 })
-test('only replay and cancel remain beside the merged composer action', () => {
+
+test('browser confirmation offers opening the browser and continuing without a typed message', () => {
+  const html = renderToStaticMarkup(React.createElement(components.BrowserConfirmation, {
+    issue: { type: 'browser_confirmation_required', message: '浏览器需要确认，探索已暂停。' },
+    disabled: false, onOpen() {}, onContinue() {},
+  }))
+  assert.match(html, /需要在浏览器中确认/)
+  assert.match(html, /打开浏览器/)
+  assert.match(html, /已处理，继续探索/)
+  assert.doesNotMatch(html, /wx-error|trajectory\.json|ERR_BLOCKED_BY_CLIENT|disabled/)
+  const disabled = renderToStaticMarkup(React.createElement(components.BrowserConfirmation, {
+    issue: { type: 'browser_confirmation_required' }, disabled: true,
+  }))
+  assert.equal((disabled.match(/disabled/g) || []).length, 2)
+  assert.equal(renderToStaticMarkup(React.createElement(components.BrowserConfirmation, { issue: { type: 'failed' } })), '')
+})
+
+test('autonomous intervention shows the model question and appropriate continuation controls', () => {
+  const render = (mode, disabled = false) => renderToStaticMarkup(React.createElement(components.UserIntervention, {
+    issue: { type: 'user_takeover_required', reason: 'unanticipated_reason', message: '请确认目标项目。', mode },
+    disabled, onOpen() {}, onContinue() {},
+  }))
+  const input = render('input')
+  assert.match(input, /需要你补充信息/)
+  assert.match(input, /请确认目标项目。/)
+  assert.match(input, /发送后继续探索/)
+  assert.doesNotMatch(input, /<button/)
+  for (const mode of ['browser', 'either']) {
+    assert.match(render(mode), /探索已暂停/)
+    assert.match(render(mode), /打开当前页面/)
+    assert.match(render(mode), /我已处理，继续探索/)
+    assert.equal((render(mode, true).match(/disabled/g) || []).length, 2)
+  }
+  assert.equal(renderToStaticMarkup(React.createElement(components.UserIntervention, { issue: { type: 'failed' } })), '')
+})
+test('replay is hidden unless an existing replay needs to be stopped', () => {
   const empty = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls(undefined) }))
-  assert.equal((empty.match(/disabled=""/g) || []).length, 2)
+  assert.equal(empty, '')
   const paused = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls('waiting_for_user') }))
-  assert.doesNotMatch(paused, /继续探索|暂停探索/)
+  assert.equal(paused, '')
   const replay = renderToStaticMarkup(React.createElement(components.ExplorationControls, { controls: controls('succeeded', { replayActive: true }), replayActive: true, cancelReplayDisabled: false }))
   assert.match(replay, /title="停止当前回放">停止回放/)
 })
@@ -98,27 +130,27 @@ test('exploration messages have no visible role labels, matching the main conver
 
 
 test('composer switches immediately on submit and follows all exploration lifecycle states', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) assert.equal(explorationComposerMode(status), 'pause')
-  for (const status of ['paused', 'waiting_for_user']) assert.equal(explorationComposerMode(status), 'resume')
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) assert.equal(explorationComposerMode(status), 'stop')
+  for (const status of ['paused', 'waiting_for_user']) assert.equal(explorationComposerMode(status), 'send')
   for (const status of [undefined, 'succeeded', 'failed', 'cancelled']) {
     assert.equal(explorationComposerMode(status), 'send')
-    assert.equal(explorationComposerMode(status, true), 'pause')
+    assert.equal(explorationComposerMode(status, true), 'stop')
   }
-  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'pause'), false, 'typing Enter must never pause the agent')
-  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'resume'), true)
+  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'stop'), false, 'typing Enter must never stop the agent')
+  assert.equal(shouldSubmitExploration({ key: 'Enter' }, 'send'), true)
 })
 
-test('a single primary button morphs between send, pause square, and resume arrow', () => {
+test('a single primary button morphs between send arrow and stop square', () => {
   const render = (actionMode, value = '', actionDisabled = false) => renderToStaticMarkup(React.createElement(components.ExplorationComposer, { value, onChange() {}, onAction() {}, actionMode, actionDisabled }))
-  const running = render('pause', 'draft retained while running')
+  const running = render('stop', 'draft retained while running')
   assert.match(running, /chat-input-action-stop/)
-  assert.match(running, /aria-label="暂停探索"/)
+  assert.match(running, /aria-label="停止探索"/)
   assert.doesNotMatch(running, /chat-input-action-send/)
   assert.equal((running.match(/<button/g) || []).length, 1)
-  assert.match(render('pause', '', true), /aria-label="暂停探索"[^>]+disabled/)
-  assert.match(render('resume'), /chat-input-action-send/)
-  assert.match(render('resume'), /aria-label="继续探索"/)
-  assert.match(render('resume', 'continue with this goal'), /aria-label="发送消息"/)
+  assert.match(render('stop', '', true), /aria-label="停止探索"[^>]+disabled/)
+  assert.match(render('send'), /chat-input-action-send/)
+  assert.match(render('send'), /aria-label="发送消息"/)
+  assert.match(render('send', 'continue with this goal'), /aria-label="发送消息"/)
   assert.match(render('send'), /aria-label="发送消息"/)
 })
 
@@ -139,7 +171,7 @@ test('running exploration sorts first, then displayed creation time newest first
 })
 
 test('queued and transitioning runs remain pinned; idle records, ties and missing times have stable ordering', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) {
     assert.equal(sortExplorations([{ exploration_id: 'new', status: 'succeeded', created_at_timestamp: 20 }, { exploration_id: 'active', status, created_at_timestamp: 1 }])[0].exploration_id, 'active')
   }
   const records = [
@@ -183,7 +215,7 @@ test('exploration sidebar reuses the main new-chat button and exposes the full l
   assert.match(html, /class="sidebar-new-chat sidebar-conversation-action"/)
   assert.match(html, /aria-label="新探索"/)
   assert.match(html, /anticon-form/)
-  assert.match(html, /探索列表/)
+  assert.match(html, /工作记录/)
   assert.doesNotMatch(html, /探索记录|搜索记录或状态|搜索探索记录|<input/)
   const source = readFileSync(new URL('../components/website-exploration/ExploreWorkspace.jsx', import.meta.url), 'utf8')
   assert.match(source, /records\.map/)
@@ -226,7 +258,7 @@ test('entry opens new exploration when there are no actively running records, re
 })
 
 test('entry prefers the managed active exploration, then a running record rather than newer history', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) {
     const records = [{ exploration_id: 'history', status: 'succeeded', created_at_timestamp: 200 }, { exploration_id: 'ongoing', status, created_at_timestamp: 100 }]
     assert.equal(explorationEntryId(records), 'ongoing')
     assert.equal(explorationEntryId(records, 'managed-active'), 'managed-active')
@@ -266,7 +298,7 @@ test('adapter generation uses non-development wording in every completion state'
 
 
 test('in-progress indicator follows the same activity signals as list pinning', () => {
-  for (const status of ['queued', 'pending', 'starting', 'running', 'pause_requested', 'cancel_requested']) {
+  for (const status of ['queued', 'pending', 'starting', 'running', 'cancel_requested']) {
     assert.equal(isExplorationInProgress({ exploration_id: 'exp', status }), true)
   }
   for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {
@@ -276,19 +308,21 @@ test('in-progress indicator follows the same activity signals as list pinning', 
   assert.equal(isExplorationInProgress({ exploration_id: 'exp', status: 'succeeded' }, '', new Set(['exp'])), true)
 })
 
-test('running records use a gear and label independently of selected background', () => {
+test('running records distinguish exploration from adapter generation independently of selection', () => {
   for (const selected of [true, false]) {
-    const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'running' }, selected, inProgress: true }))
-    assert.match(html, /is-in-progress/)
-    assert.match(html, /进行中/)
-    assert.match(html, /anticon-setting/)
-    assert.match(html, /wx-record-progress-gear/)
-    assert.equal(html.includes('is-active'), selected)
-    assert.equal(html.includes('aria-current="true"'), selected)
-    assert.doesNotMatch(html, /disabled=/)
+    for (const [generating, label] of [[false, '探索中'], [true, '生成中']]) {
+      const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'running' }, selected, inProgress: true, generating }))
+      assert.match(html, /is-in-progress/)
+      assert.ok(html.includes(label))
+      assert.match(html, /anticon-setting/)
+      assert.match(html, /wx-record-progress-gear/)
+      assert.equal(html.includes('is-active'), selected)
+      assert.equal(html.includes('aria-current="true"'), selected)
+      assert.doesNotMatch(html, /disabled=/)
+    }
   }
   const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'succeeded' } }))
-  assert.doesNotMatch(html, /is-in-progress|is-active|wx-record-progress-gear|进行中/)
+  assert.doesNotMatch(html, /is-in-progress|is-active|wx-record-progress-gear|探索中|生成中/)
 })
 
 test('only selected rows receive a persistent background and gear respects reduced motion', () => {
@@ -302,7 +336,7 @@ test('only selected rows receive a persistent background and gear respects reduc
 test('idle conversations show no lifecycle badge because they can always continue', () => {
  for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {
   const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status } }))
-  assert.doesNotMatch(html, /wx-status|已完成|进行中|wx-record-progress/)
+  assert.doesNotMatch(html, /wx-status|已完成|探索中|生成中|wx-record-progress/)
  }
  const css = readFileSync(new URL('../components/website-exploration/website-exploration.css', import.meta.url), 'utf8')
  assert.match(css, /\.wx-record-progress \{[^}]*color:var\(--accent\)/)

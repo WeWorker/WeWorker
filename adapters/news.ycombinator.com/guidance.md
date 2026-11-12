@@ -13,3 +13,7 @@ read 的输出首行是 POST（标题 + 自述正文 + 外链），其后是按 
 接口 HTTP 错误、重定向、非法 JSON、空结果各自明确报错，不互相冒充；字段为 null 表示未知，不补 0 或空串。score/comments 缺失保持 null；user 的 karma 缺失也是 null。返回列表不等于全站完整结果，limit 是上限。失败保留 trace，不重复相同参数盲目重试。本轮证据优先于历史失败记忆；临时失败不能变成永久跳过工具的规则。
 
 全部命令均为 read，无写操作、无确认门；也不存在登录或验证码流程。数据来自 hacker-news.firebaseio.com 与 hn.algolia.com 公开接口，查询与响应不写入公开日志。
+
+## 多轮结果与后续动作
+
+read 返回每行 row_ref、真实 item_id 和供选择的简短 selection_title。row_ref 仅标识本次展示行，实际帖子/评论调用使用 item_id；截断、预算和失败提示行 item_id=null，不可执行。评论作为读取根时标为 COMMENT；作者缺失时不可查看作者。原始正文仍按原有限额返回，不以选择标题替代正文。

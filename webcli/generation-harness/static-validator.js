@@ -96,9 +96,6 @@ export function validateAdapterDraft({ adapterDir, expectedSiteKey = '', expecte
       if (/AGENT_AUTHORED_WRITE_REQUIRED|x-webcli-agent-authored['"]?\s*:\s*false/.test(source)) {
         errors.push(result('WRITE_AGENT_AUTHORING_REQUIRED', 'write skeleton must be replaced by an agent-authored semantic implementation', { file: jsPath }));
       }
-      if (!/\b__confirmed\b/.test(source) || !hasConfirmationMetadata) {
-        errors.push(result('MISSING_WRITE_CONFIRMATION', 'write tool must enforce confirmation and expose confirmation metadata', { file: jsPath }));
-      }
       if (!/\bwriteVerification\s*:/.test(source)) {
         errors.push(result('MISSING_WRITE_VERIFICATION', 'write tool must include a focused writeVerification fixture', { file: jsPath }));
       }

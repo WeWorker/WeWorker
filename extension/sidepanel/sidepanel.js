@@ -206,16 +206,6 @@ function parseToolFieldValue(input) {
   return raw;
 }
 
-function toolRequiresConfirmation(tool) {
-  return Boolean(tool?.parameters?.['x-webcli-requires-confirmation']);
-}
-
-function confirmToolExecution(tool, args) {
-  if (!toolRequiresConfirmation(tool)) return true;
-  const message = tool.parameters?.['x-webcli-confirmation-message'] || '该工具会触发真实业务动作，请确认参数无误后继续。';
-  const payload = Object.keys(args || {}).length ? JSON.stringify(args, null, 2) : '无参数';
-  return window.confirm(`${message}\n\n将提交的参数：\n${payload}`);
-}
 
 function formatToolDisplayName(toolName) {
   const name = String(toolName || '');
@@ -2160,8 +2150,6 @@ async function executeCurrentTool() {
       let val = parseToolFieldValue(input);
       if (val !== undefined && val !== '') args[key] = val;
     }
-    if (!confirmToolExecution(currentTool, args)) return;
-    if (toolRequiresConfirmation(currentTool)) args.__confirmed = true;
     btn.disabled = true; btn.textContent = '执行中...'; resultEl.hidden = true;
     const r = await chrome.runtime.sendMessage({ type: 'test_call_tool', tabId: currentTabId, toolName: currentTool.name, args });
     resultEl.hidden = false;

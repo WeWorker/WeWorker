@@ -119,7 +119,7 @@ describe('host catalog and execution snapshots', () => {
     const [match, args] = runToolkitTool.mock.calls.at(-1);
     expect(match.adapter.root).toBe(result.executionRoot);
     expect(match.adapter.entryPath).toBe(join(result.executionRoot, 'wewright/commands/run.py'));
-    expect(args).toBe(parameters);
+    expect(args).toEqual(parameters);
   });
 
   it('fails closed on unreadable installation state instead of restoring old assets', async () => {
