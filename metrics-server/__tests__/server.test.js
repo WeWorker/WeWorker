@@ -578,19 +578,43 @@ test("insertBatch 身份修正:只改降级行,whoami 真实名不动;其他机�
   assert.equal(byTrace.g4, "rickhuang");
 });
 
-test("insertBatch 身份修正:空 user 行(unknown 源)也修正;无 userSource 不触发;幂等", () => {
+test("insertBatch 身份修正:空 user 行(unknown 源)由后续任意真实名上报修正;幂等", () => {
   const db = freshDb();
   const now = Date.now();
   insertBatch(db, { clientId: "c1", batch: [rec({ ts: now, traceID: "h1" })] }); // user 缺失 → NULL
-  insertBatch(db, { clientId: "c1", user: "rickhuang", batch: [rec({ ts: now, traceID: "h2" })] }); // 无 userSource
   let rows = db.prepare("SELECT trace_id, user FROM metrics WHERE client_id='c1' ORDER BY trace_id").all();
-  assert.equal(rows.find((r) => r.trace_id === "h1").user, null); // 未触发
-  // 触发一次
-  insertBatch(db, { clientId: "c1", user: "rickhuang", userSource: "hrm", batch: [rec({ ts: now, traceID: "h3" })] });
+  assert.equal(rows.find((r) => r.trace_id === "h1").user, null);
+  // 触发一次(无 userSource——普通 whoami 来源的真实名上报同样触发)
+  insertBatch(db, { clientId: "c1", user: "rickhuang", batch: [rec({ ts: now, traceID: "h2" })] });
   rows = db.prepare("SELECT user FROM metrics WHERE client_id='c1'").all();
   assert.ok(rows.every((r) => r.user === "rickhuang"));
   // 重复触发无害
-  insertBatch(db, { clientId: "c1", user: "rickhuang", userSource: "hrm", batch: [rec({ ts: now, traceID: "h3" })] });
+  insertBatch(db, { clientId: "c1", user: "rickhuang", batch: [rec({ ts: now, traceID: "h2" })] });
   rows = db.prepare("SELECT user FROM metrics WHERE client_id='c1'").all();
   assert.ok(rows.every((r) => r.user === "rickhuang"));
+});
+
+test("insertBatch 身份修正放宽：whoami 来源的真实名上报也修正该机器存量 client-* 行", () => {
+  const db = freshDb();
+  const now = Date.now();
+  // 机器曾以降级名上报（whoami 失败时期）
+  insertBatch(db, { clientId: "c9", user: "client-abc123de", batch: [rec({ ts: now, traceID: "w1" })] });
+  // 后续 whoami 恢复：真实名上报（无 userSource 字段——普通 whoami 来源）
+  insertBatch(db, { clientId: "c9", user: "rickhuang", batch: [rec({ ts: now, traceID: "w2" })] });
+  const rows = db.prepare("SELECT user FROM metrics WHERE client_id='c9'").all();
+  assert.ok(rows.every((r) => r.user === "rickhuang"), "whoami 恢复也应修正存量 client-* 行");
+});
+
+test("insertBatch 身份修正放宽：真实名行不受影响，且不同 client_id 隔离", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, { clientId: "cA", user: "alice", batch: [rec({ ts: now, traceID: "w3" })] });
+  // alice 自己的机器再次上报：真实名行保持（不产生副作用）
+  insertBatch(db, { clientId: "cA", user: "alice", batch: [rec({ ts: now, traceID: "w4" })] });
+  // 另一台机器的降级行不受 cA 的上报影响
+  insertBatch(db, { clientId: "cB", user: "client-ffffffff", batch: [rec({ ts: now, traceID: "w5" })] });
+  const byTrace = Object.fromEntries(db.prepare("SELECT trace_id, user FROM metrics").all().map((r) => [r.trace_id, r.user]));
+  assert.equal(byTrace.w3, "alice");
+  assert.equal(byTrace.w4, "alice");
+  assert.equal(byTrace.w5, "client-ffffffff");
 });
