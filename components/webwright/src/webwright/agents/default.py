@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from jinja2 import StrictUndefined, Template
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from webwright import Environment, Model, __version__
 from webwright.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded, RuntimeExecutionError
 from webwright.server.records import atomic_write_json
 from webwright.server.status import AgentExitStatus
 from webwright.utils.serialize import recursive_merge
+from webwright.agents.history_compaction import is_context_overflow, request_tokens, select_source, transcript
 from webwright.utils.intervention import validate_user_intervention
 
 
@@ -45,6 +46,8 @@ class AgentConfig(BaseModel):
     require_self_reflection_success: bool = False
     summary_every_n_steps: int = 0
     summary_user_prompt: str = DEFAULT_SUMMARY_USER_PROMPT
+    context_limit: int = Field(default=1_000_000, ge=1000)
+    compaction_ratio: int = Field(default=80, ge=1, le=99)
     # Strip the ARIA snapshot payload from observation messages older than the last N
     # to bound context growth in browser-driven modes. Any value <= 0 disables pruning
     # (default). Opt in per config (e.g. local_browser.yaml sets this to 1).
@@ -518,32 +521,57 @@ class DefaultAgent:
                 return model_messages
         return model_messages
 
-    def _compact_history(self) -> None:
-        """Summarize the running transcript via an LLM call and reset messages to [system, summary].
-
-        Preserves the original system message. Replaces every non-system message with a single user
-        message containing the summary. The summarization call is made with the current messages
-        plus a user prompt instructing the model to produce a complete compact summary.
-        """
+    def _compact_history(self, *, required: bool = False) -> None:
+        """Compact an older prefix, excluding the action and observations added since the last query."""
         if not self.messages:
             return
         system_message = next((m for m in self.messages if m.get("role") == "system"), None)
         if system_message is None:
             return
+        current_start = getattr(self, "_last_query_message_count", None)
+        if current_start is None:
+            current_start = next((index for index in range(len(self.messages) - 1, 0, -1)
+                                  if self.messages[index].get("role") == "assistant"), 1)
+        history = [message for message in self.messages[:current_start] if message.get("role") != "system"]
+        current_turn = self.messages[current_start:]
+        output_tokens = min(4096, self.config.context_limit // 10)
         summary_request = self.model.format_message(
             role="user",
-            content=self.config.summary_user_prompt,
+            content=(
+                f"{self.config.summary_user_prompt}\n\n"
+                f"The complete response must fit within {output_tokens} output tokens. "
+                f"Keep the summary below {output_tokens // 2} tokens to leave room for the response format. "
+                "Prioritize the task goal, essential identifiers, completed work, blockers and next step."
+            ),
             extra={"interrupt_type": "HistoryCompactionRequest"},
         )
-        summary_messages = list(self.messages) + [summary_request]
+        reserved_tokens = request_tokens([system_message, summary_request]) + output_tokens + 256
+        source, retained = select_source(
+            transcript(self._messages_for_model(history)), ratio=self.config.compaction_ratio,
+            context_limit=self.config.context_limit, reserved_tokens=reserved_tokens,
+        )
+        if not source.strip():
+            if not required:
+                return
+            raise RuntimeExecutionError("历史内容没有可在窗口内压缩的完整句子。", error_code="compaction_input_too_large", stage="compaction")
+        summary_messages = [system_message, self.model.format_message(role="user", content=source), summary_request]
+        model_config = getattr(self.model, "config", None)
+        original_output_tokens = getattr(model_config, "max_output_tokens", None)
         try:
-            response = self.model.query(self._messages_for_model(summary_messages))
-        except Exception:  # noqa: BLE001 - never fail the run due to compaction
-            return
+            if original_output_tokens is not None:
+                model_config.max_output_tokens = output_tokens
+            response = self.model.query(summary_messages)
+        except Exception as exc:
+            raise RuntimeExecutionError("历史压缩失败，原始上下文已保留，请重试。", error_code="compaction_failed", stage="compaction") from exc
+        finally:
+            if original_output_tokens is not None:
+                model_config.max_output_tokens = original_output_tokens
         summary_text = (response.get("content") or "").strip()
         if not summary_text:
             extra = response.get("extra", {})
-            summary_text = (extra.get("final_response") or "").strip() or "(empty summary)"
+            summary_text = (extra.get("final_response") or "").strip()
+        if not summary_text:
+            raise RuntimeExecutionError("历史压缩未返回摘要，原始上下文已保留。", error_code="compaction_failed", stage="compaction")
         summary_message = self.model.format_message(
             role="user",
             content=(
@@ -554,11 +582,19 @@ class DefaultAgent:
             ),
             extra={"interrupt_type": "HistoryCompactionSummary"},
         )
-        self.messages = [system_message, summary_message]
+        compacted = [system_message, summary_message]
+        if retained:
+            compacted.append(self.model.format_message(role="user", content=retained))
+        compacted.extend(current_turn)
+        if request_tokens(compacted) >= request_tokens(self.messages):
+            raise RuntimeExecutionError("摘要未缩减历史，原始上下文已保留。", error_code="compaction_failed", stage="compaction")
+        self.messages = compacted
+        self._last_query_message_count = len(compacted) - len(current_turn)
 
     def run(self, task: str = "", **kwargs) -> dict[str, Any]:
         self.extra_template_vars |= {"task": task, **kwargs}
         self.messages = []
+        self._last_query_message_count = None
         self.n_calls = 0
         self._run_start_calls = 0
         self.n_format_errors = 0
@@ -602,6 +638,7 @@ class DefaultAgent:
         inferred_task = task or str(prior_state.get("task", "") or "")
         self.extra_template_vars |= {"task": inferred_task, **kwargs}
         self.messages = messages
+        self._last_query_message_count = None
         self.n_calls = int(prior_state.get("n_calls", 0) or 0)
         # Explicit human continuation receives a fresh bounded execution budget;
         # cumulative calls and artifact numbering are retained.
@@ -649,7 +686,16 @@ class DefaultAgent:
                     },
                 )
             )
-        message = self.model.query(self._messages_for_model())
+        if request_tokens(self._messages_for_model()) >= self.config.context_limit * 0.9:
+            self._compact_history(required=True)
+        try:
+            message = self.model.query(self._messages_for_model())
+        except Exception as exc:
+            if not is_context_overflow(exc):
+                raise
+            self._compact_history(required=True)
+            message = self.model.query(self._messages_for_model())
+        self._last_query_message_count = len(self.messages)
         self.n_calls += 1
         self.n_consecutive_format_errors = 0
         self.add_messages(message)

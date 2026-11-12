@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import type { Settings } from './config.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
+import { normalizeContextLimit } from './context-window.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
 import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
 import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
@@ -70,9 +71,8 @@ import {
 } from './context-assembly.js'
 import {
   buildCompactedConversationPrompt,
-  CONVERSATION_COMPACTION_TARGET_RATIO,
   planConversationCompaction,
-  takeRecentWithinTokenBudget,
+  selectCompactionSource,
 } from './context/conversation-compaction.js'
 import type { ConversationCompactionSnapshot } from './context/context-types.js'
 import type { MemoryScope } from './memory/memory-types.js'
@@ -170,7 +170,7 @@ export function buildClaudeNativeShellEnv(
 }
 
 export function buildConfiguredModelEnv(
-  settings: Pick<Settings, 'api_key' | 'base_url'> & Partial<Pick<Settings, 'active_provider' | 'active_weworker_protocol' | 'custom_auth_type' | 'active_auth_type' | 'model'>>,
+  settings: Pick<Settings, 'api_key' | 'base_url'> & Partial<Pick<Settings, 'active_provider' | 'active_weworker_protocol' | 'custom_auth_type' | 'active_auth_type' | 'model' | 'context_limit'>>,
   extraEnv?: NodeJS.ProcessEnv,
   claudeConfigDir?: string,
 ): NodeJS.ProcessEnv {
@@ -178,6 +178,10 @@ export function buildConfiguredModelEnv(
   for (const key of MODEL_AUTH_ENV_KEYS) delete env[key]
   delete env.CLAUDE_CODE_GIT_BASH_PATH
   delete env.WEWORKER_BUNDLED_GIT_BASH
+  // Unknown model aliases otherwise inherit the CLI's 200K compaction window.
+  const contextLimit = String(normalizeContextLimit(settings.context_limit))
+  env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = contextLimit
+  env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = contextLimit
   const baseUrl = assertAllowedLlmBaseUrl(settings.base_url, buildRuntimeAllowedLlmBaseUrls(settings.base_url))
   const effectiveProviderId = settings.active_provider === 'custom'
     ? findProviderByWeWorkerBaseUrl(baseUrl)?.id || settings.active_provider
@@ -282,7 +286,7 @@ export interface SSEEvent {
   memoryParse?: MemoryParseSummary
   compaction?: Partial<ConversationCompactionSnapshot> & {
     status?: 'started' | 'completed' | 'skipped' | 'failed'
-    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed'
+    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed' | 'summary_input_too_large'
     error?: string
   }
 }
@@ -661,6 +665,7 @@ async function withCompactionWatchdog<T>(
 
 async function summarizeConversationOnly(input: {
   conversation: string
+  maxOutputTokens?: number
   settings: Settings
   purpose?: 'compaction' | 'task_notification'
   abortController?: AbortController
@@ -700,7 +705,9 @@ async function summarizeConversationOnly(input: {
       cwd: getUserDirectory(),
       pathToClaudeCodeExecutable: input.claudeSetup.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess: input.spawnClaudeCodeProcess,
-      env: input.env,
+      env: input.maxOutputTokens
+        ? { ...input.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(input.maxOutputTokens) }
+        : input.env,
     },
   })
 
@@ -988,10 +995,20 @@ export function* mapSdkMessage(
     const systemMessage = msg as unknown as {
       subtype?: string
       status?: string | null
+      compact_result?: 'success' | 'failed'
+      compact_error?: string
       compact_metadata?: { trigger?: 'manual' | 'auto'; pre_tokens?: number }
     }
     if (systemMessage.subtype === 'status' && systemMessage.status === 'compacting') {
       yield { type: 'context_compaction_start', compaction: { status: 'started' } }
+    } else if (systemMessage.subtype === 'status' && systemMessage.compact_result === 'failed') {
+      yield {
+        type: 'context_compaction_end',
+        compaction: {
+          status: 'failed', reason: 'summary_failed',
+          error: redactSensitive(systemMessage.compact_error || 'Claude SDK 对话压缩失败'),
+        },
+      }
     } else if (systemMessage.subtype === 'compact_boundary') {
       yield {
         type: 'context_compaction_end',
@@ -1595,35 +1612,35 @@ async function* streamChatWithBaseUrl(
   phase.mark('context_assembly')
 
   if (needsCompaction) {
-    const historyMessages = conversationMessages.slice(0, -1)
-    const currentMessage = conversationMessages[conversationMessages.length - 1]
-    const currentTokens = estimateContextTokens(messagePromptText(currentMessage))
-    const targetTokens = opts.forceCompaction
-      ? Math.min(compactionPlan.targetTokens, Math.floor(conversationTokens * CONVERSATION_COMPACTION_TARGET_RATIO))
-      : compactionPlan.targetTokens
-    const recentSelection = takeRecentWithinTokenBudget(
-      historyMessages,
-      Math.max(1, targetTokens - currentTokens),
-      (message) => estimateContextTokens(messagePromptText(message)),
-    )
+    let currentTurnStart = conversationMessages.length - 1
+    while (currentTurnStart > 0 && conversationMessages[currentTurnStart].role !== 'user') currentTurnStart -= 1
+    const historyMessages = conversationMessages.slice(0, Math.max(0, currentTurnStart))
+    const currentTurn = conversationMessages.slice(Math.max(0, currentTurnStart))
+    const historyText = historyMessages.map(message => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`).join('\n\n')
+    const summaryOutputTokens = Math.min(4096, Math.floor(settings.context_limit / 10))
+    const selection = selectCompactionSource({
+      history: historyText,
+      ratio: settings.compaction_ratio,
+      contextLimit: settings.context_limit,
+      reservedTokens: summaryOutputTokens + 1024,
+      estimateTokens: estimateContextTokens,
+    })
     const compactionBase = {
       mode: 'conversation_only' as const,
       before_tokens: conversationTokens,
       after_tokens: 0,
-      summarized_message_count: recentSelection.dropped.length,
-      retained_message_count: recentSelection.retained.length + 1,
+      summarized_message_count: selection.source ? historyMessages.length : 0,
+      retained_message_count: currentTurn.length + (selection.retained ? 1 : 0),
     }
-    if (recentSelection.dropped.length > 0) {
-      const summarySource = recentSelection.dropped
-        .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`)
-        .filter((text) => text.trim())
-        .join('\n\n')
+    if (selection.source.trim()) {
+      const summarySource = selection.source
       compactionEventEmitted = true
       markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
       yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
       try {
         const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
           conversation: summarySource,
+          maxOutputTokens: summaryOutputTokens,
           settings,
           abortController: summaryAbort,
           onProgress: () => {
@@ -1635,7 +1652,7 @@ async function* streamChatWithBaseUrl(
           spawnClaudeCodeProcess,
         }))
         if (summary) {
-          const recentConversation = buildPromptString([...recentSelection.retained, currentMessage])
+          const recentConversation = [selection.retained, buildPromptString(currentTurn)].filter(Boolean).join('\n\n')
           const compactedConversation = buildCompactedConversationPrompt({
             summary: clampPromptText(summary, 16_000),
             recentConversation,
@@ -1685,8 +1702,9 @@ async function* streamChatWithBaseUrl(
         compaction: {
           ...compactionBase,
           after_tokens: conversationTokens,
-          status: 'skipped',
-          reason: 'no_droppable_history',
+          status: historyText.trim() ? 'failed' : 'skipped',
+          reason: historyText.trim() ? 'summary_input_too_large' : 'no_droppable_history',
+          ...(historyText.trim() ? { error: '历史内容没有可在窗口内压缩的完整句子，原始上下文已保留' } : {}),
         },
       }
     }
@@ -1827,6 +1845,7 @@ async function* streamChatWithBaseUrl(
     const fingerprint = sha256(JSON.stringify({
       model: settings.model,
       protocol: settings.active_weworker_protocol || 'anthropic_messages',
+      contextLimit: normalizeContextLimit(settings.context_limit),
       baseUrl: internal.sessionBaseUrl,
       apiKey: sha256(settings.api_key || ''),
       provider: settings.active_provider,

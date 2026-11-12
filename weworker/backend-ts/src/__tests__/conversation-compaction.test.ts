@@ -3,9 +3,35 @@ import {
   buildCompactedConversationPrompt,
   planConversationCompaction,
   takeRecentWithinTokenBudget,
+  selectCompactionSource,
+  normalizeCompactionRatio,
 } from '../context/conversation-compaction.js'
 
 describe('conversation compaction', () => {
+  it('summarizes 80 percent of safe history at a sentence boundary without dropping its tail', () => {
+    const history = 'First fact. Second fact. Third fact. Fourth fact. Fifth fact.'
+    const result = selectCompactionSource({ history, contextLimit: 1000, reservedTokens: 100, estimateTokens: s => s.length })
+    expect(result.source).toBe('First fact. Second fact. Third fact. ')
+    expect(result.source + result.retained).toBe(history)
+  })
+
+  it('reserves instructions and output before applying the configurable ratio', () => {
+    const history = '完整句子。'.repeat(100)
+    const result = selectCompactionSource({ history, ratio: 50, contextLimit: 100, reservedTokens: 20, estimateTokens: s => s.length })
+    expect(result.source).toBe('完整句子。'.repeat(8))
+    expect(result.source + result.retained).toBe(history)
+  })
+
+  it('does not cut a single oversized sentence or silently discard it', () => {
+    const history = 'x'.repeat(1000)
+    const result = selectCompactionSource({ history, contextLimit: 100, reservedTokens: 20, estimateTokens: s => s.length })
+    expect(result).toEqual({ source: '', retained: history })
+  })
+
+  it('defaults to 80 percent and rejects invalid ratios', () => {
+    for (const value of [undefined, null, 0, 100, NaN, 'bad', true]) expect(normalizeCompactionRatio(value)).toBe(80)
+    expect(normalizeCompactionRatio(60)).toBe(60)
+  })
   it('triggers when the complete context reaches 90 percent', () => {
     const plan = planConversationCompaction({
       contextLimit: 1000,

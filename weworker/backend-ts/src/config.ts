@@ -1,8 +1,9 @@
 import { DEFAULT_PROVIDER, configuredProvider, explorationResetPatch, resolveConfiguredSettings } from './provider-config.js'
 import { migrateChannelConfigurations, type ChannelConfigurations, type ChannelType } from './channels/channel-configurations.js'
-import { resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
+import { normalizeBuiltinContextLimits, resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
 import { PROVIDERS } from './provider-registry.js'
 import fs from 'node:fs'
+import { normalizeCompactionRatio } from './context/conversation-compaction.js'
 
 import path from 'node:path'
 
@@ -260,6 +261,8 @@ export interface Settings {
   model: string
 
   context_limit: number
+  builtin_context_limits?: Record<string, number>
+  compaction_ratio: number
 
   // Per-provider stored configs
 
@@ -410,6 +413,8 @@ const DEFAULTS: Settings = {
   model: configuredProvider(DEFAULT_PROVIDER)?.defaultModel || '',
 
   context_limit: DEFAULT_CONTEXT_LIMIT,
+  builtin_context_limits: {},
+  compaction_ratio: 80,
 
   api_key_anthropic: '',
 
@@ -614,6 +619,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   merged.added_providers = normalizeAddedProviders(raw?.added_providers)
 
   merged.context_limit_anthropic = normalizeContextLimit(raw?.context_limit_anthropic)
+  merged.builtin_context_limits = normalizeBuiltinContextLimits(raw?.builtin_context_limits)
   merged.context_limit_glm = normalizeContextLimit(raw?.context_limit_glm)
   merged.context_limit_bank_coding = normalizeContextLimit(raw?.context_limit_bank_coding)
   merged.context_limit_deepseek = normalizeContextLimit(raw?.context_limit_deepseek)
@@ -649,6 +655,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   // 非布尔或缺失一律按关闭处理，避免历史配置把「未设置」误读成开启。
   merged.webcli_route_enabled = merged.webcli_route_enabled === true
   merged.model_discovery_enabled = merged.model_discovery_enabled !== false
+  merged.compaction_ratio = normalizeCompactionRatio(merged.compaction_ratio)
 
   merged.user_directory_blacklist = normalizeUserDirectoryBlacklist(merged.user_directory_blacklist)
   merged.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(merged.open_browser_allowed_origins)
@@ -844,7 +851,9 @@ export function updateSettings(updates: Partial<Settings>): Settings {
   _settings.max_chat_attachments = normalizeMaxChatAttachments(_settings.max_chat_attachments)
   _settings.webcli_route_enabled = _settings.webcli_route_enabled === true
   _settings.model_discovery_enabled = _settings.model_discovery_enabled !== false
+  _settings.compaction_ratio = normalizeCompactionRatio(_settings.compaction_ratio)
   _settings.context_limit = normalizeContextLimit(_settings.context_limit)
+  _settings.builtin_context_limits = normalizeBuiltinContextLimits(_settings.builtin_context_limits)
   _settings.context_limit_anthropic = normalizeContextLimit(_settings.context_limit_anthropic)
   _settings.context_limit_glm = normalizeContextLimit(_settings.context_limit_glm)
   _settings.context_limit_bank_coding = normalizeContextLimit(_settings.context_limit_bank_coding)

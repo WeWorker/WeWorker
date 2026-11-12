@@ -30,7 +30,7 @@ for (const permissionMode of ['ask', 'workspace', 'full']) {
         { type: 'tool_use', id: 'pending-tool', status: 'cancelled' },
       ] },
     ]
-    useWorksStore.setState({ streamingWorkIds: new Set(), scheduledTaskRuns: {}, abortControllers: {}, messages: {} })
+    useWorksStore.setState({ streamingWorkIds: new Set(), backgroundChatRuns: {}, abortControllers: {}, messages: {} })
     const oldStream = deferred()
     const stopped = deferred()
     let stopRequested = false
@@ -72,6 +72,52 @@ for (const permissionMode of ['ask', 'workspace', 'full']) {
     queue.dispose()
   })
 }
+
+test('immediate send stops a background chat and waits for its saved history', async t => {
+  const before = useWorksStore.getState()
+  t.after(() => useWorksStore.setState(before, true))
+  const previousWindow = globalThis.window
+  globalThis.window = {}
+  t.after(() => { globalThis.window = previousWindow })
+  const events = []
+  const stopped = deferred()
+  const refreshed = deferred()
+  const saved = [{ id: 'partial', role: 'assistant', content: [{ type: 'text', text: 'saved background output' }] }]
+  t.mock.method(globalThis, 'fetch', async () => {
+    events.push('refresh')
+    await refreshed.promise
+    return Response.json({ messages: saved })
+  })
+  useWorksStore.setState({
+    streamingWorkIds: new Set(['fixture']), backgroundChatRuns: { fixture: 'fixture-run' },
+    abortControllers: {}, messages: {}, contextCompactionStatuses: {},
+    syncBackgroundChatRuns: async () => {
+      events.push('sync')
+      useWorksStore.setState({ streamingWorkIds: new Set(), backgroundChatRuns: {} })
+    },
+  })
+  const queue = createMessageQueue()
+  t.after(() => queue.dispose())
+  const source = readFileSync(new URL('../components/chat/ChatView.jsx', import.meta.url), 'utf8')
+  const start = source.indexOf('  queue.setHandlers({')
+  const end = source.indexOf('\n  // A handoff', start)
+  vm.runInContext(source.slice(start, end), vm.createContext({ queue, workId: 'fixture', useWorksStore,
+    stopChat: async () => { events.push('stop'); await stopped.promise },
+  }))
+  queue.setHandlers({ send: async () => {
+    events.push('send')
+    assert.deepEqual(useWorksStore.getState().messages.fixture, saved)
+    return { status: 'completed', accepted: true }
+  } })
+  const id = queue.enqueue({ text: 'correct the background task' }); await tick()
+  assert.deepEqual(events, [])
+  const sending = queue.sendNow(id)
+  assert.deepEqual(events, ['stop'])
+  stopped.resolve(); await tick()
+  assert.deepEqual(events, ['stop', 'sync', 'refresh'])
+  refreshed.resolve(); await sending; await tick()
+  assert.deepEqual(events, ['stop', 'sync', 'refresh', 'send'])
+})
 
 test('required history refresh fails without replacing the existing conversation', async t => {
   const before = useWorksStore.getState()

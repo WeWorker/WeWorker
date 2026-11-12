@@ -18,7 +18,6 @@ import { randomUUID } from 'node:crypto'
 import crypto from 'node:crypto'
 
 import type { Channel, ChannelImage, ChannelStatus } from './channel-manager.js'
-import { runChannelChat } from './channel-manager.js'
 import { siteAuthChannelNotifier } from './site-auth-notifier.js'
 import { streamChat } from '../agent.js'
 import { createChannelUserMedia, userFileBlock } from '../user-media.js'
@@ -35,6 +34,8 @@ import { createLogger } from '../logger.js'
 import { createTurnTimingLedger } from '../turn-timing.js'
 import { historyBeforeLastUser, tryRoutedTurn } from '../routed-turn.js'
 import { createWecomOwnerPairing, WECOM_PAIRING_HINT } from './wecom-owner-pairing.js'
+import { chatTurns } from '../chat-turn-lifecycle.js'
+import { trackBackgroundChatRun } from '../background-chat-progress.js'
 
 const log = createLogger('wecom')
 
@@ -150,6 +151,7 @@ export class WecomChannel implements Channel {
 
   async stop(): Promise<void> {
     this._running = false
+    for (const controller of this._activeTurns.values()) controller.abort()
     if (this._heartbeatTimer) { clearInterval(this._heartbeatTimer); this._heartbeatTimer = null }
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null }
     if (this._ws) {
@@ -711,15 +713,32 @@ export class WecomChannel implements Channel {
       return
     }
 
-    if (this._profile.serializeTurns && this._activeTurns.has(userId)) {
+    if (this._activeTurns.has(userId)) {
       replyOnce('⏳ 上一个请求还在处理中。发送 /stop 可停止它，发送 /new 可停止并开启新对话。')
       return
     }
-    const abortController = new AbortController()
+    const { work, created } = store.getOrCreateChannelWork(channelKey, userId, '', this._profile.projectId?.() ?? null)
+    const active = chatTurns.start(work.id)
+    if (!active) {
+      replyOnce('该对话正在执行任务，请等待完成或在 WeWorker 中停止后重试。')
+      return
+    }
+    const abortController = active.controller
+    const pendingMessage = { id: randomUUID(), work_id: work.id, role: 'assistant', created_at: new Date().toISOString() }
+    let pendingContent: () => store.ContentBlock[] | null = () => []
+    const untrack = trackBackgroundChatRun(work.id, pendingMessage.id, 'channel', () => {
+      const content = pendingContent()
+      return content === null ? null : { ...pendingMessage, content }
+    })
     this._activeTurns.set(userId, abortController)
     try {
-      await this._runTurn({ reqId, userId, chatType, chatId, text, settings, mode: access.mode, abortController })
+      if (created) this._profile.onWorkCreated?.(work.id)
+      await this._runTurn({ reqId, userId, chatType, chatId, text, settings, mode: access.mode, abortController, work,
+        setPending: reader => { pendingContent = reader },
+      })
     } finally {
+      untrack()
+      active.finish()
       if (this._activeTurns.get(userId) === abortController) this._activeTurns.delete(userId)
     }
   }
@@ -729,7 +748,6 @@ export class WecomChannel implements Channel {
     this._pendingChoiceResolvers.delete(userId)
     const active = this._activeTurns.get(userId)
     if (!active) return false
-    this._activeTurns.delete(userId)
     active.abort()
     return true
   }
@@ -743,11 +761,12 @@ export class WecomChannel implements Channel {
     settings: ReturnType<typeof getSettings>
     mode: ChannelPermissionMode
     abortController: AbortController
+    work: store.Work
+    setPending: (reader: () => store.ContentBlock[] | null) => void
   }): Promise<void> {
     const { reqId, userId, chatType, chatId, text, settings } = turn
     const channelKey = this._profile.channelKey
-    const { work, created } = store.getOrCreateChannelWork(channelKey, userId, '', this._profile.projectId?.() ?? null)
-    if (created) this._profile.onWorkCreated?.(work.id)
+    const { work } = turn
     store.appendMessage(work.id, 'user', [{ type: 'text', text }])
     store.markExternalWrite()
 
@@ -782,6 +801,11 @@ export class WecomChannel implements Channel {
     let displayText = ''
     let separateNextModelText = false
     let currentTextChunk = ''
+    let assistantPersisted = false
+    turn.setPending(() => assistantPersisted ? null : [
+      ...assistantContent,
+      ...(currentTextChunk ? [{ type: 'text' as const, text: currentTextChunk }] : []),
+    ])
     const images: string[] = []
     let lastStreamTime = Date.now()
     const STREAM_INTERVAL_MS = 800 // send text update at most every 800ms
@@ -833,20 +857,22 @@ export class WecomChannel implements Channel {
       })
 
       return new Promise<string>((resolve) => {
-        const timer = setTimeout(() => {
-          this._pendingChoiceResolvers.delete(userId)
-          resolve(options[0]?.label ?? '1')
-        }, 3 * 60 * 1000)
-
-        this._pendingChoiceResolvers.set(userId, (answer) => {
+        const signal = turn.abortController.signal
+        const finish = (answer: string) => {
           clearTimeout(timer)
+          signal.removeEventListener('abort', onAbort)
+          if (this._pendingChoiceResolvers.get(userId) === onAnswer) this._pendingChoiceResolvers.delete(userId)
+          resolve(answer)
+        }
+        const onAbort = () => finish('')
+        const onAnswer = (answer: string) => {
           const num = parseInt(answer, 10)
-          if (num >= 1 && num <= options.length) {
-            resolve(options[num - 1].label)
-          } else {
-            resolve(answer)
-          }
-        })
+          finish(num >= 1 && num <= options.length ? options[num - 1].label : answer)
+        }
+        const timer = setTimeout(() => finish(options[0]?.label ?? '1'), 3 * 60 * 1000)
+        this._pendingChoiceResolvers.set(userId, onAnswer)
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
       })
     }
 
@@ -857,30 +883,31 @@ export class WecomChannel implements Channel {
     // 确定性路由（共享入口见 routed-turn.ts）：纯查询直接由只读工具作答，省掉整轮模型。
     // `qa_only` 回合在共享入口内被跳过（那些回合不注册任何工具）；WeWorker Bot 回合也跳过
     // ——它有自己的站点/技能边界，路由可能换成别的站点作答。
-    const routed = this._profile.dedicatedAgentId
-      ? null
-      : await tryRoutedTurn({
-          message: text,
-          workId: work.id,
-          chatStartTime: Date.now(),
-          persist: false,
-          channelPermissionMode,
-          // 追问闸门（闸门①b）需要「本轮之前」的历史。
-          history: historyBeforeLastUser(wm.messages),
-          log: (m: string) => log.info(m),
-        })
-    if (routed?.handled) {
-      fullText = routed.text
-      displayText = routed.text
-      assistantContent.push({ type: 'text', text: routed.text })
-      // 路由的 timing 自带 routeTool；不再叠加模型计时。
-      if (routed.timing) assistantContent.push({ type: 'timing', ...routed.timing })
-      log.info(`routed turn — tool=${routed.timing?.routeTool ?? '?'} total=${((routed.timing?.totalMs ?? 0) / 1000).toFixed(2)}s`)
-    }
-
+    let routed: Awaited<ReturnType<typeof tryRoutedTurn>> | null = null
     try {
+      routed = this._profile.dedicatedAgentId
+        ? null
+        : await tryRoutedTurn({
+            message: text,
+            workId: work.id,
+            chatStartTime: Date.now(),
+            persist: false,
+            channelPermissionMode,
+            // 追问闸门（闸门①b）需要「本轮之前」的历史。
+            history: historyBeforeLastUser(wm.messages),
+            log: (m: string) => log.info(m),
+          })
+      if (routed?.handled) {
+        fullText = routed.text
+        displayText = routed.text
+        assistantContent.push({ type: 'text', text: routed.text })
+        // 路由的 timing 自带 routeTool；不再叠加模型计时。
+        if (routed.timing) assistantContent.push({ type: 'timing', ...routed.timing })
+        log.info(`routed turn — tool=${routed.timing?.routeTool ?? '?'} total=${((routed.timing?.totalMs ?? 0) / 1000).toFixed(2)}s`)
+      }
+
       const profileOptions = this._profile.chatOptions(userId)
-      for await (const event of routed?.handled ? noModelEvents() : streamChat(wm.messages, settings, turn.abortController, {
+      for await (const event of routed?.handled || turn.abortController.signal.aborted ? noModelEvents() : streamChat(wm.messages, settings, turn.abortController, {
         ...profileOptions,
         directRoute: routed?.directRoute ?? { status: 'skipped', reason: 'dedicated_agent' },
         // send_image_to_user / send_file_to_user answer this chat, not the last bot user.
@@ -909,11 +936,6 @@ export class WecomChannel implements Channel {
           // Flush to WeCom periodically to avoid flooding
           if (Date.now() - lastStreamTime >= STREAM_INTERVAL_MS) {
             flushText()
-            // If we accumulated enough text, also save a text block for interleaved display
-            if (currentTextChunk.trim()) {
-              assistantContent.push({ type: 'text', text: currentTextChunk })
-              currentTextChunk = ''
-            }
           }
         } else if (event.type === 'tool_call_start' && event.id) {
           // Save any pending text before the tool call
@@ -937,6 +959,12 @@ export class WecomChannel implements Channel {
             args: event.args,
             ...(thinkMs !== undefined ? { thinkMs } : {}),
           })
+          const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id)
+          const updated = { type: 'tool_use' as const, id: event.id, name: cleanName, args: event.args ?? {}, status: 'running',
+            ...(toolCallMap.get(event.id)?.thinkMs !== undefined ? { thinkMs: toolCallMap.get(event.id)!.thinkMs } : {}),
+          }
+          if (existing) Object.assign(existing, updated)
+          else assistantContent.push(updated)
           // Send tool call hint to user
           flushText()
           this._send({
@@ -968,6 +996,7 @@ export class WecomChannel implements Channel {
             const existing = assistantContent.find(block => block.type === 'tool_use' && block.id === event.id) as Extract<store.ContentBlock, { type: 'tool_use' }> | undefined
             if (existing) {
               existing.image = event.data
+              existing.status = 'done'
               if (imageToolDuration !== undefined) existing.execMs = imageToolDuration
             } else {
               const started = toolCallMap.get(event.id)
@@ -975,11 +1004,7 @@ export class WecomChannel implements Channel {
             }
           }
         } else if (event.type === 'error' && event.content) {
-          const modelAddition = `${fullText ? '\n\n' : ''}${event.content}`
-          const displayAddition = `${displayText ? '\n\n' : ''}${event.content}`
-          fullText += modelAddition
-          displayText += displayAddition
-          currentTextChunk += modelAddition
+          chatFailure = new Error(event.content)
           break
         } else if (event.type === 'done') {
           break
@@ -994,13 +1019,19 @@ export class WecomChannel implements Channel {
     } finally {
       authTurn.close()
     }
-    if (turn.abortController.signal.aborted) {
-      if (assistantContent.length > 0 || currentTextChunk.trim()) {
-        if (currentTextChunk.trim()) assistantContent.push({ type: 'text', text: currentTextChunk })
-        assistantContent.push({ type: 'text', text: '（已停止）' })
-        store.appendMessage(work.id, 'assistant', assistantContent)
-        store.markExternalWrite()
+    const snapshot = turnTiming.finish()
+    for (const block of assistantContent) {
+      if (block.type === 'tool_use') {
+        block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
+        if (block.status === 'running') block.status = turn.abortController.signal.aborted ? 'cancelled' : chatFailure ? 'failed' : 'done'
       }
+    }
+    if (turn.abortController.signal.aborted) {
+      if (currentTextChunk.trim()) assistantContent.push({ type: 'text', text: currentTextChunk })
+      assistantContent.push({ type: 'text', text: '（已停止）' })
+      store.appendMessage(work.id, 'assistant', assistantContent)
+      assistantPersisted = true
+      store.markExternalWrite()
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
@@ -1010,21 +1041,18 @@ export class WecomChannel implements Channel {
     }
     if (chatFailure) {
       const e = chatFailure
+      const errorText = `处理失败：${e instanceof Error ? e.message : String(e)}`
+      if (currentTextChunk.trim()) assistantContent.push({ type: 'text', text: currentTextChunk })
+      assistantContent.push({ type: 'error', text: errorText })
+      store.appendMessage(work.id, 'assistant', assistantContent)
+      assistantPersisted = true
+      store.markExternalWrite()
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: streamId, finish: true, content: `${displayText ? `${displayText}\n\n` : ''}处理失败：${e instanceof Error ? e.message : String(e)}` } },
+        body: { msgtype: 'stream', stream: { id: streamId, finish: true, content: `${displayText ? `${displayText}\n\n` : ''}${errorText}` } },
       })
       return
-    }
-
-    // Close the turn: trailing LLM text plus any tool that never reported a result.
-    const snapshot = turnTiming.finish()
-    for (const block of assistantContent) {
-      if (block.type === 'tool_use') {
-        block.execMs = turnTiming.toolExecutionMs(block.id) ?? block.execMs
-        if (block.status === 'running') block.status = 'done'
-      }
     }
 
     // Save any remaining text chunk
@@ -1051,6 +1079,7 @@ export class WecomChannel implements Channel {
         assistantContent.push({ type: 'timing', totalMs: snapshot.totalMs, llmMs: snapshot.llmMs, execMs: snapshot.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
       }
       store.appendMessage(work.id, 'assistant', assistantContent)
+      assistantPersisted = true
       store.markExternalWrite()
     }
 

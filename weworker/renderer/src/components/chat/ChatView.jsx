@@ -148,7 +148,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   }
 
   const sendTurn = async (text, files = [], thinkingEffort = 'off', permissionMode = readChatPermissionMode({ permissionScope, defaultPermissionMode }), scenarioHint = null) => {
-    await useWorksStore.getState().syncScheduledTaskRuns().catch(() => {})
+    await useWorksStore.getState().syncBackgroundChatRuns().catch(() => {})
     if ((!text.trim() && !files.length) || useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting') return { status: 'failed', accepted: false }
     if (files.length > maxChatAttachments) {
       setError(`已选 ${files.length}/${maxChatAttachments} 个文件，请删减后再发送`)
@@ -452,14 +452,14 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
 
   queue.setHandlers({
     isBlocked: () => useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting',
-    isExternalRunning: () => Boolean(useWorksStore.getState().scheduledTaskRuns[workId]),
+    isExternalRunning: () => Boolean(useWorksStore.getState().backgroundChatRuns[workId]),
     send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort, item.permissionMode, item.scenarioHint),
     afterStop: () => useWorksStore.getState().refreshWorkMessages(workId, { required: true }),
     stop: async () => {
       const controller = useWorksStore.getState().abortControllers[workId]
-      if (useWorksStore.getState().scheduledTaskRuns[workId]) {
+      if (useWorksStore.getState().backgroundChatRuns[workId]) {
         await stopChat(workId)
-        await useWorksStore.getState().syncScheduledTaskRuns()
+        await useWorksStore.getState().syncBackgroundChatRuns()
         return
       }
       if (!controller) throw new Error('命令正在执行，请在终端停止；队列已暂停')

@@ -68,6 +68,16 @@ def test_full_openai_url_is_preserved_for_both_model_flows(monkeypatch, tmp_path
     assert model["openai_chat_endpoint"] == endpoint
 
 
+def test_compaction_settings_are_injected_into_the_exploration_agent(monkeypatch, tmp_path: Path) -> None:
+    manager, _store, _commands = _manager(
+        tmp_path, monkeypatch,
+        model_config_loader=lambda: _managed_model(context_limit=128000, compaction_ratio=65),
+    )
+    _file, overrides, _env = manager._resolve_model()
+    assert "agent.context_limit=128000" in overrides
+    assert "agent.compaction_ratio=65" in overrides
+
+
 def _manager(
     tmp_path: Path, monkeypatch, *, toolkit_store=None, model_config_loader=None
 ) -> tuple[ProcessManager, TaskStore, list[list[str]]]:

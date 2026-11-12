@@ -7,12 +7,15 @@ import {
 } from '../utils/resource-preview-extensions.js'
 import { backendFetch } from '../api/http.js'
 import { isFixedProvider } from '../utils/model-selection.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT } from '../utils/context-window.js'
 
 const API = 'http://127.0.0.1:8765'
 
 const DEFAULT_STYLE = { subtitle: '', color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' }
 const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50
 const DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD = 20000
+const defaultContextLimit = providerId => BUILD_PROVIDERS.find(provider => provider.id === providerId)?.builtin
+  ? DEFAULT_BUILTIN_CONTEXT_LIMIT : DEFAULT_CONTEXT_LIMIT
 
 function settingsPatch(data, fallback = {}) {
   const hasPreviewApi = Object.prototype.hasOwnProperty.call(data, 'resource_preview_extensions')
@@ -34,7 +37,10 @@ function settingsPatch(data, fallback = {}) {
     modelDiscoveryEnabled: data.model_discovery_enabled ?? fallback.modelDiscoveryEnabled ?? true,
     baseUrl: data.base_url,
     model: data.model,
-    contextLimit: data.context_limit || fallback.contextLimit || 1000000,
+    contextLimit: data.context_limit || data.providers?.[data.active_provider]?.context_limit
+      || (data.active_provider === fallback.activeProvider ? fallback.contextLimit : undefined)
+      || defaultContextLimit(data.active_provider || fallback.activeProvider || BUILD_DEFAULT_PROVIDER),
+    compactionRatio: data.compaction_ratio ?? fallback.compactionRatio ?? 80,
     hasApiKey: data.has_api_key,
     userDirectory: data.user_directory || fallback.userDirectory || '',
     downloadSubdirectory: data.download_subdirectory || fallback.downloadSubdirectory || 'download',
@@ -71,7 +77,8 @@ export const useSettingsStore = create((set, get) => ({
   modelDiscoveryEnabled: true,
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
-  contextLimit: 1000000,
+  contextLimit: defaultContextLimit(BUILD_DEFAULT_PROVIDER),
+  compactionRatio: 80,
   hasApiKey: false,
   userDirectory: '',
   downloadSubdirectory: 'download',
@@ -89,7 +96,7 @@ export const useSettingsStore = create((set, get) => ({
   zcfEnabledRoles: ['default'],
   zcfCustomRoles: [],
   providers: Object.fromEntries(BUILD_PROVIDERS.map(provider => [provider.id, {
-    has_key: false, model: provider.defaultModel, context_limit: 1000000,
+    has_key: false, model: provider.defaultModel, context_limit: defaultContextLimit(provider.id),
     readonly: provider.builtin === true, added: provider.fixed === true || provider.builtin === true,
     visible: provider.fixed === true || provider.builtin === true,
   }])),
@@ -282,6 +289,17 @@ export const useSettingsStore = create((set, get) => ({
     return data.paste_text_attachment_threshold || DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD
   },
 
+  saveCompactionRatio: async (ratio) => {
+    const res = await backendFetch(`${API}/settings/compaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compaction_ratio: ratio }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '保存压缩设置失败')
+    set({ compactionRatio: data.compaction_ratio ?? ratio })
+  },
+
   saveWebcliRouteEnabled: async (enabled) => {
     const response = await backendFetch(`${API}/settings/extensions/webcli-route`, {
       method: 'POST',
@@ -392,11 +410,12 @@ export const useSettingsStore = create((set, get) => ({
     if (!profile) throw new Error('机器人配置不存在，请重新选择')
     if (get().channelProfileQrSaving[id]) throw new Error('机器人配置正在保存，请稍候')
     if (!credentials) throw new Error('未获取完整机器人配置')
+    const identity = profile.type === 'wecom' ? 'bot_id' : 'app_id'
+    if (profile.config[identity] && profile.config[identity] !== credentials[identity]) throw new Error('当前配置已关联机器人，请添加独立配置后再扫码')
     set(state => ({ channelProfileQrPending: { ...state.channelProfileQrPending, [id]: credentials }, channelProfileQrSaving: { ...state.channelProfileQrSaving, [id]: true } }))
     try {
-      const identity = profile.type === 'wecom' ? 'bot_id' : 'app_id'
       const changed = profile.config[identity] !== credentials[identity]
-      await get().channelProfileAction(profile.type, 'save', id, { config: { ...credentials, enabled: true,
+      await get().channelProfileAction(profile.type, 'qr-import', id, { config: { ...credentials, enabled: true,
         ...(changed ? { owner_user_id: '', owner_permission_level: 'qa_only' } : {}) } })
       set(state => ({ channelProfileQrPending: { ...state.channelProfileQrPending, [id]: null } }))
     } catch {

@@ -72,13 +72,14 @@ export function shouldAutoCompactAfterTurn(contextSnapshot, retryCompaction = fa
   return Number.isFinite(actualTokens) && actualTokens / contextLimit >= 0.9
 }
 
-export async function compactConversation(workId) {
+export async function compactConversation(workId, { signal } = {}) {
   notifyContextCompactionLifecycle(workId, 'compacting')
   try {
     const res = await backendFetch(`/works/${workId}/compact`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -107,7 +108,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
     if (!retryCompaction && isContextOverflowError(error?.message)) {
       onEvent({ type: 'context_compaction_start', compaction: { status: 'started' } })
       try {
-        const result = await compactConversation(workId)
+        const result = await compactConversation(workId, { signal })
         for (const event of result?.events || []) {
           if (event.type !== 'context_compaction_start') onEvent(event)
         }
@@ -135,7 +136,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
     if (!retryCompaction && isContextOverflowError(detail)) {
       onEvent({ type: 'context_compaction_start', compaction: { status: 'started' } })
       try {
-        const result = await compactConversation(workId)
+        const result = await compactConversation(workId, { signal })
         for (const event of result?.events || []) {
           if (event.type !== 'context_compaction_start') onEvent(event)
         }
@@ -163,6 +164,8 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
   let compactedDuringRequest = false
   let turnEnded = false
   let streamCompleted = false
+  let compactionPending = false
+  let compactionInterruption = ''
 
   try {
     while (true) {
@@ -184,6 +187,8 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
         }
         try {
           const event = JSON.parse(data)
+          if (event.type === 'context_compaction_start') compactionPending = true
+          if (event.type === 'context_compaction_end') compactionPending = false
           if (event.type === 'turn_end') turnEnded = true
           if (event.type === 'context_snapshot') contextSnapshot = event.context || null
           if (event.type === 'context_compaction_end' && event.compaction?.status === 'completed') {
@@ -201,14 +206,25 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
   } catch (e) {
     console.log(`[frontend] streamChat error: ${e.name} — ${e.message}`)
     throw e
+  } finally {
+    // A disconnected stream may never deliver the matching compaction end event.
+    if (compactionPending) {
+      compactionInterruption = signal?.aborted ? '对话压缩已取消' : '压缩连接中断，未收到完成结果，请重试'
+      notifyContextCompactionLifecycle(workId, 'failed')
+      onEvent({
+        type: 'context_compaction_end',
+        compaction: { status: 'failed', reason: 'stream_interrupted', error: compactionInterruption },
+      })
+    }
   }
+  if (compactionInterruption) throw new Error(compactionInterruption)
   if (!turnEnded && !streamCompleted) throw new Error('回复连接中断，队列已暂停，请检查当前回复后继续')
 
   const shouldAutoCompact = shouldAutoCompactAfterTurn(contextSnapshot, retryCompaction, compactedDuringRequest)
   if (!retryCompaction && (overflowDetected || shouldAutoCompact)) {
     onEvent({ type: 'context_compaction_start', compaction: { status: 'started' } })
     try {
-      const result = await compactConversation(workId)
+      const result = await compactConversation(workId, { signal })
       for (const event of result?.events || []) {
         if (event.type !== 'context_compaction_start') onEvent(event)
       }

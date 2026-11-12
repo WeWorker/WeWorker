@@ -30,6 +30,22 @@ afterEach(() => {
 })
 
 describe('managed built-in models', () => {
+  it('defaults every built-in context window to 200K and honors independent overrides', () => {
+    const providers = [BUILTIN_PROVIDER, BUILTIN_DEV_PROVIDER]
+    const limits = { builtin: 128000, builtin_dev: 512000 }
+    const defaults = publicBuiltinProviders(providers, env)
+    expect(defaults.builtin.context_limit).toBe(200000)
+    expect(defaults.builtin_dev.context_limit).toBe(200000)
+    expect(activateBuiltinProvider(BUILTIN_PROVIDER, env).context_limit).toBe(200000)
+    const metadata = publicBuiltinProviders(providers, env, limits)
+    for (const provider of providers) {
+      const settings = { ...activateBuiltinProvider(provider, env), builtin_context_limits: limits } as Settings
+      expect(metadata[provider.id].context_limit).toBe(limits[provider.id as keyof typeof limits])
+      expect(resolveBuiltinSettings(settings, providers, env).context_limit).toBe(metadata[provider.id].context_limit)
+    }
+    expect(resolveBuiltinSettings({ ...activateBuiltinProvider(BUILTIN_PROVIDER, env), builtin_context_limits: { builtin: -1 } } as Settings, providers, env).context_limit).toBe(200000)
+  })
+
   it('registers JSON gateways without exposing encrypted credentials', () => {
     expect(getProvider('builtin')).toEqual(BUILTIN_PROVIDER)
     expect(getProvider('builtin_dev')).toEqual(BUILTIN_DEV_PROVIDER)
@@ -81,6 +97,17 @@ describe('managed built-in models', () => {
     expect(resolveBuiltinSettings({ ...saved, active_provider: 'builtin' }, PROVIDERS, {}).api_key).not.toBe('')
   })
 
+  it.each(['openai_responses', 'openai_chat_completions'] as const)('replaces a stale %s protocol when selecting or loading a built-in', staleProtocol => {
+    const patch = activateBuiltinProvider(BUILTIN_PROVIDER, env)
+    expect(patch.active_weworker_protocol).toBe(BUILTIN_PROVIDER.weworker.protocol)
+    const saved = { ...patch, active_weworker_protocol: staleProtocol } as Settings
+    const runtime = resolveBuiltinSettings(saved, PROVIDERS, env)
+    expect(runtime.active_weworker_protocol).toBe(BUILTIN_PROVIDER.weworker.protocol)
+    expect(saved.active_weworker_protocol).toBe(staleProtocol)
+    const custom = { ...saved, active_provider: 'custom' }
+    expect(resolveBuiltinSettings(custom, PROVIDERS, env).active_weworker_protocol).toBe(staleProtocol)
+  })
+
   it('preserves custom settings and independent exploration settings', () => {
     vi.stubEnv('WEWORKER_BUILTIN_API_KEY', env.WEWORKER_BUILTIN_API_KEY)
     const custom = { active_provider: 'custom', api_key: 'fixture-custom-key' } as Settings
@@ -95,7 +122,7 @@ describe('managed built-in models', () => {
   it('probes both protocols with the deployment credential and redacts reflected errors', async () => {
     const input = builtinProviderAccess(BUILTIN_PROVIDER, env)
     const fetchMock = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { ok: true } }] }))
+      .mockResolvedValueOnce(Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] }))
       .mockResolvedValueOnce(Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
       .mockResolvedValueOnce(new Response('invalid fixture-builtin-key', { status: 401 }))
     expect((await probeMainConnection(input, fetchMock)).ok).toBe(true)

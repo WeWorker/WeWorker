@@ -148,7 +148,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const sync = () => { void useWorksStore.getState().syncScheduledTaskRuns().catch(() => {}) }
+    const sync = () => { void useWorksStore.getState().syncBackgroundChatRuns().catch(() => {}) }
     sync()
     const interval = setInterval(sync, 1000)
     return () => clearInterval(interval)

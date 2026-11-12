@@ -6,6 +6,7 @@ import { changeChannelConfiguration, createChannelMutationQueue, getChannelConfi
 import express from 'express'
 import { chatTurns as sharedChatTurns } from './chat-turn-lifecycle.js'
 import { listScheduledTaskRuns } from './scheduled-task-progress.js'
+import { listBackgroundChatRuns } from './background-chat-progress.js'
 import { createAssistantSegments } from './chat-assistant-segments.js'
 import cors from 'cors'
 import { createWebsiteExplorationRouter } from './website-exploration.js'
@@ -445,9 +446,10 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     base_url: isBuiltinProvider(s.active_provider) ? '' : s.base_url,
     model: s.model,
     context_limit: s.context_limit,
+    compaction_ratio: s.compaction_ratio ?? 80,
     has_api_key: !!s.api_key,
     providers: Object.fromEntries(Object.entries({
-      ...publicBuiltinProviders(PROVIDERS),
+      ...publicBuiltinProviders(PROVIDERS, process.env, s.builtin_context_limits),
       anthropic: { has_key: !!s.api_key_anthropic, model: configuredModel('anthropic', s.model_anthropic || ''), context_limit: s.context_limit_anthropic, added: s.added_providers.includes('anthropic'), visible: visible('anthropic') },
       bank_coding: { has_key: !!s.api_key_bank_coding, model: configuredModel('bank_coding', s.model_bank_coding || ''), context_limit: s.context_limit_bank_coding || DEFAULT_CONTEXT_LIMIT, added: s.added_providers.includes('bank_coding'), visible: visible('bank_coding') },
       glm:       { has_key: !!s.api_key_glm,       model: configuredModel('glm', s.model_glm || ''), context_limit: s.context_limit_glm, added: s.added_providers.includes('glm'), visible: visible('glm') },
@@ -601,6 +603,15 @@ app.post('/settings/user-directory-blacklist', (req, res) => {
     user_directory_blacklist: sanitized,
   }))
   res.json({ ...response, blacklist_dropped: dropped })
+})
+
+app.post('/settings/compaction', (req, res) => {
+  const ratio = req.body?.compaction_ratio
+  if (typeof ratio !== 'number' || !Number.isInteger(ratio) || ratio < 1 || ratio > 99) {
+    res.status(400).json({ detail: '压缩比例请输入 1-99 之间的整数' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ compaction_ratio: ratio })))
 })
 
 app.post('/settings/extensions/webcli-route', (req, res) => {
@@ -780,7 +791,20 @@ app.post('/settings/provider', (req, res) => {
     return
   }
   if (isBuiltinProvider(provider)) {
-    res.status(403).json({ detail: '内置模型由应用提供方管理，不支持修改' })
+    if (Object.keys(req.body).some(key => !['provider', 'name', 'context_limit'].includes(key))) {
+      res.status(403).json({ detail: '内置模型仅支持修改名称和上下文窗口' })
+      return
+    }
+    const limit = parseContextLimit(context_limit)
+    if (limit === null) {
+      res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位' })
+      return
+    }
+    const current = getSettings()
+    res.json(buildSettingsResponse(updateSettings({
+      ...nameUpdates,
+      builtin_context_limits: { ...current.builtin_context_limits, [provider]: limit },
+    })))
     return
   }
   if (getProvider(provider)?.fixedModel && model !== undefined && model !== configuredModel(provider, model)) {
@@ -1138,7 +1162,7 @@ async function mutateChannelProfile(type: ChannelType, action: string, id: unkno
       input = { ...input, base_url: assertAllowedWeixinBaseUrl(input.base_url, ALLOWED_WEIXIN_BASE_URLS) }
     }
     const change = changeChannelConfiguration(previous, type, action, id, input)
-    if (action === 'save' || action === 'activate') {
+    if (action === 'save' || action === 'activate' || action === 'qr-import') {
       const entry = change.updates.channel_configurations[change.id]
       if (type === 'wecom') assertWecomBotNotUsedByAgent(entry ? (entry.config as { bot_id?: string }).bot_id : '')
       if (type === 'weixin') assertWeixinTokenNotUsedByAgent(entry ? (entry.config as { token?: string }).token : '')
@@ -2596,6 +2620,10 @@ const UpdateTaskSchema = z.object({
 
 app.get('/scheduled-task-runs', (_req, res) => {
   res.json(listScheduledTaskRuns())
+})
+
+app.get('/background-chat-runs', (_req, res) => {
+  res.json(listBackgroundChatRuns())
 })
 
 app.get('/scheduled-tasks', (_req, res) => {

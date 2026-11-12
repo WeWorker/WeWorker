@@ -264,14 +264,20 @@ export async function probeProviderProtocol(
     ? { ...buildAnthropicAuthHeaders(apiKey, effectiveAnthropicProviderId(input, baseUrl), input.anthropicAuthType), 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }
     : { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }
   const schema = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: false }
+  // A string acknowledgement keeps the connectivity probe independent of
+  // providers that stringify boolean tool arguments. Still require a real,
+  // complete tool call with the exact expected parameter value.
+  const toolSchema = { type: 'object', properties: { status: { type: 'string', enum: ['ok'] } }, required: ['status'], additionalProperties: false }
   const requiresToolCall = isAnthropic && !input.forceAnthropicTextProbe && shouldProbeWithAnthropicToolChoice(input)
   const body = (useToolCall: boolean) => isAnthropic
     ? {
         model,
-        max_tokens: input.verifyResponse ? 256 : 20,
-        messages: [{ role: 'user', content: 'Return {"ok":true}.' }],
+        max_tokens: input.verifyResponse ? (useToolCall ? 1024 : 256) : 20,
+        messages: [{ role: 'user', content: useToolCall
+          ? 'Call the connection_check tool exactly once with {"status":"ok"}. Do not reply with text.'
+          : 'Return {"ok":true}.' }],
         ...(useToolCall ? {
-          tools: [{ name: 'connection_check', description: 'Confirm the connection without performing any action.', input_schema: schema }],
+          tools: [{ name: 'connection_check', description: 'Confirm the connection without performing any action.', input_schema: toolSchema }],
           tool_choice: { type: 'tool', name: 'connection_check' },
         } : {}),
         ...(input.target === 'webwright' ? { output_config: { format: { type: 'json_schema', schema } } } : {}),
@@ -302,8 +308,18 @@ export async function probeProviderProtocol(
       if (input.verifyResponse) {
         try {
           const data = await response.json() as any
+          if (isAnthropic && data.stop_reason === 'max_tokens') {
+            return {
+              ok: false,
+              target: input.target,
+              protocol,
+              model,
+              error: 'protocol_mismatch',
+              detail: '检测响应达到输出上限，内容被截断，请重试',
+            }
+          }
           if (useToolCall) {
-            if (!data.content?.some((block: any) => block.type === 'tool_use' && block.name === 'connection_check' && block.input?.ok === true)) throw new Error()
+            if (!data.content?.some((block: any) => block.type === 'tool_use' && block.name === 'connection_check' && block.input?.status === 'ok')) throw new Error()
           } else {
             const content = isAnthropic
               ? data.content?.filter((block: any) => block.type === 'text').map((block: any) => block.text).join('')
@@ -319,7 +335,7 @@ export async function probeProviderProtocol(
             protocol,
             model,
             error: 'protocol_mismatch',
-            detail: useToolCall ? '服务未返回有效的工具调用，请确认此模型支持 Claude Code' : '服务未返回有效的结构化 JSON，请检查接口地址和模型能力',
+            detail: useToolCall ? '接口已响应，但未返回符合检测要求的完整工具调用，请重试或检查工具调用兼容性' : '服务未返回有效的结构化 JSON，请检查接口地址和模型能力',
           }
         }
       }

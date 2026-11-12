@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
-let server, dom, root, createRoot, ModelSelector, SettingsPage, SecretInput, store, healthStore
+let server, dom, root, createRoot, ModelSelector, SettingsPage, SecretInput, ContextPanel, store, healthStore
 let calls, state, detectResponse
 const globals = new Map()
 const imported = { name: 'Claude Code', provider_id: 'custom', model: 'fixture-model',
@@ -36,6 +36,7 @@ before(async () => {
   ModelSelector = (await server.ssrLoadModule('/src/components/chat/ModelSelector.jsx')).default
   SettingsPage = (await server.ssrLoadModule('/src/components/settings/SettingsModal.jsx')).default
   SecretInput = (await server.ssrLoadModule('/src/components/settings/SecretInput.jsx')).default
+  ContextPanel = (await server.ssrLoadModule('/src/components/chat/ContextPanel.jsx')).default
   store = (await server.ssrLoadModule('/src/store/settings.js')).useSettingsStore
   healthStore = (await server.ssrLoadModule('/src/store/model-health.js')).useModelHealthStore
 })
@@ -69,8 +70,10 @@ beforeEach(() => {
       return Response.json(state)
     }
     if (endpoint === '/settings/provider') {
-      const { provider, model } = JSON.parse(options.body)
-      state.providers[provider] = { ...state.providers[provider], model }
+      const { provider, model, context_limit } = JSON.parse(options.body)
+      state.providers[provider] = { ...state.providers[provider], ...(model ? { model } : {}),
+        ...(context_limit ? { context_limit } : {}) }
+      if (provider === state.active_provider && context_limit) state.context_limit = context_limit
       return Response.json(state)
     }
     if (endpoint === '/settings/provider/activate') {
@@ -214,6 +217,51 @@ test('model settings have a compact search toolbar and a discovery dialog beside
   await click(ariaButton('导入 Claude Code fixture-model'))
   await click(ariaButton('关闭'))
   assert.ok(document.querySelector('[data-model-configuration="model-fixture"].is-selected'))
+})
+
+test('every built-in has an editable context window and saves it without deployment fields', async t => {
+  const timeout = globalThis.setTimeout
+  const savedFeedbackTimers = []
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay !== 2000) return timeout(callback, delay, ...args)
+    savedFeedbackTimers.push(() => callback(...args))
+    return 0
+  })
+  const { PROVIDERS } = await server.ssrLoadModule('/src/store/settings.js')
+  for (const provider of PROVIDERS.filter(item => item.builtin)) {
+    state.active_provider = provider.id
+    state.providers[provider.id] = { has_key: true, model: provider.defaultModel, readonly: true, context_limit: 200000 }
+    store.setState({ activeProvider: provider.id, providers: { ...state.providers }, contextLimit: 200000 })
+    await act(async () => root.render(React.createElement(SettingsPage, { key: provider.id })))
+    const input = document.querySelector('input[aria-label="上下文窗口"]')
+    assert.ok(input)
+    assert.equal(input.disabled, false)
+    assert.equal(input.value, '200K')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '128K')
+      input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await click(button('保存'))
+    const request = calls.filter(item => item.endpoint === '/settings/provider').at(-1)
+    const body = JSON.parse(request.body)
+    assert.deepEqual(Object.keys(body).sort(), ['context_limit', 'name', 'provider'])
+    assert.equal(body.provider, provider.id)
+    assert.equal(body.context_limit, 128000)
+    assert.equal(store.getState().contextLimit, 128000)
+    await act(async () => savedFeedbackTimers.splice(0).forEach(callback => callback()))
+    await act(async () => root.render(React.createElement(SettingsPage, { key: `${provider.id}-reload` })))
+    assert.equal(document.querySelector('input[aria-label="上下文窗口"]').value, '128K')
+  }
+})
+
+test('the context popup immediately uses the configured limit when a conversation has an old snapshot', async () => {
+  const snapshot = { context_limit: 1000000, estimated_total_tokens: 50000, categories: [] }
+  await act(async () => root.render(React.createElement(ContextPanel, { snapshot, contextLimit: 200000 })))
+  assert.equal(ariaButton('查看上下文').textContent, '25%')
+  await click(ariaButton('查看上下文'))
+  assert.match(document.querySelector('.context-panel__summary').textContent, /50K \/ 200K tokens/)
+  await act(async () => root.render(React.createElement(ContextPanel, { snapshot, contextLimit: 128000 })))
+  assert.match(document.querySelector('.context-panel__summary').textContent, /50K \/ 128K tokens/)
 })
 
 test('the extension switch defaults on, saves changes and preserves its state after a failed save', async () => {

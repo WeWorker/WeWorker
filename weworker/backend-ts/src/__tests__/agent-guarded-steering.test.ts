@@ -4,6 +4,7 @@ import path from 'node:path'
 import ts from 'typescript'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as sessions from '../chat-session.js'
+import { normalizeContextLimit } from '../context-window.js'
 
 const source = fs.readFileSync(new URL('../agent.ts', import.meta.url), 'utf8')
 function between(start: string, end: string) {
@@ -32,7 +33,7 @@ function fixture(mode: string, overrides: Record<string, unknown> = {}) {
   const bindings = { workIdRef: { current: workId }, onAskUser: vi.fn(), memory: {} }
   const opts = { reuseSession: true, workId, ...overrides }
   const context = vm.createContext({
-    ...sessions, AbortController, path, opts, channelPermissionMode: mode,
+    ...sessions, normalizeContextLimit, AbortController, path, opts, channelPermissionMode: mode,
     internal: { adoptModelRuntime: () => releaseRuntime },
     abortController: abort, workspaceDirectory: '/fixture/workspace',
     query, _buildMcpServer: buildMcp, turnBindings: bindings, activeBindings: bindings,

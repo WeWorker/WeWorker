@@ -38,7 +38,7 @@ import {
   upsertStyleDraft,
   validateStyleName,
 } from '../../utils/style-draft.js'
-import { CONTEXT_LIMIT_PRESETS, formatContextLimitInput, parseContextLimitInput } from '../../utils/context-window.js'
+import { CONTEXT_LIMIT_PRESETS, DEFAULT_BUILTIN_CONTEXT_LIMIT, formatContextLimitInput, parseContextLimitInput } from '../../utils/context-window.js'
 import { DEFAULT_WELCOME_FEATURED_SITE_LIMIT } from '../welcome/welcome-utils.js'
 import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
@@ -283,7 +283,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'model-discovery' && <ModelDiscoveryTab />}
             {tab === 'fast-routes' && <FastRoutesTab />}
             {personalizationMounted && <ConfigTab active={tab === 'config'} showStyle showOther={false} />}
-            {tab === 'memory' && <MemoryTab />}
+            {tab === 'memory' && <div className="settings-stack"><CompactionSettings /><MemoryTab /></div>}
             {tab === 'skills' && <SkillsTab />}
             {tab === 'logs' && <LogsTab />}
             {tab === 'about' && <AboutTab appVersion={appVersion} commitHash={commitHash} />}
@@ -297,6 +297,44 @@ export default function SettingsPage({ onClose }) {
       </div>
     </section>
   )
+}
+
+function CompactionSettings() {
+  const ratio = useSettingsStore(state => state.compactionRatio ?? 80)
+  const loaded = useSettingsStore(state => state.loaded)
+  const save = useSettingsStore(state => state.saveCompactionRatio)
+  const [draft, setDraft] = useState(String(ratio))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const pending = useRef(false)
+  useEffect(() => { setDraft(String(ratio)) }, [ratio])
+  const commit = async () => {
+    if (pending.current || !loaded) return
+    const next = Number(draft)
+    if (!Number.isInteger(next) || next < 1 || next > 99) {
+      setError('压缩比例请输入 1-99 之间的整数')
+      return
+    }
+    if (next === ratio) return
+    pending.current = true
+    setSaving(true)
+    setError('')
+    try { await save(next) }
+    catch (failure) { setError(failure.message || '保存失败') }
+    finally { pending.current = false; setSaving(false) }
+  }
+  return <div className="settings-group">
+    <SettingRow title="上下文压缩比例">
+      <div className="settings-pill">
+        <input type="number" className="settings-pill-input" min="1" max="99" step="1"
+          aria-label="上下文压缩比例" value={draft} disabled={!loaded || saving}
+          onChange={event => { setDraft(event.target.value); setError('') }}
+          onBlur={() => { void commit() }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
+        <span>%</span>
+      </div>
+    </SettingRow>
+    {error && <div className="settings-background-section__error" role="alert">{error}</div>}
+  </div>
 }
 
 function WebcliRouteTab() {
@@ -1686,7 +1724,7 @@ function ModelTab() {
       model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.model || p?.defaultModel || '',
       custom_models,
       openai_model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.openai_model ?? (stored.model || p?.defaultModel || ''),
-      context_limit: formatContextLimitInput(stored.context_limit),
+      context_limit: formatContextLimitInput(stored.context_limit ?? (isBuiltinProvider(pid) ? DEFAULT_BUILTIN_CONTEXT_LIMIT : undefined)),
       base_url: stored.base_url || '',
       base_url_is_full: stored.base_url_is_full === true,
       openai_base_url: stored.openai_base_url || '',
@@ -1817,13 +1855,13 @@ function ModelTab() {
       return
     }
     const contextLimit = parseContextLimitInput(f.context_limit)
-    if (!isBuiltinProvider(pid) && contextLimit === null) {
+    if (contextLimit === null) {
       reportContextLimitError()
       setSaving(null)
       return
     }
     clearContextLimitError()
-    const updates = isBuiltinProvider(pid) ? { name } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
+    const updates = isBuiltinProvider(pid) ? { name, context_limit: contextLimit } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
     if (f.api_key) updates.api_key = f.api_key
     if (f.openai_api_key) updates.openai_api_key = f.openai_api_key
     if (providerType(pid) === 'custom') {
@@ -2249,6 +2287,20 @@ function ModelTab() {
               </Field>
             </div>
           )
+          const contextLimitField = (
+            <Field label="上下文窗口" hint="用于上下文占用和自动压缩，单位支持 K 或 M">
+              <AppDropdownInput
+                className="settings-input"
+                ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
+                value={f.context_limit}
+                onChange={(e) => changeContextLimit(p.id, e.target.value)}
+                onBlur={(e) => finishContextLimit(p.id, e.target.value)}
+                aria-invalid={parseContextLimitInput(f.context_limit) === null}
+                placeholder="例如 200K 或 1M"
+                inputMode="text"
+              />
+            </Field>
+          )
           const catalogAddressFields = (openai = false) => {
             const field = openai ? 'openai_models_url' : 'models_url'
             const mode = openai ? 'openai_models_url_is_full' : 'models_url_is_full'
@@ -2299,6 +2351,7 @@ function ModelTab() {
                 <div className="settings-card-body">
                   {actionFeedback}
                   {identityFields}
+                  <div className="model-settings-grid">{contextLimitField}</div>
                   {renderProbeChecklist(p.id)}
                 </div>
               </div>
@@ -2358,19 +2411,7 @@ function ModelTab() {
                     </div>
                   </Field>
 
-                  <Field label="上下文窗口" hint="用于估算上下文占用率，单位仅支持 K 或 M">
-                    <AppDropdownInput
-                      className="settings-input"
-                      ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
-                      value={f.context_limit}
-                      onChange={(e) => changeContextLimit(p.id, e.target.value)}
-                      onBlur={(e) => finishContextLimit(p.id, e.target.value)}
-                      aria-invalid={parseContextLimitInput(f.context_limit) === null}
-                      placeholder="例如 200K 或 1M"
-                      inputMode="text"
-                    />
-
-                  </Field>
+                  {contextLimitField}
                   </div>}
 
                   {templateId === 'custom' && (
@@ -2454,10 +2495,7 @@ function ModelTab() {
                         </div>
                       </Field>
                       {catalogAddressFields()}
-                      <Field label="上下文窗口" hint="用于估算上下文占用率，单位仅支持 K 或 M">
-                        <AppDropdownInput className="settings-input" ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))} value={f.context_limit} onChange={(e) => changeContextLimit(p.id, e.target.value)} onBlur={(e) => finishContextLimit(p.id, e.target.value)} aria-invalid={parseContextLimitInput(f.context_limit) === null} placeholder="例如 200K 或 1M" inputMode="text" />
-
-                      </Field>
+                      {contextLimitField}
                       </div>
                     </section>
                   )}

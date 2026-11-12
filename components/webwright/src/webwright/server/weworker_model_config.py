@@ -22,6 +22,8 @@ class ManagedModelConfig:
     api_key: str
     structured_output: str
     base_url_is_full: bool = False
+    context_limit: int = 1_000_000
+    compaction_ratio: int = 80
 
     @property
     def request_endpoint(self) -> str:
@@ -32,7 +34,12 @@ class ManagedModelConfig:
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "ManagedModelConfig":
-        values = {name: str(payload.get(name) or "").strip() for name in cls.__annotations__ if name != "base_url_is_full"}
+        values = {name: str(payload.get(name) or "").strip() for name in
+                  ("provider_id", "protocol", "model_class", "base_url", "model", "api_key", "structured_output")}
+        context_limit = payload.get("context_limit", 1_000_000)
+        ratio = payload.get("compaction_ratio", 80)
+        if type(context_limit) is not int or context_limit < 1000 or type(ratio) is not int or not 1 <= ratio <= 99:
+            raise ManagedModelConfigError("WeWorker returned invalid compaction settings.")
         full_url = payload.get("base_url_is_full", False)
         if not isinstance(full_url, bool):
             raise ManagedModelConfigError("WeWorker returned an invalid full URL option.")
@@ -54,7 +61,7 @@ class ManagedModelConfig:
         parsed = urlparse(values["base_url"])
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password or (parsed.query and not full_url) or parsed.fragment:
             raise ManagedModelConfigError("WeWorker returned an invalid model Base URL.")
-        return cls(**values, base_url_is_full=full_url)
+        return cls(**values, base_url_is_full=full_url, context_limit=context_limit, compaction_ratio=ratio)
 
 
 def load_managed_model_config(
