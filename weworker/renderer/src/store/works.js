@@ -206,16 +206,23 @@ export const useWorksStore = create((set, get) => ({
   },
 
   /** Reload a work's messages without making it the active main chat. */
-  refreshWorkMessages: async (id) => {
-    if (!id || get().streamingWorkIds.has(id)) return
+  refreshWorkMessages: async (id, { required = false } = {}) => {
     try {
+      if (!id || get().streamingWorkIds.has(id)) {
+        if (required) throw new Error('当前回复尚未结束，排队消息已保留')
+        return
+      }
       const res = await backendFetch(`${API}/works/${id}`)
-      if (!res.ok) return
+      if (!res.ok) throw new Error('无法加载中断处的对话，排队消息已保留')
       const data = await res.json()
-      if (get().streamingWorkIds.has(id)) return
+      if (get().streamingWorkIds.has(id)) {
+        if (required) throw new Error('当前回复尚未结束，排队消息已保留')
+        return
+      }
       set((s) => ({ messages: { ...s.messages, [id]: data.messages } }))
     } catch (e) {
       console.error('[works] refreshWorkMessages failed:', e)
+      if (required) throw e
     }
   },
 

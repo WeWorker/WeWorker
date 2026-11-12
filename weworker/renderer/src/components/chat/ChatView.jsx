@@ -11,7 +11,7 @@ import MessageQueue from './MessageQueue.jsx'
 import { EMPTY_MESSAGE_QUEUE, getMessageQueue, useMessageQueueStore } from '../../store/message-queue.js'
 import WelcomeScreen from '../welcome/WelcomeScreen.jsx'
 import HealthCheckPanel from './HealthCheckPanel.jsx'
-import { requestChatWarmup, setContextCompactionLifecycleHandler, steerChat, stopChat, streamChat, submitUserChoice } from '../../api/backend.js'
+import { requestChatWarmup, setContextCompactionLifecycleHandler, stopChat, streamChat, submitUserChoice } from '../../api/backend.js'
 import { backendFetch } from '../../api/http.js'
 import { displayToolName } from '../../utils/tool-name.js'
 import { formatDuration } from '../../utils/format-duration.js'
@@ -454,16 +454,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     isBlocked: () => useWorksStore.getState().streamingWorkIds.has(workId) || useWorksStore.getState().contextCompactionStatuses[workId] === 'compacting',
     isExternalRunning: () => Boolean(useWorksStore.getState().backgroundChatRuns[workId]),
     send: item => item.command ? handleShellCommand(item.command, item.text) : sendTurn(item.text, item.files, item.thinkingEffort, item.permissionMode, item.scenarioHint),
-    steer: async item => {
-      if (useWorksStore.getState().backgroundChatRuns[workId]) throw new Error('后台对话正在执行，补充消息已保留在队列中，请等待任务完成')
-      if (item.command) throw new Error('命令行消息只能排队执行，请等待当前回复完成')
-      await steerChat(workId, item)
-      // Only SSE has a total order with text/tool events. A faster POST response
-      // must not split the reply before earlier buffered deltas have arrived.
-      if (!useWorksStore.getState().streamingWorkIds.has(workId)) {
-        await useWorksStore.getState().refreshWorkMessages(workId)
-      }
-    },
+    afterStop: () => useWorksStore.getState().refreshWorkMessages(workId, { required: true }),
     stop: async () => {
       const controller = useWorksStore.getState().abortControllers[workId]
       if (useWorksStore.getState().backgroundChatRuns[workId]) {
