@@ -148,5 +148,25 @@ describe('webcli-result-cache', () => {
       const gone = path.join(TMP, 'tool-results', 'work-r3', 'gone.json')
       expect(rehydratePointer(JSON.stringify({ type: 'large_output', file: gone }), TMP)).toBeNull()
     })
+
+    it('落盘内容是半截 JSON（stdout 被截断）→ null，绝不还原成 _rawText', () => {
+      const dir = path.join(TMP, 'tool-results', 'work-r4')
+      fs.mkdirSync(dir, { recursive: true })
+      const filePath = path.join(dir, 't.tool-truncated.json')
+      // macOS/Linux 上「写完 stdout 就退出」会把大 JSON 截在半截；这种残片必须判成不可用。
+      fs.writeFileSync(filePath, '{\n  "availabilityNotice": "",\n  "count": 9,\n  "rooms": [{"id": "16', 'utf8')
+      const restored = rehydratePointer(JSON.stringify({ type: 'large_output', file: filePath }), TMP)
+      expect(restored).toBeNull()
+    })
+
+    it('落盘内容带 UTF-8 BOM → 照样解析（不因 BOM 判成不可用）', () => {
+      const dir = path.join(TMP, 'tool-results', 'work-r5')
+      fs.mkdirSync(dir, { recursive: true })
+      const filePath = path.join(dir, 't.tool-bom.json')
+      fs.writeFileSync(filePath, `\uFEFF${largeJson()}`, 'utf8')
+      const restored = rehydratePointer(JSON.stringify({ type: 'large_output', file: filePath }), TMP)
+      expect(restored).not.toBeNull()
+      expect(JSON.parse(restored!)).toEqual(JSON.parse(largeJson()))
+    })
   })
 })

@@ -106,10 +106,23 @@ function unwrapEnvelope(value: unknown): unknown {
   return current
 }
 
+/**
+ * `{ _rawText: "..." }` 是「落盘内容读不出 JSON」的兜底形状（见
+ * `webcli-result-cache.readCacheResult`）。它没有任何可展示字段：按 KV 渲染出来就是一行
+ * `- **_rawText**: {…` 被 80 字截断的乱码。这类内容一律不渲染（正文为空），让调用方按
+ * 「没答出来」落回模型，而不是把半份 JSON 当答案发给用户。
+ */
+function isRawTextEnvelope(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = Object.keys(value as Record<string, unknown>)
+  return keys.length === 1 && keys[0] === '_rawText'
+}
+
 function toMarkdownBody(obj: unknown): string {
   // 先剥信封：`{result:{items:[]}}` / `{data:{items:[]}}` 这类包装若直接按 KV 渲染，
   // 用户看到的是一坨 JSON，而不是「没有数据」这句人话。
   const target = unwrapEnvelope(obj)
+  if (isRawTextEnvelope(target)) return ''
   const main = detectMainArray(target)
   if (main?.array.length && main.array.some((item) => item && typeof item === 'object')) {
     return renderTable(main.array)
@@ -147,6 +160,8 @@ export function renderGeneric(
   deps: GenericRenderDeps = {},
 ): string {
   const body = renderGenericBody(raw, schemaRef, deps)
+  // 没有任何可展示内容时不要只留一个标题：空正文就是「没答出来」，交给调用方落回模型。
+  if (!body) return ''
   // schema 渲染出的正文自带同级标题（通常是同一个词的节标题），别再叠一层。
   if (!title || hasTitleHeading(body, title)) return body
   return `### ${title}\n\n${body}`

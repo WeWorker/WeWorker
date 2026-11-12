@@ -35,6 +35,7 @@ import { resolveRegistry as resolveRegistryShim } from "./version-check.js";
 import { cliName, cliLabel } from "./cli-name.js";
 
 import { formatCallOutput, resolveOutputFormat } from "./output-format.js";
+import { writeStdoutThenExit } from "./stdout-flush.js";
 import { readBrowserMode } from "./dedicated-browser.js";
 import { bridgeUrl, resolveBridgeInstance } from "./bridge-instance.js";
 
@@ -1178,11 +1179,22 @@ async function cmdCall(toolName, argsStr, options = {}) {
   };
   let requestSent = false;
   let responseReceived = false;
+  // 结果一律先写完 stdout 再退出：管道上的 stdout 写是异步的，写完就 `process.exit()` 会把
+  // 超过管道缓冲区的大结果截成半截 JSON（macOS/Linux 上必现，Windows 因为同步写看不出问题）。
+  // 详见 stdout-flush.js。它同时充当「只退出一次」的闸门：退出被推迟之后，后续的 ws 事件
+  // 不许再打印第二份结果。
+  let exiting = false;
+  const exitWith = (text, code) => {
+    if (exiting) return true;
+    exiting = true;
+    clearTimeout(timeout);
+    void writeStdoutThenExit(text, code);
+    return true;
+  };
   const onTimeout = () => {
     if (finish({ raw: interruptedCallResult(v2Match?.command, requestSent, true), exitCode: 1, dispatched: requestSent })) return;
-    console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent, true), outputFormat));
     ws.terminate();
-    process.exit(1);
+    exitWith(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent, true), outputFormat), 1);
   };
   let timeout = setTimeout(onTimeout, callTimeoutMs);
 
@@ -1209,8 +1221,9 @@ async function cmdCall(toolName, argsStr, options = {}) {
       } catch {
         const raw = { error: 'Invalid Bridge response.', code: 'INVALID_BRIDGE_RESPONSE' };
         if (finish({ raw, exitCode: 1, dispatched: requestSent })) return;
-        console.log(formatCallOutput(raw, outputFormat));
-        ws.terminate(); process.exit(1); return;
+        ws.terminate();
+        exitWith(formatCallOutput(raw, outputFormat), 1);
+        return;
       }
       // The Bridge runs the login flow for this site: report progress, and allow the login time.
       if (msg.type === "auth_event" && site && msg.site === site) {
@@ -1232,10 +1245,9 @@ async function cmdCall(toolName, argsStr, options = {}) {
         const output = isPlainObject
           ? { ...msg.result, trace_id: traceID }
           : { result: msg.result, trace_id: traceID };
-        console.log(formatCallOutput(output, outputFormat, { mapping: columnMapping }));
         await printVerboseTrace(traceID, verbose, options.profile);
         ws.close();
-        process.exit(0);
+        exitWith(formatCallOutput(output, outputFormat, { mapping: columnMapping }), 0);
       } else if (msg.type === "call_tool_error") {
         const argumentDetails = msg.code === 'HOST_CLI_INVALID_ARGUMENT' ? safeHostArgumentDetails(msg.details) : undefined;
         const output = {
@@ -1249,10 +1261,9 @@ async function cmdCall(toolName, argsStr, options = {}) {
             : `用 webcli trace ${traceID} 查看完整链路日志${dedicatedBrowserHint()}`,
         };
         if (finish({ raw: output, traceID, exitCode: 1, dispatched: true })) return;
-        console.log(formatCallOutput(output, outputFormat));
         await printVerboseTrace(traceID, verbose, options.profile);
         ws.close();
-        process.exit(1);
+        exitWith(formatCallOutput(output, outputFormat), 1);
       }
     });
   });
@@ -1261,15 +1272,13 @@ async function cmdCall(toolName, argsStr, options = {}) {
     if (responseReceived) return;
     clearTimeout(timeout);
     if (finish({ raw: interruptedCallResult(v2Match?.command, requestSent), exitCode: 1, dispatched: requestSent })) return;
-    console.log(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent), outputFormat));
-    process.exit(1);
+    exitWith(formatCallOutput(interruptedCallResult(v2Match?.command, requestSent), outputFormat), 1);
   });
   ws.on("close", () => {
     if (!requestSent || responseReceived) return;
     clearTimeout(timeout);
     if (finish({ raw: interruptedCallResult(v2Match?.command, true), exitCode: 1, dispatched: true })) return;
-    console.log(formatCallOutput(interruptedCallResult(v2Match?.command, true), outputFormat));
-    process.exit(1);
+    exitWith(formatCallOutput(interruptedCallResult(v2Match?.command, true), outputFormat), 1);
   });
   return completion;
 }

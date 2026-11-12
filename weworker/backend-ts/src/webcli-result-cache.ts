@@ -163,11 +163,16 @@ export function saveLargeResult(
   return { filePath: file, savedAt: now, bytes: Buffer.byteLength(output, 'utf8'), obj }
 }
 
+/** 读文件/解析统一去 BOM：Windows 记事本与部分工具链会带 U+FEFF，`JSON.parse` 会因此拒收整份内容。 */
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+}
+
 /** 读取并解析缓存文件为对象（调用方负责路径校验）。 */
 export function readCacheResult(filePath: string): unknown {
   const text = fs.readFileSync(filePath, 'utf8')
   try {
-    return JSON.parse(text)
+    return JSON.parse(stripBom(text))
   } catch {
     return { _rawText: text }
   }
@@ -181,7 +186,11 @@ export function readCacheResult(filePath: string): unknown {
  * 用本函数把内容取回来自己渲染。
  *
  * 任一条不成立即返回 null，调用方退回指针文案（行为与不做回读完全一致）：
- * 不是指针 / 路径越出缓存根 / 文件不存在或已过期 TTL / 内容读不出来。
+ * 不是指针 / 路径越出缓存根 / 文件不存在或已过期 TTL / 内容读不出来 / 内容不是合法 JSON。
+ *
+ * 最后一条是硬要求：落盘文件可能是**半截 JSON**（子进程 stdout 被截断、写到一半崩掉），
+ * 把半截内容交给渲染层，用户看到的就是一行被 `_rawText` 包起来的乱码。这里宁可判成
+ * 「这份缓存不可用」让整轮落回模型，也不要拿残片当答案。
  */
 export function rehydratePointer(pointerText: string, rootDir?: string): string | null {
   let record: any
@@ -193,12 +202,19 @@ export function rehydratePointer(pointerText: string, rootDir?: string): string 
   if (!record || typeof record !== 'object' || record.type !== 'large_output') return null
   const file = typeof record.file === 'string' ? record.file : ''
   if (!file) return null
+  let text: string
   try {
     assertInsideRoot(file, resolveRoot(rootDir))
     if (!isCacheFresh(file)) return null
-    return JSON.stringify(readCacheResult(file))
+    text = stripBom(fs.readFileSync(file, 'utf8'))
   } catch (e) {
     log.warn(`rehydrate skipped: ${e instanceof Error ? e.message : String(e)}`)
+    return null
+  }
+  try {
+    return JSON.stringify(JSON.parse(text))
+  } catch {
+    log.warn(`rehydrate skipped: cached result is not valid JSON (${text.length} chars)`)
     return null
   }
 }
