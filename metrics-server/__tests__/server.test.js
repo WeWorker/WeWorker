@@ -7,7 +7,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb, insertBatch, queryStats, queryVisits, insertVisit, pickWhitelist, validRecord, resolveWindow, noiseExcludeClause, NOISE_FIRST_SEGMENTS } from "../db.js";
 import { checkAuth, dayParam, handle } from "../handler.js";
-import { isNoiseTool, NOISE_FIRST_SEGMENTS as FRONT_NOISE } from "../../officialWeb/src/lib/stats.js";
+// officialWeb 前端源码的漂移守卫改在用例内动态 import(见文件末尾):静态 import 会让
+// 本文件依赖 monorepo 布局,独立部署包(仅 metrics-server 源码)里 node --test 文件级爆红。
 
 function freshDb() {
   return openDb(":memory:");
@@ -527,20 +528,28 @@ test("queryStats by=active:kind+from/to 组合占位符钉死", () => {
   assert.equal(mau, 1);
 });
 
-test("officialWeb isNoiseTool 与 server NOISE_FIRST_SEGMENTS 无漂移", () => {
+test("officialWeb 噪音名单漂移守卫(双向)", async (t) => {
+  // 动态 import + 缺源即跳过:仓库内(monorepo)照常双向断言;独立部署包里
+  // officialWeb 源码不存在,skip 而非文件级失败。
+  let front;
+  try {
+    front = await import("../../officialWeb/src/lib/stats.js");
+  } catch {
+    t.skip("officialWeb 源码不在(独立部署包),跳过漂移守卫");
+    return;
+  }
+  const { isNoiseTool, NOISE_FIRST_SEGMENTS: FRONT_NOISE } = front;
+  // 正向:server 每个名单项都被前端 isNoiseTool 排除(无点 / 首段两种形态),
+  // 防 server 多、前端漏——这正是 PR #326 内联串与 Set 漂移('wecli')发生过的事故形态。
   for (const s of NOISE_FIRST_SEGMENTS) {
     assert.equal(isNoiseTool(s), true, `名单项 ${s}(无点)应被 isNoiseTool 排除`);
     assert.equal(isNoiseTool(`${s}.x`), true, `名单项 ${s}(首段)应被 isNoiseTool 排除`);
   }
-  // 反向:非名单相似名不应误判
+  // 反向探针:非名单相似名不应误判
   assert.equal(isNoiseTool("skillx.foo.bar"), false);
   assert.equal(isNoiseTool("mail.163.com.get"), false);
   assert.equal(isNoiseTool("tickets.example.com.search_tickets"), false);
-});
-
-test("officialWeb NOISE_FIRST_SEGMENTS 与 server 名单双向一致", () => {
-  // 正向(上测)防 server 多、前端漏;本测防前端多、server 漏——前端私自加名会
-  // 静默隐藏合法调用,双向 deepEqual 把两侧名单钉成一体。
+  // 反向集合一致:防前端多、server 漏——前端私自加名会静默隐藏合法调用。
   assert.deepEqual([...NOISE_FIRST_SEGMENTS].sort(), [...FRONT_NOISE].sort());
 });
 
