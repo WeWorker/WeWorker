@@ -88,6 +88,7 @@ describe('Webwright managed model config', () => {
       structured_output: 'openai_json_object',
       context_limit: 1_000_000,
       compaction_ratio: 80,
+      compaction_max_attempts: 3,
     })
   })
 
@@ -166,6 +167,7 @@ describe('Webwright managed model config', () => {
       structured_output: 'openai_json_object',
       context_limit: 1_000_000,
       compaction_ratio: 80,
+      compaction_max_attempts: 3,
     })
   })
 

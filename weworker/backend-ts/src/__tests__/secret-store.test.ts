@@ -16,6 +16,7 @@ const baseSettings = (): Settings => ({
   model: 'claude-sonnet-4-6',
   context_limit: 1_000_000,
   compaction_ratio: 80,
+  compaction_max_attempts: 3,
   api_key_anthropic: 'anthropic-key',
   model_anthropic: 'claude-sonnet-4-6',
   context_limit_anthropic: 1_000_000,

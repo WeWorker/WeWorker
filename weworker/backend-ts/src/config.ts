@@ -3,7 +3,7 @@ import { migrateChannelConfigurations, type ChannelConfigurations, type ChannelT
 import { normalizeBuiltinContextLimits, resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
 import { PROVIDERS } from './provider-registry.js'
 import fs from 'node:fs'
-import { normalizeCompactionRatio } from './context/conversation-compaction.js'
+import { normalizeCompactionRatio, normalizeCompactionMaxAttempts } from './context/conversation-compaction.js'
 
 import path from 'node:path'
 
@@ -263,6 +263,7 @@ export interface Settings {
   context_limit: number
   builtin_context_limits?: Record<string, number>
   compaction_ratio: number
+  compaction_max_attempts: number
 
   // Per-provider stored configs
 
@@ -415,6 +416,7 @@ const DEFAULTS: Settings = {
   context_limit: DEFAULT_CONTEXT_LIMIT,
   builtin_context_limits: {},
   compaction_ratio: 80,
+  compaction_max_attempts: 3,
 
   api_key_anthropic: '',
 
@@ -656,6 +658,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
   merged.webcli_route_enabled = merged.webcli_route_enabled === true
   merged.model_discovery_enabled = merged.model_discovery_enabled !== false
   merged.compaction_ratio = normalizeCompactionRatio(merged.compaction_ratio)
+  merged.compaction_max_attempts = normalizeCompactionMaxAttempts(merged.compaction_max_attempts)
 
   merged.user_directory_blacklist = normalizeUserDirectoryBlacklist(merged.user_directory_blacklist)
   merged.open_browser_allowed_origins = normalizeOpenBrowserAllowedOrigins(merged.open_browser_allowed_origins)
@@ -852,6 +855,7 @@ export function updateSettings(updates: Partial<Settings>): Settings {
   _settings.webcli_route_enabled = _settings.webcli_route_enabled === true
   _settings.model_discovery_enabled = _settings.model_discovery_enabled !== false
   _settings.compaction_ratio = normalizeCompactionRatio(_settings.compaction_ratio)
+  _settings.compaction_max_attempts = normalizeCompactionMaxAttempts(_settings.compaction_max_attempts)
   _settings.context_limit = normalizeContextLimit(_settings.context_limit)
   _settings.builtin_context_limits = normalizeBuiltinContextLimits(_settings.builtin_context_limits)
   _settings.context_limit_anthropic = normalizeContextLimit(_settings.context_limit_anthropic)

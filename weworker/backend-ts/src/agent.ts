@@ -34,6 +34,7 @@ import {
   fingerprintSkillFiles,
   PromptQueue,
   disposeChatSession,
+  disposeIdleChatSession,
   findReusableChatSession,
   hasChatSession,
   hasSpareChatSession,
@@ -75,6 +76,7 @@ import {
   selectCompactionSource,
 } from './context/conversation-compaction.js'
 import type { ConversationCompactionSnapshot } from './context/context-types.js'
+import { streamWithConversationRecovery, type ConversationRecoveryRequest } from './context/conversation-recovery.js'
 import type { MemoryScope } from './memory/memory-types.js'
 import type { MemoryUpdateCandidate } from './memory/memory-types.js'
 import { automaticMemoryEnabled } from './memory/automatic-memory.js'
@@ -97,7 +99,7 @@ const log = createLogger('agent')
 const compactedConversationByWork = new Map<string, {
   sourceMessageCount: number
   sourceHash: string
-  prompt: string
+  messages: Message[]
 }>()
 
 function conversationHash(messages: Message[]): string {
@@ -278,6 +280,8 @@ export interface SSEEvent {
   options?: Array<{ label: string; description?: string }>
   usage?: UsageEvent
   context?: ContextSnapshot
+  /** Automatic threshold compaction and overflow recovery are owned by the Backend. */
+  contextRecoveryManaged?: boolean
   status?: 'running' | 'done' | 'processing' | 'saved' | 'ignored' | 'duplicate' | 'failed' | 'not_applicable'
   workId?: string
   eventId?: string
@@ -285,8 +289,9 @@ export interface SSEEvent {
   candidate?: MemoryUpdateCandidate
   memoryParse?: MemoryParseSummary
   compaction?: Partial<ConversationCompactionSnapshot> & {
+    strategy?: 'summary' | 'drop_oldest'
     status?: 'started' | 'completed' | 'skipped' | 'failed'
-    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed' | 'summary_input_too_large'
+    reason?: 'no_droppable_history' | 'summary_unavailable' | 'summary_failed' | 'summary_input_too_large' | 'no_reduction'
     error?: string
   }
 }
@@ -694,6 +699,7 @@ async function summarizeConversationOnly(input: {
         input.purpose === 'task_notification'
           ? '不要执行任务或调用工具，不要输出标题、解释或元数据，只输出结论正文。'
           : '不要回答用户问题，不要输出标题、解释或元数据，只输出摘要正文。',
+        renderPrompt('context-window', { context_limit_tokens: String(normalizeContextLimit(input.settings.context_limit)) }),
       ].join('\n'),
       tools: [],
       settingSources: [],
@@ -1176,6 +1182,27 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
       ...('reason' in routingContext.webcli ? { reason: routingContext.webcli.reason } : {}) })
     if (args[2]?.signal.aborted || routingContext.webcli.status === 'cancelled') return
   }
+  const workId = opts?.workId
+  if (!workId || opts?.warmupOnly || opts?.notificationSummaryOnly) {
+    yield* streamChatWithModelRuntime(args, routingContext)
+    return
+  }
+  yield* streamWithConversationRecovery({
+    workId,
+    maxAttempts: args[1].compaction_max_attempts,
+    compactionOnly: opts?.compactionOnly,
+    signal: args[2]?.signal,
+    run: request => streamChatWithModelRuntime(args, routingContext, request),
+    onCompacted: () => disposeIdleChatSession(workId, 'automatic_compaction'),
+  })
+}
+
+async function* streamChatWithModelRuntime(
+  args: Parameters<typeof streamChatWithBaseUrl>,
+  routingContext?: AgentRoutingContext,
+  recovery: ConversationRecoveryRequest = {},
+): AsyncGenerator<SSEEvent> {
+  if (args[2]?.signal.aborted) return
   let runtime: Awaited<ReturnType<typeof prepareModelRuntime>>
   try {
     runtime = await prepareModelRuntime(args[1])
@@ -1188,6 +1215,9 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
   let adopted = false
   const internal: StreamChatInternalOptions = {
     routingContext,
+    response: recovery.response,
+    resume: recovery.resume,
+    dropOldestHistory: recovery.dropOldestHistory,
     sessionBaseUrl: args[1].base_url,
     adoptModelRuntime: () => {
       adopted = true
@@ -1195,7 +1225,12 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
     },
   }
   try {
-    yield* streamChatWithBaseUrl(args[0], runtime.settings, args[2], { ...args[3], [STREAM_CHAT_INTERNAL]: internal })
+    yield* streamChatWithBaseUrl(args[0], runtime.settings, args[2], {
+      ...args[3],
+      ...(recovery.compactionOnly ? { compactionOnly: true, forceCompaction: true } : {}),
+      ...(recovery.resume ? { forceCompaction: false } : {}),
+      [STREAM_CHAT_INTERNAL]: internal,
+    })
   } finally {
     if (!adopted) await runtime.close()
   }
@@ -1204,6 +1239,9 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
 const STREAM_CHAT_INTERNAL = Symbol('streamChatInternal')
 interface StreamChatInternalOptions {
   routingContext?: AgentRoutingContext
+  response?: Message
+  resume?: boolean
+  dropOldestHistory?: boolean
   /** Configured base URL before any per-turn relay rewrite; part of the session fingerprint. */
   sessionBaseUrl: string
   /** Transfer the per-turn model runtime to a new persistent session. */
@@ -1530,15 +1568,9 @@ async function* streamChatWithBaseUrl(
   const skillContextPrefix = [siteToolkitPrompt, loadedSkills].filter(Boolean).join('\n\n')
   const storedCompactedConversation = getStoredCompactedConversation(opts.workId, messages)
   const conversationMessages: Message[] = storedCompactedConversation
-    ? [{
-        ...messages[0],
-        role: 'assistant',
-        content: [{ type: 'text', text: storedCompactedConversation.prompt }],
-      }, ...messages.slice(storedCompactedConversation.sourceMessageCount)]
+    ? [...storedCompactedConversation.messages, ...messages.slice(storedCompactedConversation.sourceMessageCount)]
     : messages
-  const promptRaw = storedCompactedConversation && conversationMessages.length === 1
-    ? storedCompactedConversation.prompt
-    : buildPromptString(conversationMessages)
+  const promptRaw = buildPromptString(conversationMessages)
   const prompt = promptRaw
   const memoryQuery = messages.length > 0
     ? messagePromptText(messages[messages.length - 1]).slice(0, 2_000)
@@ -1570,9 +1602,11 @@ async function* streamChatWithBaseUrl(
     memoryProtocol,
     browserInstance: bridgeStatus.getExtensionInstance(),
   })
-  const systemPrompt = opts.appendSystemPrompt?.trim()
-    ? `${baseSystemPrompt}\n\n${opts.appendSystemPrompt.trim()}`
-    : baseSystemPrompt
+  const systemPrompt = [
+    baseSystemPrompt,
+    opts.appendSystemPrompt?.trim(),
+    renderPrompt('context-window', { context_limit_tokens: String(normalizeContextLimit(settings.context_limit)) }),
+  ].filter(Boolean).join('\n\n')
   phase.mark('system_prompt_build')
   const nativeCommandTool = process.platform === 'win32' ? 'PowerShell' : 'Bash'
   const skillIndex = channelPermissionMode === 'qa_only' || opts.restrictBuiltInTools
@@ -1581,7 +1615,11 @@ async function* streamChatWithBaseUrl(
   const buildAssembly = (conversationPrompt: string, compaction?: ConversationCompactionSnapshot) => buildContextAssembly({
     systemPrompt,
     identityPrompt,
-    prompt: withRoutingContext(conversationPrompt, internal?.routingContext),
+    prompt: withRoutingContext([
+      conversationPrompt,
+      internal?.response ? `[本轮已执行的内容]\nAssistant: ${messagePromptText(internal.response)}` : '',
+      internal?.resume ? '[继续执行]\n上下文超限后已压缩历史。保留原始目标，结合本轮已有输出继续未完成部分；不要重复已完成的操作。没有返回结果的操作应先核实实际状态。' : '',
+    ].filter(Boolean).join('\n\n'), internal?.routingContext),
     toolDefinitions: [
       `Claude Code 原生 ${nativeCommandTool}`,
       'Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Skill', 'TodoWrite',
@@ -1608,7 +1646,7 @@ async function* streamChatWithBaseUrl(
   let contextAssembly = fullContextAssembly
   let compactionEventEmitted = false
   let compactionCompleted = false
-  const needsCompaction = (compactionPlan.shouldCompact || !!opts.forceCompaction) && conversationMessages.length > 1
+  const needsCompaction = ((compactionPlan.shouldCompact && !internal?.resume) || !!opts.forceCompaction) && conversationMessages.length > 1
   phase.mark('context_assembly')
 
   if (needsCompaction) {
@@ -1616,96 +1654,130 @@ async function* streamChatWithBaseUrl(
     while (currentTurnStart > 0 && conversationMessages[currentTurnStart].role !== 'user') currentTurnStart -= 1
     const historyMessages = conversationMessages.slice(0, Math.max(0, currentTurnStart))
     const currentTurn = conversationMessages.slice(Math.max(0, currentTurnStart))
-    const historyText = historyMessages.map(message => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`).join('\n\n')
-    const summaryOutputTokens = Math.min(4096, Math.floor(settings.context_limit / 10))
-    const selection = selectCompactionSource({
-      history: historyText,
-      ratio: settings.compaction_ratio,
-      contextLimit: settings.context_limit,
-      reservedTokens: summaryOutputTokens + 1024,
-      estimateTokens: estimateContextTokens,
-    })
-    const compactionBase = {
-      mode: 'conversation_only' as const,
-      before_tokens: conversationTokens,
-      after_tokens: 0,
-      summarized_message_count: selection.source ? historyMessages.length : 0,
-      retained_message_count: currentTurn.length + (selection.retained ? 1 : 0),
-    }
-    if (selection.source.trim()) {
-      const summarySource = selection.source
-      compactionEventEmitted = true
-      markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
-      yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
-      try {
-        const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
-          conversation: summarySource,
-          maxOutputTokens: summaryOutputTokens,
-          settings,
-          abortController: summaryAbort,
-          onProgress: () => {
-            markCompactionProgress(opts.workId)
-            onProgress()
-          },
-          env: envWithWebcli,
-          claudeSetup,
-          spawnClaudeCodeProcess,
-        }))
-        if (summary) {
-          const recentConversation = [selection.retained, buildPromptString(currentTurn)].filter(Boolean).join('\n\n')
-          const compactedConversation = buildCompactedConversationPrompt({
-            summary: clampPromptText(summary, 16_000),
-            recentConversation,
-          })
-          const compactedPrompt = compactedConversation
-          const compaction = {
-            ...compactionBase,
-            after_tokens: estimateContextTokens(compactedPrompt),
-          }
-          if (compaction.after_tokens >= conversationTokens) {
-            throw new Error('摘要未缩减对话上下文，请重试压缩或新建对话')
-          }
-          contextAssembly = buildAssembly(compactedPrompt, compaction)
-          compactionCompleted = true
-          if (opts.workId) {
-            compactedConversationByWork.set(opts.workId, {
-              sourceMessageCount: messages.length,
-              sourceHash: conversationHash(messages),
-              prompt: compactedConversation,
-            })
-          }
-          compactionEventEmitted = true
-          yield { type: 'context_compaction_end', compaction: { ...compaction, status: 'completed' } }
-        } else {
-          compactionEventEmitted = true
-          yield { type: 'context_compaction_end', compaction: { ...compactionBase, status: 'failed', reason: 'summary_unavailable', error: '摘要器未返回内容' } }
+    if (internal?.dropOldestHistory) {
+      let remaining = [...historyMessages]
+      let trimmedAssembly = fullContextAssembly
+      while (remaining.length && trimmedAssembly.snapshot.estimated_total_tokens >= fullContextAssembly.snapshot.estimated_total_tokens) {
+        remaining = remaining.slice(1)
+        trimmedAssembly = buildAssembly(buildPromptString([...remaining, ...currentTurn]))
+      }
+      if (trimmedAssembly.snapshot.estimated_total_tokens < fullContextAssembly.snapshot.estimated_total_tokens) {
+        const compaction = {
+          mode: 'conversation_only' as const,
+          strategy: 'drop_oldest' as const,
+          before_tokens: conversationTokens,
+          after_tokens: trimmedAssembly.snapshot.categories.find(item => item.id === 'conversation')?.estimated_tokens ?? 0,
+          summarized_message_count: 0,
+          retained_message_count: remaining.length + currentTurn.length,
         }
-      } catch (error) {
-        if (abortController?.signal.aborted) throw error
+        yield { type: 'context_compaction_start', compaction: { ...compaction, status: 'started' } }
+        if (opts.workId) compactedConversationByWork.set(opts.workId, {
+          sourceMessageCount: messages.length, sourceHash: conversationHash(messages), messages: [...remaining, ...currentTurn],
+        })
+        contextAssembly = buildAssembly(buildPromptString([...remaining, ...currentTurn]), compaction)
+        compactionCompleted = true
+        compactionEventEmitted = true
+        yield { type: 'context_compaction_end', compaction: { ...compaction, status: 'completed' } }
+      }
+    } else {
+      const historyText = historyMessages.map(message => `${message.role === 'user' ? 'User' : 'Assistant'}: ${messagePromptText(message)}`).join('\n\n')
+      const summaryOutputTokens = Math.min(4096, Math.floor(settings.context_limit / 10))
+      const selection = selectCompactionSource({
+        history: historyText,
+        ratio: settings.compaction_ratio,
+        contextLimit: settings.context_limit,
+        reservedTokens: summaryOutputTokens + 1024,
+        estimateTokens: estimateContextTokens,
+      })
+      const compactionBase = {
+        mode: 'conversation_only' as const,
+        strategy: 'summary' as const,
+        before_tokens: conversationTokens,
+        after_tokens: 0,
+        summarized_message_count: selection.source ? historyMessages.length : 0,
+        retained_message_count: currentTurn.length + (selection.retained ? 1 : 0),
+      }
+      if (selection.source.trim()) {
+        const summarySource = selection.source
+        compactionEventEmitted = true
+        markCompactionStarted(opts.workId, compactionTimeouts('summary').totalMs)
+        yield { type: 'context_compaction_start', compaction: { ...compactionBase, status: 'started' } }
+        try {
+          const summary = await withCompactionWatchdog('summary', abortController, (summaryAbort, onProgress) => summarizeConversationOnly({
+            conversation: summarySource,
+            maxOutputTokens: summaryOutputTokens,
+            settings,
+            abortController: summaryAbort,
+            onProgress: () => {
+              markCompactionProgress(opts.workId)
+              onProgress()
+            },
+            env: envWithWebcli,
+            claudeSetup,
+            spawnClaudeCodeProcess,
+          }))
+          if (summary) {
+            const recentConversation = [selection.retained, buildPromptString(currentTurn)].filter(Boolean).join('\n\n')
+            const compactedConversation = buildCompactedConversationPrompt({
+              summary: clampPromptText(summary, 16_000),
+              recentConversation,
+            })
+            const compactedPrompt = compactedConversation
+            const compactedAssembly = buildAssembly(compactedPrompt)
+            const compaction = {
+              ...compactionBase,
+              after_tokens: compactedAssembly.snapshot.categories.find(item => item.id === 'conversation')?.estimated_tokens ?? 0,
+            }
+            if (compaction.after_tokens >= conversationTokens) {
+              yield { type: 'context_compaction_end', compaction: { ...compactionBase, status: 'failed', reason: 'no_reduction', error: '摘要未缩减对话上下文，原始上下文已保留' } }
+            } else {
+              contextAssembly = buildAssembly(compactedPrompt, compaction)
+              compactionCompleted = true
+              if (opts.workId) {
+                compactedConversationByWork.set(opts.workId, {
+                  sourceMessageCount: messages.length,
+                  sourceHash: conversationHash(messages),
+                  messages: [
+                    { ...messages[0], role: 'assistant', content: [{ type: 'text', text: `[历史对话摘要]\n${clampPromptText(summary, 16_000)}` }] },
+                    ...(selection.retained ? [{ ...messages[0], role: 'assistant', content: [{ type: 'text' as const, text: `[最近对话]\n${selection.retained}` }] }] : []),
+                    ...currentTurn,
+                  ],
+                })
+              }
+              compactionEventEmitted = true
+              yield { type: 'context_compaction_end', compaction: { ...compaction, status: 'completed' } }
+            }
+          } else {
+            compactionEventEmitted = true
+            yield { type: 'context_compaction_end', compaction: { ...compactionBase, status: 'failed', reason: 'summary_unavailable', error: '摘要器未返回内容' } }
+          }
+        } catch (error) {
+          if (abortController?.signal.aborted) throw error
+          compactionEventEmitted = true
+          yield {
+            type: 'context_compaction_end',
+            compaction: {
+              ...compactionBase,
+              status: 'failed',
+              reason: 'summary_failed',
+              error: error instanceof Error ? error.message : String(error),
+            },
+          }
+        } finally {
+          markCompactionFinished(opts.workId)
+        }
+      } else {
         compactionEventEmitted = true
         yield {
           type: 'context_compaction_end',
           compaction: {
             ...compactionBase,
-            status: 'failed',
-            reason: 'summary_failed',
-            error: error instanceof Error ? error.message : String(error),
+            after_tokens: conversationTokens,
+            status: historyText.trim() ? 'failed' : 'skipped',
+            reason: historyText.trim() ? 'summary_input_too_large' : 'no_droppable_history',
+            ...(historyText.trim() ? { error: '历史内容没有可在窗口内压缩的完整句子，原始上下文已保留' } : {}),
           },
         }
-      } finally {
-        markCompactionFinished(opts.workId)
-      }
-    } else {
-      compactionEventEmitted = true
-      yield {
-        type: 'context_compaction_end',
-        compaction: {
-          ...compactionBase,
-          after_tokens: conversationTokens,
-          status: historyText.trim() ? 'failed' : 'skipped',
-          reason: historyText.trim() ? 'summary_input_too_large' : 'no_droppable_history',
-          ...(historyText.trim() ? { error: '历史内容没有可在窗口内压缩的完整句子，原始上下文已保留' } : {}),
-        },
       }
     }
   }
@@ -1740,8 +1812,13 @@ async function* streamChatWithBaseUrl(
           settingSources,
         }))
         yield { type: 'usage', usage } as SSEEvent
+        if (usage.total_input_tokens > settings.context_limit) {
+          yield { type: 'error', content: `上下文超限：压缩后实际输入 ${usage.total_input_tokens} token，配置窗口为 ${settings.context_limit} token` }
+        }
       } catch (error) {
         log.error('post-compaction usage probe failed', error instanceof Error ? error.message : String(error))
+        if (abortController?.signal.aborted) throw error
+        yield { type: 'error', content: error instanceof Error ? error.message : String(error) }
       }
     }
     yield { type: 'done' }

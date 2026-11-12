@@ -176,6 +176,7 @@ class ProcessManager:
         overrides.extend([
             f"agent.context_limit={active.context_limit}",
             f"agent.compaction_ratio={active.compaction_ratio}",
+            f"agent.compaction_max_attempts={active.compaction_max_attempts}",
         ])
         if active.model_class == "anthropic":
             model_config_file = "model_claude.yaml"

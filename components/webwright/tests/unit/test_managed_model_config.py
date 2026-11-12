@@ -40,6 +40,7 @@ def test_old_snapshot_defaults_to_base_url_suffix() -> None:
     assert config.base_url_is_full is False
     assert config.request_endpoint == "https://example.test/v1/chat/completions"
     assert config.compaction_ratio == 80
+    assert config.compaction_max_attempts == 3
     assert config.context_limit == 1_000_000
 
 
@@ -47,6 +48,10 @@ def test_snapshot_passes_context_limit_and_compaction_ratio() -> None:
     config = ManagedModelConfig.from_payload({**payload(), "compaction_ratio": 65, "context_limit": 128000})
     assert config.compaction_ratio == 65
     assert config.context_limit == 128000
+    assert ManagedModelConfig.from_payload({**payload(), "compaction_max_attempts": 5}).compaction_max_attempts == 5
+    for invalid in [0, 11, True, "3", 1.5]:
+        with pytest.raises(ManagedModelConfigError):
+            ManagedModelConfig.from_payload({**payload(), "compaction_max_attempts": invalid})
     for invalid in [0, 100, True, "80", 80.5]:
         with pytest.raises(ManagedModelConfigError):
             ManagedModelConfig.from_payload({**payload(), "compaction_ratio": invalid})

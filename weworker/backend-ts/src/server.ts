@@ -447,6 +447,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     model: s.model,
     context_limit: s.context_limit,
     compaction_ratio: s.compaction_ratio ?? 80,
+    compaction_max_attempts: s.compaction_max_attempts ?? 3,
     has_api_key: !!s.api_key,
     providers: Object.fromEntries(Object.entries({
       ...publicBuiltinProviders(PROVIDERS, process.env, s.builtin_context_limits),
@@ -606,12 +607,29 @@ app.post('/settings/user-directory-blacklist', (req, res) => {
 })
 
 app.post('/settings/compaction', (req, res) => {
-  const ratio = req.body?.compaction_ratio
-  if (typeof ratio !== 'number' || !Number.isInteger(ratio) || ratio < 1 || ratio > 99) {
-    res.status(400).json({ detail: '压缩比例请输入 1-99 之间的整数' })
+  const body = req.body || {}
+  const patch: Partial<Settings> = {}
+  if ('compaction_ratio' in body) {
+    const ratio = body.compaction_ratio
+    if (typeof ratio !== 'number' || !Number.isInteger(ratio) || ratio < 1 || ratio > 99) {
+      res.status(400).json({ detail: '压缩比例请输入 1-99 之间的整数' })
+      return
+    }
+    patch.compaction_ratio = ratio
+  }
+  if ('compaction_max_attempts' in body) {
+    const attempts = body.compaction_max_attempts
+    if (typeof attempts !== 'number' || !Number.isInteger(attempts) || attempts < 1 || attempts > 10) {
+      res.status(400).json({ detail: '压缩尝试次数请输入 1-10 之间的整数' })
+      return
+    }
+    patch.compaction_max_attempts = attempts
+  }
+  if (!Object.keys(patch).length) {
+    res.status(400).json({ detail: '请提供压缩设置' })
     return
   }
-  res.json(buildSettingsResponse(updateSettings({ compaction_ratio: ratio })))
+  res.json(buildSettingsResponse(updateSettings(patch)))
 })
 
 app.post('/settings/extensions/webcli-route', (req, res) => {
@@ -3037,18 +3055,27 @@ async function streamConversationCompaction(
   })) {
     if (event.type === 'context_compaction_start' || event.type === 'context_compaction_end') {
       send(event)
-      if (event.type === 'context_compaction_end' && event.compaction?.status === 'completed') completed = true
+      if (event.type === 'context_compaction_end' && event.compaction?.status === 'completed') {
+        completed = true
+        skipped = false
+        failureReason = ''
+      }
       if (event.type === 'context_compaction_end' && event.compaction?.status === 'skipped') {
+        completed = false
         skipped = true
         skipReason = event.compaction.reason || 'no_droppable_history'
       }
       if (event.type === 'context_compaction_end' && event.compaction?.status === 'failed') {
+        completed = false
+        skipped = false
         failureReason = event.compaction.error || '摘要器未完成压缩'
       }
     }
     if (event.type === 'context_snapshot') send(event)
     if (event.type === 'usage') send(event)
     if (event.type === 'error') {
+      completed = false
+      skipped = false
       failureReason = event.content || '压缩请求返回错误'
       break
     }

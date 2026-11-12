@@ -43,6 +43,28 @@ afterEach(() => {
 })
 
 describe('chat compaction triggers', () => {
+  for (const terminal of ['high-usage', 'failed-recovery', 'skipped-recovery', 'second-overflow']) {
+    it(`does not repeat Backend-managed compaction or retries after ${terminal}`, async () => {
+      const events = []
+      let requests = 0
+      global.window = {}
+      global.fetch = async () => {
+        requests++
+        return createSseResponse([
+          { type: 'context_snapshot', contextRecoveryManaged: true,
+            context: { actual_input_tokens: 950, context_limit: 1000 } },
+          ...(terminal === 'high-usage' ? [] : [
+            { type: 'context_compaction_end', compaction: { status: terminal === 'skipped-recovery' ? 'skipped' : 'failed' } },
+            { type: 'error', content: 'Prompt is too long', contextRecoveryManaged: true },
+          ]),
+        ])
+      }
+      await streamChat('public-fixture-work', 'Continue', event => events.push(event), new AbortController().signal)
+      assert.equal(requests, 1)
+      assert.equal(events.some(event => event.type === 'error'), terminal !== 'high-usage')
+    })
+  }
+
   for (const ending of ['eof', 'transport-error', 'done', 'turn-end', 'cancel']) {
     it(`settles an unfinished compaction when the chat stream ends with ${ending}`, async () => {
       const controller = new AbortController()

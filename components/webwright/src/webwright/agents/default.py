@@ -48,6 +48,7 @@ class AgentConfig(BaseModel):
     summary_user_prompt: str = DEFAULT_SUMMARY_USER_PROMPT
     context_limit: int = Field(default=1_000_000, ge=1000)
     compaction_ratio: int = Field(default=80, ge=1, le=99)
+    compaction_max_attempts: int = Field(default=3, ge=1, le=10)
     # Strip the ARIA snapshot payload from observation messages older than the last N
     # to bound context growth in browser-driven modes. Any value <= 0 disables pruning
     # (default). Opt in per config (e.g. local_browser.yaml sets this to 1).
@@ -480,6 +481,24 @@ class DefaultAgent:
         self, messages: list[dict[str, Any]] | None = None
     ) -> list[dict[str, Any]]:
         model_messages = copy.deepcopy(self.messages if messages is None else messages)
+        notice = (
+            "## WeWorker context configuration\n"
+            f"Client-configured context window: {self.config.context_limit} tokens.\n"
+            "This is the client's reference capacity and automatic compaction baseline; "
+            "the actual available limit is determined by the provider. "
+            "Do not infer an actual limit from a model name, alias or SDK default. "
+            "Without an explicit provider limit, describe this value only as the configured window. "
+            "If the provider reports a different limit, distinguish it from the configured value. "
+            "Window capacity is not current usage, and cumulative billed tokens are not the context size "
+            "of one request. Do not invent current usage or remaining capacity without provider usage data. "
+            "Explain these facts only when asked or when a context limitation affects the task."
+        )
+        for message in model_messages:
+            if message.get("role") == "system":
+                content = message.get("content", "")
+                message["content"] = ([*content, {"type": "text", "text": notice}]
+                                      if isinstance(content, list) else f"{content}\n\n{notice}")
+                break
         for message in reversed(model_messages):
             if message.get("role") != "assistant":
                 continue
@@ -521,6 +540,30 @@ class DefaultAgent:
                 return model_messages
         return model_messages
 
+    def _history_boundary(self) -> int:
+        current_start = getattr(self, "_last_query_message_count", None)
+        if current_start is None:
+            current_start = next((index for index in range(len(self.messages) - 1, 0, -1)
+                                  if self.messages[index].get("role") == "assistant"), 1)
+        return current_start
+
+    def _drop_oldest_history(self) -> bool:
+        """Shrink only model-facing history; retain system instructions and the current action/observations."""
+        boundary = self._history_boundary()
+        before = request_tokens(self._messages_for_model())
+        remaining = list(self.messages)
+        while boundary > 0:
+            index = next((i for i, message in enumerate(remaining[:boundary]) if message.get("role") != "system"), None)
+            if index is None:
+                return False
+            remaining.pop(index)
+            boundary -= 1
+            if request_tokens(self._messages_for_model(remaining)) < before:
+                self.messages = remaining
+                self._last_query_message_count = boundary
+                return True
+        return False
+
     def _compact_history(self, *, required: bool = False) -> None:
         """Compact an older prefix, excluding the action and observations added since the last query."""
         if not self.messages:
@@ -528,10 +571,7 @@ class DefaultAgent:
         system_message = next((m for m in self.messages if m.get("role") == "system"), None)
         if system_message is None:
             return
-        current_start = getattr(self, "_last_query_message_count", None)
-        if current_start is None:
-            current_start = next((index for index in range(len(self.messages) - 1, 0, -1)
-                                  if self.messages[index].get("role") == "assistant"), 1)
+        current_start = self._history_boundary()
         history = [message for message in self.messages[:current_start] if message.get("role") != "system"]
         current_turn = self.messages[current_start:]
         output_tokens = min(4096, self.config.context_limit // 10)
@@ -545,7 +585,8 @@ class DefaultAgent:
             ),
             extra={"interrupt_type": "HistoryCompactionRequest"},
         )
-        reserved_tokens = request_tokens([system_message, summary_request]) + output_tokens + 256
+        summary_system = self._messages_for_model([system_message])[0]
+        reserved_tokens = request_tokens([summary_system, summary_request]) + output_tokens + 256
         source, retained = select_source(
             transcript(self._messages_for_model(history)), ratio=self.config.compaction_ratio,
             context_limit=self.config.context_limit, reserved_tokens=reserved_tokens,
@@ -554,7 +595,7 @@ class DefaultAgent:
             if not required:
                 return
             raise RuntimeExecutionError("历史内容没有可在窗口内压缩的完整句子。", error_code="compaction_input_too_large", stage="compaction")
-        summary_messages = [system_message, self.model.format_message(role="user", content=source), summary_request]
+        summary_messages = [summary_system, self.model.format_message(role="user", content=source), summary_request]
         model_config = getattr(self.model, "config", None)
         original_output_tokens = getattr(model_config, "max_output_tokens", None)
         try:
@@ -587,7 +628,7 @@ class DefaultAgent:
             compacted.append(self.model.format_message(role="user", content=retained))
         compacted.extend(current_turn)
         if request_tokens(compacted) >= request_tokens(self.messages):
-            raise RuntimeExecutionError("摘要未缩减历史，原始上下文已保留。", error_code="compaction_failed", stage="compaction")
+            raise RuntimeExecutionError("摘要未缩减历史，原始上下文已保留。", error_code="compaction_no_reduction", stage="compaction")
         self.messages = compacted
         self._last_query_message_count = len(compacted) - len(current_turn)
 
@@ -686,15 +727,39 @@ class DefaultAgent:
                     },
                 )
             )
-        if request_tokens(self._messages_for_model()) >= self.config.context_limit * 0.9:
-            self._compact_history(required=True)
-        try:
-            message = self.model.query(self._messages_for_model())
-        except Exception as exc:
-            if not is_context_overflow(exc):
-                raise
-            self._compact_history(required=True)
-            message = self.model.query(self._messages_for_model())
+        attempts = 0
+        shrink = request_tokens(self._messages_for_model()) >= self.config.context_limit * 0.9
+        drop_oldest = False
+        last_overflow = None
+        while True:
+            if shrink:
+                if attempts >= self.config.compaction_max_attempts:
+                    drop_oldest = True
+                if not drop_oldest:
+                    attempts += 1
+                    try:
+                        self._compact_history(required=True)
+                    except Exception as exc:
+                        if is_context_overflow(exc):
+                            last_overflow = exc
+                            continue
+                        if getattr(exc, "error_code", "") in {"compaction_no_reduction", "compaction_input_too_large"}:
+                            drop_oldest = True
+                        else:
+                            raise
+                if drop_oldest and not self._drop_oldest_history():
+                    raise RuntimeExecutionError(
+                        "无法继续缩减历史上下文，请缩小本轮输入或新建任务。",
+                        error_code="context_overflow", stage="compaction",
+                    ) from last_overflow
+            try:
+                message = self.model.query(self._messages_for_model())
+                break
+            except Exception as exc:
+                if not is_context_overflow(exc):
+                    raise
+                last_overflow = exc
+                shrink = True
         self._last_query_message_count = len(self.messages)
         self.n_calls += 1
         self.n_consecutive_format_errors = 0

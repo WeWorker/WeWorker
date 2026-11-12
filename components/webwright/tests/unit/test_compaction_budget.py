@@ -115,3 +115,135 @@ def test_provider_overflow_uses_last_successful_query_boundary_and_retries_once(
     assert model.queries == 2
     assert "OVERFLOW-OBSERVATION" not in transcript(model.requests[0])
     assert agent.messages[-2]["content"].startswith("OVERFLOW-OBSERVATION")
+
+
+class RepeatedOverflowModel(SummaryModel):
+    def __init__(self, reject_turns=3, reject_summaries=False):
+        super().__init__()
+        self.reject_turns = reject_turns
+        self.reject_summaries = reject_summaries
+        self.turn_requests = []
+
+    def query(self, messages):
+        if messages[-1].get("extra", {}).get("interrupt_type") == "HistoryCompactionRequest":
+            self.requests.append(copy.deepcopy(messages))
+            if self.reject_summaries:
+                raise RuntimeError("Prompt is too long")
+            return self.format_message(role="assistant", content="Earlier facts.")
+        self.turn_requests.append(copy.deepcopy(messages))
+        if len(self.turn_requests) <= self.reject_turns:
+            raise RuntimeError("Prompt is too long")
+        return self.format_message(role="assistant", content="Continue.")
+
+
+def test_repeated_compaction_succeeds_and_keeps_current_action_and_observation():
+    model = RepeatedOverflowModel(reject_turns=3)
+    agent = make_agent(model)
+    agent._last_query_message_count = 4
+    current = copy.deepcopy(agent.messages[-2:])
+    agent.query()
+    assert len(model.requests) == 3
+    assert len(model.turn_requests) == 4
+    for request in model.requests:
+        assert "CURRENT-ACTION" not in transcript(request)
+        assert "OVERFLOW-OBSERVATION" not in transcript(request)
+    assert agent.messages[-3:-1] == current
+    assert agent.n_calls == 1
+
+
+@pytest.mark.parametrize("attempts", [1, 3])
+def test_summary_cap_then_oldest_history_removal_until_accepted(attempts):
+    model = RepeatedOverflowModel(reject_turns=attempts + 2)
+    agent = make_agent(model, compaction_max_attempts=attempts)
+    agent._last_query_message_count = 4
+    current = copy.deepcopy(agent.messages[-2:])
+    agent.query()
+    assert len(model.requests) == attempts
+    assert agent.messages[1:-1] == current
+    sizes = [request_tokens(messages) for messages in model.turn_requests]
+    assert all(after < before for before, after in zip(sizes, sizes[1:]))
+    assert agent.n_calls == 1
+
+
+def test_summary_request_overflow_is_bounded_then_uses_oldest_history_fallback():
+    model = RepeatedOverflowModel(reject_turns=3, reject_summaries=True)
+    agent = make_agent(model, compaction_max_attempts=3)
+    agent._last_query_message_count = 4
+    current = copy.deepcopy(agent.messages[-2:])
+    agent.query()
+    assert len(model.requests) == 3
+    assert len(model.turn_requests) == 4
+    assert agent.messages[1:-1] == current
+
+
+def test_oversized_current_turn_stops_after_history_is_exhausted():
+    model = RepeatedOverflowModel(reject_turns=100)
+    agent = make_agent(model, compaction_max_attempts=1)
+    agent._last_query_message_count = 4
+    current = copy.deepcopy(agent.messages[-2:])
+    with pytest.raises(Exception, match="无法继续缩减历史上下文"):
+        agent.query()
+    assert len(model.requests) == 1
+    assert len(model.turn_requests) == 4
+    assert agent.messages[1:] == current
+    assert agent.n_calls == 0
+
+
+def test_generic_provider_errors_never_drop_history():
+    model = SummaryModel(RuntimeError("Network unavailable"))
+    agent = make_agent(model)
+    before = copy.deepcopy(agent.messages)
+    with pytest.raises(RuntimeError, match="Network unavailable"):
+        agent.query()
+    assert agent.messages == before
+    assert len(model.requests) == 1
+
+
+@pytest.mark.parametrize("context_limit", [200_000, 1_000_000, 1_500_000])
+def test_exploration_model_receives_configured_window_without_mutating_history(context_limit):
+    model = SummaryModel()
+    agent = make_agent(model, context_limit=context_limit)
+    before = copy.deepcopy(agent.messages)
+    first = agent._messages_for_model()
+    second = agent._messages_for_model()
+    notice = first[0]["content"]
+    assert f"Client-configured context window: {context_limit} tokens" in notice
+    assert "actual available limit is determined by the provider" in notice
+    assert "model name, alias or SDK default" in notice
+    assert "cumulative billed tokens" in notice
+    assert notice.count("Client-configured context window:") == 1
+    assert second == first
+    assert agent.messages == before
+
+
+def test_exploration_compaction_also_receives_the_configured_window():
+    model = SummaryModel()
+    agent = make_agent(model, context_limit=200_000)
+    agent._compact_history()
+    assert "Client-configured context window: 200000 tokens" in model.requests[0][0]["content"]
+    assert "actual available limit is determined by the provider" in model.requests[0][0]["content"]
+
+
+def test_exploration_window_notice_follows_configuration_changes_and_preserves_multipart_system():
+    agent = make_agent(SummaryModel(), context_limit=200_000)
+    agent.messages[0]["content"] = [{"type": "text", "text": "System"}]
+    original = copy.deepcopy(agent.messages)
+    assert "Client-configured context window: 200000 tokens" in str(agent._messages_for_model()[0])
+    agent.config.context_limit = 1_000_000
+    notice = str(agent._messages_for_model()[0])
+    assert "Client-configured context window: 1000000 tokens" in notice
+    assert "Client-configured context window: 200000 tokens" not in notice
+    assert agent.messages == original
+
+
+def test_non_reducing_summary_uses_oldest_history_instead_of_looping():
+    model = RepeatedOverflowModel(reject_turns=3)
+    agent = make_agent(model)
+    agent._last_query_message_count = 4
+    from webwright.exceptions import RuntimeExecutionError
+    def no_reduction(**kwargs):
+        raise RuntimeExecutionError("No reduction", error_code="compaction_no_reduction", stage="compaction")
+    agent._compact_history = no_reduction
+    agent.query()
+    assert len(model.turn_requests) == 4
+    assert "CURRENT-ACTION" in str(agent.messages)
