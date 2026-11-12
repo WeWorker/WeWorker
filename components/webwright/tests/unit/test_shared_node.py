@@ -1,3 +1,4 @@
+import io
 import json
 import sys
 from types import SimpleNamespace
@@ -63,6 +64,7 @@ def test_raw_onedir_and_standalone_keep_playwright_node(tmp_path):
 @pytest.mark.parametrize('arguments,entry', [(['--internal-script', 'fixture.py'], 'script'), (['--internal-worker', 'tool-debug'], 'worker'), ([], 'server')])
 def test_every_frozen_entry_configures_node_before_dispatch(monkeypatch, arguments, entry):
     calls = []
+    monkeypatch.setattr(bootstrap, '_configure_utf8_standard_streams', lambda: calls.append('utf8'))
     monkeypatch.setattr(bootstrap.multiprocessing, 'freeze_support', lambda: None)
     monkeypatch.setattr(bootstrap, 'configure_shared_node', lambda: calls.append('configure'))
     monkeypatch.setattr(bootstrap, '_run_internal_script', lambda args: calls.append('script') or 0)
@@ -75,4 +77,24 @@ def test_every_frozen_entry_configures_node_before_dispatch(monkeypatch, argumen
         assert stopped.value.code == 0
     else:
         bootstrap.main()
-    assert calls == ['configure', entry]
+    assert calls == ['utf8', 'configure', entry]
+
+
+def test_frozen_entry_reconfigures_gbk_streams_to_utf8():
+    stdin = io.TextIOWrapper(io.BytesIO(), encoding='gbk')
+    stdout_buffer = io.BytesIO()
+    stdout = io.TextIOWrapper(stdout_buffer, encoding='gbk')
+    stderr = io.TextIOWrapper(io.BytesIO(), encoding='gbk')
+
+    bootstrap._configure_utf8_standard_streams((
+        (stdin, 'strict'),
+        (stdout, 'backslashreplace'),
+        (stderr, 'backslashreplace'),
+    ))
+    stdout.write(json.dumps({'text': '中文�🙂'}, ensure_ascii=False))
+    stdout.flush()
+
+    assert stdin.encoding == 'utf-8'
+    assert stdout.encoding == 'utf-8'
+    assert stderr.encoding == 'utf-8'
+    assert stdout_buffer.getvalue().decode('utf-8') == '{"text": "中文�🙂"}'

@@ -4,9 +4,25 @@ import multiprocessing
 import runpy
 import sys
 from pathlib import Path
+from typing import Iterable, TextIO
 
 from webwright.runtime_launcher import WORKER_MODULES
 from webwright.shared_node import configure_shared_node
+
+
+def _configure_utf8_standard_streams(
+    streams: Iterable[tuple[TextIO | None, str]] | None = None,
+) -> None:
+    """Keep frozen Windows workers and scripts on the UTF-8 pipe contract."""
+    selected = streams or (
+        (sys.stdin, "strict"),
+        (sys.stdout, "backslashreplace"),
+        (sys.stderr, "backslashreplace"),
+    )
+    for stream, errors in selected:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors=errors)
 
 
 def _run_internal_worker(arguments: list[str]) -> int:
@@ -48,6 +64,7 @@ def _run_internal_script(arguments: list[str]) -> int:
 
 
 def main() -> None:
+    _configure_utf8_standard_streams()
     multiprocessing.freeze_support()
     configure_shared_node()
     arguments = sys.argv[1:]
