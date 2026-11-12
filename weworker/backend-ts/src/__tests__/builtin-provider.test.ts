@@ -30,6 +30,22 @@ afterEach(() => {
 })
 
 describe('managed built-in models', () => {
+  it('defaults every built-in context window to 200K and honors independent overrides', () => {
+    const providers = [BUILTIN_PROVIDER, BUILTIN_DEV_PROVIDER]
+    const limits = { builtin: 128000, builtin_dev: 512000 }
+    const defaults = publicBuiltinProviders(providers, env)
+    expect(defaults.builtin.context_limit).toBe(200000)
+    expect(defaults.builtin_dev.context_limit).toBe(200000)
+    expect(activateBuiltinProvider(BUILTIN_PROVIDER, env).context_limit).toBe(200000)
+    const metadata = publicBuiltinProviders(providers, env, limits)
+    for (const provider of providers) {
+      const settings = { ...activateBuiltinProvider(provider, env), builtin_context_limits: limits } as Settings
+      expect(metadata[provider.id].context_limit).toBe(limits[provider.id as keyof typeof limits])
+      expect(resolveBuiltinSettings(settings, providers, env).context_limit).toBe(metadata[provider.id].context_limit)
+    }
+    expect(resolveBuiltinSettings({ ...activateBuiltinProvider(BUILTIN_PROVIDER, env), builtin_context_limits: { builtin: -1 } } as Settings, providers, env).context_limit).toBe(200000)
+  })
+
   it('registers JSON gateways without exposing encrypted credentials', () => {
     expect(getProvider('builtin')).toEqual(BUILTIN_PROVIDER)
     expect(getProvider('builtin_dev')).toEqual(BUILTIN_DEV_PROVIDER)

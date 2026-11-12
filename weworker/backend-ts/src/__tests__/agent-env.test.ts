@@ -34,6 +34,13 @@ afterEach(() => {
 })
 
 describe('buildConfiguredModelEnv', () => {
+  it.each([128000, 200000, 512000, 1000000])('passes the configured %s context window to the CLI instead of its unknown-model default', contextLimit => {
+    const env = buildConfiguredModelEnv({
+      api_key: 'fixture-key', base_url: 'https://example.com/anthropic', context_limit: contextLimit,
+    }, { CLAUDE_CODE_MAX_CONTEXT_TOKENS: '200000', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '200000' })
+    expect(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe(String(contextLimit))
+    expect(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe(String(contextLimit))
+  })
   it('uses WeWorker settings instead of inherited model auth env vars or .claude.json env', () => {
     process.env.ANTHROPIC_API_KEY = 'env-key'
     process.env.ANTHROPIC_AUTH_TOKEN = 'env-token'

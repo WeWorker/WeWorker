@@ -34,7 +34,7 @@ export function createEmptyContextSnapshot(contextLimit = 1000000) {
   }
 }
 
-export function normalizeContextSnapshot(snapshot) {
+export function normalizeContextSnapshot(snapshot, configuredContextLimit) {
   if (!snapshot || typeof snapshot !== 'object') return null
   const invalidCalibration = snapshot.token_source === 'provider_calibrated' && !(Number(snapshot.actual_input_tokens) > 0)
   const categories = Array.isArray(snapshot.categories)
@@ -50,7 +50,7 @@ export function normalizeContextSnapshot(snapshot) {
       }))
     : []
   const estimatedTotal = Math.max(0, Number(snapshot.estimated_total_tokens) || 0)
-  const contextLimit = Math.max(1, Number(snapshot.context_limit) || 1000000)
+  const contextLimit = Math.max(1, Number(configuredContextLimit) || Number(snapshot.context_limit) || 1000000)
   return {
     version: 1,
     phase: snapshot.phase === 'turn_end' ? 'turn_end' : 'request_start',

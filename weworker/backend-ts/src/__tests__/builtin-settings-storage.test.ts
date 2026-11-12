@@ -17,6 +17,24 @@ vi.mock('../provider-config.js', async importOriginal => {
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules() })
 
+it('persists the built-in context window across unrelated saves, reload and reactivation', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-context-fixture-'))
+  vi.spyOn(os, 'homedir').mockReturnValue(root)
+  vi.resetModules()
+  const config = await import('../config.js')
+  const { activateBuiltinProvider, BUILTIN_PROVIDER } = await import('../builtin-provider.js')
+  expect(config.updateSettings(activateBuiltinProvider(BUILTIN_PROVIDER)).context_limit).toBe(200000)
+  config.updateSettings({ builtin_context_limits: { builtin: 128000 } })
+  expect(config.updateSettings({ welcome_featured_site_limit: 12 }).context_limit).toBe(128000)
+  config.resetSettingsStateForTests()
+  expect(config.getSettings().context_limit).toBe(128000)
+  config.updateSettings({ active_provider: 'anthropic', context_limit: 1000000 })
+  expect(config.updateSettings(activateBuiltinProvider(BUILTIN_PROVIDER)).context_limit).toBe(128000)
+  config.updateSettings({ builtin_context_limits: { builtin: -1 } })
+  config.resetSettingsStateForTests()
+  expect(config.getSettings().context_limit).toBe(200000)
+})
+
 it('keeps deployment keys out of settings during activation, unrelated saves and reload', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-fixture-'))
   vi.spyOn(os, 'homedir').mockReturnValue(root)

@@ -38,7 +38,7 @@ import {
   upsertStyleDraft,
   validateStyleName,
 } from '../../utils/style-draft.js'
-import { CONTEXT_LIMIT_PRESETS, formatContextLimitInput, parseContextLimitInput } from '../../utils/context-window.js'
+import { CONTEXT_LIMIT_PRESETS, DEFAULT_BUILTIN_CONTEXT_LIMIT, formatContextLimitInput, parseContextLimitInput } from '../../utils/context-window.js'
 import { DEFAULT_WELCOME_FEATURED_SITE_LIMIT } from '../welcome/welcome-utils.js'
 import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
@@ -1724,7 +1724,7 @@ function ModelTab() {
       model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.model || p?.defaultModel || '',
       custom_models,
       openai_model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.openai_model ?? (stored.model || p?.defaultModel || ''),
-      context_limit: formatContextLimitInput(stored.context_limit),
+      context_limit: formatContextLimitInput(stored.context_limit ?? (isBuiltinProvider(pid) ? DEFAULT_BUILTIN_CONTEXT_LIMIT : undefined)),
       base_url: stored.base_url || '',
       base_url_is_full: stored.base_url_is_full === true,
       openai_base_url: stored.openai_base_url || '',
@@ -1855,13 +1855,13 @@ function ModelTab() {
       return
     }
     const contextLimit = parseContextLimitInput(f.context_limit)
-    if (!isBuiltinProvider(pid) && contextLimit === null) {
+    if (contextLimit === null) {
       reportContextLimitError()
       setSaving(null)
       return
     }
     clearContextLimitError()
-    const updates = isBuiltinProvider(pid) ? { name } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
+    const updates = isBuiltinProvider(pid) ? { name, context_limit: contextLimit } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
     if (f.api_key) updates.api_key = f.api_key
     if (f.openai_api_key) updates.openai_api_key = f.openai_api_key
     if (providerType(pid) === 'custom') {
@@ -2287,6 +2287,20 @@ function ModelTab() {
               </Field>
             </div>
           )
+          const contextLimitField = (
+            <Field label="上下文窗口" hint="用于上下文占用和自动压缩，单位支持 K 或 M">
+              <AppDropdownInput
+                className="settings-input"
+                ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
+                value={f.context_limit}
+                onChange={(e) => changeContextLimit(p.id, e.target.value)}
+                onBlur={(e) => finishContextLimit(p.id, e.target.value)}
+                aria-invalid={parseContextLimitInput(f.context_limit) === null}
+                placeholder="例如 200K 或 1M"
+                inputMode="text"
+              />
+            </Field>
+          )
           const catalogAddressFields = (openai = false) => {
             const field = openai ? 'openai_models_url' : 'models_url'
             const mode = openai ? 'openai_models_url_is_full' : 'models_url_is_full'
@@ -2337,6 +2351,7 @@ function ModelTab() {
                 <div className="settings-card-body">
                   {actionFeedback}
                   {identityFields}
+                  <div className="model-settings-grid">{contextLimitField}</div>
                   {renderProbeChecklist(p.id)}
                 </div>
               </div>
@@ -2396,19 +2411,7 @@ function ModelTab() {
                     </div>
                   </Field>
 
-                  <Field label="上下文窗口" hint="用于估算上下文占用率，单位仅支持 K 或 M">
-                    <AppDropdownInput
-                      className="settings-input"
-                      ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
-                      value={f.context_limit}
-                      onChange={(e) => changeContextLimit(p.id, e.target.value)}
-                      onBlur={(e) => finishContextLimit(p.id, e.target.value)}
-                      aria-invalid={parseContextLimitInput(f.context_limit) === null}
-                      placeholder="例如 200K 或 1M"
-                      inputMode="text"
-                    />
-
-                  </Field>
+                  {contextLimitField}
                   </div>}
 
                   {templateId === 'custom' && (
@@ -2492,10 +2495,7 @@ function ModelTab() {
                         </div>
                       </Field>
                       {catalogAddressFields()}
-                      <Field label="上下文窗口" hint="用于估算上下文占用率，单位仅支持 K 或 M">
-                        <AppDropdownInput className="settings-input" ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))} value={f.context_limit} onChange={(e) => changeContextLimit(p.id, e.target.value)} onBlur={(e) => finishContextLimit(p.id, e.target.value)} aria-invalid={parseContextLimitInput(f.context_limit) === null} placeholder="例如 200K 或 1M" inputMode="text" />
-
-                      </Field>
+                      {contextLimitField}
                       </div>
                     </section>
                   )}
