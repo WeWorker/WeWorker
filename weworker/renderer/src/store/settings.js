@@ -35,6 +35,7 @@ function settingsPatch(data, fallback = {}) {
     baseUrl: data.base_url,
     model: data.model,
     contextLimit: data.context_limit || fallback.contextLimit || 1000000,
+    compactionRatio: data.compaction_ratio ?? fallback.compactionRatio ?? 80,
     hasApiKey: data.has_api_key,
     userDirectory: data.user_directory || fallback.userDirectory || '',
     downloadSubdirectory: data.download_subdirectory || fallback.downloadSubdirectory || 'download',
@@ -72,6 +73,7 @@ export const useSettingsStore = create((set, get) => ({
   baseUrl: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.weworker.baseUrl || '',
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
   contextLimit: 1000000,
+  compactionRatio: 80,
   hasApiKey: false,
   userDirectory: '',
   downloadSubdirectory: 'download',
@@ -280,6 +282,17 @@ export const useSettingsStore = create((set, get) => ({
     if (!res.ok) throw new Error(data.detail || '淇濆瓨澶辫触')
     set(settingsPatch(data, get()))
     return data.paste_text_attachment_threshold || DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD
+  },
+
+  saveCompactionRatio: async (ratio) => {
+    const res = await backendFetch(`${API}/settings/compaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compaction_ratio: ratio }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '保存压缩设置失败')
+    set({ compactionRatio: data.compaction_ratio ?? ratio })
   },
 
   saveWebcliRouteEnabled: async (enabled) => {

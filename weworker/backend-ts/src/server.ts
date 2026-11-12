@@ -446,6 +446,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     base_url: isBuiltinProvider(s.active_provider) ? '' : s.base_url,
     model: s.model,
     context_limit: s.context_limit,
+    compaction_ratio: s.compaction_ratio ?? 80,
     has_api_key: !!s.api_key,
     providers: Object.fromEntries(Object.entries({
       ...publicBuiltinProviders(PROVIDERS),
@@ -602,6 +603,15 @@ app.post('/settings/user-directory-blacklist', (req, res) => {
     user_directory_blacklist: sanitized,
   }))
   res.json({ ...response, blacklist_dropped: dropped })
+})
+
+app.post('/settings/compaction', (req, res) => {
+  const ratio = req.body?.compaction_ratio
+  if (typeof ratio !== 'number' || !Number.isInteger(ratio) || ratio < 1 || ratio > 99) {
+    res.status(400).json({ detail: '压缩比例请输入 1-99 之间的整数' })
+    return
+  }
+  res.json(buildSettingsResponse(updateSettings({ compaction_ratio: ratio })))
 })
 
 app.post('/settings/extensions/webcli-route', (req, res) => {

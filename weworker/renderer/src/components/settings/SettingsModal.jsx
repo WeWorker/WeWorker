@@ -283,7 +283,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'model-discovery' && <ModelDiscoveryTab />}
             {tab === 'fast-routes' && <FastRoutesTab />}
             {personalizationMounted && <ConfigTab active={tab === 'config'} showStyle showOther={false} />}
-            {tab === 'memory' && <MemoryTab />}
+            {tab === 'memory' && <div className="settings-stack"><CompactionSettings /><MemoryTab /></div>}
             {tab === 'skills' && <SkillsTab />}
             {tab === 'logs' && <LogsTab />}
             {tab === 'about' && <AboutTab appVersion={appVersion} commitHash={commitHash} />}
@@ -297,6 +297,44 @@ export default function SettingsPage({ onClose }) {
       </div>
     </section>
   )
+}
+
+function CompactionSettings() {
+  const ratio = useSettingsStore(state => state.compactionRatio ?? 80)
+  const loaded = useSettingsStore(state => state.loaded)
+  const save = useSettingsStore(state => state.saveCompactionRatio)
+  const [draft, setDraft] = useState(String(ratio))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const pending = useRef(false)
+  useEffect(() => { setDraft(String(ratio)) }, [ratio])
+  const commit = async () => {
+    if (pending.current || !loaded) return
+    const next = Number(draft)
+    if (!Number.isInteger(next) || next < 1 || next > 99) {
+      setError('压缩比例请输入 1-99 之间的整数')
+      return
+    }
+    if (next === ratio) return
+    pending.current = true
+    setSaving(true)
+    setError('')
+    try { await save(next) }
+    catch (failure) { setError(failure.message || '保存失败') }
+    finally { pending.current = false; setSaving(false) }
+  }
+  return <div className="settings-group">
+    <SettingRow title="上下文压缩比例">
+      <div className="settings-pill">
+        <input type="number" className="settings-pill-input" min="1" max="99" step="1"
+          aria-label="上下文压缩比例" value={draft} disabled={!loaded || saving}
+          onChange={event => { setDraft(event.target.value); setError('') }}
+          onBlur={() => { void commit() }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
+        <span>%</span>
+      </div>
+    </SettingRow>
+    {error && <div className="settings-background-section__error" role="alert">{error}</div>}
+  </div>
 }
 
 function WebcliRouteTab() {
