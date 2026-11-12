@@ -106,7 +106,7 @@ describe('managed built-in models', () => {
   it('probes both protocols with the deployment credential and redacts reflected errors', async () => {
     const input = builtinProviderAccess(BUILTIN_PROVIDER, env)
     const fetchMock = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { ok: true } }] }))
+      .mockResolvedValueOnce(Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] }))
       .mockResolvedValueOnce(Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
       .mockResolvedValueOnce(new Response('invalid fixture-builtin-key', { status: 401 }))
     expect((await probeMainConnection(input, fetchMock)).ok).toBe(true)
