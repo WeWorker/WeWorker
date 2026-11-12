@@ -191,7 +191,11 @@ export function buildConfiguredModelEnv(
   } else {
     env.ANTHROPIC_API_KEY = settings.api_key
   }
-  if (settings.active_provider === 'bank_coding') {
+  // 新版 Claude Code CLI 会按内置名字表校验模型名，自定义网关的模型名会被
+  // 判定为 unrecognized_model 并降级（表现为只说要执行、实际不调用工具）。
+  // 非官方地址统一用 ANTHROPIC_DEFAULT_* 声明真实模型，避免同类问题。
+  const customEndpoint = baseUrl !== 'https://api.anthropic.com'
+  if (settings.active_provider === 'bank_coding' || customEndpoint) {
     const model = settings.model
     if (!model) throw new Error('模型服务尚未配置')
     env.ANTHROPIC_MODEL = model
@@ -678,7 +682,7 @@ async function summarizeConversationOnly(input: {
     prompt: input.conversation,
     options: {
       abortController: input.abortController,
-      model: input.settings.model,
+      model: claudeQueryModel(input.settings),
       systemPrompt: [
         input.purpose === 'task_notification'
           ? '你正在整理 WeWorker 定时任务的执行结果，用于在通知里补一句结论。'
@@ -762,7 +766,7 @@ async function probeContextUsage(input: {
     prompt: input.contextAssembly.sdk.prompt,
     options: {
       abortController: input.abortController,
-      model: input.settings.model,
+      model: claudeQueryModel(input.settings),
       systemPrompt: input.contextAssembly.sdk.system_prompt,
       mcpServers: { weworker: input.mcpServer },
       disallowedTools: input.disallowedTools,
@@ -801,6 +805,18 @@ async function probeContextUsage(input: {
   } finally {
     probeQuery.close()
   }
+}
+
+/**
+ * 新版 Claude Code CLI 只认自己的模型名（sonnet / opus / haiku）。走自定义网关时
+ * 传入别名，真实模型通过 ANTHROPIC_DEFAULT_* 环境变量告诉 CLI；否则 CLI 会判定
+ * unrecognized_model 并降级，表现为"只说要执行、实际不调用工具"。
+ */
+export function claudeQueryModel(settings: Pick<Settings, 'model' | 'base_url'>): string {
+  const model = String(settings.model || '')
+  const baseUrl = String(settings.base_url || '')
+  const customEndpoint = Boolean(baseUrl) && baseUrl !== 'https://api.anthropic.com'
+  return customEndpoint && model ? 'sonnet' : model
 }
 
 function stringifyPromptValue(value: unknown): string {
@@ -1788,7 +1804,7 @@ async function* streamChatWithBaseUrl(
     prompt,
     options: {
       abortController: target.abort ?? abortController,
-      model: settings.model,
+      model: claudeQueryModel(settings),
       systemPrompt: target.systemPrompt,
       mcpServers: { weworker: target.mcp ?? activeMcpServer },
       disallowedTools,
@@ -1843,7 +1859,7 @@ async function* streamChatWithBaseUrl(
     }
     const workId = opts.workId ?? null
     const fingerprint = sha256(JSON.stringify({
-      model: settings.model,
+      model: claudeQueryModel(settings),
       protocol: settings.active_weworker_protocol || 'anthropic_messages',
       contextLimit: normalizeContextLimit(settings.context_limit),
       baseUrl: internal.sessionBaseUrl,

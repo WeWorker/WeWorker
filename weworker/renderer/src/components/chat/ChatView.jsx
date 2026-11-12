@@ -18,6 +18,7 @@ import { formatDuration } from '../../utils/format-duration.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useChatDraft, useChatDraftStore } from '../../store/chat-drafts.js'
+import { shouldAutoResumeQueue } from '../../utils/queue-auto-resume.js'
 import { scenarioForSend } from '../../utils/scenario-hint.js'
 import { buildResumePrompt, isPlanChangeIntent, isResumeIntent } from '../../utils/chat-generation-stop.js'
 import { buildOpenWarmupRequest } from '../../utils/chat-warmup.js'
@@ -54,6 +55,12 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     useWorkActivityStore.getState().view(workId)
     return () => useWorkActivityStore.getState().leave(workId)
   }, [workId])
+  // 发送结果未知会暂停队列；对话空闲时自动恢复一次，用户主动停止则保持暂停。
+  useEffect(() => {
+    if (!shouldAutoResumeQueue(queueState, streaming)) return undefined
+    const timer = setTimeout(() => queue.resume(), 2000)
+    return () => clearTimeout(timer)
+  }, [queueState.pausedReason, queueState.running, queueState.transitioning, queueState.items.length, streaming, queue])
   const [error, setError] = useState(null)
   const handleSendRef = useRef(null)
   const { inputText, setInputText, attachments, setAttachments } = useChatDraft(`work:${workId}`)
