@@ -290,8 +290,9 @@ Agent tip: use 'webcli call <tool> --key=value ...' to invoke a tool.
            use 'webcli adapter <id> -help -f json' for structured tools.
 `;
   // wecli 风格：站点列表紧跟 Usage 行（HELP 首行），Agent tip 在末尾
-  const helpLines = HELP.split("\n");
-  const usageLine = helpLines[0]; // "webcli <command> [options]"
+  // help 文本按命令名 rebrand:webgo 包输出 webgo/WebGo,desktop 内嵌按 WEBCLI_CLI_NAME 覆盖
+  const helpLines = HELP.replaceAll('webcli', cliName()).split("\n");
+  const usageLine = helpLines[0]; // "<command> [options]"
   const rest = helpLines.slice(1).join("\n");
   console.log(`${usageLine}\n\n${siteText}\n${rest}${agentTip}`);
 }
@@ -719,7 +720,10 @@ function resolveLoginWaitMs(seconds) {
   if (Number.isFinite(seconds)) return Math.max(0, Math.min(15 * 60, seconds)) * 1000;
   const env = Number(process.env.WEBCLI_LOGIN_WAIT_SECONDS);
   if (Number.isFinite(env)) return Math.max(0, Math.min(15 * 60, env)) * 1000;
-  return process.stdin.isTTY && process.stderr.isTTY ? 300_000 : 0;
+  // 宿主 agent 环境(WorkBuddy 等内置 Node)虽然可能分配 pty(被误判为交互终端),
+  // 但没人盯着本机终端——立即返回登录提示与截图,登录流程后台继续。
+  const isHostAgent = process.execPath.toLowerCase().includes(".workbuddy");
+  return !isHostAgent && process.stdin.isTTY && process.stderr.isTTY ? 300_000 : 0;
 }
 
 const AUTH_EVENT_TEXT = {
@@ -1386,12 +1390,24 @@ function parseArgsJson(argsStr) {
   if (!argsStr) return {};
   try {
     return JSON.parse(argsStr);
-  } catch {
-    // JSON 解析失败，尝试 key=value 格式
-    const parsed = parseArgsKeyValue(argsStr);
-    if (parsed !== null) return parsed;
-    throw new Error("--args 必须是有效的 JSON 或 key=value 格式（如 url=http://example.com keyword=test）");
+  } catch {}
+  // 引号剥离重试:cmd 不消费单引号(Bash 强引用 vs cmd 普通字符),宿主转发的
+  // --args '{...}' 到达时引号会成为内容的一部分,导致 JSON 非法。trim 后首尾
+  // 为配对引号时剥离重试一次;内容内部的引号不受影响。
+  const trimmed = argsStr.trim();
+  if (trimmed.length >= 2) {
+    const first = trimmed[0];
+    const last = trimmed[trimmed.length - 1];
+    if ((first === "'" && last === "'") || (first === '"' && last === '"')) {
+      try {
+        return JSON.parse(trimmed.slice(1, -1));
+      } catch { /* 剥离后仍非法,继续 key=value / 报错 */ }
+    }
   }
+  // JSON 解析失败，尝试 key=value 格式
+  const parsed = parseArgsKeyValue(argsStr);
+  if (parsed !== null) return parsed;
+  throw new Error("--args 必须是有效的 JSON 或 key=value 格式（如 url=http://example.com keyword=test；WorkBuddy/cmd 下请改用 --key=value 直传以避免引号变形）");
 }
 
 /**
