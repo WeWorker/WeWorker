@@ -47,6 +47,7 @@ import {
 import type { UserMediaSink } from './user-media.js'
 import { buildAgentFilesystemSettings, createUnifiedToolGuard } from './user-directory-access.js'
 import { createWorkspacePreToolUseHook } from './workspace-tool-hook.js'
+import { createFileChangeHooks } from './file-change-hooks.js'
 import { createAskPreToolUseHook } from './tool-permission-approval.js'
 import { createLogger } from './logger.js'
 import { recordWorkLogStream } from './work-log-file.js'
@@ -1361,6 +1362,7 @@ async function* streamChatWithBaseUrl(
     && (channelPermissionMode === 'full' || channelPermissionMode === 'workspace') ? readQueryTurnId : null }
   const turnBindings: ChatTurnBindings = {
     workIdRef: { current: opts.workId ?? null },
+    fileChangeTurnId: messages.at(-1)?.id ?? readQueryTurnId,
     onAskUser: opts.onAskUser ?? null,
     userMedia: opts.userMedia ?? null,
     extraToolGuard: opts.extraToolGuard,
@@ -1376,6 +1378,7 @@ async function* streamChatWithBaseUrl(
     channelAskUserHandler: opts.channelAskUserHandler ?? null,
     abortSignal: abortController?.signal,
     userMedia: () => turnBindings.userMedia ?? null,
+    fileChangeReadGuard: async file => turnBindings.extraToolGuard?.('Read', { file_path: file }).behavior !== 'deny',
     readQueryScope: () => ({ workId: opts.workId ?? null, turnId: readQueryScope.current }),
   })
   const activeMcpServer = opts.mcpServerOverride || mcpServer
@@ -1860,6 +1863,28 @@ async function* streamChatWithBaseUrl(
   }
   // Session callbacks resolve against the bindings of whichever turn is running.
   let activeBindings: ChatTurnBindings = turnBindings
+  const changeHooks = createFileChangeHooks({
+    binding: () => ({ workId: activeBindings.workIdRef.current, turnId: activeBindings.fileChangeTurnId ?? readQueryTurnId, cwd: agentCwd }),
+    canRead: async file => activeBindings.extraToolGuard?.('Read', { file_path: file }).behavior !== 'deny'
+      && (await filesystemToolGuard('Read', { file_path: file })).behavior !== 'deny',
+  })
+  const permissionPreHook = channelPermissionMode === 'ask'
+    ? createAskPreToolUseHook({ workId: () => activeBindings.workIdRef.current, onAskUser: () => activeBindings.onAskUser, checkAccess: canUseTool, signal: abortController?.signal })
+    : channelPermissionMode === 'workspace' ? createWorkspacePreToolUseHook(agentCwd) : null
+  const recordingPreHook: HookCallback = async (input, id, context) => {
+    // Permission checks must finish before snapshots; never weaken an existing denial.
+    const permission = permissionPreHook ? await permissionPreHook(input, id, context) : {}
+    if ('hookSpecificOutput' in permission && permission.hookSpecificOutput?.hookEventName === 'PreToolUse'
+      && permission.hookSpecificOutput.permissionDecision === 'deny') return permission
+    if (input.hook_event_name !== 'PreToolUse' || channelPermissionMode === 'qa_only') return permission
+    const args = input.tool_input as Record<string, unknown>
+    if (activeBindings.extraToolGuard?.(input.tool_name, args).behavior === 'deny'
+      || (await filesystemToolGuard(input.tool_name, args)).behavior === 'deny') return permission
+    const recorded = await changeHooks.preToolUse(input, id, context)
+    return { ...permission, ...recorded,
+      hookSpecificOutput: { ...('hookSpecificOutput' in permission ? permission.hookSpecificOutput : {}),
+        ...('hookSpecificOutput' in recorded ? recorded.hookSpecificOutput : {}), hookEventName: 'PreToolUse' } }
+  }
   const buildQueryParams = (
     prompt: string | PromptQueue,
     target: { systemPrompt: string; abort?: AbortController; mcp?: McpServerConfig },
@@ -1885,19 +1910,11 @@ async function* streamChatWithBaseUrl(
       spawnClaudeCodeProcess,
       env: envWithWebcli,
       hooks: {
-        ...(channelPermissionMode === 'ask' ? {
-          PreToolUse: [{ timeout: 330, hooks: [createAskPreToolUseHook({
-            workId: () => turnBindings.workIdRef.current,
-            onAskUser: () => turnBindings.onAskUser,
-            checkAccess: canUseTool,
-            signal: abortController?.signal,
-          })] }],
-        } : {}),
-        ...(channelPermissionMode === 'workspace' ? {
-          PreToolUse: [{ hooks: [createWorkspacePreToolUseHook(agentCwd)] }],
-        } : {}),
+        PreToolUse: [{ timeout: 330, hooks: [recordingPreHook] }],
+        PostToolUse: [{ hooks: [changeHooks.postToolUse] }],
+        PostToolUseFailure: [{ hooks: [changeHooks.postToolUseFailure] }],
+        UserPromptSubmit: [{ hooks: [changeHooks.userPromptSubmit, ...(memoryEnabled ? [memoryUserPromptSubmitHook] : [])] }],
         ...(memoryEnabled ? {
-          UserPromptSubmit: [{ hooks: [memoryUserPromptSubmitHook] }],
           PostToolBatch: [{ hooks: [memoryPostToolBatchHook] }],
         } : {}),
       },
@@ -1959,6 +1976,7 @@ async function* streamChatWithBaseUrl(
         askUserSSECallback: (event) => bindings.onAskUser?.(event),
         channelAskUserHandler: null,
         userMedia: () => bindings.userMedia ?? null,
+        fileChangeReadGuard: async file => bindings.extraToolGuard?.('Read', { file_path: file }).behavior !== 'deny',
         readQueryScope: () => ({ workId: bindings.workIdRef.current, turnId: (bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId ?? null }),
       })
       const releaseRuntime = internal.adoptModelRuntime()
@@ -2002,6 +2020,7 @@ async function* streamChatWithBaseUrl(
       const prewarmed = reusable.fresh
       sessionState = prewarmed ? 'prewarmed' : 'reused'
       reusable.bindings.workIdRef.current = turnWorkId
+      reusable.bindings.fileChangeTurnId = turnBindings.fileChangeTurnId
       ;(reusable.bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
       reusable.bindings.onAskUser = turnBindings.onAskUser
       reusable.bindings.userMedia = turnBindings.userMedia

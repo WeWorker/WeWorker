@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
+import FileChangesCard from './FileChangesCard.jsx'
 import ImageLightbox from './ImageLightbox.jsx'
 import { formatTimingDuration, formatTimingTotal } from '../../utils/format-timing-duration.js'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
@@ -33,7 +34,7 @@ const BUBBLE_ASSISTANT = {
   boxShadow: 'none',
 }
 
-export default function MessageItem({ message, streaming, compacting = false, isLast, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, onChoice, onShellCommand, plan, planSnapshot, planSentinelRef, hideEmbeddedPlan, hideLivePlan = false, planExpanded, onPlanExpandedChange, planStepDetails, onPlanStepDetailsChange, suppressPlanTools, compactAssistant = false }) {
+export default function MessageItem({ message, workId, streaming, compacting = false, isLast, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, onChoice, onShellCommand, plan, planSnapshot, planSentinelRef, hideEmbeddedPlan, hideLivePlan = false, planExpanded, onPlanExpandedChange, planStepDetails, onPlanStepDetailsChange, suppressPlanTools, compactAssistant = false }) {
   const isUser = message.role === 'user'
   const showStreaming = streaming && !compacting
   const isEmpty = !message.content?.length
@@ -212,6 +213,7 @@ export default function MessageItem({ message, streaming, compacting = false, is
               })
             )}
             {!isEmpty && showStreaming && isLast && !isUser && <WorkingIndicator />}
+            {!isUser && <FileChangesCard workId={workId || message.work_id} content={message.content} streaming={streaming} />}
           </div>
         )}
       </div>
