@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -71,11 +72,12 @@ def test_full_openai_url_is_preserved_for_both_model_flows(monkeypatch, tmp_path
 def test_compaction_settings_are_injected_into_the_exploration_agent(monkeypatch, tmp_path: Path) -> None:
     manager, _store, _commands = _manager(
         tmp_path, monkeypatch,
-        model_config_loader=lambda: _managed_model(context_limit=128000, compaction_ratio=65),
+        model_config_loader=lambda: _managed_model(context_limit=128000, compaction_ratio=65, compaction_max_attempts=5),
     )
     _file, overrides, _env = manager._resolve_model()
     assert "agent.context_limit=128000" in overrides
     assert "agent.compaction_ratio=65" in overrides
+    assert "agent.compaction_max_attempts=5" in overrides
 
 
 def _manager(
@@ -862,6 +864,44 @@ def test_finish_task_failed_child_overrides_stale_success(tmp_path: Path) -> Non
     task = store.read_task(task_id)
     assert task["status"] == TaskStatus.FAILED.value
     assert "Missing ZHIPUAI_API_KEY." in task["error"]
+
+
+def test_worker_writes_utf8_errors_with_a_legacy_parent_encoding(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("PYTHONIOENCODING", "ascii")
+    manager = ProcessManager(store=TaskStore(tmp_path / "tasks"))
+    error = "历史压缩失败，原始上下文已保留。"
+    result = subprocess.run(
+        [sys.executable, "-c", f"import json; print(json.dumps({{'ok': False, 'error': {error!r}}}, ensure_ascii=False))"],
+        env=manager._worker_environment(),
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert json.loads(result.stdout.decode("utf-8"))["error"] == error
+
+
+def test_finish_task_survives_legacy_bytes_before_a_structured_compaction_error(tmp_path: Path) -> None:
+    store = TaskStore(tmp_path / "tasks")
+    manager = ProcessManager(store=store)
+    task_id = store.new_task_id("compaction")
+    store.create_task_record(
+        task_id=task_id, title="Compaction", instruction="Read example.com",
+        start_url="https://example.com", output_dir=store.task_dir(task_id), run_id="run-1",
+    )
+    error = "历史压缩失败，原始上下文已保留。"
+    log_path = store.process_log_path(task_id)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_bytes(b"legacy output: \xc0\xfa\xca\xb7\n" + (json.dumps({
+        "ok": False, "error": error, "error_code": "compaction_failed", "stage": "compaction",
+    }, ensure_ascii=False) + "\n").encode("utf-8"))
+
+    manager._finish_task(task_id, 1)
+
+    task = store.read_task(task_id)
+    assert task["status"] == TaskStatus.FAILED.value
+    assert task["error"] == error
+    assert task["error_code"] == "compaction_failed"
+    assert task["error_stage"] == "compaction"
 
 
 def test_start_task_uses_managed_model_without_local_store(monkeypatch, tmp_path: Path) -> None:

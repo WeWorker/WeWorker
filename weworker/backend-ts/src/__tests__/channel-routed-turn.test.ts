@@ -96,6 +96,7 @@ describe('runChannelChat 的路由接线', () => {
 
     expect(result.text).toBe('模型回答')
     expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+    expect(mocks.streamChat.mock.calls[0][3].workId).toBe('work-1')
     expect(mocks.streamChat.mock.calls[0][3].directRoute).toEqual({ status: 'miss' })
   })
 

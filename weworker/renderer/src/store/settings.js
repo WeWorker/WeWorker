@@ -41,6 +41,7 @@ function settingsPatch(data, fallback = {}) {
       || (data.active_provider === fallback.activeProvider ? fallback.contextLimit : undefined)
       || defaultContextLimit(data.active_provider || fallback.activeProvider || BUILD_DEFAULT_PROVIDER),
     compactionRatio: data.compaction_ratio ?? fallback.compactionRatio ?? 80,
+    compactionMaxAttempts: data.compaction_max_attempts ?? fallback.compactionMaxAttempts ?? 3,
     hasApiKey: data.has_api_key,
     userDirectory: data.user_directory || fallback.userDirectory || '',
     downloadSubdirectory: data.download_subdirectory || fallback.downloadSubdirectory || 'download',
@@ -79,6 +80,7 @@ export const useSettingsStore = create((set, get) => ({
   model: BUILD_PROVIDERS.find(p => p.id === BUILD_DEFAULT_PROVIDER)?.defaultModel || '',
   contextLimit: defaultContextLimit(BUILD_DEFAULT_PROVIDER),
   compactionRatio: 80,
+  compactionMaxAttempts: 3,
   hasApiKey: false,
   userDirectory: '',
   downloadSubdirectory: 'download',
@@ -298,6 +300,17 @@ export const useSettingsStore = create((set, get) => ({
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '保存压缩设置失败')
     set({ compactionRatio: data.compaction_ratio ?? ratio })
+  },
+
+  saveCompactionMaxAttempts: async (attempts) => {
+    const res = await backendFetch(`${API}/settings/compaction`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compaction_max_attempts: attempts }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail || '保存压缩设置失败')
+    set({ compactionMaxAttempts: data.compaction_max_attempts ?? attempts })
   },
 
   saveWebcliRouteEnabled: async (enabled) => {

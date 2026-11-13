@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const PROMPT_IDS = [
   'agent',
   'agent-qa-only',
+  'context-window',
   'memory-output',
   'api-router',
   'terminal',
@@ -18,6 +19,7 @@ declare const __BUILD_PROMPTS__: unknown
 const PROMPT_FILES: Record<PromptId, string> = {
   agent: 'agent.md',
   'agent-qa-only': 'agent-qa-only.md',
+  'context-window': 'context-window.md',
   'memory-output': 'memory-output.md',
   'api-router': 'api-router.md',
   terminal: 'terminal.md',

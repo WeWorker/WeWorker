@@ -160,6 +160,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
   const decoder = new TextDecoder()
   let buffer = ''
   let overflowDetected = false
+  let backendCompactionManaged = false
   let contextSnapshot = null
   let compactedDuringRequest = false
   let turnEnded = false
@@ -187,6 +188,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
         }
         try {
           const event = JSON.parse(data)
+          if (event.contextRecoveryManaged) backendCompactionManaged = true
           if (event.type === 'context_compaction_start') compactionPending = true
           if (event.type === 'context_compaction_end') compactionPending = false
           if (event.type === 'turn_end') turnEnded = true
@@ -194,7 +196,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
           if (event.type === 'context_compaction_end' && event.compaction?.status === 'completed') {
             compactedDuringRequest = true
           }
-          if (event.type === 'error' && isContextOverflowError(event.content)) {
+          if (!backendCompactionManaged && event.type === 'error' && isContextOverflowError(event.content)) {
             overflowDetected = true
             if (!retryCompaction) continue
           }
@@ -221,7 +223,7 @@ export async function streamChat(workId, message, onEvent, signal, attachments =
   if (!turnEnded && !streamCompleted) throw new Error('回复连接中断，队列已暂停，请检查当前回复后继续')
 
   const shouldAutoCompact = shouldAutoCompactAfterTurn(contextSnapshot, retryCompaction, compactedDuringRequest)
-  if (!retryCompaction && (overflowDetected || shouldAutoCompact)) {
+  if (!backendCompactionManaged && !retryCompaction && (overflowDetected || shouldAutoCompact)) {
     onEvent({ type: 'context_compaction_start', compaction: { status: 'started' } })
     try {
       const result = await compactConversation(workId, { signal })

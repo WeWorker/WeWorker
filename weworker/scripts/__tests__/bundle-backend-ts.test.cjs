@@ -12,6 +12,7 @@ const { bundleBackend, createEsbuildDefines } = require('../bundle-backend-ts.cj
 const PROMPT_FILES = [
   'agent.md',
   'agent-qa-only.md',
+  'context-window.md',
   'memory-output.md',
   'api-router.md',
   'terminal.md',
@@ -32,7 +33,7 @@ function createPromptDirectory(t, files = PROMPT_FILES) {
   return root
 }
 
-test('backend bundle reads and injects all six fixed prompts', (t) => {
+test('backend bundle reads and injects all fixed prompts', (t) => {
   const promptsRoot = createPromptDirectory(t)
   const defines = createEsbuildDefines({ providers: [], defaultProvider: 'test' }, promptsRoot)
   assert.ok(JSON.parse(defines.__BUILD_TIMESTAMP__) > 0)
@@ -40,6 +41,7 @@ test('backend bundle reads and injects all six fixed prompts', (t) => {
   assert.deepEqual(JSON.parse(defines.__BUILD_PROMPTS__), {
     agent: 'content:agent.md\n',
     'agent-qa-only': 'content:agent-qa-only.md\n',
+    'context-window': 'content:context-window.md\n',
     'memory-output': 'content:memory-output.md\n',
     'api-router': 'content:api-router.md\n',
     terminal: 'content:terminal.md\n',

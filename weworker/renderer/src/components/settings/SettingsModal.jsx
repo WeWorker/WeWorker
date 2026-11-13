@@ -301,21 +301,30 @@ export default function SettingsPage({ onClose }) {
 
 function CompactionSettings() {
   const ratio = useSettingsStore(state => state.compactionRatio ?? 80)
+  const attempts = useSettingsStore(state => state.compactionMaxAttempts ?? 3)
+  const saveRatio = useSettingsStore(state => state.saveCompactionRatio)
+  const saveAttempts = useSettingsStore(state => state.saveCompactionMaxAttempts)
+  return <div className="settings-group">
+    <CompactionNumberSetting title="上下文压缩比例" value={ratio} save={saveRatio} max={99} suffix="%" />
+    <CompactionNumberSetting title="压缩尝试次数" value={attempts} save={saveAttempts} max={10} suffix="次" />
+  </div>
+}
+
+function CompactionNumberSetting({ title, value, save, max, suffix }) {
   const loaded = useSettingsStore(state => state.loaded)
-  const save = useSettingsStore(state => state.saveCompactionRatio)
-  const [draft, setDraft] = useState(String(ratio))
+  const [draft, setDraft] = useState(String(value))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const pending = useRef(false)
-  useEffect(() => { setDraft(String(ratio)) }, [ratio])
+  useEffect(() => { setDraft(String(value)) }, [value])
   const commit = async () => {
     if (pending.current || !loaded) return
     const next = Number(draft)
-    if (!Number.isInteger(next) || next < 1 || next > 99) {
-      setError('压缩比例请输入 1-99 之间的整数')
+    if (!Number.isInteger(next) || next < 1 || next > max) {
+      setError(`${title}请输入 1-${max} 之间的整数`)
       return
     }
-    if (next === ratio) return
+    if (next === value) return
     pending.current = true
     setSaving(true)
     setError('')
@@ -323,18 +332,18 @@ function CompactionSettings() {
     catch (failure) { setError(failure.message || '保存失败') }
     finally { pending.current = false; setSaving(false) }
   }
-  return <div className="settings-group">
-    <SettingRow title="上下文压缩比例">
+  return <>
+    <SettingRow title={title}>
       <div className="settings-pill">
-        <input type="number" className="settings-pill-input" min="1" max="99" step="1"
-          aria-label="上下文压缩比例" value={draft} disabled={!loaded || saving}
+        <input type="number" className="settings-pill-input" min="1" max={max} step="1"
+          aria-label={title} value={draft} disabled={!loaded || saving}
           onChange={event => { setDraft(event.target.value); setError('') }}
           onBlur={() => { void commit() }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
-        <span>%</span>
+        <span>{suffix}</span>
       </div>
     </SettingRow>
     {error && <div className="settings-background-section__error" role="alert">{error}</div>}
-  </div>
+  </>
 }
 
 function WebcliRouteTab() {

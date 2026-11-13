@@ -142,6 +142,7 @@ class ProcessManager:
         if extra:
             combined.update(extra)
         environment = self.launcher.internal_worker_environment(combined)
+        environment["PYTHONIOENCODING"] = "utf-8"
         environment.pop("WEWORKER_MODEL_CONFIG_URL", None)
         environment.pop("WEWORKER_MODEL_CONFIG_TOKEN", None)
         return environment
@@ -176,6 +177,7 @@ class ProcessManager:
         overrides.extend([
             f"agent.context_limit={active.context_limit}",
             f"agent.compaction_ratio={active.compaction_ratio}",
+            f"agent.compaction_max_attempts={active.compaction_max_attempts}",
         ])
         if active.model_class == "anthropic":
             model_config_file = "model_claude.yaml"
@@ -1610,7 +1612,7 @@ class ProcessManager:
     @staticmethod
     def _last_process_error(log_path: Path) -> dict[str, str]:
         try:
-            lines = log_path.read_text(encoding="utf-8").splitlines()
+            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             return {}
         for line in reversed(lines):

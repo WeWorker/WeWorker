@@ -24,6 +24,7 @@ class ManagedModelConfig:
     base_url_is_full: bool = False
     context_limit: int = 1_000_000
     compaction_ratio: int = 80
+    compaction_max_attempts: int = 3
 
     @property
     def request_endpoint(self) -> str:
@@ -38,7 +39,10 @@ class ManagedModelConfig:
                   ("provider_id", "protocol", "model_class", "base_url", "model", "api_key", "structured_output")}
         context_limit = payload.get("context_limit", 1_000_000)
         ratio = payload.get("compaction_ratio", 80)
+        attempts = payload.get("compaction_max_attempts", 3)
         if type(context_limit) is not int or context_limit < 1000 or type(ratio) is not int or not 1 <= ratio <= 99:
+            raise ManagedModelConfigError("WeWorker returned invalid compaction settings.")
+        if type(attempts) is not int or not 1 <= attempts <= 10:
             raise ManagedModelConfigError("WeWorker returned invalid compaction settings.")
         full_url = payload.get("base_url_is_full", False)
         if not isinstance(full_url, bool):
@@ -61,7 +65,7 @@ class ManagedModelConfig:
         parsed = urlparse(values["base_url"])
         if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password or (parsed.query and not full_url) or parsed.fragment:
             raise ManagedModelConfigError("WeWorker returned an invalid model Base URL.")
-        return cls(**values, base_url_is_full=full_url, context_limit=context_limit, compaction_ratio=ratio)
+        return cls(**values, base_url_is_full=full_url, context_limit=context_limit, compaction_ratio=ratio, compaction_max_attempts=attempts)
 
 
 def load_managed_model_config(
