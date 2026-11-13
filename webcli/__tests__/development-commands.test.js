@@ -97,6 +97,17 @@ describe('development CLI', () => {
     expect(response.error.message).not.toContain('secret');
     expect(broken).toHaveBeenCalledTimes(2);
   });
+  it('uses the selected exploration port and rejects non-loopback overrides', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(health()).mockResolvedValueOnce(new Response(JSON.stringify(result('inspect'))));
+    expect((await callDevelopment('inspect', args, { fetch, env: { ...env, WEWORKER_WEBWRIGHT_URL: 'http://127.0.0.1:48766' } })).ok).toBe(true);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      'http://127.0.0.1:48766/api/health', 'http://127.0.0.1:48766/api/development/commands/inspect',
+    ]);
+    fetch.mockClear();
+    const invalid = await callDevelopment('inspect', args, { fetch, env: { ...env, WEWORKER_WEBWRIGHT_URL: 'https://example.com' } });
+    expect(invalid.error.code).toBe('INVALID_HOST_ADDRESS');
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('rejects unknown or misspelled arguments without I/O', async () => {
     const fetch = vi.fn();
     expect((await callDevelopment('install', {}, { fetch, env })).error.code).toBe('UNKNOWN_COMMAND');

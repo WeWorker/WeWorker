@@ -1,7 +1,6 @@
 import { developmentCommands } from './development-commands.js';
 import { callDevelopmentInstall } from './development-install-client.js';
 
-const BASE = 'http://127.0.0.1:8766';
 const MAX_BYTES = 2 * 1024 * 1024;
 
 /** Fixed loopback endpoint, host identity check, no process startup and no retry. */
@@ -21,14 +20,19 @@ export async function callDevelopment(command, args, { fetch: fetcher = globalTh
   if (Buffer.byteLength(body) > MAX_BYTES) return failure('INPUT_TOO_LARGE', 'Development arguments exceed 2 MiB.');
   let submitted = false;
   try {
-    const health = await fetcher(`${BASE}/api/health`, { redirect: 'error', signal: AbortSignal.timeout(5000) });
+    const base = new URL(env.WEWORKER_WEBWRIGHT_URL || 'http://127.0.0.1:8766');
+    if (base.protocol !== 'http:' || base.hostname !== '127.0.0.1' || !base.port
+        || base.username || base.password || base.pathname !== '/' || base.search || base.hash) {
+      return failure('INVALID_HOST_ADDRESS', 'The host must provide a loopback exploration service address.');
+    }
+    const health = await fetcher(`${base.origin}/api/health`, { redirect: 'error', signal: AbortSignal.timeout(5000) });
     if (!health.ok) return failure('SERVICE_UNAVAILABLE', 'Website exploration service is unavailable.');
     const info = await health.json();
     if (info.instance_id !== identity || info.runtime !== 'local_browser.local_cdp' || info.capabilities?.development_commands !== true) {
       return failure('HOST_IDENTITY_MISMATCH', 'Listener is not the expected development-capable host service. No command was submitted.');
     }
     submitted = true;
-    const response = await fetcher(`${BASE}/api/development/commands/${command}`, {
+    const response = await fetcher(`${base.origin}/api/development/commands/${command}`, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
       headers: { 'Content-Type': 'application/json', 'X-WeWorker-Exploration-Instance': identity }, body,
     });

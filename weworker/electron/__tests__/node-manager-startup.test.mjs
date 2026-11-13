@@ -8,7 +8,7 @@ import test from 'node:test'
 
 test('each app launch shares one fresh exploration identity between managers', () => {
   const source = fs.readFileSync(new URL('../main.js', import.meta.url), 'utf8')
-  const body = source.slice(source.indexOf('const httpAuthToken ='), source.indexOf('let isInstallingUpdate ='))
+  const body = source.slice(source.indexOf('const servicePorts ='), source.indexOf('let isInstallingUpdate ='))
   const launch = () => {
     let backendId
     let serviceId
@@ -83,6 +83,20 @@ test('startup exceptions are logged and leave an error state', async () => {
   assert.equal(manager._status, 'error')
   assert.equal(manager._starting, false)
   assert.ok(logs.some(message => message.includes('startup failed: fixture spawn failure')))
+})
+
+test('backend receives all selected ports and exposes its actual HTTP URL', async () => {
+  const child = new EventEmitter()
+  child.stdout = new EventEmitter(); child.stderr = new EventEmitter()
+  const Manager = loadManager((_cmd, _args, options) => {
+    assert.equal(options.env.WEWORK_PORT, '48765')
+    assert.equal(options.env.WEWORKER_WEBWRIGHT_URL, 'http://127.0.0.1:48766')
+    assert.equal(options.env.WEBCLI_BRIDGE_PORT, '43711')
+    return child
+  })
+  const manager = new Manager(() => {}, '', '', 'fixture-home', '', 'fixture-instance', { backend: 48765, exploration: 48766, bridge: 43711 })
+  await manager.start()
+  assert.equal(manager.getUrl(), 'http://127.0.0.1:48765')
 })
 
 test('development backend trusts the actual renderer origin, including alternate ports', async () => {

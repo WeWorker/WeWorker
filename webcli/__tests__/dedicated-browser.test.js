@@ -368,6 +368,14 @@ test('starts the browser off-screen with the extension and its instance marker, 
   assert.deepEqual(statuses, ['starting', 'running', 'stopped'])
 })
 
+test('the managed browser writes the selected Bridge port into its extension marker', async () => {
+  const { instance, launches } = manager({ overrides: { bridgePort: 43711 } })
+  await instance.start()
+  const marker = launches[0].browser.requests.find(r => r.method === 'Runtime.evaluate' && r.params.expression.includes('fixture-instance-token'))
+  assert.match(marker.params.expression, /"bridgePort":43711/)
+  await instance.stop()
+})
+
 /** Fake worker storage: answers the read, restore and marker evaluations. */
 function storageHandlers(stored) {
   const evaluated = []

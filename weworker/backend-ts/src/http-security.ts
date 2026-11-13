@@ -1,6 +1,10 @@
 import crypto from 'node:crypto'
 
-export const LOCAL_HTTP_PORT = 8765
+const configuredPort = Number(process.env.WEWORK_PORT || 8765)
+if (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 65535) {
+  throw new Error('Invalid local backend port')
+}
+export const LOCAL_HTTP_PORT = configuredPort
 
 export function isAllowedHost(hostHeader: string | undefined, port = LOCAL_HTTP_PORT): boolean {
   const host = String(hostHeader || '').toLowerCase()

@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import { initializeBackendConnection } from './api/http.js'
 import './index.css'
 import './workspace-refresh.css'
 
@@ -12,4 +13,9 @@ import './workspace-refresh.css'
   document.documentElement.classList.add(initial)
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+initializeBackendConnection().then(() => {
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />)
+}).catch(error => {
+  console.error(error)
+  document.getElementById('root').textContent = '无法连接本地服务，请重启 WeWorker。'
+})

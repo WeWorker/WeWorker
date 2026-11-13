@@ -1,9 +1,11 @@
 /** Use the desktop host's workspace preparation and installation transactions; never write its registry directly. */
-const HOST = 'http://127.0.0.1:8765';
 const ID = /^[a-z][a-z0-9_]*$/;
 const DIGEST = /^[a-f0-9]{64}$/;
 
 export async function callDevelopmentInstall(command, args, { fetch: fetcher = globalThis.fetch, env = process.env } = {}) {
+  const port = Number(env.WEWORK_PORT || 8765);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid desktop backend port');
+  const host = `http://127.0.0.1:${port}`;
   const envelope = { schemaVersion: 1, command: `development.${command}` };
   const fail = (code, message, data) => ({ ...envelope, ok: false, error: { code, message }, ...(data ? { data } : {}) });
   if (!['prepare', 'review', 'apply'].includes(command)) return fail('UNKNOWN_COMMAND', 'Unknown installation command.');
@@ -31,7 +33,7 @@ export async function callDevelopmentInstall(command, args, { fetch: fetcher = g
   }
   const headers = { 'X-WeWorker-Auth': token, 'Content-Type': 'application/json' };
   let submitted = false;
-  const request = (path, body) => fetcher(HOST + path, {
+  const request = (path, body) => fetcher(host + path, {
     method: body === undefined ? 'GET' : 'POST', headers, redirect: 'error',
     signal: AbortSignal.timeout(body === undefined ? 15000 : 60000),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),

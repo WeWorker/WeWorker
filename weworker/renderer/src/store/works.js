@@ -4,14 +4,13 @@ import { create } from 'zustand'
 import { mapMessagesAfterStop } from '../utils/chat-generation-stop.js'
 import { applyTerminalEventToMessages } from '../utils/terminal-chat-output.js'
 import { calibrateContextSnapshot, calibrateCompactedContextSnapshot, createContextTokenAnchor, projectIncrementalContextSnapshot } from '../utils/context-snapshot.js'
-import { backendFetch } from '../api/http.js'
+import { API, backendFetch } from '../api/http.js'
 import { leaveWebsiteExploration } from './website-exploration.js'
 import { showAlert } from './dialog.js'
 import { discardMessageQueue, getMessageQueue } from './message-queue.js'
 import { createBackgroundChatSync } from '../utils/scheduled-task-sync.js'
 import { useChatDraftStore } from './chat-drafts.js'
 
-const API = 'http://127.0.0.1:8765'
 const pendingArchiveRequests = new Map()
 const pendingCreateWorkRequests = new Map()
 

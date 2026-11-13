@@ -1,8 +1,7 @@
 import { create } from 'zustand'
-import { backendFetch } from '../api/http.js'
+import { API, backendFetch } from '../api/http.js'
 import { MEMORY_FILTER_ALL } from '../utils/memory-settings.js'
 
-const API = 'http://127.0.0.1:8765'
 
 // 记忆面板专用 store：/memory/* 与 /settings/* 是两组独立资源，复用 useSettingsStore
 // 会把记忆状态混进设置快照（settingsPatch 也没有对应字段），所以单独建 store。

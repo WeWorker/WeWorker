@@ -1,4 +1,22 @@
-export const API = 'http://127.0.0.1:8765'
+const DEFAULT_API = 'http://127.0.0.1:8765'
+export let API = DEFAULT_API
+let backendConnectionPromise
+
+export async function initializeBackendConnection() {
+  if (!backendConnectionPromise) {
+    backendConnectionPromise = (async () => {
+      const address = await window.electronAPI?.getBackendUrl?.()
+      if (!address) return
+      const url = new URL(address)
+      if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port
+        || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+        throw new Error('Invalid backend address')
+      }
+      API = url.origin
+    })().catch(error => { backendConnectionPromise = undefined; throw error })
+  }
+  return backendConnectionPromise
+}
 
 let authTokenPromise
 
@@ -10,11 +28,16 @@ export async function getAuthToken() {
 }
 
 function buildBackendUrl(pathOrUrl) {
-  if (String(pathOrUrl).startsWith(API)) return pathOrUrl
+  if (/^https?:\/\//i.test(String(pathOrUrl))) {
+    const url = new URL(pathOrUrl)
+    if (![API, DEFAULT_API].includes(url.origin)) throw new Error('Invalid backend request address')
+    return API + url.pathname + url.search + url.hash
+  }
   return `${API}${String(pathOrUrl).startsWith('/') ? '' : '/'}${pathOrUrl}`
 }
 
 export async function backendFetch(pathOrUrl, options = {}) {
+  await initializeBackendConnection()
   const token = await getAuthToken()
   const headers = new Headers(options.headers || {})
   if (token) headers.set('X-WeWorker-Auth', token)
