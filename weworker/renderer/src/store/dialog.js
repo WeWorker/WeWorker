@@ -16,6 +16,6 @@ export function showAlert(message, title = '提示') {
   return useDialogStore.getState().enqueue({ kind: 'alert', title, message: String(message ?? '') })
 }
 
-export function showConfirm(message, title = '请确认', { danger = false } = {}) {
-  return useDialogStore.getState().enqueue({ kind: 'confirm', title, message: String(message ?? ''), danger })
+export function showConfirm(message, title = '请确认', { danger = false, dismissible = true } = {}) {
+  return useDialogStore.getState().enqueue({ kind: 'confirm', title, message: String(message ?? ''), danger, dismissible })
 }

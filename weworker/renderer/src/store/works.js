@@ -10,6 +10,7 @@ import { showAlert } from './dialog.js'
 import { discardMessageQueue, getMessageQueue } from './message-queue.js'
 import { createBackgroundChatSync } from '../utils/scheduled-task-sync.js'
 import { useChatDraftStore } from './chat-drafts.js'
+import { useConversationModelsStore, modelSelectionPayload } from './conversation-models.js'
 
 const pendingArchiveRequests = new Map()
 const pendingCreateWorkRequests = new Map()
@@ -68,7 +69,7 @@ export const useWorksStore = create((set, get) => ({
   },
 
   createWork: (opts = {}) => {
-    const requestKey = JSON.stringify([opts.projectId ?? null, Boolean(opts.forceNew), Boolean(opts.draftOnly), opts.styleId ?? null])
+    const requestKey = JSON.stringify([opts.projectId ?? null, Boolean(opts.forceNew), Boolean(opts.draftOnly), opts.styleId ?? null, opts.modelSelection ? modelSelectionPayload(opts.modelSelection) : null])
     if (pendingCreateWorkRequests.has(requestKey)) return pendingCreateWorkRequests.get(requestKey)
 
     const request = (async () => {
@@ -84,6 +85,7 @@ export const useWorksStore = create((set, get) => ({
         return null
       }
       const reuseEmptyWork = async (work) => {
+        if (opts.modelSelection) await useConversationModelsStore.getState().save(`work:${work.id}`, opts.modelSelection)
         set({ activeWorkId: work.id, draftProjectId: null })
         getScheduledTasksStore().then(s => s?.setState({ activeTaskId: null })).catch(() => {})
         // 风格沿用 work 上的 `zcf_role` 字段名（历史字段，改名需要数据迁移）。
@@ -124,6 +126,7 @@ export const useWorksStore = create((set, get) => ({
         const body = {}
         if (opts.projectId !== undefined) body.project_id = opts.projectId
         if (opts.styleId !== undefined) body.zcf_role = opts.styleId
+        if (opts.modelSelection) body.model_selection = modelSelectionPayload(opts.modelSelection)
         const res = await backendFetch(`${API}/works`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

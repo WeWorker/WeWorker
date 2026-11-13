@@ -151,6 +151,10 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
   }, [workId])
 
   useEffect(() => () => onSelectModeChange?.(false), [onSelectModeChange])
+  useEffect(() => () => {
+    const panel = useFileChangesStore.getState()
+    if (panel.scope === 'chat' && panel.workId === workId) panel.closePanel()
+  }, [workId])
 
   // 压缩期间轮询后端心跳：有产出就是「压缩中」，长时间无产出才是「可能卡住」。
   const [compactionHeartbeat, setCompactionHeartbeat] = useState(null)

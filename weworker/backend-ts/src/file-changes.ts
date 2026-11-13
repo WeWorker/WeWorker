@@ -26,7 +26,7 @@ export interface FileChangeRecord {
   turnId: string
   toolCallId: string
   tool: string
-  source: 'file_tool' | 'command'
+  source: 'file_tool' | 'command' | 'tool'
   status: 'recording' | 'completed' | 'failed' | 'unchanged'
   startedAt: string
   completedAt?: string
@@ -34,7 +34,7 @@ export interface FileChangeRecord {
   files: FileChange[]
 }
 export type FileChangeSummary = Omit<FileChangeRecord, 'files'> & {
-  files: Array<Pick<FileChange, 'path' | 'added' | 'removed'> & { comparable: boolean; operation: FileChangeOperation }>
+  files: Array<Pick<FileChange, 'path' | 'added' | 'removed'> & { comparable: boolean; operation: FileChangeOperation; size?: number; state?: FileSnapshot['state'] }>
   fileCount: number
   added: number
   removed: number
@@ -108,10 +108,10 @@ export function fileChangeOperation(file: Pick<FileChange, 'before' | 'after'>):
 }
 export function summarizeFileChange(record: FileChangeRecord): FileChangeSummary {
   // The command's baseline is not evidence that it changed every scanned file.
-  const files = record.source === 'command' && record.status === 'recording' ? [] : record.files
+  const files = record.source !== 'file_tool' && record.status === 'recording' ? [] : record.files
   return {
     ...record,
-    files: files.map(file => ({ path: file.path, added: file.added, removed: file.removed, operation: fileChangeOperation(file), comparable: comparable(file.before) && comparable(file.after) })),
+    files: files.map(file => ({ path: file.path, added: file.added, removed: file.removed, operation: fileChangeOperation(file), comparable: comparable(file.before) && comparable(file.after), size: file.after.size ?? file.before.size, state: file.after.state })),
     fileCount: files.length,
     added: files.reduce((sum, file) => sum + file.added, 0),
     removed: files.reduce((sum, file) => sum + file.removed, 0),

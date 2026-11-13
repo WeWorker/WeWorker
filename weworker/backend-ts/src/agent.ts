@@ -16,12 +16,15 @@ import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { Settings } from './config.js'
+import { conversationModels, resolveConversationModelSettings } from './conversation-models.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
 import { normalizeContextLimit } from './context-window.js'
 import { formatBlacklistEntry } from './user-directory-blacklist.js'
-import { allowsNativeCommands, isGuardedDesktopMode, type ChannelPermissionMode } from './channels/channel-permissions.js'
-import { getWorkspaceDirectoryForWork, type Message } from './works-store.js'
+import { allowsNativeCommands, type ChannelPermissionMode } from './channels/channel-permissions.js'
+import type { Message } from './works-store.js'
+import { resolveAgentWorkspaceDirectory } from './workspace-context.js'
+import { isExplorationConversation } from './exploration-conversations.js'
 import { markCompactionFinished, markCompactionProgress, markCompactionStarted } from './compaction-status.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
 import { bindReadQueryReceipt, discardReadQueryTurn, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
@@ -1152,6 +1155,11 @@ export function* mapSdkMessage(
 
 export async function* streamChat(...args: Parameters<typeof streamChatWithBaseUrl>): AsyncGenerator<SSEEvent> {
   const workId = args[3]?.workId ?? args[0].at(-1)?.work_id
+  const selection = workId ? conversationModels.get(workId) : undefined
+  if (selection) {
+    args[1] = resolveConversationModelSettings(args[1], selection)
+    args[3] = { ...args[3], thinkingEffort: resolveThinkingEffort(args[1].active_provider, args[1].model, selection.thinking_effort) }
+  }
   if (args[3]?.warmupOnly) { yield* streamChatWithRuntime(...args); return }
   yield* recordWorkLogStream(workId, streamChatWithRuntime(...args), { messages: args[0] }, args[2]?.signal)
 }
@@ -1339,9 +1347,7 @@ async function* streamChatWithBaseUrl(
   phase.mark('adapter_reload_wait')
   const enabledAdapterIds = opts.enabledAdapterIds
   const channelPermissionMode = opts.channelPermissionMode ?? 'full'
-  const workspaceDirectory = isGuardedDesktopMode(channelPermissionMode) && opts.workId
-    ? getWorkspaceDirectoryForWork(opts.workId) || getUserDirectory()
-    : undefined
+  const workspaceDirectory = resolveAgentWorkspaceDirectory(opts.workId, channelPermissionMode)
   const internal = opts[STREAM_CHAT_INTERNAL]
   // Desktop turns need streaming input for steering. Guarded sessions live for
   // one turn so workspace and approval callbacks cannot leak into later turns.
@@ -1863,8 +1869,12 @@ async function* streamChatWithBaseUrl(
   }
   // Session callbacks resolve against the bindings of whichever turn is running.
   let activeBindings: ChatTurnBindings = turnBindings
+  // Service-owned Adapter packages are real outputs even when generated via WebCLI,
+  // rather than written by a file tool inside the SDK working directory.
   const changeHooks = createFileChangeHooks({
-    binding: () => ({ workId: activeBindings.workIdRef.current, turnId: activeBindings.fileChangeTurnId ?? readQueryTurnId, cwd: agentCwd }),
+    binding: () => ({ workId: activeBindings.workIdRef.current, turnId: activeBindings.fileChangeTurnId ?? readQueryTurnId, cwd: agentCwd,
+      observationRoots: activeBindings.workIdRef.current && isExplorationConversation(activeBindings.workIdRef.current)
+        ? [path.join(os.homedir(), '.weworker', 'webwright', 'toolkits')] : [] }),
     canRead: async file => activeBindings.extraToolGuard?.('Read', { file_path: file }).behavior !== 'deny'
       && (await filesystemToolGuard('Read', { file_path: file })).behavior !== 'deny',
   })

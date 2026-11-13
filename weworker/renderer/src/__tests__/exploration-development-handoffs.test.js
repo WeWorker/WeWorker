@@ -20,3 +20,16 @@ test('handoff markers survive reload, isolate records and never persist explorat
   assert.equal(next.getState().handoffs.exp_one, undefined)
   assert.equal(isDevelopmentSubmitted(next.getState().handoffs.exp_two, 'run_two'), true)
 })
+
+test('deleted records cannot reappear through stale development polling', () => {
+  const store = createExplorationDevelopmentHandoffsStore({ getItem: () => null, setItem() {}, removeItem() {} })
+  const first = { explorationId: 'example', work: { id: 'one' } }
+  const second = { explorationId: 'other', work: { id: 'two' } }
+  store.getState().remember(first)
+  store.getState().remember(second)
+  store.getState().record('example', 'one')
+  store.getState().forget('example')
+  store.getState().remember(first)
+  assert.deepEqual(store.getState().sessions, { two: second })
+  assert.equal(store.getState().handoffs.example, undefined)
+})

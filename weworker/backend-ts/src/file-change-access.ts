@@ -1,5 +1,7 @@
 import type { Express } from 'express'
-import { comparable, diffFileLines, fileChangeOperation, fileChanges, FileChangeStore, summarizeFileChange, type FileSnapshot } from './file-changes.js'
+import fs from 'node:fs'
+import path from 'node:path'
+import { comparable, diffFileLines, fileChangeOperation, fileChanges, FileChangeStore, summarizeFileChange, withoutSymlinks, type FileSnapshot } from './file-changes.js'
 
 const pageInteger = (value: unknown, fallback: number, maximum: number) => {
   if (value === undefined) return fallback
@@ -11,6 +13,16 @@ const pageInteger = (value: unknown, fallback: number, maximum: number) => {
 /** Register after the desktop authentication middleware. Only read routes exist. */
 export function registerFileChangeRoutes(app: Express, options: { store?: FileChangeStore; workExists: (id: string) => boolean }) {
   const store = options.store ?? fileChanges
+  app.get('/works/:id/file-changes/:changeId/artifact', (req, res) => {
+    if (!options.workExists(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
+    try {
+      const file = store.read(req.params.id, req.params.changeId)?.files[pageInteger(req.query.file, 0, 10_000)]
+      if (!file || !path.isAbsolute(file.path) || !withoutSymlinks(file.path) || !fs.statSync(file.path).isFile()) {
+        res.status(404).json({ detail: '当前文件不存在或不可读取' }); return
+      }
+      res.download(file.path, path.basename(file.path), error => { if (error && !res.headersSent) res.status(404).json({ detail: '当前文件不可读取' }) })
+    } catch { res.status(404).json({ detail: '当前文件不可读取' }) }
+  })
   app.get('/works/:id/file-changes', (req, res) => {
     if (!options.workExists(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
     try {

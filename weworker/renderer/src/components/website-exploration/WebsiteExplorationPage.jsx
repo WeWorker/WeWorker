@@ -3,66 +3,39 @@ import { message } from 'antd'
 import * as api from '../../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as useStore } from '../../store/website-exploration.js'
 import ExploreWorkspace from './ExploreWorkspace.jsx'
-import { useSettingsStore } from '../../store/settings.js'
-import { connectionMessage } from '../../utils/model-connection.js'
 import { ActionMenu, ErrorMessage, Modal, useAction, useSnapshot } from './shared.jsx'
 import './website-exploration.css'
 
-export default function WebsiteExplorationPage({ onOpenSettings }) {
+export default function WebsiteExplorationPage({ onOpenSettings, sidebarWidth, sidebarCollapsed, onSidebarResizeStart, toolbar }) {
   const [messageApi, messageContextHolder] = message.useMessage()
-  const [modelReady, setModelReady] = useState(false)
-  const [modelConnection, setModelConnection] = useState(null)
-  const [modelRetry, setModelRetry] = useState(0)
-  const providers = useSettingsStore(s => s.providers)
-  const activeProvider = useSettingsStore(s => s.activeProvider)
-  const model = useSettingsStore(s => s.model)
-  const modelRevision = useSettingsStore(s => s.explorationModelRevision)
-  useEffect(() => {
-    let current = true
-    setModelReady(false)
-    setModelConnection(null)
-    api.checkExplorationModel(modelRetry > 0).then(result => {
-      if (!current) return
-      setModelReady(Boolean(result.ok))
-      setModelConnection(result)
-    }).catch(error => {
-      if (current) setModelConnection({ ok: false, detail: error.message })
-    })
-    return () => { current = false }
-  }, [providers, activeProvider, model, modelRevision, modelRetry])
   const status = useSnapshot(async () => {
-    const [health, browser, activity] = await Promise.all([api.getHealth(), api.getBrowserStatus(), api.getActivity()])
+    const [health, activity] = await Promise.all([api.getHealth(), api.getActivity()])
     useStore.setState({ activity, connection: 'running' })
-    return { health, browser, activity }
+    return { health, activity }
   }, [])
-  const action = useAction(status.refresh)
-  const pageError = status.error || action.error
+  // Browser control can be slower than reading history; it must not block entry.
+  const browser = useSnapshot(() => api.getBrowserStatus(), [])
+  const action = useAction(() => Promise.all([status.refresh(), browser.refresh()]))
+  const pageError = status.error || browser.error || action.error
   useEffect(() => {
     if (pageError) messageApi.error(pageError)
   }, [messageApi, pageError])
   const unavailable = Boolean(status.error || !status.data)
   const globalBusy = Boolean(status.data?.activity.running)
   const activeExploration = globalBusy && status.data?.activity.kind === 'exploration' && status.data.activity.id
-  return <div className="website-exploration wx-page">
-    {messageContextHolder}
-    <header className="wx-topbar"><div><h1>Adapter工坊</h1><p className="wx-workshop-subtitle">从一次网站操作探索开始，一句话生成适配器，让每次网站操作皆可复用</p></div>
-      <div className="wx-actions">
-        <ActionMenu label={unavailable ? '服务未就绪' : status.data?.browser.running ? '浏览器已连接' : '浏览器未连接'}>
+  const serviceActions = <div className="wx-actions wx-service-actions">
+        <ActionMenu label={unavailable ? '服务未就绪' : !browser.data ? '服务已就绪' : browser.data.running ? '浏览器已连接' : '浏览器未连接'}>
           <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(''))}>打开浏览器</button>
         </ActionMenu>
-        {!unavailable && !status.data?.browser.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(''))} disabled={action.busy}>连接浏览器</button>}
+        {!unavailable && browser.data && !browser.data.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(''))} disabled={action.busy}>连接浏览器</button>}
       </div>
-    </header>
+  const notices = <>
     <ErrorMessage>{pageError}</ErrorMessage>
-    {!modelConnection && <p role="status">正在检查模型连接…</p>}
-    {modelConnection && !modelConnection.ok && <div className="wx-actions" role="status">
-      <p>{connectionMessage(modelConnection)}</p>
-      <button data-app-button="action" onClick={() => setModelRetry(value => value + 1)}>重试</button>
-      <button data-app-button="action" onClick={onOpenSettings}>模型设置</button>
-    </div>}
-    <div className="wx-layout"><main className="wx-main"><div className="wx-workspace">
-      <ExploreWorkspace disabled={unavailable} modelReady={modelReady} globalBusy={globalBusy} activeExplorationId={activeExploration || ''} activityReady={Boolean(status.data || status.error)} />
-    </div></main></div>
+  </>
+  return <div className="website-exploration wx-page" aria-label="Adapter工坊" aria-busy={status.loading}>
+    {messageContextHolder}
+    <ExploreWorkspace disabled={unavailable || browser.loading || Boolean(browser.error)} globalBusy={globalBusy} activeExplorationId={activeExploration || ''} activityReady={Boolean(status.data || status.error)}
+      sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={toolbar} serviceActions={serviceActions} notices={notices} />
   </div>
 }
 

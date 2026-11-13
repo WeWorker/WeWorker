@@ -23,10 +23,10 @@ export interface ProviderEntry {
   presentation?: { subtitle: string; color: string; bg: string }
   weworker: { protocol: LlmProtocol; baseUrl: string }
   webwright: {
-    protocol: 'anthropic_messages' | 'openai_chat_completions'
-    modelClass: 'anthropic' | 'zhipu' | 'openai_chat'
+    protocol: LlmProtocol
+    modelClass: 'anthropic' | 'zhipu' | 'openai_chat' | 'openai'
     baseUrl: string
-    structuredOutput: 'anthropic_json_schema' | 'openai_json_object'
+    structuredOutput: 'anthropic_json_schema' | 'openai_json_object' | 'openai_json_schema'
   }
 }
 

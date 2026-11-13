@@ -80,6 +80,97 @@ def test_compaction_settings_are_injected_into_the_exploration_agent(monkeypatch
     assert "agent.compaction_max_attempts=5" in overrides
 
 
+def test_composer_thinking_is_injected_into_exploration_only(monkeypatch, tmp_path: Path) -> None:
+    manager, _store, _commands = _manager(tmp_path, monkeypatch,
+        model_config_loader=lambda: _managed_model(thinking_effort="high"))
+    _file, overrides, _env = manager._resolve_model()
+    assert 'model.thinking_effort="high"' in overrides
+
+
+def test_disabled_thinking_survives_config_parsing(monkeypatch, tmp_path: Path) -> None:
+    from webwright.config import get_config_from_spec
+    from webwright.models import get_model
+
+    manager, _store, _commands = _manager(tmp_path, monkeypatch,
+        model_config_loader=lambda: _managed_model(model_class="openai_chat", thinking_effort="off"))
+    config_file, overrides, env = manager._resolve_model()
+    config = get_config_from_spec(config_file)["model"]
+    for spec in overrides:
+        config.update(get_config_from_spec(spec).get("model", {}))
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    model = get_model(config)
+    assert model.config.thinking_effort == "off"
+
+
+@pytest.mark.parametrize("protocol,model_class,output,auth_type,suffix", [
+    ("anthropic_messages", "anthropic", "anthropic_json_schema", "api_key", "/v1/messages"),
+    ("anthropic_messages", "anthropic", "anthropic_json_schema", "auth_token", "/v1/messages"),
+    ("openai_chat_completions", "openai_chat", "openai_json_object", "auth_token", "/chat/completions"),
+    ("openai_responses", "openai", "openai_json_schema", "auth_token", "/responses"),
+])
+@pytest.mark.parametrize("full_url", [True, False])
+def test_shared_connection_reaches_exploration_and_development_workers(monkeypatch, tmp_path, protocol, model_class, output, auth_type, suffix, full_url):
+    from webwright.config import get_config_from_spec
+    from webwright.models import get_model
+
+    active = ManagedModelConfig.from_payload({"provider_id": "custom", "protocol": protocol, "model_class": model_class,
+        "base_url": "https://example.com/gateway" + ("/infer/?version=1" if full_url else ""), "base_url_is_full": full_url,
+        "model": "example-model", "api_key": "placeholder-key", "structured_output": output, "auth_type": auth_type,
+        "thinking_effort": "off", "context_limit": 200000})
+    manager, _store, _commands = _manager(tmp_path, monkeypatch, model_config_loader=lambda: active)
+    config_file, overrides, env = manager._resolve_model()
+    config = get_config_from_spec(config_file)["model"]
+    for spec in overrides:
+        config.update(get_config_from_spec(spec).get("model", {}))
+    assert "placeholder-key" not in json.dumps([config_file, overrides])
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    worker = get_model(config)
+    assert worker.config.thinking_effort == "off"
+    expected_endpoint = active.base_url if full_url else active.base_url + suffix
+    assert worker._post_url() == expected_endpoint
+    assert worker._request_headers() == active.request_headers
+    action = worker._build_payload([{"role": "user", "content": "Return JSON for an example task"}])
+    summary = worker._build_text_payload([{"role": "user", "content": "Summarize the example"}])
+    assert action["model"] == summary["model"] == "example-model"
+    assert "response_format" not in summary
+    assert "text" not in summary
+    assert "format" not in summary.get("output_config", {})
+    developer_config, developer_env = manager._resolve_developer_model()
+    assert "placeholder-key" not in json.dumps(developer_config)
+    assert developer_env == env
+    developer = get_model(developer_config)
+    assert developer._post_url() == expected_endpoint
+    assert developer._request_headers() == active.request_headers
+
+
+def test_exploration_attachments_are_saved_for_start_resume_and_followup(monkeypatch, tmp_path: Path) -> None:
+    manager, store, _commands = _manager(tmp_path, monkeypatch)
+    record = manager.start_url_exploration(start_url="https://example.com", instruction="Read the file",
+        attachments=[{"name": "example.txt", "data": "ZXhhbXBsZQ=="}])
+    task_id = record["task_id"]
+    spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
+    file = record["attachments"][0]
+    assert (Path(record["output_dir"]) / file["path"]).read_text() == "example"
+    assert file["path"] in spec["instruction"]
+    assert record["instruction"] == "Read the file"
+    assert manager._captured_cwd == Path(record["output_dir"])
+    for status, require_waiting in [(TaskStatus.CANCELLED.value, False), (TaskStatus.WAITING_FOR_USER.value, True), (TaskStatus.SUCCEEDED.value, False)]:
+        manager.active_process = None
+        manager.active_kind = manager.active_id = manager.active_task_id = ""
+        store.update_task(task_id, status=status)
+        if status != TaskStatus.CANCELLED.value:
+            atomic_write_json(Path(record["output_dir"]) / "trajectory.json", {"messages": []})
+        manager.continue_task(task_id=task_id, followup="", require_waiting=require_waiting,
+            attachments=[{"name": "followup.txt", "data": "bmV3"}])
+        turn = store.read_user_turns(task_id)[-1]
+        assert turn["content"] == "请结合附件继续探索。"
+        assert turn["attachments"][0]["name"] == "followup.txt"
+        spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
+        assert turn["attachments"][0]["path"] in (spec["followup"] or spec["instruction"])
+
+
 def _manager(
     tmp_path: Path, monkeypatch, *, toolkit_store=None, model_config_loader=None
 ) -> tuple[ProcessManager, TaskStore, list[list[str]]]:
@@ -103,7 +194,28 @@ def _manager(
 
     monkeypatch.setattr(manager, "_spawn", fake_spawn)
     monkeypatch.setattr(manager, "_start_watcher", lambda **kwargs: None)
+    monkeypatch.setattr(manager, "ensure_exploration_title", lambda task: None)
     return manager, store, commands
+
+
+def test_exploration_workspace_exists_before_worker_starts(tmp_path, monkeypatch):
+    from webwright.server.artifact_workspace import artifact_output_dir
+    user_files = tmp_path / 'user-files'
+    monkeypatch.setenv('WEWORKER_USER_FILES_DIR', str(user_files))
+    manager, store, _ = _manager(tmp_path, monkeypatch)
+    assert not (user_files / 'website-exploration').exists()
+    original_spawn = manager._spawn
+
+    def checked_spawn(*args, **kwargs):
+        task_root = kwargs['cwd']
+        visible = user_files / 'website-exploration' / task_root.name
+        assert visible.is_dir()
+        assert artifact_output_dir(task_root) == visible
+        return original_spawn(*args, **kwargs)
+
+    monkeypatch.setattr(manager, '_spawn', checked_spawn)
+    task = manager.start_task(instruction='Read example.com', start_url='https://example.com', activity_type='exploration')
+    assert artifact_output_dir(store.task_dir(task['task_id'])).is_dir()
 
 
 @pytest.mark.parametrize("prepared_url", [
@@ -284,6 +396,27 @@ def test_followup_before_first_step(monkeypatch, tmp_path: Path, outcome: str, u
     if not url_only:
         assert 'environment.allowed_domains=["example.org"]' in spec["config_spec"]
     assert [turn["content"] for turn in store.read_user_turns(task_id)] == notes
+
+
+def test_exploration_start_and_resume_keep_own_model_and_context(monkeypatch, tmp_path):
+    selections = []
+    def load(*, selection=None):
+        selections.append(selection)
+        return _managed_model(model=selection["model"] if selection else "changed-default", context_limit=128000, thinking_effort="high")
+    manager, store, _ = _manager(tmp_path, monkeypatch, model_config_loader=load)
+    selection = {"provider": "example-config", "model": "session-model", "thinking_effort": "high"}
+    record = manager.start_url_exploration(start_url="https://example.org", model_selection=selection)
+    task_id = record["task_id"]
+    assert TaskStore(store.root).read_exploration(task_id)["model_selection"] == selection
+    manager.active_process.terminate()
+    manager._finish_task(task_id, -15)
+    manager.continue_task(task_id=task_id, followup="Continue the same exploration")
+    assert selections == [selection, selection]
+    spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
+    assert "agent.context_limit=128000" in spec["config_spec"]
+    assert 'model.thinking_effort="high"' in spec["config_spec"]
+    assert any("session-model" in value for value in spec["config_spec"])
+    assert "api_key" not in json.dumps(record)
 
 
 def test_blocked_startup_waits_and_continues_on_the_same_browser_page(monkeypatch, tmp_path):
@@ -812,7 +945,7 @@ def test_start_task_rejects_when_no_model_key(monkeypatch, tmp_path: Path) -> No
             requested_task_id="nokey",
         )
 
-    assert "请先在 WeWorker 中配置" in str(exc.value)
+    assert "请为当前会话选择" in str(exc.value)
     assert spawned == []
     assert store.list_tasks() == []  # no dangling task record
     server_log = (tmp_path / "logs" / "server.log").read_text(encoding="utf-8")

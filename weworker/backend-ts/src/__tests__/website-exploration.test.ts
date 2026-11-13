@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import express from 'express'
 import type { Server } from 'node:http'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { allowedExplorationRequest, createWebsiteExplorationRouter, mapExplorationResources } from '../website-exploration.js'
 
 const servers: Server[] = []
 afterEach(() => { for (const server of servers.splice(0)) server.close() })
-async function harness(fetcher: typeof fetch, instanceId = 'owned') {
+async function harness(fetcher: typeof fetch, instanceId = 'owned', hooks: Parameters<typeof createWebsiteExplorationRouter>[0] = {}) {
   const app = express()
   app.use((req, res, next) => { if (req.header('X-WeWorker-Auth') !== 'client') { res.sendStatus(401); return }; next() })
   app.use(express.json())
-  app.use('/api/website-exploration', createWebsiteExplorationRouter({ fetch: fetcher, instanceId }))
+  app.use('/api/website-exploration', createWebsiteExplorationRouter({ fetch: fetcher, instanceId, ...hooks }))
   const server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)) })
   servers.push(server)
   const address = server.address() as { port: number }
@@ -18,9 +21,34 @@ async function harness(fetcher: typeof fetch, instanceId = 'owned') {
 const health = () => Response.json({ ok: true, instance_id: 'owned' })
 
 describe('website exploration route boundary', () => {
+  it('streams recorded JSON artifacts unchanged rather than rewriting their contents as API resources', async () => {
+    const content = '{\n  "resource": "/api/explorations/example/events"\n}\n'
+    const call = await harness((async (url: string) => url.endsWith('/api/health') ? health()
+      : new Response(content, { headers: { 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="report.json"' } })) as typeof fetch)
+    const response = await call('/explorations/example/file-changes/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/artifact?file=0')
+    expect(response.headers.get('content-disposition')).toContain('attachment')
+    expect(await response.text()).toBe(content)
+  })
   it.each([
+    ['GET', '/api/explorations/example/file-changes?offset=100', true],
+    ['GET', '/api/explorations/example/file-changes?offset=-1', false],
+    ['GET', '/api/explorations/example/file-changes?tools=anything', false],
+    ['GET', '/api/explorations/example/file-changes/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?file=0', true],
+    ['GET', '/api/explorations/example/file-changes/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/artifact?file=1', true],
+    ['GET', '/api/explorations/example/file-changes/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?file=0&file=1', false],
+    ['POST', '/api/explorations/example/file-changes', false],
     ['GET', '/api/explorations', true], ['POST', '/api/explorations', true],
+    ['PATCH', '/api/explorations/example', true], ['DELETE', '/api/explorations/example', true],
+    ['PATCH', '/api/explorations', false], ['DELETE', '/api/explorations/example?force=true', false],
+    ['DELETE', '/api/explorations/example/timeline', false],
     ['DELETE', '/api/explorations', false], ['GET', '/api/explorations?path=secret', false],
+    ['GET', '/api/explorations?view=summary', true],
+    ['GET', '/api/toolkits/demo/tools/read_page/explorations?view=summary', true],
+    ['GET', '/api/explorations?view=other', false],
+    ['GET', '/api/explorations?view=summary&view=summary', false],
+    ['GET', '/api/explorations?view=summary&path=secret', false],
+    ['POST', '/api/explorations?view=summary', false],
+    ['GET', '/api/explorations/one?view=summary', false],
     ['GET', '/api/toolkits', true], ['GET', '/api/browser/match?url=https%3A%2F%2Fexample.com', true],
     ['GET', '/api/browser/match?toolkit_id=demo&tool_id=read_page', true],
     ['GET', '/api/browser/match?toolkit_id=demo&allowed_domains=other.example.org', false],
@@ -74,10 +102,56 @@ describe('website exploration route boundary', () => {
     expect(result.headers.get('content-type')).toContain('text/event-stream')
     expect(await result.text()).toBe(stream)
   })
+  it('transports attachments through exploration routes without exposing host paths', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'exploration-proxy-'))
+    try {
+      const file = path.join(dir, 'example.txt')
+      await fs.writeFile(file, 'example')
+      const upstream = vi.fn().mockImplementation((url: string) => url.endsWith('/health') ? health() : Response.json({ exploration_id: 'example' }))
+      const request = await harness(upstream)
+      const options = { method: 'POST', headers: { 'X-WeWorker-Auth': 'client', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'Read the attachment', attachments: [{ path: file }] }) }
+      for (const route of ['/explorations', '/explorations/example/messages', '/explorations/example/resume']) {
+        expect((await request(route, options)).status).toBe(200)
+        const body = JSON.parse(upstream.mock.calls.at(-1)![1].body)
+        expect(body.attachments).toEqual([{ name: 'example.txt', data: Buffer.from('example').toString('base64') }])
+        expect(JSON.stringify(body)).not.toContain(dir)
+      }
+      expect((await request('/explorations/example/cancel', options)).status).toBe(400)
+    } finally { await fs.rm(dir, { recursive: true, force: true }) }
+  })
   it('fails closed without managed instance configuration', async () => {
     const upstream = vi.fn()
     const request = await harness(upstream, '')
     expect((await request('/health')).status).toBe(503)
     expect(upstream).not.toHaveBeenCalled()
+  })
+  it('checks active generation before deleting and never forwards rejected deletion', async () => {
+    const upstream = vi.fn().mockImplementation(health)
+    const afterDelete = vi.fn()
+    const request = await harness(upstream, 'owned', { beforeDelete: () => { throw new Error('正在生成') }, afterDelete })
+    const response = await request('/explorations/example', { method: 'DELETE' })
+    expect(response.status).toBe(409)
+    expect(upstream).toHaveBeenCalledTimes(1)
+    expect(afterDelete).not.toHaveBeenCalled()
+  })
+  it.each([200, 409])('records deletion only after the exploration service accepts it (%s)', async status => {
+    const upstream = vi.fn().mockImplementationOnce(health).mockResolvedValueOnce(Response.json({ ok: status === 200 }, { status }))
+    const beforeDelete = vi.fn(), afterDelete = vi.fn()
+    const request = await harness(upstream, 'owned', { beforeDelete, afterDelete })
+    expect((await request('/explorations/example', { method: 'DELETE' })).status).toBe(status)
+    expect(beforeDelete).toHaveBeenCalledWith('example')
+    expect(afterDelete).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
+    if (status === 200) expect(afterDelete).toHaveBeenCalledWith('example')
+  })
+  it('forwards rename unchanged without invoking deletion hooks', async () => {
+    const upstream = vi.fn().mockImplementationOnce(health).mockResolvedValueOnce(Response.json({ title: 'Example title' }))
+    const beforeDelete = vi.fn(), afterDelete = vi.fn()
+    const request = await harness(upstream, 'owned', { beforeDelete, afterDelete })
+    const response = await request('/explorations/example', { method: 'PATCH', headers: { 'X-WeWorker-Auth': 'client', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Example title' }) })
+    expect(response.status).toBe(200)
+    expect(JSON.parse(upstream.mock.calls[1][1].body)).toEqual({ title: 'Example title' })
+    expect(beforeDelete).not.toHaveBeenCalled()
+    expect(afterDelete).not.toHaveBeenCalled()
   })
 })

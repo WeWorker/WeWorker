@@ -142,11 +142,11 @@ def _openapi_spec() -> dict[str, Any]:
             "/api/debug-runs/{debug_run_id}/events": {"get": op("Stream Debug Run events")},
             "/api/debug-runs/{debug_run_id}/files/{path}": {"get": op("Read a Debug Run artifact")},
             "/api/explorations": {
-                "get": op("List site explorations"),
+                "get": {**op("List site explorations"), "parameters": [{"name": "view", "in": "query", "schema": {"type": "string", "enum": ["summary"]}, "description": "Return record metadata without reading execution artifacts."}]},
                 "post": op("Start exploration from a URL without a Tool"),
             },
             "/api/toolkits/{toolkit_id}/tools/{tool_id}/explorations": {
-                "get": op("List Tool-owned Explorations"),
+                "get": {**op("List Tool-owned Explorations"), "parameters": [{"name": "view", "in": "query", "schema": {"type": "string", "enum": ["summary"]}, "description": "Return record metadata without reading execution artifacts."}]},
                 "post": op("Create and start a Tool-owned Exploration"),
             },
             "/api/explorations/{exploration_id}": {
@@ -269,6 +269,7 @@ It has no independent model configuration API or persistent model store.
 ## Explorations
 
 - `GET /api/explorations` - list independent and Tool-owned Explorations.
+- Add `?view=summary` to either Exploration list endpoint to read only record metadata, without scanning steps, code or screenshots. Use the detail and timeline endpoints when opening a record.
 - `POST /api/explorations` - start an independent Exploration with `start_url` and optional `instruction` / `title`; no Tool or prepared page is required.
 - `GET /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/explorations` - list one Tool's Explorations.
 - `POST /api/toolkits/{{toolkit_id}}/tools/{{tool_id}}/explorations` - create and start an Exploration.
@@ -374,8 +375,23 @@ def _task_view(task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _exploration_summary(task: dict[str, Any]) -> dict[str, Any]:
+    # History only needs task.json; full views scan every recorded execution step.
+    return {
+        "exploration_id": str(task.get("task_id", "")),
+        **{key: task.get(key, "") for key in (
+            "title", "instruction", "start_url", "status", "toolkit_id", "tool_id",
+            "created_at", "updated_at",
+        )},
+    }
+
+
 def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
     view = _task_view(task)
+    checkpoint = try_read_json(Path(task["output_dir"]) / ".server" / "checkpoint.json", attempts=1)
+    usage = checkpoint.get("context_usage") if isinstance(checkpoint, dict) else None
+    if not isinstance(usage, dict) or type(usage.get("input_tokens")) is not int or usage["input_tokens"] < 0:
+        usage = None
     exploration_id = view["task_id"]
     screenshot_url = str(view["last_screenshot_url"] or "").replace(
         f"/api/tasks/{exploration_id}/files/",
@@ -406,6 +422,8 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
         "toolkit_id": view["toolkit_id"],
         "tool_id": view["tool_id"],
         "instruction": view["instruction"],
+        "attachments": task.get("attachments", []),
+        "context_usage": usage,
         "status": view["status"],
         "completed_goal": view["status"] == TaskStatus.SUCCEEDED.value,
         "step_count": view["current_step"],
@@ -470,6 +488,7 @@ def _exploration_timeline(
                     "type": "user",
                     "subtype": "followup",
                     "content": content,
+                    **({"attachments": turn["attachments"]} if turn.get("attachments") else {}),
                     "after_step": after_step,
                     "created_at": turn.get("created_at", ""),
                 }
@@ -1251,7 +1270,8 @@ def create_app(
 
     @app.get("/api/explorations")
     def list_site_explorations():
-        return jsonify({"explorations": [_exploration_view(item) for item in task_store.list_explorations()]})
+        view = _exploration_summary if request.args.get("view") == "summary" else _exploration_view
+        return jsonify({"explorations": [view(item) for item in task_store.list_explorations()]})
 
     @app.post("/api/explorations")
     def create_site_exploration():
@@ -1260,6 +1280,8 @@ def create_app(
             start_url=str(payload.get("start_url") or ""),
             instruction=str(payload.get("instruction") or ""),
             title=str(payload.get("title") or ""),
+            **({"attachments": payload["attachments"]} if "attachments" in payload else {}),
+            **({"model_selection": payload["model_selection"]} if "model_selection" in payload else {}),
         )
         return jsonify(_exploration_view(exploration))
 
@@ -1269,8 +1291,9 @@ def create_app(
         explorations = task_store.list_explorations(
             toolkit_id=toolkit_id, tool_id=tool_id
         )
+        view = _exploration_summary if request.args.get("view") == "summary" else _exploration_view
         return jsonify(
-            {"explorations": [_exploration_view(item) for item in explorations]}
+            {"explorations": [view(item) for item in explorations]}
         )
 
     @app.post("/api/toolkits/<toolkit_id>/tools/<tool_id>/explorations")
@@ -1284,6 +1307,8 @@ def create_app(
             tool_id=tool_id,
             supplement=str(payload.get("instruction") or ""),
             target_id=str(payload.get("target_id") or ""),
+            **({"attachments": payload["attachments"]} if "attachments" in payload else {}),
+            **({"model_selection": payload["model_selection"]} if "model_selection" in payload else {}),
         )
         exploration_id = str(exploration["task_id"])
         return jsonify(
@@ -1297,9 +1322,9 @@ def create_app(
 
     @app.get("/api/explorations/<exploration_id>")
     def get_exploration(exploration_id: str):
-        return jsonify(
-            _exploration_view(task_store.read_exploration(exploration_id))
-        )
+        task = task_store.read_exploration(exploration_id)
+        manager.ensure_exploration_title(task)
+        return jsonify(_exploration_view(task))
 
     @app.get("/api/explorations/<exploration_id>/timeline")
     def get_exploration_timeline(exploration_id: str):
@@ -1322,6 +1347,26 @@ def create_app(
                 )
             }
         )
+
+    @app.get("/api/explorations/<exploration_id>/model")
+    def get_exploration_model(exploration_id: str):
+        task = task_store.read_exploration(exploration_id)
+        return jsonify({"model_selection": task.get("model_selection")})
+
+    @app.post("/api/explorations/<exploration_id>/model")
+    def save_exploration_model(exploration_id: str):
+        task = manager.save_exploration_model(exploration_id, _request_json().get("model_selection"))
+        return jsonify({"model_selection": task["model_selection"]})
+
+    @app.patch("/api/explorations/<exploration_id>")
+    def rename_exploration(exploration_id: str):
+        task = task_store.rename_exploration(exploration_id, _request_json().get("title"))
+        return jsonify(_exploration_summary(task))
+
+    @app.delete("/api/explorations/<exploration_id>")
+    def delete_exploration(exploration_id: str):
+        manager.delete_exploration(exploration_id)
+        return jsonify({"ok": True})
 
     @app.get("/api/explorations/<exploration_id>/events")
     def exploration_events(exploration_id: str):
@@ -1404,6 +1449,30 @@ def create_app(
             }
         )
 
+    @app.get("/api/explorations/<exploration_id>/file-changes")
+    def get_exploration_file_changes(exploration_id: str):
+        from webwright.server.file_changes import FileChangeJournal
+        exploration = task_store.read_exploration(exploration_id)
+        offset = int(request.args.get('offset', '0'))
+        if not 0 <= offset <= 1_000_000:
+            raise ValueError('Invalid offset')
+        records = FileChangeJournal(Path(exploration['output_dir'])).list()
+        return jsonify({'records': records[offset:offset + 100], 'total': len(records),
+                        'nextOffset': offset + 100 if offset + 100 < len(records) else None})
+
+    @app.get("/api/explorations/<exploration_id>/file-changes/<record_id>")
+    def get_exploration_file_change(exploration_id: str, record_id: str):
+        from webwright.server.file_changes import FileChangeJournal
+        exploration = task_store.read_exploration(exploration_id)
+        return jsonify(FileChangeJournal(Path(exploration['output_dir'])).detail(record_id, int(request.args.get('file', '0'))))
+
+    @app.get("/api/explorations/<exploration_id>/file-changes/<record_id>/artifact")
+    def get_exploration_change_artifact(exploration_id: str, record_id: str):
+        from webwright.server.file_changes import FileChangeJournal
+        exploration = task_store.read_exploration(exploration_id)
+        file = FileChangeJournal(Path(exploration['output_dir'])).artifact(record_id, int(request.args.get('file', '0')))
+        return send_file(file, as_attachment=True)
+
     @app.get("/api/explorations/<exploration_id>/messages")
     def get_exploration_messages(exploration_id: str):
         exploration = task_store.read_exploration(exploration_id)
@@ -1418,6 +1487,7 @@ def create_app(
         exploration = manager.continue_task(
             task_id=exploration_id,
             followup=str(payload.get("content") or ""),
+            **({"attachments": payload["attachments"]} if "attachments" in payload else {}),
         )
         return jsonify(
             {"exploration_id": exploration_id, "status": exploration["status"]}
@@ -1432,6 +1502,7 @@ def create_app(
             task_id=exploration_id,
             followup=note,
             require_waiting=True,
+            **({"attachments": payload["attachments"]} if "attachments" in payload else {}),
         )
         return jsonify(
             {"exploration_id": exploration_id, "status": exploration["status"]}

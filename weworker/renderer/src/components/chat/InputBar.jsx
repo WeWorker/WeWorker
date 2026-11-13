@@ -30,8 +30,9 @@ import FileGlyph, { getFileTypeLabel, getFileTypeMeta } from '../files/FileTypeI
 import { getChatCompletionPlacement } from '../../utils/chat-completion-placement.js'
 import ContextPanel from './ContextPanel.jsx'
 import ModelSelector from './ModelSelector.jsx'
+import { useConversationModel, useConversationModelsStore } from '../../store/conversation-models.js'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
-import { normalizeThinkingEffort, THINKING_EFFORT_STORAGE_KEY } from '../../utils/thinking-effort.js'
+import { normalizeThinkingEffort } from '../../utils/thinking-effort.js'
 import { shouldWarmupOnTextChange } from '../../utils/chat-warmup.js'
 import { confirmChatPermissionMode } from '../../utils/chat-permission-confirmation.js'
 import { readChatPermissionMode, saveChatPermissionMode } from '../../utils/chat-permission-preferences.js'
@@ -93,6 +94,7 @@ export default function InputBar({
   ignoreGlobalFill = false,
   permissionScope,
   defaultPermissionMode = 'workspace',
+  hidePermissionMode = false,
   contextSnapshot = null,
   historyMessages = [],
   onWarmup,
@@ -112,13 +114,12 @@ export default function InputBar({
   const hasAttachments = attachments.length > 0
   const attachmentLimit = Math.max(1, Number(maxAttachments) || DEFAULT_MAX_ATTACHMENTS)
   const pasteTextAttachmentThreshold = useSettingsStore((s) => s.pasteTextAttachmentThreshold)
-  const contextLimit = useSettingsStore((s) => s.contextLimit)
+  const sessionModel = useConversationModel(attachmentTarget)
+  const contextLimit = sessionModel.selection.context_limit
   const textAttachmentThreshold = Math.max(1, Number(pasteTextAttachmentThreshold) || DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD)
   const overAttachmentLimit = attachments.length > attachmentLimit
   const [modelSelectionPending, setModelSelectionPending] = useState(false)
-  const [thinkingEffort, setThinkingEffort] = useState(() => {
-    try { return normalizeThinkingEffort(window.localStorage.getItem(THINKING_EFFORT_STORAGE_KEY)) } catch { return 'off' }
-  })
+  const thinkingEffort = sessionModel.selection.thinking_effort || 'off'
   const [permissionMode, setPermissionMode] = useState(() => readChatPermissionMode({ permissionScope, defaultPermissionMode }))
   const [welcomePromptPlaceholder, setWelcomePromptPlaceholder] = useState(() => getRandomWelcomePromptPlaceholder())
   const handlePermissionModeChange = useCallback(async (value) => {
@@ -129,9 +130,8 @@ export default function InputBar({
   }, [permissionScope])
   const handleThinkingEffortChange = useCallback((value) => {
     const next = normalizeThinkingEffort(value)
-    setThinkingEffort(next)
-    try { window.localStorage.setItem(THINKING_EFFORT_STORAGE_KEY, next) } catch {}
-  }, [])
+    void useConversationModelsStore.getState().save(attachmentTarget, { ...sessionModel.selection, thinking_effort: next }).catch(() => {})
+  }, [attachmentTarget, sessionModel.selection])
   const [bodyPreview, setBodyPreview] = useState(false)
   const [savingBody, setSavingBody] = useState(false)
   const [bodyNotice, setBodyNotice] = useState('')
@@ -143,7 +143,7 @@ export default function InputBar({
   const bodyFiles = attachments.filter(isFormattedBody)
   const ordinaryFiles = attachments.filter(file => !isFormattedBody(file))
   const bodyEditing = bodyFiles.some(file => typeof file.formattedBody.draft === 'string')
-  const inputDisabled = !!disabled || (!!streaming && !allowQueue) || modelSelectionPending || savingBody
+  const inputDisabled = !!disabled || (!!streaming && !allowQueue) || modelSelectionPending || sessionModel.pending || !sessionModel.loaded || savingBody
   const isCommandMode = String(text || '').trimStart().startsWith('!')
   const showFormatMenu = !isCommandMode && hasBodyFormatting(text)
   const [attachmentNotice, setAttachmentNotice] = useState('')
@@ -1003,7 +1003,7 @@ export default function InputBar({
             </button>
           </div>
         </details>}
-        <div
+        {!hidePermissionMode && <div
           className="chat-permission-picker-tooltip"
           title={`权限模式：${CHAT_PERMISSION_MODES.find(mode => mode.value === permissionMode)?.label || '工作区内修改'}`}
         >
@@ -1018,11 +1018,12 @@ export default function InputBar({
             placement="top"
             className="chat-permission-picker"
           />
-        </div>
+        </div>}
         {!isWelcome && <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />}
       </div>
       <div className="chat-input-toolbar-actions">
         <ModelSelector
+          conversationScope={attachmentTarget}
           disabled={!!disabled || !!streaming}
           onPendingChange={setModelSelectionPending}
           thinkingEffort={thinkingEffort}
@@ -1238,7 +1239,7 @@ function commandCompletionKindLabel(item) {
   return '文件'
 }
 
-function AttachmentTray({ attachments, maxAttachments, notice, onRemove, disabled = false }) {
+export function AttachmentTray({ attachments, maxAttachments, notice, onRemove, disabled = false }) {
   const [expanded, setExpanded] = useState(false)
   useEffect(() => {
     if (attachments.length <= COLLAPSED_ATTACHMENT_COUNT) setExpanded(false)

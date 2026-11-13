@@ -33,6 +33,12 @@ html.dark .file-change-operation--delete { color: #ff8181; }
 .file-changes-panel__body { flex: 1; min-height: 0; overflow: auto; }
 .file-changes-panel__details { display: flex; gap: 12px; padding: 6px 16px; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
 .file-changes-note { cursor: help; }
+.file-change-artifact { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.file-change-artifact__bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.file-change-artifact__bar strong { flex: 1; min-width: 80px; overflow-wrap: anywhere; }
+.file-change-artifact figure { margin: 12px 0 0; text-align: center; }
+.file-change-artifact img { max-width: 100%; max-height: 320px; object-fit: contain; }
+.file-change-artifact figcaption { color: var(--text-muted); font-size: 11px; margin-top: 6px; }
 .file-change-diff-head, .file-change-diff-row, .file-change-metadata { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .file-change-diff-head { position: sticky; top: 0; background: var(--bg-secondary); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); z-index: 1; }
 .file-change-diff-head strong { padding: 9px 12px; font-size: 12px; font-weight: 500; }

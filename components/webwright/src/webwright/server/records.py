@@ -67,6 +67,7 @@ class TaskStore:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self._user_turns_lock = threading.RLock()
+        self._task_lock = threading.RLock()
 
     def task_dir(self, task_id: str) -> Path:
         task_dir = (self.root / task_id).resolve()
@@ -120,16 +121,60 @@ class TaskStore:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def write_task(self, task: dict[str, Any]) -> dict[str, Any]:
-        task_id = str(task["task_id"])
-        payload = dict(task)
-        payload["updated_at"] = now_iso()
-        atomic_write_json(self.task_path(task_id), payload)
-        return payload
+        with self._task_lock:
+            task_id = str(task["task_id"])
+            payload = dict(task)
+            payload["updated_at"] = now_iso()
+            atomic_write_json(self.task_path(task_id), payload)
+            return payload
 
     def update_task(self, task_id: str, **updates: Any) -> dict[str, Any]:
-        task = self.read_task(task_id)
-        task.update(updates)
-        return self.write_task(task)
+        with self._task_lock:
+            task = self.read_task(task_id)
+            task.update(updates)
+            return self.write_task(task)
+
+    def save_exploration_title(self, task_id: str, *, expected_title: str, title: str | None) -> None:
+        with self._task_lock:
+            task = self.read_exploration(task_id)
+            if task.get("title") != expected_title or task.get("title_source"):
+                return
+            if title:
+                task["title"] = title
+            task["title_source"] = "ai" if title else "fallback"
+            # Naming an old record is not new exploration activity.
+            atomic_write_json(self.task_path(task_id), task)
+
+    def rename_exploration(self, exploration_id: str, title: str) -> dict[str, Any]:
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200 or any(ord(c) < 32 for c in title):
+            raise ValueError("探索标题须为 1–200 个字符，且不能包含换行")
+        with self._task_lock:
+            task = self.read_exploration(exploration_id)
+            task.update(title=title.strip(), title_source="user")
+            # Renaming is metadata, not new conversation activity.
+            atomic_write_json(self.task_path(exploration_id), task)
+            return task
+
+    def save_exploration_model(self, exploration_id: str, selection: dict[str, str]) -> dict[str, Any]:
+        from webwright.server.weworker_model_config import validate_model_selection
+        selection = validate_model_selection(selection)
+        with self._task_lock:
+            task = self.read_exploration(exploration_id)
+            task["model_selection"] = selection
+            atomic_write_json(self.task_path(exploration_id), task)
+            return task
+
+    def delete_exploration(self, exploration_id: str) -> None:
+        with self._task_lock:
+            task = self.read_task(exploration_id)
+            if task.get("activity_type") != "exploration":
+                raise FileNotFoundError("探索记录不存在")
+            if task.get("deleted_at"):
+                return
+            # Keep evidence referenced by generated adapters; deleted records
+            # cannot be listed, reopened or resumed through exploration routes.
+            task["deleted_at"] = now_iso()
+            atomic_write_json(self.task_path(exploration_id), task)
 
     def list_tasks(self, *, status: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         tasks: list[dict[str, Any]] = []
@@ -138,7 +183,7 @@ class TaskStore:
                 task = json.loads(task_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
-            if status and task.get("status") != status:
+            if task.get("deleted_at") or (status and task.get("status") != status):
                 continue
             tasks.append(task)
         tasks.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
@@ -161,7 +206,7 @@ class TaskStore:
 
     def read_exploration(self, exploration_id: str) -> dict[str, Any]:
         task = self.read_task(exploration_id)
-        if task.get("activity_type") != "exploration":
+        if task.get("activity_type") != "exploration" or task.get("deleted_at"):
             raise FileNotFoundError(f"Exploration not found: {exploration_id}")
         return task
 
@@ -219,6 +264,7 @@ class TaskStore:
         *,
         content: str,
         after_step: int,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         normalized = str(content or "").strip()
         if not normalized:
@@ -231,6 +277,7 @@ class TaskStore:
                 "content": normalized,
                 "after_step": max(int(after_step), 0),
                 "created_at": now_iso(),
+                **({"attachments": attachments} if attachments else {}),
             }
             turns.append(turn)
             atomic_write_json(self.user_turns_path(task_id), {"turns": turns})

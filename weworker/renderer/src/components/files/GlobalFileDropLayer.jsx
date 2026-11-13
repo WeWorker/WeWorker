@@ -14,6 +14,10 @@ function isInsideUserFilesPanel(event) {
   return !!event.target?.closest?.('[data-weworker-user-files-panel="true"]')
 }
 
+function isInsideExplorationComposer(event) {
+  return !!event.target?.closest?.('[data-exploration-file-drop="true"]')
+}
+
 function getDroppedPaths(event) {
   const nativePaths = window.electronAPI?.getLastDroppedFilePaths?.() || []
   if (nativePaths.length) return nativePaths
@@ -87,6 +91,7 @@ export default function GlobalFileDropLayer() {
     }
 
     const showDragState = (event) => {
+      if (useUserFilesStore.getState().workspaceScope === 'website-exploration') { hideDragState(); return }
       if (dragIdleTimer) clearTimeout(dragIdleTimer)
       dragIdleTimer = setTimeout(hideDragState, 350)
       if (event) {
@@ -101,6 +106,7 @@ export default function GlobalFileDropLayer() {
 
     const onDragEnter = (event) => {
       if (!hasFiles(event)) return
+      if (isInsideExplorationComposer(event)) { hideDragState(); return }
       event.preventDefault()
       if (!isInsideUserFilesPanel(event)) event.stopPropagation()
       event.dataTransfer.dropEffect = 'copy'
@@ -109,6 +115,7 @@ export default function GlobalFileDropLayer() {
 
     const onDragOver = (event) => {
       if (!hasFiles(event)) return
+      if (isInsideExplorationComposer(event)) { hideDragState(); return }
       event.preventDefault()
       if (!isInsideUserFilesPanel(event)) event.stopPropagation()
       event.dataTransfer.dropEffect = 'copy'
@@ -117,6 +124,7 @@ export default function GlobalFileDropLayer() {
 
     const onDragLeave = (event) => {
       if (!hasFiles(event)) return
+      if (isInsideExplorationComposer(event)) { hideDragState(); return }
       event.preventDefault()
       if (!isInsideUserFilesPanel(event)) event.stopPropagation()
       if (!event.relatedTarget) hideDragState()
@@ -124,6 +132,9 @@ export default function GlobalFileDropLayer() {
 
     const onDrop = async (event) => {
       if (!hasFiles(event)) return
+      // This composer copies files through its own exploration request. Let its
+      // handler run instead of importing them into an unrelated chat workspace.
+      if (isInsideExplorationComposer(event)) { hideDragState(); return }
       const insideUserFilesPanel = isInsideUserFilesPanel(event)
       event.preventDefault()
       if (!insideUserFilesPanel) event.stopPropagation()

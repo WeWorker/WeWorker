@@ -312,6 +312,8 @@ export interface Settings {
   exploration_api_key: string
   exploration_model: string
   exploration_use_main_key: boolean
+  exploration_model_selection?: { provider: string; model: string } | null
+  exploration_thinking_effort?: 'off' | 'low' | 'medium' | 'high'
 
   custom_auth_type: import('./anthropic-auth.js').AnthropicAuthType
 

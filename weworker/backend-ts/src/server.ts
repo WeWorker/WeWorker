@@ -1,4 +1,5 @@
-import { prepareExplorationConversation, listExplorationConversations, excludeExplorationConversations } from './exploration-conversations.js'
+import { prepareExplorationConversation, listExplorationConversations, excludeExplorationConversations, markExplorationDeleted } from './exploration-conversations.js'
+import { workspaceDirectoryForContext } from './workspace-context.js'
 import { createSkillManagementRouter, sanitizeSkillDirectoryName } from './skill-management.js'
 import { officialSkillBuildTime } from './skill-build-time.js'
 import { randomUUID as channelQrId, createHash } from 'node:crypto'
@@ -74,7 +75,8 @@ import {
 } from './provider-registry.js'
 import { listProviderModels, probeTimedMainConnection, probeProviderProtocol, type ProbeTarget } from './provider-model-services.js'
 import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-catalog-config.js'
-import { registerExplorationModelRoutes } from './exploration-model-settings.js'
+import { registerExplorationModelRoutes, explorationConversationSettings } from './exploration-model-settings.js'
+import { conversationModels, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
 import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
@@ -113,7 +115,7 @@ import { getSiteMemory, listSiteMemories, saveSiteMemoryFromActionCapture, saveS
 import * as store from './works-store.js'
 import { listArchivedWorkIds } from './conversation-archive.js'
 import { getCompactionStatus } from './compaction-status.js'
-import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession } from './chat-session.js'
+import { disposeChatSession, disposeIdleChatSession, getSteerableChatSession, hasChatSession, hasSpareChatSession, isChatSessionBusy } from './chat-session.js'
 import { buildConfiguredModelEnv, messagePromptText, streamChat, type SSEEvent } from './agent.js'
 import { matchSiteAdapter, resolveSiteToolkitPrompt } from './site-gate.js'
 import { listToolkitSkills, resolveToolkitSkillPrompt, toolkitGateCandidates } from './toolkit-skills.js'
@@ -340,7 +342,10 @@ app.get('/internal/webwright/model-config', (req, res) => {
     return
   }
   try {
-    const config = resolveWebwrightModelConfig(getSettings())
+    const header = req.header('X-WeWorker-Model-Selection')
+    if (header && header.length > 2048) throw new Error('会话模型配置无效')
+    const selection = header ? JSON.parse(Buffer.from(header, 'base64url').toString('utf8')) : undefined
+    const config = resolveWebwrightModelConfig(explorationConversationSettings(getSettings(), selection))
     res.setHeader('Cache-Control', 'no-store')
     res.json(config)
   } catch (error) {
@@ -363,7 +368,15 @@ app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
     broadcastSSE({ type: 'adapter_state_changed', profile, revision, adapters: [name] })
   },
 }))
-app.use('/api/website-exploration', createWebsiteExplorationRouter())
+app.use('/api/website-exploration', createWebsiteExplorationRouter({
+  getSettings,
+  beforeDelete: explorationId => {
+    if (listExplorationConversations().some(session => session.explorationId === explorationId && isChatSessionBusy(session.workId))) {
+      throw new Error('适配器正在生成，请停止后再删除')
+    }
+  },
+  afterDelete: explorationId => markExplorationDeleted(explorationId),
+}))
 registerDedicatedAgentRoutes(app)
 app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   const detail = err instanceof Error ? err.message : String(err || '')
@@ -1142,6 +1155,7 @@ app.post('/settings/provider/probe', async (req, res) => {
 })
 
 registerExplorationModelRoutes(app, { getSettings, updateSettings })
+registerConversationModelRoutes(app, { getSettings, hasWork: id => Boolean(store.getWork(id)), isBusy: id => isChatSessionBusy(id) || sharedChatTurns.isActive(id) })
 
 app.get('/settings/channels', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store')
@@ -2447,7 +2461,16 @@ app.post('/works', (req, res) => {
     res.status(400).json({ detail: '定时任务对话只能由定时任务自动创建' })
     return
   }
+  let selection: ConversationModel | undefined
+  try {
+    const defaults = getSettings()
+    if (req.body.model_selection) {
+      selection = parseConversationModel(req.body.model_selection)
+      resolveConversationModelSettings(defaults, selection)
+    } else if (defaults.model) selection = defaultConversationModel(defaults)
+  } catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '会话模型无效' }); return }
   const work = store.createWork('', project_id ?? null)
+  if (selection) conversationModels.set(work.id, selection)
   if (zcf_role !== undefined) {
     const prefs = sanitizeWorkStylePatch({ zcf_role }, getSettings())
     const updated = store.updateWorkStyle(work.id, prefs)
@@ -2517,25 +2540,12 @@ app.post('/settings/label-names', (req, res) => {
   res.json(names)
 })
 
-function workspaceDirectoryForContext(workId?: string, projectId?: string): string | undefined {
-  if (workId) {
-    const work = store.getWork(workId)
-    if (!work) throw new Error('work not found')
-    return work.workspace_directory
-  }
-  if (projectId) {
-    const project = store.getProject(projectId)
-    if (!project) throw new Error('project not found')
-    return project.folder_path
-  }
-  return undefined
-}
-
 app.get('/user-files', (req, res) => {
   try {
     res.json(listUserFiles(workspaceDirectoryForContext(
       String(req.query.work_id || '') || undefined,
       String(req.query.project_id || '') || undefined,
+      String(req.query.workspace_scope || '') || undefined,
     )))
   } catch (e) {
     res.status(500).json({ detail: e instanceof Error ? e.message : 'failed to list user files' })
@@ -2543,63 +2553,63 @@ app.get('/user-files', (req, res) => {
 })
 
 app.post('/user-files/folder', (req, res) => {
-  const { parent_path, name, work_id, project_id } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string }
+  const { parent_path, name, work_id, project_id, workspace_scope } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
+    res.json(createUserFolder(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create folder' })
   }
 })
 
 app.post('/user-files/file', (req, res) => {
-  const { parent_path, name, work_id, project_id } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string }
+  const { parent_path, name, work_id, project_id, workspace_scope } = req.body as { parent_path?: string; name?: string; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
+    res.json(createUserFile(parent_path, name || '', workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to create file' })
   }
 })
 
 app.post('/user-files/rename', (req, res) => {
-  const { target_path, name, work_id, project_id } = req.body as { target_path?: string; name?: string; work_id?: string; project_id?: string }
+  const { target_path, name, work_id, project_id, workspace_scope } = req.body as { target_path?: string; name?: string; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForContext(work_id, project_id)))
+    res.json(renameUserItem(target_path, name || '', workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to rename item' })
   }
 })
 
 app.post('/user-files/delete', (req, res) => {
-  const { target_path, work_id, project_id } = req.body as { target_path?: string; work_id?: string; project_id?: string }
+  const { target_path, work_id, project_id, workspace_scope } = req.body as { target_path?: string; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(deleteUserItem(target_path, workspaceDirectoryForContext(work_id, project_id)))
+    res.json(deleteUserItem(target_path, workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to delete item' })
   }
 })
 
 app.post('/user-files/paste', (req, res) => {
-  const { source_path, target_parent_path, mode, work_id, project_id } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string; project_id?: string }
+  const { source_path, target_parent_path, mode, work_id, project_id, workspace_scope } = req.body as { source_path?: string; target_parent_path?: string; mode?: 'copy' | 'cut'; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForContext(work_id, project_id)))
+    res.json(pasteUserItem(source_path, target_parent_path, mode, workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to paste item' })
   }
 })
 
 app.post('/user-files/import', (req, res) => {
-  const { paths, target_parent_path, work_id, project_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string }
+  const { paths, target_parent_path, work_id, project_id, workspace_scope } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id)))
+    res.json(importUserFiles(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to import files' })
   }
 })
 
 app.post('/user-files/import-jobs', (req, res) => {
-  const { paths, target_parent_path, work_id, project_id } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string }
+  const { paths, target_parent_path, work_id, project_id, workspace_scope } = req.body as { paths?: string[]; target_parent_path?: string; work_id?: string; project_id?: string; workspace_scope?: string }
   try {
-    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id)))
+    res.json(startUserFileImportJob(paths, target_parent_path, workspaceDirectoryForContext(work_id, project_id, workspace_scope)))
   } catch (e) {
     res.status(400).json({ detail: e instanceof Error ? e.message : 'failed to start import job' })
   }
@@ -3106,9 +3116,9 @@ app.post('/works/:id/compact', async (req, res) => {
     res.status(404).json({ detail: 'Work not found' })
     return
   }
-  const settings = getSettings()
   const events: object[] = []
   try {
+    const settings = resolveWorkModelSettings(workId, getSettings())
     const result = await streamConversationCompaction(workId, work.messages, settings, (event) => {
       events.push(event)
     })
@@ -3137,17 +3147,20 @@ async function prewarmChatSession(input: {
   zcf: { zcf_role?: string | null }
   messages: store.Message[]
   thinkingEffort: ThinkingEffortInput
+  modelSelection?: ConversationModel
   dedicatedAgentOptions?: ReturnType<typeof buildDesktopAgentTurnOptions>
 }): Promise<void> {
   if (chatWarmupsInFlight.has(input.key)) return
   chatWarmupsInFlight.add(input.key)
   try {
-    const settings = getSettings()
+    const defaults = getSettings()
+    const selection = input.workId ? workModelSelection(input.workId, defaults) : input.modelSelection || defaultConversationModel(defaults)
+    const settings = resolveConversationModelSettings(defaults, selection)
     const styleId = resolveStyleId(input.zcf, settings)
     for await (const event of streamChat(input.messages, settings, undefined, {
       ...(input.workId ? { workId: input.workId } : {}),
       styleId,
-      thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, input.thinkingEffort),
+      thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, selection.thinking_effort ?? input.thinkingEffort),
       reuseSession: true,
       warmupOnly: true,
       ...(input.dedicatedAgentOptions ?? {}),
@@ -3190,9 +3203,10 @@ app.post('/works/:id/warmup', (req, res) => {
 
 // Welcome screen: no work exists until the first send; keep one spare session.
 app.post('/chat/warmup', (req, res) => {
-  const { thinkingEffort, zcfRole } = (req.body ?? {}) as {
+  const { thinkingEffort, zcfRole, modelSelection } = (req.body ?? {}) as {
     thinkingEffort?: ThinkingEffortInput
     zcfRole?: string | null
+    modelSelection?: ConversationModel
   }
   if (hasSpareChatSession() || chatWarmupsInFlight.has(SPARE_WARMUP_KEY)) {
     res.json({ status: 'ready' })
@@ -3205,6 +3219,7 @@ app.post('/chat/warmup', (req, res) => {
     zcf: { zcf_role: zcfRole ?? null },
     messages: [],
     thinkingEffort,
+    modelSelection,
   })
 })
 
@@ -3310,6 +3325,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     return
   }
   // Conversations owned by a dedicated agent run as that agent (its skills and tool limits).
+  let settings: ReturnType<typeof getSettings>
+  try { settings = resolveWorkModelSettings(workId, getSettings()) }
+  catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '会话模型无效' }); return }
   const dedicatedAgent = findAgentByWorkId(workId)
   let dedicatedAgentOptions: ReturnType<typeof buildDesktopAgentTurnOptions> | undefined
   if (dedicatedAgent) {
@@ -3376,7 +3394,6 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
             }
           : msg
       ))
-  const settings = getSettings()
   const desktopPermission = resolveDesktopChatPermission(permissionMode)
   const styleId = resolveStyleId(work, settings)
 

@@ -2,14 +2,15 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileChangeToolState, fileChangeEntries, fileChangeTotals, fileChangeLabel, fileChangeName } from '../utils/file-changes.js'
 
-test('collects only mutation candidates and keeps each tool call associated with its message', () => {
+test('collects all potentially producing tools and keeps each call associated with its message', () => {
   const content = [
     { type: 'text', text: 'Edited example.txt' },
     { type: 'tool_use', id: 'read', name: 'Read', status: 'done' },
     { type: 'tool_use', id: 'edit', name: 'Edit', status: 'done' },
     { type: 'tool_use', id: 'shell', name: 'mcp__weworker__weworker_powershell', status: 'running' },
+    { type: 'tool_use', id: 'report', name: 'custom_report', status: 'done' },
   ]
-  assert.deepEqual(JSON.parse(fileChangeToolState(content)), [['edit', 'done'], ['shell', 'running']])
+  assert.deepEqual(JSON.parse(fileChangeToolState(content)), [['edit', 'done'], ['shell', 'running'], ['report', 'done']])
   assert.equal(fileChangeToolState([{ type: 'text', text: 'pretend Write changed a file' }]), '[]')
 })
 

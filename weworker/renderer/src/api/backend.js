@@ -1,5 +1,6 @@
 import { backendFetch } from './http.js'
 import { createChatWarmupScheduler } from '../utils/chat-warmup.js'
+import { modelSelectionPayload } from '../store/conversation-models.js'
 
 /**
  * Start the Backend chat session ahead of the first message.
@@ -7,11 +8,11 @@ import { createChatWarmupScheduler } from '../utils/chat-warmup.js'
  * `styleId` keeps the pre-warmed session's style fingerprint aligned with the
  * style the work will actually use.
  */
-export async function warmupChat(workId, { thinkingEffort, styleId } = {}) {
+export async function warmupChat(workId, { thinkingEffort, styleId, modelSelection } = {}) {
   const res = await backendFetch(workId ? `/works/${workId}/warmup` : '/chat/warmup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(workId ? { thinkingEffort } : { thinkingEffort, zcfRole: styleId }),
+    body: JSON.stringify(workId ? { thinkingEffort } : { thinkingEffort, zcfRole: styleId, modelSelection: modelSelection ? modelSelectionPayload(modelSelection) : undefined }),
   })
   return res.ok ? res.json().catch(() => null) : null
 }

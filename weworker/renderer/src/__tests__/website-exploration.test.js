@@ -148,9 +148,50 @@ test('URL exploration uses global endpoints without Adapter or Tool', async () =
     assert.equal((await listExplorations())[0].start_url, 'https://example.com')
     assert.deepEqual(calls.map(call => [call.url, call.method]), [
       ['http://127.0.0.1:8765/api/website-exploration/explorations', 'POST'],
-      ['http://127.0.0.1:8765/api/website-exploration/explorations', 'GET'],
+      ['http://127.0.0.1:8765/api/website-exploration/explorations?view=summary', 'GET'],
     ])
     assert.deepEqual(calls[0].body, { start_url: 'https://example.com', instruction: '' })
+  } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
+})
+
+test('summary lists fall back only when the older backend explicitly rejects the request', async () => {
+  const { listExplorations } = await import('../api/website-exploration-api.js')
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  const calls = []
+  globalThis.window = { electronAPI: {} }
+  globalThis.fetch = async url => {
+    calls.push(url)
+    return url.includes('?view=summary')
+      ? Response.json({ detail: '不支持的网站探索操作' }, { status: 404 })
+      : Response.json({ explorations: [{ exploration_id: 'example', start_url: 'https://example.com', created_at: '2026-01-01T00:00:00Z' }] })
+  }
+  try {
+    for (const [args, suffix] of [[[], '/explorations'], [['demo', 'read_page'], '/toolkits/demo/tools/read_page/explorations']]) {
+      calls.length = 0
+      const result = await listExplorations(...args)
+      assert.equal(result[0].exploration_id, 'example')
+      assert.equal(result[0].created_at_timestamp, Date.parse('2026-01-01T00:00:00Z'))
+      assert.deepEqual(calls, [
+        'http://127.0.0.1:8765/api/website-exploration' + suffix + '?view=summary',
+        'http://127.0.0.1:8765/api/website-exploration' + suffix,
+      ])
+    }
+  } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
+})
+
+test('summary list failures preserve authorization, service and missing-record errors without retrying', async () => {
+  const { listExplorations } = await import('../api/website-exploration-api.js')
+  const originalFetch = globalThis.fetch
+  const originalWindow = globalThis.window
+  globalThis.window = { electronAPI: {} }
+  try {
+    for (const status of [401, 403, 404, 500, 503]) {
+      let requests = 0
+      globalThis.fetch = async () => { requests++; return Response.json({ detail: 'Example failure' }, { status }) }
+      await assert.rejects(listExplorations(), /Example failure/)
+      assert.equal(requests, 1)
+    }
   } finally { globalThis.fetch = originalFetch; globalThis.window = originalWindow }
 })
 

@@ -23,6 +23,39 @@ function event(type: string, id: string, tool = 'Edit', input: object = { file_p
 const invoke = (hook: any, input: any) => hook(input, input.tool_use_id, { signal: new AbortController().signal })
 
 describe('file change records', () => {
+  it('observes custom tools, generated binary files and build outputs without a mutation-name whitelist', async () => {
+    const hooks = createFileChangeHooks({ store, binding, canRead: async () => true })
+    await invoke(hooks.preToolUse, event('PreToolUse', 'generate', 'mcp__example__generate_report', {}))
+    fs.mkdirSync(path.join(workspace, 'build'))
+    fs.writeFileSync(path.join(workspace, 'build', 'report.pdf'), Buffer.from([37, 80, 68, 70, 0, 1]))
+    fs.writeFileSync(path.join(workspace, 'report.md'), 'Report')
+    await invoke(hooks.postToolUse, event('PostToolUse', 'generate', 'mcp__example__generate_report', {}))
+    const record = store.list('example-work')[0]
+    expect(record.fileCount).toBe(2)
+    expect(record.files.find(file => file.path.endsWith('.pdf'))).toMatchObject({ operation: 'create', comparable: false, size: 6, state: 'binary' })
+    await invoke(hooks.preToolUse, event('PreToolUse', 'no-change', 'mcp__example__inspect', {}))
+    await invoke(hooks.postToolUse, event('PostToolUse', 'no-change', 'mcp__example__inspect', {}))
+    expect(store.list('example-work')).toHaveLength(1)
+  })
+
+  it('tracks service output roots and explicit custom-tool destinations while respecting read access', async () => {
+    const service = path.join(directory, 'service-output')
+    const destination = path.join(directory, 'download.pdf')
+    const downloads = path.join(directory, 'custom-downloads')
+    const blocked = path.join(directory, 'blocked')
+    fs.mkdirSync(blocked)
+    const hooks = createFileChangeHooks({ store, binding: () => ({ ...binding(), observationRoots: [service, blocked] }), canRead: async file => !file.startsWith(blocked) })
+    await invoke(hooks.preToolUse, event('PreToolUse', 'download', 'custom_download', { output_path: destination, output_dir: downloads }))
+    fs.mkdirSync(service)
+    fs.writeFileSync(path.join(service, 'manifest.json'), '{}')
+    fs.writeFileSync(destination, Buffer.from([0, 1, 2]))
+    fs.mkdirSync(downloads)
+    fs.writeFileSync(path.join(downloads, 'report.csv'), 'name,value')
+    fs.writeFileSync(path.join(blocked, 'private.txt'), 'not observable')
+    await invoke(hooks.postToolUse, event('PostToolUse', 'download', 'custom_download', { output_path: destination }))
+    expect(store.list('example-work')[0].files.map(file => file.path).sort()).toEqual([destination, path.join(service, 'manifest.json'), path.join(downloads, 'report.csv')].sort())
+    expect(store.list('example-work')[0].files.every(file => file.operation === 'create')).toBe(true)
+  })
   it('distinguishes creation, edits and deletion using existence, not the tool or line counts', () => {
     expect(fileChangeOperation({ before: { state: 'missing' }, after: { state: 'text', text: '' } })).toBe('create')
     expect(fileChangeOperation({ before: { state: 'text', text: '' }, after: { state: 'text', text: 'appended' } })).toBe('edit')

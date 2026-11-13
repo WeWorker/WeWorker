@@ -316,6 +316,16 @@ def test_default_agent_saves_initial_observation_and_action_checkpoint_before_ex
     assert checkpoint["run_id"] == "run-1"
 
 
+def test_checkpoint_exposes_provider_input_usage(tmp_path: Path) -> None:
+    model = ControlModel()
+    model.get_template_vars = lambda **kwargs: {"last_request_input_tokens": 1234}
+    agent = DefaultAgent(model, ControlEnv(), system_template="System", instance_template="Task: {{ task }}",
+        checkpoint_path=tmp_path / "checkpoint.json", context_limit=200000)
+    agent.run("example")
+    checkpoint = json.loads((tmp_path / "checkpoint.json").read_text(encoding="utf-8"))
+    assert checkpoint["context_usage"] == {"input_tokens": 1234, "context_limit": 200000}
+
+
 def test_default_agent_ignores_mismatched_control_run_id(tmp_path: Path) -> None:
     control_path = tmp_path / "control.json"
     control_path.write_text(

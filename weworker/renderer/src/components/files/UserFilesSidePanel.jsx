@@ -432,7 +432,7 @@ const confirmDeleteButtonStyle = {
 }
 
 export default function UserFilesSidePanel({ width = 340 }) {
-  const { open, directory, files, expandedPaths, setExpandedPaths, loading, error, closePanel, load, importFiles, createFolder, createFile, renameItem, deleteItem, pasteItem, externalDragActive, dragTargetPath, setDragTargetPath } = useUserFilesStore()
+  const { open, directory, workspaceScope, files, expandedPaths, setExpandedPaths, loading, error, closePanel, load, importFiles, createFolder, createFile, renameItem, deleteItem, pasteItem, externalDragActive, dragTargetPath, setDragTargetPath } = useUserFilesStore()
   const [selectedPath, setSelectedPath] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [inlineAction, setInlineAction] = useState(null)
@@ -454,6 +454,15 @@ export default function UserFilesSidePanel({ width = 340 }) {
   }
 
   useEffect(() => { load() }, [load])
+  useLayoutEffect(() => {
+    setSelectedPath('')
+    setSearchQuery('')
+    setInlineAction(null)
+    setContextMenu(null)
+    setClipboard(null)
+    setInternalDragSource(null)
+    setInternalDragTargetPath('')
+  }, [directory])
 
   useEffect(() => {
     if (!contextMenu) return undefined
@@ -923,15 +932,16 @@ export default function UserFilesSidePanel({ width = 340 }) {
           )}
         </label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          <Tooltip text={'\u4e0a\u4f20\u6587\u4ef6'}><button type="button" onClick={handleUpload} style={toolbarBtnStyle} aria-label={'\u4e0a\u4f20\u6587\u4ef6'}><FilePlusIcon /></button></Tooltip>
-          <Tooltip text={'\u65b0\u5efa\u6587\u4ef6\u5939'}><button type="button" onClick={() => beginCreateFolder(null)} style={toolbarBtnStyle} aria-label={'\u65b0\u5efa\u6587\u4ef6\u5939'}><FolderPlusIcon /></button></Tooltip>
-          <Tooltip text={'\u5237\u65b0'}><button type="button" onClick={load} style={toolbarBtnStyle} aria-label={'\u5237\u65b0'}><RefreshIcon /></button></Tooltip>
+          <Tooltip text={'\u4e0a\u4f20\u6587\u4ef6'}><button type="button" disabled={!directory} onClick={handleUpload} style={toolbarBtnStyle} aria-label={'\u4e0a\u4f20\u6587\u4ef6'}><FilePlusIcon /></button></Tooltip>
+          <Tooltip text={'\u65b0\u5efa\u6587\u4ef6\u5939'}><button type="button" disabled={!directory} onClick={() => beginCreateFolder(null)} style={toolbarBtnStyle} aria-label={'\u65b0\u5efa\u6587\u4ef6\u5939'}><FolderPlusIcon /></button></Tooltip>
+          <Tooltip text={'\u5237\u65b0'}><button type="button" disabled={workspaceScope === 'website-exploration'} onClick={() => load()} style={toolbarBtnStyle} aria-label={'\u5237\u65b0'}><RefreshIcon /></button></Tooltip>
           <Tooltip text={'\u6298\u53e0\u5168\u90e8'}><button type="button" onClick={collapseAll} style={toolbarBtnStyle} aria-label={'\u6298\u53e0\u5168\u90e8'}><CollapseAllIcon /></button></Tooltip>
           <Tooltip text={'\u5173\u95ed'}><button type="button" onClick={closePanel} style={{ ...toolbarBtnStyle, fontSize: 17, lineHeight: 1 }} aria-label={'\u5173\u95ed\u7528\u6237\u76ee\u5f55'}>&times;</button></Tooltip>
         </div>
       </header>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0 8px', minHeight: 0 }} role="tree" aria-label={'\u7528\u6237\u76ee\u5f55'}>
+        {workspaceScope === 'website-exploration' && <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 12 }}>首次发送后创建探索目录</div>}
         {error && <div style={{ border: '1px solid rgba(248,113,113,0.35)', color: 'var(--error)', background: 'rgba(248,113,113,0.08)', borderRadius: 6, padding: 8, fontSize: 12, margin: 8 }}>{error}</div>}
         {loading && !directory ? (
           <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: 12 }}>{'\u52a0\u8f7d\u4e2d...'}</div>

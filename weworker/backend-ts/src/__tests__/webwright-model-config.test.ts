@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Settings } from '../config.js'
-import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig, suggestExplorationBaseUrl } from '../webwright-model-config.js'
+import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from '../webwright-model-config.js'
+import { resolveConversationModelSettings } from '../conversation-models.js'
+import { explorationConversationSettings, defaultExplorationModel, createExplorationModelService } from '../exploration-model-settings.js'
 
 function settings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -13,128 +15,74 @@ function settings(overrides: Partial<Settings> = {}): Settings {
   } as Settings
 }
 
-describe('Webwright managed model config', () => {
-  it('passes through exact custom OpenAI URLs and each configuration URL mode', () => {
-    const endpoint = 'https://example.com/custom/inference/?v=1&route=a%2Fb'
-    const legacy = settings({ active_provider: 'custom', openai_base_url_custom: endpoint, openai_base_url_is_full_custom: true })
-    expect(resolveWebwrightModelConfig(legacy)).toMatchObject({ base_url: endpoint, base_url_is_full: true })
-    expect(suggestExplorationBaseUrl(legacy)).toEqual({ url: endpoint, generated: false, fullUrl: true })
-    const configured = { ...legacy, active_model_configuration: 'model-fixture', model_configurations: {
-      'model-fixture': { provider_id: 'custom', model: 'fixture-model', api_key: 'fixture-key', context_limit: 1000000,
-        base_url: 'https://example.com/anthropic', base_url_is_full: false,
-        openai_base_url: endpoint, openai_base_url_is_full: true, auth_type: 'api_key' as const },
-    } }
-    expect(resolveWebwrightModelConfig(configured)).toMatchObject({ base_url: endpoint, base_url_is_full: true })
-    configured.model_configurations['model-fixture'].openai_base_url_is_full = false
-    configured.model_configurations['model-fixture'].openai_base_url = 'https://example.com/v1'
-    expect(resolveWebwrightModelConfig(configured)).not.toHaveProperty('base_url_is_full')
-  })
-
-  it('does not infer an exploration endpoint from a complete Anthropic URL', () => {
-    const value = settings({ active_provider: 'custom',
-      base_url_custom: 'https://example.com/inference/?version=1', base_url_is_full_custom: true })
-    expect(suggestExplorationBaseUrl(value)).toEqual({ url: '', generated: false })
-    expect(() => resolveWebwrightModelConfig(value)).toThrow('请填写网站探索服务地址')
-  })
-
-  it('keeps independent exploration URL mode separate from both main URL modes', () => {
-    const main = settings({ active_provider: 'custom',
-      base_url_custom: 'https://example.com/inference/?version=1', base_url_is_full_custom: true,
-      openai_base_url_custom: 'https://example.com/chat/?version=1', openai_base_url_is_full_custom: true })
-    const base = { ...main, exploration_base_url: 'https://example.org/v1' }
-    expect(resolveWebwrightModelConfig(base)).toMatchObject({ base_url: 'https://example.org/v1' })
-    expect(resolveWebwrightModelConfig(base)).not.toHaveProperty('base_url_is_full')
-    const full = { ...main, exploration_base_url: 'https://example.org/chat/?v=1', exploration_base_url_is_full: true }
-    expect(resolveWebwrightModelConfig(full)).toMatchObject({ base_url: full.exploration_base_url, base_url_is_full: true })
-    expect(suggestExplorationBaseUrl(full)).toEqual({ url: full.exploration_base_url, generated: false, fullUrl: true })
-  })
-
-  it.each([
-    ['https://example.com', 'https://example.com/v1'],
-    ['https://example.com/', 'https://example.com/v1'],
-    ['https://example.com/v1/', 'https://example.com/v1'],
-    ['https://example.com/anthropic', 'https://example.com/anthropic/v1'],
-  ])('suggests an editable address without changing the runtime: %s', (base_url_custom, expected) => {
-    const value = settings({ active_provider: 'custom', base_url_custom, api_key: '', model: '' })
-    expect(suggestExplorationBaseUrl(value)).toEqual({ url: expected, generated: true })
-    expect(value.exploration_base_url).toBeUndefined()
-    expect(resolveWebwrightModelConfig({ ...value, api_key: 'fixture-key', model: 'fixture-model' }).base_url).toBe(base_url_custom.replace(/\/$/, ''))
-  })
-
-  it('prioritizes saved addresses, legacy addresses and exact built-in mappings', () => {
-    const value = settings({ active_provider: 'custom', base_url_custom: 'https://api.deepseek.com/anthropic' })
-    expect(suggestExplorationBaseUrl(value)).toEqual({ url: 'https://api.deepseek.com', generated: false })
-    expect(suggestExplorationBaseUrl({ ...value, openai_base_url_custom: 'https://example.org/legacy' }).url).toBe('https://example.org/legacy')
-    const saved = { ...value, exploration_base_url: 'https://example.org/saved', openai_base_url_custom: 'https://example.org/legacy' }
-    expect(suggestExplorationBaseUrl({ ...saved, base_url_custom: 'https://example.com/changed' }).url).toBe('https://example.org/saved')
-    expect(suggestExplorationBaseUrl({ ...saved, active_provider: 'anthropic' }).url).toBe('https://example.org/saved')
-  })
-
-  it('retains the native protocol when saving an unmodified built-in address', () => {
-    const value = settings({ active_provider: 'anthropic' })
-    const suggestion = suggestExplorationBaseUrl(value)
-    expect(suggestion.generated).toBe(false)
-    expect(resolveWebwrightModelConfig({ ...value, exploration_base_url: suggestion.url })).toMatchObject({ protocol: 'anthropic_messages', model_class: 'anthropic', structured_output: 'anthropic_json_schema' })
-  })
-
-  it('uses the provider-native Chat Completions base URL', () => {
-    expect(resolveWebwrightModelConfig(settings())).toEqual({
-      provider_id: 'glm',
-      protocol: 'openai_chat_completions',
-      model_class: 'zhipu',
-      base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
-      model: 'glm-5.2',
-      api_key: 'secret',
-      structured_output: 'openai_json_object',
-      context_limit: 1_000_000,
-      compaction_ratio: 80,
-      compaction_max_attempts: 3,
+describe('shared conversation interface', () => {
+  function configured(protocol: 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses') {
+    return settings({ active_provider: 'custom', active_model_configuration: 'example-config', model: 'example-model',
+      model_configurations: { 'example-config': { provider_id: 'custom', model: 'example-model', api_key: 'placeholder-main-key',
+        base_url: 'https://example.com/custom/infer/?v=1', base_url_is_full: true,
+        weworker_protocol: protocol, auth_type: 'auth_token', context_limit: 128000,
+        openai_base_url: 'https://example.org/old/v1', openai_api_key: 'placeholder-old-key', openai_model: 'old-model' } },
+      exploration_base_url: 'https://example.org/independent', exploration_api_key: 'placeholder-independent-key',
+      exploration_model: 'old-independent-model', exploration_use_main_key: false,
     })
+  }
+  it.each(['anthropic_messages', 'openai_chat_completions', 'openai_responses'] as const)('uses the conversation configuration for %s and ignores legacy overrides', protocol => {
+    const saved = configured(protocol)
+    const original = structuredClone(saved)
+    const main = resolveConversationModelSettings(saved, { provider: 'example-config', model: 'example-model' })
+    expect(resolveWebwrightModelConfig(saved)).toMatchObject({ protocol, base_url: main.base_url, base_url_is_full: true,
+      model: main.model, api_key: main.api_key, auth_type: main.active_auth_type, context_limit: 128000 })
+    expect(defaultExplorationModel(saved).provider).toBe('example-config')
+    expect(saved).toEqual(original)
   })
-
-  it('requires the custom Chat Completions base URL', () => {
-    expect(() => resolveWebwrightModelConfig(settings({ active_provider: 'custom' }))).toThrow(/Chat Completions/)
-    expect(resolveWebwrightModelConfig(settings({
-      active_provider: 'custom',
-      model: 'custom-model',
-      openai_base_url_custom: 'https://gateway.example/openai/v1',
-    })).base_url).toBe('https://gateway.example/openai/v1')
-    expect(resolveWebwrightModelConfig(settings({
-      active_provider: 'custom',
-      model: 'custom-model',
-      openai_base_url_custom: 'https://gateway.example/openai/v1',
-    })).model_class).toBe('openai_chat')
+  it('keeps a session model override separate from the default configuration', () => {
+    const saved = configured('anthropic_messages')
+    const candidate = explorationConversationSettings(saved, { provider: 'example-config', model: 'session-model', thinking_effort: 'high' })
+    expect(resolveWebwrightModelConfig(candidate)).toMatchObject({ model: 'session-model', api_key: 'placeholder-main-key', thinking_effort: 'high' })
+    expect(saved.model).toBe('example-model')
+    expect(saved.exploration_model_selection).toBeUndefined()
   })
-
-  it('passes through an unlisted configured model without catalog validation', () => {
-    expect(resolveWebwrightModelConfig(settings({
-      active_provider: 'deepseek',
-      model: 'deepseek-chat',
-    })).model).toBe('deepseek-chat')
+  it('probes the shared Anthropic URL with the selected bearer authentication', async () => {
+    const saved = configured('anthropic_messages')
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    const service = createExplorationModelService((async (url, init) => {
+      requests.push({ url: String(url), init: init! })
+      return Response.json({ content: [{ type: 'text', text: '{"ok":true}' }] })
+    }) as typeof fetch)
+    expect((await service.check(saved)).ok).toBe(true)
+    expect(requests[0].url).toBe('https://example.com/custom/infer/?v=1')
+    expect(new Headers(requests[0].init.headers).get('authorization')).toBe('Bearer placeholder-main-key')
+    expect(new Headers(requests[0].init.headers).has('x-api-key')).toBe(false)
   })
+})
 
-  it('tries the exact same custom base URL without guessing paths', () => {
-    const config = resolveWebwrightModelConfig(settings({ active_provider: 'custom', base_url_custom: 'https://example.com/gateway/' }))
-    expect(config.base_url).toBe('https://example.com/gateway')
-    expect(config.protocol).toBe('openai_chat_completions')
+describe('managed conversation configuration', () => {
+  it.each(['anthropic', 'glm', 'deepseek'])('uses the same preset interface for %s', active_provider => {
+    const saved = settings({ active_provider })
+    const main = resolveConversationModelSettings(saved, { provider: active_provider, model: saved.model })
+    expect(resolveWebwrightModelConfig(saved)).toMatchObject({ protocol: main.active_weworker_protocol, base_url: main.base_url,
+      auth_type: main.active_auth_type, api_key: main.api_key, model: main.model })
   })
-
-  it('maps only a complete known provider address and preserves legacy overrides', () => {
-    const main = { active_provider: 'custom', base_url_custom: 'https://api.deepseek.com/anthropic/' }
-    expect(resolveWebwrightModelConfig(settings(main)).base_url).toBe('https://api.deepseek.com')
-    expect(resolveWebwrightModelConfig(settings({ ...main, openai_base_url_custom: 'https://example.org/v1' })).base_url).toBe('https://example.org/v1')
-    expect(resolveWebwrightModelConfig(settings({ ...main, base_url_custom: 'https://api.deepseek.com/unlisted' })).base_url).toBe('https://api.deepseek.com/unlisted')
+  it('preserves exact full URLs including query parameters in legacy main settings', () => {
+    const url = 'https://example.com/custom/infer/?v=1&route=a%2Fb'
+    const saved = settings({ active_provider: 'custom', base_url_custom: url, base_url_is_full_custom: true })
+    expect(resolveWebwrightModelConfig(saved)).toMatchObject({ base_url: url, base_url_is_full: true, protocol: 'anthropic_messages' })
   })
-
-  it('uses an independent service without changing the main model, including after a provider switch', () => {
-    for (const active_provider of ['custom', 'anthropic']) {
-      const value = settings({ active_provider, exploration_base_url: 'https://example.org/v1', exploration_api_key: 'fixture-independent-key', exploration_model: 'explore-model', exploration_use_main_key: false })
-      expect(resolveWebwrightModelConfig(value)).toMatchObject({ provider_id: 'custom', api_key: 'fixture-independent-key', model: 'explore-model', protocol: 'openai_chat_completions' })
-      expect(value.model).toBe('glm-5.2')
-      expect(resolveWebwrightModelConfig({ ...value, exploration_use_main_key: true, exploration_model: '' })).toMatchObject({ api_key: 'secret', model: 'glm-5.2' })
-    }
+  it.each(['https://example.com', 'https://example.com/', 'https://example.com/v1/', 'https://example.com/anthropic'])('uses %s without guessing another endpoint', base_url_custom => {
+    const saved = settings({ active_provider: 'custom', base_url_custom })
+    expect(resolveWebwrightModelConfig(saved).base_url).toBe(base_url_custom.replace(/\/$/, ''))
   })
-
+  it('does not let legacy exploration credentials hide an incomplete conversation configuration', () => {
+    const saved = settings({ active_provider: 'custom', openai_base_url_custom: 'https://example.org/old', exploration_base_url: 'https://example.org/old' })
+    expect(() => resolveWebwrightModelConfig(saved)).toThrow('对话接口地址')
+    expect(() => resolveWebwrightModelConfig({ ...saved, api_key: '' })).toThrow('API Key')
+  })
+  it.each(['file:///example', 'https://user:password@example.com', 'https://example.com/#fragment'])('rejects invalid shared addresses: %s', base_url_custom => {
+    expect(() => resolveWebwrightModelConfig(settings({ active_provider: 'custom', base_url_custom }))).toThrow()
+  })
+  it('passes an unlisted session model without replacing it with a catalog default', () => {
+    expect(resolveWebwrightModelConfig(settings({ model: 'example-unlisted' })).model).toBe('example-unlisted')
+  })
   it('resets independent exploration settings when activating a preset provider', () => {
     for (const provider of ['anthropic', 'glm', 'deepseek', 'builtin']) {
       expect(explorationResetPatch(provider)).toEqual({
@@ -146,29 +94,6 @@ describe('Webwright managed model config', () => {
       })
     }
     expect(explorationResetPatch('custom')).toEqual({})
-  })
-
-  it('falls back to the preset webwright config after switching to a preset provider', () => {
-    const stale = settings({
-      exploration_base_url: 'https://exploration.example.org/v1',
-      exploration_base_url_is_full: true,
-      exploration_api_key: 'fixture-independent-key',
-      exploration_model: 'explore-model',
-      exploration_use_main_key: false,
-    })
-    const switched = { ...stale, active_provider: 'glm' as const, ...explorationResetPatch('glm') }
-    expect(resolveWebwrightModelConfig(switched)).toEqual({
-      provider_id: 'glm',
-      protocol: 'openai_chat_completions',
-      model_class: 'zhipu',
-      base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
-      model: 'glm-5.2',
-      api_key: 'secret',
-      structured_output: 'openai_json_object',
-      context_limit: 1_000_000,
-      compaction_ratio: 80,
-      compaction_max_attempts: 3,
-    })
   })
 
   it('accepts only the per-launch bearer token', () => {

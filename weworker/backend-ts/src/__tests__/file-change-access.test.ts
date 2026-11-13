@@ -25,6 +25,20 @@ beforeEach(async () => {
 afterEach(async () => { await new Promise<void>(resolve => server.close(() => resolve())); fs.rmSync(directory, { recursive: true, force: true }) })
 const get = (route: string) => fetch(url + route, { headers: { 'X-WeWorker-Auth': 'example-test-token' } })
 
+it('downloads only an actual recorded file in the requested conversation', async () => {
+  const file = path.join(directory, 'report.pdf')
+  fs.writeFileSync(file, Buffer.from([37, 80, 68, 70, 0, 1]))
+  const record = store.read('example-work', id)!
+  record.files[0].path = file
+  store.save(record)
+  const response = await get(`/works/example-work/file-changes/${id}/artifact?file=0`)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('content-disposition')).toContain('attachment')
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(fs.readFileSync(file))
+  expect((await get(`/works/other-work/file-changes/${id}/artifact`)).status).toBe(404)
+  expect((await get(`/works/example-work/file-changes/${id}/artifact?file=100`)).status).toBe(404)
+})
+
 it('serves summaries and paginated comparisons without a mutation endpoint', async () => {
   expect((await fetch(url + '/works/example-work/file-changes')).status).toBe(401)
   const list = await get('/works/example-work/file-changes?tools=example-tool')

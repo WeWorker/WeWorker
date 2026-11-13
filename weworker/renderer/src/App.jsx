@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN'
 import Sidebar from './components/layout/Sidebar.jsx'
 import AppRail from './components/layout/AppRail.jsx'
 import MainArea from './components/layout/MainArea.jsx'
+import WorkspaceToolbar from './components/layout/WorkspaceToolbar.jsx'
 import SettingsPage from './components/settings/SettingsModal.jsx'
 import Tooltip from './components/Tooltip.jsx'
 import CapabilitiesToggleButton from './components/capabilities/CapabilitiesToggleButton.jsx'
@@ -107,15 +108,14 @@ export default function App() {
 
   const explorationOpen = useExplorationPageStore((s) => s.open)
   const websiteOpen = useWebsiteExplorationStore((s) => s.open)
-  const developmentWorkId = useWebsiteExplorationStore((s) => s.activeDevelopmentWorkId)
   // The 专属 Agent page has its own agent and conversation lists, so it hides the main sidebar.
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
   const focusedWorkspaceOpen = toolPackageOpen || explorationOpen || websiteOpen || dedicatedAgentsOpen
-  const minimalWorkspaceToolbar = dedicatedAgentsOpen || activeSidebarSection === 'tasks'
+  const minimalWorkspaceToolbar = websiteOpen || dedicatedAgentsOpen || activeSidebarSection === 'tasks'
 
   useEffect(() => {
-    setWorkspaceContext(websiteOpen ? developmentWorkId : activeWorkId, websiteOpen ? null : draftProjectId)
-  }, [activeWorkId, draftProjectId, websiteOpen, developmentWorkId, setWorkspaceContext])
+    if (!websiteOpen) setWorkspaceContext(activeWorkId, draftProjectId)
+  }, [activeWorkId, draftProjectId, websiteOpen, setWorkspaceContext])
 
   useEffect(() => {
     if (!websiteOpen) return
@@ -389,16 +389,17 @@ export default function App() {
     document.addEventListener('mouseup', onUp)
   }, [sidebarWidth])
 
+  const filesToggleLabel = websiteOpen
+    ? (userFilesOpen ? '收起探索目录' : '打开探索目录')
+    : (userFilesOpen ? '收起用户目录' : '打开用户目录')
   const workspaceToolbar = (
-    <div className="workspace-toolbar" aria-label="工作区工具栏">
-      <div id="workspace-toolbar-context" className="workspace-toolbar__context" />
-      <div className="workspace-toolbar__actions">
-        {!minimalWorkspaceToolbar && (
-          <Tooltip text={userFilesOpen ? '收起用户目录' : '打开用户目录'} delay={800} placement="top">
+    <WorkspaceToolbar>
+        {(!minimalWorkspaceToolbar || websiteOpen) && (
+          <Tooltip text={filesToggleLabel} delay={800} placement="top">
             <button
               type="button"
               onClick={handleToggleUserFilesPanel}
-              aria-label={userFilesOpen ? '收起用户目录' : '打开用户目录'}
+              aria-label={filesToggleLabel}
               aria-pressed={userFilesOpen}
               className={`workspace-toolbar__button${userFilesOpen ? ' is-active' : ''}`}
             >
@@ -425,8 +426,7 @@ export default function App() {
           </button>
         </Tooltip>
         {!minimalWorkspaceToolbar && <CapabilitiesToggleButton variant="titlebar" />}
-      </div>
-    </div>
+    </WorkspaceToolbar>
   )
 
   return (
@@ -446,7 +446,7 @@ export default function App() {
         justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', userSelect: 'none', gap: 8 }}>
-          {settingsLoaded && onboardingCompleted && !showSettings && (!focusedWorkspaceOpen || dedicatedAgentsOpen) && (
+          {settingsLoaded && onboardingCompleted && !showSettings && (!focusedWorkspaceOpen || dedicatedAgentsOpen || websiteOpen) && (
             <>
               <Tooltip text={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}>
                 <button

@@ -198,6 +198,8 @@ try {
   await input.fill('/report')
   await menu.waitFor()
   await input.press('Enter')
+  // Completion restores the caret on the next frame before more text is typed.
+  await page.evaluate(() => new Promise(requestAnimationFrame))
   await input.pressSequentially('/notes')
   await menu.waitFor()
   await input.press('Enter')
