@@ -680,7 +680,7 @@ export default function UserFilesSidePanel({ width = 340 }) {
     const focus = () => {
       const active = document.activeElement
       if (active?.closest?.('input, textarea, [contenteditable="true"]')) return
-      const textarea = document.querySelector('textarea[data-weworker-chat-input="true"]')
+      const textarea = document.querySelector('[data-weworker-chat-input="true"]')
       if (!textarea || textarea.disabled) return
       textarea.focus()
     }

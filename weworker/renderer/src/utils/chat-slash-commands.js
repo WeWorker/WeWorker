@@ -1,3 +1,35 @@
+import { parseSkillMarkdownMeta } from './skill-markdown-meta.js'
+
+export function buildSkillSlashCommands(skills = []) {
+  const seen = new Set()
+  return (Array.isArray(skills) ? skills : []).flatMap((skill) => {
+    if (!skill?.enabled || skill.draft || !String(skill.name || '').trim() || !String(skill.content || '').trim()) return []
+    const meta = parseSkillMarkdownMeta(skill.content, { preserveNamePrefix: true })
+    const name = meta.name || String(skill.name).trim()
+    if (meta.userInvocable === false || /[\s/\\]/.test(name) || seen.has(name)) return []
+    seen.add(name)
+    const description = meta.description || '使用此 Skill'
+    return [{
+      id: `skill:${name}`,
+      title: name,
+      command: `/${name} `,
+      description,
+      iconUrl: typeof skill.iconUrl === 'string' ? skill.iconUrl : undefined,
+      searchText: `${name} ${skill.name} ${description}`.toLowerCase(),
+    }]
+  })
+}
+
+export function findChatSkillTrigger(value, cursor) {
+  const text = String(value || '')
+  const safeCursor = Math.max(0, Math.min(cursor, text.length))
+  const match = text.slice(0, safeCursor).match(/(^|\s)\/([^\s/\\]*)$/)
+  if (!match) return null
+  const suffix = text.slice(safeCursor).match(/^\S*/)[0]
+  if (/[/\\]/.test(suffix)) return null
+  return { query: match[2], start: safeCursor - match[2].length - 1, end: safeCursor + suffix.length }
+}
+
 export const WEBCLI_TEMPLATE_COMMANDS = [
   {
     id: 'webcli-call',

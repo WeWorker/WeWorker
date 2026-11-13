@@ -6,13 +6,12 @@ import SaveCodewordModal from './SaveCodewordModal.jsx'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { useWorksStore } from '../../store/works.js'
 import { applyPausedTodoState, applyStreamingTodoProgress, buildDisplayTodoSnapshots, buildTodoWriteState } from '../../utils/todowrite-state.js'
-import { backendFetch } from '../../api/http.js'
+import { API, backendFetch } from '../../api/http.js'
 import { getCompactionStatus } from '../../api/backend.js'
 import WorkingIndicator from './WorkingIndicator.jsx'
 import { showConfirm } from '../../store/dialog.js'
 import { findClosestHistoryMessageIndex, getHistoryMessagePreview } from '../../utils/message-history-navigation.js'
 
-const API = 'http://127.0.0.1:8765'
 const TIME_GAP_MS = 5 * 60 * 1000 // 5 minutes
 
 function formatTimeSeparator(isoStr) {

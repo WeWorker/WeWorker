@@ -43,7 +43,7 @@ import { DEFAULT_WELCOME_FEATURED_SITE_LIMIT } from '../welcome/welcome-utils.js
 import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import './settings-secret-input.css'
-import { backendFetch } from '../../api/http.js'
+import { API, backendFetch } from '../../api/http.js'
 import { fetchProviderModels } from '../../api/provider-models.js'
 import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.js'
 import { showConfirm } from '../../store/dialog.js'
@@ -53,7 +53,6 @@ import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
 import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 
-const API = 'http://127.0.0.1:8765'
 const OFFICIAL_URL = deploymentConfig.officialUrl
 const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
 const GITHUB_UPDATE_URL = deploymentConfig.githubUrl

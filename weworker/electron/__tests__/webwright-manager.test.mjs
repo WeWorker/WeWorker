@@ -34,6 +34,28 @@ function sourceHealth() {
   }
 }
 
+test('selected exploration port is used by spawn, identity check and model snapshot', async () => {
+  const child = createChild()
+  child.stdin.on('finish', () => child.emit('exit', 0, null))
+  const manager = new WebwrightManager({
+    repoRoot: '/repo', ports: { backend: 48765, exploration: 48766, bridge: 43711 },
+    checkPort: async port => { assert.equal(port, 48766); return false },
+    spawnProcess: (_command, args, options) => {
+      assert.equal(args[args.indexOf('--port') + 1], '48766')
+      assert.equal(options.env.WEWORKER_MODEL_CONFIG_URL, 'http://127.0.0.1:48765/internal/webwright/model-config')
+      assert.equal(options.env.WEBCLI_BRIDGE_PORT, '43711')
+      return child
+    },
+    fetchHealth: async url => {
+      assert.equal(url, 'http://127.0.0.1:48766/api/health')
+      return { ok: true, json: async () => ({ ...sourceHealth(), port: 48766 }) }
+    },
+  })
+  await manager.start()
+  assert.equal(manager.getStatus(), 'running')
+  await manager.stop()
+})
+
 test('Webwright browser URL is fixed to loopback port 8766', () => {
   assert.equal(WEBWRIGHT_URL, 'http://127.0.0.1:8766')
 })

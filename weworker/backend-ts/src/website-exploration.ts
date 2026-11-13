@@ -6,7 +6,7 @@ import type { Settings } from './config.js'
 import { defaultExplorationModel, explorationConversationSettings } from './exploration-model-settings.js'
 
 const PREFIX = '/api/website-exploration'
-const UPSTREAM = 'http://127.0.0.1:8766'
+const UPSTREAM = process.env.WEWORKER_WEBWRIGHT_URL || 'http://127.0.0.1:8766'
 const id = '[A-Za-z0-9_-]+'
 const tool = `/api/toolkits/${id}/tools/${id}`
 const rules: [string, RegExp][] = [
@@ -99,7 +99,7 @@ export function createWebsiteExplorationRouter(options: {
         return
       }
       if (identity.instance_id !== instanceId) {
-        res.status(503).json({ detail: '网站探索服务实例不匹配，请检查 8766 端口是否被其他实例占用' })
+        res.status(503).json({ detail: '网站探索服务实例不匹配，请完整退出并重启 WeWorker' })
         return
       }
       if (raw === '/api/health') {

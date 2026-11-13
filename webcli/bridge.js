@@ -2308,6 +2308,7 @@ export class WebSocketBridge extends EventEmitter {
   _browser() {
     if (!this._browserHost) {
       this._browserHost = new BrowserHost({
+        bridgePort: this._port,
         log: (line) => process.stderr.write(`[${ts()}] [Bridge] ${line}\n`),
         resolveExtensionDir: () => resolveExtensionDir(),
         isDedicatedConnected: () => this._hasDedicatedConnection(),

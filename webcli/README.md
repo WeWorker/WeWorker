@@ -10,7 +10,7 @@
 
 Extension Adapter 通过本地 WebSocket Bridge 连接 Chrome 扩展；Toolkit Adapter 通过 WeWorker 内嵌 Toolkit Runtime 执行。CLI 和桌面端统一使用 `webcli call` 调用网站工具。
 
-**两类入口使用独立的 Bridge**：WeWorker 桌面端内置的 CLI 与扩展固定使用 `ws://localhost:3711`；npm 安装的独立 `webcli` 固定使用 `ws://127.0.0.1:3712`，并拥有独立的 PID/日志、浏览器 Profile 和 Adapter 数据目录。两者可以同时运行，登录态和浏览器实例不共享；如果 3712 被其他进程占用，npm CLI 会明确失败，不会连接桌面端的 3711。
+**两类入口使用独立的 Bridge**：WeWorker 桌面端默认使用 `ws://localhost:3711`，端口被占用时自动选择可用端口，宿主启动的 CLI 与内置浏览器扩展同步使用实际端口。系统浏览器中手动安装的扩展仍默认连接 `3711`。npm 安装的独立 `webcli` 固定使用 `ws://127.0.0.1:3712`，并拥有独立的 PID/日志、浏览器 Profile 和 Adapter 数据目录。两者可以同时运行，登录态和浏览器实例不共享；如果 3712 被其他进程占用，npm CLI 会明确失败，不会连接桌面端的 Bridge。
 
 **指标上报**：公开 npm 包默认关闭（包内 `metrics-client.json` 为 `{enabled:false}`）。发布方可在构建时通过 `weworker/model.json` 的 `environment.WEBCLI_METRICS_ENDPOINT`/`WEBCLI_METRICS_UPLOAD` 加构建环境变量 `WEBCLI_METRICS_CLIENT_TOKEN` 生成启用配置；用户进程环境变量始终优先，可用 `WEBCLI_METRICS_UPLOAD=off` 关闭。
 
