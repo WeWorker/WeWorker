@@ -2738,3 +2738,10 @@
   display: block;
   margin-top: 8px;
 }
+.model-discovery-action { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.model-discovery-action .settings-btn { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.model-discovery-help { position: relative; display: inline-flex; }
+.model-discovery-help__button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 32px; border: 0; background: transparent; color: var(--text-secondary); cursor: help; border-radius: 6px; }
+.model-discovery-help__button:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+.model-discovery-help__text { position: absolute; right: 0; top: 100%; width: min(320px, 65vw); padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); box-shadow: 0 6px 24px #0002; font-size: 12px; line-height: 1.7; z-index: 30; }
+@media (max-width: 760px) { .settings-panel-top:has(.model-discovery-action) { height: auto; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; } }

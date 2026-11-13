@@ -7,7 +7,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 let server, dom, root, createRoot, ModelSelector, SettingsPage, SecretInput, ContextPanel, store, healthStore
-let calls, state, detectResponse
+let calls, state, detectResponse, batchResponse, dialogs
 const globals = new Map()
 const imported = { name: 'Claude Code', provider_id: 'custom', model: 'fixture-model',
   base_url: 'https://example.com', has_key: true, external_source_id: 'fixture-source', added: true }
@@ -39,10 +39,13 @@ before(async () => {
   ContextPanel = (await server.ssrLoadModule('/src/components/chat/ContextPanel.jsx')).default
   store = (await server.ssrLoadModule('/src/store/settings.js')).useSettingsStore
   healthStore = (await server.ssrLoadModule('/src/store/model-health.js')).useModelHealthStore
+  dialogs = (await server.ssrLoadModule('/src/store/dialog.js')).useDialogStore
 })
 
 beforeEach(() => {
   calls = []
+  dialogs.setState({ queue: [] })
+  batchResponse = () => Response.json({ ...state, providers: { ...state.providers, 'model-fixture': imported }, discovery: { imported: 1, names: ['Claude Code'] } })
   healthStore.setState({ results: {}, running: {}, checking: {} })
   state = { active_provider: 'anthropic', model: 'fixture-current', has_api_key: true, model_discovery_enabled: true, providers: {
     anthropic: { has_key: true, model: 'fixture-current', visible: true },
@@ -53,6 +56,7 @@ beforeEach(() => {
     const endpoint = new URL(url).pathname
     calls.push({ endpoint, ...options })
     if (endpoint === '/settings/provider/models') return Response.json({ models: ['fixture-model'] })
+    if (endpoint === '/settings/provider/detect-and-import') return batchResponse()
     if (endpoint === '/settings/provider/detect') return detectResponse()
     if (endpoint === '/settings/provider/import') {
       const { source_id } = JSON.parse(options.body)
@@ -454,4 +458,38 @@ test('another model remains clickable while a single-model check is pending', as
   assert.equal(first.textContent.trim(), '42ms')
   assert.equal(calls.filter(item => item.endpoint === '/settings/provider/probe').length, 2)
   assert.equal(store.getState().model, 'fixture-current')
+})
+
+
+test('header detects and imports connections, exposes help, and reports new entries without switching models', async () => {
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  assert.ok(document.querySelector('.settings-panel-top .model-discovery-action'))
+  await click(ariaButton('关于检测本地配置'))
+  assert.match(document.querySelector('[role="tooltip"]').textContent, /API Key/)
+  await click(button('检测本地配置'))
+  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/detect-and-import').length, 1)
+  assert.ok(store.getState().providers['model-fixture'])
+  assert.equal(store.getState().activeProvider, 'anthropic')
+  assert.equal(dialogs.getState().queue[0].title, '已发现并导入新配置')
+  assert.match(dialogs.getState().queue[0].message, /已导入 1 个新连接/)
+})
+
+test('one-click discovery prevents duplicate requests and reports empty, partial and failed scans', async () => {
+  let finish
+  batchResponse = () => new Promise(resolve => { finish = resolve })
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  await click(button('检测本地配置'))
+  assert.equal(button('正在检测…').disabled, true)
+  await click(button('正在检测…'))
+  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/detect-and-import').length, 1)
+  await act(async () => finish(Response.json({ ...state, discovery: { imported: 0, skipped: 1, issues: ['CodeBuddy'] } })))
+  assert.equal(button('检测本地配置').disabled, false)
+  assert.match(dialogs.getState().queue[0].message, /未发现新的可导入连接/)
+  assert.match(dialogs.getState().queue[0].message, /1 个连接未通过校验/)
+  assert.match(dialogs.getState().queue[0].message, /CodeBuddy/)
+  dialogs.setState({ queue: [] })
+  batchResponse = () => Response.json({ detail: '检测未完成，请检查本地服务后重试。' }, { status: 500 })
+  await click(button('检测本地配置'))
+  assert.equal(dialogs.getState().queue[0].title, '检测未完成')
+  assert.equal(button('检测本地配置').disabled, false)
 })

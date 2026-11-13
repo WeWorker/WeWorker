@@ -662,11 +662,20 @@ app.post('/settings/styles', (req, res) => {
 async function detectLocalProviders() {
   const discovered = await discoverLocalProviders()
   const result = importDiscoveredProviders(getSettings(), discovered.providers)
-  const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
+  const settings = Object.keys(result.updates).length ? updateSettings(result.updates) : getSettings()
   return { ...buildSettingsResponse(settings), discovery: {
     imported: result.imported.length, existing: result.existing, issues: discovered.issues,
+    merged: result.merged, updated: result.updated,
+    skipped: discovered.providers.filter(item => item.validation && !item.validation.ok).length,
+    names: result.imported.map(id => settings.model_configurations?.[id]?.name || '自定义配置'),
   } }
 }
+
+app.post('/settings/provider/detect-and-import', async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  try { res.json(await detectLocalProviders()) }
+  catch { res.status(500).json({ detail: '检测未完成，请检查本地服务后重试。' }) }
+})
 
 app.post('/settings/provider/detect', async (_req, res) => {
   try {
@@ -734,7 +743,7 @@ app.post('/settings/provider/import', async (req, res) => {
     }
     // 校验失败的来源也允许用户手动导入：识别是识别，导入由用户决定。
     const result = importDiscoveredProviders(getSettings(), [candidate], true)
-    const settings = result.imported.length ? updateSettings(result.updates) : getSettings()
+    const settings = Object.keys(result.updates).length ? updateSettings(result.updates) : getSettings()
     const configuration = publicDiscoveredProviders(settings, [candidate])[0]
     res.json({ ...buildSettingsResponse(settings), imported_provider: configuration.configuration_id })
   } catch {

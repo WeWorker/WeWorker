@@ -188,3 +188,30 @@ describe('provider discovery API and startup', () => {
     }
   })
 })
+
+
+describe('one-click discovery import', () => {
+  it('imports new connections once, preserves selection, and never returns credentials', async () => {
+    const f = fixture()
+    const route = f.routes.get('/settings/provider/detect-and-import')!
+    const responses = [f.response(), f.response()]
+    await Promise.all(responses.map(res => route({}, res)))
+    expect(f.updateSettings).toHaveBeenCalledOnce()
+    expect(responses[0].json.mock.calls[0][0].discovery).toMatchObject({ imported: 2, existing: 0, skipped: 0 })
+    expect(responses[1].json.mock.calls[0][0].discovery.imported).toBe(0)
+    expect(f.state().active_provider).toBe('anthropic')
+    expect(JSON.stringify(responses.map(res => res.json.mock.calls))).not.toContain('fixture-imported-key')
+  })
+
+  it('reports invalid candidates and read failures without importing them', async () => {
+    const f = fixture()
+    const original = await f.discoverLocalProviders()
+    f.discoverLocalProviders.mockResolvedValueOnce({ providers: original.providers.map(item => ({ ...item,
+      validation: { ok: false, reason: 'auth', detail: 'fixture failure' },
+    })), issues: ['CodeBuddy'] } as any)
+    const res = f.response()
+    await f.routes.get('/settings/provider/detect-and-import')!({}, res)
+    expect(f.updateSettings).not.toHaveBeenCalled()
+    expect(res.json.mock.calls[0][0].discovery).toMatchObject({ imported: 0, skipped: 2, issues: ['CodeBuddy'] })
+  })
+})
