@@ -5,11 +5,10 @@ import {
   DEFAULT_RESOURCE_PREVIEW_EXTENSIONS,
   getEffectivePreviewExtensions,
 } from '../utils/resource-preview-extensions.js'
-import { backendFetch } from '../api/http.js'
+import { API, backendFetch } from '../api/http.js'
 import { isFixedProvider } from '../utils/model-selection.js'
 import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT } from '../utils/context-window.js'
 
-const API = 'http://127.0.0.1:8765'
 
 const DEFAULT_STYLE = { subtitle: '', color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)' }
 const DEFAULT_WELCOME_FEATURED_SITE_LIMIT = 50

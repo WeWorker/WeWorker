@@ -59,6 +59,7 @@ export function packagedAdapterBindings(context) {
 export function browserInstanceBindings(context) {
   const noEvents = { onChanged: { addListener() {} } };
   return {
+    browserBridgeUrl: browserInstance.browserBridgeUrl,
     browserInstanceHelloFields: browserInstance.browserInstanceHelloFields,
     loadBrowserInstance: () => browserInstance.loadBrowserInstance(context.chrome?.storage?.local),
     watchBrowserInstance: (onChange) => browserInstance.watchBrowserInstance(onChange, context.chrome?.storage?.onChanged ? context.chrome.storage : noEvents),

@@ -6,7 +6,7 @@ export function channelProbeConfig(channel, form = {}) {
 }
 
 export async function requestChannelProbe(channel, config, signal) {
-  const response = await backendFetch('http://127.0.0.1:8765/settings/channels/probe', {
+  const response = await backendFetch('/settings/channels/probe', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ channel, profile_id: config.profile_id, config: channelProbeConfig(channel, config) }), signal,
   })

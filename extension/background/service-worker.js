@@ -33,6 +33,7 @@ import {
 } from './site-auth.js';
 import {
   browserInstanceHelloFields,
+  browserBridgeUrl,
   createBrowserTab,
   focusBrowserWindow,
   loadBrowserInstance,
@@ -2589,7 +2590,7 @@ function resetNativeSocket(reason) {
   setTimeout(connectToNativeHost, 1000);
 }
 
-function connectToNativeHost() {
+async function connectToNativeHost() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     console.log("[WebMCP] Already connected or connecting, skipping");
     return;
@@ -2603,8 +2604,9 @@ function connectToNativeHost() {
   isConnecting = true;
 
   try {
+    await loadBrowserInstance();
     console.log("[WebMCP] Attempting to connect to native host...");
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(browserBridgeUrl(WS_URL));
   } catch (err) {
     console.warn("[WebMCP] Failed to create WebSocket:", err.message);
     isConnecting = false;
@@ -9614,6 +9616,10 @@ connectToNativeHost();
 // The desktop may write the WeWorker 浏览器 marker while this worker is already connected:
 // repeat the hello so the bridge can switch to this browser.
 watchBrowserInstance(() => {
+  if (ws && ws.url !== new URL(browserBridgeUrl(WS_URL)).href) {
+    ws.close();
+    return;
+  }
   if (ws && ws.readyState === WebSocket.OPEN) sendToNative(buildExtensionHello());
 });
 // Clicking WeWorker 浏览器 in the taskbar must show the window, not an invisible off-screen one.

@@ -28,6 +28,14 @@ it('reviews through the authenticated desktop host without installing', async ()
   expect(JSON.stringify(result)).not.toContain(env.WEWORKER_HTTP_TOKEN);
 });
 
+it('uses the host-selected backend port for status and installation review', async () => {
+  const fetch = mock();
+  const result = await callDevelopment('review', args, { fetch, env: { ...env, WEWORK_PORT: '48765' } });
+  expect(result.ok).toBe(true);
+  expect(fetch.mock.calls[0][0]).toBe('http://127.0.0.1:48765/status');
+  expect(fetch.mock.calls[1][0]).toBe('http://127.0.0.1:48765/api/website-exploration/toolkits/demo/install-review');
+});
+
 it('requires credentials and confirmation before contacting the host', async () => {
   const fetch = vi.fn();
   expect((await callDevelopment('review', args, { fetch, env: { WEWORKER_EXPLORATION_INSTANCE_ID: 'placeholder' } })).error.code).toBe('HOST_AUTH_REQUIRED');

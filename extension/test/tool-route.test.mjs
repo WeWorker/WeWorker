@@ -10,6 +10,22 @@ import { runServiceWorkerInContext } from "./helpers/service-worker-test-loader.
 
 const ROOT = process.cwd();
 
+test('native connection waits for the stored browser instance and uses its bridge port', async () => {
+  let resolveStorage;
+  const stored = new Promise(resolve => { resolveStorage = resolve; });
+  const worker = loadServiceWorker({ storageGet: () => stored });
+  assert.equal(worker.websocketInstances.length, 0);
+  resolveStorage({ weworkerBrowserInstance: { kind: 'dedicated', token: 'test-instance-token', bridgePort: 43711 } });
+  const socket = await worker.getNativeSocket();
+  assert.equal(socket.url, 'ws://127.0.0.1:43711/');
+});
+
+test('native connection uses the default bridge port without a browser instance marker', async () => {
+  const worker = loadServiceWorker();
+  const socket = await worker.getNativeSocket();
+  assert.equal(socket.url, 'ws://localhost:3711/');
+});
+
 test('host CLI helpers forward the original invocation context and require an active invocation', async () => {
   const worker = loadServiceWorker();
   const manifest = { name: 'example.com', match: ['example.com'] };
@@ -133,11 +149,13 @@ function makeEvent() {
   };
 }
 
-function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {}, managedCatalog = null, cookies = [] } = {}) {
+function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {}, managedCatalog = null, cookies = [], storageGet = async () => ({}) } = {}) {
   const runtimeOnMessage = makeEvent();
   const sentToTabs = [];
   const nativeMessages = [];
   const websocketInstances = [];
+  const connectionRetries = [];
+  const warnings = [];
   const staticAdapterIds = Object.keys(staticAdapters).sort();
 
   class FakeWebSocket {
@@ -146,7 +164,8 @@ function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {},
     static CLOSED = 3;
     static CLOSING = 2;
 
-    constructor() {
+    constructor(url) {
+      this.url = new URL(url).href;
       this.readyState = FakeWebSocket.OPEN;
       this.listeners = {};
       websocketInstances.push(this);
@@ -203,7 +222,7 @@ function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {},
     },
     storage: {
       local: {
-        get: async () => ({}),
+        get: storageGet,
         set: async () => {},
       },
     },
@@ -250,11 +269,16 @@ function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {},
     chrome,
     console: {
       log() {},
-      warn() {},
+      warn(...args) { warnings.push(args.join(' ')); },
       error() {},
     },
     fetch: async () => ({ ok: false, json: async () => [] }),
-    setTimeout: (fn) => {
+    setTimeout: (fn, delay) => {
+      // Record reconnects instead of immediately recursing forever on startup errors.
+      if (fn === context.connectToNativeHost) {
+        connectionRetries.push({ fn, delay });
+        return connectionRetries.length;
+      }
       if (typeof fn === "function") fn();
       return 0;
     },
@@ -306,29 +330,42 @@ function loadServiceWorker({ tabs = [], tabResponse = null, staticAdapters = {},
     );
   });
 
+  const getNativeSocket = async () => {
+    // Startup now reads the browser marker asynchronously before opening the socket.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(connectionRetries.length, 0, warnings.join('\n'));
+    const socket = websocketInstances[0];
+    assert.ok(socket, 'service worker must open a native WebSocket connection');
+    assert.equal(typeof socket.listeners.message, 'function');
+    return socket;
+  };
+
   const callNativeTool = async (toolName, args = {}) => {
+    const socket = await getNativeSocket();
     nativeMessages.length = 0;
-    await websocketInstances[0].emit("message", {
+    await socket.emit("message", {
       data: JSON.stringify({ type: "call_tool", id: "call-1", toolName, args }),
     });
     return nativeMessages.at(-1);
   };
 
   const listNativeTools = async () => {
+    const socket = await getNativeSocket();
     nativeMessages.length = 0;
-    await websocketInstances[0].emit("message", {
+    await socket.emit("message", {
       data: JSON.stringify({ type: "list_tools", id: "list-1" }),
     });
     return nativeMessages.at(-1);
   };
 
   const sendNative = async (message) => {
+    const socket = await getNativeSocket();
     nativeMessages.length = 0;
-    await websocketInstances[0].emit("message", { data: JSON.stringify(message) });
+    await socket.emit("message", { data: JSON.stringify(message) });
     return nativeMessages.at(-1);
   };
 
-  return { registerTools, callNativeTool, listNativeTools, sendNative, sentToTabs, flushStaticRoutes, context, tabs };
+  return { registerTools, callNativeTool, listNativeTools, sendNative, sentToTabs, flushStaticRoutes, context, tabs, getNativeSocket, websocketInstances };
 }
 
 test("adapter refresh waits for the active background call before closing offscreen", async () => {

@@ -76,7 +76,14 @@ def load_managed_model_config(
     env = environment or os.environ
     url = str(env.get("WEWORKER_MODEL_CONFIG_URL") or "").strip()
     token = str(env.get("WEWORKER_MODEL_CONFIG_TOKEN") or "").strip()
-    if url != "http://127.0.0.1:8765/internal/webwright/model-config" or not token:
+    parsed = urlparse(url)
+    try:
+        valid_port = parsed.port is not None and 1 <= parsed.port <= 65535
+    except ValueError:
+        valid_port = False
+    if (not token or parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or not valid_port
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.path != "/internal/webwright/model-config"):
         raise ManagedModelConfigError("WeWorker model configuration is unavailable.")
     request = Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
     try:

@@ -467,6 +467,7 @@ export class DedicatedBrowserManager {
     extensionDir,
     browserHome = resolveBrowserHome(),
     instanceToken,
+    bridgePort,
     platform = process.platform,
     spawn = nodeSpawn,
     findExecutable = () => findBrowserExecutable({ platform }),
@@ -487,6 +488,7 @@ export class DedicatedBrowserManager {
     this._browserHome = browserHome;
     this._userDataDir = path.join(browserHome, 'profile');
     this._instanceToken = instanceToken;
+    this._bridgePort = bridgePort;
     this._platform = platform;
     this._spawn = spawn;
     this._findExecutable = findExecutable;
@@ -607,7 +609,9 @@ export class DedicatedBrowserManager {
       this._descriptor = { instanceId: randomBytes(16).toString('hex'), cdpUrl };
       const { windowId } = await cdp.send('Browser.getWindowForTarget', { targetId });
       this._windowId = windowId;
-      await markExtensionInstance(cdp, extensionId, { kind: 'dedicated', token: this._instanceToken });
+      await markExtensionInstance(cdp, extensionId, { kind: 'dedicated', token: this._instanceToken,
+        ...(this._bridgePort ? { bridgePort: this._bridgePort } : {}),
+      });
       if (digest) writeLoadedExtensionBuild(this._browserHome, digest);
       run.ready = true;
       this._readyAt = this._now();
@@ -896,6 +900,7 @@ export class BrowserHost {
   constructor({
     log = () => {},
     env = process.env,
+    bridgePort = Number(env.WEBCLI_BRIDGE_PORT || 3711),
     browserHome = resolveBrowserHome({ env }),
     resolveExtensionDir = () => null,
     isDedicatedConnected = () => false,
@@ -908,6 +913,7 @@ export class BrowserHost {
   } = {}) {
     this._log = log;
     this._env = env;
+    this._bridgePort = bridgePort;
     this._browserHome = browserHome;
     this._resolveExtensionDir = resolveExtensionDir;
     this._isDedicatedConnected = isDedicatedConnected;
@@ -943,6 +949,7 @@ export class BrowserHost {
         log: this._log,
         browserHome: this._browserHome,
         instanceToken: this.token,
+        bridgePort: this._bridgePort,
         extensionDir,
         onStatusChange: () => this.notify(),
       });

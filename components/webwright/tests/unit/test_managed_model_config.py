@@ -130,6 +130,26 @@ def test_load_managed_model_config_rejects_non_fixed_url() -> None:
         )
 
 
+def test_model_snapshot_accepts_host_selected_loopback_port():
+    config = load_managed_model_config({
+        "WEWORKER_MODEL_CONFIG_URL": "http://127.0.0.1:48765/internal/webwright/model-config",
+        "WEWORKER_MODEL_CONFIG_TOKEN": "fixture-launch-token",
+    }, opener=lambda *_args, **_kwargs: FakeResponse(payload()))
+    assert config.model == "test-model"
+
+
+@pytest.mark.parametrize("url", [
+    "https://127.0.0.1:48765/internal/webwright/model-config",
+    "http://example.com:48765/internal/webwright/model-config",
+    "http://127.0.0.1:48765/other", "http://127.0.0.1:48765/internal/webwright/model-config?x=1",
+    "http://user@127.0.0.1:48765/internal/webwright/model-config",
+    "http://127.0.0.1:65536/internal/webwright/model-config",
+])
+def test_model_snapshot_rejects_non_host_endpoints(url):
+    with pytest.raises(ManagedModelConfigError, match="unavailable"):
+        load_managed_model_config({"WEWORKER_MODEL_CONFIG_URL": url, "WEWORKER_MODEL_CONFIG_TOKEN": "fixture-token"})
+
+
 def test_openai_chat_payload_uses_json_object() -> None:
     model = OpenAIChatModel(
         model_name="test-model",

@@ -1,9 +1,10 @@
 import { WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
+import { bridgeUrl, resolveBridgeInstance } from './bridge-instance.js';
 
 /** A persistent local control connection. No CDP traffic is proxied here. */
-export async function connectSharedBrowser({ url = 'ws://127.0.0.1:3711', timeoutMs = 45000 } = {}) {
+export async function connectSharedBrowser({ url = bridgeUrl(resolveBridgeInstance()), timeoutMs = 45000 } = {}) {
   const socket = new WebSocket(url);
   const pending = new Map();
   let onLost = () => {};
