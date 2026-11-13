@@ -247,3 +247,49 @@ def test_non_reducing_summary_uses_oldest_history_instead_of_looping():
     agent.query()
     assert len(model.turn_requests) == 4
     assert "CURRENT-ACTION" in str(agent.messages)
+
+
+@pytest.mark.parametrize("input_tokens", [None, 0, 71_117, -1, "190000", True, float("nan"), float("inf")])
+def test_local_payload_size_does_not_trigger_compaction_without_provider_usage(input_tokens):
+    model = SummaryModel()
+    model.get_template_vars = lambda **kwargs: {
+        "last_request_input_tokens": input_tokens,
+        "cumulative_input_tokens": 900_000,
+    }
+    agent = make_agent(model, context_limit=200_000)
+    agent.messages[-1]["content"] = [
+        {"type": "input_image", "image_url": "data:image/png;base64," + "A" * 900_000},
+    ]
+    assert request_tokens(agent._messages_for_model()) > 200_000
+    agent.query()
+    assert len(model.requests) == 1
+    assert not any(m.get("extra", {}).get("interrupt_type") == "HistoryCompactionSummary" for m in agent.messages)
+
+
+def test_provider_input_usage_triggers_compaction_despite_small_local_estimate():
+    model = SummaryModel()
+    model.get_template_vars = lambda **kwargs: {"last_request_input_tokens": 180_000}
+    agent = make_agent(model, context_limit=200_000)
+    assert request_tokens(agent._messages_for_model()) < 180_000
+    agent.query()
+    assert len(model.requests) == 2
+    assert model.requests[0][-1]["extra"]["interrupt_type"] == "HistoryCompactionRequest"
+    assert "OVERFLOW-OBSERVATION" not in transcript(model.requests[0])
+
+
+def test_anthropic_provider_input_usage_includes_cache_reads_and_writes_once():
+    from webwright.models.anthropic_model import _usage_from_anthropic_payload
+    from webwright.models.openrouter_model import _usage_metrics_from_chat_completions
+
+    usage = _usage_from_anthropic_payload({"usage": {
+        "input_tokens": 1_000, "cache_read_input_tokens": 170_000,
+        "cache_creation_input_tokens": 9_000, "output_tokens": 500,
+    }})
+    assert usage["input_tokens"] == 180_000
+    assert usage["total_tokens"] == 180_500
+    assert usage["cached_input_tokens"] == 170_000
+    openai_usage = _usage_metrics_from_chat_completions({"usage": {
+        "prompt_tokens": 180_000, "completion_tokens": 500, "total_tokens": 180_500,
+        "prompt_tokens_details": {"cached_tokens": 170_000},
+    }})
+    assert openai_usage["input_tokens"] == 180_000

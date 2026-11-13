@@ -728,7 +728,13 @@ class DefaultAgent:
                 )
             )
         attempts = 0
-        shrink = request_tokens(self._messages_for_model()) >= self.config.context_limit * 0.9
+        # Image payload bytes and cumulative billing are not the provider's context usage.
+        input_tokens = self.model.get_template_vars().get("last_request_input_tokens")
+        shrink = (
+            isinstance(input_tokens, int)
+            and not isinstance(input_tokens, bool)
+            and input_tokens >= self.config.context_limit * 0.9
+        )
         drop_oldest = False
         last_overflow = None
         while True:
