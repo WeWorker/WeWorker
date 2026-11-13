@@ -133,6 +133,19 @@ export const useSettingsStore = create((set, get) => ({
     return data
   },
 
+  detectingLocalProviders: false,
+  detectAndImportProviders: async () => {
+    if (get().detectingLocalProviders) return null
+    set({ detectingLocalProviders: true })
+    try {
+      const res = await backendFetch(`${API}/settings/provider/detect-and-import`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || '检测未完成，请稍后重试。')
+      set(settingsPatch(data, get()))
+      return data.discovery
+    } finally { set({ detectingLocalProviders: false }) }
+  },
+
   revealProviderKey: async (sourceId) => {
     const res = await backendFetch(`${API}/settings/provider/reveal-key`, {
       method: 'POST',

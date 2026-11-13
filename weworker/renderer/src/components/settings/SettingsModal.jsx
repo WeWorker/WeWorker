@@ -1,3 +1,4 @@
+import DetectLocalProvidersButton from './DetectLocalProvidersButton.jsx'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
@@ -274,6 +275,7 @@ export default function SettingsPage({ onClose }) {
               <h3>{SETTINGS_GROUPS.flatMap(group => group.items).find(([key]) => key === tab)?.[1] || '设置'}</h3>
               <p className="settings-page-description">{SETTINGS_DESCRIPTIONS[tab]}</p>
             </div>
+            {tab === 'model' && <DetectLocalProvidersButton />}
           </div>
           <div className={`settings-body${tab === 'model' || tab === 'channels' ? ' settings-body--model' : ''}`}>
             {tab === 'channels' && <ChannelsTab />}
