@@ -399,9 +399,10 @@ browserClient.onAuthEvent((event) => {
 })
 
 async function createWindow({ show = true } = {}) {
-  // Hide the default menu bar on Windows/Linux (macOS uses system menu bar)
+  // Keep native editing accelerators even when the frameless window hides its menu.
+  // macOS keeps the default system menu.
   if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null)
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'editMenu' }]))
   }
 
   mainWindow = new BrowserWindow({
@@ -414,13 +415,29 @@ async function createWindow({ show = true } = {}) {
     icon: fs.existsSync(appIconPath) ? appIconPath : undefined,
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' }
-      : { frame: false }),
+      : { frame: false, autoHideMenuBar: true }),
     backgroundColor: '#f5f5f7',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  })
+
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable) return
+    const { editFlags } = params
+    Menu.buildFromTemplate([
+      { label: '撤销', role: 'undo', accelerator: 'CmdOrCtrl+Z', enabled: editFlags.canUndo },
+      { label: '重做', role: 'redo', accelerator: process.platform === 'win32' ? 'Ctrl+Y' : 'CmdOrCtrl+Shift+Z', enabled: editFlags.canRedo },
+      { type: 'separator' },
+      { label: '剪切', role: 'cut', accelerator: 'CmdOrCtrl+X', enabled: editFlags.canCut },
+      { label: '复制', role: 'copy', accelerator: 'CmdOrCtrl+C', enabled: editFlags.canCopy },
+      { label: '粘贴', role: 'paste', accelerator: 'CmdOrCtrl+V', enabled: editFlags.canPaste },
+      { label: '删除', role: 'delete', accelerator: process.platform === 'darwin' ? 'Backspace' : 'Delete', enabled: editFlags.canDelete },
+      { type: 'separator' },
+      { label: '全选', role: 'selectAll', accelerator: 'CmdOrCtrl+A', enabled: editFlags.canSelectAll },
+    ]).popup({ window: mainWindow, frame: params.frame ?? undefined })
   })
 
   if (process.platform !== 'darwin') {
