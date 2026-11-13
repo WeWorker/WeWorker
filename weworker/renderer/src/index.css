@@ -1603,6 +1603,91 @@ html.dark {
   white-space: nowrap;
 }
 
+.chat-slash-menu-item--skill {
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+
+.chat-slash-menu-item--skill .chat-slash-menu-item__body {
+  flex-wrap: wrap;
+  row-gap: 3px;
+}
+
+.chat-slash-menu-item--skill .chat-slash-menu-item__title {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+
+.chat-slash-menu-item--skill .chat-slash-menu-item__hint {
+  flex: 1 1 160px;
+}
+
+.chat-slash-menu-item--skill .chat-slash-menu-item__icon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 3px;
+}
+
+.chat-composer-editor {
+  position: relative;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.chat-composer-editor[data-empty='true']::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: inherit;
+  overflow: hidden;
+  color: var(--text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+.chat-skill-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #2563eb;
+  background: color-mix(in srgb, #2563eb 8%, transparent);
+  font-weight: 600;
+  vertical-align: baseline;
+  cursor: default;
+  pointer-events: none;
+}
+
+.dark .chat-skill-token {
+  color: #60a5fa;
+}
+
+.chat-skill-token__icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 14px;
+}
+
+.chat-skill-token__icon :is(img, svg) {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
+.chat-skill-token__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .chat-slash-menu-item__icon svg {
   width: 12px;
   height: 12px;

@@ -3,19 +3,22 @@ import { clipboardMarkdown, createFormattedBody, FormattedBody } from '../../uti
 import { handleChatLinkClick } from '../../utils/chat-links.js'
 import { isFormattedBody, restoreBodyToInput, finishBodySave, hasBodyFormatting } from '../../utils/formatted-body-draft.js'
 import FormattedBodyCard from './FormattedBodyCard.jsx'
+import ChatComposerInput from './ChatComposerInput.jsx'
 import './formatted-body.css'
 import React, { useRef, useEffect, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { ExclamationCircleOutlined, FolderOpenOutlined, UnlockOutlined } from '@ant-design/icons'
+import { BookOutlined, ExclamationCircleOutlined, FolderOpenOutlined, UnlockOutlined } from '@ant-design/icons'
+import { backendFetch } from '../../api/http.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { useSitesStore } from '../../store/sites.js'
 import { useTerminalStore } from '../../store/terminal.js'
 import { useUserFilesStore } from '../../store/user-files.js'
 import {
-  buildWebcliSlashCommands,
+  buildSkillSlashCommands,
   filterChatSlashCommands,
   findChatBangTrigger,
+  findChatSkillTrigger,
 } from '../../utils/chat-slash-commands.js'
 import { basename, getPathsFromPasteEvent, mergeAttachmentPaths } from '../../utils/clipboard-files.js'
 import { localFileUrl } from '../../utils/local-file-url.js'
@@ -164,6 +167,46 @@ export default function InputBar({
   const [slashMenuPlacement, setSlashMenuPlacement] = useState(null)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [bangCompletionSource, setBangCompletionSource] = useState(null)
+  const [skillCatalog, setSkillCatalog] = useState({ status: 'idle', items: [] })
+  const [skillLoadAttempt, setSkillLoadAttempt] = useState(0)
+  const skillMenuOpen = slashMenuState?.kind === 'skill'
+  useEffect(() => {
+    if (!skillMenuOpen) return undefined
+    const controller = new AbortController()
+    let disposed = false
+    const timeout = window.setTimeout(() => controller.abort(), 15000)
+    setSkillCatalog({ status: 'loading', items: [] })
+    async function loadSkills() {
+      try {
+        const response = await backendFetch('/skills', { signal: controller.signal })
+        if (!response.ok) throw new Error('Skills unavailable')
+        const skills = await response.json()
+        if (!Array.isArray(skills)) throw new Error('Invalid Skill catalog')
+        if (!disposed) setSkillCatalog({ status: 'ready', items: buildSkillSlashCommands(skills) })
+      } catch {
+        if (!disposed) setSkillCatalog({ status: 'error', items: [] })
+      } finally {
+        window.clearTimeout(timeout)
+      }
+    }
+    void loadSkills()
+    return () => {
+      disposed = true
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
+  }, [skillMenuOpen, skillLoadAttempt])
+  useEffect(() => {
+    setSlashMenuState(null)
+  }, [attachmentTarget, inputDisabled])
+  useEffect(() => {
+    if (!slashMenuState) return undefined
+    const dismiss = (event) => {
+      if (!composerRef.current?.contains(event.target) && !slashMenuRef.current?.contains(event.target)) setSlashMenuState(null)
+    }
+    document.addEventListener('pointerdown', dismiss)
+    return () => document.removeEventListener('pointerdown', dismiss)
+  }, [!!slashMenuState])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const historyDraftRef = useRef('')
   const historyNavigationRef = useRef(false)
@@ -193,7 +236,7 @@ export default function InputBar({
     setWelcomePromptPlaceholder((previous) => getRandomWelcomePromptPlaceholder(previous, sites))
   }, [isWelcome, sites, text])
 
-  const webcliSlashCommands = useMemo(() => buildWebcliSlashCommands(sites), [sites])
+  const skillSlashCommands = skillCatalog.items
   const buildBangSlashItems = useCallback((query) => {
     const command = query || ''
     const cursor = command.length
@@ -243,8 +286,8 @@ export default function InputBar({
   const slashItems = useMemo(() => {
     if (!slashMenuState) return []
     if (slashMenuState.kind === 'bang') return buildBangSlashItems(slashMenuState.query)
-    return filterChatSlashCommands(webcliSlashCommands, slashMenuState.query)
-  }, [buildBangSlashItems, slashMenuState, webcliSlashCommands])
+    return filterChatSlashCommands(skillSlashCommands, slashMenuState.query)
+  }, [buildBangSlashItems, slashMenuState, skillSlashCommands])
 
   const inputHistory = useMemo(() => {
     const entries = []
@@ -382,8 +425,13 @@ export default function InputBar({
       setBangCompletionSource(null)
       return
     }
+    if (textareaRef.current?.isSkillAtCursor?.(cursor)) {
+      setSlashMenuState(null)
+      return
+    }
     const bangTrigger = findChatBangTrigger(nextText, cursor)
-    const trigger = bangTrigger ? { ...bangTrigger, kind: 'bang' } : null
+    const skillTrigger = bangTrigger ? null : findChatSkillTrigger(nextText, cursor)
+    const trigger = bangTrigger ? { ...bangTrigger, kind: 'bang' } : skillTrigger ? { ...skillTrigger, kind: 'skill' } : null
     if (!trigger) {
       setSlashMenuState(null)
       setBangCompletionSource(null)
@@ -410,9 +458,20 @@ export default function InputBar({
       keepMenuOpen = item.candidate.isDirectory
         || ['cmd', 'webcli', 'subcommand', 'option', 'tool', 'site'].includes(item.candidate.kind)
     }
+    const existingSeparator = slashMenuState.kind === 'skill' && /\s/.test(current[slashMenuState.end] || '')
+    if (existingSeparator) replacement = replacement.trimEnd()
     const nextText = `${current.slice(0, slashMenuState.start)}${replacement}${current.slice(slashMenuState.end)}`
-    const nextCursor = slashMenuState.start + replacement.length
-    onTextChange(nextText)
+    const nextCursor = slashMenuState.start + replacement.length + (existingSeparator && current[slashMenuState.end] === ' ' ? 1 : 0)
+    // Preserve native undo/redo for selecting a Skill, just like typing/pasting.
+    let inserted = false
+    if (slashMenuState.kind === 'skill' && textarea.insertSkill) {
+      inserted = textarea.insertSkill(item, slashMenuState.start, slashMenuState.end, replacement)
+    } else if (slashMenuState.kind === 'skill' && textarea.ownerDocument?.execCommand) {
+      textarea.focus()
+      textarea.setSelectionRange(slashMenuState.start, slashMenuState.end)
+      inserted = textarea.ownerDocument.execCommand('insertText', false, replacement)
+    }
+    if (!inserted) onTextChange(nextText)
     if (keepMenuOpen) {
       setSlashMenuState({
         kind: 'bang',
@@ -527,6 +586,13 @@ export default function InputBar({
     }
     const ta = textareaRef.current
     if (!ta) return
+    if (ta.pasteSkillFragment?.(e.clipboardData)) return
+    // Chromium's native edit transaction preserves undo/redo and emits the input
+    // event that updates React. Assigning the controlled value loses paste history.
+    if (ta.ownerDocument?.execCommand) {
+      ta.focus()
+      if (ta.ownerDocument.execCommand('insertText', false, cleaned)) return
+    }
     const start = ta.selectionStart ?? 0
     const end = ta.selectionEnd ?? 0
     const current = text || ''
@@ -570,13 +636,13 @@ export default function InputBar({
           ? slashItems
           : slashMenuState.kind === 'bang'
             ? buildBangSlashItems(slashMenuState.query)
-            : filterChatSlashCommands(webcliSlashCommands, slashMenuState.query)
+            : filterChatSlashCommands(skillSlashCommands, slashMenuState.query)
         if (items.length) {
           e.preventDefault()
           applySlashItem(items[Math.min(slashActiveIndex, items.length - 1)])
           return
         }
-        if (e.key === 'Tab') {
+        if (e.key === 'Tab' || slashMenuState.kind === 'skill') {
           e.preventDefault()
           return
         }
@@ -783,14 +849,16 @@ export default function InputBar({
   }
 
   const textareaEl = (
-    <textarea
+    <ChatComposerInput
       data-weworker-chat-input="true"
       data-chat-attachment-target={attachmentTarget}
+      draftKey={attachmentTarget}
       ref={textareaRef}
       value={text || ''}
       onChange={handleTextChange}
       onKeyDown={handleKeyDown}
       onClick={syncSlashMenuFromTextarea}
+      onFocus={syncSlashMenuFromTextarea}
       onKeyUp={handleTextareaKeyUp}
       onPaste={handlePaste}
       onCompositionStart={() => { composingRef.current = true }}
@@ -1035,8 +1103,11 @@ export default function InputBar({
 
     if (slashItems.length === 0) {
       return createPortal(
-        <div className="skill-slash-menu chat-slash-menu chat-slash-menu--empty" style={panelStyle}>
-          没有匹配的 webcli 命令
+        <div ref={slashMenuRef} className="skill-slash-menu chat-slash-menu chat-slash-menu--empty" style={panelStyle} role="status">
+          {skillCatalog.status === 'loading' || skillCatalog.status === 'idle' ? '正在加载 Skill…'
+            : skillCatalog.status === 'error' ? <>Skill 加载失败，<button type="button" className="formatted-back-edit" onMouseDown={event => event.preventDefault()} onClick={() => setSkillLoadAttempt(attempt => attempt + 1)}>重新加载</button></>
+              : skillSlashCommands.length === 0 ? '暂无可用 Skill，请先在技能管理中启用'
+                : '没有匹配的 Skill'}
         </div>,
         document.body,
       )
@@ -1048,9 +1119,9 @@ export default function InputBar({
           ref={slashMenuRef}
           className="skill-slash-menu-scroll chat-slash-menu-scroll scrollbar-hover-only"
           role="listbox"
-          aria-label="webcli 命令调用"
+          aria-label="Skill 选择"
         >
-          <div className="skill-slash-menu-group-title">webcli 命令调用</div>
+          <div className="skill-slash-menu-group-title">Skill</div>
           <div className="chat-slash-menu-list">
             {slashItems.map((item, index) => {
               const active = index === slashActiveIndex
@@ -1060,23 +1131,27 @@ export default function InputBar({
                   type="button"
                   role="option"
                   aria-selected={active}
-                  className={`skill-slash-menu-item chat-slash-menu-item${active ? ' is-active' : ''}`}
+                  className={`skill-slash-menu-item chat-slash-menu-item chat-slash-menu-item--skill${active ? ' is-active' : ''}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseEnter={() => setSlashActiveIndex(index)}
                   onClick={() => applySlashItem(item)}
                 >
                   <span className="chat-slash-menu-item__icon" aria-hidden="true">
-                    <WebcliCommandIcon />
+                    <SkillCompletionIcon iconUrl={item.iconUrl} />
                   </span>
                   <span className="chat-slash-menu-item__body">
                     <span className="chat-slash-menu-item__title">{item.title}</span>
                     <span className="chat-slash-menu-item__hint">{item.description}</span>
                   </span>
-                  <code className="chat-slash-menu-item__command">{item.command}</code>
                 </button>
               )
             })}
           </div>
+        </div>
+        <div className="chat-slash-menu-footer">
+          <span><kbd>↑</kbd> <kbd>↓</kbd> 选择</span>
+          <span><kbd>Enter</kbd> / <kbd>Tab</kbd> 补全</span>
+          <span><kbd>Esc</kbd> 关闭</span>
         </div>
       </div>,
       document.body,
@@ -1123,6 +1198,12 @@ export default function InputBar({
       {renderSlashMenu()}
     </div>
   )
+}
+
+function SkillCompletionIcon({ iconUrl }) {
+  const [failedSource, setFailedSource] = useState(null)
+  if (!iconUrl || failedSource === iconUrl) return <BookOutlined />
+  return <img src={iconUrl} alt="" draggable={false} width={16} height={16} onError={() => setFailedSource(iconUrl)} />
 }
 
 function WebcliCommandIcon() {

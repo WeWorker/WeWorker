@@ -3,6 +3,12 @@ import { describe, it } from 'node:test'
 import { parseSkillMarkdownMeta } from '../utils/skill-markdown-meta.js'
 
 describe('parseSkillMarkdownMeta', () => {
+  it('preserves the full invocation name on request without changing display names', () => {
+    const markdown = '---\nname: webcli-example\nuser-invocable: false\n---\nInstructions'
+    assert.equal(parseSkillMarkdownMeta(markdown).name, 'example')
+    assert.equal(parseSkillMarkdownMeta(markdown, { preserveNamePrefix: true }).name, 'webcli-example')
+    assert.equal(parseSkillMarkdownMeta(markdown).userInvocable, false)
+  })
   it('parses folded YAML description blocks', () => {
     const markdown = `---
 name: personal-codewords
