@@ -1,6 +1,9 @@
 import { Router } from 'express'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { readExplorationAttachments } from './exploration-attachments.js'
+import type { Settings } from './config.js'
+import { defaultExplorationModel, explorationConversationSettings } from './exploration-model-settings.js'
 
 const PREFIX = '/api/website-exploration'
 const UPSTREAM = 'http://127.0.0.1:8766'
@@ -8,6 +11,8 @@ const id = '[A-Za-z0-9_-]+'
 const tool = `/api/toolkits/${id}/tools/${id}`
 const rules: [string, RegExp][] = [
   ['GET POST', /^\/api\/explorations$/],
+  ['GET POST', new RegExp(`^/api/explorations/${id}/model$`)],
+  ['PATCH DELETE', new RegExp(`^/api/explorations/${id}$`)],
   ['GET', /^\/api\/(health|activity|browser\/(status|tabs|match)|toolkits)$/],
   ['POST', /^\/api\/(browser\/open|toolkits)$/],
   ['GET PUT DELETE', new RegExp(`^/api/toolkits/${id}$`)],
@@ -21,6 +26,7 @@ const rules: [string, RegExp][] = [
   ['GET', new RegExp(`^/api/toolkits/${id}/(export-status|export)$`)],
   ['GET', new RegExp(`^/api/(explorations|debug-runs|development-runs|replays)/${id}$`)],
   ['GET', new RegExp(`^/api/explorations/${id}/(timeline|steps|messages|events)$`)],
+  ['GET', new RegExp(`^/api/explorations/${id}/file-changes(?:/[a-f0-9]{32}(?:/artifact)?)?$`)],
   ['POST', new RegExp(`^/api/explorations/${id}/(messages|resume|cancel|replay)$`)],
   ['GET', new RegExp(`^/api/(debug-runs|replays)/${id}/events$`)],
   ['POST', new RegExp(`^/api/(debug-runs|replays)/${id}/cancel$`)],
@@ -33,6 +39,14 @@ export function allowedExplorationRequest(method: string, raw: string): boolean 
   if (pathname.split('/').some(part => part === '.' || part === '..')) return false
   if (!rules.some(([methods, pattern]) => methods.split(' ').includes(method) && pattern.test(pathname))) return false
   const params = new URLSearchParams(query)
+  if (pathname.includes('/file-changes')) {
+    const key = pathname.endsWith('/file-changes') ? 'offset' : 'file'
+    return [...params.keys()].every(k => k === key) && (!params.has(key)
+      || (params.getAll(key).length === 1 && /^\d+$/.test(params.get(key)!) && Number(params.get(key)) <= (key === 'offset' ? 1_000_000 : 10_000)))
+  }
+  const summaryList = method === 'GET' && (pathname === '/api/explorations' || new RegExp(`^${tool}/explorations$`).test(pathname))
+  if (summaryList) return [...params.keys()].every(key => key === 'view')
+    && (!params.has('view') || (params.getAll('view').length === 1 && params.get('view') === 'summary'))
   const allowed = pathname === '/api/browser/match' ? ['url', 'toolkit_id', 'tool_id'] : pathname.endsWith('/cancel') ? ['force'] : []
   return [...params.keys()].every(key => allowed.includes(key))
 }
@@ -51,6 +65,9 @@ export function mapExplorationResources(value: unknown): unknown {
 export function createWebsiteExplorationRouter(options: {
   instanceId?: string
   fetch?: typeof fetch
+  beforeDelete?: (explorationId: string) => void
+  afterDelete?: (explorationId: string) => void
+  getSettings?: () => Settings
 } = {}) {
   const router = Router()
   const fetchUpstream = options.fetch || globalThis.fetch
@@ -89,15 +106,38 @@ export function createWebsiteExplorationRouter(options: {
         res.json(identity)
         return
       }
+      const deletingId = req.method === 'DELETE' && raw.split('?')[0].match(/^\/api\/explorations\/([A-Za-z0-9_-]+)$/)?.[1]
+      if (deletingId) {
+        try { options.beforeDelete?.(deletingId) }
+        catch (error) { res.status(409).json({ detail: error instanceof Error ? error.message : '探索记录暂时无法删除' }); return }
+      }
+      let body = req.body || {}
+      const creating = req.method === 'POST' && (raw === '/api/explorations' || new RegExp(`^${tool}/explorations$`).test(raw))
+      const selectingModel = req.method === 'POST' && new RegExp(`^/api/explorations/${id}/model$`).test(raw)
+      if ((creating || selectingModel) && options.getSettings) {
+        try {
+          const candidate = explorationConversationSettings(options.getSettings(), body.model_selection)
+          body = { ...body, model_selection: defaultExplorationModel(candidate) }
+        } catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '探索模型无效' }); return }
+      }
+      if (body.attachments !== undefined) {
+        const acceptsFiles = req.method === 'POST' && (raw === '/api/explorations'
+          || new RegExp(`^${tool}/explorations$`).test(raw)
+          || new RegExp(`^/api/explorations/${id}/(messages|resume)$`).test(raw))
+        if (!acceptsFiles) { res.status(400).json({ detail: '此操作不支持附件' }); return }
+        try { body = { ...body, attachments: await readExplorationAttachments(body.attachments) } }
+        catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '附件读取失败' }); return }
+      }
       const response = await fetchUpstream(UPSTREAM + raw, {
         method: req.method, redirect: 'error', signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
-        ...(!['GET', 'HEAD'].includes(req.method) ? { body: JSON.stringify(req.body || {}) } : {}),
+        ...(!['GET', 'HEAD'].includes(req.method) ? { body: JSON.stringify(body) } : {}),
       })
+      if (response.ok && deletingId) options.afterDelete?.(deletingId)
       res.status(response.status)
       res.setHeader('Cache-Control', 'no-store')
       const type = response.headers.get('content-type') || 'application/octet-stream'
-      if (type.includes('application/json')) {
+      if (type.includes('application/json') && !/\/file-changes\/[a-f0-9]{32}\/artifact(?:\?|$)/.test(raw)) {
         res.json(mapExplorationResources(await response.json()))
       } else if (response.body) {
         clearTimeout(timeout)

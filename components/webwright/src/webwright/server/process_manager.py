@@ -17,6 +17,7 @@ from webwright.server.artifacts import (
     try_read_json,
     waiting_intervention,
 )
+from webwright.server.artifact_workspace import prepare_artifact_output_dir
 from webwright.server.browser import (
     DEFAULT_CDP_URL,
     browser_activate,
@@ -27,7 +28,9 @@ from webwright.server.debug_store import DebugRunStore
 from webwright.server.adapter_v2 import current_package, read_base
 from webwright.server.development import build_development_input, validate_exploration_source
 from webwright.server.development_store import DevelopmentRunStore
-from webwright.server.weworker_model_config import ManagedModelConfig, load_managed_model_config
+from webwright.server.exploration_titles import ExplorationTitles
+from webwright.server.exploration_attachments import decode_attachments, save_attachments, instruction_with_attachments
+from webwright.server.weworker_model_config import ManagedModelConfig, load_managed_model_config, validate_model_selection
 from webwright.server.publisher import skill_name
 from webwright.server.records import TaskStore, atomic_write_json, make_run_id, now_iso, sanitize_id, timestamp_compact
 from webwright.server.status import (
@@ -112,7 +115,7 @@ class ProcessManager:
         cdp_url: str = DEFAULT_CDP_URL,
         python_executable: str | None = None,
         launcher: RuntimeLauncher | None = None,
-        model_config_loader: Callable[[], ManagedModelConfig] | None = None,
+        model_config_loader: Callable[..., ManagedModelConfig] | None = None,
         toolkit_store: ToolkitStore | None = None,
         debug_store: DebugRunStore | None = None,
         development_store: DevelopmentRunStore | None = None,
@@ -122,6 +125,7 @@ class ProcessManager:
         self.server_log_path = self.store.root.parent / "logs" / "server.log"
         self.cdp_url = cdp_url
         self.model_config_loader = model_config_loader or load_managed_model_config
+        self.exploration_titles = ExplorationTitles(store, self.model_config_loader)
         self.toolkit_store = toolkit_store
         self.debug_store = debug_store
         self.development_store = development_store
@@ -147,7 +151,7 @@ class ProcessManager:
         environment.pop("WEWORKER_MODEL_CONFIG_TOKEN", None)
         return environment
 
-    def _resolve_model(self) -> tuple[str, list[str], dict[str, str] | None]:
+    def _resolve_model(self, selection: dict[str, str] | None = None) -> tuple[str, list[str], dict[str, str] | None]:
         """Return (model_config_file, config_spec model overrides, subprocess env extra).
 
         The api_key is only returned as a subprocess env var, never as a
@@ -161,7 +165,7 @@ class ProcessManager:
         """
         overrides: list[str] = []
         try:
-            active = self.model_config_loader()
+            active = self.model_config_loader(selection=selection) if selection is not None else self.model_config_loader()
         except Exception as exc:
             append_process_log(
                 self.server_log_path,
@@ -172,32 +176,41 @@ class ProcessManager:
                     type(exc.__cause__).__name__ if exc.__cause__ is not None else ""
                 ),
             )
-            raise InvalidStateError("请先在 WeWorker 中配置可用于 Webwright 的模型。") from exc
-        endpoint = active.base_url.rstrip("/")
+            raise InvalidStateError("请为当前会话选择可用于网站探索的模型。") from exc
         overrides.extend([
             f"agent.context_limit={active.context_limit}",
             f"agent.compaction_ratio={active.compaction_ratio}",
             f"agent.compaction_max_attempts={active.compaction_max_attempts}",
+            f"model.thinking_effort={json.dumps(active.thinking_effort)}",
         ])
         if active.model_class == "anthropic":
             model_config_file = "model_claude.yaml"
             overrides.extend([
                 f"model.model_name={active.model}",
-                f"model.anthropic_endpoint={endpoint}/v1/messages",
+                f"model.anthropic_endpoint={active.request_endpoint}",
+                f"model.anthropic_auth_type={active.auth_type}",
             ])
             env_extra = {"ANTHROPIC_API_KEY": active.api_key}
         elif active.model_class == "zhipu":
             model_config_file = "model_zhipu.yaml"
             overrides.extend([
                 f"model.model_name={active.model}",
-                f"model.zhipu_endpoint={endpoint}/chat/completions",
+                f"model.zhipu_endpoint={active.request_endpoint}",
             ])
             env_extra = {"ZHIPUAI_API_KEY": active.api_key}
+        elif active.model_class == "openai":
+            model_config_file = "model_openai.yaml"
+            overrides.extend([
+                f"model.model_name={active.model}",
+                f"model.openai_endpoint={active.request_endpoint}",
+            ])
+            env_extra = {"OPENAI_API_KEY": active.api_key}
         else:
             model_config_file = "model_openai_chat.yaml"
             overrides.extend([
                 f"model.model_name={active.model}",
-                f"model.openai_chat_endpoint={endpoint}/chat/completions",
+                f"model.openai_chat_endpoint={active.request_endpoint}",
+                f"model.provider_id={active.provider_id}",
             ])
             env_extra = {"OPENAI_CHAT_API_KEY": active.api_key}
         return model_config_file, overrides, env_extra
@@ -215,20 +228,22 @@ class ProcessManager:
                     type(exc.__cause__).__name__ if exc.__cause__ is not None else ""
                 ),
             )
-            raise InvalidStateError("请先在 WeWorker 中配置可用于 Webwright 的模型。") from exc
-        endpoint = active.base_url.rstrip("/")
+            raise InvalidStateError("请先在 WeWorker 中配置可用于网站探索的模型。") from exc
         if active.model_class == "anthropic":
-            model = {"model_class": "anthropic", "model_name": active.model, "anthropic_endpoint": f"{endpoint}/v1/messages", "request_timeout_seconds": DEVELOPER_REQUEST_TIMEOUT_S}
+            model = {"model_class": "anthropic", "model_name": active.model, "anthropic_endpoint": active.request_endpoint, "anthropic_auth_type": active.auth_type, "request_timeout_seconds": DEVELOPER_REQUEST_TIMEOUT_S}
             env_extra = {"ANTHROPIC_API_KEY": active.api_key}
         elif active.model_class == "zhipu":
-            model = {"model_class": "zhipu", "model_name": active.model, "zhipu_endpoint": f"{endpoint}/chat/completions", "request_timeout_seconds": DEVELOPER_REQUEST_TIMEOUT_S}
+            model = {"model_class": "zhipu", "model_name": active.model, "zhipu_endpoint": active.request_endpoint, "request_timeout_seconds": DEVELOPER_REQUEST_TIMEOUT_S}
             env_extra = {"ZHIPUAI_API_KEY": active.api_key}
+        elif active.model_class == "openai":
+            model = {"model_class": "openai", "model_name": active.model, "openai_endpoint": active.request_endpoint, "request_timeout_seconds": DEVELOPER_REQUEST_TIMEOUT_S}
+            env_extra = {"OPENAI_API_KEY": active.api_key}
         else:
             model = {
                 "model_class": "openai_chat",
                 "provider_id": active.provider_id,
                 "model_name": active.model,
-                "openai_chat_endpoint": f"{endpoint}/chat/completions",
+                "openai_chat_endpoint": active.request_endpoint,
                 "request_timeout_seconds": DEVELOPER_REQUEST_TIMEOUT_S,
             }
             env_extra = {"OPENAI_CHAT_API_KEY": active.api_key}
@@ -352,20 +367,32 @@ class ProcessManager:
         )
         thread.start()
 
+    def ensure_exploration_title(self, task: dict[str, Any]) -> None:
+        if not self.shutting_down:
+            self.exploration_titles.ensure(task)
+
     def start_url_exploration(
-        self, *, start_url: str, instruction: str = "", title: str = ""
+        self, *, start_url: str, instruction: str = "", title: str = "", attachments: list | None = None,
+        model_selection: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         url = str(start_url).strip()
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("start_url must be an HTTP(S) URL without credentials.")
-        return self.start_task(
+        record = self.start_task(
             start_url=url,
             instruction=instruction.strip() or "探索网站的主要功能、接口与鉴权方式，整理可复用能力；不要执行有副作用的操作。",
             title=title.strip() or f"探索 {parsed.hostname}",
             requested_task_id="exp_site",
             activity_type="exploration",
+            attachments=attachments,
+            model_selection=model_selection,
         )
+        if title.strip():
+            record = self.store.update_task(record["task_id"], title_source="custom")
+        else:
+            self.ensure_exploration_title(record)
+        return record
 
     def start_exploration(
         self,
@@ -374,6 +401,8 @@ class ProcessManager:
         tool_id: str,
         supplement: str = "",
         target_id: str = "",
+        attachments: list | None = None,
+        model_selection: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if self.toolkit_store is None:
             raise InvalidStateError("Toolkit Store is not configured.")
@@ -387,7 +416,7 @@ class ProcessManager:
         supplement = str(supplement or "").strip()
         if supplement:
             instruction_parts.append(f"Additional instruction: {supplement}")
-        return self.start_task(
+        record = self.start_task(
             instruction="\n\n".join(instruction_parts),
             start_url=str(tool["start_url"]),
             requested_task_id=f"exp_{tool_id}",
@@ -397,7 +426,11 @@ class ProcessManager:
             tool_id=tool_id,
             target_id=str(target_id or ""),
             initial_supplement=supplement,
+            attachments=attachments,
+            model_selection=model_selection,
         )
+        self.ensure_exploration_title(record)
+        return record
 
     def start_debug_run(
         self,
@@ -780,11 +813,14 @@ class ProcessManager:
         toolkit_id: str = "",
         tool_id: str = "",
         initial_supplement: str = "",
+        attachments: list | None = None,
+        model_selection: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if not instruction.strip():
             raise ValueError("instruction is required.")
         if not start_url.strip():
             raise ValueError("start_url is required.")
+        files = decode_attachments(attachments)
         with self.lock:
             self._ensure_not_busy_locked()
             allowed_domains = (
@@ -805,7 +841,8 @@ class ProcessManager:
                         "Prepared Agent browser page no longer matches start_url."
                     )
                 browser_activate(self.cdp_url, target_id)
-            model_config_file, model_overrides, env_extra = self._resolve_model()
+            selection = validate_model_selection(model_selection) if model_selection is not None else None
+            model_config_file, model_overrides, env_extra = self._resolve_model(selection)
             task_id = self.store.new_task_id(requested_task_id, title=title or instruction[:40])
             run_id = make_run_id()
             output_dir = self.store.task_dir(task_id).resolve()
@@ -825,11 +862,19 @@ class ProcessManager:
                 tool_id=tool_id,
                 initial_supplement=initial_supplement,
             )
+            saved_files = save_attachments(output_dir, files)
+            if selection is not None:
+                record = self.store.save_exploration_model(task_id, selection)
+            if saved_files:
+                record = self.store.update_task(task_id, attachments=saved_files)
+            # The accepted task already owns its visible folder before the worker
+            # or renderer starts using it. Merely opening a draft creates nothing.
+            prepare_artifact_output_dir(output_dir)
             spec = {
                 "mode": "start",
                 "task_id": task_id,
                 "run_id": run_id,
-                "instruction": instruction,
+                "instruction": instruction_with_attachments(instruction, saved_files),
                 "start_url": start_url,
                 "target_id": target_id,
                 "resolved_output_dir": str(output_dir),
@@ -876,9 +921,11 @@ class ProcessManager:
             self._start_watcher(kind="task", active_id=task_id, task_id=task_id, process=process)
             return record
 
-    def continue_task(self, *, task_id: str, followup: str, require_waiting: bool = False) -> dict[str, Any]:
-        if not followup.strip():
+    def continue_task(self, *, task_id: str, followup: str, require_waiting: bool = False, attachments: list | None = None) -> dict[str, Any]:
+        files = decode_attachments(attachments)
+        if not followup.strip() and not files:
             raise ValueError("followup content is required.")
+        user_content = followup.strip() or "请结合附件继续探索。"
         with self.lock:
             self._ensure_not_busy_locked()
             task = self._read_task_or_raise(task_id)
@@ -898,8 +945,12 @@ class ProcessManager:
             )
             if not has_trajectory and not restart_before_first_step:
                 raise InvalidStateError("探索记录暂不可用，请新建探索后重试。")
-            model_config_file, model_overrides, env_extra = self._resolve_model()
+            selection = task.get("model_selection")
+            model_config_file, model_overrides, env_extra = self._resolve_model(selection)
             run_id = make_run_id()
+            saved_files = save_attachments(output_dir, files)
+            followup = instruction_with_attachments(user_content, saved_files)
+            prepare_artifact_output_dir(output_dir)
             self._clear_control(task_id)
             spec = {
                 "mode": "resume",
@@ -959,8 +1010,9 @@ class ProcessManager:
                 try:
                     self.store.append_user_turn(
                         task_id,
-                        content=followup,
+                        content=user_content,
                         after_step=int(after_step or 0),
+                        **({"attachments": saved_files} if saved_files else {}),
                     )
                 except Exception:
                     self._terminate_process_tree(process, force=True)
@@ -1165,6 +1217,18 @@ class ProcessManager:
                 status=ReplayStatus.CANCELLED.value,
                 error="Replay cancelled.",
             )
+
+    def save_exploration_model(self, exploration_id: str, selection: dict[str, str]) -> dict[str, Any]:
+        with self.lock:
+            if self._active_running_locked() and self.active_task_id == exploration_id:
+                raise InvalidStateError("请等待当前探索结束后切换模型")
+            return self.store.save_exploration_model(exploration_id, selection)
+
+    def delete_exploration(self, exploration_id: str) -> None:
+        with self.lock:
+            if self._active_running_locked() and self.active_task_id == exploration_id:
+                raise InvalidStateError("探索或回放正在执行，请停止后再删除")
+            self.store.delete_exploration(exploration_id)
 
     def active_snapshot(self) -> dict[str, Any]:
         with self.lock:

@@ -15,6 +15,10 @@ class FakeExplorationManager:
         self.task_store = task_store
         self.started: dict = {}
         self.continued: dict = {}
+        self.title_requests: list[str] = []
+
+    def ensure_exploration_title(self, task):
+        self.title_requests.append(task["task_id"])
 
     def start_exploration(self, **kwargs):
         self.started = kwargs
@@ -84,6 +88,24 @@ def test_task_store_filters_tool_owned_explorations(tmp_path: Path) -> None:
 
     assert [item["task_id"] for item in explorations] == ["exp_1"]
     assert task_store.read_exploration("exp_1")["activity_type"] == "exploration"
+
+
+def test_exploration_view_reads_small_usage_checkpoint_and_attachment_metadata(tmp_path: Path) -> None:
+    from webwright.server.app import _exploration_view
+    from webwright.server.records import atomic_write_json
+
+    store, _ = _stores(tmp_path)
+    record = store.create_task_record(task_id="example", title="Example", instruction="Read example",
+        start_url="https://example.com", output_dir=store.task_dir("example"), run_id="example-run", activity_type="exploration")
+    attachments = [{"name": "example.txt", "path": ".server/attachments/example.txt", "size": 7}]
+    record = store.update_task("example", attachments=attachments)
+    checkpoint = store.server_dir("example") / "checkpoint.json"
+    atomic_write_json(checkpoint, {"context_usage": {"input_tokens": 1234, "context_limit": 200000}})
+    view = _exploration_view(record)
+    assert view["context_usage"] == {"input_tokens": 1234, "context_limit": 200000}
+    assert view["attachments"] == attachments
+    checkpoint.write_text("[]", encoding="utf-8")
+    assert _exploration_view(record)["context_usage"] is None
 
 
 def test_exploration_api_creates_owned_activity_and_followup(tmp_path: Path) -> None:
@@ -401,6 +423,44 @@ def test_independent_exploration_api_lists_without_tool(tmp_path):
     assert record["title"] == "Site"
     assert client.get("/api/explorations").get_json()["explorations"] == [record]
     assert client.get("/api/toolkits/blog_admin/tools/search_blog/explorations").get_json()["explorations"] == []
+
+
+def test_exploration_summary_lists_skip_artifacts_but_detail_keeps_them(tmp_path, monkeypatch):
+    task_store, toolkit_store = _stores(tmp_path)
+    task = task_store.create_task_record(
+        task_id="exp_summary", title="Example site", instruction="Read title",
+        start_url="https://example.com", output_dir=task_store.task_dir("exp_summary"),
+        run_id="run-1", activity_type="exploration",
+        toolkit_id="blog_admin", tool_id="search_blog",
+    )
+    manager = FakeExplorationManager(task_store)
+    client = create_app(paths=WebwrightPaths.resolve(home=tmp_path), store=task_store,
+                        toolkit_store=toolkit_store, process_manager=manager).test_client()
+    artifact_reads = []
+
+    def read_artifacts(task_id, output_dir):
+        artifact_reads.append(task_id)
+        return {"current_step": 8, "final_response": "Detailed result"}
+
+    monkeypatch.setattr("webwright.server.app.task_artifact_summary", read_artifacts)
+    for route in ["/api/explorations", "/api/toolkits/blog_admin/tools/search_blog/explorations"]:
+        response = client.get(route + "?view=summary")
+        assert response.status_code == 200
+        assert artifact_reads == [], "History lists must not scan each exploration's execution artifacts"
+        assert response.get_json()["explorations"] == [{
+            "exploration_id": "exp_summary", "title": "Example site", "instruction": "Read title",
+            "start_url": "https://example.com", "status": task["status"],
+            "toolkit_id": "blog_admin", "tool_id": "search_blog",
+            "created_at": task["created_at"], "updated_at": task["updated_at"],
+        }]
+    assert manager.title_requests == [], "Lists must not batch-generate titles"
+    detail = client.get("/api/explorations/exp_summary").get_json()
+    assert manager.title_requests == ["exp_summary"]
+    assert detail["step_count"] == 8
+    assert detail["final_response"] == "Detailed result"
+    full_list = client.get("/api/explorations").get_json()["explorations"]
+    assert full_list[0]["final_response"] == "Detailed result"
+    assert artifact_reads == ["exp_summary", "exp_summary"]
 
 
 def test_independent_source_is_reusable_without_reparenting(tmp_path):

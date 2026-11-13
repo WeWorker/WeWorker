@@ -9,7 +9,7 @@ import {
   normalizeContextSnapshot,
 } from '../../utils/context-snapshot.js'
 
-export default function ContextPanel({ snapshot, contextLimit }) {
+export default function ContextPanel({ snapshot, contextLimit, usageOnly = false }) {
   const normalized = useMemo(
     () => normalizeContextSnapshot(snapshot || createEmptyContextSnapshot(contextLimit), contextLimit),
     [snapshot, contextLimit],
@@ -47,7 +47,7 @@ export default function ContextPanel({ snapshot, contextLimit }) {
 
   if (!normalized) return null
   const percent = contextUsagePercent(normalized)
-  const categories = normalized.categories
+  const categories = usageOnly ? [] : normalized.categories
   const grouped = ['runtime', 'work', 'long_term'].map((scope) => ({
     scope,
     items: categories.filter((item) => item.scope === scope),
@@ -61,7 +61,7 @@ export default function ContextPanel({ snapshot, contextLimit }) {
         className="context-usage-trigger"
         aria-label="查看上下文"
         aria-expanded={open}
-        title="查看上下文组成"
+        title={usageOnly ? '查看探索上下文用量' : '查看上下文组成'}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="context-usage-ring" style={{ '--context-percent': `${percent}%` }} aria-hidden="true" />
@@ -93,6 +93,7 @@ export default function ContextPanel({ snapshot, contextLimit }) {
             </span>
           </div>
           <div className="context-panel__bar" aria-hidden="true">
+            {usageOnly && <span style={{ width: `${percent}%`, background: 'var(--accent)' }} />}
             {categories.map((item) => {
               const displayedTokens = item.calibrated_tokens ?? item.estimated_tokens
               const width = normalized.context_limit > 0
@@ -108,7 +109,7 @@ export default function ContextPanel({ snapshot, contextLimit }) {
               )
             })}
           </div>
-          <div className="context-panel__groups">
+          {usageOnly ? <p className="context-panel__source">{snapshot ? '供应商最近一次请求返回的输入 token 用量。' : '尚未收到供应商返回的上下文用量。'}</p> : <div className="context-panel__groups">
             {grouped.map((group) => (
               <section key={group.scope} className="context-panel__group">
                 <div className="context-panel__group-label">{CONTEXT_SCOPE_LABELS[group.scope]}</div>
@@ -129,7 +130,7 @@ export default function ContextPanel({ snapshot, contextLimit }) {
                 })}
               </section>
             ))}
-          </div>
+          </div>}
         </div>,
         document.body,
       )}

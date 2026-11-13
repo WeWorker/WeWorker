@@ -5,6 +5,8 @@ import UserFilesSidePanel from '../files/UserFilesSidePanel.jsx'
 import { useUserFilesStore } from '../../store/user-files.js'
 import { useTerminalStore } from '../../store/terminal.js'
 import WeWorkerPowerShellPanel from '../terminal/WeWorkerPowerShellPanel.jsx'
+import FileChangesSidePanel from '../files/FileChangesSidePanel.jsx'
+import { useFileChangesStore } from '../../store/file-changes.js'
 
 const RIGHT_PANEL_MIN = 300
 const RIGHT_PANEL_MAX = 720
@@ -22,6 +24,7 @@ export default function MainWorkspaceShell({ children }) {
   const capabilitiesOpen = useCapabilitiesPanelStore((s) => s.open)
   const userFilesOpen = useUserFilesStore((s) => s.open)
   const terminalOpen = useTerminalStore((s) => s.open)
+  const changesOpen = useFileChangesStore((s) => s.open)
   const terminalMaximized = useTerminalStore((s) => s.maximized)
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const saved = Number(localStorage.getItem('right_panel_width'))
@@ -31,7 +34,10 @@ export default function MainWorkspaceShell({ children }) {
   const resizingRef = useRef(false)
   const startXRef = useRef(0)
   const startWidthRef = useRef(0)
-  const activePanel = terminalOpen ? 'terminal' : userFilesOpen ? 'files' : (capabilitiesOpen ? 'capabilities' : null)
+  const activePanel = terminalOpen ? 'terminal' : userFilesOpen ? 'files' : capabilitiesOpen ? 'capabilities' : changesOpen ? 'changes' : null
+  useEffect(() => {
+    if (terminalOpen || userFilesOpen || capabilitiesOpen) useFileChangesStore.getState().closePanel()
+  }, [terminalOpen, userFilesOpen, capabilitiesOpen])
   const [mountedPanel, setMountedPanel] = useState(activePanel)
   const mountedPanelRef = useRef(activePanel)
   const [shellVisible, setShellVisible] = useState(Boolean(activePanel))
@@ -219,6 +225,7 @@ export default function MainWorkspaceShell({ children }) {
             {mountedPanel === 'files' && <UserFilesSidePanel width={fullWidthPanel ? '100%' : visibleRightPanelWidth} />}
             {mountedPanel === 'capabilities' && <CapabilitiesSidePanel width={fullWidthPanel ? '100%' : visibleRightPanelWidth} />}
             {mountedPanel === 'terminal' && <WeWorkerPowerShellPanel width={fullWidthPanel ? '100%' : visibleRightPanelWidth} />}
+            {mountedPanel === 'changes' && <FileChangesSidePanel />}
           </div>
         </div>
       )}

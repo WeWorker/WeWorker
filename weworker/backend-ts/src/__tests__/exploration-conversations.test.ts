@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevelopmentChatHandoff } from '../website-exploration-handoff.js'
-import { excludeExplorationConversations, listExplorationConversations, prepareExplorationConversation } from '../exploration-conversations.js'
+import { excludeExplorationConversations, listExplorationConversations, prepareExplorationConversation, markExplorationDeleted, isExplorationConversation } from '../exploration-conversations.js'
 import type { WorkWithMessages } from '../works-store.js'
 
 const roots: string[] = []
@@ -26,6 +26,14 @@ function fixture() {
   return { file, create, records, hasMessages: (id: string) => Boolean(records.get(id)?.messages.length), getWork: (id: string) => records.get(id) ?? null }
 }
 const input = (run = 'run_one', exploration = 'exp_example') => ({ schema_version: 1, site: { start_url: 'https://example.com/', allowed_domains: ['example.com'] }, source_exploration: { exploration_id: exploration, run_id: run } })
+it('recognizes host-owned exploration works without changing legacy attachment locations', () => {
+  const deps = fixture()
+  expect(isExplorationConversation('normal-work', deps.file)).toBe(false)
+  const first = prepareExplorationConversation(input(), deps)
+  expect(isExplorationConversation(first.work.id, deps.file)).toBe(true)
+  expect(listExplorationConversations(deps)[0].attachment.path).toBe(first.attachment.path)
+  expect(fs.existsSync(first.attachment.path)).toBe(true)
+})
 it('retries reuse the same run, survive reload and do not resubmit accepted history', () => {
   const deps = fixture()
   const first = prepareExplorationConversation(input(), deps)
@@ -62,4 +70,29 @@ it('failed reservation never inserts a work', () => {
   const createWork = vi.fn()
   expect(() => createDevelopmentChatHandoff(input(), { workspaceRoot: () => path.dirname(deps.file), createWork, beforeCreate })).toThrow('Example disk failure')
   expect(createWork).not.toHaveBeenCalled()
+})
+
+it('deleting an exploration hides every generation round without deleting works or leaking them into main chat', () => {
+  const deps = fixture()
+  const first = prepareExplorationConversation(input(), deps)
+  const next = prepareExplorationConversation(input('run_two'), deps)
+  markExplorationDeleted('exp_example', deps.file)
+  markExplorationDeleted('exp_example', deps.file)
+  expect(listExplorationConversations(deps)).toEqual([])
+  expect(deps.records.size).toBe(2)
+  expect(excludeExplorationConversations([{ id: 'main' }, first.work, next.work], deps.file)).toEqual([{ id: 'main' }])
+  expect(() => prepareExplorationConversation(input('run_three'), deps)).toThrow('已删除')
+  const other = prepareExplorationConversation(input('run_one', 'exp_other'), deps)
+  expect(listExplorationConversations(deps).map(e => e.workId)).toEqual([other.work.id])
+  expect(JSON.parse(fs.readFileSync(deps.file, 'utf8')).deletedExplorations).toEqual(['exp_example'])
+  expect(deps.create).toHaveBeenCalledTimes(3)
+})
+
+it('reads the existing index format and persists deletion even without generation sessions', () => {
+  const deps = fixture()
+  fs.writeFileSync(deps.file, JSON.stringify({ version: 1, entries: [] }))
+  expect(listExplorationConversations(deps)).toEqual([])
+  markExplorationDeleted('exp_example', deps.file)
+  expect(() => prepareExplorationConversation(input(), deps)).toThrow('已删除')
+  expect(deps.create).not.toHaveBeenCalled()
 })

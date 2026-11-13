@@ -3722,6 +3722,7 @@ html.dark .tool-exec-group__code {
 }
 
 .tool-exec-group__detail {
+  font-size: 12px;
   margin: 2px 0 4px;
   padding: 0 0 0 2.75em;
   border: none;

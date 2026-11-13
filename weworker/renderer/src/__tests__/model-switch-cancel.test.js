@@ -16,7 +16,7 @@ test('model switch waits for active QR sessions to cancel and unregisters comple
 test('chat and settings model changes cancel QR sessions before switching', () => {
   const selector = fs.readFileSync(new URL('../components/chat/ModelSelector.jsx', import.meta.url), 'utf8')
   const settings = fs.readFileSync(new URL('../components/settings/SettingsModal.jsx', import.meta.url), 'utf8')
-  assert.match(selector, /await cancelActiveQrForModelSwitch\(\)[\s\S]*?await activateProvider\(value\)/)
+  assert.match(selector, /await cancelActiveQrForModelSwitch\(\)[\s\S]*?await saveSelection\(\{ provider: value/)
   assert.match(settings, /await cancelActiveQrForModelSwitch\(\)[\s\S]*?await activateProvider\(pid\)/)
 })
 

@@ -7,8 +7,9 @@
 #     --start-url https://example.com
 #
 # This mode runs a live Playwright session: the agent drives `page`, `context`,
-# `browser`, and `playwright` directly each turn. There is NO workspace
-# directory, NO standalone final script, NO image_qa, and NO self_reflection
+# `browser`, and `playwright` directly each turn. User-requested files live in
+# the host-assigned task artifact directory. There is NO required final script,
+# NO image_qa, and NO self_reflection
 # — the agent observes the live page and reports the answer in `final_response`
 # when it is done.
 #
@@ -105,6 +106,7 @@ agent:
     - Key findings worth remembering: stable selectors that worked, ARIA labels, URL patterns,
       pitfalls to avoid, and any datum already extracted from the page.
     - The next concrete browser action to take.
+    - Any generated or edited artifacts, their actual paths, and unfinished file work.
 
     Write the summary as plain prose and bullet lists. Do NOT issue a new `python_code`. Do NOT set
     `done=true`. Put the entire summary in the `thought` field and leave `python_code` and
@@ -127,7 +129,8 @@ agent:
     ## Global Constraints
     - Put exactly one async Python step in `python_code`. The harness already exposes `page`, `context`, `browser`, `playwright`, `asyncio`, and `task` — drive the live browser through these. Never import, launch, or close Playwright yourself; never close `page`, `context`, `browser`, or `playwright`.
     - The live browser state is persistent across steps. Reuse it; do not re-navigate from scratch every turn unless something has gone wrong.
-    - There is NO workspace directory in this mode. Do NOT write artifact files. Drive the browser, observe the page, and report.
+    - Drive the browser, observe the page, and report. When the user requests reports, downloads, screenshots or other file artifacts, create and edit them ONLY under the host-assigned `task['artifact_dir']`. Use `pathlib.Path(task['artifact_dir'])` as the root, including for `page.screenshot(path=...)` and `download.save_as(...)`. Never write outside that directory, follow symbolic links outside it, or modify service state, settings, credentials, profiles or other tasks. Do not invent a user workspace path.
+    - Verify requested files actually exist before reporting success. The harness records their changes; do not create your own change history or log. Automatic step screenshots and replay scripts remain harness-managed.
     - Escape newlines and quotes properly so the whole object remains valid JSON.
     - Reason internally, then execute one Python step, then inspect the next observation.
     - Set `"done": true` ONLY when you can fully answer the task. Put the user-visible answer in `final_response`.
@@ -177,6 +180,7 @@ agent:
     {% if task_id %}Task ID: {{ task_id }}
     {% endif %}{% if start_url %}Start URL: {{ start_url }}
     {% endif %}Browser mode: {{ browser_mode }}
+    Artifact directory: {{ artifact_dir }}
 
     <instructions>
     # Task Instructions
@@ -189,7 +193,7 @@ agent:
 
     ## Harness Rules
 
-    - There is NO workspace directory. Do NOT write any files; do NOT create `final_runs/`, `screenshots/`, `plan.md`, `final_script.py`, or any log.
+    - User-requested artifacts belong ONLY in `task['artifact_dir']` (shown above). Create, read and edit requested files there; do not write outside it or alter internal task files. Do NOT create unnecessary plans, final scripts, verification runs or logs. Read-only browser questions do not require generating extra files.
     - Drive the live `page`, `context`, `browser`, and `playwright` variables. Do NOT re-launch Playwright.
     - Do NOT invoke `webwright.tools.image_qa` or `webwright.tools.self_reflection`.
     - Browser mode is `{{ browser_mode }}`.

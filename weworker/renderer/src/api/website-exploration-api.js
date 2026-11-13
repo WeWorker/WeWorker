@@ -2,8 +2,9 @@ import { backendFetch } from './http.js'
 import { consumeSSE } from './website-exploration-events.js'
 
 export const PREFIX = '/api/website-exploration'
-async function modelRequest(path = '', body) {
+async function modelRequest(path = '', body, signal) {
   const response = await backendFetch(`/settings/exploration-model${path}`, {
+    signal,
     ...(body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   })
   const data = await response.json()
@@ -11,8 +12,12 @@ async function modelRequest(path = '', body) {
   return data
 }
 export const getExplorationModel = () => modelRequest()
-export const checkExplorationModel = (force = false) => modelRequest('/check', { force })
-export const saveExplorationModel = body => modelRequest('', body)
+export const checkExplorationModel = (force = false, selection) => modelRequest('/check', { force, selection })
+export const resolveExplorationSessionModel = selection => modelRequest('/resolve', { selection })
+export const getExplorationSessionModel = id => request(`/api/explorations/${encodeURIComponent(id)}/model`)
+export const saveExplorationSessionModel = (id, selection) => request(`/api/explorations/${encodeURIComponent(id)}/model`, { method: 'POST', body: { model_selection: selection } })
+export const probeExplorationModel = (provider, model) => modelRequest('/probe', { provider, model }, AbortSignal.timeout(35000))
+export const saveExplorationSelection = body => modelRequest('/selection', body)
 
 export function resourcePath(path) {
   if (typeof path !== 'string' || path.includes('..') || path.includes('\\')) throw new Error('无效的网站探索资源')
@@ -27,7 +32,7 @@ export async function request(path, options = {}) {
     ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
   })
   const payload = await response.json()
-  if (!response.ok) throw new Error(payload?.error?.message || payload?.detail || payload?.message || '操作失败')
+  if (!response.ok) throw Object.assign(new Error(payload?.error?.message || payload?.detail || payload?.message || '操作失败'), { status: response.status })
   return payload
 }
 export async function resourceBlob(path, signal) {
@@ -44,6 +49,9 @@ export async function watchEvents(path, onEvent, signal, onOpen) {
 function encode(value) {
   return encodeURIComponent(value);
 }
+
+export const renameExploration = (id, title) => request(`/api/explorations/${encode(id)}`, { method: 'PATCH', body: { title } })
+export const deleteExploration = id => request(`/api/explorations/${encode(id)}`, { method: 'DELETE' })
 
 function post(path, body = {}) {
   return request(path, { method: "POST", body });
@@ -124,7 +132,16 @@ export async function getSlots(toolkitId, toolId) {
 }
 
 export async function listExplorations(toolkitId, toolId) {
-  const payload = await request(toolkitId && toolId ? `/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations` : "/api/explorations");
+  const path = toolkitId && toolId ? `/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations` : "/api/explorations";
+  let payload;
+  try {
+    payload = await request(`${path}?view=summary`);
+  } catch (error) {
+    // A development renderer can hot-reload before its managed backend restarts.
+    // Retry only the legacy route rejection; retain real service/permission errors.
+    if (error.status !== 404 || error.message !== '不支持的网站探索操作') throw error;
+    payload = await request(path);
+  }
   return payload.explorations.map((item) => normalizeExploration(item));
 }
 
@@ -196,20 +213,20 @@ export function createSiteExploration(body) {
   return post("/api/explorations", body);
 }
 
-export function createExploration(toolkitId, toolId, instruction, targetId) {
-  return post(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations`, { instruction, target_id: targetId });
+export function createExploration(toolkitId, toolId, instruction, targetId, attachments = [], modelSelection) {
+  return post(`/api/toolkits/${encode(toolkitId)}/tools/${encode(toolId)}/explorations`, { instruction, target_id: targetId, model_selection: modelSelection, ...(attachments.length ? { attachments } : {}) });
 }
 
-export function resumeExploration(explorationId, note = "") {
-  return post(`/api/explorations/${encode(explorationId)}/resume`, { note });
+export function resumeExploration(explorationId, note = "", attachments = []) {
+  return post(`/api/explorations/${encode(explorationId)}/resume`, { note, ...(attachments.length ? { attachments } : {}) });
 }
 
 export function stopExploration(explorationId) {
   return post(`/api/explorations/${encode(explorationId)}/cancel`, { reason: "User stopped exploration" });
 }
 
-export function sendExplorationFollowup(explorationId, content) {
-  return post(`/api/explorations/${encode(explorationId)}/messages`, { content });
+export function sendExplorationFollowup(explorationId, content, attachments = []) {
+  return post(`/api/explorations/${encode(explorationId)}/messages`, { content, ...(attachments.length ? { attachments } : {}) });
 }
 
 export function replayExploration(explorationId) {

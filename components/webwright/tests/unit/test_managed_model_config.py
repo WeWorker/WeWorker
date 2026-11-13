@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import base64
 
 import pytest
 
@@ -23,6 +24,19 @@ class FakeResponse:
         return json.dumps(self.payload).encode()
 
 
+def test_session_model_reference_uses_fixed_host_endpoint_without_credentials():
+    selection = {"provider": "example-config", "model": "example-model", "thinking_effort": "high"}
+    def opener(request, timeout):
+        assert request.full_url == "http://127.0.0.1:8765/internal/webwright/model-config"
+        value = request.get_header("X-weworker-model-selection")
+        assert json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))) == selection
+        return FakeResponse(payload())
+    env = {"WEWORKER_MODEL_CONFIG_URL": "http://127.0.0.1:8765/internal/webwright/model-config", "WEWORKER_MODEL_CONFIG_TOKEN": "placeholder-token"}
+    load_managed_model_config(env, opener=opener, selection=selection)
+    with pytest.raises(ValueError):
+        load_managed_model_config(env, opener=opener, selection={**selection, "api_key": "placeholder-key"})
+
+
 def test_full_url_snapshot_preserves_custom_path_slash_and_query() -> None:
     data = {**payload(), "provider_id": "custom", "model_class": "openai_chat", "base_url": "https://example.test/custom/infer/?v=1&route=a%2Fb", "base_url_is_full": True}
     config = ManagedModelConfig.from_payload(data)
@@ -42,6 +56,13 @@ def test_old_snapshot_defaults_to_base_url_suffix() -> None:
     assert config.compaction_ratio == 80
     assert config.compaction_max_attempts == 3
     assert config.context_limit == 1_000_000
+
+
+def test_managed_thinking_preference_defaults_off_and_validates_input() -> None:
+    assert ManagedModelConfig.from_payload(payload()).thinking_effort == "off"
+    assert ManagedModelConfig.from_payload({**payload(), "thinking_effort": "high"}).thinking_effort == "high"
+    with pytest.raises(ManagedModelConfigError):
+        ManagedModelConfig.from_payload({**payload(), "thinking_effort": "invalid"})
 
 
 def test_snapshot_passes_context_limit_and_compaction_ratio() -> None:

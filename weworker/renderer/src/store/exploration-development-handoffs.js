@@ -13,7 +13,13 @@ export function isDevelopmentSubmitted(handoff, runId = null) {
 export const createExplorationDevelopmentHandoffsStore = (storage = defaultStorage) => create(persist((set) => ({
   handoffs: {},
   sessions: {}, // Backend-owned development sessions; refreshed on every visit.
-  remember: session => set(state => ({ sessions: { ...state.sessions, [session.work.id]: session } })),
+  removedExplorations: {}, // Ignore stale polling responses after a successful deletion.
+  remember: session => set(state => state.removedExplorations[session.explorationId] ? state : ({ sessions: { ...state.sessions, [session.work.id]: session } })),
+  forget: explorationId => set(state => ({
+    sessions: Object.fromEntries(Object.entries(state.sessions).filter(([, session]) => session.explorationId !== explorationId)),
+    handoffs: Object.fromEntries(Object.entries(state.handoffs).filter(([id]) => id !== explorationId)),
+    removedExplorations: { ...state.removedExplorations, [explorationId]: true },
+  })),
   record: (explorationId, workId, runId = null) => set(state => ({
     handoffs: { ...state.handoffs, [explorationId]: { workId, runId } },
   })),

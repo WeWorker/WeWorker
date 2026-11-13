@@ -343,7 +343,8 @@ describe('agent conversation compaction', () => {
       expect(mocks.query).toHaveBeenCalledOnce()
       const request = mocks.query.mock.calls[0][0]
       expect(request.options.systemPrompt.includes('<weworker_memory>')).toBe(enabled)
-      expect(Boolean(request.options.hooks?.UserPromptSubmit)).toBe(enabled)
+      // File-history discovery remains active independently of automatic memory.
+      expect(request.options.hooks.UserPromptSubmit[0].hooks).toHaveLength(enabled ? 2 : 1)
       expect(Boolean(request.options.hooks?.PostToolBatch)).toBe(enabled)
       expect(recall.mock.calls.length).toBe(enabled ? 1 : 0)
     },
@@ -354,7 +355,7 @@ describe('agent conversation compaction', () => {
       memoryEnabled: true, channelPermissionMode: 'workspace', workId: undefined,
     })
     const request = mocks.query.mock.calls[0][0]
-    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+    expect(request.options.hooks.UserPromptSubmit[0].hooks).toHaveLength(1)
     expect(request.options.hooks.PostToolBatch).toBeUndefined()
     const hook = request.options.hooks.PreToolUse[0].hooks[0]
     const result = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} })
@@ -369,7 +370,7 @@ describe('agent conversation compaction', () => {
     expect(request.options.disallowedTools).not.toContain(process.platform === 'win32' ? 'PowerShell' : 'Bash')
     expect(request.options.hooks.PreToolUse[0].hooks).toHaveLength(1)
     expect(request.options.hooks.PreToolUse[0].timeout).toBeGreaterThan(300)
-    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+    expect(request.options.hooks.UserPromptSubmit[0].hooks).toHaveLength(1)
   })
   it('streams visible text before block stop while preserving the hidden memory decision', async () => {
     mocks.query.mockImplementation(() => ({

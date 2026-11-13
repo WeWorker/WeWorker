@@ -7,7 +7,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 let server, dom, root, createRoot, ModelSelector, SettingsPage, SecretInput, ContextPanel, store, healthStore
-let calls, state, detectResponse
+let calls, state, detectResponse, conversationModels
 const globals = new Map()
 const imported = { name: 'Claude Code', provider_id: 'custom', model: 'fixture-model',
   base_url: 'https://example.com', has_key: true, external_source_id: 'fixture-source', added: true }
@@ -39,11 +39,13 @@ before(async () => {
   ContextPanel = (await server.ssrLoadModule('/src/components/chat/ContextPanel.jsx')).default
   store = (await server.ssrLoadModule('/src/store/settings.js')).useSettingsStore
   healthStore = (await server.ssrLoadModule('/src/store/model-health.js')).useModelHealthStore
+  conversationModels = (await server.ssrLoadModule('/src/store/conversation-models.js')).useConversationModelsStore
 })
 
 beforeEach(() => {
   calls = []
   healthStore.setState({ results: {}, running: {}, checking: {} })
+  conversationModels.setState({ selections: {}, pending: {}, errors: {} })
   state = { active_provider: 'anthropic', model: 'fixture-current', has_api_key: true, model_discovery_enabled: true, providers: {
     anthropic: { has_key: true, model: 'fixture-current', visible: true },
     custom: { has_key: false, visible: false },
@@ -52,6 +54,7 @@ beforeEach(() => {
   globalThis.fetch = async (url, options = {}) => {
     const endpoint = new URL(url).pathname
     calls.push({ endpoint, ...options })
+    if (endpoint === '/chat/model/resolve') return Response.json({ ...JSON.parse(options.body).selection, context_limit: 200000 })
     if (endpoint === '/settings/provider/models') return Response.json({ models: ['fixture-model'] })
     if (endpoint === '/settings/provider/detect') return detectResponse()
     if (endpoint === '/settings/provider/import') {
@@ -132,10 +135,11 @@ test('imported providers remain selectable without a delete column', async () =>
   await open()
   assert.equal(document.querySelector('.app-dropdown-select__remove-option'), null)
   await click(button('Claude Code'))
-  const request = calls.find(item => item.endpoint === '/settings/provider/activate')
-  assert.deepEqual(JSON.parse(request.body), { provider: 'model-fixture' })
+  const request = calls.find(item => item.endpoint === '/chat/model/resolve')
+  assert.deepEqual(JSON.parse(request.body), { selection: { provider: 'model-fixture', model: 'fixture-model', thinking_effort: 'off' } })
   assert.ok(store.getState().providers['model-fixture'])
-  assert.equal(store.getState().activeProvider, 'model-fixture')
+  assert.equal(store.getState().activeProvider, 'anthropic')
+  assert.equal(conversationModels.getState().selections.welcome.provider, 'model-fixture')
   assert.equal(calls.some(item => item.endpoint === '/settings/provider/delete'), false)
 })
 
@@ -219,6 +223,27 @@ test('model settings have a compact search toolbar and a discovery dialog beside
   assert.ok(document.querySelector('[data-model-configuration="model-fixture"].is-selected'))
 })
 
+test('custom configurations expose one shared interface without separate exploration setup or checks', async () => {
+  state.providers['model-fixture'] = { ...imported, openai_base_url: 'https://example.org/old', openai_model: 'old-model', has_openai_key: true }
+  store.setState({ providers: state.providers, activeProvider: 'model-fixture' })
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  assert.ok(document.querySelector('[aria-label="WeWorker 对话接口"]'))
+  assert.equal(button('高级配置'), undefined)
+  assert.equal(document.querySelector('[aria-label="OpenAI 接口地址"]'), null)
+  assert.equal(document.querySelector('[aria-label="网站探索agent API Key"]'), null)
+  const catalogs = calls.filter(c => c.endpoint === '/settings/provider/models')
+  assert.ok(catalogs.length > 0)
+  assert.ok(catalogs.every(c => JSON.parse(c.body).target === 'weworker'))
+  await click(button('测试模型可用性'))
+  const probes = calls.filter(c => c.endpoint === '/settings/provider/probe')
+  assert.equal(probes.length, 1)
+  const body = JSON.parse(probes[0].body)
+  assert.equal(body.target, 'weworker')
+  assert.equal(body.base_url, imported.base_url)
+  assert.equal(body.openai_base_url, undefined)
+  assert.equal(body.openai_model, undefined)
+})
+
 test('every built-in has an editable context window and saves it without deployment fields', async t => {
   const timeout = globalThis.setTimeout
   const savedFeedbackTimers = []
@@ -286,17 +311,17 @@ test('the extension switch defaults on, saves changes and preserves its state af
   assert.equal(document.querySelector('[role="alert"]').textContent, '保存失败')
 })
 
-test('selecting an import without an explicit model fetches and saves a model before activation', async () => {
+test('selecting an import without a model fetches a session model without changing defaults', async () => {
   state.providers['model-fixture'] = { ...imported, model: '' }
   store.setState({ providers: state.providers })
   await render()
   await open()
   await click(button('Claude Code'))
-  const save = calls.findIndex(item => item.endpoint === '/settings/provider')
-  const activate = calls.findIndex(item => item.endpoint === '/settings/provider/activate')
-  assert.ok(save >= 0 && activate > save)
-  assert.equal(store.getState().activeProvider, 'model-fixture')
-  assert.equal(store.getState().model, 'fixture-model')
+  assert.ok(calls.some(item => item.endpoint === '/chat/model/resolve'))
+  assert.equal(calls.some(item => ['/settings/provider', '/settings/provider/activate'].includes(item.endpoint)), false)
+  assert.equal(store.getState().activeProvider, 'anthropic')
+  assert.equal(store.getState().model, 'fixture-current')
+  assert.equal(conversationModels.getState().selections.welcome.model, 'fixture-model')
 })
 
 test('an empty catalog does not activate an incomplete imported provider', async () => {

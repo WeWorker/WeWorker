@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from webwright.exceptions import RuntimeExecutionError
+from webwright.server.artifact_workspace import artifact_output_dir, prepare_artifact_output_dir
 from webwright.utils.local_cdp import (
     DEFAULT_CDP_URL as _DEFAULT_LOCAL_CDP_URL,
     DEFAULT_USER_DATA_DIR as _DEFAULT_LOCAL_CDP_USER_DATA_DIR,
@@ -124,10 +125,10 @@ class LocalBrowserEnvironment:
         self._last_title = ""
 
     def _screenshots_dir(self) -> Path:
-        return self.config.output_dir / "screenshots"
+        return artifact_output_dir(self.config.output_dir) / "screenshots"
 
     def _steps_dir(self) -> Path:
-        return self.config.output_dir / "steps"
+        return artifact_output_dir(self.config.output_dir) / "steps"
 
     def _existing_step_index(self) -> int:
         max_index = 0
@@ -147,6 +148,12 @@ class LocalBrowserEnvironment:
 
     def prepare(self, **kwargs) -> None:
         self._prepared_task = dict(kwargs)
+        artifact_dir = prepare_artifact_output_dir(self.config.output_dir) / 'artifacts'
+        if any(part.is_symlink() for part in (artifact_dir, *artifact_dir.parents)):
+            raise ValueError('Exploration artifact directory must not use symbolic links.')
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        # Host-owned task output; never trust a requested path supplied by a task.
+        self._prepared_task['artifact_dir'] = str(artifact_dir)
         self._console_history = []
         self._step_console = []
         self._initial_target_id = str(kwargs.get("initial_target_id", "") or "")
@@ -664,7 +671,7 @@ class LocalBrowserEnvironment:
         step_path = self._steps_dir() / f"step_{self._step_index:04d}.py"
         step_path.write_text(python_code, encoding="utf-8")
 
-        script_path = self.config.output_dir / "script.py"
+        script_path = artifact_output_dir(self.config.output_dir) / "script.py"
         with script_path.open("a", encoding="utf-8") as handle:
             handle.write(f"\n\n# Step {self._step_index}\n")
             handle.write(python_code)
@@ -761,6 +768,7 @@ class LocalBrowserEnvironment:
             "browser_mode": self.config.browser_mode,
             "user_data_dir": str(self.config.user_data_dir),
             **kwargs,
+            'artifact_dir': str(artifact_output_dir(self.config.output_dir) / 'artifacts'),
         }
 
     def serialize(self) -> dict[str, Any]:

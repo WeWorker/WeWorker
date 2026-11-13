@@ -4,6 +4,7 @@ import { formatToolResultText, getToolExecLineText, getToolExecTooltipText, getT
 import ToolRunningIndicator from './ToolRunningIndicator.jsx'
 import ToolTimingBadge from './ToolTimingBadge.jsx'
 import { ToolExecIcon, ToolRowChevron } from './ToolRowIcons.jsx'
+import ToolExecutionDetail, { ToolExecutionText } from './ToolExecutionDetail.jsx'
 
 function getBlockKey(block, index) {
   return block.id ?? `bash-${index}`
@@ -95,17 +96,15 @@ export default function ToolExecutionGroup({ blocks, streaming = false }) {
                 </Tooltip>
 
                 {detailOpen && (
-                  <div className="tool-exec-group__detail">
-                    <div className="tool-exec-group__detail-scroll">
+                  <ToolExecutionDetail>
                       {hasResult ? (
-                        <pre className="tool-exec-group__detail-pre">{resultText}</pre>
+                        <ToolExecutionText>{resultText}</ToolExecutionText>
                       ) : running ? (
                         <span className="tool-exec-group__detail-placeholder">等待命令输出…</span>
                       ) : (
                         <span className="tool-exec-group__detail-placeholder">(无输出)</span>
                       )}
-                    </div>
-                  </div>
+                  </ToolExecutionDetail>
                 )}
               </div>
             )

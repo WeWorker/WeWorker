@@ -9,6 +9,7 @@ import DraftProjectNotice from './DraftProjectNotice.jsx'
 import TaskConfigView from '../scheduled/TaskConfigView.jsx'
 import ToolPackagePage from '../welcome/ToolPackagePage.jsx'
 import { useSettingsStore } from '../../store/settings.js'
+import { useConversationModelsStore } from '../../store/conversation-models.js'
 import { resolveStyleId } from '../../store/styles.js'
 import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useChatDraft, useChatDraftStore } from '../../store/chat-drafts.js'
@@ -72,7 +73,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   React.useEffect(() => {
     if (activeWorkId || activeTaskId || activeSidebarSection === 'tasks' || websiteOpen || dedicatedAgentsOpen || toolPackageOpen || explorationOpen) return
     const request = buildOpenWarmupRequest(null, undefined, styleId)
-    requestChatWarmup(request.workId, request.payload)
+    requestChatWarmup(request.workId, { ...request.payload, modelSelection: useConversationModelsStore.getState().selections[draftKey] })
   }, [activeWorkId, activeTaskId, activeSidebarSection, websiteOpen, dedicatedAgentsOpen, toolPackageOpen, explorationOpen, styleId])
 
   const submitDraft = async (pending) => {
@@ -83,9 +84,10 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
     closeToolPackagePage()
     useWorksStore.setState(pending)
     try {
-      const work = await createWork({ forceNew: true, projectId: draftProjectId, styleId })
+      const work = await createWork({ forceNew: true, projectId: draftProjectId, styleId, modelSelection: useConversationModelsStore.getState().selections[draftKey] })
       if (!work) throw new Error('Draft creation cancelled')
       useChatDraftStore.getState().discard(draftKey)
+      useConversationModelsStore.getState().discard(draftKey)
     } catch {
       useWorksStore.setState({ pendingMessage: null, pendingAttachments: [], pendingScenario: null, pendingShellCommand: null })
       useChatDraftStore.getState().fillScenario(draftKey, savedDraft.text, savedDraft.scenarioHint?.scenario)
@@ -112,7 +114,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   }
 
   if (websiteOpen) {
-    return <MainWorkspaceShell><WebsiteExplorationPage onOpenSettings={onOpenSettings} /></MainWorkspaceShell>
+    return <MainWorkspaceShell><WebsiteExplorationPage onOpenSettings={onOpenSettings} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={workspaceToolbar} /></MainWorkspaceShell>
   }
 
   if (dedicatedAgentsOpen) {
@@ -221,7 +223,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
         maxAttachments={maxChatAttachments}
         // Welcome screen has no work yet; the Backend pre-warms with the same
         // style handleSendFromWelcome will persist into the new work.
-        onWarmup={(thinkingEffort) => requestChatWarmup(null, { thinkingEffort, styleId })}
+        onWarmup={(thinkingEffort) => requestChatWarmup(null, { thinkingEffort, styleId, modelSelection: useConversationModelsStore.getState().selections[draftKey] })}
       />
     </MainWorkspaceShell>
   )

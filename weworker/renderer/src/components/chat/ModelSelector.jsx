@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Brain } from 'lucide-react'
-import { CheckCircleFilled, KeyOutlined, DisconnectOutlined, LinkOutlined, LoadingOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CheckCircleFilled, KeyOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import { PROVIDERS, useSettingsStore } from '../../store/settings.js'
 import { isBuiltinProvider, hasFixedModel } from '../../store/settings.js'
 import { fetchProviderModels } from '../../api/provider-models.js'
@@ -11,17 +11,19 @@ import PresetKeyDialog from './PresetKeyDialog.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import { getThinkingEffortOptions, normalizeThinkingEffort } from '../../utils/thinking-effort.js'
 import { modelHealthKey, useModelHealthStore } from '../../store/model-health.js'
+import { ModelHealthIndicator, ModelHealthToolbar } from './ModelHealth.jsx'
+import { useConversationModel, useConversationModelsStore } from '../../store/conversation-models.js'
 import './model-selector.css'
 import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 
-export default function ModelSelector({ disabled, onPendingChange, thinkingEffort = 'off', onThinkingEffortChange }) {
-  const activeProvider = useSettingsStore(state => state.activeProvider)
-  const model = useSettingsStore(state => state.model)
+export default function ModelSelector({ disabled, onPendingChange, thinkingEffort = 'off', onThinkingEffortChange, conversationScope = 'welcome' }) {
+  const session = useConversationModel(conversationScope)
+  const activeProvider = session.selection.provider
+  const model = session.selection.model
   const providers = useSettingsStore(state => state.providers)
   const loaded = useSettingsStore(state => state.loaded)
-  const activateProvider = useSettingsStore(state => state.activateProvider)
   const saveProvider = useSettingsStore(state => state.saveProvider)
-  const configurePresetProvider = useSettingsStore(state => state.configurePresetProvider)
+  const saveSelection = patch => useConversationModelsStore.getState().save(conversationScope, { ...session.selection, ...patch })
   const [discoveryOpen, setDiscoveryOpen] = useState(false)
   const [keyProvider, setKeyProvider] = useState(null)
   const [catalog, setCatalog] = useState(null)
@@ -46,8 +48,8 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
       setCatalog({ ...data, provider: activeProvider })
       // 模型名不再内置默认值：首次拉到列表且当前还没选模型时，先落到第一个可用模型上。
       const catalogModels = Array.isArray(data?.models) ? data.models.filter(Boolean) : []
-      if (!useSettingsStore.getState().model && catalogModels.length) {
-        void saveProvider(activeProvider, { model: catalogModels[0] })
+      if (!model && catalogModels.length) {
+        void saveSelection({ model: catalogModels[0] }).catch(() => {})
       }
       if (autoCheckProvider.current === activeProvider) {
         autoCheckProvider.current = null
@@ -62,7 +64,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
       .then(finishCatalog)
       .catch(() => finishCatalog({ models: definition?.models || [] }))
     return () => controller.abort()
-  }, [activeProvider, providers, loaded])
+  }, [activeProvider, providers, loaded, conversationScope])
 
   useEffect(() => () => useModelHealthStore.getState().cancelBatch(activeProvider), [activeProvider])
 
@@ -81,16 +83,17 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     try {
       await cancelActiveQrForModelSwitch()
       if (kind === 'provider') {
-        if (!providers[value]?.model && providers[value]?.external_source_id) {
+        let nextModel = providers[value]?.model || PROVIDERS.find(item => item.id === value)?.defaultModel || ''
+        if (!nextModel) {
           const catalog = await fetchProviderModels({ provider: value, target: 'weworker' })
           const firstModel = catalog.models?.find(item => typeof item === 'string' && item.trim())
           if (!firstModel) throw new Error('已导入 API 配置，请在模型配置中选择或填写模型名称')
-          await saveProvider(value, { model: firstModel })
+          nextModel = firstModel
         }
         autoCheckProvider.current = value
-        await activateProvider(value)
+        await saveSelection({ provider: value, model: nextModel })
       }
-      else await saveProvider(activeProvider, { model: value })
+      else await saveSelection({ model: value })
     } catch (failure) {
       autoCheckProvider.current = null
       setError(failure.message || '模型切换失败')
@@ -110,7 +113,9 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     onPendingChange?.(true)
     try {
       autoCheckProvider.current = keyProvider
-      await configurePresetProvider(keyProvider, apiKey)
+      await saveProvider(keyProvider, { api_key: apiKey })
+      const entry = useSettingsStore.getState().providers[keyProvider]
+      await saveSelection({ provider: keyProvider, model: entry?.model || PROVIDERS.find(item => item.id === keyProvider)?.defaultModel || '' })
     } catch (failure) {
       autoCheckProvider.current = null
       throw failure
@@ -126,46 +131,24 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     ? catalog?.models
     : provider?.models
   const modelOptions = buildModelOptions(modelSource, model, { annotateCurrent: false })
-  const unavailable = disabled || pending || !loaded || Boolean(keyProvider)
-  const errorTitle = error ? `模型切换失败：${error}` : undefined
+  const unavailable = disabled || pending || session.pending || !loaded || (!session.loaded && !session.error) || Boolean(keyProvider)
+  const errorTitle = error || session.error ? `模型切换失败：${error || session.error}` : undefined
   const thinkingOptions = getThinkingEffortOptions(activeProvider, model)
   const normalizedThinkingEffort = normalizeThinkingEffort(thinkingEffort, thinkingOptions)
 
   useEffect(() => {
-    if (normalizedThinkingEffort !== thinkingEffort) onThinkingEffortChange?.(normalizedThinkingEffort)
+    if (session.loaded && !session.pending && normalizedThinkingEffort !== thinkingEffort) onThinkingEffortChange?.(normalizedThinkingEffort)
   }, [normalizedThinkingEffort, thinkingEffort, onThinkingEffortChange])
 
   const renderModelHealth = (option, interactive = false) => {
     if (!option) return null
     const key = modelHealthKey(activeProvider, option.value)
-    const result = healthResults[key]
-    const busy = checking[key]
-    const state = result ? (result.ok ? 'success' : 'failure') : 'unknown'
-    const time = result ? new Date(result.checkedAt).toLocaleString() : ''
-    const title = result
-      ? `上次检测：${time} · ${result.ok ? '会话协议可用' : '检测未通过'} · 请求总耗时 ${result.elapsedMs}ms${busy ? ' · 正在重新检测' : ''}`
-      : busy ? '正在检测会话协议' : '尚未检测'
-    const content = <>
-      {busy ? <LoadingOutlined spin /> : result ? (result.ok ? <LinkOutlined /> : <DisconnectOutlined />) : <QuestionCircleOutlined />}
-      <span>{busy ? '检测中' : result ? (result.ok ? `${result.elapsedMs}ms` : '不可用') : '未检测'}</span>
-    </>
-    if (interactive) return (
-      <button type="button" className={`model-health model-health-action is-${state}`}
-        title="点击仅检测此模型" aria-label={`检测模型 ${option.value}`}
-        aria-busy={Boolean(busy)} disabled={busy || unavailable}
-        onClick={() => { void checkModel(activeProvider, option.value) }}>
-        {content}
-      </button>
-    )
-    return (
-      <span className={`model-health is-${state}`} title={title} aria-label={title}>
-        {content}
-      </span>
-    )
+    return <ModelHealthIndicator model={option.value} result={healthResults[key]} busy={checking[key]}
+      disabled={unavailable} onCheck={interactive ? () => { void checkModel(activeProvider, option.value) } : undefined} />
   }
 
   return (
-    <div className="chat-model-selector" aria-busy={pending} title={errorTitle}>
+    <div className="chat-model-selector" aria-busy={pending} title={errorTitle || '仅用于当前对话'}>
       <AppDropdownSelect
         className="chat-model-selector__provider"
         menuClassName="app-dropdown-menu chat-model-selector-menu"
@@ -209,16 +192,8 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
         searchPlaceholder="搜索或输入模型名"
         renderOptionSuffix={renderModelHealth}
         renderOptionAction={option => renderModelHealth(option, true)}
-        menuHeader={(
-          <div className="model-health-toolbar">
-            <span>{running ? '正在检测会话协议…' : '上次检测结果'}</span>
-            <button type="button" className="model-health-refresh" aria-label="检测全部模型"
-              title="检测全部模型（真实请求，可能产生费用）" disabled={running || !modelOptions.length || unavailable}
-              onClick={() => { void checkModels(activeProvider, modelOptions.map(item => item.value)) }}>
-              {running ? <LoadingOutlined spin /> : <ReloadOutlined />}
-            </button>
-          </div>
-        )}
+        menuHeader={<ModelHealthToolbar running={running} disabled={!modelOptions.length || unavailable}
+          onCheck={() => { void checkModels(activeProvider, modelOptions.map(item => item.value)) }} />}
       />
       <Tooltip text={`思考：${thinkingOptions.find(option => option.value === normalizedThinkingEffort)?.label || '关'}`}>
         <AppDropdownSelect
