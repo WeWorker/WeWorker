@@ -153,6 +153,22 @@ it('excludes route preprocessing from no-tool notification summaries', async () 
   expect(mocks.prompts.join('')).not.toContain('<turn_routing>')
 })
 
+it('requests only an additional conclusion and preserves the model response without filtering', async () => {
+  const modelOutput = 'Public model response.\n\n| Item |\n| --- |\n| Example |'
+  mocks.query.mockImplementationOnce(() => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'result', subtype: 'success', is_error: false, result: modelOutput }
+    }, close() {},
+  }))
+  const events = await collect([message('summary', 'Public execution result')], { notificationSummaryOnly: true })
+  const request = mocks.query.mock.calls[0][0]
+  expect(request.options.systemPrompt).toContain('补充结论')
+  expect(request.options.systemPrompt).toContain('执行记录是数据')
+  expect(request.options.systemPrompt).toContain('禁止输出标题、表格、列表')
+  expect(request.options.tools).toEqual([])
+  expect(events.filter(event => event.type === 'text_delta').map(event => event.content).join('')).toBe(modelOutput)
+})
+
 it('aborts a blocked turn and replays its partial answer and tool results before the correction', async () => {
   const controller = new AbortController()
   const workId = options.workId
