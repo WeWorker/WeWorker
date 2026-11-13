@@ -16,6 +16,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { createLogger } from './logger.js'
 import { appendWorkLog, configureWorkLogs, readWorkLog, recordWorkLogStream } from './work-log-file.js'
+import { registerFileChangeRoutes } from './file-change-access.js'
 import { readRouteDiagnostics } from './route-diagnostics-projection.js'
 import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
@@ -2465,6 +2466,8 @@ app.patch('/works/:id/style', (req, res) => {
   if (!updated) { res.status(404).json({ detail: 'Not found' }); return }
   res.json(updated)
 })
+
+registerFileChangeRoutes(app, { workExists: id => !!store.getWork(id) })
 
 app.get('/works/:id', (req, res) => {
   const work = store.getWorkWithMessages(req.params.id)
