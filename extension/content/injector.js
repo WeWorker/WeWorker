@@ -34,7 +34,6 @@ let safeApiProbeSnapshotCounter = 0;
 const safeApiProbeCandidates = new Map();
 let activeTraceID = null;
 const TRACE_PREVIEW_LIMIT = 3000;
-const TRACE_RESPONSE_PREVIEW_LIMIT = 800;
 const SENSITIVE_TRACE_FIELD = /api[_-]?key|cookie|authorization|token|ticket|session|password|passwd|secret|csrf|credential/i;
 
 /** 已注册工具的元数据列表（不含 handler） */
@@ -81,12 +80,6 @@ function summarizeTraceBody(body, encoding, limit = TRACE_PREVIEW_LIMIT) {
   }
 }
 
-function summarizeTraceData(value, limit = TRACE_PREVIEW_LIMIT) {
-  if (value == null) return value;
-  if (typeof value === 'string') return truncateTraceText(value, limit);
-  return truncateTraceText(JSON.stringify(sanitizeTraceValue(value)), limit);
-}
-
 function summarizePrivilegedPayload(action, payload = {}) {
   if (action === 'backend_fetch') {
     const options = payload && typeof payload.options === 'object' && !Array.isArray(payload.options) ? payload.options : payload;
@@ -105,23 +98,17 @@ function summarizePrivilegedPayload(action, payload = {}) {
 
 function summarizePrivilegedResult(action, result, payload = {}) {
   if (action === 'backend_fetch') {
+    // Body echo removed (already in the tool result); size flags truncation.
     return {
       status: result?.status,
       ok: result?.ok,
-      headers: sanitizeTraceValue(result?.headers || {}),
-      body: payload.redactBodyInTrace === true ? '[redacted]' : summarizeTraceBody(result?.body, undefined, TRACE_RESPONSE_PREVIEW_LIMIT),
+      bodyChars: typeof result?.body === 'string' ? result.body.length : 0,
     };
   }
   if (action === 'cookies_get') {
     const cookies = Array.isArray(result?.cookies) ? result.cookies : [];
-    return {
-      count: cookies.length,
-      cookies: cookies.map(cookie => ({
-        name: cookie.name,
-        domain: cookie.domain,
-        path: cookie.path,
-      })),
-    };
+    // Per-cookie echo removed: names/domains leak session scope; count suffices.
+    return { count: cookies.length };
   }
   if (action === 'storage_get') {
     const value = result?.value;
@@ -151,7 +138,9 @@ function summarizePrivilegedResult(action, result, payload = {}) {
 async function runHandlerWithTrace(handler, args, traceID, continuation) {
   const previousTraceID = activeTraceID;
   activeTraceID = traceID;
-  traceLog(traceID, `[ContentScript] handler args ${JSON.stringify(sanitizeTraceValue(args || {}))}`);
+  // Args are already recorded in full by the host work log (tool_call_start);
+  // here only the key names survive — values can echo page/session data.
+  traceLog(traceID, `[ContentScript] handler args keys=${JSON.stringify(Object.keys(args || {}))}`);
   try {
     return await handler(args, continuation);
   } finally {
@@ -273,7 +262,8 @@ function createWecliRuntime() {
       status: response.status,
       ok: response.ok,
       contentType,
-      body: summarizeTraceData(body, TRACE_RESPONSE_PREVIEW_LIMIT),
+      // Body echo removed (already in the tool result); size flags truncation.
+      bodyChars: typeof body === 'string' ? body.length : JSON.stringify(body || '').length,
     })}`);
     if (!response.ok) {
       throw createRuntimeError('HTTP_ERROR', `HTTP ${response.status}`, { status: response.status, body });
@@ -338,7 +328,11 @@ const traceLogs = new Map(); // traceID -> string[]
 
 function traceLog(traceID, message) {
   if (!traceID) return;
-  if (!traceLogs.has(traceID)) traceLogs.set(traceID, []);
+  if (!traceLogs.has(traceID)) {
+    traceLogs.set(traceID, []);
+    // Bound total memory: keep only the newest traces (insertion order).
+    while (traceLogs.size > 16) traceLogs.delete(traceLogs.keys().next().value);
+  }
   const ts = new Date().toISOString(); // Retain the date for diagnostic windows across midnight.
   traceLogs.get(traceID).push(`[${ts}] [${traceID}] ${message}`);
   if (traceLogs.get(traceID).length > 300) {

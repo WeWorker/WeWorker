@@ -3770,11 +3770,15 @@ async function prepareScreenshotTab(tabId, traceID) {
 
 function traceLog(traceID, message) {
   if (!traceID) return;
-  if (!traceLogs.has(traceID)) traceLogs.set(traceID, []);
+  if (!traceLogs.has(traceID)) {
+    traceLogs.set(traceID, []);
+    // Bound total memory: keep only the newest traces (insertion order).
+    while (traceLogs.size > 16) traceLogs.delete(traceLogs.keys().next().value);
+  }
   const ts = new Date().toISOString(); // Retain the date for diagnostic windows across midnight.
   traceLogs.get(traceID).push(`[${ts}] [${traceID}] ${message}`);
-  // 限制每个 traceID 最多 100 条，防止内存泄漏
-  if (traceLogs.get(traceID).length > 100) {
+  // 限制每个 traceID 最多 300 条（对齐 Content Script），防止内存泄漏
+  if (traceLogs.get(traceID).length > 300) {
     traceLogs.get(traceID).shift();
   }
 }
@@ -4575,7 +4579,9 @@ function createDirectWecliRuntime() {
       status: response?.status,
       ok: response?.ok,
       contentType,
-      body: summarizeDirectTraceData(body, 800),
+      // Body echo removed: the work log already records the full tool result;
+      // size alone is enough to spot truncation and stuck fetches here.
+      bodyChars: typeof text === "string" ? text.length : 0,
     })}`);
     if (!response?.ok) {
       throw createRuntimeError("HTTP_ERROR", `HTTP ${response?.status}`, { status: response?.status, body });
@@ -4902,12 +4908,8 @@ async function handleDirectRuntimeRequest(action, payload = {}) {
         traceLog(traceID, `[ServiceWorkerRuntime] direct cookies_get result ${JSON.stringify({
           count: cookies.length,
           source: result?.source || 'chrome.cookies',
-          cookies: cookies.map((cookie) => ({
-            name: cookie.name,
-            domain: cookie.domain,
-            path: cookie.path,
-            secure: cookie.secure,
-          })),
+          // Per-cookie echo removed: names/domains leak session scope and the
+          // count is enough to tell "no cookies" from "fetch failed".
         })}`);
         return result;
       }
@@ -5061,7 +5063,9 @@ async function callToolDirect(route, handlerName, args, traceID = null) {
   }
   return runDirectToolExclusive(async () => {
     await ensureOffscreenDirectRunner();
-    traceLog(traceID, `[ServiceWorkerDirect] handler args ${JSON.stringify(sanitizeDirectTraceValue(args || {}))}`);
+    // Args are already recorded in full by the host work log (tool_call_start);
+    // here only the key names survive — values can echo page/session data.
+    traceLog(traceID, `[ServiceWorkerDirect] handler args keys=${JSON.stringify(Object.keys(args || {}))}`);
     return requestOffscreenDirectTool(route, handlerName, args, traceID);
   });
 }
@@ -9054,7 +9058,8 @@ async function runRuntimeBridgeRequest(type, payload, traceID = null) {
       ok: result?.result?.ok,
       url: result?.result?.url,
       replay: result?.result?.replay,
-      body: payload?.redactBodyInTrace === true ? '[redacted]' : summarizeDirectTraceBody(result?.result?.body, 800),
+      // Body echo removed (already in the tool result); size flags truncation.
+      bodyChars: typeof result?.result?.body === "string" ? result.result.body.length : 0,
     })}`);
   } else {
     traceLog(traceID, `[ServiceWorkerRuntime] ${label} <- bridge ok`);
