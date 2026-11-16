@@ -392,6 +392,8 @@ def test_followup_before_first_step(monkeypatch, tmp_path: Path, outcome: str, u
     spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
     assert spec["mode"] == "start"
     assert spec["resume_from"] is None
+    assert spec["target_id"] == ""
+    assert "environment.resume_existing_page=true" in spec["config_spec"]
     assert spec["instruction"].split("\n\n") == ["Explore example.org", *notes]
     if not url_only:
         assert 'environment.allowed_domains=["example.org"]' in spec["config_spec"]
@@ -450,6 +452,29 @@ def test_blocked_startup_waits_and_continues_on_the_same_browser_page(monkeypatc
     assert [turn["content"] for turn in store.read_user_turns(task_id)] == [
         "I have handled the browser prompt", "Continue exploring",
     ]
+
+
+def test_confirmation_after_browser_recovery_overrides_old_trajectory_binding(monkeypatch, tmp_path):
+    manager, store, _ = _manager(tmp_path, monkeypatch)
+    task = manager.start_url_exploration(start_url="https://example.com/", instruction="Explore the site")
+    task_id = task["task_id"]
+    output_dir = Path(task["output_dir"])
+    atomic_write_json(output_dir / "trajectory.json", {"messages": []})
+    atomic_write_json(output_dir / "browser_attention.json", {
+        "target_id": "recovered-page", "browser_instance_id": "new-browser",
+    })
+    store.process_log_path(task_id).write_text(json.dumps({
+        "ok": False, "error": "请在浏览器中确认后继续探索。",
+        "error_code": "navigation_blocked_by_client", "stage": "initial_navigation",
+    }), encoding="utf-8")
+    manager.active_process.terminate()
+    manager._finish_task(task_id, 1)
+    manager.continue_task(task_id=task_id, followup="The browser prompt is handled", require_waiting=True)
+    spec = json.loads(store.spec_path(task_id).read_text(encoding="utf-8"))
+    assert spec["mode"] == "resume"
+    assert spec["resume_from"] == str(output_dir / "trajectory.json")
+    assert spec["resume_target_id"] == "recovered-page"
+    assert "environment.expected_browser_instance_id=new-browser" in spec["config_spec"]
 
 
 def test_force_cancel_marks_request_before_terminating_and_finishes_cancelled(
