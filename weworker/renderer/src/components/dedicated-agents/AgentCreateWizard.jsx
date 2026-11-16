@@ -253,13 +253,13 @@ export default function AgentCreateWizard({ draftKey }) {
     updateDraftAgent(patch, draftKey)
   }
 
-  // 快速创建门禁：先选创建方式。模板流程自成一体；自定义走本向导。
-  // 已有进度（旧版本草稿或绑定完机器人）直接视为自定义，避免打断进行中的创建。
-  const hasCustomProgress = backendCreated || (existingDraft?.wizardStep || 0) > 0
-    || (draft.siteIds?.length || 0) > 0 || Boolean(draft.skillMarkdown) || Boolean(draft.existingSkill)
-  const createMode = draft.createMode || (hasCustomProgress ? 'custom' : '')
+  // 创建方式门禁。内置模板数量不足，暂不对外开放：新建默认直接进入自定义
+  // 向导（恢复模板上线前的入口形态）。模板流程代码保留：历史草稿显式带着
+  // createMode（'home'/'template'，随草稿持久化）时仍按原流程渲染，不打断
+  // 进行中的创建；重新开放时把下面的默认值改回 '' 即可恢复「先选创建方式」。
+  const createMode = draft.createMode || 'custom'
   if (createMode === 'template') return <QuickCreateFlow draftKey={draftKey} />
-  if (!createMode || createMode === 'home') return <QuickCreateHome draftKey={draftKey} />
+  if (createMode === 'home') return <QuickCreateHome draftKey={draftKey} />
 
   const toggleSite = (site) => {
     const includes = draft.siteIds.includes(site.id)
@@ -347,7 +347,7 @@ export default function AgentCreateWizard({ draftKey }) {
             )}
           </h2>
         </div>
-        {!createdAgent && <Button data-app-button="action" onClick={() => update({ createMode: 'home' })}>‹ 选择创建方式</Button>}
+        {/* 内置模板暂不开放：原「‹ 选择创建方式」入口已随门禁默认值一并还原。 */}
       </div>
       <div style={{ ...hintStyle, marginBottom: 18 }}>一个WeWorker Bot = 网站 + 专属知识 + 一个本地目录 + 一个企业微信或微信机器人，像随时在线的 Claude。大约 5 分钟完成。</div>
       <Steps size="small" current={step} items={WIZARD_STEPS.map((item) => ({ title: item.title }))} style={{ marginBottom: 20 }} />
@@ -357,6 +357,26 @@ export default function AgentCreateWizard({ draftKey }) {
           <div className="agent-create-wizard__site">
             <div style={{ ...labelStyle, marginBottom: 6 }}>要给它哪些网站能力？（可多选，也可以不选）</div>
             <div style={{ ...hintStyle, marginBottom: 10 }}>选中后它可以操作这些网站；不选就是一个纯本地的通用 Agent。</div>
+            {selectedSites.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }} aria-label="已选网站">
+                <span style={hintStyle}>已选 {selectedSites.length} 个：</span>
+                {selectedSites.map((site) => (
+                  <span
+                    key={site.id}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 999, border: '1px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-primary))', fontSize: 12 }}
+                  >
+                    <SiteIcon site={site} size={14} />
+                    {site.name || site.id}
+                    <button
+                      type="button"
+                      aria-label={`移除 ${site.name || site.id}`}
+                      onClick={() => toggleSite(site)}
+                      style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-secondary)', font: 'inherit', lineHeight: 1 }}
+                    >✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <SitePicker sites={available} selectedIds={draft.siteIds} onToggle={toggleSite} />
             <div style={{ marginTop: 18 }}>
               <DirectoryPicker value={draft.workDir} onChange={(workDir) => update({ workDir })} disabled={saving} />
