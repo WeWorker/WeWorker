@@ -98,7 +98,7 @@ describe('same-package command aliases', () => {
   it('executes canonical names and aliases without confirmation and pins forwarded calls', async () => {
     const installed = install();
     const request = vi.fn().mockResolvedValue('fixture result');
-    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'] };
+    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'], _emitTraceEvent() {} };
     const run = (name, args) => WebSocketBridge.prototype._callToolInner.call(bridge, name, args);
     for (const name of ['demo.list-items', 'demo.list_items']) {
       expect(await run(name, {})).toBe('fixture result');
@@ -113,7 +113,7 @@ describe('same-package command aliases', () => {
     pkg.commands[0].requires_confirmation = false;
     install(pkg);
     const request = vi.fn().mockResolvedValue('done');
-    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'] };
+    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'], _emitTraceEvent() {} };
     for (const name of ['demo.list-items', 'demo.list_items']) {
       expect(await WebSocketBridge.prototype._callToolInner.call(bridge, name, { count: '007' })).toBe('done');
     }
@@ -127,7 +127,7 @@ describe('same-package command aliases', () => {
     pkg.commands[0].runtime = 'wewright'; pkg.commands[0].module = 'wewright/commands/list-items.py';
     const installed = install(pkg);
     const request = vi.fn(), args = { count: '007', __confirmed: true };
-    expect(await WebSocketBridge.prototype._callToolInner.call({ _request: request }, 'demo.list_items', args)).toEqual({ count: '007' });
+    expect(await WebSocketBridge.prototype._callToolInner.call({ _request: request, _emitTraceEvent() {} }, 'demo.list_items', args)).toEqual({ count: '007' });
     const [match, forwarded] = runToolkitTool.mock.calls.at(-1);
     expect(match.adapter.root).toBe(installed.executionRoot);
     expect(match.adapter.entryPath).toBe(join(installed.executionRoot, 'wewright/commands/list-items.py'));

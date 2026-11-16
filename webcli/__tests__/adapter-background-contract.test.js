@@ -41,7 +41,7 @@ describe('background command package contract', () => {
   });
   it('requires the negotiated background protocol before forwarding a pinned call', async () => {
     const installed=install(manifest());const request=vi.fn(async()=> 'fixture');
-    const bridge={_request:request,_extensionCapabilities:['adapter_catalog_v1']};
+    const bridge={_request:request,_extensionCapabilities:['adapter_catalog_v1'],_emitTraceEvent(){}};
     await expect(WebSocketBridge.prototype._callToolInner.call(bridge,'demo.list',{})).rejects.toThrow(/Reload/);
     expect(request).not.toHaveBeenCalled();bridge._extensionCapabilities.push('adapter_background_v1');
     expect(await WebSocketBridge.prototype._callToolInner.call(bridge,'demo.list',{count:'007'})).toBe('fixture');
@@ -52,7 +52,7 @@ describe('background command package contract', () => {
     pkg.commands[0].pageRoute = { origin: 'https://example.com', pathname: '/items' };
     install(pkg);
     const request = vi.fn(async () => 'fixture');
-    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'] };
+    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'], _emitTraceEvent() {} };
     await expect(WebSocketBridge.prototype._callToolInner.call(bridge, 'demo.list', {})).rejects.toThrow(/Reload/);
     expect(request).not.toHaveBeenCalled();
     bridge._extensionCapabilities.push('page_sources_v1');
