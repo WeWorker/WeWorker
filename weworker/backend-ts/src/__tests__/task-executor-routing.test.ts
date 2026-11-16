@@ -261,7 +261,7 @@ describe('executeTask 的路由接线', () => {
 
     expect(result.status).toBe('completed')
     expect(mocks.streamChat).toHaveBeenCalledTimes(2)
-    expect(mocks.streamChat.mock.calls[1][0].at(-1).content[0].text).toContain('模型回答')
+    expect(mocks.streamChat.mock.calls[1][0].at(-2).content[0].text).toContain('模型回答')
     expect(mocks.streamChat.mock.calls[1][3]).toMatchObject({ notificationSummaryOnly: true })
     expect(mocks.streamChat.mock.calls[1][3].directRoute).toBeUndefined()
     expect(statusAtSummary).toEqual(['completed'])
@@ -326,6 +326,33 @@ describe('executeTask 的路由接线', () => {
     expect(mocks.streamChat.mock.calls.filter(call => call[3]?.notificationSummaryOnly)).toHaveLength(1)
   })
 
+  it('summarizes only this execution instead of replaying the original task instructions', async () => {
+    const originalPrompt = 'Public task: return all results as a table.'
+    const table = '| Item | Status |\n| --- | --- |\n| Example | Pending |'
+    mocks.tryRoutedTurn.mockResolvedValue({ handled: true, text: table, timing: null })
+    await executeTask(makeTask({ prompt_template: originalPrompt }))
+    const [messages] = mocks.onSummary.mock.calls[0]
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatchObject({ role: 'assistant', content: [{ type: 'text', text: table }] })
+    expect(messages[1]).toMatchObject({ role: 'user' })
+    const instruction = messages[1].content[0].text
+    expect(instruction).not.toContain(originalPrompt)
+    expect(instruction).not.toContain(table)
+    expect(instruction).toContain('只补充一到三句结论')
+    expect(instruction).toContain('原样展示')
+  })
+
+  it('uses a status-only fallback when summarization fails instead of copying the table', async () => {
+    const table = '| Item | Status |\n| --- | --- |\n| Example | Pending |'
+    mocks.tryRoutedTurn.mockResolvedValue({ handled: true, text: table, timing: null })
+    mocks.onSummary.mockImplementation(() => { throw new Error('Public summary failure') })
+    await executeTask(makeTask({ notify_channels: ['wecom'] }))
+    const payload = mocks.notify.mock.calls[0][0]
+    expect(payload.fullText).toBe(table)
+    expect(payload.summary).toBe('任务执行完成，请查看原始执行结果。')
+    expect(payload.summary).not.toContain('|')
+  })
+
   it.each([false, true])('persists the route command, result and execution timing; failed=%s', async (failed) => {
     const routeResult = JSON.stringify(failed
       ? { status: 'failed', reason: 'not_configured' }
@@ -346,7 +373,8 @@ describe('executeTask 的路由接线', () => {
       status: failed ? 'failed' : 'done', result: routeResult, execMs: expect.any(Number) })
     expect(commands[0].execMs).toBeGreaterThan(0)
     expect(assistantTiming(result.workId)).toMatchObject({ steps: 1, execMs: commands[0].execMs })
-    expect(result.summary).toBe('总结：模型回答')
+    expect(result.summary).toContain('模型回答')
+    expect(result.summary).toContain('webcli_route')
   })
 
   it('执行失败进入失败终态后也只总结一次，再发送失败通知', async () => {

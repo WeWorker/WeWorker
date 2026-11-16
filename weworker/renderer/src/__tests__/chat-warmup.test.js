@@ -72,5 +72,7 @@ describe('chat warm-up', () => {
     assert.deepEqual(calls[0].body, { thinkingEffort: 'low' })
     assert.equal(calls[1].url, 'http://127.0.0.1:8765/chat/warmup')
     assert.deepEqual(calls[1].body, { thinkingEffort: 'medium', zcfRole: 'engineer-professional' })
+    await warmupChat(null, { modelSelection: { provider: 'example', model: 'session-model', thinking_effort: 'high', context_limit: 128000 } })
+    assert.deepEqual(calls[2].body, { modelSelection: { provider: 'example', model: 'session-model', thinking_effort: 'high' } })
   })
 })

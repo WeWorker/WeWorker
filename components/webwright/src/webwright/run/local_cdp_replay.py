@@ -9,6 +9,7 @@ from typing import Any
 
 from webwright.environments.local_browser import LocalBrowserEnvironment
 from webwright.server.records import atomic_write_json
+from webwright.server.artifact_workspace import artifact_output_dir
 from webwright.server.status import StepStatus
 from webwright.tool_runtime.managed_browser import managed_browser_enabled
 
@@ -34,7 +35,7 @@ def _step_range(spec: dict[str, Any], task_output_dir: Path) -> list[int]:
     to_step = spec.get("to_step")
     if to_step is None:
         latest = 0
-        for path in (task_output_dir / "steps").glob("step_*.py"):
+        for path in (artifact_output_dir(task_output_dir) / "steps").glob("step_*.py"):
             try:
                 latest = max(latest, int(path.stem.removeprefix("step_")))
             except ValueError:
@@ -71,7 +72,7 @@ def run_replay(spec: dict[str, Any]) -> int:
         )
         delay_seconds = max(0, int(spec.get("delay_ms") or 0)) / 1000
         for step in _step_range(spec, task_output_dir):
-            step_path = task_output_dir / "steps" / f"step_{step:04d}.py"
+            step_path = artifact_output_dir(task_output_dir) / "steps" / f"step_{step:04d}.py"
             if not step_path.is_file():
                 payload = {"step": step, "status": "missing", "error": f"Step file not found: {step_path}"}
                 _write_step(replay_output_dir, step, payload)

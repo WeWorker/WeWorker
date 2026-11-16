@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const PROMPT_IDS = [
   'agent',
   'agent-qa-only',
+  'context-window',
   'memory-output',
   'api-router',
   'terminal',
@@ -36,7 +37,7 @@ afterEach(() => {
 })
 
 describe('prompt loader', () => {
-  it('loads the six fixed prompt IDs from Markdown in development', async () => {
+  it('loads all fixed prompt IDs from Markdown in development', async () => {
     const { loadPrompt } = await importLoader()
 
     for (const id of PROMPT_IDS) {
@@ -60,7 +61,7 @@ describe('prompt loader', () => {
     expect(() => loadPrompt('unknown' as never)).toThrow(/Unknown prompt ID: unknown/)
   })
 
-  it('exports only the public API and validates all six prompts during module initialization', async () => {
+  it('exports only the public API and validates all prompts during module initialization', async () => {
     const loader = await importLoader(buildPrompts())
     expect.soft(Object.keys(loader).sort()).toEqual(['loadPrompt', 'renderPrompt'])
 

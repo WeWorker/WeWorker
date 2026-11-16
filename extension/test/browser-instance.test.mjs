@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   BROWSER_INSTANCE_STORAGE_KEY,
+  browserBridgeUrl,
   browserInstanceHelloFields,
   createBrowserTab,
   focusBrowserWindow,
@@ -33,6 +34,18 @@ function fakeChrome({ windows = [{ id: 11 }] } = {}) {
     },
   };
 }
+
+test('only a dedicated browser marker selects an alternate loopback bridge port', () => {
+  setBrowserInstanceForTest({ kind: 'dedicated', token: 'fixture-token', bridgePort: 43711 });
+  assert.equal(browserBridgeUrl(), 'ws://127.0.0.1:43711');
+  assert.deepEqual(browserInstanceHelloFields(), { instanceToken: 'fixture-token' });
+  for (const bridgePort of [-1, 65536, '43711', 'https://example.com']) {
+    setBrowserInstanceForTest({ kind: 'dedicated', token: 'fixture-token', bridgePort });
+    assert.equal(browserBridgeUrl(), 'ws://localhost:3711');
+  }
+  setBrowserInstanceForTest({ kind: 'system', token: 'fixture-token', bridgePort: 43711 });
+  assert.equal(browserBridgeUrl(), 'ws://localhost:3711');
+})
 
 test('accepts only a complete WeWorker browser marker', () => {
   assert.deepEqual(normalizeBrowserInstance({ kind: 'dedicated', token: 'abc', extra: 1 }), { kind: 'dedicated', token: 'abc' });

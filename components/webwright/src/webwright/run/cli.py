@@ -96,6 +96,9 @@ def run_one(
                 "output_dir": str(resolved_output_dir),
                 "start_url": resolved_start_url or UNSET,
                 "resume_existing_output": True if resume_state is not None else UNSET,
+                "allowed_domains": config.get("environment", {}).get(
+                    "allowed_domains", prior_env_config.get("allowed_domains", UNSET)
+                ),
                 "resume_existing_page": (
                     True
                     if prior_env_config.get("browser_mode") == "local_cdp" and resume_state is not None

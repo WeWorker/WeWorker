@@ -18,7 +18,7 @@ import { execSync } from "child_process";
 import { randomUUID } from "crypto";
 import { promises as fsp } from "fs";
 import path from "path";
-import { homedir } from "os";
+import { homedir, userInfo as osUserInfo } from "os";
 
 // ~/.webcli 是 webcli 既有的配置目录（见 index.js getConfigDir）
 export const METRICS_DIR    = path.join(homedir(), ".webcli");
@@ -149,7 +149,7 @@ const DEFAULT_TOKEN = "";
  * @param {{ webcliVersion: string, identityCacheFile?: string, whoamiImpl?: Function }} opts
  * @returns {Promise<{endpoint:string|null, token:string, meta:object}>}
  */
-export async function buildUploadConfig({ webcliVersion, identityCacheFile = null, whoamiImpl = whoami } = {}) {
+export async function buildUploadConfig({ webcliVersion, identityCacheFile = null, whoamiImpl = whoami, osUserImpl = () => osUserInfo() } = {}) {
   const endpoint = process.env.WEBCLI_METRICS_ENDPOINT || DEFAULT_ENDPOINT;
   const token = process.env.WEBCLI_METRICS_TOKEN || DEFAULT_TOKEN;
   const uploadOn = process.env.WEBCLI_METRICS_UPLOAD === "on";
@@ -160,10 +160,14 @@ export async function buildUploadConfig({ webcliVersion, identityCacheFile = nul
   const identity = await loadIdentityCache(identityCacheFile ?? undefined);
   const cachedUser = typeof identity.user === "string" && identity.user ? identity.user : null;
   const systemUser = whoamiImpl();
+  // os.userInfo 二级兜底:whoami 是 spawn 系统命令,可能被 EDR 拦截/PATH 缺失/超时;
+  // os.userInfo 读当前进程令牌的用户名,零 spawn 零失败面,结果与 whoami 尾段一致。
+  let osUser = null;
+  try { osUser = osUserImpl()?.username || null; } catch { /* 极端环境取令牌失败 */ }
   const meta = {
     clientId,
-    user: cachedUser || systemUser || `client-${clientId.slice(0, 8)}`,
-    userSource: cachedUser ? "hrm-cache" : systemUser ? "whoami" : "client-id-fallback",
+    user: cachedUser || systemUser || osUser || `client-${clientId.slice(0, 8)}`,
+    userSource: cachedUser ? "hrm-cache" : systemUser ? "whoami" : osUser ? "os-user" : "client-id-fallback",
     webcliVersion,
     os: process.platform,
   };

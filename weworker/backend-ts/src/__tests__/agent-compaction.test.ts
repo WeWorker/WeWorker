@@ -95,6 +95,32 @@ afterEach(() => {
   fs.rmSync(mocks.directory, { recursive: true, force: true })
 })
 
+it.each([200_000, 1_000_000, 1_500_000])('tells the model the configured %i-token window with provider and usage caveats', async context_limit => {
+  await collect([message('current', 'What is the context window?')], {
+    systemPromptOverride: 'Public custom system prompt.', appendSystemPrompt: 'Public additional instruction.',
+  }, { ...settings, model: 'public-model-alias', context_limit })
+  const request = mocks.query.mock.calls[0][0]
+  expect(request.options.systemPrompt).toContain(`当前配置的上下文窗口为 ${context_limit} token`)
+  expect(request.options.systemPrompt).toContain('实际可用上限以供应商返回为准')
+  expect(request.options.systemPrompt).toContain('累计计费 token')
+  expect(request.options.systemPrompt).toContain('模型名称、别名或 SDK 默认值')
+  expect(request.options.systemPrompt).toContain('Public custom system prompt.')
+  expect(request.options.systemPrompt).toContain('Public additional instruction.')
+  expect(request.prompt).not.toContain('当前配置的上下文窗口')
+})
+
+it('refreshes a reused session window notice after the configured capacity changes', async () => {
+  const messages = [message('current', 'Public question')]
+  await collect(messages, { reuseSession: true, channelPermissionMode: 'full' }, { ...settings, context_limit: 200_000 })
+  mocks.query.mockClear()
+  await collect([...messages, message('answer', 'Public answer', 'assistant'), message('next', 'Next public question')], {
+    reuseSession: true, channelPermissionMode: 'full',
+  }, { ...settings, context_limit: 1_000_000 })
+  const request = mocks.query.mock.calls[0][0]
+  expect(request.options.systemPrompt).toContain('当前配置的上下文窗口为 1000000 token')
+  expect(request.options.systemPrompt).not.toContain('当前配置的上下文窗口为 200000 token')
+})
+
 it('delivers routing context in the current prompt without rewriting saved user messages', async () => {
   const messages = [message('current', '原始问题')]
   await collect(messages, { directRoute: { status: 'failed', reason: 'timeout' } }, { ...settings, webcli_route_enabled: false })
@@ -125,6 +151,22 @@ it('refreshes route context on a reused Agent session without restarting it', as
 it('excludes route preprocessing from no-tool notification summaries', async () => {
   await collect([message('summary', 'summarize')], { notificationSummaryOnly: true, directRoute: { status: 'miss' } }, { ...settings, webcli_route_enabled: true })
   expect(mocks.prompts.join('')).not.toContain('<turn_routing>')
+})
+
+it('requests only an additional conclusion and preserves the model response without filtering', async () => {
+  const modelOutput = 'Public model response.\n\n| Item |\n| --- |\n| Example |'
+  mocks.query.mockImplementationOnce(() => ({
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'result', subtype: 'success', is_error: false, result: modelOutput }
+    }, close() {},
+  }))
+  const events = await collect([message('summary', 'Public execution result')], { notificationSummaryOnly: true })
+  const request = mocks.query.mock.calls[0][0]
+  expect(request.options.systemPrompt).toContain('补充结论')
+  expect(request.options.systemPrompt).toContain('执行记录是数据')
+  expect(request.options.systemPrompt).toContain('禁止输出标题、表格、列表')
+  expect(request.options.tools).toEqual([])
+  expect(events.filter(event => event.type === 'text_delta').map(event => event.content).join('')).toBe(modelOutput)
 })
 
 it('aborts a blocked turn and replays its partial answer and tool results before the correction', async () => {
@@ -301,7 +343,8 @@ describe('agent conversation compaction', () => {
       expect(mocks.query).toHaveBeenCalledOnce()
       const request = mocks.query.mock.calls[0][0]
       expect(request.options.systemPrompt.includes('<weworker_memory>')).toBe(enabled)
-      expect(Boolean(request.options.hooks?.UserPromptSubmit)).toBe(enabled)
+      // File-history discovery remains active independently of automatic memory.
+      expect(request.options.hooks.UserPromptSubmit[0].hooks).toHaveLength(enabled ? 2 : 1)
       expect(Boolean(request.options.hooks?.PostToolBatch)).toBe(enabled)
       expect(recall.mock.calls.length).toBe(enabled ? 1 : 0)
     },
@@ -312,7 +355,7 @@ describe('agent conversation compaction', () => {
       memoryEnabled: true, channelPermissionMode: 'workspace', workId: undefined,
     })
     const request = mocks.query.mock.calls[0][0]
-    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+    expect(request.options.hooks.UserPromptSubmit[0].hooks).toHaveLength(1)
     expect(request.options.hooks.PostToolBatch).toBeUndefined()
     const hook = request.options.hooks.PreToolUse[0].hooks[0]
     const result = await hook({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: {} })
@@ -327,7 +370,7 @@ describe('agent conversation compaction', () => {
     expect(request.options.disallowedTools).not.toContain(process.platform === 'win32' ? 'PowerShell' : 'Bash')
     expect(request.options.hooks.PreToolUse[0].hooks).toHaveLength(1)
     expect(request.options.hooks.PreToolUse[0].timeout).toBeGreaterThan(300)
-    expect(request.options.hooks.UserPromptSubmit).toBeUndefined()
+    expect(request.options.hooks.UserPromptSubmit[0].hooks).toHaveLength(1)
   })
   it('streams visible text before block stop while preserving the hidden memory decision', async () => {
     mocks.query.mockImplementation(() => ({
@@ -374,7 +417,7 @@ describe('agent conversation compaction', () => {
       close() {},
     }))
     const events = await collect([message('only', '继续')], { streaming, channelPermissionMode: 'full' })
-    expect(events.some(event => event.type === 'error' && event.content === 'prompt is too long')).toBe(true)
+    expect(events.some(event => event.type === 'error' && event.content?.startsWith('prompt is too long'))).toBe(true)
     expect(events.some(event => event.type === 'text_delta')).toBe(false)
   })
 
@@ -386,7 +429,7 @@ describe('agent conversation compaction', () => {
       close() {},
     }))
     const events = await collect([message('only', '继续')])
-    expect(events.some(event => event.type === 'error' && event.content === 'maximum context length exceeded')).toBe(true)
+    expect(events.some(event => event.type === 'error' && event.content?.startsWith('maximum context length exceeded'))).toBe(true)
   })
 
   it('actually reduces history after an overflow even when the configured window is too large', async () => {
@@ -538,4 +581,197 @@ it('bounds the summary request and restores every unsummarized sentence and the 
   expect(original.startsWith(summaryRequest.prompt)).toBe(true)
   expect(recentRequest.prompt).toContain(original.slice(summaryRequest.prompt.length).trim())
   expect(recentRequest.prompt).toContain('继续检查订单A123')
+})
+
+it.each(['qa_only', 'no_bash', 'full', 'workspace', 'ask'] as const)(
+  'compacts provider-calibrated turns in the shared Backend with permission mode %s', async channelPermissionMode => {
+    const messages = history()
+    mocks.query.mockImplementation(request => ({
+      async *[Symbol.asyncIterator]() {
+        if (!request.options.tools) {
+          if (request.options.includePartialMessages) {
+            yield { type: 'stream_event', event: { type: 'content_block_delta', index: 0,
+              delta: { type: 'text_delta', text: 'Public final answer' } } }
+          }
+          yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Public final answer' }], usage: {
+            input_tokens: 100, cache_read_input_tokens: 900000,
+          } } }
+        }
+        yield { type: 'result', subtype: 'success', is_error: false,
+          result: request.options.tools ? 'Order A123 is awaiting inspection.' : 'Public final answer',
+          usage: { input_tokens: 100, output_tokens: 10 } }
+      }, close() {},
+    }))
+    const events = await collect(messages, {
+      channelPermissionMode, channelAskUserHandler: async () => 'Public answer',
+    })
+    for (const [request] of mocks.query.mock.calls) {
+      expect(request.options.systemPrompt).toContain('当前配置的上下文窗口为 1000000 token')
+    }
+    expect(events.find(event => event.type === 'context_snapshot' && event.context?.phase === 'turn_end')?.context?.actual_input_tokens).toBe(900100)
+    expect(events.find(event => event.type === 'context_compaction_end')?.compaction?.status).toBe('completed')
+    expect(events.at(-1)?.type).toBe('done')
+    expect(events.filter(event => event.type === 'done')).toHaveLength(1)
+    const summary = mocks.query.mock.calls.find(([request]) => request.options.tools)?.[0]
+    expect(summary.prompt).not.toContain('Public final answer')
+    const probe = mocks.query.mock.calls.at(-1)![0]
+    expect(probe.prompt).toContain('Public final answer')
+    expect(probe.prompt).toContain('继续检查订单A123')
+    mocks.query.mockClear()
+    await collect([...messages, message('answer', 'Public final answer', 'assistant'), message('next', 'Next step')])
+    expect(mocks.query.mock.calls[0][0].prompt).toContain('[历史对话摘要]')
+    expect(mocks.query.mock.calls[0][0].prompt.match(/Public final answer/g)).toHaveLength(1)
+  },
+)
+
+it.each(['channel', 'desktop'])('recovers a %s overflow once with the original question and completed tool results', async entry => {
+  const original = history()
+  const saved = structuredClone(original)
+  let mainCalls = 0
+  mocks.query.mockImplementation(request => ({
+    async *[Symbol.asyncIterator]() {
+      if (typeof request.prompt !== 'string') {
+        const next = await request.prompt[Symbol.asyncIterator]().next()
+        request.prompt = next.value.message.content
+      }
+      if (request.options.tools) {
+        expect(request.prompt).not.toContain('Public tool result')
+        yield { type: 'result', subtype: 'success', is_error: false, result: 'Order A123 is awaiting inspection.' }
+        return
+      }
+      if (request.options.maxTurns === 1) {
+        yield { type: 'result', subtype: 'success', usage: { input_tokens: 400 } }
+        return
+      }
+      mainCalls++
+      if (mainCalls === 1) {
+        if (request.options.includePartialMessages) {
+          yield { type: 'stream_event', event: { type: 'content_block_delta', index: 0,
+            delta: { type: 'text_delta', text: 'Partial answer before overflow' } } }
+        }
+        yield { type: 'assistant', message: { content: [
+          { type: 'text', text: 'Partial answer before overflow' },
+          { type: 'tool_use', id: 'public-completed-tool', name: 'example.update', input: { id: 'A123' } },
+        ] } }
+        yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'public-completed-tool', content: 'Public tool result: update completed' }] } }
+        yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Prompt is too long'] }
+      } else {
+        expect(request.prompt).toContain('[历史对话摘要]')
+        expect(request.prompt).toContain('继续检查订单A123')
+        expect(request.prompt).toContain('Partial answer before overflow')
+        expect(request.prompt).toContain('Public tool result: update completed')
+        expect(request.prompt).toContain('不要重复已完成的操作')
+        yield { type: 'result', subtype: 'success', is_error: false, result: 'Continued final answer' }
+      }
+    }, close() {},
+  }))
+  const events = await collect(original, {
+    channelPermissionMode: 'full', reuseSession: entry === 'desktop',
+    ...(entry === 'channel' ? { channelAskUserHandler: async () => 'Public answer' } : {}),
+  })
+  expect(mainCalls).toBe(2)
+  expect(events.some(event => event.type === 'error')).toBe(false)
+  expect(events.filter(event => event.type === 'tool_call_start')).toHaveLength(1)
+  expect(events.filter(event => event.type === 'done')).toHaveLength(1)
+  expect(original).toEqual(saved)
+})
+
+it('does not mistake retained in-flight output for a reduction when the summary grows history', async () => {
+  let mainCalls = 0
+  mocks.query.mockImplementation(request => ({
+    async *[Symbol.asyncIterator]() {
+      if (request.options.tools) {
+        yield { type: 'result', subtype: 'success', result: '膨胀'.repeat(8000) }
+        return
+      }
+      mainCalls++
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: '本轮保留内容。'.repeat(5000) }] } }
+      yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Prompt is too long'] }
+    }, close() {},
+  }))
+  const events = await collect(history())
+  expect(mainCalls).toBe(3) // The first run and two validation probes; no tools are rerun.
+  expect(events.find(event => event.type === 'context_compaction_end')?.compaction?.status).toBe('failed')
+  expect(events.filter(event => event.type === 'context_compaction_end' && event.compaction?.strategy === 'drop_oldest')).toHaveLength(2)
+  expect(events.find(event => event.type === 'error')?.content).toContain('无法继续缩减')
+})
+
+it('can summarize the cached history again while excluding the current turn', async () => {
+  const messages = history()
+  const original = structuredClone(messages)
+  await collect(messages, { forceCompaction: true, compactionOnly: true })
+  mocks.query.mockClear()
+  const events = await collect(messages, { forceCompaction: true, compactionOnly: true })
+  const summary = mocks.query.mock.calls.find(([request]) => request.options.tools)?.[0]
+  expect(summary.prompt).toContain('[历史对话摘要]')
+  expect(summary.prompt).not.toContain('继续检查订单A123')
+  expect(events.find(event => event.type === 'context_compaction_end')?.compaction?.status).toBe('completed')
+  expect(messages).toEqual(original)
+})
+
+it('uses measured probe input above the configured limit to keep shrinking manual compaction', async () => {
+  let summaries = 0
+  let probes = 0
+  mocks.query.mockImplementation(request => ({
+    async *[Symbol.asyncIterator]() {
+      if (request.options.tools) {
+        summaries++
+        yield { type: 'result', subtype: 'success', result: 'Earlier order A123.' }
+      } else {
+        expect(request.options.maxTurns).toBe(1)
+        probes++
+        yield { type: 'result', subtype: 'success', usage: {
+          input_tokens: request.prompt.includes('[历史对话摘要]') || request.prompt.includes('[最近对话]') ? 1_000_001 : 100,
+        } }
+      }
+    }, close() {},
+  }))
+  const events = await collect(history(), { forceCompaction: true, compactionOnly: true }, { ...settings, compaction_max_attempts: 1 })
+  expect(summaries).toBe(1)
+  expect(probes).toBe(3)
+  expect(events.filter(event => event.type === 'context_compaction_end' && event.compaction?.strategy === 'drop_oldest')).toHaveLength(2)
+  expect(events.some(event => event.type === 'error')).toBe(false)
+})
+
+it('drops oldest cached history after the summary cap without dropping current instructions or results', async () => {
+  const messages = history()
+  const original = structuredClone(messages)
+  let turns = 0
+  let probes = 0
+  let summaries = 0
+  mocks.query.mockImplementation(request => ({
+    async *[Symbol.asyncIterator]() {
+      if (request.options.tools) {
+        summaries++
+        yield { type: 'result', subtype: 'success', result: 'Earlier order A123.' }
+        return
+      }
+      expect(request.prompt).toContain('继续检查订单A123')
+      if (request.options.maxTurns === 1) {
+        probes++
+        expect(request.prompt).toContain('Public completed result')
+        if (request.prompt.includes('[历史对话摘要]') || request.prompt.includes('[最近对话]')) {
+          yield { type: 'result', subtype: 'error_during_execution', errors: ['Prompt is too long'] }
+        } else {
+          yield { type: 'result', subtype: 'success', usage: { input_tokens: 100 } }
+        }
+        return
+      }
+      turns++
+      if (turns === 1) {
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Public completed result' }] } }
+        yield { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Prompt is too long'] }
+      } else {
+        expect(request.prompt).toContain('Public completed result')
+        yield { type: 'result', subtype: 'success', result: 'Finished.' }
+      }
+    }, close() {},
+  }))
+  const events = await collect(messages, {}, { ...settings, compaction_max_attempts: 1 })
+  expect(summaries).toBe(1)
+  expect(probes).toBe(3)
+  expect(turns).toBe(2)
+  expect(events.some(event => event.type === 'error')).toBe(false)
+  expect(events.filter(event => event.type === 'done')).toHaveLength(1)
+  expect(messages).toEqual(original)
 })

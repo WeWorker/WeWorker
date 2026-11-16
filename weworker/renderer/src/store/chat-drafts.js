@@ -9,6 +9,7 @@ export const useChatDraftStore = create((set) => {
     const draft = { ...(state.drafts[key] ?? EMPTY_CHAT_DRAFT), ...patch }
     if (Object.prototype.hasOwnProperty.call(patch, 'text') && patch.text !== draft.scenarioHint?.text) delete draft.scenarioHint
     if (!draft.scenarioHint) delete draft.scenarioHint
+    if (draft.skillTokens?.text !== draft.text || !draft.skillTokens?.items.length) delete draft.skillTokens
     const drafts = { ...state.drafts }
     if (!draft.text && !draft.attachments.length) delete drafts[key]
     else drafts[key] = draft
@@ -17,6 +18,7 @@ export const useChatDraftStore = create((set) => {
   return {
     drafts: {},
     setText: (key, text) => update(key, { text }),
+    setSkillTokens: (key, text, items) => update(key, { skillTokens: { text, items } }),
     fillScenario: (key, text, scenario) => update(key, { text, ...(scenario ? { scenarioHint: { text, scenario } } : { scenarioHint: undefined }) }),
     setAttachments: (key, attachments) => update(key, { attachments }),
     discard: key => set(state => {

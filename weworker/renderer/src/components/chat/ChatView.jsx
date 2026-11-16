@@ -36,7 +36,7 @@ import { hideBrowserForNewTurn } from '../../utils/dedicated-browser.js'
  * @param {(fill: (text: string) => void) => React.ReactNode} [props.renderEmpty] Empty-state override.
  * @param {() => void} [props.onTurnFinished] Called after each send completes.
  */
-export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished, historyPrefix, permissionScope, defaultPermissionMode = 'workspace' }) {
+export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished, historyPrefix, permissionScope, defaultPermissionMode = 'workspace', hidePermissionMode = false }) {
   const isHandoffChat = useWorksStore(s => s.handoffWorkIds.has(workId))
   const queue = useMemo(() => getMessageQueue(workId), [workId])
   const queueState = useMessageQueueStore(s => s.queues[workId] ?? EMPTY_MESSAGE_QUEUE)
@@ -757,6 +757,7 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
           ignoreGlobalFill={embedded}
           permissionScope={permissionScope}
           defaultPermissionMode={defaultPermissionMode}
+          hidePermissionMode={hidePermissionMode}
           onSend={handleSend}
           onShellCommand={enqueueShell}
           onStop={handleStop}

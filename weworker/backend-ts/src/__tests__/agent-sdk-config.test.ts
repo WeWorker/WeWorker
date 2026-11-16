@@ -48,7 +48,7 @@ describe('agent SDK security config', () => {
   it('injects the memory reminder before each next model request', () => {
     expect(agentSource).toContain('const memoryUserPromptSubmitHook: HookCallback')
     expect(agentSource).toContain('const memoryPostToolBatchHook: HookCallback')
-    expect(agentSource).toContain('UserPromptSubmit: [{ hooks: [memoryUserPromptSubmitHook] }]')
+    expect(agentSource).toContain('UserPromptSubmit: [{ hooks: [changeHooks.userPromptSubmit, ...(memoryEnabled ? [memoryUserPromptSubmitHook] : [])] }]')
     expect(agentSource).toContain('PostToolBatch: [{ hooks: [memoryPostToolBatchHook] }]')
     expect(agentSource).not.toContain('PostToolUse: [{ hooks: [memoryPostToolUseHook] }]')
     expect(agentSource).toContain('additionalContext: MEMORY_USER_TURN_REMINDER')

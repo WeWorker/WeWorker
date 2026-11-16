@@ -13,6 +13,7 @@ const PROMPTS_ROOT = path.join(BACKEND_TS_ROOT, 'prompts')
 const PROMPT_FILES = {
   agent: 'agent.md',
   'agent-qa-only': 'agent-qa-only.md',
+  'context-window': 'context-window.md',
   'memory-output': 'memory-output.md',
   'api-router': 'api-router.md',
   terminal: 'terminal.md',

@@ -5,6 +5,7 @@ import os from 'os'
 import { fileURLToPath } from 'url'
 import { randomBytes, randomUUID } from 'crypto'
 import { stopManagedServices } from './managed-shutdown.js'
+import { selectServicePorts } from './service-ports.js'
 import {
   BridgeManager,
   NodeManager,
@@ -197,15 +198,16 @@ if (!hasSingleInstanceLock) {
     mainWindow.focus()
   })
 }
+const servicePorts = { backend: 8765, exploration: 8766, bridge: 3711 }
 const httpAuthToken = randomBytes(32).toString('base64url')
 const webwrightModelToken = randomBytes(32).toString('base64url')
 const explorationInstanceId = randomUUID()
 const webwrightHome = resolveWebwrightHome()
 const userFilesDir = readConfiguredUserFilesDir()
-const bridgeManager = new BridgeManager(log, path.dirname(logFile))
+const bridgeManager = new BridgeManager(log, path.dirname(logFile), servicePorts)
 // WeWorker 浏览器 is owned by the Bridge; the desktop attaches as a client and only sends fixed actions.
-const browserClient = new BrowserControlClient({ log })
-const pythonManager = new NodeManager(log, logFile, httpAuthToken, webwrightHome, webwrightModelToken, explorationInstanceId)
+const browserClient = new BrowserControlClient({ log, url: () => `ws://127.0.0.1:${servicePorts.bridge}` })
+const pythonManager = new NodeManager(log, logFile, httpAuthToken, webwrightHome, webwrightModelToken, explorationInstanceId, servicePorts)
 const webwrightManager = new WebwrightManager({
   log,
   isPackaged: app.isPackaged,
@@ -215,6 +217,7 @@ const webwrightManager = new WebwrightManager({
   userFilesDir,
   modelConfigToken: webwrightModelToken,
   explorationInstanceId,
+  ports: servicePorts,
 })
 let isInstallingUpdate = false
 const updateManager = new UpdateManager({
@@ -244,7 +247,7 @@ async function stopBridgeAndBrowser() {
 const preferences = createPreferenceStore(path.join(app.getPath('userData'), 'app-settings.json'), { log })
 const disableLoginItemIntegration = process.env.WEWORKER_DISABLE_LOGIN_ITEM === '1'
 let launchAtLoginState = { supported: isLaunchAtLoginSupported({ isPackaged: app.isPackaged, platform: process.platform, disabled: disableLoginItemIntegration }), enabled: false }
-const getAgentSummary = () => fetchAgentSummary({ token: httpAuthToken })
+const getAgentSummary = () => fetchAgentSummary({ token: httpAuthToken, backendUrl: pythonManager.getUrl() })
 const background = createBackgroundController({
   platform: process.platform,
   preferences,
@@ -396,9 +399,10 @@ browserClient.onAuthEvent((event) => {
 })
 
 async function createWindow({ show = true } = {}) {
-  // Hide the default menu bar on Windows/Linux (macOS uses system menu bar)
+  // Keep native editing accelerators even when the frameless window hides its menu.
+  // macOS keeps the default system menu.
   if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null)
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'editMenu' }]))
   }
 
   mainWindow = new BrowserWindow({
@@ -411,13 +415,29 @@ async function createWindow({ show = true } = {}) {
     icon: fs.existsSync(appIconPath) ? appIconPath : undefined,
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' }
-      : { frame: false }),
+      : { frame: false, autoHideMenuBar: true }),
     backgroundColor: '#f5f5f7',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  })
+
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable) return
+    const { editFlags } = params
+    Menu.buildFromTemplate([
+      { label: '撤销', role: 'undo', accelerator: 'CmdOrCtrl+Z', enabled: editFlags.canUndo },
+      { label: '重做', role: 'redo', accelerator: process.platform === 'win32' ? 'Ctrl+Y' : 'CmdOrCtrl+Shift+Z', enabled: editFlags.canRedo },
+      { type: 'separator' },
+      { label: '剪切', role: 'cut', accelerator: 'CmdOrCtrl+X', enabled: editFlags.canCut },
+      { label: '复制', role: 'copy', accelerator: 'CmdOrCtrl+C', enabled: editFlags.canCopy },
+      { label: '粘贴', role: 'paste', accelerator: 'CmdOrCtrl+V', enabled: editFlags.canPaste },
+      { label: '删除', role: 'delete', accelerator: process.platform === 'darwin' ? 'Backspace' : 'Delete', enabled: editFlags.canDelete },
+      { type: 'separator' },
+      { label: '全选', role: 'selectAll', accelerator: 'CmdOrCtrl+A', enabled: editFlags.canSelectAll },
+    ]).popup({ window: mainWindow, frame: params.frame ?? undefined })
   })
 
   if (process.platform !== 'darwin') {
@@ -448,6 +468,8 @@ async function createWindow({ show = true } = {}) {
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   log('[main] app ready')
+  Object.assign(servicePorts, await selectServicePorts())
+  log(`[main] service ports: backend=${servicePorts.backend}, exploration=${servicePorts.exploration}, bridge=${servicePorts.bridge}`)
 
   // Use the same rounded artwork as the macOS bundle icon, including in dev.
   if (process.platform === 'darwin' && app.dock && fs.existsSync(appIconPath)) {

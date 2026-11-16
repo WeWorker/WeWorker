@@ -1,6 +1,5 @@
-import { backendFetch } from './http.js'
+import { API, backendFetch } from './http.js'
 import { filterAvailableSites } from '../utils/default-sites.js'
-const API = 'http://127.0.0.1:8765'
 
 async function readJsonResponse(res) {
   const text = await res.text()

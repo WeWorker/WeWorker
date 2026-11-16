@@ -2,11 +2,10 @@ import WorkingIndicator from './WorkingIndicator.jsx'
 import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
-import { FormattedBody } from '../../utils/formatted-body.js'
-import './formatted-body.css'
 import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
+import FileChangesCard from './FileChangesCard.jsx'
 import ImageLightbox from './ImageLightbox.jsx'
 import { formatTimingDuration, formatTimingTotal } from '../../utils/format-timing-duration.js'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
@@ -35,7 +34,7 @@ const BUBBLE_ASSISTANT = {
   boxShadow: 'none',
 }
 
-export default function MessageItem({ message, streaming, compacting = false, isLast, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, onChoice, onShellCommand, plan, planSnapshot, planSentinelRef, hideEmbeddedPlan, hideLivePlan = false, planExpanded, onPlanExpandedChange, planStepDetails, onPlanStepDetailsChange, suppressPlanTools, compactAssistant = false }) {
+export default function MessageItem({ message, workId, streaming, compacting = false, isLast, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, onChoice, onShellCommand, plan, planSnapshot, planSentinelRef, hideEmbeddedPlan, hideLivePlan = false, planExpanded, onPlanExpandedChange, planStepDetails, onPlanStepDetailsChange, suppressPlanTools, compactAssistant = false }) {
   const isUser = message.role === 'user'
   const showStreaming = streaming && !compacting
   const isEmpty = !message.content?.length
@@ -214,6 +213,7 @@ export default function MessageItem({ message, streaming, compacting = false, is
               })
             )}
             {!isEmpty && showStreaming && isLast && !isUser && <WorkingIndicator />}
+            {!isUser && <FileChangesCard workId={workId || message.work_id} content={message.content} streaming={streaming} />}
           </div>
         )}
       </div>
@@ -510,10 +510,10 @@ function ContentBlock({ block, isUser, onChoice, onShellCommand, suppressPlanToo
     if (isUser) {
       return (
         <div
-          className="message-text-selectable formatted-body"
-          style={{ color: 'inherit', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
+          className="message-text-selectable"
+          style={{ color: 'inherit', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 'inherit', lineHeight: 'inherit' }}
         >
-          <FormattedBody markdown={block.text || ''} onLinkClick={handleChatLinkClick} />
+          {block.text || ''}
         </div>
       )
     }

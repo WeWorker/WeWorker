@@ -14,7 +14,7 @@ function parsePort(value, fallback) {
 }
 
 /**
- * The shared core and the desktop bundle keep using 3711. The npm executable sets
+ * The desktop host supplies its selected port, defaulting to 3711. The npm executable sets
  * WEWORKER_WEBCLI_DISTRIBUTION=npm before loading the core and is pinned to 3712.
  * The internal webgo distribution (npm-packaged, separate from webcli) is pinned
  * to 3713 so webgo and webcli can run side by side without Bridge port conflicts.

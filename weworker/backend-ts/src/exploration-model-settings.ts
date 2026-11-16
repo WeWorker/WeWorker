@@ -1,36 +1,35 @@
 import { createHash } from 'node:crypto'
 import type { Express } from 'express'
 import type { Settings } from './config.js'
-import { normalizeLlmUrlInput, type ProviderEntry } from './llm-egress.js'
+import type { ProviderEntry } from './llm-egress.js'
 import { probeProviderProtocol, type ProtocolProbeResult } from './provider-model-services.js'
-import { resolveWebwrightModelConfig, suggestExplorationBaseUrl } from './webwright-model-config.js'
+import { resolveWebwrightModelConfig } from './webwright-model-config.js'
+import { parseConversationModel, type ConversationModel } from './conversation-models.js'
+
+export function explorationConversationSettings(settings: Settings, input?: unknown): Settings {
+  if (input === undefined || input === null) return settings
+  const selection = parseConversationModel(input)
+  if (!['off', 'low', 'medium', 'high'].includes(selection.thinking_effort || 'off')) throw new Error('探索思考选项无效')
+  const thinking = selection.thinking_effort as Settings['exploration_thinking_effort']
+  if (selection.provider === '__independent__') {
+    throw new Error('网站探索已统一使用对话接口，请重新选择模型配置')
+  }
+  return { ...settings, exploration_model_selection: { provider: selection.provider, model: selection.model }, exploration_thinking_effort: thinking }
+}
+
+export function defaultExplorationModel(settings: Settings): ConversationModel {
+  const config = resolveWebwrightModelConfig(settings)
+  return { provider: settings.exploration_model_selection?.provider || settings.active_model_configuration || settings.active_provider,
+    model: config.model, thinking_effort: settings.exploration_thinking_effort || 'off' }
+}
 
 function fingerprint(settings: Settings): string {
   try {
     const config = resolveWebwrightModelConfig(settings)
-    return createHash('sha256').update(JSON.stringify([
-      settings.active_model_configuration || '', config,
-      settings.exploration_base_url, settings.exploration_base_url_is_full, settings.exploration_api_key,
-      settings.exploration_model, settings.exploration_use_main_key,
-    ])).digest('hex')
+    return createHash('sha256').update(JSON.stringify(config)).digest('hex')
   } catch {
     // Invalid or incomplete configurations can be displayed but never verified.
     return 'invalid'
-  }
-}
-
-export function explorationSettingsPatch(body: Record<string, unknown>): Partial<Settings> {
-  if (typeof body.base_url !== 'string' || !body.base_url.trim()) throw new Error('请填写网站探索服务地址')
-  if (body.base_url_is_full !== undefined && typeof body.base_url_is_full !== 'boolean') throw new Error('使用完整 URL 必须为布尔值')
-  if (typeof body.use_main_key !== 'boolean') throw new Error('请选择是否使用现有 API Key')
-  if (typeof body.model !== 'string') throw new Error('模型名称必须为文本')
-  if (body.api_key !== undefined && typeof body.api_key !== 'string') throw new Error('API Key 必须为文本')
-  return {
-    exploration_base_url: normalizeLlmUrlInput(body.base_url.trim(), body.base_url_is_full === true),
-    exploration_base_url_is_full: body.base_url_is_full === true,
-    exploration_use_main_key: body.use_main_key,
-    exploration_model: body.model.trim(),
-    ...(body.use_main_key ? { exploration_api_key: '' } : body.api_key ? { exploration_api_key: (body.api_key as string).trim() } : {}),
   }
 }
 
@@ -38,19 +37,25 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
   let verified = ''
   const pending = new Map<string, Promise<ProtocolProbeResult>>()
   function status(settings: Settings) {
-    let suggestion: ReturnType<typeof suggestExplorationBaseUrl> = { url: '', generated: false }
-    try { suggestion = suggestExplorationBaseUrl(settings) } catch { /* Invalid main addresses cannot provide a suggestion. */ }
+    let effective: ReturnType<typeof resolveWebwrightModelConfig> | undefined
+    try { effective = resolveWebwrightModelConfig(settings) } catch { /* Keep incomplete configurations editable. */ }
     return {
-      base_url: settings.exploration_base_url || '',
-      base_url_is_full: settings.exploration_base_url_is_full === true,
-      candidate_url: suggestion.url,
-      candidate_url_is_full: suggestion.fullUrl === true,
-      suggested: suggestion.generated,
-      configured_model: settings.exploration_model || '',
-      main_model: settings.model,
-      use_main_key: settings.exploration_use_main_key !== false,
-      has_key: Boolean(settings.exploration_api_key),
-      status: verified === fingerprint(settings) ? (settings.exploration_base_url ? 'independent' : 'connected') : 'pending',
+      // Scope menu results to the real exploration connection, never main-chat
+      // health. Selecting another model or thinking level keeps existing results.
+      health_scope: effective ? createHash('sha256').update(JSON.stringify([
+        effective.provider_id, effective.protocol, effective.base_url, effective.base_url_is_full,
+        effective.api_key, effective.auth_type, effective.structured_output,
+      ])).digest('hex') : '',
+      selected_provider: settings.exploration_model_selection?.provider
+        || settings.active_model_configuration || settings.active_provider,
+      effective_model: effective?.model || '',
+      model_class: effective?.model_class || '',
+      context_limit: effective?.context_limit || settings.context_limit,
+      thinking_effort: settings.exploration_thinking_effort || 'off',
+      base_url: effective?.base_url || '',
+      base_url_is_full: effective?.base_url_is_full === true,
+      has_key: Boolean(effective?.api_key),
+      status: verified === fingerprint(settings) ? 'connected' : 'pending',
     }
   }
   async function check(settings: Settings, force = false): Promise<ProtocolProbeResult> {
@@ -67,7 +72,7 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       provider, apiKey: config.api_key, model: config.model, target: 'webwright', verifyResponse: true,
       anthropicBaseUrl: config.base_url, openaiBaseUrl: config.base_url,
       anthropicFullUrl: config.base_url_is_full === true, openaiFullUrl: config.base_url_is_full === true,
-      anthropicAuthType: 'api_key',
+      anthropicAuthType: config.auth_type,
     }, fetchImpl)
       .then(result => { if (result.ok) verified = id; else if (verified === id) verified = ''; return result })
       .finally(() => pending.delete(id))
@@ -84,11 +89,37 @@ export function registerExplorationModelRoutes(app: Express, deps: {
 }) {
   const service = createExplorationModelService(deps.fetchImpl)
   app.get('/settings/exploration-model', (_req, res) => res.json(service.status(deps.getSettings())))
-  app.post('/settings/exploration-model/check', async (req, res) => {
-    const settings = deps.getSettings()
+  app.post('/settings/exploration-model/resolve', (req, res) => {
     try {
+      const settings = explorationConversationSettings(deps.getSettings(), req.body?.selection)
+      res.json({ ...service.status(settings), selection: defaultExplorationModel(settings) })
+    } catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '探索模型无效' }) }
+  })
+  app.post('/settings/exploration-model/selection', (req, res) => {
+    try {
+      const body = req.body || {}
+      const settings = deps.getSettings()
+      const patch: Partial<Settings> = {}
+      if (body.provider !== undefined || body.model !== undefined) {
+        if (typeof body.provider !== 'string' || !body.provider.trim() || typeof body.model !== 'string') throw new Error('请选择模型配置和模型')
+        patch.exploration_model_selection = { provider: body.provider, model: body.model.trim() }
+      }
+      if (body.thinking_effort !== undefined) {
+        if (!['off', 'low', 'medium', 'high'].includes(body.thinking_effort)) throw new Error('思考选项无效')
+        patch.exploration_thinking_effort = body.thinking_effort
+      }
+      if (!Object.keys(patch).length) throw new Error('没有需要保存的探索配置')
+      resolveWebwrightModelConfig({ ...settings, ...patch })
+      res.json(service.status(deps.updateSettings(patch)))
+    } catch (error) {
+      res.status(400).json({ detail: error instanceof Error ? error.message : '探索模型切换失败' })
+    }
+  })
+  app.post('/settings/exploration-model/check', async (req, res) => {
+    try {
+      const settings = explorationConversationSettings(deps.getSettings(), req.body?.selection)
       const result = await service.check(settings, req.body?.force === true)
-      if (fingerprint(settings) !== fingerprint(deps.getSettings())) {
+      if (fingerprint(settings) !== fingerprint(explorationConversationSettings(deps.getSettings(), req.body?.selection))) {
         res.status(409).json({ detail: '模型配置已改变，请重新检测' }); return
       }
       res.json({ ...result, ...service.status(settings) })
@@ -96,19 +127,26 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       res.status(400).json({ detail: error instanceof Error ? error.message : '请先配置主模型' })
     }
   })
-  app.post('/settings/exploration-model', async (req, res) => {
+  app.post('/settings/exploration-model/probe', async (req, res) => {
+    const started = Date.now()
     try {
-      const settings = deps.getSettings()
-      const patch = explorationSettingsPatch(req.body || {})
-      const candidate = { ...settings, ...patch }
-      const result = await service.check(candidate, true)
-      if (fingerprint(settings) !== fingerprint(deps.getSettings())) {
-        res.status(409).json({ detail: '模型配置已改变，请重新验证' }); return
+      const { provider, model } = req.body || {}
+      if (typeof provider !== 'string' || !provider.trim() || typeof model !== 'string' || !model.trim()) {
+        throw new Error('请选择模型配置和模型')
       }
-      if (!result.ok) { res.json(result); return }
-      res.json({ ...result, ...service.status(deps.updateSettings(patch)) })
+      const candidate = (settings: Settings): Settings => explorationConversationSettings(settings, { provider, model: model.trim() })
+      const settings = candidate(deps.getSettings())
+      const result = await service.check(settings, true)
+      if (fingerprint(settings) !== fingerprint(candidate(deps.getSettings()))) {
+        res.status(409).json({ detail: '模型配置已改变，请重新检测' }); return
+      }
+      // Probing a menu row never persists or activates that model.
+      res.json({ ...result, elapsed_ms: Math.max(1, Date.now() - started), checked_at: Date.now() })
     } catch (error) {
-      res.status(400).json({ detail: error instanceof Error ? error.message : '网站探索模型配置失败' })
+      res.status(400).json({ detail: error instanceof Error ? error.message : '探索模型检测失败' })
     }
+  })
+  app.post('/settings/exploration-model', async (req, res) => {
+    res.status(400).json({ detail: '网站探索已统一使用对话接口，请在模型配置中修改' })
   })
 }

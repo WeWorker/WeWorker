@@ -46,7 +46,7 @@ export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = ''
     <RunLog path={'/api/development-runs/' + data.latest_run.development_run_id + '/files/process.log'} label="查看 Developer 日志" />
     {data.latest_run.has_runtime_errors && <RunLog path={'/api/development-runs/' + data.latest_run.development_run_id + '/files/runtime_errors.jsonl'} label="查看异常详情" />}
   </div>
-  return <div className="wx-development-workspace">
+  return <div className="wx-development-workspace" aria-busy={snapshot.loading}>
     <div className="wx-actions wx-development-toolbar">
       <button data-app-button="action" className="wx-quiet" disabled={blocked || !modelReady} onClick={() => changeWebsiteContext({ workspace: 'explore', explorationContext: { toolkitId, tool } })}>补充探索</button>
       {!developing && !initial && (dev ? <>
@@ -59,7 +59,7 @@ export default function DevelopWorkspace({ toolkitId, tool, publishedDigest = ''
     {(!initial || Boolean(publishedDigest)) && <ApplyAdapter toolkitId={toolkitId} revision={(publishedDigest || '') + ':' + (dev?.code_hash || data?.formal?.code_hash || '')} disabled={blocked} onInstalled={async () => { await snapshot.refresh(); await onInstalled?.() }} />}
     {message && <p role="status" className="wx-development-notice">{message}</p>}
     <ErrorMessage>{snapshot.error || action.error}</ErrorMessage>
-    {snapshot.loading ? <p>正在加载…</p> : data && <>
+    {data && <>
       {dirty && <p className="wx-development-notice">正在编辑当前开发代码。请先保存或取消修改，再执行其他开发操作。</p>}
       {dev && !data.publish_eligible && !developing && <p className="wx-development-notice">当前修改尚未保存为完整 Adapter。请检查开发结果。</p>}
       <div className="wx-development">
@@ -99,7 +99,7 @@ function DevelopmentPrompt({ label, value, onChange, placeholder, hint, submitLa
   return <div className="wx-development-prompt">
     <label><span>{label}<RequiredMark /></span><textarea aria-label={label} required value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} /></label>
     <div className="wx-development-prompt-footer">
-      <span className="wx-muted" role={developing ? 'status' : undefined}>{developing ? '正在开发，完成后自动更新代码。可先填写下一条指令。' : hint}</span>
+      <span className="wx-muted">{hint}</span>
       <button type="button" className={'chat-input-action wx-development-send ' + (developing ? 'chat-input-action-stop' : 'chat-input-action-send')} aria-label={developing ? '停止开发' : submitLabel} title={developing ? '停止开发' : submitLabel} disabled={developing ? stopDisabled : disabled} onClick={developing ? onStop : onSubmit} />
     </div>
   </div>
@@ -192,5 +192,5 @@ export function RunDetail({ run }) {
 function RunLog({ path, label }) {
   const [text, setText] = useState('')
   const action = useAction()
-  return <details onToggle={e => { if (e.currentTarget.open && !text) void action.run(async () => { const blob = await api.resourceBlob(path); setText(await blob.text()) }) }}><summary>{label}</summary><ErrorMessage>{action.error}</ErrorMessage><JsonView value={text || '正在读取…'} /></details>
+  return <details aria-busy={action.busy} onToggle={e => { if (e.currentTarget.open && !text) void action.run(async () => { const blob = await api.resourceBlob(path); setText(await blob.text()) }) }}><summary>{label}</summary><ErrorMessage>{action.error}</ErrorMessage>{text && <JsonView value={text} />}</details>
 }

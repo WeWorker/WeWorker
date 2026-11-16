@@ -59,6 +59,8 @@ def build_resume_state(trajectory: dict[str, Any]) -> dict[str, Any]:
             "browser_mode": str(environment_config.get("browser_mode", "") or ""),
             "start_url": str(environment_config.get("start_url", "") or ""),
             "local_cdp_url": str(environment_config.get("local_cdp_url", "") or ""),
+            **({"allowed_domains": environment_config["allowed_domains"]}
+               if "allowed_domains" in environment_config else {}),
         },
         "environment_runtime_state": {
             "browser_instance_id": str(runtime_state.get("browser_instance_id", "") or ""),

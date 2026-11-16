@@ -9,10 +9,12 @@ import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
 from webwright.exceptions import RuntimeExecutionError
+from webwright.server.artifact_workspace import artifact_output_dir, prepare_artifact_output_dir
 from webwright.utils.local_cdp import (
     DEFAULT_CDP_URL as _DEFAULT_LOCAL_CDP_URL,
     DEFAULT_USER_DATA_DIR as _DEFAULT_LOCAL_CDP_USER_DATA_DIR,
@@ -119,15 +121,16 @@ class LocalBrowserEnvironment:
         self._resume_last_url = ""
         self._resume_last_title = ""
         self._resume_browser_instance_id = ""
+        self._resume_recovery_reason = ""
         self._start_url_ready = False
         self._last_url = ""
         self._last_title = ""
 
     def _screenshots_dir(self) -> Path:
-        return self.config.output_dir / "screenshots"
+        return artifact_output_dir(self.config.output_dir) / "screenshots"
 
     def _steps_dir(self) -> Path:
-        return self.config.output_dir / "steps"
+        return artifact_output_dir(self.config.output_dir) / "steps"
 
     def _existing_step_index(self) -> int:
         max_index = 0
@@ -147,6 +150,12 @@ class LocalBrowserEnvironment:
 
     def prepare(self, **kwargs) -> None:
         self._prepared_task = dict(kwargs)
+        artifact_dir = prepare_artifact_output_dir(self.config.output_dir) / 'artifacts'
+        if any(part.is_symlink() for part in (artifact_dir, *artifact_dir.parents)):
+            raise ValueError('Exploration artifact directory must not use symbolic links.')
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        # Host-owned task output; never trust a requested path supplied by a task.
+        self._prepared_task['artifact_dir'] = str(artifact_dir)
         self._console_history = []
         self._step_console = []
         self._initial_target_id = str(kwargs.get("initial_target_id", "") or "")
@@ -155,8 +164,9 @@ class LocalBrowserEnvironment:
         self._resume_last_url = str(kwargs.get("resume_last_url", "") or "")
         self._resume_last_title = str(kwargs.get("resume_last_title", "") or "")
         self._resume_browser_instance_id = str(
-            kwargs.get("resume_browser_instance_id") or self.config.expected_browser_instance_id
+            self.config.expected_browser_instance_id or kwargs.get("resume_browser_instance_id") or ""
         )
+        self._resume_recovery_reason = ""
         self._page_target_id = ""
         self._page_selection_source = ""
         start_url = kwargs.get("start_url") or self.config.start_url
@@ -177,7 +187,8 @@ class LocalBrowserEnvironment:
         page_url = str(getattr(self._page, "url", "") or "") if self._page is not None else ""
         self._last_url = page_url
         self._start_url_ready = bool(
-            (self._initial_target_id or (self.config.resume_existing_page and self._resume_target_id))
+            (self._initial_target_id or self._resume_recovery_reason
+             or (self.config.resume_existing_page and self._resume_target_id))
             and page_url
         ) or bool(
             self.config.start_url
@@ -224,7 +235,7 @@ class LocalBrowserEnvironment:
             )
         self._last_url = url
         self._last_title = title
-        return {
+        observation = {
             "url": url,
             "title": title,
             "aria_snapshot": aria_snapshot[:3000],
@@ -232,6 +243,29 @@ class LocalBrowserEnvironment:
             "browser_connected": True,
             "page_closed": False,
         }
+        if self._resume_recovery_reason:
+            observation["browser_recovery"] = self._resume_recovery_reason
+        return observation
+
+    def _recovery_navigation_url(self) -> str:
+        for value in (self._resume_last_url, self.config.start_url):
+            if not value:
+                continue
+            try:
+                parsed = urlsplit(value)
+                if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                    continue
+                if parsed.username is not None or parsed.password is not None:
+                    continue
+            except ValueError:
+                continue
+            if self.config.allowed_domains is not None and not page_in_allowed_domains(value, self.config.allowed_domains):
+                continue
+            return value
+        raise RuntimeExecutionError(
+            "原探索页面已失效，且没有可恢复的有效网址，请新建探索。",
+            error_code="browser_resume_url_unavailable", stage="browser_prepare",
+        )
 
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         if self._loop is None or self._loop.is_closed():
@@ -355,7 +389,12 @@ class LocalBrowserEnvironment:
                 self._managed_browser.watch_current_task()
                 self.config.local_cdp_url = self._managed_browser.http_url
                 if self._resume_browser_instance_id and self._resume_browser_instance_id != self._managed_browser.descriptor["instanceId"]:
-                    raise RuntimeError("浏览器实例已变化，旧探索页面绑定已失效，请重新选择页面")
+                    if not self.config.resume_existing_page or self._initial_target_id or self._replay_target_id:
+                        raise RuntimeError("浏览器实例已变化，旧探索页面绑定已失效，请重新选择页面")
+                    self._resume_recovery_reason = "browser_instance_changed"
+                elif self.config.resume_existing_page and not self._initial_target_id and not self._replay_target_id:
+                    if not self._resume_browser_instance_id or not self._resume_target_id:
+                        self._resume_recovery_reason = "saved_page_binding_unavailable"
             else:
                 self._ensure_local_cdp_browser()
             created_target = _ensure_local_cdp_page_target(self.config.local_cdp_url)
@@ -422,28 +461,33 @@ class LocalBrowserEnvironment:
                 self._page_selection_source = "replay_target_id"
             elif self.config.resume_existing_page:
                 target_info = None
-                if self._resume_target_id:
+                if self._resume_target_id and not self._resume_recovery_reason:
                     target_info = _find_cdp_target_by_id(
                         self.config.local_cdp_url, self._resume_target_id
                     )
                     if target_info is None:
-                        raise RuntimeError(
-                            f"Saved browser target no longer exists: {self._resume_target_id}"
-                        )
-                matched_page, source = await self._match_page_in_context(
-                    context=self._context,
-                    target_info=target_info,
-                    last_url=self._resume_last_url,
-                    last_title=self._resume_last_title,
-                    strict_target=bool(self._resume_target_id),
-                )
-                if self._resume_target_id and matched_page is None:
-                    raise RuntimeError(
-                        f"Could not attach to saved browser target: {self._resume_target_id}"
+                        if not self._managed_browser:
+                            raise RuntimeError(
+                                f"Saved browser target no longer exists: {self._resume_target_id}"
+                            )
+                        self._resume_recovery_reason = "saved_page_closed"
+                if not self._resume_recovery_reason:
+                    matched_page, source = await self._match_page_in_context(
+                        context=self._context,
+                        target_info=target_info,
+                        last_url=self._resume_last_url,
+                        last_title=self._resume_last_title,
+                        strict_target=bool(self._resume_target_id),
                     )
-                if matched_page is not None:
-                    self._page = matched_page
-                    self._page_selection_source = source
+                    if self._resume_target_id and matched_page is None:
+                        if not self._managed_browser:
+                            raise RuntimeError(
+                                f"Could not attach to saved browser target: {self._resume_target_id}"
+                            )
+                        self._resume_recovery_reason = "saved_page_closed"
+                    if matched_page is not None:
+                        self._page = matched_page
+                        self._page_selection_source = source
 
             if self._page is None and (self._managed_browser or self.config.local_cdp_new_page or not self._context.pages):
                 existing_ids = {
@@ -502,9 +546,10 @@ class LocalBrowserEnvironment:
             and self._page is not None
             and self._page_selection_source != "new_page"
         )
-        if self.config.start_url and not should_skip_start_url:
+        navigation_url = self._recovery_navigation_url() if self._resume_recovery_reason else self.config.start_url
+        if navigation_url and not should_skip_start_url:
             try:
-                await self._page.goto(self.config.start_url, wait_until="domcontentloaded")
+                await self._page.goto(navigation_url, wait_until="domcontentloaded")
             except PlaywrightError as exc:
                 if "net::ERR_BLOCKED_BY_CLIENT" not in str(exc):
                     raise
@@ -664,7 +709,7 @@ class LocalBrowserEnvironment:
         step_path = self._steps_dir() / f"step_{self._step_index:04d}.py"
         step_path.write_text(python_code, encoding="utf-8")
 
-        script_path = self.config.output_dir / "script.py"
+        script_path = artifact_output_dir(self.config.output_dir) / "script.py"
         with script_path.open("a", encoding="utf-8") as handle:
             handle.write(f"\n\n# Step {self._step_index}\n")
             handle.write(python_code)
@@ -761,6 +806,7 @@ class LocalBrowserEnvironment:
             "browser_mode": self.config.browser_mode,
             "user_data_dir": str(self.config.user_data_dir),
             **kwargs,
+            'artifact_dir': str(artifact_output_dir(self.config.output_dir) / 'artifacts'),
         }
 
     def serialize(self) -> dict[str, Any]:

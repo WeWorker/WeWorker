@@ -120,6 +120,36 @@ def test_internal_worker_environment_exempts_loopback_from_proxy(
     assert "no_proxy" not in untouched
 
 
+def test_managed_windows_source_workers_reuse_desktop_node(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr("webwright.runtime_launcher.sys.platform", "win32")
+    host_node = str(tmp_path / "desktop" / "electron.exe")
+    environment = {"WEWORKER_BROWSER_MANAGED": "1", "WEWORKER_WEBCLI_NODE": host_node}
+    original = dict(environment)
+
+    worker = RuntimeLauncher(frozen=False).internal_worker_environment(environ=environment)
+
+    assert worker["PLAYWRIGHT_NODEJS_PATH"] == host_node
+    assert worker["ELECTRON_RUN_AS_NODE"] == "1"
+    assert environment == original
+
+
+@pytest.mark.parametrize("frozen,platform,managed,has_host", [
+    (True, "win32", True, True),
+    (False, "darwin", True, True),
+    (False, "linux", True, True),
+    (False, "win32", False, True),
+    (False, "win32", True, False),
+])
+def test_other_workers_preserve_their_playwright_runtime(monkeypatch, frozen, platform, managed, has_host) -> None:
+    monkeypatch.setattr("webwright.runtime_launcher.sys.platform", platform)
+    environment = {"PLAYWRIGHT_NODEJS_PATH": "fixture-packaged-node"}
+    if managed:
+        environment["WEWORKER_BROWSER_MANAGED"] = "1"
+    if has_host:
+        environment["WEWORKER_WEBCLI_NODE"] = "fixture-desktop-node"
+    assert RuntimeLauncher(frozen=frozen).internal_worker_environment(environ=environment) == environment
+
+
 def test_bundled_resources_are_readable() -> None:
     resources = BundledResources()
 

@@ -3,7 +3,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react'
 import QRCode from 'qrcode'
 import { useSettingsStore } from '../../store/settings.js'
 import { normalizeOwnerUserId, validateOwnerUserId, getOwnerPermissionSelection, hasUnsavedOwnerPermission } from '../../utils/owner-user-id.js'
-import { backendFetch } from '../../api/http.js'
+import { API, backendFetch } from '../../api/http.js'
 import { EditOutlined, MessageOutlined } from '@ant-design/icons'
 import { CHANNEL_TYPES } from '../../utils/channel-configurations.js'
 import WecomQrConnect from './WecomQrConnect.jsx'
@@ -13,7 +13,6 @@ import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { ChannelProbeButton, ChannelProbeChecklist, useChannelProbe } from './ChannelProbe.jsx'
 import { registerModelSwitchCanceler } from '../../utils/model-switch-cancel.js'
 
-const API = 'http://127.0.0.1:8765'
 
 const OWNER_PERMISSION_OPTIONS = [
   { value: 'qa_only', label: '问答权限', hint: '仅知识问答，与访客相同' },

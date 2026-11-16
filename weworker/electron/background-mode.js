@@ -122,13 +122,14 @@ function readAgentsFile(filePath, fileSystem) {
  */
 export async function fetchAgentSummary({
   token = '',
+  backendUrl = `http://127.0.0.1:${BACKEND_PORT}`,
   fetchImpl = fetch,
   timeoutMs = 1500,
   agentsFile = process.env.WEWORKER_DEDICATED_AGENTS_FILE || path.join(os.homedir(), '.weworker', 'dedicated-agents.json'),
   fileSystem = fs,
 } = {}) {
   try {
-    const response = await fetchImpl(`http://127.0.0.1:${BACKEND_PORT}/dedicated-agents`, {
+    const response = await fetchImpl(`${backendUrl}/dedicated-agents`, {
       headers: token ? { 'X-WeWorker-Auth': token } : undefined,
       redirect: 'error',
       signal: AbortSignal.timeout(timeoutMs),

@@ -10,7 +10,7 @@ const protocolNames = {
   openai_chat_completions: 'OpenAI Chat Completions',
 }
 
-export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
+export default function LocalModelDiscoveryDialog({ onClose, onImported, dismissible = true }) {
   const detect = useSettingsStore(state => state.detectProviders)
   const importProvider = useSettingsStore(state => state.importLocalProvider)
   const revealProviderKey = useSettingsStore(state => state.revealProviderKey)
@@ -103,14 +103,14 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported }) {
 
   return createPortal(
     <div className="weworker-dialog-overlay" onMouseDown={event => {
-      if (event.target === event.currentTarget && !importingRef.current) onClose()
+      if (dismissible && event.target === event.currentTarget && !importingRef.current) onClose()
     }}>
       <section ref={panelRef} className="weworker-dialog local-model-discovery" role="dialog" aria-modal="true"
         aria-labelledby={titleId} tabIndex={-1} onKeyDown={event => {
           if (event.key === 'Escape') {
             event.preventDefault()
             event.stopPropagation()
-            if (!importingRef.current) onClose()
+            if (dismissible && !importingRef.current) onClose()
           }
           if (event.key !== 'Tab') return
           const items = [...panelRef.current.querySelectorAll('button:not(:disabled)')]

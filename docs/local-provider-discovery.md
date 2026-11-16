@@ -6,7 +6,9 @@ import; it is enabled by default. Disabling it leaves existing configurations
 unchanged and skips startup discovery.
 
 The model settings toolbar and chat provider menu open a discovery dialog.
-Manual scans show one candidate per row without importing anything. Selecting a
+The header action “检测本地配置” scans and imports new validated connections without restarting, then reports imported, updated, merged and skipped entries in a dialog. It preserves the active selection and respects dismissed sources. The info icon explains this behavior.
+
+The existing preview dialog shows one connection per row without importing anything. Selecting a
 row imports only that configuration as a custom provider named after its source
 app. Already imported sources are marked and cannot be imported twice. Manual
 discovery works even when startup detection is disabled. Candidate responses
@@ -39,8 +41,7 @@ installation, the first complete imported configuration becomes active and
 completes the initial model setup. A key and
 URL without a model can still be imported: selecting that provider queries its
 model catalog and saves the first available model before activation. If the
-service has no catalog, choose a model in settings. Discovery itself makes no
-network requests. Unsupported protocols and incomplete credentials are skipped.
+service has no catalog, choose a model in settings. Discovery probes the model-list endpoint once per connection. A successful probe (or an unsupported model-list endpoint returning 404/405) is not a successful chat test. Failed validation blocks automatic import; the preview dialog still permits explicit manual import. Unsupported protocols and incomplete credentials are skipped.
 
 Deleting an imported provider remembers that source, so startup does not recreate
 it. Manual detection can import it again. Switch to another provider before
@@ -55,8 +56,8 @@ Format references: [Claude Code](https://code.claude.com/docs/en/settings),
 
 DeepSeek Harness discovery reads the official DeepSeek API-key route and explicit
 `llm-pi-ai` custom routes using `openai-completions`, `openai-responses` or
-`anthropic-messages` plus a base URL. Configured models appear as separate import
-candidates; a route without a saved model imports without inventing a model ID.
+`anthropic-messages` plus a base URL. Configured models sharing the same effective endpoint and API key appear as one import
+candidate with a combined model list; a route without a saved model imports without inventing a model ID.
 The version-1 credential store's `refs` (and the earlier flat reference map) take
 precedence over launch environment variables. Explicit `apiKeyEnv` references
 take precedence over `api-key` records. OAuth/grant records and the DeepSeek
@@ -68,3 +69,17 @@ it does not execute DSH or load plugin bundles, project `.env` files, custom
 credential stores, or command-line overlays. Routes relying on an installed
 plugin catalog to supply their protocol or endpoint are skipped. These cases
 still require manual configuration. Original Harness files are never modified.
+
+
+Connection identity is based on the effective URL and API key, with protocol and
+Anthropic authentication mode kept distinct. Different keys at the same URL stay
+separate; identical routes from different apps are grouped. Model IDs and profile
+names do not determine connection identity. Known models populate `custom_models`
+so they remain selectable even without a remote catalog. Existing manually saved
+connections are reused. Repeated scans append newly discovered model IDs without
+changing the selected model or overwriting credentials.
+
+Legacy model-per-row imports are matched by their previous source IDs. Only
+entries with generated names and otherwise identical settings are folded, keeping
+the active configuration ID where possible. Renamed or independently edited
+entries remain intact. Deletion dismissals recognize both old and new source IDs.

@@ -4,7 +4,7 @@ import { createLogger } from './logger.js'
 import { BridgeExtensionConnections } from './bridge-extension-connections.js'
 
 const log = createLogger('bridge-rpc')
-const DEFAULT_BRIDGE_URL = 'ws://localhost:3711'
+const DEFAULT_BRIDGE_URL = `ws://127.0.0.1:${process.env.WEBCLI_BRIDGE_PORT || 3711}`
 const SENSITIVE_URL_KEY_RE = /api[_-]?key|authorization|cookie|credential|password|passwd|secret|session|ticket|token|csrf/i
 
 export interface ExplorableTab {

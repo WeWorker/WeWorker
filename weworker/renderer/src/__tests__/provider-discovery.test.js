@@ -7,7 +7,7 @@ import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
 let server, dom, root, createRoot, ModelSelector, SettingsPage, SecretInput, ContextPanel, store, healthStore
-let calls, state, detectResponse
+let calls, state, detectResponse, batchResponse, dialogs, conversationModels
 const globals = new Map()
 const imported = { name: 'Claude Code', provider_id: 'custom', model: 'fixture-model',
   base_url: 'https://example.com', has_key: true, external_source_id: 'fixture-source', added: true }
@@ -39,11 +39,16 @@ before(async () => {
   ContextPanel = (await server.ssrLoadModule('/src/components/chat/ContextPanel.jsx')).default
   store = (await server.ssrLoadModule('/src/store/settings.js')).useSettingsStore
   healthStore = (await server.ssrLoadModule('/src/store/model-health.js')).useModelHealthStore
+  dialogs = (await server.ssrLoadModule('/src/store/dialog.js')).useDialogStore
+  conversationModels = (await server.ssrLoadModule('/src/store/conversation-models.js')).useConversationModelsStore
 })
 
 beforeEach(() => {
   calls = []
+  dialogs.setState({ queue: [] })
+  batchResponse = () => Response.json({ ...state, providers: { ...state.providers, 'model-fixture': imported }, discovery: { imported: 1, names: ['Claude Code'] } })
   healthStore.setState({ results: {}, running: {}, checking: {} })
+  conversationModels.setState({ selections: {}, pending: {}, errors: {} })
   state = { active_provider: 'anthropic', model: 'fixture-current', has_api_key: true, model_discovery_enabled: true, providers: {
     anthropic: { has_key: true, model: 'fixture-current', visible: true },
     custom: { has_key: false, visible: false },
@@ -52,7 +57,9 @@ beforeEach(() => {
   globalThis.fetch = async (url, options = {}) => {
     const endpoint = new URL(url).pathname
     calls.push({ endpoint, ...options })
+    if (endpoint === '/chat/model/resolve') return Response.json({ ...JSON.parse(options.body).selection, context_limit: 200000 })
     if (endpoint === '/settings/provider/models') return Response.json({ models: ['fixture-model'] })
+    if (endpoint === '/settings/provider/detect-and-import') return batchResponse()
     if (endpoint === '/settings/provider/detect') return detectResponse()
     if (endpoint === '/settings/provider/import') {
       const { source_id } = JSON.parse(options.body)
@@ -132,10 +139,11 @@ test('imported providers remain selectable without a delete column', async () =>
   await open()
   assert.equal(document.querySelector('.app-dropdown-select__remove-option'), null)
   await click(button('Claude Code'))
-  const request = calls.find(item => item.endpoint === '/settings/provider/activate')
-  assert.deepEqual(JSON.parse(request.body), { provider: 'model-fixture' })
+  const request = calls.find(item => item.endpoint === '/chat/model/resolve')
+  assert.deepEqual(JSON.parse(request.body), { selection: { provider: 'model-fixture', model: 'fixture-model', thinking_effort: 'off' } })
   assert.ok(store.getState().providers['model-fixture'])
-  assert.equal(store.getState().activeProvider, 'model-fixture')
+  assert.equal(store.getState().activeProvider, 'anthropic')
+  assert.equal(conversationModels.getState().selections.welcome.provider, 'model-fixture')
   assert.equal(calls.some(item => item.endpoint === '/settings/provider/delete'), false)
 })
 
@@ -219,6 +227,27 @@ test('model settings have a compact search toolbar and a discovery dialog beside
   assert.ok(document.querySelector('[data-model-configuration="model-fixture"].is-selected'))
 })
 
+test('custom configurations expose one shared interface without separate exploration setup or checks', async () => {
+  state.providers['model-fixture'] = { ...imported, openai_base_url: 'https://example.org/old', openai_model: 'old-model', has_openai_key: true }
+  store.setState({ providers: state.providers, activeProvider: 'model-fixture' })
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  assert.ok(document.querySelector('[aria-label="WeWorker 对话接口"]'))
+  assert.equal(button('高级配置'), undefined)
+  assert.equal(document.querySelector('[aria-label="OpenAI 接口地址"]'), null)
+  assert.equal(document.querySelector('[aria-label="网站探索agent API Key"]'), null)
+  const catalogs = calls.filter(c => c.endpoint === '/settings/provider/models')
+  assert.ok(catalogs.length > 0)
+  assert.ok(catalogs.every(c => JSON.parse(c.body).target === 'weworker'))
+  await click(button('测试模型可用性'))
+  const probes = calls.filter(c => c.endpoint === '/settings/provider/probe')
+  assert.equal(probes.length, 1)
+  const body = JSON.parse(probes[0].body)
+  assert.equal(body.target, 'weworker')
+  assert.equal(body.base_url, imported.base_url)
+  assert.equal(body.openai_base_url, undefined)
+  assert.equal(body.openai_model, undefined)
+})
+
 test('every built-in has an editable context window and saves it without deployment fields', async t => {
   const timeout = globalThis.setTimeout
   const savedFeedbackTimers = []
@@ -286,17 +315,17 @@ test('the extension switch defaults on, saves changes and preserves its state af
   assert.equal(document.querySelector('[role="alert"]').textContent, '保存失败')
 })
 
-test('selecting an import without an explicit model fetches and saves a model before activation', async () => {
+test('selecting an import without a model fetches a session model without changing defaults', async () => {
   state.providers['model-fixture'] = { ...imported, model: '' }
   store.setState({ providers: state.providers })
   await render()
   await open()
   await click(button('Claude Code'))
-  const save = calls.findIndex(item => item.endpoint === '/settings/provider')
-  const activate = calls.findIndex(item => item.endpoint === '/settings/provider/activate')
-  assert.ok(save >= 0 && activate > save)
-  assert.equal(store.getState().activeProvider, 'model-fixture')
-  assert.equal(store.getState().model, 'fixture-model')
+  assert.ok(calls.some(item => item.endpoint === '/chat/model/resolve'))
+  assert.equal(calls.some(item => ['/settings/provider', '/settings/provider/activate'].includes(item.endpoint)), false)
+  assert.equal(store.getState().activeProvider, 'anthropic')
+  assert.equal(store.getState().model, 'fixture-current')
+  assert.equal(conversationModels.getState().selections.welcome.model, 'fixture-model')
 })
 
 test('an empty catalog does not activate an incomplete imported provider', async () => {
@@ -454,4 +483,38 @@ test('another model remains clickable while a single-model check is pending', as
   assert.equal(first.textContent.trim(), '42ms')
   assert.equal(calls.filter(item => item.endpoint === '/settings/provider/probe').length, 2)
   assert.equal(store.getState().model, 'fixture-current')
+})
+
+
+test('header detects and imports connections, exposes help, and reports new entries without switching models', async () => {
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  assert.ok(document.querySelector('.settings-panel-top .model-discovery-action'))
+  await click(ariaButton('关于检测本地配置'))
+  assert.match(document.querySelector('[role="tooltip"]').textContent, /API Key/)
+  await click(button('检测本地配置'))
+  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/detect-and-import').length, 1)
+  assert.ok(store.getState().providers['model-fixture'])
+  assert.equal(store.getState().activeProvider, 'anthropic')
+  assert.equal(dialogs.getState().queue[0].title, '已发现并导入新配置')
+  assert.match(dialogs.getState().queue[0].message, /已导入 1 个新连接/)
+})
+
+test('one-click discovery prevents duplicate requests and reports empty, partial and failed scans', async () => {
+  let finish
+  batchResponse = () => new Promise(resolve => { finish = resolve })
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  await click(button('检测本地配置'))
+  assert.equal(button('正在检测…').disabled, true)
+  await click(button('正在检测…'))
+  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/detect-and-import').length, 1)
+  await act(async () => finish(Response.json({ ...state, discovery: { imported: 0, skipped: 1, issues: ['CodeBuddy'] } })))
+  assert.equal(button('检测本地配置').disabled, false)
+  assert.match(dialogs.getState().queue[0].message, /未发现新的可导入连接/)
+  assert.match(dialogs.getState().queue[0].message, /1 个连接未通过校验/)
+  assert.match(dialogs.getState().queue[0].message, /CodeBuddy/)
+  dialogs.setState({ queue: [] })
+  batchResponse = () => Response.json({ detail: '检测未完成，请检查本地服务后重试。' }, { status: 500 })
+  await click(button('检测本地配置'))
+  assert.equal(dialogs.getState().queue[0].title, '检测未完成')
+  assert.equal(button('检测本地配置').disabled, false)
 })
