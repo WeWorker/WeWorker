@@ -57,6 +57,31 @@ function stripAtMention(content: string): string {
   return content.replace(/@\S+\s?/g, '').trim()
 }
 
+/** 按内容魔数推断扩展名；回调里没有原始文件名。 */
+function inferExtension(buf: Buffer): string {
+  const head4 = buf.subarray(0, 4).toString('latin1')
+  if (head4 === '%PDF') return 'pdf'
+  if (head4 === 'PK\x03\x04') return 'zip'
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png'
+  if (buf[0] === 0xff && buf[1] === 0xd8) return 'jpg'
+  if (head4.startsWith('GIF')) return 'gif'
+  if (head4 === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp'
+  if (buf[0] === 0x1f && buf[1] === 0x8b) return 'gz'
+  if (head4.startsWith('Rar!')) return 'rar'
+  if (head4 === 'OggS') return 'ogg'
+  if (buf[0] === 0x25 && buf[1] === 0x21 && buf.subarray(2, 4).toString('latin1') === 'PS') return 'ps'
+  return 'bin'
+}
+
+function guessMimeForExtension(ext: string): string {
+  const table: Record<string, string> = {
+    pdf: 'application/pdf', zip: 'application/zip', png: 'image/png', jpg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', gz: 'application/gzip', rar: 'application/vnd.rar',
+    ogg: 'audio/ogg', ps: 'application/postscript',
+  }
+  return table[ext] ?? 'application/octet-stream'
+}
+
 /**
  * 确定性路由已作答时用它顶掉 `streamChat`：空流让整段模型回合一次都不执行，
  * 而回合收尾（持久化 / 停流 / 图片）仍走同一条路径，不必复制第二份发送逻辑。
@@ -110,6 +135,8 @@ export class WecomChannel implements Channel {
   private _pendingChoiceResolvers = new Map<string, (answer: string) => void>()
   // Pending WebSocket request resolvers: reqId → resolve function
   private _pendingWsRequests = new Map<string, (resp: Record<string, unknown>) => void>()
+  // Recently seen msgids for callback dedup (WeCom may redeliver)
+  private _seenMsgids = new Set<string>()
 
   constructor(config: WecomChannelConfig, profile: WecomChannelProfile = createDefaultWecomProfile(config)) {
     this._config = config
@@ -588,20 +615,76 @@ export class WecomChannel implements Channel {
     const chatType = body.chattype as string // 'single' | 'group'
     const chatId = body.chatid as string | undefined
 
-    // Extract text content
+    // Callback dedup by msgid (WeCom may redeliver on network retries)
+    const msgid = typeof body.msgid === 'string' ? body.msgid : ''
+    if (msgid) {
+      if (this._seenMsgids.has(msgid)) return
+      this._seenMsgids.add(msgid)
+      if (this._seenMsgids.size > 1000) {
+        this._seenMsgids.delete(this._seenMsgids.values().next().value!)
+      }
+    }
+
+    // Extract text content; file/image payloads are downloaded, decrypted and
+    // saved under the conversation workspace so the agent can reference them.
     let text = ''
+    const attachments: store.ContentBlock[] = []
     const msgtype = body.msgtype as string
     if (msgtype === 'text') {
       text = ((body.text as Record<string, string>)?.content ?? '').trim()
+    } else if (msgtype === 'file') {
+      const file = body.file as { url?: string; aeskey?: string } | undefined
+      if (!file?.url || !file.aeskey) {
+        this._send({
+          cmd: 'aibot_respond_msg',
+          headers: { req_id: reqId },
+          body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: '文件消息缺少下载地址或解密密钥，无法接收' } },
+        })
+        return
+      }
+      let saved: { name: string; path: string; size: number }
+      try {
+        saved = await this._receiveFileMedia(file.url, file.aeskey, msgid, userId)
+      } catch (e) {
+        log.error('failed to receive file message:', e)
+        this._send({
+          cmd: 'aibot_respond_msg',
+          headers: { req_id: reqId },
+          body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: `文件接收失败：${e instanceof Error ? e.message : String(e)}` } },
+        })
+        return
+      }
+      attachments.push(userFileBlock({ name: saved.name, path: saved.path, size: saved.size, mime: guessMimeForExtension(saved.name.split('.').pop() ?? 'bin') }))
+      text = `（收到文件：${saved.name}，已保存至 ${saved.path}）`
     } else if (msgtype === 'mixed') {
-      // Extract text parts from mixed content
-      text = ((body.text as Record<string, string>)?.content ?? '').trim()
+      // Concat text parts; download file/image attachment items instead of dropping them
+      const parts: string[] = []
+      const items = ((body.mixed as Record<string, unknown>)?.msg_item ?? []) as Array<Record<string, unknown>>
+      for (const item of items) {
+        const itemType = item.msgtype as string
+        if (itemType === 'text') {
+          const content = ((item.text as Record<string, string>)?.content ?? '').trim()
+          if (content) parts.push(content)
+        } else if (itemType === 'file' || itemType === 'image') {
+          const media = item[itemType] as { url?: string; aeskey?: string } | undefined
+          if (!media?.url || !media.aeskey) continue
+          try {
+            const saved = await this._receiveFileMedia(media.url, media.aeskey, `${msgid}:${attachments.length}`, userId)
+            attachments.push(userFileBlock({ name: saved.name, path: saved.path, size: saved.size, mime: guessMimeForExtension(saved.name.split('.').pop() ?? 'bin') }))
+            parts.push(`（${itemType === 'file' ? '收到文件' : '收到图片'}：${saved.name}，已保存至 ${saved.path}）`)
+          } catch (e) {
+            log.error(`failed to receive ${itemType} in mixed message:`, e)
+            parts.push(`（${itemType === 'file' ? '文件' : '图片'}接收失败）`)
+          }
+        }
+      }
+      text = parts.join('\n').trim()
     } else {
       // Unsupported message type — inform user
       this._send({
         cmd: 'aibot_respond_msg',
         headers: { req_id: reqId },
-        body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: '暂时只支持文本消息哦' } },
+        body: { msgtype: 'stream', stream: { id: randomUUID(), finish: true, content: '目前支持文本、图文混排和文件消息，暂不支持该消息类型' } },
       })
       return
     }
@@ -745,6 +828,7 @@ export class WecomChannel implements Channel {
       if (created) this._profile.onWorkCreated?.(work.id)
       await this._runTurn({ reqId, userId, chatType, chatId, text, settings, mode: access.mode, abortController, work,
         setPending: reader => { pendingContent = reader },
+        ...(attachments.length ? { attachments } : {}),
       })
     } finally {
       untrack()
@@ -762,6 +846,53 @@ export class WecomChannel implements Channel {
     return true
   }
 
+  /**
+   * Download and decrypt a WeCom media payload (file/image callback).
+   *
+   * Long-connection callbacks carry `url` (valid 5 min) + per-url `aeskey`;
+   * the payload is AES-256-CBC encrypted, PKCS#7-padded to a 32-byte multiple,
+   * IV = first 16 bytes of the key. Saved under `<work>/received/` so the
+   * dedicated agent can access it with its regular file tools.
+   */
+  private async _receiveFileMedia(url: string, aeskey: string, msgid: string, userId: string): Promise<{ name: string; path: string; size: number }> {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`下载失败（HTTP ${response.status}）`)
+    const cipherBuf = Buffer.from(await response.arrayBuffer())
+
+    const key = Buffer.from(aeskey, 'base64')
+    if (key.length !== 32) throw new Error('解密密钥长度无效')
+    let plain: Buffer
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-cbc', key, key.subarray(0, 16))
+      plain = Buffer.concat([decipher.update(cipherBuf), decipher.final()])
+    } catch (e) {
+      throw new Error(`解密失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+
+    const ext = inferExtension(plain)
+    const shortId = crypto.createHash('md5').update(msgid).digest('hex').slice(0, 8)
+
+    const channelKey = this._profile.channelKey
+    const { work } = store.getOrCreateChannelWork(channelKey, userId, '', this._profile.projectId?.() ?? null)
+    const workspaceDir = store.getWorkspaceDirectoryForWork(work.id)
+    if (!workspaceDir) throw new Error('会话工作目录不可用')
+
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const receivedDir = path.join(workspaceDir, 'received')
+    fs.mkdirSync(receivedDir, { recursive: true })
+
+    let dest = path.join(receivedDir, `received-${shortId}.${ext}`)
+    let i = 1
+    while (fs.existsSync(dest)) {
+      dest = path.join(receivedDir, `received-${shortId} (${i}).${ext}`)
+      i += 1
+    }
+    fs.writeFileSync(dest, plain)
+    log.info(`saved received media: ${dest} (${plain.length} bytes)`)
+    return { name: path.basename(dest), path: dest, size: plain.length }
+  }
+
   private async _runTurn(turn: {
     reqId: string
     userId: string
@@ -773,11 +904,12 @@ export class WecomChannel implements Channel {
     abortController: AbortController
     work: store.Work
     setPending: (reader: () => store.ContentBlock[] | null) => void
+    attachments?: store.ContentBlock[]
   }): Promise<void> {
     const { reqId, userId, chatType, chatId, text, settings } = turn
     const channelKey = this._profile.channelKey
     const { work } = turn
-    store.appendMessage(work.id, 'user', [{ type: 'text', text }])
+    store.appendMessage(work.id, 'user', [{ type: 'text', text }, ...(turn.attachments ?? [])])
     store.markExternalWrite()
 
     // Auto-title
