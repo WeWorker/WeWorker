@@ -158,7 +158,7 @@ login_required
 
 | 项目 | 值 |
 | --- | --- |
-| 单次业务调用等待登录 | 75 秒 |
+| 单次业务调用等待登录 | 75 秒（桌面端设定；终端与 Agent 场景不同，见 5.2） |
 | 允许的最大调用等待 | 15 分钟 |
 | 登录 flow 总超时 | 10 分钟 |
 | 状态轮询周期 | 1.5 秒 |
@@ -254,6 +254,18 @@ login_required
 ```
 
 内置实现：`adapters/jd.com` 的 `get-login-qrcode`（图片协议：passport 登录页容器选择器、qr.m.jd.com 服务器 URL 在页面内 credentialed fetch 转 data URL、过期遮罩自动刷新）；`adapters/mail.163.com` 的 `get-login-qrcode`（图片协议，按 mail.163.com 登录页与 mailscanlogin-1.3.2.js 校准：二维码为 `#appCodeMain` 内同源 canvas，直接 `toDataURL` 无需 fetch；手机号确认挂起（`.s-noScan-active`）时用页面自带 `#scanReScanBtn`（重新扫码）切回二维码视图，绝不碰「确认登录」；扫码视图经 `.new-loginFuncApp.qrcode-163-icon` 唯一入口进入，过期遮罩 `#appCodeRefresh` 用页面自带刷新链接重取）；`adapters/goofish.com` 的 `get-login-qrcode`（rect 协议，已真机验证：二维码在 havana 内嵌的跨域 login.taobao.com iframe 里，命令测量 iframe 页面矩形并按实测比例（二维码列约占面板宽 58%）收窄到二维码列，宽高比异常时回退整面板，宿主裁剪截图；`auth_prepare_qr` 预算 30s 以覆盖冷启动 SPA 挂载登录面板的延迟，命令失败原因经 `commandReason` 透传到登录日志）。
+
+## 5.2 不同调用场景的登录等待与通知表现
+
+登录 flow 本体（`SiteLoginCoordinator`）在所有场景下相同；差异来自**调用方的等待窗口**与**通知用户的通道**。等待窗口由 CLI 侧 `resolveLoginWaitMs()`（`webcli/index.js`）决定，优先级为：`--login-wait` 参数 → `WEBCLI_LOGIN_WAIT_SECONDS` 环境变量 → TTY 探测默认值（stdin 与 stderr 均为 TTY 时 **300 秒**，否则 **0 秒**）。
+
+| 场景 | 等待窗口 | 通知通道 | 表现 |
+| --- | --- | --- | --- |
+| 终端直接执行命令（TTY） | 300 秒 | CLI 自身：`auth_event` 到达即实时写入 stderr（`printAuthEvent`） | 需要登录时**立刻**打印中文提示：登录页已在受管浏览器打开、二维码截图路径（`~/.webcli/login/<contextId>/<site>.jpg`，可直接扫码）、`webgo browser show` 前台指引。登录成功打印「已登录 …，继续执行」，**同一条命令自动续跑**，无需重新执行。 |
+| Agent / 脚本调用（非 TTY，如 Claude） | 0 秒（立即返回） | AI 模型转述结果 | 需要登录时调用**立即返回** `AUTH_REQUIRED`：stdout 为结果 JSON（`code`、`auth.status=waiting_user`、`hint` 指向 `webcli browser show`），stderr 附带与终端场景相同的登录提示与截图路径。模型读取后告知用户如何登录；用户完成登录后再由模型重新执行调用。注意等待期间对模型是黑盒：shell 工具输出在进程退出时一次性返回，CLI 的实时提示在非 TTY 下随最终结果一起到达。 |
+| WeWorker 桌面端对话 | 75 秒 | Electron：`auth_event` → Renderer 登录提示 + 失焦系统通知（见第 7 节） | 后端启动时设置 `WEBCLI_LOGIN_WAIT_SECONDS=75`（`weworker/backend-ts/src/server.ts`，已设置时沿用原值）。75 秒内完成登录：读命令自动重试一次，一次性成功返回——对话执行日志中表现为**单次** `tool_call_result` 同时包含登录过程提示与业务结果。超时：该次调用返回 `AUTH_REQUIRED`，登录 flow 转入后台继续，原调用不会自动恢复。 |
+
+三种场景的共同点：登录页始终由 Bridge 在受管浏览器中打开并与具体 Adapter 绑定（见第 4 节），不依赖桌面端是否运行；任何场景下超时返回后原调用都不会自动恢复（见第 9 节 P0）。
 
 ## 6. 登录完成后的重试策略
 
@@ -482,3 +494,5 @@ Windows 上，允许自动登录的网站由 `webcli/credential-vault.js` 使用
 - 登录截图的创建、读取与清理；
 - WebSocket Bridge 的本机客户端访问控制和 Origin 策略；
 - 写操作在认证失败不同阶段的端到端重试保护。
+
+2026-11-15 补充：5.2 节所述**终端（TTY，实时提示 + 自动续跑）**与 **Agent（Claude，非 TTY，立即返回 `AUTH_REQUIRED` 后由模型转述并重试）**两个场景的表现已经实际调用验证；**桌面端 75 秒窗口**行为（窗口内自动续跑、单次返回）经对话执行日志的 `webcli.stage` 事件序列核对。
