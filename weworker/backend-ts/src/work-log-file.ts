@@ -32,7 +32,7 @@ function ensureFile(file: string, workId: string, initialContent = ''): void {
     'WeWorker 对话执行日志',
     '对话 ID: ' + workId,
     '开始记录: ' + new Date().toISOString(),
-    '说明: 执行时持续追加；正文、工具参数和结果不截断；凭据脱敏，图片二进制不展开。',
+    '说明: 执行时持续追加；正文、工具参数和结果不截断；AI 回复以 message_saved 中的完整正文记录，流式片段不逐条记录；凭据脱敏，图片二进制不展开。',
     '范围: 记录启用后的执行事件；旧版本未记录或已覆盖的过程无法恢复。',
     '',
   ].join('\n')
@@ -75,7 +75,12 @@ export function readWorkLog(work: { id: string; title?: string | null; messages:
   return text + (error ? record('log_write_gap', { error, note: '日志写入失败，记录不完整。' }) : '')
 }
 
-/** The same event stream still reaches the caller, after each event is on disk. */
+/**
+ * The same event stream still reaches the caller, after each event is on disk.
+ * Streamed answer fragments (`text_delta`) are forwarded but not persisted:
+ * the complete reply text is already captured by message_saved / message_updated,
+ * so per-token deltas would only duplicate it line by line.
+ */
 export async function* recordWorkLogStream<T extends { type: string }>(
   workId: string | undefined, source: AsyncIterable<T>, input: unknown, signal?: AbortSignal,
 ): AsyncGenerator<T> {
@@ -94,7 +99,7 @@ export async function* recordWorkLogStream<T extends { type: string }>(
       const next = await runWithTurnExecutionContext(context, () => iterator.next())
       if (next.done) { completed = true; break }
       if (next.value.type === 'error') failed = true
-      append(next.value.type, next.value)
+      if (next.value.type !== 'text_delta') append(next.value.type, next.value)
       yield next.value
     }
   } catch (error) {

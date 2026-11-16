@@ -938,15 +938,53 @@ function stripBase64Images(text: string): string {
  * `duration_api_ms` is session-cumulative, so `apiDuration` must be the same
  * tracker object for every turn of one CLI session.
  */
+/**
+ * Raw-field summary for the `sdk-event:` diagnostic line: enough to tell
+ * messages apart (which blocks, which tool, which call id) without echoing
+ * any content. Fields come straight from the SDK message shapes.
+ */
+function describeSdkMessage(msg: SDKMessage): string {
+  const record = msg as unknown as Record<string, unknown>
+  const parts: string[] = [`type=${msg.type}`]
+  if (typeof record.subtype === 'string' && record.subtype) parts.push(`subtype=${record.subtype}`)
+  if (msg.type === 'tool_progress') {
+    if (typeof record.tool_name === 'string') parts.push(`tool=${record.tool_name}`)
+    if (typeof record.elapsed_time_seconds === 'number') parts.push(`elapsed=${record.elapsed_time_seconds}s`)
+  }
+  const message = record.message as Record<string, unknown> | undefined
+  const content = message?.content
+  if (msg.type === 'assistant' && message) {
+    if (typeof message.id === 'string') parts.push(`id=${message.id.slice(0, 15)}`)
+    // Streaming delivers one assistant message per content block; consecutive
+    // entries sharing an id belong to the same model response.
+    if (typeof message.stop_reason === 'string') parts.push(`stop_reason=${message.stop_reason}`)
+  }
+  if ((msg.type === 'assistant' || msg.type === 'user') && (Array.isArray(content) || typeof content === 'string')) {
+    const blocks = typeof content === 'string'
+      ? [`text(${content.length})`]
+      : content.map((block): string => {
+          const b = block as Record<string, unknown>
+          if (b?.type === 'tool_use') return `tool_use:${String(b.name ?? '?')}`
+          if (b?.type === 'tool_result') return `tool_result:${String(b.tool_use_id ?? '?').slice(0, 18)}`
+          if (b?.type === 'text' && typeof b.text === 'string') return `text(${b.text.length})`
+          return String(b?.type ?? '?')
+        })
+    parts.push(`blocks=[${blocks.join(',')}]`)
+  }
+  if (msg.type === 'user' && record.isSynthetic === true) parts.push('isSynthetic=true')
+  return parts.join(' ')
+}
+
 export function* mapSdkMessage(
   msg: SDKMessage,
   streaming: boolean,
   textBlockBuf: { id: string; text: string; filter: StreamingVisibleText }[],
   apiDuration: ApiDurationTracker = createApiDurationTracker(),
 ): Generator<SSEEvent> {
-  // Log SDK message types for timing analysis
-  if (msg.type !== 'stream_event') {
-    log.info(`sdk-event: type=${msg.type}`)
+  // Log SDK message types for timing analysis. `system` progress messages can
+  // fire dozens of times per turn and carry no timing signal, so skip them.
+  if (msg.type !== 'stream_event' && msg.type !== 'system') {
+    log.info(`sdk-event: ${describeSdkMessage(msg)}`)
   }
   // Streaming text deltas 鈥?only used in streaming mode
   if (msg.type === 'stream_event') {
