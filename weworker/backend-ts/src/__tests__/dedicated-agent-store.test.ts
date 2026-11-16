@@ -44,8 +44,9 @@ describe('dedicated agent store', () => {
   const create = (overrides: Partial<Parameters<typeof createAgent>[0]> = {}) => createAgent({
     name: 'Example Operations Assistant',
     description: 'Handles routine work on example.com',
-    site_id: 'example.com',
-    skill_name: 'inventory-helper',
+    site_ids: ['example.com'],
+    skill_names: ['inventory-helper'],
+    work_dir: '',
     examples: ['Check today\'s orders', ''],
     bot_id: 'placeholder-bot-1',
     secret: BOT_SECRET,
@@ -80,23 +81,60 @@ describe('dedicated agent store', () => {
   it('allows a bot to serve only one agent and not the main channel', () => {
     create()
     expect(() => create({ name: 'Second', bot_id: 'placeholder-bot-1' })).toThrow('只能连接一个 Agent')
-    expect(() => create({ name: 'Third', bot_id: 'placeholder-main-bot' }, )).not.toThrow()
+    expect(() => create({ name: 'Third', bot_id: 'placeholder-main-bot' })).not.toThrow()
     expect(() => createAgent({
-      name: 'Fourth', site_id: 'example.org', bot_id: 'placeholder-reserved', secret: BOT_SECRET,
+      name: 'Fourth', site_ids: ['example.org'], bot_id: 'placeholder-reserved', secret: BOT_SECRET,
     }, { reservedBotIds: ['placeholder-reserved'] })).toThrow('设置 → 通道 → 企业微信')
     expect(findAgentByBotId('placeholder-bot-1')?.name).toBe('Example Operations Assistant')
     expect(findAgentByBotId('')).toBeNull()
   })
 
-  it('validates names, bots and skill names', () => {
+  it('validates names, bots, sites, skills and the working directory', () => {
     expect(() => create({ name: '  ' })).toThrow('请填写 Agent 名称')
-    expect(() => create({ site_id: '' })).toThrow('请选择要操作的网站')
+    expect(() => create({ site_ids: ['bad site!'] })).toThrow('网站 ID')
     expect(() => create({ bot_id: 'a b' })).toThrow('BotID')
     expect(() => create({ secret: '' })).toThrow('Secret')
+    expect(() => create({ work_dir: 'relative/path' })).toThrow('绝对路径')
     expect(normalizeSkillName('')).toBe('')
     expect(normalizeSkillName('staging.helper_1')).toBe('staging.helper_1')
     expect(() => normalizeSkillName('webcli-example')).toThrow('webcli')
     expect(() => normalizeSkillName('../escape')).toThrow()
+  })
+
+  it('creates agents without sites or with several sites and several skills', () => {
+    const plain = create({ name: 'Plain Claude', site_ids: [], skill_names: [] })
+    expect(plain.site_ids).toEqual([])
+    expect(plain.skill_names).toEqual([])
+    const multi = create({
+      name: 'Multi Site',
+      bot_id: 'placeholder-bot-2',
+      site_ids: ['example.com', 'example.org', 'example.com'],
+      skill_names: ['inventory-helper', 'orders-helper'],
+      work_dir: 'C:\\weworker-fixtures\\workspace',
+    })
+    expect(multi.site_ids).toEqual(['example.com', 'example.org'])
+    expect(multi.skill_names).toEqual(['inventory-helper', 'orders-helper'])
+    expect(multi.work_dir).toBe('C:\\weworker-fixtures\\workspace')
+  })
+
+  it('migrates legacy single-site/single-skill records on read', () => {
+    fs.writeFileSync(process.env.WEWORKER_DEDICATED_AGENTS_FILE!, JSON.stringify({
+      version: 1,
+      agents: [{
+        id: 'legacy0001', name: 'Legacy', description: '', site_id: 'example.com', skill_name: 'old-helper',
+        examples: [], enabled: true, wecom: { bot_id: 'placeholder-legacy', secret_enc: '' },
+        owner_user_id: 'owner-user', pairing_code: '', work_ids: [],
+        created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+      }],
+    }))
+    const agent = getAgent('legacy0001')
+    expect(agent?.site_ids).toEqual(['example.com'])
+    expect(agent?.skill_names).toEqual(['old-helper'])
+    expect(agent?.work_dir).toBe('')
+    const view = toAgentView(agent!)
+    expect(view.site_ids).toEqual(['example.com'])
+    expect(view.site_id).toBe('example.com')
+    expect(view.skill_name).toBe('old-helper')
   })
 
   it('pairs once and re-pairs when the bot changes', () => {
@@ -150,8 +188,11 @@ describe('dedicated agent store', () => {
 
   it('updates editable fields and rejects unknown agents', () => {
     const agent = create()
-    const updated = updateAgent(agent.id, { name: 'Renamed', enabled: false, examples: ['a', 'b'], skill_name: '' })
-    expect(updated).toMatchObject({ name: 'Renamed', enabled: false, examples: ['a', 'b'], skill_name: '' })
+    const updated = updateAgent(agent.id, {
+      name: 'Renamed', enabled: false, examples: ['a', 'b'],
+      skill_names: [], site_ids: ['example.org'], work_dir: '',
+    })
+    expect(updated).toMatchObject({ name: 'Renamed', enabled: false, examples: ['a', 'b'], skill_names: [], site_ids: ['example.org'], work_dir: '' })
     expect(() => updateAgent('missing', { name: 'x' })).toThrow('不存在')
   })
 })

@@ -361,7 +361,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
           styleId,
           memoryScope: taskMemoryContext.scope,
           ...(agent ? {
-            ...buildAgentChatOptions({ agent, siteName: agent.site_id, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
+            ...buildAgentChatOptions({ agent, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
             memoryEnabled: false,
           } : {}),
           memoryExpectedType: 'task_execution',

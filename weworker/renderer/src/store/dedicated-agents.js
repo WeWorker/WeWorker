@@ -8,10 +8,12 @@ import { useExplorationPageStore } from './exploration-page.js'
 import { useWebsiteExplorationStore, leaveWebsiteExploration } from './website-exploration.js'
 
 const DRAFT_FIELDS = [
-  'id', 'draftKey', 'name', 'description', 'site_id', 'siteId', 'skill_name', 'examples',
+  'id', 'draftKey', 'name', 'description', 'siteIds', 'siteId', 'site_id', 'workDir', 'skill_name', 'examples',
   'skillMode', 'goal', 'knowledge', 'skillName', 'skillMarkdown', 'existingSkill',
   'examplesText', 'savedSkillName', 'skillScope', 'accessMode', 'channel', 'wizardStep',
   'pairing_code', 'paired',
+  // 快速创建：创建方式与模板流程状态。
+  'createMode', 'templateId', 'templateAnswers', 'templateSkill', 'quickStep', 'quickQuestionIndex',
 ]
 const persistDraft = (agent) => ({
   ...Object.fromEntries(DRAFT_FIELDS.filter((field) => agent[field] !== undefined).map((field) => [field, agent[field]])),
@@ -30,6 +32,16 @@ export const createDedicatedAgentsStore = ({ storage = defaultStorage(), fetchAg
   draftAgentId: null,
   loaded: false,
   loadError: '',
+  // agent_skill_updated SSE events keyed by skill name; seq lets an open skill
+  // editor notice a rewrite (usually from a conversation) and reload or warn.
+  skillUpdates: {},
+
+  handleSkillUpdated: (event) => set((state) => {
+    const name = event?.skillName
+    if (!name) return {}
+    const previous = state.skillUpdates[name]
+    return { skillUpdates: { ...state.skillUpdates, [name]: { ...event, seq: (previous?.seq ?? 0) + 1 } } }
+  }),
 
   openPage: () => set({ open: true }),
   closePage: () => set({ open: false }),
@@ -41,8 +53,8 @@ export const createDedicatedAgentsStore = ({ storage = defaultStorage(), fetchAg
       draft: true,
       name: '新建WeWorker Bot',
       description: '',
-      site_id: '',
-      skill_name: '',
+      siteIds: [],
+      workDir: '',
       examples: [],
       enabled: true,
       paired: false,

@@ -187,6 +187,10 @@ export default function App() {
           useSitesStore.getState().refreshSites()
           return
         }
+        if (parsed.type === 'agent_skill_updated') {
+          useDedicatedAgentsStore.getState().handleSkillUpdated(parsed)
+          return
+        }
         if (parsed.type === 'works_changed') {
           useWorksStore.getState().loadWorks()
           return

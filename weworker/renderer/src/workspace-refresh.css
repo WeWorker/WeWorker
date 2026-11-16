@@ -540,6 +540,10 @@ html.dark .dedicated-agents-sidebar {
 .chat-heading__details summary::-webkit-details-marker { display: none; }
 .chat-heading__details summary:hover { background: var(--bg-hover); }
 .chat-heading__metadata { position: absolute; left: 0; top: 32px; z-index: 100; display: grid; gap: 10px; min-width: 190px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-secondary); box-shadow: var(--composer-shadow); color: var(--text-secondary); font-size: 12px; }
+.chat-heading__details--export .chat-heading__metadata { right: 0; left: auto; }
+.chat-log-export__menu { min-width: 220px; }
+.chat-log-export__option { border: 1px solid var(--border); border-radius: 8px; background: none; padding: 8px 10px; text-align: left; cursor: pointer; font: inherit; color: var(--text-secondary); }
+.chat-log-export__option:hover { background: var(--bg-hover); color: var(--text-primary); }
 .chat-heading__metadata strong { color: var(--text-primary); font-weight: 500; }
 .draft-project-notice { display: flex; align-items: center; gap: 12px; height: 100%; min-width: 0; overflow: hidden; padding-right: 12px; box-sizing: border-box; font-size: 13px; color: var(--text-primary); }
 .draft-project-notice > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

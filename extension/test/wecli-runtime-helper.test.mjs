@@ -98,7 +98,10 @@ test('injector protects API keys and sensitive response bodies in trace logs', a
   await invoke({})
   let logs = trace.get('trace-example').join('\n')
   assert.equal(logs.includes(placeholder), false)
-  assert.equal(logs.includes('public'), true)
+  // Response bodies are no longer echoed at all (bodyChars only): the full
+  // payload already lives in the host work log's tool result.
+  assert.equal(logs.includes('public'), false)
+  assert.match(logs, /bodyChars/)
   await invoke({ redactBodyInTrace: true })
   logs = trace.get('trace-example').slice(-2).join('\n')
   assert.equal(logs.includes('example-private-body'), false)

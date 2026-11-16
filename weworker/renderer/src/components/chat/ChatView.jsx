@@ -102,17 +102,19 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     setAttachments([])
   }, [fillSeq, fillText, fillScenario, streaming, workId])
 
-  // Download this conversation's diagnostic log (header + message timeline + the
-  // [work:xxxxxxxx] tagged backend/bridge chain logs) as a txt for developers.
-  const handleExportLogs = async () => {
+  // Download this conversation's diagnostic log. Two flavors: the digest is
+  // generated from the full log at download time (human-readable, one flat
+  // line per event); the full version is the raw JSONL for developers.
+  const handleExportLogs = async (format = 'digest') => {
     try {
-      const res = await backendFetch(`/works/${workId}/logs.txt`)
+      const suffix = format === 'digest' ? '?format=digest' : ''
+      const res = await backendFetch(`/works/${workId}/logs.txt${suffix}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `weworker-work-${workId?.slice(0, 8) || 'unknown'}-logs.txt`
+      link.download = `weworker-work-${workId?.slice(0, 8) || 'unknown'}-logs${format === 'digest' ? '-digest' : ''}.txt`
       link.click()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (e) {
@@ -683,15 +685,20 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
           </details>
           <span className="chat-heading__actions">
             <LabelDot workId={workId} label={work?.label} />
-            <button
-              type="button"
-              className="workspace-toolbar__button"
-              onClick={() => { void handleExportLogs() }}
-              title="本次对话日志下载"
-              aria-label="导出本次对话日志"
-            >
-              <DownloadOutlined />
-            </button>
+            <details className="chat-heading__details chat-heading__details--export">
+              <summary className="workspace-toolbar__button" title="本次对话日志下载" aria-label="导出本次对话日志">
+                <DownloadOutlined />
+              </summary>
+              <div className="chat-heading__metadata chat-log-export__menu">
+                <strong>下载对话日志</strong>
+                <button type="button" className="chat-log-export__option" onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); void handleExportLogs('digest') }}>
+                  精简版 · 原始事件，去冗余字段
+                </button>
+                <button type="button" className="chat-log-export__option" onClick={(e) => { e.currentTarget.closest('details')?.removeAttribute('open'); void handleExportLogs('full') }}>
+                  完整版 · 原始 JSONL，排查用
+                </button>
+              </div>
+            </details>
           </span>
         </div>,
         toolbarContextTarget,

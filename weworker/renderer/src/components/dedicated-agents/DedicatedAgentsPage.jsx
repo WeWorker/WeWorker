@@ -5,7 +5,7 @@ import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { useSitesStore } from '../../store/sites.js'
 import SiteIcon from '../icons/SiteIcon.jsx'
 import Tooltip from '../Tooltip.jsx'
-import { agentStatusPresentation, TONE_COLORS } from '../../utils/dedicated-agents.js'
+import { agentSiteIds, agentStatusPresentation, TONE_COLORS } from '../../utils/dedicated-agents.js'
 import { deleteAgent } from '../../api/dedicated-agents-api.js'
 import { showAlert } from '../../store/dialog.js'
 import { RenameIcon, TrashIcon } from '../icons/PanelIcons.jsx'
@@ -45,7 +45,7 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
       }}
       aria-current={active ? 'true' : undefined}
     >
-      <SiteIcon site={site || { id: agent.site_id, name: agent.site_id }} size={18} />
+      <SiteIcon site={site || undefined} size={18} />
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <AgentNameEditor
           ref={nameEditorRef}
@@ -110,11 +110,11 @@ function Intro({ onCreate, hasAgents }) {
     <div style={{ maxWidth: 720 }}>
       <h2 style={titleStyle}>WeWorker Bot</h2>
       <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', margin: '8px 0 20px' }}>
-        为某个网站打造一个小而专注的 Agent：它掌握你的专属知识，连接一个企业微信或微信机器人。你在手机上直接和它对话，它独立运行，不影响 WeWorker 的主对话。
+        组合网站能力、专属知识和一个本地目录，得到一个独立运行、随时在线的 Agent：像 Claude 一样干活，还能替你操作网站。它连接企业微信或微信机器人，你在手机上直接和它对话，不影响 WeWorker 的主对话。
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          ['1. 选网站', '选一个 WeWorker 已经能操作的网站'],
+          ['1. 选网站与目录', '网站可多选或全不选；再给一个本地目录，它就在那里工作'],
           ['2. 写专属知识', '用大白话描述，AI 帮你整理成 Skill'],
           ['3. 扫码绑定', '企业微信或微信扫码，一键获得机器人'],
           ['4. 发绑定码', '给机器人发一句话完成配对'],
@@ -169,7 +169,12 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
   const activeDraft = agents.find((agent) => agent.draft && agent.id === selectedId)
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
   const visibleAgents = normalizedQuery
-    ? agents.filter((agent) => `${agent.name || ''} ${siteById.get(agent.site_id)?.name || agent.site_id || ''}`.toLocaleLowerCase().includes(normalizedQuery))
+    ? agents.filter((agent) => {
+      const siteText = agentSiteIds(agent)
+        .map((id) => siteById.get(id)?.name || id)
+        .join(' ')
+      return `${agent.name || ''} ${agent.work_dir || ''} ${siteText}`.toLocaleLowerCase().includes(normalizedQuery)
+    })
     : agents
 
   return (
@@ -264,7 +269,7 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
             <AgentListItem
               key={agent.id}
               agent={agent}
-              site={siteById.get(agent.site_id)}
+              site={siteById.get(agentSiteIds(agent)[0])}
               active={agent.id === selectedId}
               onSelect={() => selectAgent(agent.id)}
               onRenamed={upsertAgent}

@@ -6,6 +6,7 @@ import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import {
   fetchAgentSkill,
   fetchAgentSkills,
+  fetchSkillUpdates,
   generateSkill,
   importSkillFile,
   reviseSkill,
@@ -14,6 +15,7 @@ import {
 } from '../../api/dedicated-agents-api.js'
 import {
   compactSiteCapabilities,
+  formatRelativeTime,
   genericSkillGoalPlaceholder,
   GENERIC_KNOWLEDGE_PLACEHOLDER,
   SKILL_MODES,
@@ -22,6 +24,7 @@ import {
   skillImportLabel,
   supportedSkillImportPath,
 } from '../../utils/dedicated-agents.js'
+import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { fieldStyle, hintStyle, labelStyle, markdownEditorStyle } from './styles.js'
 
 const requiredMark = <span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>
@@ -31,40 +34,54 @@ function shortToolName(name) {
   return parts[parts.length - 1] || name
 }
 
-/** What this selected website is for and what its Adapter can actually do. */
-export function SiteCapabilitySummary({ site }) {
-  const capabilities = compactSiteCapabilities(site)
-  const toolCount = Number(site?.toolCount ?? site?.tools?.length ?? 0)
+/** What the selected websites are for and what their Adapters can actually do. */
+export function SiteCapabilitySummary({ site, sites }) {
+  const list = Array.isArray(sites) && sites.length ? sites : (site ? [site] : [])
+  if (!list.length) {
+    return (
+      <div style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)', borderRadius: 10, padding: 14, marginBottom: 16, ...hintStyle }}>
+        这个 Agent 没有绑定网站，知识部分可以写它的工作方式、常用习惯或本地目录里的约定。之后绑定了网站也可以再补充。
+      </div>
+    )
+  }
   return (
     <div style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <SiteIcon site={site} size={30} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <strong style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-primary)' }}>{site?.name || site?.id}</strong>
-            <Tag bordered={false} style={{ fontSize: 10, marginInlineEnd: 0 }}>{toolCount} 项工具</Tag>
+      {list.map((entry) => {
+        const capabilities = compactSiteCapabilities(entry)
+        const toolCount = Number(entry?.toolCount ?? entry?.tools?.length ?? 0)
+        return (
+          <div key={entry.id} style={{ marginBottom: list.length > 1 ? 14 : 0 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <SiteIcon site={entry} size={30} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-primary)' }}>{entry?.name || entry?.id}</strong>
+                  <Tag bordered={false} style={{ fontSize: 10, marginInlineEnd: 0 }}>{toolCount} 项工具</Tag>
+                </div>
+                <div style={{ ...hintStyle, marginTop: 4, color: 'var(--text-secondary)' }}>{sitePurpose(entry)}</div>
+              </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>Adapter 的核心能力</div>
+              {capabilities.length ? (
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+                  {capabilities.map((tool) => (
+                    <li key={tool.name} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      <code style={{ fontSize: 11, color: 'var(--text-primary)' }}>{shortToolName(tool.name)}</code>
+                      <span>：{tool.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={hintStyle}>该 Adapter 暂未提供可展示的工具说明；生成 Skill 时仍会使用实际工具清单。</div>
+              )}
+              {toolCount > capabilities.length && capabilities.length > 0 && (
+                <div style={{ ...hintStyle, marginTop: 6 }}>另有 {toolCount - capabilities.length} 项能力会在 AI 生成 Skill 时一并参考。</div>
+              )}
+            </div>
           </div>
-          <div style={{ ...hintStyle, marginTop: 4, color: 'var(--text-secondary)' }}>{sitePurpose(site)}</div>
-        </div>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>Adapter 的核心能力</div>
-        {capabilities.length ? (
-          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
-            {capabilities.map((tool) => (
-              <li key={tool.name} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                <code style={{ fontSize: 11, color: 'var(--text-primary)' }}>{shortToolName(tool.name)}</code>
-                <span>：{tool.description}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div style={hintStyle}>该 Adapter 暂未提供可展示的工具说明；生成 Skill 时仍会使用实际工具清单。</div>
-        )}
-        {toolCount > capabilities.length && capabilities.length > 0 && (
-          <div style={{ ...hintStyle, marginTop: 6 }}>另有 {toolCount - capabilities.length} 项能力会在 AI 生成 Skill 时一并参考。</div>
-        )}
-      </div>
+        )
+      })}
     </div>
   )
 }
@@ -108,13 +125,15 @@ function ReviseBox({ siteId, skillName, markdown, onRevised }) {
 }
 
 /** Wizard step: decide where the agent's private knowledge comes from. */
-export default function SkillComposer({ draft, onChange, site }) {
+export default function SkillComposer({ draft, onChange, site, sites }) {
   const [skills, setSkills] = useState([])
   const [preview, setPreview] = useState('')
   const [generating, setGenerating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
   const [importMessage, setImportMessage] = useState('')
+  const selectedSites = Array.isArray(sites) && sites.length ? sites : (site ? [site] : [])
+  const primarySite = selectedSites[0] || null
 
   const reloadSkills = useCallback(async () => {
     try {
@@ -130,11 +149,18 @@ export default function SkillComposer({ draft, onChange, site }) {
   useEffect(() => { void reloadSkills() }, [reloadSkills])
 
   useEffect(() => {
-    if (draft.skillName || !site?.id) return
-    suggestSkillName(site.id).then((result) => onChange({ skillName: result.skill_name })).catch(() => {})
+    if (draft.skillName || !primarySite?.id) return
+    suggestSkillName(primarySite.id).then((result) => onChange({ skillName: result.skill_name })).catch(() => {})
     // Only when the site changes or no name has been chosen yet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site?.id])
+  }, [primarySite?.id])
+
+  // AI generation is based on a website's Adapter; without sites the user can
+  // still import or pick an existing skill.
+  useEffect(() => {
+    if (!selectedSites.length && draft.skillMode === SKILL_MODES.generate) onChange({ skillMode: SKILL_MODES.none })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSites.length])
 
   useEffect(() => {
     if (draft.skillMode !== SKILL_MODES.existing || !draft.existingSkill) {
@@ -145,11 +171,12 @@ export default function SkillComposer({ draft, onChange, site }) {
   }, [draft.skillMode, draft.existingSkill])
 
   const generate = async () => {
+    if (!primarySite?.id) return
     setGenerating(true)
     setError('')
     try {
       const result = await generateSkill({
-        site_id: site.id,
+        site_id: primarySite.id,
         agent_name: draft.name,
         goal: draft.goal,
         knowledge: draft.knowledge,
@@ -208,7 +235,7 @@ export default function SkillComposer({ draft, onChange, site }) {
 
   return (
     <div>
-      <SiteCapabilitySummary site={site} />
+      <SiteCapabilitySummary site={site} sites={selectedSites} />
       <Radio.Group
         value={draft.skillMode}
         onChange={(event) => onChange({ skillMode: event.target.value })}
@@ -216,7 +243,7 @@ export default function SkillComposer({ draft, onChange, site }) {
         optionType="button"
         buttonStyle="solid"
       >
-        <Radio.Button value={SKILL_MODES.generate}>AI 帮我写（推荐）</Radio.Button>
+        <Radio.Button value={SKILL_MODES.generate} disabled={!primarySite}>AI 帮我写（推荐）</Radio.Button>
         <Radio.Button value={SKILL_MODES.existing}>使用已有 Skill</Radio.Button>
         <Radio.Button value={SKILL_MODES.none}>暂不需要</Radio.Button>
       </Radio.Group>
@@ -224,11 +251,11 @@ export default function SkillComposer({ draft, onChange, site }) {
       {draft.skillMode === SKILL_MODES.generate && (
         <div>
           <div style={{ ...hintStyle, marginBottom: 12 }}>
-            Skill 是 Agent 的“专属知识手册”。AI 会结合上方展示的「{site?.name}」实际能力，把你的目标和业务规则整理成可执行步骤。不要填写密码、Token、Cookie 或个人账号。
+            Skill 是 Agent 的“专属知识手册”。AI 会结合上方展示的「{primarySite?.name}」实际能力，把你的目标和业务规则整理成可执行步骤。不要填写密码、Token、Cookie 或个人账号。
           </div>
           <div style={fieldStyle}>
             <label style={labelStyle} htmlFor="agent-goal">{requiredMark}这个 Agent 要帮你做什么</label>
-            <Input.TextArea id="agent-goal" value={draft.goal} onChange={(event) => onChange({ goal: event.target.value })} placeholder={genericSkillGoalPlaceholder(site)} autoSize={{ minRows: 2, maxRows: 5 }} />
+            <Input.TextArea id="agent-goal" value={draft.goal} onChange={(event) => onChange({ goal: event.target.value })} placeholder={genericSkillGoalPlaceholder(primarySite)} autoSize={{ minRows: 2, maxRows: 5 }} />
           </div>
           <div style={fieldStyle}>
             <label style={labelStyle} htmlFor="agent-knowledge">你掌握的专属知识（可选，但越具体越好用）</label>
@@ -248,7 +275,7 @@ export default function SkillComposer({ draft, onChange, site }) {
             <div>
               <label style={labelStyle} htmlFor="agent-skill-markdown">生成结果（可直接修改）</label>
               <Input.TextArea id="agent-skill-markdown" value={draft.skillMarkdown} onChange={(event) => onChange({ skillMarkdown: event.target.value })} style={markdownEditorStyle} />
-              <ReviseBox siteId={site.id} skillName={draft.skillName} markdown={draft.skillMarkdown} onRevised={(markdown) => onChange({ skillMarkdown: markdown })} />
+              <ReviseBox siteId={primarySite?.id || ''} skillName={draft.skillName} markdown={draft.skillMarkdown} onRevised={(markdown) => onChange({ skillMarkdown: markdown })} />
               <Checkbox
                 style={{ marginTop: 12 }}
                 checked={draft.skillScope === 'public'}
@@ -298,13 +325,15 @@ export default function SkillComposer({ draft, onChange, site }) {
         <Alert
           type="info"
           showIcon
-          message={`Agent 只会使用「${site?.name || '该网站'}」自带的能力。之后可以随时在 Agent 设置里补充专属知识。`}
+          message={primarySite
+            ? `Agent 会直接使用「${primarySite.name || primarySite.id}」等绑定网站自带的能力。之后可以随时在 Agent 设置里补充专属知识。`
+            : 'Agent 先不加载专属知识。之后可以随时在 Agent 设置里补充，或导入已有的 Skill。'}
         />
       )}
 
       <div style={{ ...fieldStyle, marginTop: 20 }}>
         <label style={labelStyle} htmlFor="agent-examples">示例问题（每行一个，会在聊天里提示给你）</label>
-        <Input.TextArea id="agent-examples" value={draft.examplesText} onChange={(event) => onChange({ examplesText: event.target.value })} placeholder={`例如：请帮我处理「${site?.name || '这个网站'}」上的一项工作`} autoSize={{ minRows: 2, maxRows: 6 }} />
+        <Input.TextArea id="agent-examples" value={draft.examplesText} onChange={(event) => onChange({ examplesText: event.target.value })} placeholder={primarySite ? `例如：请帮我处理「${primarySite.name || '这个网站'}」上的一项工作` : '例如：帮我看看这个目录里的项目现在是什么状态'} autoSize={{ minRows: 2, maxRows: 6 }} />
       </div>
     </div>
   )
@@ -316,11 +345,16 @@ export function SkillEditorCard({ skillName, siteId }) {
   const [original, setOriginal] = useState('')
   const [state, setState] = useState('loading') // loading | ready | missing | saving
   const [message, setMessage] = useState(null)
+  const [lastUpdate, setLastUpdate] = useState(null)
+  const [remoteUpdate, setRemoteUpdate] = useState(null)
+  const skillUpdate = useDedicatedAgentsStore((s) => s.skillUpdates[skillName])
+  const updateSeq = skillUpdate?.seq || 0
 
   useEffect(() => {
     let cancelled = false
     setState('loading')
     setMessage(null)
+    setRemoteUpdate(null)
     fetchAgentSkill(skillName)
       .then((result) => {
         if (cancelled) return
@@ -329,8 +363,31 @@ export function SkillEditorCard({ skillName, siteId }) {
         setState('ready')
       })
       .catch(() => !cancelled && setState('missing'))
+    fetchSkillUpdates(skillName)
+      .then((updates) => { if (!cancelled) setLastUpdate(updates[0] ?? null) })
+      .catch(() => { if (!cancelled) setLastUpdate(null) })
     return () => { cancelled = true }
   }, [skillName])
+
+  // The skill was just rewritten elsewhere (usually in a conversation): reload
+  // silently while the editor is clean, warn about the overwrite while dirty.
+  useEffect(() => {
+    if (!updateSeq || state === 'loading' || state === 'missing') return
+    if (markdown === original) {
+      fetchAgentSkill(skillName)
+        .then((result) => {
+          setMarkdown(result.markdown)
+          setOriginal(result.markdown)
+        })
+        .catch(() => {})
+      setRemoteUpdate({ ...skillUpdate, applied: true })
+      setLastUpdate({ source: 'conversation', summary: skillUpdate?.summary || '', updated_at: skillUpdate?.updatedAt || '' })
+    } else {
+      setRemoteUpdate({ ...skillUpdate, applied: false })
+    }
+    // markdown/original are intentionally read at event time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateSeq, skillName])
 
   if (state === 'loading') return <div style={hintStyle}><LoadingOutlined /> 加载中…</div>
   if (state === 'missing') {
@@ -345,6 +402,7 @@ export function SkillEditorCard({ skillName, siteId }) {
       const result = await saveSkill(skillName, markdown)
       setMarkdown(result.markdown)
       setOriginal(result.markdown)
+      setLastUpdate({ source: 'desktop', summary: '在桌面设置中更新', updated_at: new Date().toISOString() })
       setMessage({ ok: true, text: '已保存，下一条消息起生效' })
     } catch (err) {
       setMessage({ ok: false, text: err.message || '保存失败' })
@@ -352,12 +410,40 @@ export function SkillEditorCard({ skillName, siteId }) {
       setState('ready')
     }
   }
+  const loadLatest = async () => {
+    try {
+      const result = await fetchAgentSkill(skillName)
+      setMarkdown(result.markdown)
+      setOriginal(result.markdown)
+      setRemoteUpdate(null)
+      setMessage({ ok: true, text: '已载入对话中更新的最新内容' })
+    } catch {
+      // Keep the local edits when the reload fails.
+    }
+  }
+  const lastUpdateText = lastUpdate
+    ? `最近更新：${formatRelativeTime(lastUpdate.updated_at)} · ${lastUpdate.source === 'conversation' ? '对话中更新' : '桌面设置更新'}${lastUpdate.summary ? ` · ${lastUpdate.summary}` : ''}`
+    : ''
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Tag>{skillName}</Tag>
+        {lastUpdateText && <span style={hintStyle}>{lastUpdateText}</span>}
       </div>
+      {remoteUpdate && (
+        <Alert
+          type={remoteUpdate.applied ? 'success' : 'warning'}
+          showIcon
+          style={{ marginBottom: 8 }}
+          message={remoteUpdate.applied
+            ? `Skill 刚刚在对话中被更新${remoteUpdate.summary ? `：${remoteUpdate.summary}` : ''}，已为你载入最新内容。`
+            : `Skill 刚刚在对话中被更新${remoteUpdate.summary ? `：${remoteUpdate.summary}` : ''}。你正在编辑的内容基于旧版本，直接保存会覆盖对话中的更新。`}
+          action={!remoteUpdate.applied
+            ? <Button data-app-button="action" size="small" onClick={loadLatest}>载入最新内容</Button>
+            : undefined}
+        />
+      )}
       <Input.TextArea value={markdown} onChange={(event) => setMarkdown(event.target.value)} style={markdownEditorStyle} aria-label="专属 Skill 内容" />
       <ReviseBox siteId={siteId} skillName={skillName} markdown={markdown} onRevised={setMarkdown} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>

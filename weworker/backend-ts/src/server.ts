@@ -23,6 +23,8 @@ import { z } from 'zod'
 import { bridgeStatus } from './bridge-status.js'
 import { createAdapterStateRefreshHandler } from './adapter-state-refresh.js'
 import { bridgeRpcClient } from './bridge-rpc-client.js'
+import { wireWebcliTraceLogging } from './webcli-trace-logger.js'
+import { digestWorkLog } from './work-log-digest.js'
 import { explorationAgentCoordinator } from './exploration-agent.js'
 import {
   expandHomePath,
@@ -3420,7 +3422,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // is closed, which is what we actually want.
   let finished = false
   const onClose = () => {
-    chatLog.info(` res.close fired 鈥?finished=${finished}, workId=${workId}`)
+    chatLog.info(` res.close fired — finished=${finished}, workId=${workId}`)
     if (!finished) {
       chatLog.info('client disconnected while streaming, aborting')
       abortController.abort()
@@ -3605,7 +3607,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   let enabledAdapterIds = new Set<string>()
   let initialMemoryScope = { user: 'local' }
   try {
-    chatLog.info(`${tag} 鈻?turn start`)
+    chatLog.info(`${tag} ▶ turn start`)
     // Send turnId to frontend so users can correlate logs
     send({ type: 'turn_start', turnId, workId })
     // Build the set of enabled adapter IDs from config
@@ -4194,14 +4196,16 @@ app.get('/works/:id/route-diagnostics', (req, res) => {
 })
 
 // Both copy and download use the same full conversation diagnostic export.
+// `?format=digest` returns the human-readable digest generated from it on the fly.
 app.get('/works/:id/logs.txt', (req, res) => {
   const work = store.getWorkWithMessages(req.params.id)
   if (!work) { res.status(404).json({ detail: 'Not found' }); return }
   try {
     const text = readWorkLog(work)
+    const digest = req.query.format === 'digest'
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
-    res.setHeader('Content-Disposition', `attachment; filename="weworker-work-${work.id.slice(0, 8)}-logs.txt"`)
-    res.send(text)
+    res.setHeader('Content-Disposition', `attachment; filename="weworker-work-${work.id.slice(0, 8)}-logs${digest ? '-digest' : ''}.txt"`)
+    res.send(digest ? digestWorkLog(text, work.id) : text)
   } catch {
     res.status(500).json({ detail: '对话日志文件读取失败，请检查日志目录权限和磁盘空间。' })
   }
@@ -4211,6 +4215,8 @@ app.get('/works/:id/logs.txt', (req, res) => {
 
 bridgeStatus.start()
 bridgeRpcClient.start()
+// webcli call 阶段事件 → 对话执行日志（含扩展侧日志的完成/卡住快照拉取）
+wireWebcliTraceLogging()
 
 // Install adapter skills via webcli at startup
 runWebcli(['install', '--skills', '--target', SKILLS_DIR], (err) => {

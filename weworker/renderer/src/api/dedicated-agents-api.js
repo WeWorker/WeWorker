@@ -66,6 +66,12 @@ export async function fetchAgentSkill(name) {
   return readJsonResponse(await backendFetch(`/dedicated-agents/skills/${encodeURIComponent(name)}`))
 }
 
+/** Update history for a skill (desktop edits and conversation rewrites), newest first. */
+export async function fetchSkillUpdates(name) {
+  const data = readJsonResponse(await backendFetch(`/dedicated-agents/skills/${encodeURIComponent(name)}/updates`))
+  return Array.isArray(data.updates) ? data.updates : []
+}
+
 export function suggestSkillName(siteId) {
   return postJson('/dedicated-agents/skills/suggest-name', { site_id: siteId })
 }

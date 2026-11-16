@@ -41,16 +41,37 @@ describe('execution stream logging', () => {
   it('retains partial output and records thrown errors without swallowing them', async () => {
     expect(logs.recordWorkLogStream).toBeTypeOf('function')
     async function* source() {
-      yield { type: 'text_delta', content: 'PARTIAL-END' }
+      yield { type: 'text_delta', content: 'STREAM-ONLY' }
+      yield { type: 'tool_call_start', id: 'call-1', args: { query: 'PARTIAL-END' } }
       throw new Error('fixture failure')
     }
     const output = logs.recordWorkLogStream(workId, source(), {})
     await output.next()
+    await output.next()
     await expect(output.next()).rejects.toThrow('fixture failure')
     const text = logs.readWorkLog(work)
     expect(text).toContain('PARTIAL-END')
+    expect(text).not.toContain('STREAM-ONLY')
     expect(text).toContain('fixture failure')
     expect(text).toContain('"status":"failed"')
+  })
+
+  it('streams text_delta to the caller without persisting answer fragments', async () => {
+    expect(logs.recordWorkLogStream).toBeTypeOf('function')
+    async function* source() {
+      yield { type: 'text_delta', content: '流式' }
+      yield { type: 'text_delta', content: '回答' }
+      yield { type: 'done' }
+    }
+    const received: string[] = []
+    for await (const event of logs.recordWorkLogStream(workId, source(), {})) {
+      if (event.type === 'text_delta') received.push(event.content ?? '')
+    }
+    expect(received.join('')).toBe('流式回答')
+    const text = logs.readWorkLog(work)
+    expect(text).not.toContain('"type":"text_delta"')
+    expect(text).toContain('"type":"done"')
+    expect(text).toContain('"status":"completed"')
   })
 
   it('marks error events as failed even if the producer later emits done', async () => {
@@ -67,7 +88,7 @@ describe('execution stream logging', () => {
     expect(logs.recordWorkLogStream).toBeTypeOf('function')
     let closed = false
     async function* source() {
-      try { yield { type: 'text_delta', content: 'BEFORE-CANCEL' } }
+      try { yield { type: 'tool_call_start', id: 'call-1', args: { query: 'BEFORE-CANCEL' } } }
       finally { closed = true }
     }
     const abort = new AbortController()

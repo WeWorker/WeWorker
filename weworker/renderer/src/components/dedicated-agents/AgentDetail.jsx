@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Checkbox, Input, Modal, Popconfirm, Space, Tabs, Tag } from 'antd'
 import AppSwitch from '../common/AppSwitch.jsx'
-import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import { LoadingOutlined } from '@ant-design/icons'
 import SiteIcon from '../icons/SiteIcon.jsx'
 import { useSitesStore } from '../../store/sites.js'
@@ -18,6 +17,8 @@ import {
   agentAccessMode,
   agentBotId,
   agentChannelOf,
+  agentSiteIds,
+  agentSkillNames,
   agentStatusPresentation,
   boundBotPayload,
   channelLabel,
@@ -275,18 +276,96 @@ function SkillScopeSwitch({ skill, onChanged }) {
   )
 }
 
+function CapabilityCard({ agent, sites, onChanged }) {
+  const boundIds = agentSiteIds(agent)
+  const [selected, setSelected] = useState(boundIds)
+  const [workDir, setWorkDir] = useState(agent.work_dir || '')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState(null)
+  useEffect(() => {
+    setSelected(agentSiteIds(agent))
+    setWorkDir(agent.work_dir || '')
+    setMessage(null)
+  }, [agent.id])
+
+  const dirty = JSON.stringify(selected) !== JSON.stringify(boundIds) || workDir !== (agent.work_dir || '')
+  const toggle = (id) => {
+    setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]))
+  }
+  const pickDirectory = async () => {
+    const selectDirectory = window.electronAPI?.selectDirectory
+    if (!selectDirectory) return
+    try {
+      const paths = await selectDirectory()
+      if (paths?.[0]) setWorkDir(String(paths[0]))
+    } catch {
+      // Keep the current value when the dialog fails or is cancelled.
+    }
+  }
+  const save = async () => {
+    setSaving(true)
+    setMessage(null)
+    try {
+      const result = await updateAgent(agent.id, { site_ids: selected, work_dir: workDir.trim() })
+      onChanged(result.agent)
+      setMessage({ ok: true, text: '已保存，下一条消息起生效' })
+    } catch (err) {
+      setMessage({ ok: false, text: err.message || '保存失败' })
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div style={sectionStyle}>
+      <h3 style={sectionTitleStyle}>能力范围</h3>
+      <div style={{ ...hintStyle, marginBottom: 10 }}>它可以操作哪些网站，以及在哪个本地目录里工作。网站和目录都可以不选。</div>
+      <div style={{ display: 'grid', gap: 6, marginBottom: 14 }}>
+        {sites.length ? sites.map((site) => (
+          <label key={site.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-primary)', flexWrap: 'wrap' }}>
+            <Checkbox checked={selected.includes(site.id)} onChange={() => toggle(site.id)} disabled={saving}>
+              {site.name || site.id}
+            </Checkbox>
+            {site.enabled === false && <Tag color="warning" bordered={false} style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', marginInlineEnd: 0 }}>未启用</Tag>}
+            <span style={hintStyle}>{site.id}</span>
+          </label>
+        )) : <div style={hintStyle}>还没有可用的网站。先在「SKILLS与场景」中启用对应网站。</div>}
+      </div>
+      <Space.Compact style={{ width: '100%' }}>
+        <Input
+          value={workDir}
+          onChange={(event) => setWorkDir(event.target.value)}
+          placeholder="本地工作目录（可选）：代码仓库、素材目录或任意文件夹"
+          disabled={saving}
+          aria-label="本地工作目录"
+        />
+        <Button data-app-button="action" onClick={pickDirectory} disabled={saving}>选择目录</Button>
+        {workDir && <Button data-app-button="action" onClick={() => setWorkDir('')} disabled={saving}>清除</Button>}
+      </Space.Compact>
+      <div style={{ ...hintStyle, marginTop: 5 }}>绑定目录后，它会像 Claude 在该目录下运行一样工作，自动读取其中的 CLAUDE.md、AGENTS.md 等说明。</div>
+      <Space style={{ marginTop: 12 }}>
+        <Button data-app-button="action" type="primary" onClick={save} disabled={!dirty || saving}>{saving ? '保存中…' : '保存'}</Button>
+        {message && <span style={{ ...hintStyle, color: message.ok ? 'var(--success, #22c55e)' : 'var(--error, #ef4444)' }}>{message.text}</span>}
+      </Space>
+    </div>
+  )
+}
+
 function SkillCard({ agent, onChanged }) {
-  const [skills, setSkills] = useState([])
+  const currentNames = agentSkillNames(agent)
+  const [selected, setSelected] = useState(currentNames)
   const [changing, setChanging] = useState(false)
   const [error, setError] = useState('')
+  const [skills, setSkills] = useState([])
   const loadSkills = useCallback(() => fetchAgentSkills().then(setSkills).catch(() => setSkills([])), [])
   useEffect(() => { loadSkills() }, [agent.id, loadSkills])
+  useEffect(() => { setSelected(agentSkillNames(agent)) }, [agent.id, agent.skill_names, agent.skill_name])
 
-  const change = async (skillName) => {
+  const save = async (nextSelected) => {
     setChanging(true)
     setError('')
     try {
-      const result = await updateAgent(agent.id, { skill_name: skillName || '' })
+      const result = await updateAgent(agent.id, { skill_names: nextSelected })
+      setSelected(nextSelected)
       onChanged(result.agent)
     } catch (err) {
       setError(err.message || '更换失败')
@@ -294,30 +373,38 @@ function SkillCard({ agent, onChanged }) {
       setChanging(false)
     }
   }
-  const current = skills.find((skill) => skill.name === agent.skill_name)
+  const toggle = (name) => {
+    const next = selected.includes(name) ? selected.filter((entry) => entry !== name) : [...selected, name]
+    save(next)
+  }
+  const firstSiteId = agentSiteIds(agent)[0] || ''
   return (
     <div style={sectionStyle}>
       <h3 style={sectionTitleStyle}>专属知识（Skill）</h3>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <span style={hintStyle}>使用的 Skill：</span>
-        <AppDropdownSelect
-          value={agent.skill_name || ''}
-          onChange={change}
-          disabled={changing}
-          minMenuWidth={300}
-          options={[
-            { value: '', label: '不使用（仅网站自带能力）' },
-            ...skills.map((skill) => ({ value: skill.name, label: `${skill.name}（${SKILL_SCOPE_LABELS[skill.scope]}）` })),
-          ]}
-          ariaLabel="选择专属 Skill"
-        />
-        {changing && <LoadingOutlined />}
-      </div>
+      <div style={{ ...hintStyle, marginBottom: 10 }}>勾选这个 Agent 要加载的 Skill，可以同时使用多份知识。</div>
+      {skills.length ? (
+        <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+          {skills.map((skill) => (
+            <label key={skill.name} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-primary)', flexWrap: 'wrap' }}>
+              <Checkbox checked={selected.includes(skill.name)} onChange={() => toggle(skill.name)} disabled={changing}>
+                {skill.name}
+              </Checkbox>
+              <Tag bordered={false} style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', marginInlineEnd: 0 }}>{SKILL_SCOPE_LABELS[skill.scope]}</Tag>
+            </label>
+          ))}
+        </div>
+      ) : <div style={{ ...hintStyle, marginBottom: 12 }}>还没有专属 Skill。可以在新建向导里让 AI 生成，或导入已有的 Skill。</div>}
       {error && <Alert type="error" showIcon style={{ marginBottom: 12 }} message={error} />}
-      {agent.skill_name && <SkillScopeSwitch skill={current} onChanged={loadSkills} />}
-      {agent.skill_name
-        ? <SkillEditorCard key={agent.skill_name} skillName={agent.skill_name} siteId={agent.site_id} />
-        : <div style={hintStyle}>还没有专属 Skill。可以删除后重新用向导让 AI 生成，或选择一个已有的 Skill。</div>}
+      {selected.map((name) => {
+        const skill = skills.find((entry) => entry.name === name)
+        return (
+          <div key={name} style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12 }}>
+            {skill && <SkillScopeSwitch skill={skill} onChanged={loadSkills} />}
+            <SkillEditorCard skillName={name} siteId={firstSiteId} />
+          </div>
+        )
+      })}
+      {!selected.length && <div style={hintStyle}>当前未加载任何 Skill。</div>}
     </div>
   )
 }
@@ -362,7 +449,10 @@ export default function AgentDetail({ agentId }) {
   if (error && !agent) return <div style={{ padding: 24 }}><Alert type="error" showIcon message={error} /></div>
   if (!agent) return <div style={{ ...hintStyle, padding: 24 }}><LoadingOutlined /> 加载中…</div>
 
-  const site = sites.find((entry) => entry.id === agent.site_id)
+  const boundSiteIds = agentSiteIds(agent)
+  const boundSites = boundSiteIds.map((id) => sites.find((entry) => entry.id === id) || { id, name: id, enabled: true })
+  const primarySite = boundSites[0] || null
+  const disabledSites = boundSites.filter((entry) => entry.enabled === false)
   const toggleEnabled = async (enabled) => {
     try {
       const result = await updateAgent(agent.id, { enabled })
@@ -385,7 +475,7 @@ export default function AgentDetail({ agentId }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 24px 8px' }}>
-        <SiteIcon site={site || { id: agent.site_id, name: agent.site_id }} size={32} />
+        <SiteIcon site={primarySite || { id: 'agent', name: agent.name }} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h2 style={titleStyle}>
@@ -399,8 +489,11 @@ export default function AgentDetail({ agentId }) {
             </h2>
             <StatusPill agent={agent} />
           </div>
-          <div style={hintStyle}>
-            <Tag style={{ marginRight: 6 }}>{site?.name || agent.site_id}</Tag>
+          <div style={{ ...hintStyle, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {boundSites.length
+              ? boundSites.map((entry) => <Tag key={entry.id} style={{ marginRight: 0 }}>{entry.name || entry.id}</Tag>)
+              : <Tag style={{ marginRight: 0 }}>未绑定网站</Tag>}
+            {agent.work_dir && <Tag style={{ marginRight: 0, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono, monospace)' }} title={agent.work_dir}>{agent.work_dir}</Tag>}
             {agent.description}
           </div>
         </div>
@@ -428,8 +521,13 @@ export default function AgentDetail({ agentId }) {
       </div>
       <div style={{ padding: '0 24px' }}>
         {error && <Alert type="error" showIcon style={{ marginBottom: 8 }} message={error} />}
-        {site && !site.enabled && (
-          <Alert type="warning" showIcon style={{ marginBottom: 8 }} message={`「${site.name}」的网站能力当前未启用，Agent 会提示你先启用。`} />
+        {disabledSites.length > 0 && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 8 }}
+            message={`「${disabledSites.map((entry) => entry.name || entry.id).join('、')}」的网站能力当前未启用；Agent 的其他工作不受影响，相关网站操作会提示你先启用。`}
+          />
         )}
         <Tabs
           activeKey={activeTab}
@@ -445,7 +543,7 @@ export default function AgentDetail({ agentId }) {
         />
       </div>
       {activeTab === 'chat' ? (
-        <AgentChatPanel agent={agent} siteName={site?.name || agent.site_id} conversations={conversations} onConversationsChanged={refresh} />
+        <AgentChatPanel agent={agent} siteName={primarySite?.name || boundSiteIds[0] || ''} conversations={conversations} onConversationsChanged={refresh} />
       ) : activeTab === 'tasks' ? (
         <AgentTaskPanel agent={agent} />
       ) : (
@@ -453,6 +551,7 @@ export default function AgentDetail({ agentId }) {
           <div style={{ maxWidth: 860 }}>
             <BotCard agent={agent} onChanged={applyAgent} />
             <AccessCard agent={agent} onChanged={applyAgent} />
+            <CapabilityCard agent={agent} sites={sites} onChanged={applyAgent} />
             <SkillCard agent={agent} onChanged={applyAgent} />
             <BasicInfoCard agent={agent} onSaved={applyAgent} />
           </div>

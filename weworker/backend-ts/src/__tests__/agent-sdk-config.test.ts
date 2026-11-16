@@ -10,7 +10,7 @@ describe('agent SDK security config', () => {
   it('derives tool policy, filesystem guard, and sandbox settings from the channel mode', () => {
     expect(agentSource).toContain('createUnifiedToolGuard(channelPermissionMode, workspaceDirectory)')
     expect(agentSource).toContain('createWeWorkerToolPolicy(channelPermissionMode)')
-    expect(agentSource).toContain('const agentCwd = ensureAgentWorkingDirectory(workspaceDirectory)')
+    expect(agentSource).toContain('const agentCwd = ensureAgentWorkingDirectory(opts.agentCwd ?? workspaceDirectory)')
     expect(agentSource).toContain('buildAgentFilesystemSettings(agentCwd, channelPermissionMode)')
     expect(agentSource).toContain('const policyDecision = await toolPolicy(toolName, input, context)')
     expect(agentSource).toContain('decision = await filesystemToolGuard(toolName, input as Record<string, unknown>)')

@@ -135,11 +135,34 @@ function manualLoginText(event: BridgeSiteAuthEvent, imageUnavailable = false): 
   return lines.join('\n')
 }
 
+/**
+ * First waiting_user text. The Bridge announces the login page before QR
+ * discovery finishes and re-emits once the code is ready (sites without a QR
+ * never emit one), so this text must stay conditional: promise the code only
+ * "if the site supports it" and keep the manual path for everything else.
+ */
+function pendingLoginText(event: BridgeSiteAuthEvent): string {
+  const lines = [
+    `🔐 ${displayName(event)} 需要登录，登录页已在 WeWorker 浏览器中打开。`,
+    '若该站点支持扫码登录，二维码会紧接着发到这里；否则请到运行 WeWorker 的电脑上，在 WeWorker 浏览器中完成登录。',
+  ]
+  if (event.autologinMode === 'auto') {
+    lines.push('如果使用固定账号密码，可在电脑端登录后通过 WeWorker 保存凭据并启用自动登录，后续机器人任务可免去重复登录。')
+  }
+  lines.push('请不要在聊天中发送账号或密码；WeWorker 会自动检测登录结果。')
+  return lines.join('\n')
+}
+
+/** Auth-event source the notifier subscribes to; injectable for tests. */
+export interface AuthEventSource {
+  onAuthEvent(listener: (event: BridgeSiteAuthEvent) => void): () => void
+}
+
 export class SiteAuthChannelNotifier {
   private readonly _turns = new Set<ActiveTurn>()
 
-  constructor() {
-    bridgeRpcClient.onAuthEvent((event) => {
+  constructor(client: AuthEventSource = bridgeRpcClient) {
+    client.onAuthEvent((event) => {
       void this._handleEvent(event).catch((error) => {
         log.error('failed to deliver site login event:', error)
       })
@@ -205,7 +228,7 @@ export class SiteAuthChannelNotifier {
     }
 
     if (event.status === 'waiting_user') {
-      if (!once('waiting_user') || turn.closed) return
+      if (turn.closed) return
       const qr = event.qr
       const imagePath = typeof qr?.image === 'string' && qr.image
         ? qr.image
@@ -213,17 +236,22 @@ export class SiteAuthChannelNotifier {
           ? event.screenshot
           : ''
       if (imagePath) {
+        // The first waiting_user may arrive before QR discovery finishes; the
+        // Bridge re-emits once the code is ready and then on every 15s refresh.
+        // Send the image exactly once — on the first QR-bearing event — so the
+        // supplement reaches the user while refreshes stay silent.
+        if (!once('waiting_user_image')) return
         await turn.sendText(`📱 请使用手机扫描下面的 ${displayName(event)} 登录二维码。请勿将账号或密码发送到聊天中；登录完成后 WeWorker 会自动继续检测。`)
         try {
           await turn.sendImage(readSiteAuthImage(imagePath))
-          return
         } catch (error) {
           log.warn(`could not send login image for ${event.site} through ${turn.channelKey}: ${error instanceof Error ? error.message : String(error)}`)
           await turn.sendText(manualLoginText(event, true))
-          return
         }
+        return
       }
-      await turn.sendText(manualLoginText(event, qr?.available === true))
+      // No usable code yet (or ever): one conditional text, never repeated.
+      await sendText('waiting_user', pendingLoginText(event))
       return
     }
 

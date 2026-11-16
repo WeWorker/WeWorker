@@ -1,10 +1,12 @@
+import { getTurnExecutionContext } from './memory/turn-execution-context.js'
+
 /** Keep the lock until the request has persisted its final assistant message. */
 export function createChatTurnRegistry() {
-  type Turn = { controller: AbortController; done: Promise<void>; finish: () => void }
+  type Turn = { controller: AbortController; done: Promise<void>; finish: () => void; turnId?: string }
   const active = new Map<string, Turn>()
   return {
     isActive(workId: string): boolean { return active.has(workId) },
-    start(workId: string): Turn | null {
+    start(workId: string, turnId?: string): Turn | null {
       if (active.has(workId)) return null
       let resolve!: () => void
       const turn: Turn = {
@@ -14,9 +16,14 @@ export function createChatTurnRegistry() {
           if (active.get(workId) === turn) active.delete(workId)
           resolve()
         },
+        turnId: turnId ?? getTurnExecutionContext()?.turnId,
       }
       active.set(workId, turn)
       return turn
+    },
+    /** Turn that currently owns the work, if any; lets out-of-band events (Bridge pushes) join the right log section. */
+    activeTurnId(workId: string): string | undefined {
+      return active.get(workId)?.turnId
     },
     async stop(workId: string, timeoutMs = 15000): Promise<'idle' | 'stopped' | 'timeout'> {
       const turn = active.get(workId)

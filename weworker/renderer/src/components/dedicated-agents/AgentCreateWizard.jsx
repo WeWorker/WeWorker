@@ -23,6 +23,7 @@ import {
 } from '../../utils/dedicated-agents.js'
 import SkillComposer from './SkillComposer.jsx'
 import WecomQrBind, { BotChannelPicker } from './WecomQrBind.jsx'
+import { QuickCreateFlow, QuickCreateHome } from './quick-create/index.js'
 import AppSwitch from '../common/AppSwitch.jsx'
 import { codeBadgeStyle, fieldStyle, hintStyle, labelStyle, sectionStyle, titleStyle } from './styles.js'
 import './agent-create-wizard.css'
@@ -30,7 +31,8 @@ import './agent-create-wizard.css'
 const PAIR_POLL_MS = 2500
 
 const INITIAL_DRAFT = {
-  siteId: '',
+  siteIds: [],
+  workDir: '',
   name: '',
   description: '',
   skillMode: SKILL_MODES.generate,
@@ -45,27 +47,38 @@ const INITIAL_DRAFT = {
   skillScope: 'private',
   /** Keep the safer private setting unless the creator opts into WeCom sharing. */
   accessMode: 'owner_only',
+  /** Quick-create: '' until the user picks a creation mode. */
+  createMode: '',
 }
 
-function SitePicker({ sites, selectedId, onSelect }) {
+/** Drafts saved before multi-site support carry `siteId`; map them onto `siteIds`. */
+function normalizePersistedDraft(existing) {
+  const merged = { ...INITIAL_DRAFT, ...(existing || {}) }
+  if (Array.isArray(merged.siteIds) && merged.siteIds.length) return merged
+  const legacy = String(merged.siteId || merged.site_id || '').trim()
+  return { ...merged, siteIds: legacy ? [legacy] : [] }
+}
+
+function SitePicker({ sites, selectedIds, onToggle }) {
   const [query, setQuery] = useState('')
   const visible = filterSites(sites, query)
+  const selected = new Set(selectedIds)
   return (
     <div className="agent-site-picker">
       <Input.Search value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索网站名称或域名" style={{ maxWidth: 360, marginBottom: 12 }} allowClear aria-label="搜索网站" />
       {visible.length === 0 ? (
-        <div style={hintStyle}>没有找到可用的网站。请先在「SKILLS与场景」中启用对应网站。</div>
+        <div style={hintStyle}>没有找到可用的网站。可以不选网站，先创建一个通用 Agent。</div>
       ) : (
-        <div className="agent-site-picker__list" role="listbox" aria-label="选择网站" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
+        <div className="agent-site-picker__list" role="listbox" aria-label="选择网站（可多选）" aria-multiselectable="true" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }}>
           {visible.map((site) => {
-            const active = site.id === selectedId
+            const active = selected.has(site.id)
             return (
               <button
                 key={site.id}
                 type="button"
                 role="option"
                 aria-selected={active}
-                onClick={() => onSelect(site)}
+                onClick={() => onToggle(site)}
                 style={{
                   display: 'flex', gap: 10, alignItems: 'flex-start', textAlign: 'left', padding: 12, borderRadius: 10, cursor: 'pointer',
                   border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
@@ -83,6 +96,38 @@ function SitePicker({ sites, selectedId, onSelect }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+function DirectoryPicker({ value, onChange, disabled }) {
+  const pick = async () => {
+    const selectDirectory = window.electronAPI?.selectDirectory
+    if (!selectDirectory) return
+    try {
+      const paths = await selectDirectory()
+      if (paths?.[0]) onChange(String(paths[0]))
+    } catch {
+      // User cancelled or the dialog failed: keep the current value.
+    }
+  }
+  return (
+    <div style={fieldStyle}>
+      <label style={labelStyle} htmlFor="agent-work-dir">本地工作目录（可选）</label>
+      <Space.Compact style={{ width: '100%' }}>
+        <Input
+          id="agent-work-dir"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="例如：C:\\Users\\you\\projects\\my-repo（代码仓库、素材目录或任意文件夹）"
+          disabled={disabled}
+        />
+        <Button data-app-button="action" onClick={pick} disabled={disabled}>选择目录</Button>
+        {value && <Button data-app-button="action" onClick={() => onChange('')} disabled={disabled}>清除</Button>}
+      </Space.Compact>
+      <div style={{ ...hintStyle, marginTop: 5 }}>
+        选一个目录后，这个 Agent 会像 Claude 在该目录下运行一样工作，自动读取目录里的 CLAUDE.md、AGENTS.md 等说明。不选就是一个通用 Agent。
+      </div>
     </div>
   )
 }
@@ -183,12 +228,10 @@ export default function AgentCreateWizard({ draftKey }) {
   const loadSites = useSitesStore((s) => s.load)
   const existingDraft = useDedicatedAgentsStore((s) => s.agents.find((agent) => agent.draft && (agent.draftKey || agent.id) === draftKey))
   const updateDraftAgent = useDedicatedAgentsStore((s) => s.updateDraftAgent)
-  const cancelCreate = useDedicatedAgentsStore((s) => s.cancelCreate)
   const completeCreate = useDedicatedAgentsStore((s) => s.completeCreate)
   const loadWorks = useWorksStore((s) => s.loadWorks)
   const backendCreated = existingDraft && !existingDraft.id.startsWith('draft-')
   const [step, setStep] = useState(() => backendCreated ? 3 : (existingDraft?.wizardStep || 0))
-  const draft = { ...INITIAL_DRAFT, ...(existingDraft || {}) }
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [createdAgent, setCreatedAgent] = useState(() => backendCreated ? existingDraft : null)
@@ -200,25 +243,34 @@ export default function AgentCreateWizard({ draftKey }) {
   }, [sites.length, loadSites])
 
   const available = useMemo(() => enabledSites(sites), [sites])
-  const site = available.find((entry) => entry.id === draft.siteId) || null
+  const draft = useMemo(() => normalizePersistedDraft(existingDraft), [existingDraft])
+  const selectedSites = draft.siteIds
+    .map((id) => available.find((entry) => entry.id === id))
+    .filter(Boolean)
+  const primarySite = selectedSites[0] || null
   const stepKey = WIZARD_STEPS[step].key
   const update = (patch) => {
     updateDraftAgent(patch, draftKey)
   }
 
-  const selectSite = (next) => {
-    const patch = ((current) => {
-      const autoName = !current.name || current.name === '新建WeWorker Bot' || current.name === defaultAgentName(site)
-      return {
-        ...current,
-        siteId: next.id,
-        site_id: next.id,
-        name: autoName ? defaultAgentName(next) : current.name,
-        // A different site has different tools: drop an AI draft and its suggested name.
-        ...(current.siteId && current.siteId !== next.id ? { skillMarkdown: '', skillName: '', savedSkillName: '' } : {}),
-      }
-    })(draft)
-    update(patch)
+  // 创建方式门禁。内置模板数量不足，暂不对外开放：新建默认直接进入自定义
+  // 向导（恢复模板上线前的入口形态）。模板流程代码保留：历史草稿显式带着
+  // createMode（'home'/'template'，随草稿持久化）时仍按原流程渲染，不打断
+  // 进行中的创建；重新开放时把下面的默认值改回 '' 即可恢复「先选创建方式」。
+  const createMode = draft.createMode || 'custom'
+  if (createMode === 'template') return <QuickCreateFlow draftKey={draftKey} />
+  if (createMode === 'home') return <QuickCreateHome draftKey={draftKey} />
+
+  const toggleSite = (site) => {
+    const includes = draft.siteIds.includes(site.id)
+    const nextIds = includes ? draft.siteIds.filter((id) => id !== site.id) : [...draft.siteIds, site.id]
+    const autoName = !draft.name || draft.name === '新建WeWorker Bot' || draft.name === defaultAgentName(selectedSites)
+    update({
+      siteIds: nextIds,
+      // A generated Skill references the previous site set: drop it so it gets regenerated.
+      ...(includes && draft.skillMode === SKILL_MODES.generate && draft.skillMarkdown ? { skillMarkdown: '', skillName: '', savedSkillName: '' } : {}),
+      ...(autoName ? { name: defaultAgentName(nextIds.map((id) => available.find((entry) => entry.id === id)).filter(Boolean)) || '通用助手' } : {}),
+    })
   }
 
   const next = () => {
@@ -257,8 +309,9 @@ export default function AgentCreateWizard({ draftKey }) {
       const body = {
         name: draft.name.trim(),
         description: draft.description.trim(),
-        site_id: draft.siteId,
-        skill_name: skillName,
+        site_ids: draft.siteIds,
+        work_dir: String(draft.workDir || '').trim(),
+        skill_names: skillName ? [skillName] : [],
         examples: parseExamples(draft.examplesText),
         access_mode: bot.channel === 'wecom' ? draft.accessMode : 'owner_only',
         ...boundBotPayload(bot),
@@ -276,7 +329,7 @@ export default function AgentCreateWizard({ draftKey }) {
   }
 
   return (
-    <div className={stepKey === 'site' ? 'agent-create-wizard--site' : undefined} style={{ maxWidth: 860 }}>
+    <div className={stepKey === 'scope' ? 'agent-create-wizard--site' : undefined} style={{ maxWidth: 860 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <h2 style={titleStyle}>
@@ -294,32 +347,54 @@ export default function AgentCreateWizard({ draftKey }) {
             )}
           </h2>
         </div>
-        {!createdAgent && <Button data-app-button="action" onClick={cancelCreate}>保存并返回</Button>}
+        {/* 内置模板暂不开放：原「‹ 选择创建方式」入口已随门禁默认值一并还原。 */}
       </div>
-      <div style={{ ...hintStyle, marginBottom: 18 }}>一个WeWorker Bot = 一个网站的能力 + 你的专属知识 + 一个企业微信或微信机器人。大约 5 分钟完成。</div>
+      <div style={{ ...hintStyle, marginBottom: 18 }}>一个WeWorker Bot = 网站 + 专属知识 + 一个本地目录 + 一个企业微信或微信机器人，像随时在线的 Claude。大约 5 分钟完成。</div>
       <Steps size="small" current={step} items={WIZARD_STEPS.map((item) => ({ title: item.title }))} style={{ marginBottom: 20 }} />
 
       <div className="agent-create-wizard__section" style={sectionStyle}>
-        {stepKey === 'site' && (
+        {stepKey === 'scope' && (
           <div className="agent-create-wizard__site">
-            <div style={{ ...labelStyle, marginBottom: 10 }}><span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>这个 Agent 主要操作哪个网站？</div>
-            <SitePicker sites={available} selectedId={draft.siteId} onSelect={selectSite} />
-            {site && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginTop: 18 }}>
-                <div style={fieldStyle}>
-                  <label style={labelStyle} htmlFor="agent-name"><span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>Agent 名称</label>
-                  <Input id="agent-name" value={draft.name} maxLength={40} onChange={(event) => update({ name: event.target.value })} placeholder="例如：采购助手" />
-                </div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle} htmlFor="agent-description">一句话说明（可选）</label>
-                  <Input id="agent-description" value={draft.description} maxLength={200} onChange={(event) => update({ description: event.target.value })} placeholder={`例如：帮我在「${site.name || site.id}」上完成日常查询和处理`} />
-                </div>
+            <div style={{ ...labelStyle, marginBottom: 6 }}>要给它哪些网站能力？（可多选，也可以不选）</div>
+            <div style={{ ...hintStyle, marginBottom: 10 }}>选中后它可以操作这些网站；不选就是一个纯本地的通用 Agent。</div>
+            {selectedSites.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }} aria-label="已选网站">
+                <span style={hintStyle}>已选 {selectedSites.length} 个：</span>
+                {selectedSites.map((site) => (
+                  <span
+                    key={site.id}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 999, border: '1px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-primary))', fontSize: 12 }}
+                  >
+                    <SiteIcon site={site} size={14} />
+                    {site.name || site.id}
+                    <button
+                      type="button"
+                      aria-label={`移除 ${site.name || site.id}`}
+                      onClick={() => toggleSite(site)}
+                      style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-secondary)', font: 'inherit', lineHeight: 1 }}
+                    >✕</button>
+                  </span>
+                ))}
               </div>
             )}
+            <SitePicker sites={available} selectedIds={draft.siteIds} onToggle={toggleSite} />
+            <div style={{ marginTop: 18 }}>
+              <DirectoryPicker value={draft.workDir} onChange={(workDir) => update({ workDir })} disabled={saving} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginTop: 6 }}>
+              <div style={fieldStyle}>
+                <label style={labelStyle} htmlFor="agent-name"><span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>Agent 名称</label>
+                <Input id="agent-name" value={draft.name} maxLength={40} onChange={(event) => update({ name: event.target.value })} placeholder="例如：采购助手" />
+              </div>
+              <div style={fieldStyle}>
+                <label style={labelStyle} htmlFor="agent-description">一句话说明（可选）</label>
+                <Input id="agent-description" value={draft.description} maxLength={200} onChange={(event) => update({ description: event.target.value })} placeholder={primarySite ? `例如：帮我在「${primarySite.name || primarySite.id}」上完成日常查询和处理` : '例如：帮我处理日常事务和代码仓库里的工作'} />
+              </div>
+            </div>
           </div>
         )}
 
-        {stepKey === 'skill' && site && <SkillComposer draft={draft} onChange={update} site={site} />}
+        {stepKey === 'skill' && <SkillComposer draft={draft} onChange={update} site={primarySite} sites={selectedSites} />}
 
         {stepKey === 'bind' && (
           <div>
