@@ -974,27 +974,31 @@ class ProcessManager:
                 "tool_id": task.get("tool_id", ""),
             }
             if restart_before_first_step:
-                # No saved actions to resume. Keep the original page, scope and all
-                # instructions, including any earlier turns stopped before startup.
+                # No saved actions to resume. Reuse a still-valid page binding or
+                # let the managed environment recover on a fresh task-owned page.
                 prior_spec = json.loads(self.store.spec_path(task_id).read_text(encoding="utf-8"))
                 spec.update(
-                    mode="start", target_id=task.get("active_target_id", ""),
-                    resume_target_id="", resume_from=None, followup=None,
+                    mode="start", target_id="",
+                    resume_target_id=task.get("active_target_id", ""), resume_from=None, followup=None,
                     instruction=f"{prior_spec['instruction']}\n\n{followup}",
                 )
                 spec["config_spec"].extend(
                     item for item in prior_spec["config_spec"]
                     if item.startswith("environment.allowed_domains=")
                 )
-                if task.get("error_code") == "navigation_blocked_by_client":
-                    attention = try_read_json(output_dir / "browser_attention.json") or {}
-                    if attention.get("target_id"):
-                        spec.update(target_id="", resume_target_id=attention["target_id"])
+                spec["config_spec"].append("environment.resume_existing_page=true")
+            if task.get("error_code") == "navigation_blocked_by_client":
+                # Recovery may pause on a fresh browser page after a trajectory
+                # already exists. Prefer that confirmed binding to the old run.
+                attention = try_read_json(output_dir / "browser_attention.json") or {}
+                if attention.get("target_id"):
+                    spec.update(target_id="", resume_target_id=attention["target_id"])
+                    if not restart_before_first_step:
                         spec["config_spec"].append("environment.resume_existing_page=true")
-                    if attention.get("browser_instance_id"):
-                        spec["config_spec"].append(
-                            f"environment.expected_browser_instance_id={attention['browser_instance_id']}"
-                        )
+                if attention.get("browser_instance_id"):
+                    spec["config_spec"].append(
+                        f"environment.expected_browser_instance_id={attention['browser_instance_id']}"
+                    )
             atomic_write_json(self.store.spec_path(task_id), spec)
             process = self._spawn(
                 self.launcher.worker_command(

@@ -167,6 +167,12 @@ class DefaultAgent:
             "Verify the blocker is resolved before continuing; do not repeat completed submissions.\n"
             if resumed else ""
         )
+        if observation.get("browser_recovery"):
+            resume_notice += (
+                "The previous browser/page binding expired. A new task-owned page was opened. "
+                "Previous form contents and in-memory page state may be lost. "
+                "Keep prior findings, inspect this fresh page, and do not replay completed actions or submissions.\n"
+            )
         content = (
             f"## {heading} Browser Observation\n{resume_notice}"
             "The prepared browser page is already connected. Inspect this state before acting. "

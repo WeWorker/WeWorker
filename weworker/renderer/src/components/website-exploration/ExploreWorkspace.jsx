@@ -314,9 +314,17 @@ export function ExplorationControls({ replayActive = false, cancelReplayDisabled
 
 export function CompletionQuestion({ submitted = false, developing = false, developDisabled = false, continueDisabled = false, onDevelop, onContinue }) {
   const questionId = useId()
+  const [continuing, setContinuing] = useState(false)
   if (submitted) return <div className="user-choice-block wx-completion-question" role="status">
     <div className="user-choice-block__question">探索任务已完成，本次探索结果可生成可复用的网站适配器，以便下次直接操作网站。是否分析探索结果并生成网站适配器？</div>
     <div className="user-choice-block__answered">是，生成网站适配器</div>
+  </div>
+  if (continuing && !developing) return <div className="user-choice-block wx-completion-question" role="group" aria-labelledby={questionId}>
+    <div className="user-choice-block__question" id={questionId}>接下来想重点探索什么？</div>
+    <p className="wx-muted">请在下方输入框补充希望探索的功能、操作流程或限制，发送后继续探索。</p>
+    <div className="wx-actions">
+      <button type="button" className="wx-quiet" onClick={() => setContinuing(false)}>返回选择</button>
+    </div>
   </div>
   return <div className="user-choice-block wx-completion-question" role="group" aria-labelledby={questionId}>
     <div className="user-choice-block__question" id={questionId}>探索任务已完成，本次探索结果可生成可复用的网站适配器，以便下次直接操作网站。是否分析探索结果并生成网站适配器？</div>
@@ -325,9 +333,9 @@ export function CompletionQuestion({ submitted = false, developing = false, deve
         <span className="user-choice-block__option-label">是，生成网站适配器</span>
         <span className="user-choice-block__option-desc">分析本次探索结果，复用或完善已有网站适配器，必要时生成新的适配器。</span>
       </button>
-      <button type="button" className="user-choice-block__option" disabled={continueDisabled} onClick={onContinue}>
+      <button type="button" className="user-choice-block__option" disabled={continueDisabled} onClick={() => { setContinuing(true); onContinue?.() }}>
         <span className="user-choice-block__option-label">否，还需要进一步探索</span>
-        <span className="user-choice-block__option-desc">按输入框中的补充要求继续；未填写时，继续探索尚未覆盖的功能。</span>
+        <span className="user-choice-block__option-desc">补充下一步探索目标，发送后继续探索。</span>
       </button>
     </div>}
   </div>
@@ -363,6 +371,7 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
     if (panel.scope === 'exploration' && panel.workId === id) panel.closePanel()
   }, [id])
   const [sessionModelReady, setSessionModelReady] = useState(false)
+  const composerInput = useRef(null)
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
   const [historyWorkId, setHistoryWorkId] = useState(null)
   const snapshot = useSnapshot(() => api.getExploration(id), [id], '/api/explorations/' + id + '/events')
@@ -414,9 +423,9 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
       {snapshot.data && <FileChangesCard scope="exploration" workId={id} streaming={isExplorationInProgress(data)} revision={`${data.status}:${data.timeline?.length || 0}`} />}
       {!snapshot.data && <p className="wx-muted" role="status">探索记录暂不可用，仍可继续生成网站适配器。</p>}
       {data.status === 'succeeded' && <article className="wx-chat-message wx-chat-assistant">
-        <CompletionQuestion submitted={submitted} developing={transferring} developDisabled={developDisabled} continueDisabled={!controls.canSend}
+        <CompletionQuestion key={data.last_run_id} submitted={submitted} developing={transferring} developDisabled={developDisabled} continueDisabled={!controls.canSend}
           onDevelop={() => { if (!developDisabled) void transferAction.run(() => finishExplorationTransfer({ explorationId: id, runId: data.last_run_id ?? null })) }}
-          onContinue={() => sendMessage(prompt.trim() || '继续探索这个网站，进一步了解尚未覆盖的功能和操作流程。')} />
+          onContinue={() => composerInput.current?.focus()} />
       </article>}
       {development && <div className="wx-development-transition" role="status">{needsStart ? '网站适配器生成已准备，尚未发送。' : '网站适配器生成'}</div>}
       {needsStart && <button type="button" className="wx-quiet" disabled={transferBusy} onClick={() => transferAction.run(() => startDevelopmentSession(development))}>继续生成网站适配器</button>}
@@ -437,7 +446,7 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
     {renderHeader(title || data.title || '网站探索', development ? <span className="wx-status">网站适配器生成</span> : <ExplorationStatus value={data.status} />)}
     {development ? <ChatView key={development.work.id} workId={development.work.id} embedded hidePermissionMode {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
     <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, transferring, submitted])}><div className="wx-message-content">{explorationMessages}</div></ScrollArea>
-    <ExplorationComposer conversationId={id} onModelReadyChange={setSessionModelReady} value={prompt} onChange={setPrompt} actionMode={actionMode}
+    <ExplorationComposer conversationId={id} inputRef={composerInput} onModelReadyChange={setSessionModelReady} value={prompt} onChange={setPrompt} actionMode={actionMode}
       attachments={attachments} onAttachmentsChange={setAttachments} usage={data.context_usage} modelDisabled={globalBusy}
       onAction={actionMode === 'stop' ? () => action.run(() => api.stopExploration(id)) : () => sendMessage(prompt)}
       actionDisabled={actionMode === 'stop' ? !controls.canStop : !controls.canSend || (!prompt.trim() && !attachments.length)} disabled={action.busy || messageAction.busy || transferBusy}

@@ -169,12 +169,14 @@ class FakeEnv:
         return None
 
 
-def test_human_resume_observes_changed_page_and_gets_bounded_budget(tmp_path):
+@pytest.mark.parametrize("recovery", ["", "browser_instance_changed"])
+def test_human_resume_observes_changed_page_and_gets_bounded_budget(tmp_path, recovery):
     model = FakeModel()
     env = FakeEnv()
     env.initial_observation = Mock(return_value={
         "url": "https://example.com/projects", "title": "Projects",
         "aria_snapshot": "- heading: Signed in; project selected by user",
+        **({"browser_recovery": recovery} if recovery else {}),
     })
     agent = DefaultAgent(model, env, system_template="System", instance_template="Task: {{ task }}",
                          step_limit=1, output_path=tmp_path / "trajectory.json")
@@ -189,6 +191,9 @@ def test_human_resume_observes_changed_page_and_gets_bounded_budget(tmp_path):
     env.initial_observation.assert_called_once_with()
     assert model.queries[0][-1]["extra"]["interrupt_type"] == "ResumeBrowserObservation"
     assert "Signed in; project selected by user" in model.queries[0][-1]["content"]
+    if recovery:
+        assert "new task-owned page" in model.queries[0][-1]["content"]
+        assert "do not replay completed actions or submissions" in model.queries[0][-1]["content"]
     assert model.queries[0][-2]["extra"]["user_input"] == "I have signed in"
     from webwright.exceptions import LimitsExceeded
     with pytest.raises(LimitsExceeded):
@@ -472,12 +477,13 @@ def test_run_one_resume_enables_existing_page_for_local_cdp(monkeypatch, tmp_pat
                 "environment": {
                     "config": {
                         "browser_mode": "local_cdp",
-                        "start_url": "https://mail.163.com",
+                        "start_url": "https://example.com",
+                        "allowed_domains": ["example.com"],
                         "local_cdp_url": "http://127.0.0.1:9222",
                     },
                     "runtime_state": {
                         "target_id": "target-123",
-                        "last_url": "https://mail.163.com/inbox",
+                        "last_url": "https://example.com/inbox",
                         "last_title": "Inbox",
                     },
                 },
@@ -524,8 +530,9 @@ def test_run_one_resume_enables_existing_page_for_local_cdp(monkeypatch, tmp_pat
     )
 
     assert captured_env_config["value"]["resume_existing_page"] is True
+    assert captured_env_config["value"]["allowed_domains"] == ["example.com"]
     assert stub_env.prepared["resume_target_id"] == "target-123"
-    assert stub_env.prepared["resume_last_url"] == "https://mail.163.com/inbox"
+    assert stub_env.prepared["resume_last_url"] == "https://example.com/inbox"
     assert stub_env.prepared["resume_last_title"] == "Inbox"
 
     run_one(
