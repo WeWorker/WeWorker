@@ -6,6 +6,7 @@ import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import {
   fetchAgentSkill,
   fetchAgentSkills,
+  fetchSkillUpdates,
   generateSkill,
   importSkillFile,
   reviseSkill,
@@ -14,6 +15,7 @@ import {
 } from '../../api/dedicated-agents-api.js'
 import {
   compactSiteCapabilities,
+  formatRelativeTime,
   genericSkillGoalPlaceholder,
   GENERIC_KNOWLEDGE_PLACEHOLDER,
   SKILL_MODES,
@@ -22,6 +24,7 @@ import {
   skillImportLabel,
   supportedSkillImportPath,
 } from '../../utils/dedicated-agents.js'
+import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { fieldStyle, hintStyle, labelStyle, markdownEditorStyle } from './styles.js'
 
 const requiredMark = <span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>
@@ -342,11 +345,16 @@ export function SkillEditorCard({ skillName, siteId }) {
   const [original, setOriginal] = useState('')
   const [state, setState] = useState('loading') // loading | ready | missing | saving
   const [message, setMessage] = useState(null)
+  const [lastUpdate, setLastUpdate] = useState(null)
+  const [remoteUpdate, setRemoteUpdate] = useState(null)
+  const skillUpdate = useDedicatedAgentsStore((s) => s.skillUpdates[skillName])
+  const updateSeq = skillUpdate?.seq || 0
 
   useEffect(() => {
     let cancelled = false
     setState('loading')
     setMessage(null)
+    setRemoteUpdate(null)
     fetchAgentSkill(skillName)
       .then((result) => {
         if (cancelled) return
@@ -355,8 +363,31 @@ export function SkillEditorCard({ skillName, siteId }) {
         setState('ready')
       })
       .catch(() => !cancelled && setState('missing'))
+    fetchSkillUpdates(skillName)
+      .then((updates) => { if (!cancelled) setLastUpdate(updates[0] ?? null) })
+      .catch(() => { if (!cancelled) setLastUpdate(null) })
     return () => { cancelled = true }
   }, [skillName])
+
+  // The skill was just rewritten elsewhere (usually in a conversation): reload
+  // silently while the editor is clean, warn about the overwrite while dirty.
+  useEffect(() => {
+    if (!updateSeq || state === 'loading' || state === 'missing') return
+    if (markdown === original) {
+      fetchAgentSkill(skillName)
+        .then((result) => {
+          setMarkdown(result.markdown)
+          setOriginal(result.markdown)
+        })
+        .catch(() => {})
+      setRemoteUpdate({ ...skillUpdate, applied: true })
+      setLastUpdate({ source: 'conversation', summary: skillUpdate?.summary || '', updated_at: skillUpdate?.updatedAt || '' })
+    } else {
+      setRemoteUpdate({ ...skillUpdate, applied: false })
+    }
+    // markdown/original are intentionally read at event time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateSeq, skillName])
 
   if (state === 'loading') return <div style={hintStyle}><LoadingOutlined /> 加载中…</div>
   if (state === 'missing') {
@@ -371,6 +402,7 @@ export function SkillEditorCard({ skillName, siteId }) {
       const result = await saveSkill(skillName, markdown)
       setMarkdown(result.markdown)
       setOriginal(result.markdown)
+      setLastUpdate({ source: 'desktop', summary: '在桌面设置中更新', updated_at: new Date().toISOString() })
       setMessage({ ok: true, text: '已保存，下一条消息起生效' })
     } catch (err) {
       setMessage({ ok: false, text: err.message || '保存失败' })
@@ -378,12 +410,40 @@ export function SkillEditorCard({ skillName, siteId }) {
       setState('ready')
     }
   }
+  const loadLatest = async () => {
+    try {
+      const result = await fetchAgentSkill(skillName)
+      setMarkdown(result.markdown)
+      setOriginal(result.markdown)
+      setRemoteUpdate(null)
+      setMessage({ ok: true, text: '已载入对话中更新的最新内容' })
+    } catch {
+      // Keep the local edits when the reload fails.
+    }
+  }
+  const lastUpdateText = lastUpdate
+    ? `最近更新：${formatRelativeTime(lastUpdate.updated_at)} · ${lastUpdate.source === 'conversation' ? '对话中更新' : '桌面设置更新'}${lastUpdate.summary ? ` · ${lastUpdate.summary}` : ''}`
+    : ''
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <Tag>{skillName}</Tag>
+        {lastUpdateText && <span style={hintStyle}>{lastUpdateText}</span>}
       </div>
+      {remoteUpdate && (
+        <Alert
+          type={remoteUpdate.applied ? 'success' : 'warning'}
+          showIcon
+          style={{ marginBottom: 8 }}
+          message={remoteUpdate.applied
+            ? `Skill 刚刚在对话中被更新${remoteUpdate.summary ? `：${remoteUpdate.summary}` : ''}，已为你载入最新内容。`
+            : `Skill 刚刚在对话中被更新${remoteUpdate.summary ? `：${remoteUpdate.summary}` : ''}。你正在编辑的内容基于旧版本，直接保存会覆盖对话中的更新。`}
+          action={!remoteUpdate.applied
+            ? <Button data-app-button="action" size="small" onClick={loadLatest}>载入最新内容</Button>
+            : undefined}
+        />
+      )}
       <Input.TextArea value={markdown} onChange={(event) => setMarkdown(event.target.value)} style={markdownEditorStyle} aria-label="专属 Skill 内容" />
       <ReviseBox siteId={siteId} skillName={skillName} markdown={markdown} onRevised={setMarkdown} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>

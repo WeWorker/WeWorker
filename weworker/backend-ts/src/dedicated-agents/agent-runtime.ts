@@ -176,6 +176,7 @@ export function buildAgentSystemPrompt(input: {
     // Load once per conversation: a later turn sees the earlier load in its own
     // context or in the replayed "已加载的 Skill 说明", so it must not reload.
     lines.push(`- 本对话中第一次处理请求前，用 Skill 工具加载专属 Skill「${skills.join('」「')}」，按其中的知识、步骤和约束执行；上下文里已有它们的完整说明（包括“已加载的 Skill 说明”）时直接使用，不要重复加载。`)
+    lines.push('- 用户明确要求“记住/修改规则、偏好或领域知识”时，或你发现 Skill 内容过时/有误并已向用户说明、得到确认后，用 mcp__weworker__update_agent_skill 更新对应 Skill：传入完整的新 SKILL.md 和一句话 change_summary，并在回复中复述改了什么；其余情况不要更新 Skill。')
   }
   return lines.join('\n')
 }
@@ -205,6 +206,7 @@ export function buildAgentChatOptions(input: {
     extraToolGuard: createWorkspaceToolGuard(input.agent.site_ids ?? [], input.knownSiteIds ?? [...parseAllAdapters().keys()], [
       'mcp__weworker__list_agent_notification_targets',
       'mcp__weworker__create_agent_scheduled_task',
+      'mcp__weworker__update_agent_skill',
       ...(input.taskId ? ['mcp__weworker__send_agent_message'] : []),
     ]),
     extraDisallowedTools: [...WORKSPACE_AGENT_DISALLOWED_TOOLS],

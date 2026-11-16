@@ -17,6 +17,8 @@ import * as store from './works-store.js'
 import { scheduler, Scheduler } from './scheduler.js'
 import { channelManager } from './channels/channel-manager.js'
 import { getAgent, addAgentWork } from './dedicated-agents/agent-store.js'
+import { applyConversationSkillUpdate } from './dedicated-agents/skill-updates.js'
+import { broadcastSSE } from './notifier.js'
 import { describeUserFile, NO_FILE_DELIVERY, NO_IMAGE_DELIVERY, readUserImage, type UserMediaSink } from './user-media.js'
 import {
   getLatestCacheFile,
@@ -646,6 +648,38 @@ export function buildMcpServer(opts?: McpServerContext) {
         } catch (error) {
           return toolText({ success: false, target_id, error: error instanceof Error ? error.message : String(error) })
         }
+      },
+    ),
+    tool(
+      'update_agent_skill',
+      '更新当前WeWorker Bot 的一份专属 Skill（写入完整的新 SKILL.md）。仅在两种情况调用：用户在对话中明确要求记住或修改某条规则、偏好、领域知识；或你发现 Skill 内容过时/有误，已向主人说明要改什么并得到确认。必须传完整的新 SKILL.md（保留 YAML frontmatter，name 与原 Skill 一致；只使用真实存在的工具；不写入密码、Token 等敏感信息），并用 change_summary 一句话概括本次改动，更新后在回复中向用户复述这条摘要。其余情况不要调用。',
+      {
+        skill_name: z.string().min(1).max(100).describe('要更新的 Skill 名称，必须是本WeWorker Bot 已加载的专属 Skill'),
+        markdown: z.string().min(1).max(200_000).describe('完整的新 SKILL.md 内容，以 YAML frontmatter 开头'),
+        change_summary: z.string().min(1).max(500).describe('一句话说明本次改动，会展示给用户并记入更新历史'),
+        confirmed: z.literal(true).describe('仅在用户明确要求更新、或已确认你提议的改动后传 true'),
+      },
+      async ({ skill_name, markdown, change_summary }) => {
+        if (!dedicatedAgent) return toolText({ error: '此工具仅供WeWorker Bot 使用' })
+        if (!isDedicatedOwner) return toolText({ error: '只有WeWorker Bot 的主人可以更新专属 Skill' })
+        const agent = getAgent(dedicatedAgent.agentId)
+        if (!agent) return toolText({ error: 'WeWorker Bot 不存在或已停用' })
+        const outcome = applyConversationSkillUpdate({
+          agent,
+          actorUserId: dedicatedAgent.actorUserId,
+          skillName: skill_name,
+          markdown,
+          changeSummary: change_summary,
+        })
+        if (!outcome.ok) return toolText({ error: outcome.error })
+        if (outcome.event) broadcastSSE(outcome.event)
+        return toolText({
+          success: true,
+          skill_name: outcome.skillName,
+          scope: outcome.scope,
+          change_summary: outcome.summary,
+          effective_from: '新对话起生效',
+        })
       },
     ),
     tool(

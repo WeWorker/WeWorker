@@ -32,6 +32,16 @@ export const createDedicatedAgentsStore = ({ storage = defaultStorage(), fetchAg
   draftAgentId: null,
   loaded: false,
   loadError: '',
+  // agent_skill_updated SSE events keyed by skill name; seq lets an open skill
+  // editor notice a rewrite (usually from a conversation) and reload or warn.
+  skillUpdates: {},
+
+  handleSkillUpdated: (event) => set((state) => {
+    const name = event?.skillName
+    if (!name) return {}
+    const previous = state.skillUpdates[name]
+    return { skillUpdates: { ...state.skillUpdates, [name]: { ...event, seq: (previous?.seq ?? 0) + 1 } } }
+  }),
 
   openPage: () => set({ open: true }),
   closePage: () => set({ open: false }),

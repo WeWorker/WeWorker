@@ -136,6 +136,85 @@ describe('Anthropic to OpenAI Chat Completions compatibility', () => {
       await runtime.close()
     }
   })
+
+  it('answers a non-streaming request with a single JSON message, not an event stream', async () => {
+    let upstreamBody: Record<string, unknown> | undefined
+    const relay = await openOpenAiChatRelay('https://gateway.example/v1', false, async (_url, init) => {
+      upstreamBody = JSON.parse(String(init?.body))
+      return Response.json({ id: 'chatcmpl-json', model: 'fixture-model', choices: [{ finish_reason: 'stop', message: { content: 'ok' } }], usage: { prompt_tokens: 3, completion_tokens: 1 } })
+    })
+    try {
+      const response = await fetch(`${relay.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'fixture-key' },
+        body: JSON.stringify({ model: 'fixture-model', max_tokens: 20, messages: [{ role: 'user', content: 'hello' }], stream: false }),
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('application/json')
+      expect(upstreamBody).toMatchObject({ stream: false })
+      expect(await response.json()).toMatchObject({
+        type: 'message', role: 'assistant', model: 'fixture-model',
+        content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn',
+        usage: { input_tokens: 3, output_tokens: 1 },
+      })
+    } finally {
+      await relay.close()
+    }
+  })
+
+  it('reduces an upstream that always streams into one JSON message for non-streaming requests', async () => {
+    const relay = await openOpenAiChatRelay('https://gateway.example/v1', false, async () => new Response([
+      'data: {"id":"chatcmpl-force-stream","model":"fixture-model","choices":[{"delta":{"content":"Hello "},"finish_reason":null}]}',
+      'data: {"id":"chatcmpl-force-stream","model":"fixture-model","choices":[{"delta":{"content":"world"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2}}',
+      'data: [DONE]',
+      '',
+    ].join('\n\n'), { headers: { 'content-type': 'text/event-stream' } }))
+    try {
+      const response = await fetch(`${relay.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'fixture-key' },
+        body: JSON.stringify({ model: 'fixture-model', max_tokens: 20, messages: [{ role: 'user', content: 'hello' }], stream: false }),
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toContain('application/json')
+      expect(await response.json()).toMatchObject({
+        type: 'message', content: [{ type: 'text', text: 'Hello world' }], stop_reason: 'end_turn',
+        usage: { input_tokens: 4, output_tokens: 2 },
+      })
+    } finally {
+      await relay.close()
+    }
+  })
+
+  it('terminates a stalled upstream stream with an error event instead of hanging the client', async () => {
+    const encoder = new TextEncoder()
+    // Mimics real fetch semantics: aborting the signal makes body iteration reject.
+    const stalledFetch = async (_url: unknown, init?: RequestInit) => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"id":"chatcmpl-stall","model":"fixture-model","choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n'))
+        // never closes: simulates an upstream gateway that stalls after the first chunk
+        init?.signal?.addEventListener('abort', () => {
+          controller.error(new DOMException('The operation was aborted.', 'AbortError'))
+        }, { once: true })
+      },
+    }), { headers: { 'content-type': 'text/event-stream' } })
+    const relay = await openOpenAiChatRelay('https://gateway.example/v1', false, stalledFetch as unknown as typeof fetch, 'openai_chat_completions', { idleTimeoutMs: 150 })
+    try {
+      const response = await fetch(`${relay.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'fixture-key' },
+        body: JSON.stringify({ model: 'fixture-model', max_tokens: 20, messages: [{ role: 'user', content: 'hello' }], stream: true }),
+      })
+      expect(response.status).toBe(200)
+      // Resolves only because the relay ends the response; the old code left it open forever.
+      const text = await response.text()
+      expect(text).toContain('"text":"partial"')
+      expect(text).toContain('event: error')
+      expect(text).toContain('OpenAI request was cancelled or timed out')
+    } finally {
+      await relay.close()
+    }
+  })
 })
 
 describe('Anthropic to OpenAI Responses compatibility', () => {

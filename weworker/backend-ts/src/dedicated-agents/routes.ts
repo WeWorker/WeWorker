@@ -53,10 +53,10 @@ import {
   locateSkill,
   moveAgentSkill,
   readAgentSkill,
-  updateAgentSkill,
   type SkillLocations,
   type SkillScope,
 } from './skill-library.js'
+import { listSkillUpdates, updateSkillWithHistory } from './skill-updates.js'
 import { registerQuickCreateRoutes } from './quick-create.js'
 
 const log = createLogger('dedicated-agent-api')
@@ -352,6 +352,17 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
     }
   })
 
+  /** Update history (desktop edits and conversation rewrites), newest first. */
+  app.get('/dedicated-agents/skills/:name/updates', (req, res) => {
+    try {
+      const name = normalizeSkillName(req.params.name)
+      const updates = listSkillUpdates({ ...locations() }).filter((entry) => entry.skill_name === name).slice(0, 10)
+      res.json({ updates })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
   app.post('/dedicated-agents/skills/suggest-name', (req, res) => {
     try {
       const adapter = requireAdapter(req.body?.site_id)
@@ -426,9 +437,15 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
   app.put('/dedicated-agents/skills/:name', (req, res) => {
     try {
       const name = normalizeSkillName(req.params.name)
-      const markdown = normalizeSkillMarkdown(String(req.body?.markdown ?? ''), name)
-      const updated = updateAgentSkill(name, markdown, locations())
-      res.json({ ...updated, markdown })
+      const updated = updateSkillWithHistory({
+        name,
+        markdown: String(req.body?.markdown ?? ''),
+        source: 'desktop',
+        actor: 'desktop',
+        summary: String(req.body?.change_summary ?? '在桌面设置中更新 Skill'),
+        locations: locations(),
+      })
+      res.json({ name: updated.name, scope: updated.scope, markdown: updated.markdown })
     } catch (error) {
       sendError(res, error)
     }

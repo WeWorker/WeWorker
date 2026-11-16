@@ -412,7 +412,79 @@ function sendError(res: http.ServerResponse, status: number, message: string) {
   res.end(JSON.stringify({ type: 'error', error: { type: status === 401 ? 'authentication_error' : 'api_error', message } }))
 }
 
-export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetchImpl: typeof fetch = fetch, protocol: LlmProtocol = 'openai_chat_completions') {
+/** Reduce parsed SSE chat-completions chunks to one completion object (for gateways that always stream). */
+async function openAiSseToCompletion(events: AsyncIterable<JsonRecord>): Promise<JsonRecord> {
+  let id = ''
+  let model = ''
+  let finishReason = ''
+  let text = ''
+  let usage: JsonRecord | undefined
+  const toolCalls = new Map<number, { id: string; function: { name: string; arguments: string } }>()
+  for await (const chunk of events) {
+    if (chunk.id) id = String(chunk.id)
+    if (chunk.model) model = String(chunk.model)
+    const choice = chunk.choices?.[0]
+    if (choice?.finish_reason) finishReason = String(choice.finish_reason)
+    if (chunk.usage) usage = chunk.usage
+    const delta = choice?.delta || {}
+    if (typeof delta.content === 'string') text += delta.content
+    for (const call of delta.tool_calls || []) {
+      const index = Number.isInteger(call.index) ? call.index : toolCalls.size
+      let current = toolCalls.get(index)
+      if (!current) {
+        current = { id: '', function: { name: '', arguments: '' } }
+        toolCalls.set(index, current)
+      }
+      if (call.id) current.id = String(call.id)
+      if (call.function?.name) current.function.name += String(call.function.name)
+      if (call.function?.arguments) current.function.arguments += String(call.function.arguments)
+    }
+  }
+  const calls = [...toolCalls.entries()].sort((left, right) => left[0] - right[0]).map(([, call]) => call)
+  return {
+    id, model,
+    choices: [{
+      finish_reason: finishReason || 'stop',
+      message: {
+        ...(text ? { content: text } : {}),
+        ...(calls.length ? { tool_calls: calls.map(call => ({ id: call.id, type: 'function', function: call.function })) } : {}),
+      },
+    }],
+    ...(usage ? { usage } : {}),
+  }
+}
+
+/** Reduce parsed SSE Responses events to the final response object. */
+async function openAiResponsesSseToResponse(events: AsyncIterable<JsonRecord>): Promise<JsonRecord> {
+  for await (const event of events) {
+    if (event.type === 'response.failed' || event.type === 'error') throw new Error('OpenAI Responses request failed')
+    if (event.type === 'response.completed' || event.type === 'response.incomplete') return (event.response || {}) as JsonRecord
+  }
+  throw new Error('OpenAI Responses stream ended without completion')
+}
+
+/** Read a whole (JSON) upstream body while keeping the idle timer alive on slow transfers. */
+async function readUpstreamBody(upstream: Response, refresh: () => void): Promise<string> {
+  const decoder = new TextDecoder()
+  let raw = ''
+  if (upstream.body) {
+    for await (const chunk of upstream.body as unknown as AsyncIterable<Buffer | Uint8Array | string>) {
+      refresh()
+      raw += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true })
+    }
+  }
+  raw += decoder.decode()
+  return raw
+}
+
+export interface OpenAiChatRelayOptions {
+  /** Idle timeout between upstream bytes for streaming requests. */
+  idleTimeoutMs?: number
+  /** Total timeout for non-streaming upstream requests. */
+  nonStreamTimeoutMs?: number
+}
+
+export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetchImpl: typeof fetch = fetch, protocol: LlmProtocol = 'openai_chat_completions', options: OpenAiChatRelayOptions = {}) {
   const responsesProtocol = protocol === 'openai_responses'
   const endpoint = resolveOpenAiEndpoint(baseUrl, fullUrl, protocol)
   const prefix = `/${randomBytes(24).toString('hex')}`
@@ -422,6 +494,7 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
       res.writeHead(404).end()
       return
     }
+    res.on('error', () => {})
     const request = (async () => {
       let raw = ''
       for await (const chunk of req) {
@@ -435,10 +508,19 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
       const apiKey = String(keyHeader || authorization?.replace(/^Bearer\s+/i, '') || '').trim()
       if (!apiKey) { sendError(res, 401, 'API key is required'); return }
 
+      const clientWantsStream = body.stream !== false
       const controller = new AbortController()
       pending.add(controller)
       res.on('close', () => { if (!res.writableEnded) controller.abort() })
-      const timeout = setTimeout(() => controller.abort(), 120_000)
+      // Refreshed on every upstream byte while streaming, so long healthy streams are
+      // never cut at a fixed total cap; a genuine upstream stall aborts after the idle window.
+      const timeoutMs = clientWantsStream ? (options.idleTimeoutMs ?? 120_000) : (options.nonStreamTimeoutMs ?? 300_000)
+      let idleTimer: NodeJS.Timeout | undefined
+      const armIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer)
+        idleTimer = setTimeout(() => controller.abort(), timeoutMs)
+      }
+      armIdleTimer()
       try {
         const upstream = await fetchImpl(endpoint, {
           method: 'POST',
@@ -452,19 +534,37 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
           sendError(res, upstream.status, detail || `HTTP ${upstream.status}`)
           return
         }
+        const contentType = upstream.headers.get('content-type') || ''
+        const upstreamIsSse = contentType.includes('text/event-stream') && !!upstream.body
+        const parsedSseEvents = async function* (): AsyncGenerator<JsonRecord> {
+          for await (const event of parseOpenAiSse(upstream.body as unknown as NodeJS.ReadableStream)) {
+            armIdleTimer()
+            yield event
+          }
+        }
+        // A non-streaming Anthropic request (e.g. Claude Code's retry after a stream
+        // failure) must be answered with a single JSON message, never an event stream.
+        if (!clientWantsStream) {
+          const completion = upstreamIsSse
+            ? await (responsesProtocol ? openAiResponsesSseToResponse(parsedSseEvents()) : openAiSseToCompletion(parsedSseEvents()))
+            : JSON.parse(await readUpstreamBody(upstream, armIdleTimer)) as JsonRecord
+          const message = responsesProtocol ? openAiResponsesResponseToAnthropic(completion) : openAiResponseToAnthropic(completion)
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(message))
+          return
+        }
         res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache', connection: 'keep-alive' })
         const writeEvent = (event: AnthropicStreamEvent) => {
           res.write(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`)
         }
-        const contentType = upstream.headers.get('content-type') || ''
         const translator = responsesProtocol ? createOpenAiResponsesAnthropicEventTranslator() : createOpenAiAnthropicEventTranslator()
-        if (contentType.includes('text/event-stream') && upstream.body) {
-          for await (const chunk of parseOpenAiSse(upstream.body as unknown as NodeJS.ReadableStream)) {
+        if (upstreamIsSse) {
+          for await (const chunk of parsedSseEvents()) {
             if (responsesProtocol && (chunk.type === 'response.failed' || chunk.type === 'error')) throw new Error('OpenAI Responses request failed')
             for (const event of translator.push(chunk)) writeEvent(event)
           }
         } else {
-          const completion = await upstream.json() as JsonRecord
+          const completion = JSON.parse(await readUpstreamBody(upstream, armIdleTimer)) as JsonRecord
           if (responsesProtocol) {
             const anthropic = openAiResponsesResponseToAnthropic(completion)
             for (const event of translator.push({ type: 'response.completed', response: completion })) writeEvent(event)
@@ -493,12 +593,17 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
         if (!res.headersSent) {
           const message = controller.signal.aborted ? 'OpenAI request was cancelled or timed out' : error instanceof Error ? error.message : 'OpenAI request failed'
           sendError(res, 502, message.split(apiKey).join('[已隐藏]'))
-        } else if (!controller.signal.aborted) {
-          res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'OpenAI response stream failed' } })}\n\n`)
+        } else {
+          // Never leave an answered streaming request hanging: emit a terminal error
+          // event so the client fails fast instead of waiting out its own idle watchdog.
+          const message = controller.signal.aborted ? 'OpenAI request was cancelled or timed out' : 'OpenAI response stream failed'
+          try {
+            res.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { type: 'api_error', message } })}\n\n`)
+          } catch { /* client already disconnected */ }
           res.end()
         }
       } finally {
-        clearTimeout(timeout)
+        if (idleTimer) clearTimeout(idleTimer)
         pending.delete(controller)
       }
     })().catch(() => sendError(res, 400, 'Invalid request'))
