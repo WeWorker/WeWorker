@@ -162,6 +162,16 @@ describe('extension host QR command execution', () => {
     expect(moduleSource).toContain('.new-loginFuncApp.qrcode-163-icon')
     expect(moduleSource).toContain('s-noScan-active')
     expect(moduleSource).toContain('#scanReScanBtn')
+    // Cold mount regression (2026-11-14 live incident): the shell mounts first
+    // and mailscanlogin draws the QR canvas seconds later, while auth_prepare_qr
+    // arrives ~4s after the tab opens. The command must wait for the initial
+    // canvas mount before reaching for the QR switch entry, or it returns
+    // QR_ENTRY_NOT_FOUND in ~1.4s and the host shows a screenshot without a QR.
+    expect(moduleSource).toContain('var COLD_MOUNT_WAIT_MS = 6000')
+    expect(moduleSource.match(/waitFor\(null, COLD_MOUNT_WAIT_MS\)/g)).toHaveLength(1)
+    // The mount wait runs before the command body reaches for the switch entry.
+    expect(moduleSource.indexOf('waitFor(null, COLD_MOUNT_WAIT_MS)'))
+      .toBeLessThan(moduleSource.indexOf('var entry = qrSwitchCandidate()'))
     // It only ever clicks the unique QR switch, the page's own refresh link and
     // its noScan 重新扫码 view switch; no form fills or submits, and neither
     // the app-confirm button nor the noScan 确认登录 button is ever targeted.

@@ -10,8 +10,11 @@
 (function () {
   var LOGIN_HOST_RE = /^mail\.163\.com$/;
   // The shell may still mount late on a cold load; the worst-case stage sum
-  // (6+5+8+5+4 = 28s) stays inside the Bridge's 30s auth_prepare_qr budget.
+  // (6+5+6+8+5+4 = 34s) exceeds the Bridge's 30s auth_prepare_qr budget only
+  // on paper — the stages are alternatives, and a page that consumed the cold
+  // mount wait has its canvas and never enters the switch path.
   var NO_SCAN_WAIT_MS = 6000;
+  var COLD_MOUNT_WAIT_MS = 6000;
   var SWITCH_WAIT_MS = 8000;
   var REFRESH_WAIT_MS = 5000;
   var RESOLVE_WAIT_MS = 4000;
@@ -140,6 +143,14 @@
     if (!(await refreshExpiredQr())) return { found: false, reason: 'QR_REFRESH_FAILED' };
 
     var element = currentQrElement();
+    if (!element) {
+      // Cold mount: the shell renders first and mailscanlogin draws the QR
+      // canvas seconds later. The QR view is the current page's default, so
+      // wait for the canvas itself before reaching for the switch machinery —
+      // returning QR_ENTRY_NOT_FOUND on a still-mounting page made the host
+      // login flow fall back to a plain screenshot with no QR for the user.
+      element = await waitFor(null, COLD_MOUNT_WAIT_MS);
+    }
     if (!element) {
       var entry = qrSwitchCandidate();
       if (!entry) return { found: false, reason: 'QR_ENTRY_NOT_FOUND' };
