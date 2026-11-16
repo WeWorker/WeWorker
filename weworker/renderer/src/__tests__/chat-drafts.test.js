@@ -4,6 +4,17 @@ import { EMPTY_CHAT_DRAFT, useChatDraftStore } from '../store/chat-drafts.js'
 
 afterEach(() => useChatDraftStore.setState({ drafts: {} }))
 
+test('Skill token metadata follows its draft and cannot decorate different text', () => {
+  const store = useChatDraftStore.getState()
+  store.setText('work:a', '/example next')
+  store.setSkillTokens('work:a', '/example next', [{ start: 0, end: 8, name: 'example' }])
+  assert.equal(useChatDraftStore.getState().drafts['work:a'].skillTokens.items.length, 1)
+  store.setText('work:b', 'other')
+  assert.equal(useChatDraftStore.getState().drafts['work:b'].skillTokens, undefined)
+  store.setText('work:a', 'changed')
+  assert.equal(useChatDraftStore.getState().drafts['work:a'].skillTokens, undefined)
+})
+
 test('conversation and welcome drafts retain independent text and attachments', () => {
   const store = useChatDraftStore.getState()
   store.setText('work:a', '2222\n未发送')

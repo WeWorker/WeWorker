@@ -119,7 +119,7 @@ export function validRecord(r) {
 /**
  * 幂等批量落库。以唯一索引 (client_id, ts, trace_id, tool) 去重，
  * 重复记录被 INSERT OR IGNORE 忽略（容忍客户端 at-least-once 重发）。
- * @param {string} [body.userSource] 用户名来源；hrm/hrm-cache 时触发存量降级行身份修正
+ * @param {string} [body.userSource] 用户名来源；真实名上报(任意来源)触发存量降级行身份修正
  * @returns {{accepted:number, skipped:number}}
  */
 export function insertBatch(db, body) {
@@ -157,12 +157,11 @@ export function insertBatch(db, body) {
       if (res.changes > 0) accepted++;
       else skipped++; // 去重命中
     }
-    // 身份修正(方案 X backfill):客户端经 HRM 解析出真实用户名后,改写该机器
-    // 的存量降级行(client-* / 空 user)。whoami 来源的真实行永不触碰;幂等无害。
-    if (
-      (body.userSource === "hrm" || body.userSource === "hrm-cache") &&
-      clientId && user
-    ) {
+    // 身份修正(backfill):任何带真实名的上报(whoami / os-user / HRM 解析)都会
+    // 改写该机器的存量降级行(client-* / 空 user)——同一 client_id 即同一台机器,
+    // 真实名可信(覆盖"先 whoami 失败后恢复"的机器,否则旧 client-* 行无法自愈)。
+    // 真实名行不受影响;幂等无害。
+    if (clientId && user && !user.startsWith("client-")) {
       db.prepare(
         `UPDATE metrics SET user = ?
          WHERE client_id = ? AND (user IS NULL OR user = '' OR user LIKE 'client-%')`

@@ -2,10 +2,13 @@ import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import InputBar from '../../components/chat/InputBar.jsx'
 import { useChatDraft } from '../../store/chat-drafts.js'
+import { useSettingsStore } from '../../store/settings.js'
 import { FormattedBody } from '../../utils/formatted-body.js'
 import '../../index.css'
 import '../../workspace-refresh.css'
 document.documentElement.classList.add('light')
+// Match app startup: the composer is enabled after default model settings load.
+useSettingsStore.setState({ loaded: true, activeProvider: 'anthropic', model: 'example-model', contextLimit: 200000 })
 window.saveCount = 0
 window.electronAPI = {
   saveFormattedBody: async body => {

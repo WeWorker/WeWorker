@@ -13,6 +13,7 @@ from webwright.models.base import (
     image_part_from_path,
     text_part,
 )
+from webwright.models.thinking import apply_thinking
 
 __all__ = [
     "OpenAIModel",
@@ -126,26 +127,29 @@ class OpenAIModel(BaseModel):
         return self.config.openai_endpoint
 
     def _build_payload(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
+        return self._build_structured_payload(messages, schema=self._response_schema(), schema_name="playwright_step")
+
+    def _build_structured_payload(self, messages: list[dict[str, Any]], *, schema: dict[str, Any], schema_name: str) -> dict[str, Any]:
+        return apply_thinking({
             "model": self.config.model_name,
             "input": _serialize_response_input(messages),
             "max_output_tokens": self.config.max_output_tokens,
             "text": {
                 "format": {
                     "type": "json_schema",
-                    "name": "playwright_step",
-                    "schema": self._response_schema(),
+                    "name": schema_name,
+                    "schema": schema,
                     "strict": True,
                 }
             },
-        }
+        }, effort=self.config.thinking_effort, model=self.config.model_name, protocol="responses")
 
     def _build_text_payload(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
+        return apply_thinking({
             "model": self.config.model_name,
             "input": _serialize_response_input(messages),
             "max_output_tokens": self.config.max_output_tokens,
-        }
+        }, effort=self.config.thinking_effort, model=self.config.model_name, protocol="responses")
 
     def _request_metrics_input(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         return payload.get("input") or []

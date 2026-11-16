@@ -83,8 +83,8 @@ describe('managed built-in models', () => {
     expect(runtime.model).toBe(BUILTIN_PROVIDER.defaultModel)
     expect(saved.api_key).toBe('')
     expect(resolveWebwrightModelConfig(runtime)).toMatchObject({
-      provider_id: 'builtin', protocol: 'openai_chat_completions',
-      base_url: BUILTIN_PROVIDER.webwright.baseUrl, api_key: env.WEWORKER_BUILTIN_API_KEY,
+      provider_id: 'builtin', protocol: BUILTIN_PROVIDER.weworker.protocol,
+      base_url: BUILTIN_PROVIDER.weworker.baseUrl, api_key: env.WEWORKER_BUILTIN_API_KEY,
     })
     expect(buildAnthropicAuthHeaders(runtime.api_key, 'builtin', 'api_key')).toEqual({ authorization: 'Bearer fixture-builtin-key' })
   })
@@ -108,7 +108,7 @@ describe('managed built-in models', () => {
     expect(resolveBuiltinSettings(custom, PROVIDERS, env).active_weworker_protocol).toBe(staleProtocol)
   })
 
-  it('preserves custom settings and independent exploration settings', () => {
+  it('preserves custom settings and ignores retired exploration overrides', () => {
     vi.stubEnv('WEWORKER_BUILTIN_API_KEY', env.WEWORKER_BUILTIN_API_KEY)
     const custom = { active_provider: 'custom', api_key: 'fixture-custom-key' } as Settings
     expect(resolveBuiltinSettings(custom, PROVIDERS, env)).toBe(custom)
@@ -116,7 +116,7 @@ describe('managed built-in models', () => {
       exploration_base_url: 'https://example.org/v1', exploration_use_main_key: false,
       exploration_api_key: 'fixture-independent-key', exploration_model: 'fixture-independent-model',
     } as Settings, PROVIDERS, env)
-    expect(resolveWebwrightModelConfig(runtime)).toMatchObject({ base_url: 'https://example.org/v1', api_key: 'fixture-independent-key', model: 'fixture-independent-model' })
+    expect(resolveWebwrightModelConfig(runtime)).toMatchObject({ base_url: BUILTIN_PROVIDER.weworker.baseUrl, api_key: env.WEWORKER_BUILTIN_API_KEY, model: BUILTIN_PROVIDER.defaultModel })
   })
 
   it('probes both protocols with the deployment credential and redacts reflected errors', async () => {

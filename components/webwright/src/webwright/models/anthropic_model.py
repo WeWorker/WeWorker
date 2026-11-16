@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import random
-from typing import Any
+from webwright.models.thinking import apply_thinking
+from typing import Any, Literal
 
 from webwright.models.base import (
     BaseModel,
@@ -101,6 +102,8 @@ def _usage_from_anthropic_payload(payload: dict[str, Any]) -> dict[str, int]:
     input_tokens = _safe_int(usage.get("input_tokens"))
     output_tokens = _safe_int(usage.get("output_tokens"))
     cached_input_tokens = _safe_int(usage.get("cache_read_input_tokens"))
+    # Anthropic reports uncached input separately from cache reads and writes.
+    input_tokens += cached_input_tokens + _safe_int(usage.get("cache_creation_input_tokens"))
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -138,6 +141,7 @@ class AnthropicModelConfig(BaseModelConfig):
     anthropic_api_key: OptStr = ""
     anthropic_endpoint: OptStr = "https://api.anthropic.com/v1/messages"
     anthropic_version: OptStr = "2023-06-01"
+    anthropic_auth_type: Literal["api_key", "auth_token"] = "api_key"
     max_output_tokens: int = 40000
 
 
@@ -152,7 +156,9 @@ class AnthropicModel(BaseModel):
     def _request_headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
-            "x-api-key": self.config.anthropic_api_key,
+            **({"Authorization": f"Bearer {self.config.anthropic_api_key}"}
+               if self.config.anthropic_auth_type == "auth_token"
+               else {"x-api-key": self.config.anthropic_api_key}),
             "anthropic-version": self.config.anthropic_version,
         }
 
@@ -180,7 +186,9 @@ class AnthropicModel(BaseModel):
 
     def _build_text_payload(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         payload = self._build_payload(messages)
-        payload.pop("output_config")
+        payload["output_config"].pop("format", None)
+        if not payload["output_config"]:
+            payload.pop("output_config")
         return payload
 
     def _build_structured_payload(
@@ -202,7 +210,7 @@ class AnthropicModel(BaseModel):
         }
         if system_prompt:
             payload["system"] = system_prompt
-        return payload
+        return apply_thinking(payload, effort=self.config.thinking_effort, model=self.config.model_name, protocol="anthropic")
 
     def _request_metrics_input(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         return _metrics_input_from_anthropic(payload.get("system"), payload.get("messages") or [])

@@ -117,7 +117,7 @@ export class BrowserControlClient {
     if (this._stopped) return
     let ws
     try {
-      ws = new this._WebSocket(this._url)
+      ws = new this._WebSocket(typeof this._url === 'function' ? this._url() : this._url)
     } catch (error) {
       this._log(`[browser] bridge connection failed: ${error.message}`)
       this._scheduleReconnect()

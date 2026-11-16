@@ -129,14 +129,14 @@ body { -webkit-font-smoothing: antialiased; }
 .welcome-introduction p { color: var(--text-secondary); font-size: var(--font-size-body); line-height: 1.7; margin: 0; }
 .chat-input-surface { --composer-shadow: 0 2px 4px rgb(30 42 75 / 8%), 0 8px 20px rgb(30 42 75 / 6%); border: 1px solid var(--border) !important; border-radius: 20px !important; background: var(--bg-secondary) !important; box-shadow: var(--composer-shadow); transition: border-color .18s, box-shadow .18s; }
 .chat-input-surface:focus-within { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 7%, transparent), var(--composer-shadow); }
-.chat-input-surface textarea { padding: 20px 20px 12px !important; font-size: var(--font-size-body) !important; line-height: 1.7 !important; }
+.chat-input-surface textarea, .chat-input-surface .chat-composer-editor { padding: 20px 20px 12px !important; font-size: var(--font-size-body) !important; line-height: 1.7 !important; }
 .chat-input-surface textarea::placeholder { color: var(--text-muted); }
 .chat-input-surface.chat-input-surface--command,
 html.dark .chat-input-surface.chat-input-surface--command {
   --command-accent: #ff4db8;
   border-color: var(--command-accent) !important;
 }
-.chat-input-surface--command textarea { color: var(--command-accent) !important; caret-color: var(--command-accent); }
+.chat-input-surface--command textarea, .chat-input-surface--command .chat-composer-editor { color: var(--command-accent) !important; caret-color: var(--command-accent); }
 .chat-input-surface--command .chat-input-toolbar {
   --text-primary: var(--command-accent);
   --text-secondary: var(--command-accent);

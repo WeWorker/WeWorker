@@ -8,7 +8,7 @@ import { useWorksStore } from '../../store/works.js'
 import { useScheduledTasksStore } from '../../store/scheduled-tasks.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
-import { backendFetch } from '../../api/http.js'
+import { API, backendFetch } from '../../api/http.js'
 import { TrashIcon } from '../icons/PanelIcons.jsx'
 import { InboxOutlined } from '@ant-design/icons'
 import MessageSquarePlusIcon from '../icons/MessageSquarePlusIcon.jsx'
@@ -36,7 +36,6 @@ const LABEL_OPTIONS = [
 
 export { LABEL_COLORS, LABEL_OPTIONS }
 
-const API = 'http://127.0.0.1:8765'
 
 function formatCopiedMessage(message) {
   const blocks = Array.isArray(message?.content) ? message.content : []

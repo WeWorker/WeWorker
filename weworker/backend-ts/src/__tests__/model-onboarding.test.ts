@@ -5,11 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Settings } from '../config.js'
 import { getProvider } from '../provider-registry.js'
 import { listProviderModels, probeMainConnection } from '../provider-model-services.js'
-import { createExplorationModelService, explorationSettingsPatch, registerExplorationModelRoutes } from '../exploration-model-settings.js'
+import { createExplorationModelService, registerExplorationModelRoutes } from '../exploration-model-settings.js'
 
 const settings = (patch: Partial<Settings> = {}) => ({
   active_provider: 'custom', api_key: 'fixture-main-key', model: 'fixture-model',
-  base_url_custom: 'https://example.com/proxy', openai_base_url_custom: '',
+  base_url_custom: 'https://example.com/proxy', weworker_protocol_custom: 'openai_chat_completions', openai_base_url_custom: '',
   exploration_base_url: '', exploration_api_key: '', exploration_model: '', exploration_use_main_key: true,
   ...patch,
 } as Settings)
@@ -21,7 +21,7 @@ const configuredSettings = (id: string, baseUrl: string) => settings({
   active_model_configuration: id,
   model_configurations: {
     [id]: { provider_id: 'custom', api_key: 'fixture-main-key', model: 'fixture-model',
-      base_url: baseUrl, openai_base_url: '', context_limit: 1000000, auth_type: 'api_key' },
+      base_url: baseUrl, weworker_protocol: 'openai_chat_completions', openai_base_url: '', context_limit: 1000000, auth_type: 'api_key' },
   },
 })
 
@@ -182,10 +182,10 @@ describe('exploration connection preparation', () => {
   it('passes through a complete OpenAI endpoint and rechecks after changing its URL mode', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => chatResponse())
     const service = createExplorationModelService(fetchMock)
-    const full = settings({ openai_base_url_custom: 'https://example.com/inference', openai_base_url_is_full_custom: true })
+    const full = settings({ base_url_custom: 'https://example.com/inference', base_url_is_full_custom: true })
     await service.check(full)
-    expect(service.status(full)).toMatchObject({ status: 'connected', candidate_url_is_full: true })
-    const base = { ...full, openai_base_url_is_full_custom: false }
+    expect(service.status(full)).toMatchObject({ status: 'connected', base_url_is_full: true })
+    const base = { ...full, base_url_is_full_custom: false }
     expect(service.status(base).status).toBe('pending')
     await service.check(base)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
@@ -242,16 +242,6 @@ describe('exploration connection preparation', () => {
     expect(await service.check(settings())).toMatchObject({ ok: true })
   })
 
-  it('saves an explicit address without a connection mode or changing the main configuration', () => {
-    const patch = explorationSettingsPatch({ base_url: 'https://example.org/v1/', use_main_key: true, model: '' })
-    expect(patch).toMatchObject({ exploration_base_url: 'https://example.org/v1', exploration_use_main_key: true, exploration_api_key: '' })
-    expect(patch).not.toHaveProperty('api_key')
-    expect(patch).not.toHaveProperty('base_url_custom')
-  })
-
-  it.each(['https://example.com/v1/chat/completions', 'https://example.com/?token=fixture', 'file:///tmp/fixture'])('rejects invalid exploration addresses: %s', base_url => {
-    expect(() => explorationSettingsPatch({ base_url, use_main_key: true, model: '' })).toThrow()
-  })
 })
 
 async function withRoutes(upstream: typeof fetch, run: (url: string, get: () => Settings, set: (patch: Partial<Settings>) => void) => Promise<void>) {
@@ -268,21 +258,20 @@ async function withRoutes(upstream: typeof fetch, run: (url: string, get: () => 
 const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 describe('exploration settings API', () => {
-  it('verifies, persists and returns an independent complete endpoint without altering its path or query', async () => {
-    const endpoint = 'https://example.org/custom/inference/?version=1&route=a%2Fb'
+  it('rejects legacy independent configuration writes without sending or saving anything', async () => {
     const upstream = vi.fn<typeof fetch>(async () => chatResponse())
     await withRoutes(upstream, async (url, get) => {
-      const response = await post(url, { base_url: endpoint, base_url_is_full: true, use_main_key: true, model: '' })
-      expect(await response.json()).toMatchObject({ ok: true, status: 'independent',
-        base_url: endpoint, base_url_is_full: true, candidate_url: endpoint, candidate_url_is_full: true })
-      expect(upstream.mock.calls.map(([address]) => address)).toEqual([endpoint])
-      expect(get()).toMatchObject({ exploration_base_url: endpoint, exploration_base_url_is_full: true })
-      expect((await post(url, { base_url: endpoint, base_url_is_full: 'true', use_main_key: true, model: '' })).status).toBe(400)
+      const before = structuredClone(get())
+      const response = await post(url, { base_url: 'https://example.org/custom', use_main_key: true, model: '' })
+      expect(response.status).toBe(400)
+      expect((await response.json()).detail).toContain('统一使用对话接口')
+      expect(get()).toEqual(before)
+      expect(upstream).not.toHaveBeenCalled()
     })
   })
 
   it.each([
-    ['check', 'switch'], ['check', 'edit'], ['save', 'switch'], ['save', 'edit'],
+    ['check', 'switch'], ['check', 'edit'],
   ])('rejects an in-flight %s after a configuration address %s', async (action, change) => {
     let release!: (value: Response) => void
     let started!: () => void
@@ -290,8 +279,7 @@ describe('exploration settings API', () => {
     const upstream = vi.fn(() => { started(); return new Promise<Response>(resolve => { release = resolve }) })
     await withRoutes(upstream, async (url, get, set) => {
       set(configuredSettings('model-fixture-a', 'https://example.com/first'))
-      const response = action === 'check' ? post(`${url}/check`, {})
-        : post(url, { base_url: 'https://example.com/exploration', use_main_key: true, model: '' })
+      const response = post(`${url}/check`, {})
       await start
       set(configuredSettings(change === 'switch' ? 'model-fixture-b' : 'model-fixture-a', 'https://example.org/second'))
       release(chatResponse())
@@ -301,26 +289,27 @@ describe('exploration settings API', () => {
     })
   })
 
-  it('returns an editable suggestion without persisting it or requiring main credentials', async () => {
+  it('keeps incomplete shared configuration readable without persisting or verifying it', async () => {
     const upstream = vi.fn(async () => chatResponse())
     await withRoutes(upstream, async (url, get, set) => {
       set({ api_key: '', model: '' })
       const before = { ...get() }
       const data = await (await fetch(url)).json()
-      expect(data).toMatchObject({ base_url: '', candidate_url: 'https://example.com/proxy/v1', suggested: true })
+      expect(data).toMatchObject({ base_url: '', status: 'pending' })
       expect(data).not.toHaveProperty('mode')
       expect(get()).toEqual(before)
       expect(upstream).not.toHaveBeenCalled()
     })
   })
 
-  it('saves an independently verified service and never returns a plaintext key', async () => {
+  it('returns shared configuration status without exposing the key', async () => {
     await withRoutes(vi.fn(async () => chatResponse()), async (url, get) => {
-      const response = await post(url, { base_url: 'https://example.org/v1/', api_key: 'fixture-independent-key', use_main_key: false, model: 'other-model' })
+      const before = structuredClone(get())
+      const response = await post(`${url}/check`, {})
       const data = await response.json()
-      expect(data).toMatchObject({ ok: true, status: 'independent', has_key: true, configured_model: 'other-model', base_url: 'https://example.org/v1' })
-      expect(JSON.stringify(data)).not.toContain('fixture-independent-key')
-      expect(get()).toMatchObject({ api_key: 'fixture-main-key', model: 'fixture-model', exploration_api_key: 'fixture-independent-key' })
+      expect(data).toMatchObject({ ok: true, status: 'connected', has_key: true, effective_model: 'fixture-model', base_url: 'https://example.com/proxy' })
+      expect(JSON.stringify(data)).not.toContain('fixture-main-key')
+      expect(get()).toEqual(before)
     })
   })
 
@@ -328,7 +317,7 @@ describe('exploration settings API', () => {
     await withRoutes(vi.fn(async () => new Response('invalid key', { status: 401 })), async (url, get, set) => {
       set({ exploration_base_url: 'https://example.com/saved' })
       const before = { ...get() }
-      const response = await post(url, { base_url: 'https://example.org/v1', use_main_key: true, model: '' })
+      const response = await post(`${url}/check`, {})
       expect(await response.json()).toMatchObject({ ok: false, error: 'auth_failed' })
       expect(get()).toEqual(before)
     })
@@ -340,7 +329,7 @@ describe('exploration settings API', () => {
     const start = new Promise<void>(resolve => { started = resolve })
     const upstream = vi.fn(() => { started(); return new Promise<Response>(resolve => { release = resolve }) })
     await withRoutes(upstream, async (url, get, set) => {
-      const response = post(url, { base_url: 'https://example.org/v1', use_main_key: true, model: '' })
+      const response = post(`${url}/check`, {})
       await start
       set({ model: 'changed-model' })
       release(chatResponse())

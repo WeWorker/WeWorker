@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('updates:state', handler)
   },
   getHttpAuthToken: () => ipcRenderer.invoke('get-http-auth-token'),
+  getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
   getAppSettings: () => ipcRenderer.invoke('app-settings:get'),
   setAppSettings: (patch) => ipcRenderer.invoke('app-settings:set', patch),
   onOpenDedicatedAgents: (callback) => {

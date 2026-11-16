@@ -134,9 +134,11 @@ export class WebwrightManager {
     modelConfigToken = '',
     explorationInstanceId = '',
     instanceId = '',
+    ports = { backend: 8765, exploration: 8766, bridge: 3711 },
   } = {}) {
     if (!repoRoot) throw new Error('WebwrightManager requires repoRoot')
     this._log = log
+    this._ports = ports
     this._isPackaged = isPackaged
     this._resourcesPath = resourcesPath
     this._repoRoot = repoRoot
@@ -175,9 +177,9 @@ export class WebwrightManager {
     this._stopping = false
     this._status = 'starting'
 
-    if (await this._checkPort(WEBWRIGHT_PORT)) {
+    if (await this._checkPort(this._ports.exploration)) {
       this._status = 'port_in_use'
-      this._log('[webwright] port 8766 is already in use; skipping spawn')
+      this._log(`[webwright] port ${this._ports.exploration} is already in use; skipping spawn`)
       return
     }
 
@@ -212,7 +214,7 @@ export class WebwrightManager {
     }
     args.push(
       '--host', '127.0.0.1',
-      '--port', String(WEBWRIGHT_PORT),
+      '--port', String(this._ports.exploration),
       '--parent-pid', String(process.pid),
       '--exit-on-stdin-close',
     )
@@ -228,7 +230,9 @@ export class WebwrightManager {
         WEWORKER_WEBCLI_ENTRY: this._isPackaged
           ? path.join(this._resourcesPath, 'webcli', 'webcli.cjs')
           : path.join(this._repoRoot, 'webcli', 'index.js'),
-        WEWORKER_MODEL_CONFIG_URL: 'http://127.0.0.1:8765/internal/webwright/model-config',
+        WEWORKER_MODEL_CONFIG_URL: `http://127.0.0.1:${this._ports.backend}/internal/webwright/model-config`,
+        WEWORKER_WEBWRIGHT_URL: this.getUrl(),
+        WEBCLI_BRIDGE_PORT: String(this._ports.bridge),
         WEWORKER_MODEL_CONFIG_TOKEN: this._modelConfigToken,
         WEWORKER_EXPLORATION_INSTANCE_ID: this._explorationInstanceId,
       },
@@ -261,7 +265,7 @@ export class WebwrightManager {
       this._identity = health
       this._status = 'running'
       this._restartAttempts = 0
-      this._log('[webwright] running on http://127.0.0.1:8766')
+      this._log(`[webwright] running on ${this.getUrl()}`)
     } catch (error) {
       if (this._stopping || this._process !== child) return
       this._status = 'error'
@@ -276,10 +280,10 @@ export class WebwrightManager {
     while (Date.now() < deadline) {
       if (this._process !== child) throw new Error('process exited before health check passed')
       try {
-        const response = await this._fetch(`${WEBWRIGHT_URL}/api/health`)
+        const response = await this._fetch(`${this.getUrl()}/api/health`, { signal: AbortSignal.timeout(1500) })
         if (response.ok) {
           const health = await response.json()
-          if (health.ok && health.bind === '127.0.0.1' && String(health.port) === String(WEBWRIGHT_PORT)
+          if (health.ok && health.bind === '127.0.0.1' && String(health.port) === String(this._ports.exploration)
             && (!this._explorationInstanceId || health.instance_id === this._explorationInstanceId)) return health
           lastError = new Error('health response has an invalid bind identity')
         } else {
@@ -358,5 +362,9 @@ export class WebwrightManager {
 
   getIdentity() {
     return this._identity ? { ...this._identity } : null
+  }
+
+  getUrl() {
+    return `http://127.0.0.1:${this._ports.exploration}`
   }
 }

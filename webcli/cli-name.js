@@ -12,7 +12,12 @@ export function cliNameFromPkgName(name) {
 }
 
 let cached;
-export function cliName() {
+export function cliName(options = {}) {
+  // 桌面端内嵌等场景的 env 覆盖:打包注入 WEBCLI_CLI_NAME=webgo 即可让
+  // 内嵌 CLI 输出 webgo/WebGo,无需改 package.json(公开包身份保持不变)。
+  // 覆盖值不写缓存(进程内 env 固定,但隔离了测试与其他调用方的缓存)。
+  const override = options.env?.WEBCLI_CLI_NAME?.trim?.() || process.env.WEBCLI_CLI_NAME?.trim?.();
+  if (override) return override;
   if (cached) return cached;
   try {
     const pkg = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "package.json"), "utf8"));
@@ -24,6 +29,6 @@ export function cliName() {
 }
 
 /** 品牌标签(大写首字母):webgo → WebGo,其余 → WebCLI。用于服务名等展示文案。 */
-export function cliLabel() {
-  return cliName() === "webgo" ? "WebGo" : "WebCLI";
+export function cliLabel(options = {}) {
+  return cliName(options) === "webgo" ? "WebGo" : "WebCLI";
 }

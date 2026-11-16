@@ -22,15 +22,23 @@ def request_tokens(messages: list[dict[str, Any]]) -> int:
 
 
 def is_context_overflow(error: Exception) -> bool:
-    response = getattr(error, "response", None)
-    detail = str(error)
-    if response is not None and getattr(response, "status_code", 0) in {400, 413, 422}:
-        detail += " " + response.text
-    return any(marker in detail.lower() for marker in (
-        "context length", "context_length", "context window", "context_window",
-        "prompt is too long", "prompt too long", "too many tokens", "maximum context",
-        "input tokens exceed", "input is too long",
-    ))
+    # Summary errors keep a user-facing message and retain the provider failure as their cause.
+    seen = set()
+    cause: BaseException | None = error
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        response = getattr(cause, "response", None)
+        detail = str(cause)
+        if response is not None and getattr(response, "status_code", 0) in {400, 413, 422}:
+            detail += " " + response.text
+        if any(marker in detail.lower() for marker in (
+            "context length", "context_length", "context window", "context_window",
+            "prompt is too long", "prompt too long", "too many tokens", "maximum context",
+            "input tokens exceed", "input is too long",
+        )):
+            return True
+        cause = cause.__cause__
+    return False
 
 
 def select_source(history: str, *, ratio: int, context_limit: int, reserved_tokens: int) -> tuple[str, str]:

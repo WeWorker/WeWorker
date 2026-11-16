@@ -260,6 +260,7 @@ class BaseModelConfig(PydanticBaseModel):
     format_error_template: OptStr = DEFAULT_FORMAT_ERROR_TEMPLATE
     attach_observation_screenshot: bool = True
     action_field: str = "bash_command"
+    thinking_effort: str = ""
 
     @field_validator("action_field")
     @classmethod

@@ -22,8 +22,8 @@ export const PORT_IN_USE_MONITOR_INTERVAL_MS = 5000
 //   'free'        — nothing listens, a managed backend may be spawned
 //   'external'    — a standalone WeWorker backend answers /status (dev only)
 //   'port_in_use' — occupied by a foreign or unresponsive process
-export async function resolveBackendAvailability({ checkPort, probeStatus, allowExternal = true }) {
-  const occupied = await checkPort(BACKEND_PORT)
+export async function resolveBackendAvailability({ checkPort, probeStatus, allowExternal = true, port = BACKEND_PORT }) {
+  const occupied = await checkPort(port)
   if (!occupied) return 'free'
   if (allowExternal) {
     const status = await probeStatus(START_PROBE_TIMEOUT_MS)
@@ -89,7 +89,8 @@ export class ExternalBackendMonitor {
 // Either way the manager re-runs the availability decision and recovers
 // without a manual app restart.
 export class PortInUseMonitor {
-  constructor({ checkPort, probeStatus, allowExternal, onRecovered }) {
+  constructor({ checkPort, probeStatus, allowExternal, onRecovered, port = BACKEND_PORT }) {
+    this._port = port
     this._checkPort = checkPort
     this._probeStatus = probeStatus
     this._allowExternal = allowExternal
@@ -119,6 +120,7 @@ export class PortInUseMonitor {
     this._checking = true
     try {
       const availability = await resolveBackendAvailability({
+        port: this._port,
         checkPort: this._checkPort,
         probeStatus: this._probeStatus,
         allowExternal: this._allowExternal,

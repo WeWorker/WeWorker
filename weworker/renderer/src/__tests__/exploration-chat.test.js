@@ -44,7 +44,7 @@ test('waiting and completed runs can continue only when the runner is free', () 
 
 let server, components
 before(async () => {
-  server = await createServer({ configFile: false, root: fileURLToPath(new URL('../../', import.meta.url)), server: { middlewareMode: true }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
+  server = await createServer({ configFile: false, root: fileURLToPath(new URL('../../', import.meta.url)), server: { middlewareMode: true, hmr: false, ws: false, watch: null }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   components = await server.ssrLoadModule('/src/components/website-exploration/ExploreWorkspace.jsx')
 })
 after(async () => { await server?.close() })
@@ -55,7 +55,9 @@ test('composer renders the main chat send icon and lower-right controls without 
   assert.match(html, /aria-label="发送消息"[^>]+disabled/)
   assert.doesNotMatch(html, /追加指令|发送指令/)
   assert.doesNotMatch(html, /回放/)
-  assert.equal((html.match(/<button/g) || []).length, 1)
+  assert.equal((html.match(/class="chat-input-action /g) || []).length, 1)
+  for (const label of ['上传文件', '查看上下文', '模型供应商选择', '模型选择', '思考效果']) assert.ok(html.includes(`aria-label="${label}"`))
+  assert.doesNotMatch(html, /权限模式|chat-permission-picker/)
   assert.doesNotMatch(html, />暂停<|>继续</)
   assert.doesNotMatch(html, /取消本次探索|>取消</)
 })
@@ -146,7 +148,7 @@ test('a single primary button morphs between send arrow and stop square', () => 
   assert.match(running, /chat-input-action-stop/)
   assert.match(running, /aria-label="停止探索"/)
   assert.doesNotMatch(running, /chat-input-action-send/)
-  assert.equal((running.match(/<button/g) || []).length, 1)
+  assert.equal((running.match(/class="chat-input-action /g) || []).length, 1)
   assert.match(render('stop', '', true), /aria-label="停止探索"[^>]+disabled/)
   assert.match(render('send'), /chat-input-action-send/)
   assert.match(render('send'), /aria-label="发送消息"/)
@@ -215,11 +217,31 @@ test('exploration sidebar reuses the main new-chat button and exposes the full l
   assert.match(html, /class="sidebar-new-chat sidebar-conversation-action"/)
   assert.match(html, /aria-label="新探索"/)
   assert.match(html, /anticon-form/)
-  assert.match(html, /工作记录/)
-  assert.doesNotMatch(html, /探索记录|搜索记录或状态|搜索探索记录|<input/)
+  assert.match(html, /sidebar-workspaces-label">探索记录</)
+  assert.doesNotMatch(html, /工作区|工作记录|work-folder/)
+  assert.doesNotMatch(html, /搜索记录或状态|搜索探索记录|<input/)
   const source = readFileSync(new URL('../components/website-exploration/ExploreWorkspace.jsx', import.meta.url), 'utf8')
   assert.match(source, /records\.map/)
   assert.doesNotMatch(source, /setFilter|records\.filter/)
+})
+
+test('pending exploration snapshots keep the layout without loading rows or a premature empty state', () => {
+  const html = renderToStaticMarkup(React.createElement(components.default, { disabled: true, globalBusy: false, activityReady: false }))
+  assert.match(html, /class="wx-history-records" aria-busy="true"><\/div>/)
+  assert.match(html, /<section class="wx-detail" aria-busy="true"><div class="workspace-toolbar"/)
+  assert.doesNotMatch(html, /正在加载|等待执行步骤|从一个网址开始探索|暂时无法加载探索记录/)
+})
+
+test('model checking and development loading do not add visible progress paragraphs', async () => {
+  const { default: Page } = await server.ssrLoadModule('/src/components/website-exploration/WebsiteExplorationPage.jsx')
+  const { default: Develop } = await server.ssrLoadModule('/src/components/website-exploration/DevelopWorkspace.jsx')
+  const page = renderToStaticMarkup(React.createElement(Page, { onOpenSettings() {} }))
+  assert.match(page, /Adapter工坊/)
+  assert.match(page, /aria-busy="true"/)
+  assert.doesNotMatch(page, /正在检查模型连接|正在加载探索|正在加载…/)
+  const development = renderToStaticMarkup(React.createElement(Develop, { toolkitId: 'example', tool: { tool_id: 'read_page' }, disabled: false, globalBusy: false }))
+  assert.match(development, /class="wx-development-workspace" aria-busy="true"/)
+  assert.doesNotMatch(development, /正在加载|正在读取|正在开发/)
 })
 
 test('new URL exploration sends directly from the composer without a separate browser/login step', () => {
@@ -228,8 +250,8 @@ test('new URL exploration sends directly from the composer without a separate br
   assert.doesNotMatch(creation, /打开网址|登录按钮|api\.openBrowser/)
   assert.match(creation, /在下方输入探索目标并发送即可开始/)
   assert.match(creation, /composerInput\.current\?\.focus\(\)/)
-  assert.match(creation, /<ExplorationComposer inputRef=\{composerInput\}/)
-  assert.match(creation, /api\.createSiteExploration\(\{ start_url: startUrl\.trim\(\), instruction \}\)/)
+  assert.match(creation, /<ExplorationComposer[^>]* inputRef=\{composerInput\}/)
+  assert.match(creation, /api\.createSiteExploration\(\{ start_url: startUrl\.trim\(\), instruction,/)
 })
 
 
@@ -318,7 +340,8 @@ test('running records distinguish exploration from adapter generation independen
       assert.match(html, /wx-record-progress-gear/)
       assert.equal(html.includes('is-active'), selected)
       assert.equal(html.includes('aria-current="true"'), selected)
-      assert.doesNotMatch(html, /disabled=/)
+      assert.doesNotMatch(html.slice(0, html.indexOf('>')), /aria-disabled=/)
+      assert.match(html, /title="正在执行，请停止后再删除"[^>]*disabled=/)
     }
   }
   const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, { item: { title: '示例网站', status: 'succeeded' } }))
@@ -340,4 +363,37 @@ test('idle conversations show no lifecycle badge because they can always continu
  }
  const css = readFileSync(new URL('../components/website-exploration/website-exploration.css', import.meta.url), 'utf8')
  assert.match(css, /\.wx-record-progress \{[^}]*color:var\(--accent\)/)
+})
+
+test('flat exploration list shows its generated title and relative time without a hover tooltip', () => {
+  const html = renderToStaticMarkup(React.createElement(components.ExplorationRecord, {
+    item: { title: 'Example conversation', start_url: 'https://example.com/path', created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-02T00:00:00Z' },
+    now: Date.parse('2026-11-02T02:00:00Z'),
+  }))
+  assert.match(html, /wx-record work-list-item/)
+  assert.match(html, /work-list-item__title">Example conversation</)
+  assert.match(html, /work-list-item__time" dateTime="2026-11-02T00:00:00.000Z">2 小时</)
+  assert.doesNotMatch(html.slice(0, html.indexOf('<time')), /\stitle=|https:\/\/example.com\/path/)
+  assert.match(html, /aria-label="重命名 Example conversation"/)
+  assert.match(html, /aria-label="删除 Example conversation"/)
+  assert.doesNotMatch(html, /<small|<strong|work-folder/)
+})
+
+test('exploration uses shared toolbar with its own title, service actions and resize-only sidebar props', async () => {
+  const { default: Toolbar } = await server.ssrLoadModule('/src/components/layout/WorkspaceToolbar.jsx')
+  const toolbar = React.createElement(Toolbar, null, React.createElement('button', { type: 'button' }, '主题'))
+  const html = renderToStaticMarkup(React.createElement(components.ExplorationHeader, {
+    title: 'Example conversation', toolbar, serviceActions: React.createElement('button', { type: 'button' }, '模型设置'),
+  }))
+  assert.equal((html.match(/class="workspace-toolbar"/g) || []).length, 1)
+  assert.match(html, /网站探索工具栏/)
+  assert.match(html, /chat-heading__title/)
+  assert.match(html, /模型设置/)
+  assert.match(html, /主题/)
+  const sidebar = renderToStaticMarkup(React.createElement(components.default, { sidebarWidth: 320, onSidebarResizeStart() {} }))
+  assert.match(sidebar, /width:320px;min-width:320px/)
+  assert.match(sidebar, /role="separator" aria-orientation="vertical"/)
+  const collapsed = renderToStaticMarkup(React.createElement(components.default, { sidebarCollapsed: true, onSidebarResizeStart() {} }))
+  assert.match(collapsed, /display:none/)
+  assert.doesNotMatch(collapsed, /role="separator"/)
 })

@@ -1,8 +1,7 @@
 import { create } from 'zustand'
 import { fetchRouterAliases, fetchSites } from '../api/sites-api.js'
-import { backendFetch } from '../api/http.js'
+import { API, backendFetch } from '../api/http.js'
 
-const API = 'http://127.0.0.1:8765'
 
 async function reloadSites(set) {
   set({ sites: await fetchSites() })

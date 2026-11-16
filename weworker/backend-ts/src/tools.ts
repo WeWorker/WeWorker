@@ -7,6 +7,9 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { getUserDirectory } from './config.js'
 import { listFiles } from './file-tools.js'
+import { fileChanges } from './file-changes.js'
+import { readFileChangesForModel } from './file-change-access.js'
+import { createUnifiedToolGuard } from './user-directory-access.js'
 import { assertPathInsideUserDirectory } from './user-directory-guard.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import { runWithWorkspaceDirectory } from './workspace-access-context.js'
@@ -239,6 +242,7 @@ interface McpServerContext {
   dedicatedAgent?: { agentId: string; ownerUserId: string; actorUserId?: string; taskId?: string }
   /** Trusted per-turn binding; never populated from model-supplied arguments. */
   readQueryScope?: () => ReadQueryScope | null
+  fileChangeReadGuard?: (file: string) => Promise<boolean>
 }
 
 /** Names only: used by the context inspector, never sent as an extra prompt. */
@@ -252,6 +256,7 @@ export function getMcpToolDefinitionSummary(mode: ChannelPermissionMode = 'full'
     'create_scheduled_task',
     'list_scheduled_tasks',
     'list_files',
+    'get_file_changes',
     'send_file_to_user',
     'send_image_to_user',
   ]
@@ -418,6 +423,20 @@ export function buildMcpServer(opts?: McpServerContext) {
 
   const systemTools = [
     ...readQueryTool,
+    tool(
+      'get_file_changes',
+      '只读查询当前对话的文件修改记录。省略 change_id 列出记录；指定后分页读取某个文件的修改前后内容。用户要求恢复时先查看记录并重新读取当前文件，再由你反向修改；本工具不会直接撤回。',
+      {
+        change_id: z.string().max(128).optional().describe('记录编号，来自记录列表或工具完成提示'),
+        file_index: z.number().int().min(0).max(10000).optional().describe('记录中的文件下标，默认 0'),
+        offset: z.number().int().min(0).max(1000000).optional().describe('列表偏移或文件字符偏移，默认 0'),
+        limit: z.number().int().min(1).max(20000).optional().describe('每个版本最多返回字符数，默认 8000'),
+      },
+      async args => toolText(await readFileChangesForModel(fileChanges, currentWorkId(), args, async file => {
+        if (opts?.fileChangeReadGuard && !(await opts.fileChangeReadGuard(file))) return false
+        return (await createUnifiedToolGuard(channelPermissionMode, opts?.workspaceDirectory)('Read', { file_path: file })).behavior !== 'deny'
+      })),
+    ),
     tool(
       'webcli_result',
       `读取 webcli 工具落盘的大结果（large_output 指针）并按需投影成精简文本，避免大模型直接读取超大 JSON。当 webcli 工具返回 type="large_output" 的指针时，用本工具查具体内容。缓存有 ${Math.round(WEBCLI_RESULT_CACHE_TTL_MS / 60000)} 分钟有效期，过期会提示重新调用原查询刷新。`,

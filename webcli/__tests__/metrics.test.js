@@ -186,12 +186,17 @@ describe('whoami 失败降级', () => {
   it('whoami 不可用时 user 降级为 client- 前缀并标记 userSource', async () => {
     vi.resetModules()
     vi.doMock('node:child_process', () => ({ execSync: () => { throw new Error('spawn whoami ENOENT') } }))
+    vi.doMock('node:os', async (importOriginal) => {
+      const actual = await importOriginal()
+      return { ...actual, userInfo: () => null }
+    })
     const mod = await import('../metrics.js')
     const cfg = await mod.buildUploadConfig({ webcliVersion: '1.0.5' })
     expect(cfg.meta.user).toMatch(/^client-[0-9a-f]{8}/)
     expect(cfg.meta.userSource).toBe('client-id-fallback')
     expect(typeof cfg.meta.clientId).toBe('string')
     vi.doUnmock('node:child_process')
+    vi.doUnmock('node:os')
   })
 })
 
@@ -217,8 +222,36 @@ describe('身份缓存与 buildUploadConfig 优先级', () => {
     const file = tmpFile()
     const cfg = await buildUploadConfig({ webcliVersion: 't', identityCacheFile: file, whoamiImpl: () => 'alice' })
     expect(cfg.meta.userSource).toBe('whoami')
-    const cfg2 = await buildUploadConfig({ webcliVersion: 't', identityCacheFile: file, whoamiImpl: () => null })
+    const cfg2 = await buildUploadConfig({ webcliVersion: 't', identityCacheFile: file, whoamiImpl: () => null, osUserImpl: () => null })
     expect(cfg2.meta.userSource).toBe('client-id-fallback')
     expect(cfg2.meta.user).toMatch(/^client-.{8}$/)
+  })
+})
+
+describe('os.userInfo 三级兜底', () => {
+  const tmpFile = () => join(os.tmpdir(), `identity-${randomUUID()}.json`)
+
+  it('whoami 失败 → os.userInfo 用户名(userSource=os-user)', async () => {
+    const file = tmpFile()
+    const cfg = await buildUploadConfig({
+      webcliVersion: 't', identityCacheFile: file,
+      whoamiImpl: () => null, osUserImpl: () => ({ username: 'osuser' }),
+    })
+    expect(cfg.meta.user).toBe('osuser')
+    expect(cfg.meta.userSource).toBe('os-user')
+  })
+  it('whoami 成功时不用 os.userInfo;两者都失败 → client-<id8>', async () => {
+    const file = tmpFile()
+    const cfg = await buildUploadConfig({
+      webcliVersion: 't', identityCacheFile: file,
+      whoamiImpl: () => 'alice', osUserImpl: () => ({ username: 'osuser' }),
+    })
+    expect(cfg.meta.user).toBe('alice')
+    const cfg2 = await buildUploadConfig({
+      webcliVersion: 't', identityCacheFile: file,
+      whoamiImpl: () => null, osUserImpl: () => null,
+    })
+    expect(cfg2.meta.user).toMatch(/^client-.{8}$/)
+    expect(cfg2.meta.userSource).toBe('client-id-fallback')
   })
 })

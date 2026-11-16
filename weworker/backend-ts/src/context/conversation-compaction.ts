@@ -2,6 +2,12 @@ export const CONVERSATION_COMPACTION_TRIGGER_RATIO = 0.9
 export const CONVERSATION_COMPACTION_TARGET_RATIO = 0.55
 export const MIN_CONVERSATION_COMPACTION_TOKENS = 256
 export const DEFAULT_COMPACTION_RATIO = 80
+export const DEFAULT_COMPACTION_MAX_ATTEMPTS = 3
+
+export function normalizeCompactionMaxAttempts(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 10
+    ? value : DEFAULT_COMPACTION_MAX_ATTEMPTS
+}
 
 export function normalizeCompactionRatio(value: unknown): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 99

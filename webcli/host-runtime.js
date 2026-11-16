@@ -42,7 +42,13 @@ export function createHostRuntime(adapterId, routeDomain, requestPrivileged) {
         if (!types.some(type => !type || (type === 'null' ? value === null : type === 'array' ? Array.isArray(value)
           : type === 'integer' ? Number.isInteger(value) : type === 'number' ? typeof value === 'number' && Number.isFinite(value)
           : type === 'object' ? value !== null && typeof value === 'object' && !Array.isArray(value) : typeof value === type))) {
-          throw hostError('INVALID_ARGS', `Invalid argument type: ${name}`);
+          // 报错带 收到类型/期望类型/规避指引:agent(尤其经宿主转发的)一次报错即可自纠,
+          // 无需二次探索。--args JSON 内显式引号可保持字符串类型。
+          const received = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
+          const expected = types.filter(Boolean).join('|');
+          throw hostError('INVALID_ARGS',
+            `Invalid argument type: ${name} (received ${received}, expected ${expected}. ` +
+            `若需传字符串形态的值(如 "[554712]"),请用 --args JSON 并为该值显式加引号,避免 CLI 自动类型推断)`);
         }
         if (definition.enum && !definition.enum.includes(value)) throw hostError('INVALID_ARGS', `Invalid argument value: ${name}`);
       }
