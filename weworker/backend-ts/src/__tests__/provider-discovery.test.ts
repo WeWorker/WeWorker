@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders, validateProviderConnection } from '../provider-discovery.js'
 import { deleteModelConfiguration, publicModelConfigurations, updateModelConfiguration } from '../model-configurations.js'
 import { applySecrets, clearSecretsOnDisk, extractSecrets } from '../settings-secrets.js'
@@ -375,4 +375,98 @@ describe('provider validation', () => {
     expect(providers[0].validation).toMatchObject({ ok: false, reason: 'auth' })
     expect(importDiscoveredProviders(settings(), providers).imported).toEqual([])
   })
+})
+
+describe('connection grouping and legacy migration', () => {
+  const buddyModels = (key = 'fixture-shared-key') => ['model-a', 'model-b'].map(id => ({
+    id, apiKey: key, url: 'https://example.com/v1/chat/completions',
+  }))
+
+  it('groups models across apps by endpoint and key, keeping distinct keys and protocols', async () => {
+    write('.codebuddy/models.json', { models: buddyModels() })
+    write('.workbuddy/models.json', { models: [...buddyModels(), ...buddyModels('fixture-other-key'), {
+      id: 'responses-model', apiKey: 'fixture-shared-key', api: 'openai-responses', url: 'https://example.com/v1',
+    }] })
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }))
+    const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl })
+    expect(providers).toHaveLength(3)
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(providers[0].configuration.custom_models).toEqual(['model-a', 'model-b'])
+    expect(providers[0].legacySourceIds).toHaveLength(4)
+    expect(new Set(providers.map(item => item.sourceId)).size).toBe(3)
+    expect(JSON.stringify(publicDiscoveredProviders(settings(), providers))).not.toContain('fixture-shared-key')
+  })
+
+  it('adds newly discovered models without creating connections or changing selected models', async () => {
+    write('.codebuddy/models.json', { models: buddyModels().slice(0, 1) })
+    const first = importDiscoveredProviders(settings(), (await discover()).providers)
+    const state = { ...settings(), ...first.updates }
+    const id = first.imported[0]
+    write('.codebuddy/models.json', { models: buddyModels().reverse() })
+    const next = importDiscoveredProviders(state, (await discover()).providers)
+    expect(next.imported).toEqual([])
+    expect(next.updated).toBe(1)
+    expect(next.updates.model_configurations![id].model).toBe('model-a')
+    expect(next.updates.model_configurations![id].custom_models).toEqual(['model-a', 'model-b'])
+    expect(importDiscoveredProviders({ ...state, ...next.updates }, (await discover()).providers).updates).toEqual({})
+  })
+
+  it('folds legacy entries into the active ID and keeps renamed or independently configured entries', async () => {
+    write('.codebuddy/models.json', { models: buddyModels() })
+    const providers = (await discover()).providers
+    const item = providers[0]
+    const legacy = (index: number) => ({ ...item.configuration, custom_models: undefined,
+      name: index ? 'CodeBuddy (2)' : 'CodeBuddy', model: index ? 'model-b' : 'model-a',
+      external_source_id: item.legacySourceIds![index],
+    })
+    const state = { ...settings(), active_model_configuration: 'old-b', model_configurations: {
+      'old-a': legacy(0), 'old-b': legacy(1),
+      renamed: { ...legacy(0), name: 'My connection' },
+      tuned: { ...legacy(0), context_limit: 12345 },
+    } }
+    const result = importDiscoveredProviders(state, providers)
+    expect(result.imported).toEqual([])
+    expect(result.merged).toBe(1)
+    expect(Object.keys(result.updates.model_configurations!)).toEqual(['old-b', 'renamed', 'tuned'])
+    expect(result.updates.model_configurations!['old-b']).toMatchObject({ model: 'model-b', external_source_id: item.sourceId })
+    expect(result.updates).not.toHaveProperty('active_model_configuration')
+    expect(state.model_configurations).toHaveProperty('old-a')
+  })
+
+  it('reuses a manually saved connection and respects old and new dismissals', async () => {
+    write('.codebuddy/models.json', { models: buddyModels() })
+    const providers = (await discover()).providers
+    const item = providers[0]
+    const manual = { ...item.configuration, name: 'My endpoint', external_source_id: undefined, external_product: undefined }
+    const result = importDiscoveredProviders({ ...settings(), model_configurations: { manual } }, providers)
+    expect(result.imported).toEqual([])
+    for (const id of [item.sourceId, item.legacySourceIds![0]]) {
+      const state = { ...settings(), dismissed_model_sources: [id] }
+      expect(importDiscoveredProviders(state, providers).imported).toEqual([])
+      expect(importDiscoveredProviders(state, providers, true).imported).toHaveLength(1)
+    }
+  })
+
+  it('groups Harness models across profiles into one connection', async () => {
+    write('.dsh/.credentials.yaml', { version: 1, refs: { DEEPSEEK_API_KEY: 'fixture-harness-key' } })
+    for (const profile of ['desktop', 'web']) write(`.dsh/profiles/${profile}/cordis.patch.yml`, [{
+      id: 'llm-deepseek', config: { models: [{ id: 'model-a' }, { id: 'model-b' }] },
+    }])
+    const { providers } = await discover()
+    expect(providers).toHaveLength(1)
+    expect(providers[0].configuration.custom_models).toEqual(['model-a', 'model-b'])
+    expect(providers[0].legacySourceIds).toHaveLength(4)
+  })
+})
+
+
+it('does not let an old model-based source ID hide a different key on the same URL', async () => {
+  write('.codebuddy/models.json', { models: [{ id: 'same-model', apiKey: 'fixture-new-key', url: 'https://example.com/v1/chat/completions' }] })
+  const providers = (await discover()).providers
+  const item = providers[0]
+  const old = { ...item.configuration, api_key: 'fixture-old-key', external_source_id: item.legacySourceIds![0] }
+  const result = importDiscoveredProviders({ ...settings(), model_configurations: { old } }, providers)
+  expect(result.imported).toHaveLength(1)
+  expect(result.updates.model_configurations!.old.api_key).toBe('fixture-old-key')
+  expect(Object.values(result.updates.model_configurations!).map(c => c.api_key)).toEqual(['fixture-old-key', 'fixture-new-key'])
 })

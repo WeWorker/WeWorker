@@ -19,6 +19,7 @@ export interface ProviderValidation {
 }
 export interface DiscoveredProvider {
   sourceId: string
+  legacySourceIds?: string[]
   product: Product
   configuration: ModelConfiguration
   validation?: ProviderValidation
@@ -74,6 +75,62 @@ export async function validateProviderConnection(
   }
 }
 
+// Connection identity excludes the app and model. Only a digest is exposed.
+function connectionId(configuration: ModelConfiguration): string {
+  const protocol = configuration.weworker_protocol || 'anthropic_messages'
+  const suffix = protocol === 'anthropic_messages' ? '/v1/messages'
+    : protocol === 'openai_responses' ? '/responses' : '/chat/completions'
+  const endpoint = new URL(configuration.base_url_is_full ? configuration.base_url
+    : configuration.base_url.replace(/\/+$/, '') + suffix)
+  const auth = protocol === 'anthropic_messages' ? configuration.auth_type : 'bearer'
+  return createHash('sha256').update(JSON.stringify([
+    endpoint.href.replace(/\/+$/, ''), configuration.api_key, protocol, auth,
+  ])).digest('hex').slice(0, 24)
+}
+
+function sourceIds(item: DiscoveredProvider): string[] {
+  return [item.sourceId, ...(item.legacySourceIds || [])]
+}
+
+function matchesSource(configuration: ModelConfiguration, item: DiscoveredProvider): boolean {
+  return configuration.external_source_id === item.sourceId ||
+    Boolean(item.legacySourceIds?.includes(configuration.external_source_id || '') && sameConnection(configuration, item))
+}
+
+function sameConnection(configuration: ModelConfiguration, item: DiscoveredProvider): boolean {
+  try { return connectionId(configuration) === connectionId(item.configuration) } catch { return false }
+}
+
+function groupedProviders(providers: DiscoveredProvider[]): DiscoveredProvider[] {
+  const groups = new Map<string, DiscoveredProvider>()
+  for (const item of providers) {
+    const id = connectionId(item.configuration)
+    const group = groups.get(id)
+    if (group) {
+      group.legacySourceIds!.push(item.sourceId)
+      group.configuration.custom_models = [...new Set([
+        ...group.configuration.custom_models!, item.configuration.model,
+      ].filter(Boolean))]
+      if (!group.configuration.model) group.configuration.model = item.configuration.model
+    } else groups.set(id, { ...item, sourceId: id, legacySourceIds: [item.sourceId], configuration: {
+      ...item.configuration, external_source_id: id,
+      custom_models: item.configuration.model ? [item.configuration.model] : [],
+    } })
+  }
+  return [...groups.values()]
+}
+
+// Preserve renamed configurations and any differing user settings.
+function canFold(a: ModelConfiguration, b: ModelConfiguration): boolean {
+  const generated = (c: ModelConfiguration) => Boolean(c.external_product) &&
+    (c.name === c.external_product || (c.name || '').startsWith(c.external_product!) &&
+      /^ \(\d+\)$/.test((c.name || '').slice(c.external_product!.length)))
+  const comparable = (c: ModelConfiguration) => Object.fromEntries(Object.entries(c)
+    .filter(([key]) => !['name', 'model', 'custom_models', 'external_source_id', 'external_product'].includes(key))
+    .sort(([a], [b]) => a.localeCompare(b)))
+  return generated(a) && generated(b) && JSON.stringify(comparable(a)) === JSON.stringify(comparable(b))
+}
+
 // Only product configuration files are read. Never run credential helpers or
 // inspect session histories, project directories, browser data or login tokens.
 export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
@@ -118,7 +175,6 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
       if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return
       const normalized = normalizeLlmUrlInput(baseUrl, full)
       const sourceId = createHash('sha256').update(`${product}\0${slot}`).digest('hex').slice(0, 24)
-      if (providers.some(item => item.sourceId === sourceId)) return
       providers.push({ sourceId, product, configuration: {
         name: product, provider_id: 'custom', api_key: apiKey, model: modelName,
         base_url: normalized, base_url_is_full: full, auth_type: authType,
@@ -206,27 +262,29 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
   for (const item of harness.providers) add('DeepSeek Harness', item.slot, item.key, item.url, item.model,
     item.protocol, item.protocol === 'anthropic_messages' ? 'api_key' : 'auth_token')
 
-  // 发现结果必须可用：先校验格式，再用模型列表接口探测一次连通性。
+  const grouped = groupedProviders(providers)
+  // Probe once per connection, not once per model.
   // 校验不通过也保留在列表里（带原因），但导入时会被拒绝。
   if (options.validate !== false && providers.length > 0) {
     const fetchImpl = options.fetchImpl ?? fetch
     const timeoutMs = options.validateTimeoutMs ?? 6000
-    await Promise.all(providers.map(async (item) => {
+    await Promise.all(grouped.map(async (item) => {
       item.validation = await validateProviderConnection(item.configuration, fetchImpl, timeoutMs)
     }))
   }
-  return { providers, issues: [...issues] }
+  return { providers: grouped, issues: [...issues] }
 }
 
 export function publicDiscoveredProviders(settings: Settings, discovered: DiscoveredProvider[]) {
   return discovered.map(item => {
     const existing = Object.entries(settings.model_configurations || {})
-      .find(([, configuration]) => configuration.external_source_id === item.sourceId)
+      .find(([, configuration]) => matchesSource(configuration, item) || sameConnection(configuration, item))
     return {
       source_id: item.sourceId,
       product: item.product,
       name: existing?.[1].name || item.configuration.name,
       model: item.configuration.model,
+      models: item.configuration.custom_models || [],
       base_url: item.configuration.base_url,
       weworker_protocol: item.configuration.weworker_protocol,
       imported: Boolean(existing),
@@ -242,26 +300,57 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
   const dismissed = new Set(Array.isArray(settings.dismissed_model_sources) ? settings.dismissed_model_sources : [])
   const imported: string[] = []
   let existing = 0
+  let merged = 0
+  let updated = 0
+  let changed = false
   for (const item of discovered) {
     // 自动导入只接受校验通过的来源；用户手动导入则由用户决定（列表里仍然展示）。
     if (!manual && item.validation && !item.validation.ok) continue
-    if (Object.values(configurations).some(configuration => configuration.external_source_id === item.sourceId)) { existing++; continue }
-    if (!manual && dismissed.has(item.sourceId)) continue
+    const matches = Object.entries(configurations).filter(([, configuration]) =>
+      matchesSource(configuration, item) || sameConnection(configuration, item))
+    const match = matches.find(([id]) => id === settings.active_model_configuration) || matches[0]
+    if (match) {
+      existing++
+      const [id, saved] = match
+      // An edited source is preserved; do not add models from its former route.
+      if (!sameConnection(saved, item)) continue
+      const models = new Set([...(saved.custom_models || []), saved.model,
+        ...(item.configuration.custom_models || []), item.configuration.model].filter(Boolean))
+      for (const [otherId, other] of matches) {
+        if (otherId === id || !other.external_source_id || !canFold(saved, other)) continue
+        for (const model of [...(other.custom_models || []), other.model].filter(Boolean)) models.add(model)
+        delete configurations[otherId]
+        merged++
+        changed = true
+      }
+      const next = { ...saved, custom_models: [...models],
+        ...(saved.external_source_id ? { external_source_id: item.sourceId } : {}),
+      }
+      if (JSON.stringify(next) !== JSON.stringify(saved)) {
+        configurations[id] = next
+        updated++
+        changed = true
+      }
+      continue
+    }
+    if (!manual && sourceIds(item).some(id => dismissed.has(id))) continue
     const usedNames = new Set(Object.values(configurations).map(configuration => configuration.name))
     let name: string = item.product
     for (let suffix = 2; usedNames.has(name); suffix++) name = `${item.product} (${suffix})`
     const id = `model-discovered-${item.sourceId}`
     if (Object.hasOwn(configurations, id)) { existing++; continue }
-    configurations[id] = { ...item.configuration, name }
-    dismissed.delete(item.sourceId)
+    configurations[id] = { ...item.configuration, name,
+      custom_models: [...new Set([...(item.configuration.custom_models || []), item.configuration.model].filter(Boolean))],
+    }
+    for (const sourceId of sourceIds(item)) dismissed.delete(sourceId)
     imported.push(id)
   }
-  const updates: Partial<Settings> = imported.length ? {
+  const updates: Partial<Settings> = imported.length || changed ? {
     model_configurations: configurations, dismissed_model_sources: [...dismissed],
   } : {}
   // Existing working selections always win; only fill an unconfigured setup.
   const ready = imported.find(id => configurations[id].model)
   if (ready && !settings.api_key?.trim()) Object.assign(updates,
     activateModelConfiguration({ ...settings, ...updates }, ready), { onboarding_completed: true })
-  return { updates, imported, existing }
+  return { updates, imported, existing, merged, updated }
 }
