@@ -85,14 +85,14 @@ describe('digestWorkLog (field-compact view)', () => {
   it('starts a section per turn and skips corrupt lines', () => {
     const raw = [
       '{"time":"2026-11-14T12:00:00.000Z","type":"route_diagnostic","turnId":"aaaa1111","ata":{"phase":"route_config"}}', // torn write
-      envelope('2026-11-14T12:00:01.000Z', 'message_saved', { role: 'user', content: [{ type: 'text', text: '第一轮' }] }, 'aaaa1111'),
-      envelope('2026-11-14T12:05:00.000Z', 'message_saved', { role: 'user', content: [{ type: 'text', text: '第二轮' }] }, 'bbbb2222'),
+      envelope('2026-11-14T12:00:01.000Z', 'message_saved', { id: 'msg-aaaa1111', role: 'user', content: [{ type: 'text', text: '第一轮' }] }, 'aaaa1111'),
+      envelope('2026-11-14T12:05:00.000Z', 'message_saved', { id: 'msg-bbbb2222', role: 'user', content: [{ type: 'text', text: '第二轮' }] }, 'bbbb2222'),
     ].join('\n') + '\n'
     const out = digestWorkLog(raw, 'work-digest')
     expect(out).toContain('── 第 1 轮 · aaaa1111 ──')
     expect(out).toContain('── 第 2 轮 · bbbb2222 ──')
     expect(out).toContain('| message_saved | id=') // envelope fields are gone; raw data fields stay
-    expect(out).toContain('text=第一轮')
+    expect(out).toContain('content=[{"type":"text","text":"第一轮"}]')
     expect(out).not.toContain('"ata"')
   })
 })

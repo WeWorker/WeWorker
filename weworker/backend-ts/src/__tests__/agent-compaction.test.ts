@@ -322,7 +322,9 @@ describe('agent conversation compaction', () => {
       close() {},
     }))
     const messages = [message('current', 'INPUT-' + 'x'.repeat(2_000) + '-END')]
+    const streamed: string[] = []
     for await (const event of streamChat(messages, settings, undefined, { ...options, streaming: false })) {
+      if (event.type === 'text_delta' && event.content) streamed.push(event.content)
       if (event.type === 'tool_call_result') {
         expect(fs.readFileSync(path.join(mocks.directory, 'logs', options.workId + '.log'), 'utf8')).toContain(event.result)
       }
@@ -331,7 +333,10 @@ describe('agent conversation compaction', () => {
     expect(text).toContain('INPUT-' + 'x'.repeat(2_000) + '-END')
     expect(text).toContain(first)
     expect(text).toContain(second)
-    expect(text).toContain('ANSWER-END')
+    // The answer reaches the caller as complete text; the log itself only keeps
+    // message_saved/message_updated entries, never per-fragment text_delta lines.
+    expect(streamed.join('')).toContain('ANSWER-END')
+    expect(text).not.toContain('"type":"text_delta"')
     expect(text).toContain('"status":"completed"')
     expect(text).not.toContain(settings.api_key)
   })
