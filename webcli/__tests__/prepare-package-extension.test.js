@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import { symlinkSync } from 'node:fs'
 import os from 'node:os'
@@ -144,3 +145,18 @@ describe('webgo packaged worker', () => {
     expect(worker).not.toContain('ws://localhost:3711')
   })
 })
+
+it('npm archive includes CLI startup and lazy browser/service dependencies', () => {
+  const root = new URL('../', import.meta.url)
+  const npmCli = process.env.npm_execpath || (process.platform === 'win32'
+    ? path.join(path.dirname(execFileSync('where.exe', ['npm.cmd'], { encoding: 'utf8' }).trim().split(/\r?\n/)[0]), 'node_modules/npm/bin/npm-cli.js')
+    : null)
+  const args = ['pack', '--dry-run', '--ignore-scripts', '--json']
+  const output = execFileSync(npmCli ? process.execPath : 'npm', npmCli ? [npmCli, ...args] : args, {
+    cwd: root, encoding: 'utf8', timeout: 30000,
+  })
+  const files = new Set(JSON.parse(output)[0].files.map(file => file.path))
+  for (const name of ['cli-name.js', 'stdout-flush.js', 'service-spawn.js', 'cdp-websocket.js']) {
+    expect(files.has(name), `missing runtime dependency: ${name}`).toBe(true)
+  }
+}, 35000)

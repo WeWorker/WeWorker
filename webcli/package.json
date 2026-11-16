@@ -164,7 +164,11 @@
     "decision-api-key.js",
     "host-account-lock.js",
     "host-keychain-store.js",
-    "scripts/verify-host-keychain.mjs"
+    "scripts/verify-host-keychain.mjs",
+    "cli-name.js",
+    "service-spawn.js",
+    "cdp-websocket.js",
+    "stdout-flush.js"
   ],
   "scripts": {
     "start": "node index.js",
