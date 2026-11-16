@@ -7,6 +7,9 @@ node_modules/
 .env.*
 !.env.example
 
+# 对话日志
+chatlogs
+
 # npm 发布凭证（token 等同密码，绝不入库）
 .npmrc
 .npmrc.*
