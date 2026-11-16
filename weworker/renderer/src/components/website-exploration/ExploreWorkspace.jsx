@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import ChatView from '../chat/ChatView.jsx'
-import FileChangesCard from '../chat/FileChangesCard.jsx'
-import { useFileChangesStore } from '../../store/file-changes.js'
 import { useUserFilesStore } from '../../store/user-files.js'
 import WorkspaceToolbar from '../layout/WorkspaceToolbar.jsx'
 import { formatConversationAge } from '../../utils/conversation-age.js'
@@ -366,10 +364,6 @@ export function UserIntervention({ issue, disabled, onOpen, onContinue }) {
 }
 
 function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, modelReady, onBusyChange, renderHeader }) {
-  useEffect(() => () => {
-    const panel = useFileChangesStore.getState()
-    if (panel.scope === 'exploration' && panel.workId === id) panel.closePanel()
-  }, [id])
   const [sessionModelReady, setSessionModelReady] = useState(false)
   const composerInput = useRef(null)
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
@@ -420,7 +414,6 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
       {snapshot.data && <article className="wx-chat-message wx-chat-user"><div className="wx-user-bubble"><p className="wx-url">{data.start_url}</p><p>{data.instruction || '请探索这个网站的主要功能。'}</p><ExplorationAttachments files={data.attachments} /></div></article>}
       {(data.timeline || []).map((item, index) => item.type === 'agent_step' ? <ExplorationStep key={item.id || 'step-' + (item.step ?? index)} item={item} />
         : <article className={'wx-chat-message ' + (item.type === 'user' ? 'wx-chat-user' : 'wx-chat-assistant')} key={'message-' + index}><div className={item.type === 'user' ? 'wx-user-bubble' : ''}><p>{item.content}</p><ExplorationAttachments files={item.attachments} /></div></article>)}
-      {snapshot.data && <FileChangesCard scope="exploration" workId={id} streaming={isExplorationInProgress(data)} revision={`${data.status}:${data.timeline?.length || 0}`} />}
       {!snapshot.data && <p className="wx-muted" role="status">探索记录暂不可用，仍可继续生成网站适配器。</p>}
       {data.status === 'succeeded' && <article className="wx-chat-message wx-chat-assistant">
         <CompletionQuestion key={data.last_run_id} submitted={submitted} developing={transferring} developDisabled={developDisabled} continueDisabled={!controls.canSend}

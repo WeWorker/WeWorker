@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import MessageItem from './MessageItem.jsx'
-import { useFileChangesStore } from '../../store/file-changes.js'
 import SaveCodewordModal from './SaveCodewordModal.jsx'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
 import { useWorksStore } from '../../store/works.js'
@@ -132,7 +131,6 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
   const prevWorkIdRef = useRef(workId)
   useEffect(() => {
     if (prevWorkIdRef.current !== workId) {
-      useFileChangesStore.getState().closePanel()
       prevWorkIdRef.current = workId
       isNearBottomRef.current = true
       setShowNewMsg(false)
@@ -151,11 +149,6 @@ export default function MessageList({ messages, streaming, compactionStatus, wor
   }, [workId])
 
   useEffect(() => () => onSelectModeChange?.(false), [onSelectModeChange])
-  useEffect(() => () => {
-    const panel = useFileChangesStore.getState()
-    if (panel.scope === 'chat' && panel.workId === workId) panel.closePanel()
-  }, [workId])
-
   // 压缩期间轮询后端心跳：有产出就是「压缩中」，长时间无产出才是「可能卡住」。
   const [compactionHeartbeat, setCompactionHeartbeat] = useState(null)
   useEffect(() => {
