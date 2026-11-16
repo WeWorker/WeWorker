@@ -49,10 +49,9 @@ import {
   findDuplicateCustomSkillName,
   findDuplicateCustomSkillNameForSkill,
 } from '../../utils/custom-skill-duplicates.js'
-import { backendFetch } from '../../api/http.js'
+import { API as SKILLS_API, backendFetch } from '../../api/http.js'
 import { showAlert, showConfirm } from '../../store/dialog.js'
 
-const SKILLS_API = 'http://127.0.0.1:8765'
 const PUBLIC_BUILTIN_SKILL_NAMES = new Set(['webcli', 'personal-codewords', 'complex-task-planner'])
 const PUBLIC_BUILTIN_DEFAULT_DESCRIPTIONS = {
   webcli: 'WebCLI 浏览器自动化',

@@ -11,7 +11,7 @@ export default function DialogHost() {
     if (!current) return
     panelRef.current?.querySelector('button, input')?.focus()
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && current.dismissible !== false) {
         event.preventDefault()
         resolve(false)
       }
@@ -27,7 +27,7 @@ export default function DialogHost() {
       className="weworker-dialog-overlay"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) resolve(false)
+        if (event.target === event.currentTarget && current.dismissible !== false) resolve(false)
       }}
     >
       <section

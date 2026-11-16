@@ -2257,48 +2257,6 @@
   font-weight: 650;
 }
 
-.settings-interface-section--advanced {
-  margin-top: 10px;
-  padding: 14px 0 0;
-}
-
-.model-settings-detail-card .settings-field > .settings-btn-secondary[aria-expanded] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  min-height: 36px;
-  padding: 8px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 13px;
-  text-align: left;
-}
-
-.model-settings-detail-card .settings-field > .settings-btn-secondary[aria-expanded='true'],
-.model-settings-detail-card .settings-field > .settings-btn-secondary[aria-expanded]:focus-visible {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-  box-shadow: none;
-  outline: none;
-}
-
-.model-settings-detail-card .settings-field > .settings-btn-secondary[aria-expanded='true'] .settings-advanced-toggle__icon {
-  color: var(--accent);
-}
-
-.settings-advanced-toggle__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1;
-}
-
 .settings-action-row {
   display: flex;
   justify-content: space-between;

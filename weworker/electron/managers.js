@@ -1,4 +1,4 @@
-import { spawn, execFile } from 'child_process'
+import { spawn } from 'child_process'
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 import os from 'os'
@@ -80,14 +80,15 @@ export function readConfiguredUserFilesDir() {
 }
 
 export class BridgeManager {
-  constructor(log, reportDir = '') {
+  constructor(log, reportDir = '', ports = { backend: 8765, exploration: 8766, bridge: 3711 }) {
+    this._ports = ports
     this._process = null
     // 状态枚举：
     //   stopped       — 还没启动
     //   starting      — 启动中
     //   running       — 自己启动的 bridge 已就绪
     //   error         — 启动失败（非端口冲突）
-    //   port_in_use   — 启动前探测发现 3711 已被外部进程占用，未启动自己的 bridge
+    //   port_in_use   — 所选端口在启动前被占用，未启动自己的 bridge
     this._status = 'stopped'
     this._log = log || console.log
     this._reportDir = reportDir || os.tmpdir()
@@ -105,18 +106,20 @@ export class BridgeManager {
     this._stopping = false
     this._status = 'starting'
 
-    // 启动前探测端口：避免和外部 bridge 冲突。任何人占着 3711（webcli daemon、其他
-    // 项目仓库残留的老 bridge、另一个 WeWorker 实例）都会被识别出来，统一处理。
-    const occupied = await isPortOccupied(3711)
+    // Recheck the selected port in case another process bound it during startup.
+    const occupied = await isPortOccupied(this._ports.bridge)
     if (occupied) {
       this._status = 'port_in_use'
-      this._log('[bridge] port 3711 already in use by another process — skipping bridge spawn')
+      this._log(`[bridge] port ${this._ports.bridge} already in use by another process — skipping bridge spawn`)
       return
     }
 
     let cmd, args
     const bridgeEnv = {
       ...adapterEnvironment(),
+      WEBCLI_BRIDGE_PORT: String(this._ports.bridge),
+      WEWORK_PORT: String(this._ports.backend),
+      WEWORKER_WEBWRIGHT_URL: `http://127.0.0.1:${this._ports.exploration}`,
       NODE_OPTIONS: [process.env.NODE_OPTIONS, '--max-old-space-size=4096'].filter(Boolean).join(' '),
       WEBCLI_AI_REPORT_DIR: this._reportDir,
       WEBCLI_GENERATION_REPORT_DIR: this._reportDir,
@@ -211,13 +214,13 @@ export class BridgeManager {
     }
 
     try {
-      await waitForPort(3711, 10000)
+      await waitForPort(this._ports.bridge, 10000)
       this._status = 'running'
       this._restartAttempts = 0
-      this._log('[bridge] running on port 3711')
+      this._log(`[bridge] running on port ${this._ports.bridge}`)
     } catch {
       this._status = 'error'
-      this._log('[bridge] failed to start (port 3711 not ready)')
+      this._log(`[bridge] failed to start (port ${this._ports.bridge} not ready)`)
     }
   }
 
@@ -248,11 +251,6 @@ export class BridgeManager {
       try { proc.kill('SIGTERM') } catch { try { proc.kill() } catch {} }
       await exited
     }
-
-    // 兜底清理：kill 子进程后端口可能仍被占（utilityProcess 的孙子进程、孤儿等），
-    // 显式 kill 掉占着 3711 的进程，确保下次启动不会撞到自己留下的残骸。
-    // 仅在我们确实启动过自己的 bridge 时才做（避免误杀启动时检测到的外部 bridge）。
-    await killOwnersOfPort(3711, this._log)
 
     this._status = 'stopped'
   }
@@ -286,7 +284,8 @@ export class BridgeManager {
 }
 
 export class NodeManager {
-  constructor(log, logFile, httpAuthToken, webwrightHome = resolveWebwrightHome(), modelConfigToken = '', explorationInstanceId = '') {
+  constructor(log, logFile, httpAuthToken, webwrightHome = resolveWebwrightHome(), modelConfigToken = '', explorationInstanceId = '', ports = { backend: 8765, exploration: 8766, bridge: 3711 }) {
+    this._ports = ports
     this._process = null
     this._status = 'stopped'
     this._log = log || console.log
@@ -341,9 +340,10 @@ export class NodeManager {
     // backend; only a foreign or truly unresponsive holder leads to
     // port_in_use, and that state self-heals via _monitorPortInUse.
     const availability = await resolveBackendAvailability({
+      port: this._ports.backend,
       checkPort: isPortOccupied,
       probeStatus: (timeout) => probeHttpJson(
-        'http://127.0.0.1:8765/status',
+        `${this.getUrl()}/status`,
         timeout,
         this._httpAuthToken,
       ),
@@ -352,13 +352,13 @@ export class NodeManager {
     if (availability === 'external') {
       this._status = 'external_running'
       this._restartAttempts = 0
-      this._log('[node] using standalone backend already running on port 8765')
+      this._log(`[node] using standalone backend already running on port ${this._ports.backend}`)
       this._monitorExternalBackend()
       return
     }
     if (availability === 'port_in_use') {
       this._status = 'port_in_use'
-      this._log('[node] port 8765 already in use by another process — skipping backend spawn')
+      this._log(`[node] port ${this._ports.backend} already in use by another process — skipping backend spawn`)
       this._monitorPortInUse(!app.isPackaged)
       return
     }
@@ -375,7 +375,9 @@ export class NodeManager {
         execArgv: ['--experimental-sqlite'],
         env: {
           ...buildWebwrightEnvironment(adapterEnvironment(), this._webwrightHome),
-          WEWORK_PORT: '8765',
+          WEWORK_PORT: String(this._ports.backend),
+          WEWORKER_WEBWRIGHT_URL: `http://127.0.0.1:${this._ports.exploration}`,
+          WEBCLI_BRIDGE_PORT: String(this._ports.bridge),
           WEWORK_LOG_FILE: this._logFile,
           WEWORKER_HTTP_TOKEN: this._httpAuthToken,
           WEWORKER_BACKEND_INSTANCE_ID: backendInstanceId,
@@ -412,7 +414,9 @@ export class NodeManager {
         env: {
           ...buildWebwrightEnvironment(adapterEnvironment(), this._webwrightHome),
           ELECTRON_RUN_AS_NODE: '1',
-          WEWORK_PORT: '8765',
+          WEWORK_PORT: String(this._ports.backend),
+          WEWORKER_WEBWRIGHT_URL: `http://127.0.0.1:${this._ports.exploration}`,
+          WEBCLI_BRIDGE_PORT: String(this._ports.bridge),
           WEWORK_LOG_FILE: this._logFile,
           WEWORKER_HTTP_TOKEN: this._httpAuthToken,
           WEWORKER_BACKEND_INSTANCE_ID: backendInstanceId,
@@ -444,17 +448,17 @@ export class NodeManager {
 
     try {
       await waitForHttpInstance(
-        'http://127.0.0.1:8765/status',
+        `${this.getUrl()}/status`,
         20000,
         this._httpAuthToken,
         backendInstanceId,
       )
       this._status = 'running'
       this._restartAttempts = 0
-      this._log('[node] backend running on port 8765')
+      this._log(`[node] backend running on port ${this._ports.backend}`)
     } catch {
       this._status = 'error'
-      this._log('[node] failed to start (http://127.0.0.1:8765/status not ready)')
+      this._log(`[node] failed to start (${this.getUrl()}/status not ready)`)
     }
   }
 
@@ -497,6 +501,10 @@ export class NodeManager {
     if (!wasStopping && code !== 0) this._scheduleRestart()
   }
 
+  getUrl() {
+    return `http://127.0.0.1:${this._ports.backend}`
+  }
+
   _scheduleRestart() {
     if (this._restartTimer) return
     this._restartAttempts += 1
@@ -516,7 +524,7 @@ export class NodeManager {
     if (this._externalMonitor) return
     this._externalMonitor = new ExternalBackendMonitor({
       probeStatus: (timeout) => probeHttpJson(
-        'http://127.0.0.1:8765/status',
+        `${this.getUrl()}/status`,
         timeout,
         this._httpAuthToken,
       ),
@@ -533,9 +541,10 @@ export class NodeManager {
   _monitorPortInUse(allowExternal) {
     if (this._portInUseMonitor) return
     this._portInUseMonitor = new PortInUseMonitor({
+      port: this._ports.backend,
       checkPort: isPortOccupied,
       probeStatus: (timeout) => probeHttpJson(
-        'http://127.0.0.1:8765/status',
+        `${this.getUrl()}/status`,
         timeout,
         this._httpAuthToken,
       ),
@@ -544,8 +553,8 @@ export class NodeManager {
         this._portInUseMonitor = null
         if (this._stopping) return
         this._log(availability === 'free'
-          ? '[node] port 8765 is now free; starting managed backend'
-          : '[node] standalone backend on port 8765 is reachable again; using it')
+          ? `[node] port ${this._ports.backend} is now free; starting managed backend`
+          : `[node] standalone backend on port ${this._ports.backend} is reachable again; using it`)
         void this.start()
       },
     })
@@ -568,32 +577,4 @@ function waitForPort(port, timeout) {
     }
     attempt()
   })
-}
-
-// 用 lsof 找出监听该端口的 PID 并 SIGTERM 杀掉。退出 WeWorker 时调用，
-// 兜底清掉自己启动的 bridge 残骸（utilityProcess 孙子进程、孤儿等）。
-// 仅在 macOS / Linux 上工作；Windows 上 lsof 不存在，会静默跳过。
-async function killOwnersOfPort(port, log) {
-  if (process.platform === 'win32') return
-  try {
-    const { stdout } = await new Promise((resolve, reject) => {
-      execFile('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], { timeout: 2000 }, (err, stdout, stderr) => {
-        // lsof 无匹配时返回非零退出码，不算错误
-        if (err && err.code !== 1) return reject(err)
-        resolve({ stdout: stdout || '' })
-      })
-    })
-    const pids = stdout.split('\n').map((s) => s.trim()).filter(Boolean)
-    if (pids.length === 0) return
-    for (const pid of pids) {
-      try {
-        process.kill(parseInt(pid, 10), 'SIGTERM')
-        log?.(`[bridge] killed leftover process holding port ${port}: PID ${pid}`)
-      } catch (err) {
-        log?.(`[bridge] failed to kill PID ${pid}: ${err.message}`)
-      }
-    }
-  } catch (err) {
-    log?.(`[bridge] killOwnersOfPort failed: ${err.message}`)
-  }
 }

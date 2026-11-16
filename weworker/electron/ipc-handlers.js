@@ -422,6 +422,7 @@ export function registerIpcHandlers(bridgeManager, pythonManager, webwrightManag
   ipcMain.handle('updates:install', () => updateManager?.installUpdate?.() || null)
 
   ipcMain.handle('get-http-auth-token', () => httpAuthToken || '')
+  ipcMain.handle('get-backend-url', () => pythonManager.getUrl())
 
   ipcMain.handle('focus-main-window', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -453,7 +454,7 @@ export function registerIpcHandlers(bridgeManager, pythonManager, webwrightManag
     const close = () => controller.abort()
     event.sender.once('destroyed', close)
     try {
-      const response = await fetch('http://127.0.0.1:8765/api/website-exploration/toolkits/' + toolkitId + '/export', {
+      const response = await fetch(pythonManager.getUrl() + '/api/website-exploration/toolkits/' + toolkitId + '/export', {
         headers: { 'X-WeWorker-Auth': httpAuthToken }, redirect: 'error', signal: controller.signal,
       })
       if (!response.ok || !response.body) throw new Error('导出失败，请刷新正式验证状态后重试')

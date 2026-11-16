@@ -17,7 +17,14 @@ let current = null;
 export function normalizeBrowserInstance(value) {
   if (!value || typeof value !== 'object') return null;
   if (value.kind !== 'dedicated' || typeof value.token !== 'string' || !value.token) return null;
-  return { kind: 'dedicated', token: value.token };
+  const bridgePort = value.bridgePort;
+  return { kind: 'dedicated', token: value.token,
+    ...(Number.isInteger(bridgePort) && bridgePort > 0 && bridgePort <= 65535 ? { bridgePort } : {}),
+  };
+}
+
+export function browserBridgeUrl(defaultUrl = 'ws://localhost:3711') {
+  return current?.bridgePort ? `ws://127.0.0.1:${current.bridgePort}` : defaultUrl;
 }
 
 export async function loadBrowserInstance(storage = chrome.storage.local) {

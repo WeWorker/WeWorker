@@ -93,6 +93,16 @@ class RuntimeLauncher:
         result = dict(os.environ if environ is None else environ)
         if extra:
             result.update(extra)
+        if (
+            not self.frozen
+            and sys.platform == "win32"
+            and result.get("WEWORKER_BROWSER_MANAGED") == "1"
+            and result.get("WEWORKER_WEBCLI_NODE")
+        ):
+            # Managed source workers use the host's working Node runtime. The
+            # frozen distribution selects its bundled Node in shared_node.py.
+            result["PLAYWRIGHT_NODEJS_PATH"] = result["WEWORKER_WEBCLI_NODE"]
+            result["ELECTRON_RUN_AS_NODE"] = "1"
         return _with_loopback_no_proxy(result)
 
     def external_process_environment(

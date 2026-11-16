@@ -1,5 +1,10 @@
-import React, { useEffect, useId, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import ChatView from '../chat/ChatView.jsx'
+import FileChangesCard from '../chat/FileChangesCard.jsx'
+import { useFileChangesStore } from '../../store/file-changes.js'
+import { useUserFilesStore } from '../../store/user-files.js'
+import WorkspaceToolbar from '../layout/WorkspaceToolbar.jsx'
+import { formatConversationAge } from '../../utils/conversation-age.js'
 import { explorationDevelopmentPermissionSettings } from '../../utils/chat-permission-preferences.js'
 import { useWorksStore } from '../../store/works.js'
 import { useMessageQueueStore } from '../../store/message-queue.js'
@@ -8,15 +13,33 @@ import * as api from '../../api/website-exploration-api.js'
 import { continueWebsiteExploration, finishExplorationTransfer, rememberDevelopmentSession, startDevelopmentSession, useWebsiteExplorationStore as useStore } from '../../store/website-exploration.js'
 import { useExplorationDevelopmentHandoffsStore } from '../../store/exploration-development-handoffs.js'
 import { explorationComposerMode, explorationControls, explorationEntryId, isExplorationInProgress, isExplorationUrl, shouldSubmitExploration, sortExplorations } from '../../utils/exploration-chat.js'
-import { ErrorMessage, JsonView, RequiredMark, ResourceImage, ScrollArea, Status, useAction, useDraft, useSnapshot } from './shared.jsx'
+import { ErrorMessage, RequiredMark, ScrollArea, Status, useAction, useDraft, useSnapshot } from './shared.jsx'
+import { AttachmentTray } from '../chat/InputBar.jsx'
+import { useSettingsStore } from '../../store/settings.js'
+import { getPathsFromPasteEvent, mergeAttachmentPaths } from '../../utils/clipboard-files.js'
+import ExplorationModelSelector from './ExplorationModelSelector.jsx'
+import { TrashIcon } from '../icons/PanelIcons.jsx'
+import { showConfirm } from '../../store/dialog.js'
+import ExplorationStep, { ExplorationStatus } from './ExplorationStep.jsx'
 
-export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, activeExplorationId = '', activityReady = true }) {
+const EMPTY_ATTACHMENTS = []
+
+export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, activeExplorationId = '', activityReady = true, sidebarWidth = 260, sidebarCollapsed = false, onSidebarResizeStart, toolbar, serviceActions, notices }) {
   const key = 'site'
   const context = useStore(s => s.explorationContext)
   // null: resolve entry from fresh activity; '': new exploration; ID: explicit record.
   // Do not restore the previous visit's historical selection as the landing page.
   const [currentId, setCurrentId] = useState(context ? '' : null)
+  useLayoutEffect(() => {
+    useUserFilesStore.getState().setWorkspaceContext(null, null, currentId ? `website-exploration:${currentId}` : 'website-exploration')
+  }, [currentId])
   const [submitting, setSubmitting] = useState(false)
+  const [renamedTitles, setRenamedTitles] = useState({})
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000)
+    return () => clearInterval(timer)
+  }, [])
   useEffect(() => { if (context) setCurrentId('') }, [context])
   useEffect(() => useStore.subscribe((state, previous) => {
     const selected = state.selections[key + '/exploration']
@@ -25,6 +48,7 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
   const list = useSnapshot(() => api.listExplorations(), [key])
   const developments = useSnapshot(() => api.listDevelopmentChats(), [])
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
+  const removedExplorations = useExplorationDevelopmentHandoffsStore(s => s.removedExplorations)
   const streaming = useWorksStore(s => s.streamingWorkIds)
   const queues = useMessageQueueStore(s => s.queues)
   useEffect(() => {
@@ -39,7 +63,8 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
       availableRecords.push({ exploration_id: session.explorationId, title: session.work.title, created_at: new Date(session.work.created_at).toLocaleString('zh-CN', { hour12: false }), created_at_timestamp: Date.parse(session.work.created_at), status: 'succeeded' })
     }
   }
-  const records = sortExplorations(availableRecords, activeExplorationId, developingIds)
+  const records = sortExplorations(availableRecords.filter(item => !removedExplorations[item.exploration_id]).map(item =>
+    renamedTitles[item.exploration_id] ? { ...item, title: renamedTitles[item.exploration_id] } : item), activeExplorationId, developingIds)
   useEffect(() => {
     // Wait for both snapshots so a slower activity response cannot redirect a
     // user who has already started typing or explicitly opened a history item.
@@ -54,68 +79,178 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
     useStore.setState({ explorationContext: null })
     void list.refresh()
   }
+  const renderHeader = (title, status) => <ExplorationHeader title={title} status={status} toolbar={toolbar} serviceActions={serviceActions} notices={notices} />
+  const renameRecord = async (id, title) => {
+    const saved = await api.renameExploration(id, title)
+    setRenamedTitles(previous => ({ ...previous, [id]: saved.title }))
+    void list.refresh()
+  }
+  const deleteRecord = async id => {
+    await api.deleteExploration(id)
+    useExplorationDevelopmentHandoffsStore.getState().forget(id)
+    useStore.setState(state => ({
+      drafts: Object.fromEntries(Object.entries(state.drafts).filter(([name]) => !name.startsWith(id + '/'))),
+      selections: state.selections[key + '/exploration'] === id ? { ...state.selections, [key + '/exploration']: '' } : state.selections,
+    }))
+    setCurrentId(selected => selected === id ? '' : selected)
+    void list.refresh()
+    void developments.refresh()
+  }
   return <div className="wx-explore">
-    <aside className="wx-history workspace-sidebar">
+    <aside className="wx-history workspace-sidebar" aria-label="探索记录" style={{ width: sidebarWidth, minWidth: sidebarWidth, display: sidebarCollapsed ? 'none' : undefined }}>
       <button type="button" className="sidebar-new-chat sidebar-conversation-action" title="新探索" aria-label="新探索" disabled={submitting} onClick={() => { useStore.setState({ explorationContext: null }); setCurrentId('') }}>
         <FormOutlined aria-hidden="true" /><span>新探索</span>
       </button>
-      <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">工作记录</span></header>
-      <div className="wx-history-records">
+      <header className="sidebar-conversation-header"><span className="sidebar-workspaces-label">探索记录</span></header>
+      <div className="wx-history-records" aria-busy={list.loading || developments.loading}>
       <ErrorMessage>{list.error || developments.error}</ErrorMessage>
-      {list.loading && <p>正在加载…</p>}
-      {records.map(item => <ExplorationRecord key={item.exploration_id} item={item} selected={!showNew && currentId === item.exploration_id}
+      {records.map(item => <ExplorationRecord key={item.exploration_id} item={item} now={now} selected={!showNew && currentId === item.exploration_id}
         inProgress={isExplorationInProgress(item, activeExplorationId, developingIds)} generating={developingIds.has(item.exploration_id)} disabled={submitting}
+        onRename={title => renameRecord(item.exploration_id, title)} onDelete={() => deleteRecord(item.exploration_id)}
         onSelect={() => { useStore.getState().selectRecord(key + '/exploration', item.exploration_id); useStore.setState({ explorationContext: null }); setCurrentId(item.exploration_id) }} />)}
-      {!list.loading && !list.error && !records.length && <p className="wx-empty">从一个网址开始探索；探索和适配器生成记录会保存在这里。</p>}
+      {!list.loading && !developments.loading && !list.error && !developments.error && !records.length && <p className="wx-history-empty">没有探索记录</p>}
       </div>
     </aside>
-    {showNew ? <NewExploration key={context ? context.toolkitId + '/' + context.tool.tool_id : 'site'} context={context} disabled={disabled || globalBusy || !modelReady} onCreated={onCreated} onBusyChange={setSubmitting} />
-      : currentId ? <ExplorationDetail key={currentId} id={currentId} developmentReady={!developments.loading && !developments.error} disabled={disabled} globalBusy={globalBusy} modelReady={modelReady} onBusyChange={setSubmitting} />
-        : <div className="wx-empty">{list.loading || !activityReady || currentId === null ? '正在加载探索…' : '暂时无法加载探索记录，请重试或新建探索。'}</div>}
+    {!sidebarCollapsed && onSidebarResizeStart && <div className="wx-sidebar-resize" role="separator" aria-orientation="vertical" aria-label="调整探索记录列表宽度" onMouseDown={onSidebarResizeStart} />}
+    <main className="wx-conversation workspace-canvas">
+    {showNew ? <NewExploration key={context ? context.toolkitId + '/' + context.tool.tool_id : 'site'} context={context} disabled={disabled || globalBusy || !modelReady} modelDisabled={globalBusy} onCreated={onCreated} onBusyChange={setSubmitting} renderHeader={renderHeader} />
+      : currentId ? <ExplorationDetail key={currentId} id={currentId} title={records.find(item => item.exploration_id === currentId)?.title} developmentReady={!developments.loading && !developments.error} disabled={disabled} globalBusy={globalBusy} modelReady={modelReady} onBusyChange={setSubmitting} renderHeader={renderHeader} />
+        : <section className="wx-detail" aria-busy="true">{renderHeader('Adapter工坊')}</section>}
+    </main>
   </div>
 }
 
-export function ExplorationRecord({ item, selected = false, inProgress = false, generating = false, disabled = false, onSelect }) {
-  return <button type="button" className={'wx-record' + (selected ? ' is-active' : '') + (inProgress ? ' is-in-progress' : '')}
-    aria-current={selected ? 'true' : undefined} disabled={disabled} onClick={onSelect}>
-    <strong>{item.title || item.instruction || item.created_at || '探索'}</strong>
-    {inProgress && <span className="wx-status wx-record-progress"><SettingOutlined className="wx-record-progress-gear" aria-hidden="true" /><span>{generating ? '生成中' : '探索中'}</span></span>}
-    <small>{item.start_url}</small><small>{item.created_at}</small>
-  </button>
+export function ExplorationHeader({ title, status, toolbar, serviceActions, notices }) {
+  const context = <div className="wx-heading">
+    <div className="wx-heading-title"><span className="chat-heading__title" title={title}>{title}</span>{status}</div>
+    {serviceActions}
+  </div>
+  return <>
+    {toolbar ? React.cloneElement(toolbar, { context, label: '网站探索工具栏' }) : <WorkspaceToolbar context={context} label="网站探索工具栏" />}
+    {notices && <div className="wx-notices">{notices}</div>}
+  </>
 }
 
-export function ExplorationComposer({ value, onChange, onAction, inputRef, actionMode = 'send', disabled = false, actionDisabled = false, placeholder = '发送消息，补充探索目标或要求…', children, hint = 'Enter 发送 · Shift + Enter 换行' }) {
+export function ExplorationRecord({ item, selected = false, inProgress = false, generating = false, disabled = false, onSelect, onRename, onDelete, now = Date.now() }) {
+  const title = item.title || item.instruction || item.created_at || '探索'
+  const timestamp = Date.parse(item.updated_at) || item.created_at_timestamp || Date.parse(item.created_at)
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const input = useRef(null)
+  const row = useRef(null)
+  const pending = useRef(false)
+  const cancelled = useRef(false)
+  useEffect(() => { if (editing) { input.current?.focus(); input.current?.select() } }, [editing])
+  const finishEditing = () => { cancelled.current = true; setEditing(false); row.current?.focus() }
+  const save = async () => {
+    if (cancelled.current || pending.current) return
+    const nextTitle = value.trim()
+    if (!nextTitle || nextTitle === title) { finishEditing(); return }
+    pending.current = true; setBusy(true); setError('')
+    try { await onRename(nextTitle); finishEditing() }
+    catch (e) { setError(e.message || '重命名失败，请重试') }
+    finally { pending.current = false; setBusy(false) }
+  }
+  const remove = async () => {
+    if (pending.current || inProgress) return
+    pending.current = true; setBusy(true); setError('')
+    try {
+      if (await showConfirm(`确定删除探索记录“${title}”吗？已生成的适配器会保留。`, '删除探索记录', { danger: true, dismissible: false })) await onDelete()
+    } catch (e) { setError(e.message || '删除失败，请重试') }
+    finally { pending.current = false; setBusy(false) }
+  }
+  return <><div ref={row} role="button" tabIndex={disabled || editing ? -1 : 0} className={'wx-record work-list-item' + (selected ? ' is-active' : '') + (inProgress ? ' is-in-progress' : '') + (editing ? ' is-renaming' : '')}
+    aria-current={selected ? 'true' : undefined} aria-disabled={disabled || undefined} onClick={() => { if (!disabled && !editing && !busy) onSelect?.() }} onKeyDown={event => {
+      if (event.target !== event.currentTarget || editing || disabled || busy) return
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect?.() }
+    }}>
+    {inProgress && <span className="wx-status wx-record-progress" role="img" aria-label={generating ? '生成中' : '探索中'} title={generating ? '生成中' : '探索中'}><SettingOutlined className="wx-record-progress-gear" aria-hidden="true" /></span>}
+    <span className="work-list-item__title">{editing ? <input ref={input} className="wx-record-title-input" aria-label="探索记录标题" maxLength={200} value={value} disabled={busy} onChange={event => setValue(event.target.value)} onClick={event => event.stopPropagation()} onBlur={save} onKeyDown={event => {
+      event.stopPropagation()
+      if (event.nativeEvent.isComposing) return
+      if (event.key === 'Enter') { event.preventDefault(); void save() }
+      if (event.key === 'Escape' && !pending.current) { event.preventDefault(); finishEditing() }
+    }} /> : title}</span>
+    {!editing && Number.isFinite(timestamp) && <time className="work-list-item__time" dateTime={new Date(timestamp).toISOString()}>{formatConversationAge(timestamp, now)}</time>}
+    {!editing && <span className="sidebar-row-actions">
+      <button type="button" className="sidebar-row-action work-item-action" title="重命名" aria-label={`重命名 ${title}`} disabled={disabled || busy || !onRename} onClick={event => {
+        event.stopPropagation(); cancelled.current = false; setValue(title); setError(''); setEditing(true)
+      }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button>
+      <button type="button" className="sidebar-row-action work-item-action" title={inProgress ? '正在执行，请停止后再删除' : '删除'} aria-label={`删除 ${title}`} disabled={disabled || busy || inProgress || !onDelete} onClick={event => { event.stopPropagation(); void remove() }}><TrashIcon size={13} /></button>
+    </span>}
+  </div><ErrorMessage>{error}</ErrorMessage></>
+}
+
+export function ExplorationComposer({ value, onChange, onAction, inputRef, conversationId, draftModelKey, onModelReadyChange, actionMode = 'send', disabled = false, actionDisabled = false, modelDisabled = false, attachments = EMPTY_ATTACHMENTS, onAttachmentsChange, usage, placeholder = '发送消息，补充探索目标或要求…', children }) {
   const internalInput = useRef(null)
   const input = inputRef || internalInput
+  const maxAttachments = useSettingsStore(s => s.maxChatAttachments)
+  const attachmentLimit = Math.max(1, Number(maxAttachments) || 60)
+  const [notice, setNotice] = useState('')
+  const [modelPending, setModelPending] = useState(false)
+  const [modelReady, setModelReady] = useState(false)
+  const modelReadyChanged = useCallback(ready => { setModelReady(ready); onModelReadyChange?.(ready) }, [onModelReadyChange])
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
+  const attach = paths => {
+    if (disabled || !paths?.length) return
+    const next = mergeAttachmentPaths(attachmentsRef.current, paths, attachmentLimit)
+    onAttachmentsChange?.(next.attachments); setNotice(next.notice)
+  }
+  const upload = async () => {
+    try { attach(await window.electronAPI?.selectFiles?.()) }
+    catch { setNotice('文件选择失败，请重试') }
+  }
+  const paste = async event => {
+    const paths = getPathsFromPasteEvent(event)
+    if (paths.length) { event.preventDefault(); attach(paths); return }
+    if (Array.from(event.clipboardData?.items || []).some(item => item.type.startsWith('image/'))) {
+      event.preventDefault()
+      try { const image = await window.electronAPI?.saveClipboardImage?.(); if (image?.path) attach([image.path]) }
+      catch { setNotice('剪切板图片添加失败') }
+    }
+  }
   const stopping = actionMode === 'stop'
   const actionLabel = stopping ? '停止探索' : '发送消息'
+  const blocked = disabled || actionDisabled || (!stopping && (!modelReady || modelPending || attachments.length > attachmentLimit))
   useEffect(() => {
     if (!input.current) return
     input.current.style.height = 'auto'
     input.current.style.height = Math.min(input.current.scrollHeight, 180) + 'px'
   }, [value, input])
   return <div className="wx-chat-composer chat-input-composer">
-    <div className="chat-input-surface wx-chat-input">
-      <textarea ref={input} rows={2} aria-label="探索消息" value={value} disabled={disabled} onChange={e => onChange(e.target.value)} placeholder={placeholder} onKeyDown={e => {
-        if (shouldSubmitExploration(e, actionMode)) { e.preventDefault(); if (!disabled && !actionDisabled) onAction() }
+    <div className="chat-input-surface wx-chat-input" data-exploration-file-drop="true" onDragOver={e => { if (Array.from(e.dataTransfer?.types || []).includes('Files')) e.preventDefault() }} onDrop={e => {
+      if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return
+      e.preventDefault(); e.stopPropagation()
+      const nativePaths = window.electronAPI?.getLastDroppedFilePaths?.() || []
+      const files = nativePaths.length ? nativePaths : Array.from(e.dataTransfer?.files || []).map(file => file.path || window.electronAPI?.getPathForFile?.(file)).filter(Boolean)
+      attach(files)
+    }}>
+      {(attachments.length > 0 || notice) && <div className="wx-composer-attachments"><AttachmentTray attachments={attachments} maxAttachments={attachmentLimit} notice={notice} disabled={disabled} onRemove={index => { onAttachmentsChange?.(attachments.filter((_, i) => i !== index)); setNotice('') }} /></div>}
+      <textarea ref={input} rows={1} aria-label="探索消息" value={value} disabled={disabled} onPaste={paste} onChange={e => onChange(e.target.value)} placeholder={placeholder} onKeyDown={e => {
+        if (shouldSubmitExploration(e, actionMode)) { e.preventDefault(); if (!blocked) onAction() }
       }} />
       <div className="chat-input-toolbar wx-chat-toolbar">
-        <small className="wx-composer-hint">{hint}</small>
-        <div className="chat-input-toolbar-actions wx-chat-controls">
+        <button type="button" className="chat-input-upload" aria-label="上传文件" title="上传文件" disabled={disabled || !onAttachmentsChange} onClick={upload}><span>+</span></button>
+        <ExplorationModelSelector conversationId={conversationId} draftModelKey={draftModelKey} usage={usage} disabled={disabled || modelDisabled || stopping} onPendingChange={setModelPending} onReadyChange={modelReadyChanged}>
           {children}
-          <button type="button" className={'chat-input-action wx-chat-send ' + (stopping ? 'chat-input-action-stop' : 'chat-input-action-send')} aria-label={actionLabel} title={actionLabel} disabled={disabled || actionDisabled} onClick={onAction} />
-        </div>
+          <button type="button" className={'chat-input-action wx-chat-send ' + (stopping ? 'chat-input-action-stop' : 'chat-input-action-send')} aria-label={actionLabel} title={actionLabel} disabled={blocked} onClick={onAction} />
+        </ExplorationModelSelector>
       </div>
     </div>
   </div>
 }
 
-function NewExploration({ context, disabled, onCreated, onBusyChange }) {
+function NewExploration({ context, disabled, modelDisabled, onCreated, onBusyChange, renderHeader }) {
   const composerInput = useRef(null)
   const tool = context?.tool
   const draftKey = tool ? context.toolkitId + '/' + tool.tool_id + '/new' : 'site/new/instruction'
   const [url, setUrl] = useDraft('site/new/url')
   const [instruction, setInstruction] = useDraft(draftKey)
+  const [attachments, setAttachments] = useDraft(draftKey + '/attachments', EMPTY_ATTACHMENTS)
+  const [modelSelection, setModelSelection] = useDraft(draftKey + '/model', null)
   const [target, setTarget] = useState(null)
   const [targets, setTargets] = useState([])
   const action = useAction()
@@ -129,17 +264,19 @@ function NewExploration({ context, disabled, onCreated, onBusyChange }) {
     if (!canSubmit) return
     void startAction.run(async () => {
       const created = tool
-        ? await api.createExploration(context.toolkitId, tool.tool_id, instruction, target.target_id)
-        : await api.createSiteExploration({ start_url: startUrl.trim(), instruction })
+        ? await api.createExploration(context.toolkitId, tool.tool_id, instruction, target.target_id, attachments, modelSelection)
+        : await api.createSiteExploration({ start_url: startUrl.trim(), instruction, model_selection: modelSelection, ...(attachments.length ? { attachments } : {}) })
       setInstruction('')
+      setAttachments([])
+      setModelSelection(null)
       if (!tool) setUrl('')
       onCreated(created.exploration_id)
     })
   }
   return <section className="wx-detail wx-chat-detail">
-    <header><h2>新探索</h2></header>
+    {renderHeader('新探索')}
     <div className="wx-scroll wx-new-conversation">
-      <article className="wx-chat-message wx-chat-assistant">
+      <article className="wx-chat-message wx-chat-assistant wx-message-content">
         <div className="user-choice-block wx-url-question" role="group" aria-labelledby="wx-start-question">
           <div className="user-choice-block__question" id="wx-start-question">{tool ? '请确认本次探索的起始网址，并选择已准备好的页面。' : '你想从哪里开始探索?'}</div>
           <div className="user-choice-block__options">
@@ -166,7 +303,7 @@ function NewExploration({ context, disabled, onCreated, onBusyChange }) {
         <ErrorMessage>{startAction.error || action.error}</ErrorMessage>
       </article>
     </div>
-    <ExplorationComposer inputRef={composerInput} value={instruction} onChange={setInstruction} onAction={submit} actionMode={explorationComposerMode(undefined, startAction.busy)} disabled={busy} actionDisabled={!canSubmit} placeholder="告诉我你想在这个网站上干什么" hint={disabled ? '等待服务、模型和浏览器任务就绪' : '填写起始网址后发送，即可开始探索'} />
+    <ExplorationComposer draftModelKey={draftKey + '/model'} inputRef={composerInput} value={instruction} onChange={setInstruction} onAction={submit} attachments={attachments} onAttachmentsChange={setAttachments} actionMode={explorationComposerMode(undefined, startAction.busy)} disabled={busy} modelDisabled={modelDisabled} actionDisabled={!canSubmit} placeholder="告诉我你想在这个网站上干什么" />
   </section>
 }
 
@@ -220,7 +357,12 @@ export function UserIntervention({ issue, disabled, onOpen, onContinue }) {
   </article>
 }
 
-function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelReady, onBusyChange }) {
+function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, modelReady, onBusyChange, renderHeader }) {
+  useEffect(() => () => {
+    const panel = useFileChangesStore.getState()
+    if (panel.scope === 'exploration' && panel.workId === id) panel.closePanel()
+  }, [id])
+  const [sessionModelReady, setSessionModelReady] = useState(false)
   const sessions = useExplorationDevelopmentHandoffsStore(s => s.sessions)
   const [historyWorkId, setHistoryWorkId] = useState(null)
   const snapshot = useSnapshot(() => api.getExploration(id), [id], '/api/explorations/' + id + '/events')
@@ -230,6 +372,7 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
   const action = useAction(snapshot.refresh)
   const messageAction = useAction(snapshot.refresh)
   const [prompt, setPrompt] = useDraft(id + '/prompt')
+  const [attachments, setAttachments] = useDraft(id + '/attachments', EMPTY_ATTACHMENTS)
   const [replayId] = useDraft(id + '/replay')
   const replay = useSnapshot(() => replayId ? api.request('/api/replays/' + replayId) : Promise.resolve(null), [replayId], replayId ? '/api/replays/' + replayId + '/events' : undefined)
   const replayAction = useAction(replay.refresh)
@@ -249,30 +392,27 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
   // because its history was opened. The explicit retry keeps the same work.
   const needsStart = development?.needsInitialMessage && !developmentMessages?.length
     && !developmentQueue?.running && !developmentQueue?.items.length
-  if (!data) return <div className="wx-empty"><ErrorMessage>{snapshot.error}</ErrorMessage>{snapshot.loading && '正在加载探索…'}</div>
+  if (!data) return <section className="wx-detail" aria-busy={snapshot.loading}>{renderHeader(title || '网站探索')}<ErrorMessage>{snapshot.error}</ErrorMessage></section>
   const replayActive = Boolean(replayId && (!replay.data || !['succeeded', 'failed', 'cancelled', 'stopped'].includes(replay.data.status)))
-  const controls = explorationControls({ ...data, disabled, busy: action.busy || messageAction.busy || replayAction.busy || transferBusy, globalBusy, modelReady, replayActive })
+  const controls = explorationControls({ ...data, disabled, busy: action.busy || messageAction.busy || replayAction.busy || transferBusy, globalBusy, modelReady: modelReady && sessionModelReady, replayActive })
   const actionMode = explorationComposerMode(data.status, messageAction.busy)
   const transferring = transferBusy
   const submitted = Boolean(development)
   const developDisabled = !developmentReady || submitted || disabled || globalBusy || action.busy || messageAction.busy || transferBusy || replayActive
   const sendMessage = content => {
-    if (!controls.canSend || !content.trim()) return
+    if (!controls.canSend || (!content.trim() && !attachments.length)) return
     void messageAction.run(async () => {
-      await continueWebsiteExploration(id, content, controls.resumable)
+      await continueWebsiteExploration(id, content, controls.resumable, attachments)
       setPrompt('')
+      setAttachments([])
     })
   }
   const explorationMessages = <>
-      {snapshot.data && <article className="wx-chat-message wx-chat-user"><div className="wx-user-bubble"><p className="wx-url">{data.start_url}</p><p>{data.instruction || '请探索这个网站的主要功能。'}</p></div></article>}
-      {(data.timeline || []).map((item, index) => item.type === 'agent_step' ? <article className="wx-step wx-chat-message wx-chat-assistant" key={'step-' + (item.step ?? index)}>
-        <header><h3>步骤 {item.step}</h3><Status value={item.status} /></header>
-        {item.thought && <p>{item.thought}</p>}
-        {item.code && <details><summary>执行动作</summary><JsonView value={item.code} /></details>}
-        {item.observation && <details><summary>{item.observation.title || '执行后页面'}</summary><p className="wx-url">{item.observation.url}</p><ResourceImage path={item.observation.screenshot_url} /></details>}
-        {item.exception && <ErrorMessage>{typeof item.exception === 'string' ? item.exception : item.exception.message}</ErrorMessage>}
-      </article> : <article className={'wx-chat-message ' + (item.type === 'user' ? 'wx-chat-user' : 'wx-chat-assistant')} key={'message-' + index}><div className={item.type === 'user' ? 'wx-user-bubble' : ''}><p>{item.content}</p></div></article>)}
-      {!snapshot.data ? <p className="wx-muted" role="status">探索记录暂不可用，仍可继续生成网站适配器。</p> : !data.timeline?.length && <p className="wx-muted" role="status">等待执行步骤…</p>}
+      {snapshot.data && <article className="wx-chat-message wx-chat-user"><div className="wx-user-bubble"><p className="wx-url">{data.start_url}</p><p>{data.instruction || '请探索这个网站的主要功能。'}</p><ExplorationAttachments files={data.attachments} /></div></article>}
+      {(data.timeline || []).map((item, index) => item.type === 'agent_step' ? <ExplorationStep key={item.id || 'step-' + (item.step ?? index)} item={item} />
+        : <article className={'wx-chat-message ' + (item.type === 'user' ? 'wx-chat-user' : 'wx-chat-assistant')} key={'message-' + index}><div className={item.type === 'user' ? 'wx-user-bubble' : ''}><p>{item.content}</p><ExplorationAttachments files={item.attachments} /></div></article>)}
+      {snapshot.data && <FileChangesCard scope="exploration" workId={id} streaming={isExplorationInProgress(data)} revision={`${data.status}:${data.timeline?.length || 0}`} />}
+      {!snapshot.data && <p className="wx-muted" role="status">探索记录暂不可用，仍可继续生成网站适配器。</p>}
       {data.status === 'succeeded' && <article className="wx-chat-message wx-chat-assistant">
         <CompletionQuestion submitted={submitted} developing={transferring} developDisabled={developDisabled} continueDisabled={!controls.canSend}
           onDevelop={() => { if (!developDisabled) void transferAction.run(() => finishExplorationTransfer({ explorationId: id, runId: data.last_run_id ?? null })) }}
@@ -294,16 +434,22 @@ function ExplorationDetail({ id, developmentReady, disabled, globalBusy, modelRe
       <ErrorMessage>{snapshot.error || messageAction.error || action.error || transferAction.error || replay.error || replayAction.error}</ErrorMessage>
     </>
   return <section className="wx-detail wx-chat-detail">
-    <header><div><h2>{data.title || '网站探索'}</h2>{development ? <span className="wx-status">网站适配器生成</span> : <Status value={data.status === 'cancelled' ? 'stopped' : data.status === 'cancel_requested' ? 'stopping' : data.status} />}</div></header>
-    {development ? <ChatView key={development.work.id} workId={development.work.id} embedded {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
-    <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, transferring, submitted])}>{explorationMessages}</ScrollArea>
-    <ExplorationComposer value={prompt} onChange={setPrompt} actionMode={actionMode}
+    {renderHeader(title || data.title || '网站探索', development ? <span className="wx-status">网站适配器生成</span> : <ExplorationStatus value={data.status} />)}
+    {development ? <ChatView key={development.work.id} workId={development.work.id} embedded hidePermissionMode {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
+    <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, transferring, submitted])}><div className="wx-message-content">{explorationMessages}</div></ScrollArea>
+    <ExplorationComposer conversationId={id} onModelReadyChange={setSessionModelReady} value={prompt} onChange={setPrompt} actionMode={actionMode}
+      attachments={attachments} onAttachmentsChange={setAttachments} usage={data.context_usage} modelDisabled={globalBusy}
       onAction={actionMode === 'stop' ? () => action.run(() => api.stopExploration(id)) : () => sendMessage(prompt)}
-      actionDisabled={actionMode === 'stop' ? !controls.canStop : !controls.canSend || !prompt.trim()} disabled={action.busy || messageAction.busy || transferBusy}
+      actionDisabled={actionMode === 'stop' ? !controls.canStop : !controls.canSend || (!prompt.trim() && !attachments.length)} disabled={action.busy || messageAction.busy || transferBusy}
       hint={data.status === 'cancel_requested' ? '正在停止探索…' : actionMode === 'stop' ? '点击右侧按钮停止探索' : 'Enter 发送 · Shift + Enter 换行'}>
       <ExplorationControls replayActive={replayActive} cancelReplayDisabled={disabled || action.busy || messageAction.busy || replayAction.busy || transferBusy || !replay.data || replay.data.status === 'cancel_requested'}
         onCancelReplay={() => replayAction.run(() => api.request('/api/replays/' + replayId + '/cancel', { method: 'POST' }))} />
     </ExplorationComposer>
     </>}
   </section>
+}
+
+function ExplorationAttachments({ files = [] }) {
+  if (!files.length) return null
+  return <div className="wx-message-attachments">{files.map((file, index) => <span key={file.path || index} className="chat-attachment">{file.name}</span>)}</div>
 }

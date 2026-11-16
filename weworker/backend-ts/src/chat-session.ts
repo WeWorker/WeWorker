@@ -46,6 +46,7 @@ type ToolGuard = (toolName: string, input: Record<string, unknown>) => { behavio
 export interface ChatTurnBindings {
   /** Work used by the session's MCP tools; set when a spare session is bound to a work. */
   workIdRef: { current: string | null }
+  fileChangeTurnId?: string
   onAskUser: ((event: AskUserEvent) => void) | null
   /** Delivery of send_image_to_user / send_file_to_user to the current turn's conversation. */
   userMedia?: UserMediaSink | null

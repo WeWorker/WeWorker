@@ -3,6 +3,7 @@ export function createChatTurnRegistry() {
   type Turn = { controller: AbortController; done: Promise<void>; finish: () => void }
   const active = new Map<string, Turn>()
   return {
+    isActive(workId: string): boolean { return active.has(workId) },
     start(workId: string): Turn | null {
       if (active.has(workId)) return null
       let resolve!: () => void

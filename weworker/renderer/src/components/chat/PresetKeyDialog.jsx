@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-export default function PresetKeyDialog({ providerName, onSave, onClose }) {
+export default function PresetKeyDialog({ providerName, onSave, onClose, dismissible = true }) {
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -42,14 +42,14 @@ export default function PresetKeyDialog({ providerName, onSave, onClose }) {
 
   return createPortal(
     <div className="weworker-dialog-overlay" onMouseDown={event => {
-      if (event.target === event.currentTarget && !savingRef.current) onClose()
+      if (dismissible && event.target === event.currentTarget && !savingRef.current) onClose()
     }}>
       <section ref={panelRef} className="weworker-dialog preset-key-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}
         onKeyDown={event => {
           if (event.key === 'Escape') {
             event.preventDefault()
             event.stopPropagation()
-            if (!savingRef.current) onClose()
+            if (dismissible && !savingRef.current) onClose()
           }
           if (event.key === 'Tab') {
             const items = [...panelRef.current.querySelectorAll('input:not(:disabled), button:not(:disabled)')]

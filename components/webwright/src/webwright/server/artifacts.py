@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from webwright.server.status import AgentExitStatus, StepStatus
+from webwright.server.artifact_workspace import artifact_output_dir, safe_directory
 from webwright.utils.intervention import validate_user_intervention
 
 
@@ -54,14 +55,14 @@ def _step_number(path: Path) -> int | None:
 
 
 def _screenshot_url(task_id: str, output_dir: Path, step: int) -> str:
-    screenshot = output_dir / "screenshots" / f"step_{step:04d}.png"
+    screenshot = artifact_output_dir(output_dir) / "screenshots" / f"step_{step:04d}.png"
     if not screenshot.is_file():
         return ""
     return f"/api/tasks/{task_id}/files/screenshots/step_{step:04d}.png"
 
 
 def _read_step_code(output_dir: Path, step: int) -> str:
-    path = output_dir / "steps" / f"step_{step:04d}.py"
+    path = artifact_output_dir(output_dir) / "steps" / f"step_{step:04d}.py"
     try:
         return path.read_text(encoding="utf-8")
     except OSError:
@@ -112,7 +113,7 @@ def read_steps(task_id: str, output_dir: Path) -> list[dict[str, Any]]:
             step = _step_number(path)
             if step is not None:
                 step_numbers.add(step)
-    steps_dir = output_dir / "steps"
+    steps_dir = artifact_output_dir(output_dir) / "steps"
     if steps_dir.is_dir():
         for path in steps_dir.glob("step_*.py"):
             step = _step_number(path)
@@ -149,7 +150,7 @@ def read_steps(task_id: str, output_dir: Path) -> list[dict[str, Any]]:
 
 def read_script(output_dir: Path) -> str:
     try:
-        return (output_dir / "script.py").read_text(encoding="utf-8")
+        return (artifact_output_dir(output_dir) / "script.py").read_text(encoding="utf-8")
     except OSError:
         return ""
 
@@ -269,6 +270,10 @@ def waiting_intervention(output_dir: Path) -> dict[str, str] | None:
 def resolve_task_file(output_dir: Path, relative_path: str) -> Path:
     requested = Path(relative_path)
     if requested.is_absolute() or ".." in requested.parts:
+        raise ValueError("Invalid file path.")
+    if requested.parts and (requested.parts[0] in {'artifacts', 'screenshots', 'steps'} or requested == Path('script.py')):
+        output_dir = artifact_output_dir(output_dir)
+    if not safe_directory(output_dir / requested):
         raise ValueError("Invalid file path.")
     resolved = (output_dir / requested).resolve()
     output_root = output_dir.resolve()

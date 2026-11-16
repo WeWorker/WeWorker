@@ -4,7 +4,7 @@ import { BridgeExtensionConnections } from './bridge-extension-connections.js'
 
 const log = createLogger('bridge-status')
 
-const BRIDGE_URL = 'ws://localhost:3711'
+const BRIDGE_URL = `ws://127.0.0.1:${process.env.WEBCLI_BRIDGE_PORT || 3711}`
 
 export interface AdapterScaffoldGeneratedEvent {
   siteKey: string

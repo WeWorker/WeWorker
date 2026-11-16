@@ -1,8 +1,8 @@
-function normalizeSkillNameFromMeta(rawName) {
+function normalizeSkillNameFromMeta(rawName, preserveNamePrefix) {
   if (!rawName) return undefined
   const trimmed = String(rawName).trim().replace(/^['"]|['"]$/g, '')
   if (!trimmed || trimmed.includes('{{')) return undefined
-  return trimmed.startsWith('webcli-') ? trimmed.slice('webcli-'.length) : trimmed
+  return !preserveNamePrefix && trimmed.startsWith('webcli-') ? trimmed.slice('webcli-'.length) : trimmed
 }
 
 function readYamlBlockScalar(lines, startIndex, folded) {
@@ -29,7 +29,7 @@ function readYamlBlockScalar(lines, startIndex, folded) {
   }
 }
 
-export function parseSkillMarkdownMeta(markdown) {
+export function parseSkillMarkdownMeta(markdown, { preserveNamePrefix = false } = {}) {
   const match = String(markdown || '').match(/^---\s*\n([\s\S]*?)\n---/)
   if (!match) return {}
   const meta = {}
@@ -55,7 +55,8 @@ export function parseSkillMarkdownMeta(markdown) {
   }
 
   return {
-    name: normalizeSkillNameFromMeta(meta.name),
+    name: normalizeSkillNameFromMeta(meta.name, preserveNamePrefix),
     description: meta.description,
+    userInvocable: !/^false(?:\s+#.*)?$/i.test(meta['user-invocable'] || ''),
   }
 }

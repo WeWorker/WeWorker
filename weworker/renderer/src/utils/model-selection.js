@@ -30,51 +30,42 @@ export function selectModelAfterCatalogRefresh(currentModel, catalog, { customMo
 }
 
 // Saved keys are intentionally absent from the form. A blank input keeps the
-// saved credential; each custom interface must use its own configuration.
-export function getModelCatalogIssue(providerId, form, stored = {}, target = 'weworker') {
-  const webwright = providerId === 'custom' && target === 'webwright'
+// saved credential for the shared conversation interface.
+export function getModelCatalogIssue(providerId, form, stored = {}) {
   if (providerId === 'custom') {
-    const explicitUrl = String(webwright ? form.openai_models_url || '' : form.models_url || '').trim()
-    const address = explicitUrl || String(webwright ? form.openai_base_url || '' : form.base_url || '').trim()
+    const explicitUrl = String(form.models_url || '').trim()
+    const address = explicitUrl || String(form.base_url || '').trim()
     if (!address) return '请先填写接口地址'
     try {
       const url = new URL(address)
       if (!['http:', 'https:'].includes(url.protocol)) return '接口地址须为有效的 HTTP 或 HTTPS URL'
       if (explicitUrl) {
-        const fullUrl = webwright ? form.openai_models_url_is_full !== false : form.models_url_is_full !== false
+        const fullUrl = form.models_url_is_full !== false
         if (url.username || url.password || url.hash) return '模型列表地址不允许包含用户凭据或片段'
         if (!fullUrl && url.search) return '基础 URL 不支持查询参数，请勾选使用完整 URL'
       }
     } catch {
       return '接口地址须为有效的 HTTP 或 HTTPS URL'
     }
-    if (!explicitUrl && (webwright ? form.openai_base_url_is_full : form.base_url_is_full)) {
+    if (!explicitUrl && form.base_url_is_full) {
       return '完整 URL 模式请单独填写模型列表地址'
     }
   }
-  const key = String(webwright ? form.openai_api_key || '' : form.api_key || '').trim()
-  const hasSavedKey = webwright ? stored.has_openai_key || stored.openai_has_key : stored.has_key
-  return key || hasSavedKey ? '' : '请先填写 API Key'
+  const key = String(form.api_key || '').trim()
+  return key || stored.has_key ? '' : '请先填写 API Key'
 }
 
-export function buildModelCatalogAccess(id, providerId, form, target = 'weworker') {
+export function buildModelCatalogAccess(id, providerId, form) {
   if (providerId !== 'custom') return { provider: id, api_key: form.api_key.trim() }
-  const webwright = target === 'webwright'
   return {
-    provider: id, target,
-    api_key: webwright ? '' : form.api_key.trim(),
-    openai_api_key: webwright ? form.openai_api_key.trim() : '',
-    // An unfinished address in the other section must not block this request.
-    base_url: webwright ? '' : form.base_url.trim(),
-    base_url_is_full: !webwright && form.base_url_is_full,
-    openai_base_url: webwright ? form.openai_base_url.trim() : '',
-    openai_base_url_is_full: webwright && form.openai_base_url_is_full,
+    provider: id, target: 'weworker',
+    api_key: form.api_key.trim(),
+    base_url: form.base_url.trim(),
+    base_url_is_full: form.base_url_is_full,
     auth_type: form.auth_type,
-    models_url: webwright ? '' : String(form.models_url || '').trim(),
-    models_url_is_full: webwright || form.models_url_is_full !== false,
-    models_auth_type: webwright ? 'inherit' : form.models_auth_type || 'inherit',
-    openai_models_url: webwright ? String(form.openai_models_url || '').trim() : '',
-    openai_models_url_is_full: !webwright || form.openai_models_url_is_full !== false,
+    models_url: String(form.models_url || '').trim(),
+    models_url_is_full: form.models_url_is_full !== false,
+    models_auth_type: form.models_auth_type || 'inherit',
     weworker_protocol: form.weworker_protocol || 'anthropic_messages',
   }
 }
@@ -123,9 +114,9 @@ export function buildProbeResultRows(results) {
   })
 }
 
-export function buildProviderProbeTargets(providerId, openAiBaseUrl) {
-  if (providerId === 'custom' && !String(openAiBaseUrl || '').trim()) return ['weworker']
-  return ['weworker', 'webwright']
+export function buildProviderProbeTargets() {
+  // Chat and exploration share this connection; no second endpoint to check.
+  return ['weworker']
 }
 
 export function buildChatProviderOptions(providerList, providers, activeProvider) {

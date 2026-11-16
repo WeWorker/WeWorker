@@ -56,6 +56,7 @@ function isSameOrChildPath(filePath, targetPath) {
 }
 
 function workspaceContextPayload(state) {
+  if (state.workspaceScope) return { workspace_scope: state.workspaceScope }
   if (state.workspaceWorkId) return { work_id: state.workspaceWorkId }
   if (state.workspaceProjectId) return { project_id: state.workspaceProjectId }
   return {}
@@ -138,6 +139,7 @@ export const useUserFilesStore = create((set, get) => ({
   open: false,
   workspaceWorkId: null,
   workspaceProjectId: null,
+  workspaceScope: null,
   directory: INITIAL_DIRECTORY,
   files: [],
   expandedPaths: INITIAL_EXPANDED_PATHS || [],
@@ -198,11 +200,12 @@ export const useUserFilesStore = create((set, get) => ({
   setWorkspaceWorkId: (workspaceWorkId) => {
     get().setWorkspaceContext(workspaceWorkId, null)
   },
-  setWorkspaceContext: (workspaceWorkId, workspaceProjectId) => {
-    const nextWorkId = workspaceWorkId || null
-    const nextProjectId = nextWorkId ? null : (workspaceProjectId || null)
-    if (nextWorkId === get().workspaceWorkId && nextProjectId === get().workspaceProjectId) return
-    set({ workspaceWorkId: nextWorkId, workspaceProjectId: nextProjectId, directory: '', files: [], error: null })
+  setWorkspaceContext: (workspaceWorkId, workspaceProjectId, workspaceScope = null) => {
+    const nextScope = /^website-exploration(?::[A-Za-z0-9_-]{1,200})?$/.test(workspaceScope || '') ? workspaceScope : null
+    const nextWorkId = nextScope ? null : (workspaceWorkId || null)
+    const nextProjectId = nextScope || nextWorkId ? null : (workspaceProjectId || null)
+    if (nextWorkId === get().workspaceWorkId && nextProjectId === get().workspaceProjectId && nextScope === get().workspaceScope) return
+    set({ workspaceWorkId: nextWorkId, workspaceProjectId: nextProjectId, workspaceScope: nextScope, directory: '', files: [], error: null, loading: false, dragTargetPath: '', expandedPathsInitialized: false })
     if (get().open) get().load()
   },
   openPanel: async () => {
@@ -215,17 +218,30 @@ export const useUserFilesStore = create((set, get) => ({
     set({ open: next })
     if (next) await get().load()
   },
-  load: async (workspaceWorkId = get().workspaceWorkId, workspaceProjectId = get().workspaceProjectId) => {
-    set({ loading: true, error: null })
+  refreshForChanges: async (workId, scope = 'chat') => {
+    const state = get()
+    if (!state.open || (scope === 'exploration'
+      ? state.workspaceScope !== `website-exploration:${workId}`
+      : state.workspaceScope || state.workspaceWorkId !== workId)) return
+    await get().load(state.workspaceWorkId, state.workspaceProjectId, state.workspaceScope, true)
+  },
+  load: async (workspaceWorkId = get().workspaceWorkId, workspaceProjectId = get().workspaceProjectId, workspaceScope = get().workspaceScope, silent = false) => {
+    // An unsent exploration is only a draft; it must not create a workspace.
+    if (workspaceScope === 'website-exploration') {
+      set({ directory: '', files: [], loading: false, error: null })
+      return
+    }
+    if (!silent) set({ loading: true, error: null })
     try {
       const params = new URLSearchParams()
-      if (workspaceWorkId) params.set('work_id', workspaceWorkId)
+      if (workspaceScope) params.set('workspace_scope', workspaceScope)
+      else if (workspaceWorkId) params.set('work_id', workspaceWorkId)
       else if (workspaceProjectId) params.set('project_id', workspaceProjectId)
       const query = params.size ? `?${params.toString()}` : ''
       const res = await backendFetchWithRetry('/user-files' + query)
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || '\u52a0\u8f7d\u7528\u6237\u76ee\u5f55\u5931\u8d25')
-      if (workspaceWorkId !== get().workspaceWorkId || workspaceProjectId !== get().workspaceProjectId) return
+      if (workspaceWorkId !== get().workspaceWorkId || workspaceProjectId !== get().workspaceProjectId || workspaceScope !== get().workspaceScope) return
       const directory = data.directory || ''
       const shouldInitializeExpanded = !get().expandedPathsInitialized && directory
       const expandedPaths = shouldInitializeExpanded ? [directory] : get().expandedPaths
@@ -233,11 +249,12 @@ export const useUserFilesStore = create((set, get) => ({
       saveCachedDirectory(directory)
       set({ directory, files: data.files || [], expandedPaths, expandedPathsInitialized: true, loading: false })
     } catch (e) {
-      if (workspaceWorkId !== get().workspaceWorkId || workspaceProjectId !== get().workspaceProjectId) return
+      if (workspaceWorkId !== get().workspaceWorkId || workspaceProjectId !== get().workspaceProjectId || workspaceScope !== get().workspaceScope) return
       set({ error: friendlyFileError(e, '\u52a0\u8f7d\u7528\u6237\u76ee\u5f55\u5931\u8d25'), loading: false })
     }
   },
   createFolder: async (parentPath, name) => {
+    if (get().workspaceScope === 'website-exploration') return null
     const folderName = (name || '').trim()
     if (!folderName) return null
     set({ loading: true, error: null })
@@ -258,6 +275,7 @@ export const useUserFilesStore = create((set, get) => ({
   },
 
   createFile: async (parentPath, name) => {
+    if (get().workspaceScope === 'website-exploration') return null
     const fileName = (name || '').trim()
     if (!fileName) return null
     set({ loading: true, error: null })
@@ -355,6 +373,7 @@ export const useUserFilesStore = create((set, get) => ({
   },
 
   importFiles: async (paths, targetParentPath = '') => {
+    if (get().workspaceScope === 'website-exploration') return []
     if (!paths?.length) return null
     const firstName = basename(paths[0])
     set({

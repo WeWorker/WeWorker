@@ -5,7 +5,7 @@ import { readPackageDirectory, validatePackageFiles } from '../../../webcli/adap
 import { installAdapter, removeInstalledAdapter } from '../../../webcli/adapter-install-store.js'
 import { describeGeneratedInstall, resolveGeneratedInstallApproval } from '../../../webcli/generation-harness/install-review.js'
 
-const AGENT = 'http://127.0.0.1:8766'
+const AGENT = process.env.WEWORKER_WEBWRIGHT_URL || 'http://127.0.0.1:8766'
 const id = /^[A-Za-z0-9_-]+$/
 const namePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 

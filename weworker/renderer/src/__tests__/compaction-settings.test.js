@@ -16,6 +16,7 @@ test('loads the stored compaction ratio with an 80 percent fallback and persists
   globalThis.fetch = async () => Response.json({})
   await useSettingsStore.getState().load()
   assert.equal(useSettingsStore.getState().compactionRatio, 80)
+  assert.equal(useSettingsStore.getState().compactionMaxAttempts, 3)
   globalThis.fetch = async () => Response.json({ compaction_ratio: 65 })
   await useSettingsStore.getState().load()
   assert.equal(useSettingsStore.getState().compactionRatio, 65)
@@ -29,4 +30,22 @@ test('loads the stored compaction ratio with an 80 percent fallback and persists
   globalThis.fetch = async () => Response.json({ detail: '保存失败' }, { status: 500 })
   await assert.rejects(useSettingsStore.getState().saveCompactionRatio(40), /保存失败/)
   assert.equal(useSettingsStore.getState().compactionRatio, 75)
+})
+
+test('loads and saves summary attempts independently of the compaction ratio', async () => {
+  globalThis.window = {}
+  globalThis.fetch = async () => Response.json({ compaction_ratio: 65, compaction_max_attempts: 4 })
+  await useSettingsStore.getState().load()
+  assert.equal(useSettingsStore.getState().compactionMaxAttempts, 4)
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, 'http://127.0.0.1:8765/settings/compaction')
+    assert.deepEqual(JSON.parse(options.body), { compaction_max_attempts: 2 })
+    return Response.json({ compaction_ratio: 65, compaction_max_attempts: 2 })
+  }
+  await useSettingsStore.getState().saveCompactionMaxAttempts(2)
+  assert.equal(useSettingsStore.getState().compactionMaxAttempts, 2)
+  assert.equal(useSettingsStore.getState().compactionRatio, 65)
+  globalThis.fetch = async () => Response.json({ detail: '保存失败' }, { status: 500 })
+  await assert.rejects(useSettingsStore.getState().saveCompactionMaxAttempts(3), /保存失败/)
+  assert.equal(useSettingsStore.getState().compactionMaxAttempts, 2)
 })

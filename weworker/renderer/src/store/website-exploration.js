@@ -109,10 +109,10 @@ export function finishExplorationTransfer({ explorationId, instruction = '', tar
 }
 
 // A failed continuation, replay or navigation must not reset the submitted state.
-export async function continueWebsiteExploration(explorationId, content, resumable = false) {
+export async function continueWebsiteExploration(explorationId, content, resumable = false, attachments = []) {
   const result = resumable
-    ? await api.resumeExploration(explorationId, content)
-    : await api.sendExplorationFollowup(explorationId, content)
+    ? await api.resumeExploration(explorationId, content, attachments)
+    : await api.sendExplorationFollowup(explorationId, content, attachments)
   handoffs.getState().clear(explorationId)
   return result
 }

@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from webwright.models.base import BaseModel, BaseModelConfig, OptStr
+from webwright.models.thinking import apply_thinking
 from webwright.models.openrouter_model import (
     _chat_completions_response_diagnostics,
     _extract_chat_completions_text,
@@ -46,21 +47,18 @@ class ZhipuModel(BaseModel):
         return self.config.zhipu_endpoint
 
     def _build_payload(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
+        return apply_thinking({
             "model": self.config.model_name,
             "messages": _serialize_chat_messages(messages),
             "stream": False,
             "max_tokens": self.config.max_output_tokens,
             "response_format": {"type": "json_object"},
-        }
+        }, effort=self.config.thinking_effort, model=self.config.model_name, protocol="openai", provider="zhipu")
 
     def _build_text_payload(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "model": self.config.model_name,
-            "messages": _serialize_chat_messages(messages),
-            "stream": False,
-            "max_tokens": self.config.max_output_tokens,
-        }
+        payload = self._build_payload(messages)
+        payload.pop("response_format")
+        return payload
 
     def _build_repair_payload(
         self,
