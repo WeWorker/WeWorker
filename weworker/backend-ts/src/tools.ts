@@ -628,6 +628,104 @@ export function buildMcpServer(opts?: McpServerContext) {
       },
     ),
     tool(
+      'list_agent_scheduled_tasks',
+      '列出当前WeWorker Bot 的全部定时任务，含任务ID、启用状态、下次执行时间和授权通知目标。修改或停用任务前先调用此工具获取 task_id。',
+      {},
+      async () => {
+        if (!dedicatedAgent) return toolText({ error: '此工具仅供WeWorker Bot 使用' })
+        if (!isDedicatedOwner) return toolText({ error: '只有WeWorker Bot 的主人可以查看定时任务' })
+        const tasks = store.listScheduledTasksForAgent(dedicatedAgent.agentId)
+        return toolText({
+          total: tasks.length,
+          tasks: tasks.map((task) => ({
+            task_id: task.id,
+            title: task.title,
+            cron_expression: task.cron_expression,
+            prompt_template: task.prompt_template,
+            enabled: task.enabled,
+            notification_targets: (task.notification_targets ?? []).map((target) => ({
+              target_id: target.id,
+              kind: target.chat_type === 2 ? 'group' : 'direct',
+            })),
+            next_run: task.enabled ? Scheduler.getNextRun(task.cron_expression)?.toISOString() ?? null : null,
+            updated_at: task.updated_at,
+          })),
+        })
+      },
+    ),
+    tool(
+      'update_agent_scheduled_task',
+      '修改当前WeWorker Bot 已有定时任务的标题、执行频率、提示词或通知目标。只传需要变更的字段，未提供的字段保持不变。仅在主人明确确认修改内容后调用。',
+      {
+        task_id: z.string().min(1).max(100),
+        title: z.string().min(1).max(80).optional(),
+        cron_expression: z.string().min(1).max(100).optional(),
+        prompt_template: z.string().min(1).max(4000).optional(),
+        target_ids: z.array(z.string().min(1).max(256)).min(1).max(10).optional().describe('替换后的完整通知目标列表，target_id 来自 list_agent_notification_targets'),
+        confirmed: z.literal(true).describe('仅在主人已明确确认修改内容后传 true'),
+      },
+      async ({ task_id, title, cron_expression, prompt_template, target_ids }) => {
+        if (!dedicatedAgent) return toolText({ error: '此工具仅供WeWorker Bot 使用' })
+        if (!isDedicatedOwner) return toolText({ error: '只有WeWorker Bot 的主人可以修改定时任务' })
+        const agent = getAgent(dedicatedAgent.agentId)
+        if (!agent || !agent.enabled) return toolText({ error: 'WeWorker Bot 不存在或已停用' })
+        const task = store.getScheduledTask(task_id)
+        if (!task || task.agent_id !== dedicatedAgent.agentId) return toolText({ error: '定时任务不存在或不属于当前WeWorker Bot' })
+        if (title === undefined && cron_expression === undefined && prompt_template === undefined && target_ids === undefined) {
+          return toolText({ error: '没有需要修改的字段' })
+        }
+        if (cron_expression !== undefined) {
+          const validation = Scheduler.validateCron(cron_expression)
+          if (!validation.valid) return toolText({ error: `无效的 cron 表达式: ${validation.error}` })
+        }
+        let targets: store.AgentNotificationTarget[] | undefined
+        if (target_ids !== undefined) {
+          const observed = store.listChannelNotifyTargets(dedicatedChannelKey)
+          const selected = [...new Set(target_ids)].map((id) => observed.find((entry) => entry.user_id === id)).filter(Boolean)
+          if (selected.length !== new Set(target_ids).size) return toolText({ error: '通知目标不在该WeWorker Bot 已观察到的企业微信会话中' })
+          targets = selected.map((entry) => ({
+            id: entry!.user_id,
+            chat_type: Number(entry!.extra.chat_type) as 1 | 2,
+            observed_user_id: entry!.extra.user_id || '',
+            observed_at: entry!.updated_at,
+          }))
+          if (targets.some((target) => target.chat_type !== 1 && target.chat_type !== 2)) return toolText({ error: '通知目标类型无效' })
+        }
+        const updated = store.updateScheduledTask(task.id, {
+          ...(title !== undefined ? { title } : {}),
+          ...(cron_expression !== undefined ? { cron_expression } : {}),
+          ...(prompt_template !== undefined ? { prompt_template } : {}),
+          ...(targets ? { notification_targets: targets } : {}),
+        })
+        if (!updated) return toolText({ error: '定时任务更新失败' })
+        if (updated.enabled) scheduler.register(updated.id, updated.cron_expression)
+        return toolText({
+          success: true,
+          task: updated,
+          next_run: updated.enabled ? Scheduler.getNextRun(updated.cron_expression)?.toISOString() ?? null : null,
+        })
+      },
+    ),
+    tool(
+      'disable_agent_scheduled_task',
+      '停用当前WeWorker Bot 的一个定时任务：停用后不再按计划执行，任务保留，可在桌面端重新启用。仅在主人明确确认停用后调用。',
+      {
+        task_id: z.string().min(1).max(100),
+        confirmed: z.literal(true).describe('仅在主人已明确确认停用后传 true'),
+      },
+      async ({ task_id }) => {
+        if (!dedicatedAgent) return toolText({ error: '此工具仅供WeWorker Bot 使用' })
+        if (!isDedicatedOwner) return toolText({ error: '只有WeWorker Bot 的主人可以停用定时任务' })
+        const task = store.getScheduledTask(task_id)
+        if (!task || task.agent_id !== dedicatedAgent.agentId) return toolText({ error: '定时任务不存在或不属于当前WeWorker Bot' })
+        if (!task.enabled) return toolText({ success: true, already_disabled: true, task_id: task.id })
+        scheduler.unregister(task.id)
+        const updated = store.updateScheduledTask(task.id, { enabled: false })
+        if (!updated) return toolText({ error: '定时任务停用失败' })
+        return toolText({ success: true, disabled: true, task: updated })
+      },
+    ),
+    tool(
       'send_agent_message',
       '向当前定时任务已授权的企业微信单聊或群聊主动发送消息。是否调用由你根据任务说明和本轮检查结果自主决定；未调用则不会推送。不得向未授权目标发送。',
       {

@@ -206,6 +206,9 @@ export function buildAgentChatOptions(input: {
     extraToolGuard: createWorkspaceToolGuard(input.agent.site_ids ?? [], input.knownSiteIds ?? [...parseAllAdapters().keys()], [
       'mcp__weworker__list_agent_notification_targets',
       'mcp__weworker__create_agent_scheduled_task',
+      'mcp__weworker__list_agent_scheduled_tasks',
+      'mcp__weworker__update_agent_scheduled_task',
+      'mcp__weworker__disable_agent_scheduled_task',
       'mcp__weworker__update_agent_skill',
       ...(input.taskId ? ['mcp__weworker__send_agent_message'] : []),
     ]),
