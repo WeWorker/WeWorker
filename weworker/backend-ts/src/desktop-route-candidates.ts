@@ -80,6 +80,8 @@ interface TurnState {
   calls: Map<string, { name: string; resultSeen: boolean; errored: boolean; identity?: StructuredWebcliIdentity; verified?: VerifiedReadQueryExecution }>
   invalid: boolean
   recommendationSeen: boolean
+  verifiedResultSeen: boolean
+  postResultAnswerSeen: boolean
   closed: boolean
 }
 
@@ -89,17 +91,44 @@ const MAX_WORKSPACES = 64
 const RECOMMENDATION_TOOL = 'webcli_route'
 const VERIFIED_TOOL = 'weworker_read_query'
 const WEBCLI_ID = /^[a-z][a-z0-9_-]{0,63}$/i
+const ADAPTER_ID = /^[a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/i
 
 /** Whitespace/case only; punctuation and other wording remain distinct. */
 export function normalizeObservedQuestion(question: string): string {
   return question.replace(/\s+/gu, '').toLowerCase()
 }
 
+/**
+ * Shared conservative guard for desktop candidate observation and the local route entry.
+ * It has no conversation history: reject obvious acknowledgements and references rather
+ * than learning a tool route whose meaning depends on an earlier assistant turn.
+ * Do not use this to decide whether an independent question deserves an answer.
+ */
+export function isStandaloneDesktopRouteQuestion(question: string): boolean {
+  const text = question.trim().replace(/^[\s，,。.!！?？、；;：:]+|[\s，,。.!！?？、；;：:]+$/gu, '').trim()
+  if (!text) return false
+  const compact = text.replace(/\s+/gu, '').toLowerCase()
+  // Short data subjects are valid independent queries; only known conversational
+  // replies are banned, rather than rejecting every short Chinese question.
+  if (/^(?:请|麻烦|帮我)?(?:继续|接着|下一步|下一条|下一个|好的?|好吧|嗯|哦|行|可以|收到|明白|知道了|确认|确定|是|是的|对|对的|没错|不是|否|不用|不需要|取消|算了|停止|停|重试|再试|再来一次|再来一遍|同意|yes|no|ok(?:ay)?|sure|continue|cancel|confirm|retry)(?:一?下|吧|呢|了|即可|就行|请继续)?$/iu.test(compact)) return false
+  // An operation without a stated object cannot safely be bound to a tool.
+  if (/^(?:请|帮我|麻烦|能否|可以)?(?:再|继续|接着|重新)?(?:查|查询|看|看看|查看|搜|搜索|找|获取|列出|展示|导出|下载|打开|处理|执行)(?:一?下|一遍|一次|看看)?(?:吧|呢)?$/u.test(compact)) return false
+  if (/^(?:请|帮我|麻烦)?(?:再|继续|接着|重新)(?:帮我)?(?:查|查询|看|查看|搜|搜索|找|获取|列出|展示|导出|下载|打开|处理|执行)/u.test(compact)) return false
+  if (/^(?:然后|接下来|之后|还有)(?:呢|怎么办|怎么做|做什么)?$/u.test(compact)) return false
+  if (/^(?:please\s+)?(?:continue|try\s+again|do\s+it\s+again|next\s+one)$/iu.test(text)) return false
+  if (/^(?:照旧|同上|还是一样|跟之前一样|和之前一样|按之前的|按刚才的|按上次的|按原来的|接着上次|继续刚才)/u.test(compact)) return false
+  // Keep legitimate self-contained time filters, e.g. “这个月订单有哪些”.
+  const withoutTimeFilters = compact.replace(/这(?:个|一)(?:月|周|星期|季度|年|年度)|上(?:个|一)(?:月|周|星期|季度|年|年度)/gu, '')
+  if (/这个|那个|这些|那些|这条|那条|这一条|那一条|其中|里面|上面|前面|刚才|刚刚|上次|之前|前述|上述|同上|它(?:们)?|第一[条个位项]|第\d+[条个位项]|第[一二三四五六七八九十]+[条个位项]|最后一条|最新一条|上一[条个次]/u.test(withoutTimeFilters)) return false
+  if (/\b(?:this|that|these|those|it|them|above|previous|earlier|again|same\s+as\s+before)\b/iu.test(text)) return false
+  return true
+}
+
 function eligible(input: DesktopCandidateTurn): boolean {
   return input.source === 'desktop' && input.directRoute.status === 'miss'
     && input.plainQuestion === true && input.eligibleAgentTurn === true
     && !!input.workspaceKey.trim() && !!input.workId.trim() && !!input.turnId.trim()
-    && !!input.question.trim() && input.question.length <= MAX_QUESTION_LENGTH
+    && isStandaloneDesktopRouteQuestion(input.question) && input.question.length <= MAX_QUESTION_LENGTH
 }
 
 function copyPublic(candidate: PendingDesktopCandidate): PendingDesktopCandidate {
@@ -156,7 +185,8 @@ export class DesktopRouteCandidateStore {
   begin(input: DesktopCandidateTurn): DesktopCandidateObservation | null {
     if (!eligible(input)) return null
     return new DesktopCandidateObservation(this, {
-      input: { ...input }, calls: new Map(), invalid: false, recommendationSeen: false, closed: false,
+      input: { ...input }, calls: new Map(), invalid: false, recommendationSeen: false,
+      verifiedResultSeen: false, postResultAnswerSeen: false, closed: false,
     })
   }
 
@@ -166,7 +196,7 @@ export class DesktopRouteCandidateStore {
     state.closed = true
     const [toolUseId, call] = [...state.calls][0]
     const identity = call.verified ?? call.identity
-    if (!identity || !call.resultSeen || call.errored || !WEBCLI_ID.test(identity.adapterId)
+    if (!identity || !call.resultSeen || call.errored || !ADAPTER_ID.test(identity.adapterId)
       || !WEBCLI_ID.test(identity.toolId) || identity.toolUseId !== toolUseId) return null
     const verified = call.verified !== undefined
     if (verified && (call.name !== VERIFIED_TOOL || call.verified?.businessSuccess !== true
@@ -202,6 +232,10 @@ export class DesktopCandidateObservation {
     if (this.state.closed) return
     if (event.type === 'error') { this.state.invalid = true; return }
     if (event.type === 'tool_call_image') { this.state.invalid = true; return }
+    if (event.type === 'text_delta') {
+      if (this.state.verifiedResultSeen && event.content?.trim()) this.state.postResultAnswerSeen = true
+      return
+    }
     if (event.type === 'tool_call_start') {
       if (event.name === RECOMMENDATION_TOOL) { this.state.recommendationSeen = true; return }
       if (!event.id || !event.name) { this.state.invalid = true; return }
@@ -215,6 +249,7 @@ export class DesktopCandidateObservation {
       // A Shell exit status, isError=false or response body is never business proof.
       call.resultSeen = true
       call.errored ||= event.isError === true
+      if (call.verified && !event.isError) this.state.verifiedResultSeen = true
     }
   }
 
@@ -223,7 +258,7 @@ export class DesktopCandidateObservation {
     if (this.state.closed) return
     const call = this.state.calls.get(execution.toolUseId)
     if (!call || call.name !== VERIFIED_TOOL || call.verified || call.identity
-      || !WEBCLI_ID.test(execution.adapterId) || !WEBCLI_ID.test(execution.toolId)
+      || !ADAPTER_ID.test(execution.adapterId) || !WEBCLI_ID.test(execution.toolId)
       || execution.businessSuccess !== true || !execution.args
       || typeof execution.args !== 'object' || Array.isArray(execution.args)) {
       this.state.invalid = true
@@ -236,6 +271,7 @@ export class DesktopCandidateObservation {
       adapterId: execution.adapterId, toolId: execution.toolId, args,
       toolUseId: execution.toolUseId, businessSuccess: true,
     }
+    if (call.resultSeen && !call.errored) this.state.verifiedResultSeen = true
   }
 
   /** Legacy unverified identity. Never upgrades to verified or supplies arguments. */
@@ -243,7 +279,7 @@ export class DesktopCandidateObservation {
     if (this.state.closed) return
     const call = this.state.calls.get(identity.toolUseId)
     if (identity.source !== 'backend_execution_receipt' || !call || call.identity || call.verified
-      || !WEBCLI_ID.test(identity.adapterId) || !WEBCLI_ID.test(identity.toolId)) {
+      || !ADAPTER_ID.test(identity.adapterId) || !WEBCLI_ID.test(identity.toolId)) {
       this.state.invalid = true
       return
     }
@@ -255,7 +291,9 @@ export class DesktopCandidateObservation {
 
   /** Call after stream completion, final user-visible answer and tool results. */
   finish(input: { completed: boolean; finalAnswerVisible: boolean; cancelled: boolean }): PendingDesktopCandidate | null {
-    if (!input.completed || !input.finalAnswerVisible || input.cancelled) {
+    const hasVerifiedCall = [...this.state.calls.values()].some(call => !!call.verified)
+    if (!input.completed || !input.finalAnswerVisible
+      || (hasVerifiedCall && !this.state.postResultAnswerSeen) || input.cancelled) {
       this.state.closed = true
       return null
     }

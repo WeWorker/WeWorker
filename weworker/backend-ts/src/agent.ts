@@ -27,7 +27,7 @@ import { resolveAgentWorkspaceDirectory } from './workspace-context.js'
 import { isExplorationConversation } from './exploration-conversations.js'
 import { markCompactionFinished, markCompactionProgress, markCompactionStarted } from './compaction-status.js'
 import { buildMcpServer as _buildMcpServer, getMcpToolDefinitionSummary } from './tools.js'
-import { bindReadQueryReceipt, discardReadQueryTurn, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
+import { bindReadQueryReceipt, discardReadQueryTurn, redeemReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME, type ReadQueryReceipt } from './read-query-receipts.js'
 import { randomUUID } from 'node:crypto'
 import { parseAllAdapters } from './adapter-parser.js'
 import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
@@ -278,6 +278,8 @@ export interface SSEEvent {
   name?: string
   args?: unknown
   result?: string
+  /** Private non-enumerable verified receipt consumed by the desktop server. */
+  verifiedReadQuery?: ReadQueryReceipt
   isError?: boolean
   data?: string
   question?: string
@@ -2187,12 +2189,24 @@ async function* streamChatWithBaseUrl(
           // trusted receipt, not this SSE event, provides fixed learning args.
           event.args = {}
         }
-        if (event.type === 'tool_call_result' && event.id && readQueryCalls.has(event.id)
-          && msg.type === 'user' && !event.isError && opts.workId && readQueryScope.current) {
+        if (event.type === 'tool_call_result' && event.id && readQueryCalls.has(event.id)) {
           try {
             const parsed = JSON.parse(String(event.result)) as Record<string, unknown>
-            const token = parsed[READ_QUERY_RECEIPT_FIELD]
-            if (typeof token === 'string') bindReadQueryReceipt(token, opts.workId, readQueryScope.current, event.id)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+              && Object.hasOwn(parsed, READ_QUERY_RECEIPT_FIELD)) {
+              const token = parsed[READ_QUERY_RECEIPT_FIELD]
+              // Strip internal tokens even on error or after turn expiry; never emit
+              // them in SSE or persist them as a visible tool result.
+              delete parsed[READ_QUERY_RECEIPT_FIELD]
+              event.result = JSON.stringify(parsed)
+              if (typeof token === 'string' && msg.type === 'user' && !event.isError
+                && opts.workId && readQueryScope.current
+                && bindReadQueryReceipt(token, opts.workId, readQueryScope.current, event.id)) {
+                const verified = redeemReadQueryReceipt(token, opts.workId, event.id)
+                // Non-enumerable, private in-process evidence cannot leak via JSON/spread.
+                if (verified) Object.defineProperty(event, 'verifiedReadQuery', { value: verified })
+              }
+            }
           } catch { /* not a typed read-query receipt */ }
         }
         if (event.type === 'error') turnFailed = true

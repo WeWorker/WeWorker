@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  DesktopRouteCandidateStore, normalizeObservedQuestion,
+  DesktopRouteCandidateStore, isStandaloneDesktopRouteQuestion, normalizeObservedQuestion,
   type DesktopCandidateTurn,
 } from '../desktop-route-candidates.js'
 
@@ -18,6 +18,7 @@ function observe(store: DesktopRouteCandidateStore, overrides: Partial<DesktopCa
   } })
   turn.structuredIdentity({ source: 'backend_execution_receipt', toolUseId: 'call-1', adapterId: 'sample', toolId: 'read' })
   turn.event({ type: 'tool_call_result', id: 'call-1', result: 'private response not stored', isError: false })
+  turn.event({ type: 'text_delta', content: 'Here are the records.' })
   return turn
 }
 
@@ -28,12 +29,38 @@ function observeVerified(store: DesktopRouteCandidateStore, overrides: Partial<D
   turn.verifiedExecution({ adapterId: 'sample', toolId: 'read', toolUseId: 'call-verified',
     args: { query: { limit: 2, filter: ['public'] } }, businessSuccess: true, ...receiptOverrides })
   turn.event({ type: 'tool_call_result', id: 'call-verified', result: { private: 'never persist' }, isError: false })
+  turn.event({ type: 'text_delta', content: 'Here are the records.' })
   return turn
 }
 
 const finish = { completed: true, finalAnswerVisible: true, cancelled: false }
 
 describe('desktop-only volatile candidate observation', () => {
+  it('rejects isolated conversational replies and commands at both reusable and observation boundaries', () => {
+    for (const question of [
+      '继续', '继续。', '好的', '好', '确认', '是', '取消', '  是？ ', '不是', '不需要',
+      '下一步', '重试', '再来一次', '请继续', '继续吧', '确认一下', '取消了',
+      '然后呢', '接下来怎么办', '同意', 'OK', 'yes', 'No.', 'Continue!', 'Cancel', 'Try again',
+      '查一下', '再查', '看看', '帮我查一下', '继续查询订单', '按刚才的', '同上',
+      '查这个', '那个订单是什么', '把上面那条导出', '查询其中的记录',
+      '第一条订单的状态', '刚才的查询再来一次', '它的状态是什么',
+      'look up this item', 'show those records', 'same as before',
+    ]) {
+      expect(isStandaloneDesktopRouteQuestion(question), question).toBe(false)
+      expect(new DesktopRouteCandidateStore().begin(input({ question })), question).toBeNull()
+    }
+  })
+
+  it('keeps independent short and detailed queries eligible', () => {
+    for (const question of [
+      '订单', '订单列表', '查订单', '查2025年订单', '查询这个月订单',
+      '查询上个月订单', '查询第一季度订单', '列出所有待处理订单',
+      'List available records?', 'Show invoices from 2025',
+    ]) {
+      expect(isStandaloneDesktopRouteQuestion(question), question).toBe(true)
+      expect(new DesktopRouteCandidateStore().begin(input({ question })), question).not.toBeNull()
+    }
+  })
   it('requires an actual ordinary desktop miss and untouched standalone question', () => {
     const store = new DesktopRouteCandidateStore()
     for (const overrides of [
@@ -108,6 +135,26 @@ describe('desktop-only volatile candidate observation', () => {
     }
   })
 
+  it('accepts domain-named adapters when receipt and post-query answer are present', () => {
+    const store = new DesktopRouteCandidateStore()
+    const turn = store.begin(input())!
+    turn.event({ type: 'tool_call_start', id: 'verified', name: 'weworker_read_query' })
+    turn.event({ type: 'tool_call_result', id: 'verified', isError: false })
+    turn.verifiedExecution({ adapterId: 'example.com', toolId: 'list', toolUseId: 'verified', args: {}, businessSuccess: true })
+    turn.event({ type: 'text_delta', content: 'Found matching records.' })
+    expect(turn.finish(finish)).toMatchObject({ tool: { adapterId: 'example.com', toolId: 'list' }, verification: 'verified' })
+  })
+
+  it('requires a final answer after the verified query instead of only a pre-query preamble', () => {
+    const store = new DesktopRouteCandidateStore()
+    const turn = store.begin(input())!
+    turn.event({ type: 'text_delta', content: 'I will look it up.' })
+    turn.event({ type: 'tool_call_start', id: 'verified', name: 'weworker_read_query' })
+    turn.event({ type: 'tool_call_result', id: 'verified', isError: false })
+    turn.verifiedExecution({ adapterId: 'example.com', toolId: 'list', toolUseId: 'verified', args: {}, businessSuccess: true })
+    expect(turn.finish(finish)).toBeNull()
+  })
+
   it('records receipt-verified read-only calls while keeping fixed arguments private', () => {
     const store = new DesktopRouteCandidateStore()
     const source = { query: { limit: 2, filter: ['public'] } }
@@ -119,6 +166,7 @@ describe('desktop-only volatile candidate observation', () => {
     source.query.limit = 999
     source.query.filter.push('mutated')
     turn.event({ type: 'tool_call_result', id: 'call-verified', isError: false, result: 'secret-result' })
+    turn.event({ type: 'text_delta', content: 'Records are available.' })
     const candidate = turn.finish(finish)!
     expect(candidate).toMatchObject({ verification: 'verified', evidence: 'verified_read_query',
       status: 'needs_safe_test', runnableArgs: {}, tool: { adapterId: 'sample', toolId: 'read' } })

@@ -46,12 +46,14 @@ describe('智能路由接线', () => {
     expect(sources.server).toContain("desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()")
   })
 
-  it('desktop exact-route learning stays unverified without a structured execution receipt', () => {
+  it('desktop learns only from a redeemed private read-query receipt; approval remains disabled', () => {
     expect(sources.server).toContain("const learningEligible = plainDesktopQuestion && directRoute.status === 'miss'")
-    expect(sources.server).toContain('observation?.event({ type: ev.type, id: ev.id, name: ev.name, args: ev.args })')
+    expect(sources.server).toContain("ev.name === READ_QUERY_TOOL_NAME ? 'weworker_read_query' : ev.name")
+    expect(sources.server).toContain('observation.verifiedExecution({')
     expect(sources.server).toContain('observation?.finish({ completed: turnSucceeded')
+    expect(sources.server).toContain("assistantContent.some(block => block.type === 'text' && !!block.text.trim())")
     expect(sources.server).not.toContain('observation?.structuredIdentity(')
-    expect(sources.server).toContain('verification: \'identity_only_unverified\', runnableArgs: null')
+    expect(sources.server).toContain('verification: candidate.verification, runnableArgs: null')
     expect(sources.server).toContain("res.status(409).json({ detail: '候选缺少可信固定参数")
   })
 

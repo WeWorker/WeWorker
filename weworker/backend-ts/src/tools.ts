@@ -31,6 +31,7 @@ import { checkFileEncryptionCached } from './encryption-check-cache.js'
 import { createLogger } from './logger.js'
 import { runWeWorkerPowerShell } from './powershell-runner.js'
 import { getCatalog } from './api-query-router/tool-catalog.js'
+import { approvedRows } from './api-query-router/local-approved-routes.js'
 import { classifyDispatchPayload } from './api-query-router/route-dispatch.js'
 import { runWebcliCall } from './webcli-runner.js'
 import { issueReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, type ReadQueryScope } from './read-query-receipts.js'
@@ -409,11 +410,10 @@ export function buildMcpServer(opts?: McpServerContext) {
           // The learner must never replay an incomplete args subset or a bare
           // success flag with no actual data. An ordinary query can still answer
           // the Agent when it isn't safely reusable for learning.
-          const hasData = ['data', 'result', 'items', 'list', 'records', 'rows', 'tickets'].some((key) => {
-            const value = record[key]
-            return Array.isArray(value) ? value.length > 0 : value != null && typeof value === 'object' && Object.keys(value).length > 0
-          })
-          if (!learnableArgs || !hasData) return toolText({ result: parsed })
+          if (!learnableArgs) return toolText({ result: parsed })
+          // Share the conservative explicit-success/list contract used by the
+          // manual preview; a nested auth error is never a verified execution.
+          try { approvedRows(parsed) } catch { return toolText({ result: parsed }) }
           const token = issueReadQueryReceipt(scope, { tool: name, fixedArgs })
           if (!token) return toolText({ result: parsed })
           return toolText({ result: parsed, [READ_QUERY_RECEIPT_FIELD]: token })
