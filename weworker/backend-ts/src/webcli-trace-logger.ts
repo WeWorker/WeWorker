@@ -40,12 +40,14 @@ interface InFlight {
 const inFlight = new Map<string, InFlight>() // key: traceId (insertion order = age)
 let wired = false
 let wiredClient: TraceClient = bridgeRpcClient
+let unsubscribeTraceListener: (() => void) | undefined
 
 export function wireWebcliTraceLogging(client: TraceClient = bridgeRpcClient): void {
-  if (wired) return
+  if (wired && wiredClient === client) return
+  unsubscribeTraceListener?.()
   wired = true
   wiredClient = client
-  client.onTraceEvent(handleTraceEvent)
+  unsubscribeTraceListener = client.onTraceEvent(handleTraceEvent)
 }
 
 function boundedNumber(value: unknown): number | undefined {

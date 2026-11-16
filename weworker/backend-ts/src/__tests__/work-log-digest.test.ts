@@ -91,8 +91,8 @@ describe('digestWorkLog (field-compact view)', () => {
     const out = digestWorkLog(raw, 'work-digest')
     expect(out).toContain('── 第 1 轮 · aaaa1111 ──')
     expect(out).toContain('── 第 2 轮 · bbbb2222 ──')
-    expect(out).toContain('| message_saved | id=') // envelope fields are gone; raw data fields stay
-    expect(out).toContain('text=第一轮')
+    expect(out).toContain('| message_saved | role=user') // envelope fields are gone; raw data fields stay
+    expect(out).toContain('"text":"第一轮"')
     expect(out).not.toContain('"ata"')
   })
 })

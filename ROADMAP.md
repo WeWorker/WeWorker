@@ -1,6 +1,6 @@
 # WeWorker Roadmap
 
-- 2026-11-16（PR #398 测试修复）：WebCLI Adapter 调用链新增阶段追踪后，更新 3 组 Bridge 原型单测的轻量 mock，避免因 mock 缺少 `_emitTraceEvent` 而在断言前抛错。聚焦测试 19/19、WebCLI 全量 CI 测试 2572/2572 通过；未修改生产逻辑。
+- 2026-11-16（PR #398 测试修复）：WebCLI Adapter 调用链新增阶段追踪后，更新 3 组 Bridge 原型单测 mock；修复 Backend trace logger 注入 client 时未切换订阅的问题，补充重复接线及切换 client 回归，并同步两处过期日志断言。WebCLI 全量 CI 测试 2572/2572、Backend 全量 1989 项通过／4 项跳过，Backend 类型检查与差异格式检查通过。
 
 - 2026-11-09：补全定时任务每周自定义星期多选的保存和回显。选择周二、周三时同时写入 cron，执行星期显示和下次执行预览使用同一组日期；保留单星期及原有预设兼容行为。Renderer 相关 29 项测试、JS 语法检查、生产构建和差异格式检查通过；Playwright 使用真实组件与 store、隔离内存保存接口验证保存后切换返回、刷新及改回单星期。未执行真实任务或真实 Backend 持久化联调。
 

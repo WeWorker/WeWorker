@@ -43,6 +43,20 @@ afterEach(() => {
 })
 
 describe('webcli trace events → work log', () => {
+  it('keeps wiring idempotent and detaches the previous client when replacing it', () => {
+    const first = fixtureClient({})
+    const second = fixtureClient({})
+    wireWebcliTraceLogging(first.client)
+    wireWebcliTraceLogging(first.client)
+    first.emit(stage('first', 'received'))
+    wireWebcliTraceLogging(second.client)
+    first.emit(stage('detached', 'received'))
+    second.emit(stage('second', 'received'))
+
+    const events = logs.readWorkLog(work).split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l))
+    expect(events.map(event => event.data.traceId)).toEqual(['first', 'second'])
+  })
+
   it('writes stage events under the active turn and pulls extension logs on completion', async () => {
     expect(chatTurns.start(workId, 'turn-active-1')).toBeTruthy()
     const { client, emit } = fixtureClient({
