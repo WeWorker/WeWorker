@@ -22,6 +22,9 @@ const MAX_COLUMNS = 8
 export type LocalDisplay = { columns: RouterRenderColumn[]; maxRows: number }
 export type LocalApprovedRoute = {
   id: string
+  /** Only explicit 'machine' is global; absent on legacy records and remains workspace-local. */
+  scope?: 'machine'
+  /** Creator workspace for machine routes; access still requires the explicit scope. */
   workspaceId: string
   question: string
   tool: string
@@ -32,7 +35,7 @@ export type LocalApprovedRoute = {
 }
 type Store = { schemaVersion: 1; revision: number; routes: LocalApprovedRoute[]; checksum: string }
 export type LocalRouteSnapshot = { revision: number; routes: readonly LocalApprovedRoute[]; status: 'ok' | 'invalid' }
-export type LocalRouteInput = { workspaceId: string; question: string; tool: string; args: Record<string, unknown>; display: LocalDisplay }
+export type LocalRouteInput = { workspaceId: string; scope?: 'machine'; question: string; tool: string; args: Record<string, unknown>; display: LocalDisplay }
 export type LocalRoutePreview = { token: string; markdown: string; fields: readonly { key: string; type: RouterRenderColumn['type'] }[] }
 export type LocalRouteContext = { catalog?: ToolCatalog; isReserved?: (question: string) => boolean }
 export type LocalRoutePreviewOptions = LocalRouteContext & { workId: string; dispatch?: RouteDispatchFn; timeoutMs?: number }
@@ -83,22 +86,32 @@ function validateArgs(args: unknown, schema: unknown): boolean {
 }
 function currentTool(input: LocalRouteInput, catalog: ToolCatalog): CatalogTool | null {
   const tool = catalog.byName.get(input.tool)
-  if (!tool || !catalog.adapterIds.has(tool.adapterId) || !tool.direct || !isReadOnlyTool(tool) || !validateArgs(input.args, tool.parameters)) return null
+  if (!tool || !catalog.adapterIds.has(tool.adapterId) || !tool.direct || tool.navigateBefore
+    || !isReadOnlyTool(tool) || !validateArgs(input.args, tool.parameters)) return null
   return tool
 }
 function contract(tool: CatalogTool): string { return hash({ name: tool.name, adapterId: tool.adapterId, safety: tool.safety, direct: tool.direct, requiresConfirmation: tool.requiresConfirmation, parameters: tool.parameters, navigateBefore: tool.navigateBefore ?? null }) }
 function validInput(input: LocalRouteInput): boolean {
-  return validText(input.workspaceId, 256) && validText(input.question, 500) && !!normalizeRouteText(input.question) && validText(input.tool, 160) && object(input.args) && displayIsValid(input.display)
+  return (input.scope === undefined || input.scope === 'machine') && validText(input.workspaceId, 256) && validText(input.question, 500) && !!normalizeRouteText(input.question) && validText(input.tool, 160) && object(input.args) && displayIsValid(input.display)
 }
 function validRecord(value: unknown): value is LocalApprovedRoute {
   if (!object(value)) return false
   return validInput(value as LocalRouteInput) && validText(value.id, 100) && /^[a-f0-9]{64}$/.test(String(value.contractHash)) && typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt))
 }
+function visibleTo(route: LocalApprovedRoute, workspaceId: string): boolean {
+  return route.scope === 'machine' || route.workspaceId === workspaceId
+}
+function sameQuestion(a: Pick<LocalRouteInput, 'question'>, b: Pick<LocalRouteInput, 'question'>): boolean {
+  return normalizeRouteText(a.question) === normalizeRouteText(b.question)
+}
+function overlaps(a: LocalRouteInput, b: LocalRouteInput): boolean {
+  return sameQuestion(a, b) && (a.scope === 'machine' || b.scope === 'machine' || a.workspaceId === b.workspaceId)
+}
 function checksum(revision: number, routes: readonly LocalApprovedRoute[]): string { return hash({ schemaVersion: VERSION, revision, routes }) }
 
 // Fail closed on ambiguous arrays and on unknown business-status conventions. Only an
 // explicit success marker is evidence; a successful HTTP/CLI invocation is not enough.
-function approvedRows(payload: unknown): Record<string, unknown>[] {
+export function approvedRows(payload: unknown): Record<string, unknown>[] {
   if (!object(payload)) throw new LocalRouteError('unsafe')
   let record = payload
   let confirmed = false
@@ -187,8 +200,8 @@ function parseStore(text: string): Store {
   const routes = data.routes as LocalApprovedRoute[]
   const seen = new Set<string>(); const questions = new Set<string>()
   for (const route of routes) {
-    const key = `${route.workspaceId}\u0000${normalizeRouteText(route.question)}`
-    if (seen.has(route.id) || questions.has(key)) throw new LocalRouteError('invalid')
+    const key = `${route.scope === 'machine' ? 'machine' : `workspace:${route.workspaceId}`}\u0000${normalizeRouteText(route.question)}`
+    if (seen.has(route.id) || questions.has(key) || routes.some(other => other !== route && overlaps(route, other))) throw new LocalRouteError('invalid')
     seen.add(route.id); questions.add(key)
   }
   if (data.checksum !== checksum(data.revision as number, routes)) throw new LocalRouteError('invalid')
@@ -223,7 +236,7 @@ export function createLocalApprovedRouteService(filePath = LOCAL_APPROVED_ROUTES
   function list(workspaceId: string, context: LocalRouteContext = {}): { revision: number; status: 'ok' | 'invalid'; routes: readonly { route: LocalApprovedRoute; status: 'ready' | 'suspended'; reason: string }[] } {
     const state = snapshot()
     if (state.status === 'invalid' || !validText(workspaceId, 256)) return { revision: -1, status: 'invalid', routes: [] }
-    return { revision: state.revision, status: 'ok', routes: state.routes.filter(route => route.workspaceId === workspaceId).map(route => {
+    return { revision: state.revision, status: 'ok', routes: state.routes.filter(route => visibleTo(route, workspaceId)).map(route => {
       const outcome = lookup(route.question, workspaceId, context)
       return { route, status: outcome.reason === 'ready' ? 'ready' : 'suspended', reason: outcome.reason }
     }) }
@@ -255,7 +268,7 @@ export function createLocalApprovedRouteService(filePath = LOCAL_APPROVED_ROUTES
     const state = snapshot()
     if (state.status !== 'ok') return { route: null, reason: 'invalid' }
     if (!validText(workspaceId, 256) || !validText(question, 500) || context.isReserved?.(question)) return { route: null, reason: 'conflict' }
-    const match = state.routes.find(route => route.workspaceId === workspaceId && normalizeRouteText(route.question) === normalizeRouteText(question))
+    const match = state.routes.find(route => visibleTo(route, workspaceId) && normalizeRouteText(route.question) === normalizeRouteText(question))
     if (!match) return { route: null, reason: 'missing' }
     const tool = currentTool(match, context.catalog ?? getCatalog())
     if (!tool || match.contractHash !== contract(tool) || !displayIsValid(match.display)) return { route: null, reason: 'suspended' }
@@ -282,7 +295,7 @@ export function createLocalApprovedRouteService(filePath = LOCAL_APPROVED_ROUTES
     const ticket = previews.get(token)
     previews.delete(token)
     if (!ticket || ticket.expires < Date.now() || ticket.workspaceId !== input.workspaceId || ticket.inputHash !== hash(input) || ticket.contractHash !== contract(tool) || ticket.revision !== previous.revision) throw new LocalRouteError('preview_required')
-    if (previous.routes.some(route => route.workspaceId === input.workspaceId && normalizeRouteText(route.question) === normalizeRouteText(input.question))) throw new LocalRouteError('conflict')
+    if (previous.routes.some(route => overlaps(route, input))) throw new LocalRouteError('conflict')
     const route: LocalApprovedRoute = { ...structuredClone(input), id: randomUUID(), contractHash: contract(tool), createdAt: new Date().toISOString() }
     writeStore(previous, [...previous.routes, route]); return route
   }
@@ -304,8 +317,8 @@ export function createLocalApprovedRouteService(filePath = LOCAL_APPROVED_ROUTES
   function remove(id: string, workspaceId: string, expectedRevision: number): void {
     const previous = readStore()
     if (previous.revision !== expectedRevision) throw new LocalRouteError('stale')
-    if (!validText(workspaceId, 256) || !previous.routes.some(route => route.id === id && route.workspaceId === workspaceId)) throw new LocalRouteError('unavailable')
-    writeStore(previous, previous.routes.filter(route => !(route.id === id && route.workspaceId === workspaceId)))
+    if (!validText(workspaceId, 256) || !previous.routes.some(route => route.id === id && visibleTo(route, workspaceId))) throw new LocalRouteError('unavailable')
+    writeStore(previous, previous.routes.filter(route => !(route.id === id && visibleTo(route, workspaceId))))
   }
   return { snapshot, list, lookup, preview, approve, execute, remove }
 }

@@ -128,8 +128,8 @@ import { graduationHint, recordTier4HostUsage, shouldSuggestGraduation } from '.
 import { computeRoutableSitesFromConfig, getScopedRouterConfig } from './router-config/index.js'
 import { listAliasTexts } from './api-query-router/aliases.js'
 import { createLocalApprovedRouteService, LocalRouteError } from './api-query-router/local-approved-routes.js'
-import { DesktopRouteCandidateStore } from './desktop-route-candidates.js'
-import { redeemReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
+import { DesktopRouteCandidateStore, isStandaloneDesktopRouteQuestion } from './desktop-route-candidates.js'
+import { READ_QUERY_TOOL_NAME } from './read-query-receipts.js'
 import { getCatalog } from './api-query-router/tool-catalog.js'
 import type { LocalRouteInput } from './api-query-router/local-approved-routes.js'
 import { getRouteEngine, planRouteDecision } from './api-query-router/index.js'
@@ -1721,11 +1721,12 @@ function candidateInput(scope: { workId: string; workspaceId: string }, candidat
     || keys.length < 1 || keys.length > 8 || keys.some(key => typeof key !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/.test(key))
     || new Set(keys).size !== keys.length) return null
   const toolName = `${verified.candidate.tool.adapterId}.${verified.candidate.tool.toolId}`
-  return { workspaceId: scope.workspaceId, question: verified.candidate.question,
+  return { workspaceId: scope.workspaceId, scope: 'machine', question: verified.candidate.question,
     tool: toolName, args: { ...verified.args },
     display: { columns: keys.map(key => ({ key, type: 'text' as const })), maxRows: 10 } }
 }
 function fastRouteReserved(question: string): boolean {
+  if (!isStandaloneDesktopRouteQuestion(question)) return true
   try {
     const { plan } = planRouteDecision({ message: question, workId: 'local-route-check' })
     return !!plan.blocked || plan.steps.length > 0
@@ -1737,8 +1738,12 @@ app.get('/router/fast-routes', (req, res) => {
   const local = localFastRoutes.list(scope.workspaceId, { isReserved: fastRouteReserved })
   const candidates = pendingFastRoutes.list(scope.workspaceId).map(candidate => ({
     id: candidate.id, title: candidate.question, siteName: candidate.tool.adapterId,
-    description: '尚无可信的固定参数执行回执，不能测试或启用',
-    verification: 'identity_only_unverified', runnableArgs: null, displayFields: [],
+    description: candidate.verification === 'verified'
+      ? '已取得可信查询回执；测试与确认入口尚未开放，不会自动启用'
+      : '尚无可信的固定参数执行回执，不能测试或启用',
+    // The UI must not advertise an executable candidate until the guarded
+    // preview/approve endpoints exist; verified fixed args stay server-private.
+    verification: candidate.verification, runnableArgs: null, displayFields: [],
   }))
   const system = loadScenarioRoutes()
   const engine = getRouteEngine()
@@ -3718,9 +3723,21 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       reuseSession: true,
       ...(dedicatedAgentOptions ?? {}),
     })) {
-      if (ev.type === 'tool_call_start') observation?.event({ type: ev.type, id: ev.id, name: ev.name, args: ev.args })
-      else if (ev.type === 'tool_call_result') observation?.event({ type: ev.type, id: ev.id, isError: ev.isError, result: ev.result })
+      if (ev.type === 'tool_call_start') observation?.event({ type: ev.type, id: ev.id,
+        name: ev.name === READ_QUERY_TOOL_NAME ? 'weworker_read_query' : ev.name, args: ev.args })
+      else if (ev.type === 'tool_call_result') {
+        observation?.event({ type: ev.type, id: ev.id, isError: ev.isError, result: ev.result })
+        if (observation && ev.id && ev.verifiedReadQuery) {
+          const dot = ev.verifiedReadQuery.tool.lastIndexOf('.')
+          if (dot > 0) observation.verifiedExecution({
+            toolUseId: ev.id, adapterId: ev.verifiedReadQuery.tool.slice(0, dot),
+            toolId: ev.verifiedReadQuery.tool.slice(dot + 1), args: ev.verifiedReadQuery.fixedArgs,
+            businessSuccess: true,
+          })
+        }
+      }
       else if (ev.type === 'tool_call_image') observation?.event({ type: ev.type, id: ev.id })
+      else if (ev.type === 'text_delta') observation?.event({ type: ev.type, content: ev.content })
       else if (ev.type === 'error') observation?.event({ type: ev.type, content: ev.content })
       if (ev.type === 'skill_context' && ev.skillContext) {
         assistantContent.push(ev.skillContext)
@@ -3879,9 +3896,11 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     }
   }
 
-  // No trusted backend receipt is currently correlated with an SDK tool-use ID.
-  // finish() therefore records no candidate; a Shell exit code is not proof.
-  observation?.finish({ completed: turnSucceeded, finalAnswerVisible: !!currentText.trim(), cancelled: abortController.signal.aborted })
+  // Only a privately redeemed read-query receipt correlated with this SDK tool-use ID
+  // can produce a verified candidate; Shell exit status and output are never proof.
+  observation?.finish({ completed: turnSucceeded,
+    finalAnswerVisible: assistantContent.some(block => block.type === 'text' && !!block.text.trim()),
+    cancelled: abortController.signal.aborted })
 
   // Persist assistant message
   if (assistantContent.length > 0) {

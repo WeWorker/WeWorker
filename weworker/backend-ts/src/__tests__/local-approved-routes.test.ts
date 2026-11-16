@@ -37,6 +37,50 @@ describe('local approved exact route', () => {
     expect(file.routes).toHaveLength(1)
   })
 
+  it('keeps legacy workspace records local while explicitly scoped new routes are machine-wide', async () => {
+    const { service, input, catalog, dir } = fixture()
+    const preview = await service.preview(input, { workId: 'turn', catalog, dispatch: async () => response })
+    const legacy = service.approve(input, preview.token, 0, { catalog })
+    const globalInput: LocalRouteInput = { ...input, scope: 'machine', question: 'Show all example records?' }
+    const globalPreview = await service.preview(globalInput, { workId: 'turn', catalog, dispatch: async () => response })
+    const globalRoute = service.approve(globalInput, globalPreview.token, 1, { catalog })
+    const reloaded = createLocalApprovedRouteService(path.join(dir, 'approved.json'))
+    expect(reloaded.snapshot().status).toBe('ok')
+    expect(reloaded.snapshot().routes.find(route => route.id === legacy.id)).not.toHaveProperty('scope')
+    expect(reloaded.lookup(input.question, 'workspace-B', { catalog }).reason).toBe('missing')
+    expect(reloaded.lookup(globalInput.question, 'workspace-B', { catalog }).route?.id).toBe(globalRoute.id)
+    expect(reloaded.list('workspace-A', { catalog }).routes).toHaveLength(2)
+    expect(reloaded.list('workspace-B', { catalog }).routes.map(({ route }) => route.id)).toEqual([globalRoute.id])
+    const calls: string[] = []
+    expect(await reloaded.execute(globalRoute, { workId: 'turn', catalog, dispatch: async name => { calls.push(name); return response } })).toContain('One')
+    expect(calls).toEqual(['example.list'])
+    expect(() => reloaded.remove(legacy.id, 'workspace-B', 2)).toThrowError(LocalRouteError)
+    reloaded.remove(globalRoute.id, 'workspace-B', 2)
+    expect(reloaded.lookup(globalInput.question, 'workspace-A', { catalog }).reason).toBe('missing')
+    expect(reloaded.lookup(input.question, 'workspace-A', { catalog }).route?.id).toBe(legacy.id)
+  })
+
+  it('never widens legacy records implicitly and prevents overlapping exact questions', async () => {
+    const { service, input, catalog, dir } = fixture()
+    const legacyPreview = await service.preview(input, { workId: 'turn', catalog, dispatch: async () => response })
+    service.approve(input, legacyPreview.token, 0, { catalog })
+    const otherInput = { ...input, workspaceId: 'workspace-B' }
+    const otherPreview = await service.preview(otherInput, { workId: 'turn', catalog, dispatch: async () => response })
+    service.approve(otherInput, otherPreview.token, 1, { catalog })
+    expect(service.lookup(input.question, 'workspace-C', { catalog }).reason).toBe('missing')
+    const globalInput: LocalRouteInput = { ...input, scope: 'machine' }
+    const globalPreview = await service.preview(globalInput, { workId: 'turn', catalog, dispatch: async () => response })
+    expect(() => service.approve(globalInput, globalPreview.token, 2, { catalog })).toThrowError(LocalRouteError)
+    const distinctGlobal: LocalRouteInput = { ...globalInput, question: 'Show different records?' }
+    const distinctPreview = await service.preview(distinctGlobal, { workId: 'turn', catalog, dispatch: async () => response })
+    service.approve(distinctGlobal, distinctPreview.token, 2, { catalog })
+    const collidingPreview = await service.preview({ ...distinctGlobal, scope: undefined, workspaceId: 'workspace-C' }, { workId: 'turn', catalog, dispatch: async () => response })
+    expect(() => service.approve({ ...distinctGlobal, scope: undefined, workspaceId: 'workspace-C' }, collidingPreview.token, 3, { catalog })).toThrowError(LocalRouteError)
+    expect(service.snapshot().status).toBe('ok')
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'approved.json'), 'utf8')).schemaVersion).toBe(1)
+    await expect(service.preview({ ...input, scope: 'unknown' } as unknown as LocalRouteInput, { workId: 'turn', catalog, dispatch: async () => response })).rejects.toMatchObject({ reason: 'unsafe' })
+  })
+
   it('fails closed on corruption without wiping or replacing existing records', async () => {
     const { service, input, catalog, dir } = fixture()
     const ticket = await service.preview(input, { workId: 'turn', catalog, dispatch: async () => response })
@@ -54,7 +98,7 @@ describe('local approved exact route', () => {
     const { service, input, catalog, tool } = fixture()
     const ticket = await service.preview(input, { workId: 'turn', catalog, dispatch: async () => response })
     service.approve(input, ticket.token, 0, { catalog })
-    for (const changed of [ { ...tool, safety: 'write' }, { ...tool, requiresConfirmation: true }, { ...tool, parameters: { ...tool.parameters, description: 'changed' } } ]) {
+    for (const changed of [ { ...tool, safety: 'write' }, { ...tool, requiresConfirmation: true }, { ...tool, navigateBefore: 'https://example.com/' }, { ...tool, parameters: { ...tool.parameters, description: 'changed' } } ]) {
       const current = { ...catalog, byName: new Map([[tool.name, changed]]) }
       expect(service.lookup(input.question, input.workspaceId, { catalog: current }).reason).toBe('suspended')
       expect(service.snapshot().routes).toHaveLength(1)
