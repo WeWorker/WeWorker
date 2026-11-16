@@ -1113,6 +1113,9 @@ export class WebSocketBridge extends EventEmitter {
       // log export pick these lines out of the shared host log file.
       const workTag = msg.workId ? ` [work:${String(msg.workId).slice(0, 8)}]` : '';
       process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 收到调用: ${toolName}\n`);
+      this._emitTraceEvent(msg.workId, traceID, toolName, 'received', {
+        loginWaitMs: Number.isFinite(Number(msg.loginWaitMs)) ? Number(msg.loginWaitMs) : undefined,
+      });
 
       try {
         let prepared = false;
@@ -1120,8 +1123,19 @@ export class WebSocketBridge extends EventEmitter {
           onPrepared: () => { prepared = true; } });
         this._reply(ws, { type: 'call_tool_result', id, result, traceID, ...(prepared ? { execution: { phase: 'prepared' } } : {}) });
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用成功: ${toolName} (${callTiming ? Date.now() - callTiming.entry.receivedAt : '?'}ms)\n`);
+        this._emitTraceEvent(msg.workId, traceID, toolName, 'done', {
+          durationMs: callTiming ? Date.now() - callTiming.entry.receivedAt : undefined,
+          prepared: prepared || undefined,
+        });
       } catch (err) {
         process.stderr.write(`[${ts()}] ${tracePrefix}[Bridge]${workTag} 调用失败: ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
+        this._emitTraceEvent(msg.workId, traceID, toolName, 'error', {
+          code: typeof err.code === 'string' && err.code ? err.code : undefined,
+          durationMs: callTiming ? Date.now() - callTiming.entry.receivedAt : undefined,
+          auth: err.auth && typeof err.auth === 'object'
+            ? { site: String(err.auth.site || '').slice(0, 128), status: String(err.auth.status || '').slice(0, 64) }
+            : undefined,
+        });
         this._reply(ws, {
           type: 'call_tool_error', id, error: err.message, traceID,
           ...(typeof err.code === 'string' && err.code ? { code: err.code } : {}),
@@ -1919,12 +1933,17 @@ export class WebSocketBridge extends EventEmitter {
         : DEFAULT_LOGIN_WAIT_MS;
       if (workId) {
         process.stderr.write(`[${ts()}] [Bridge] [work:${String(workId).slice(0, 8)}] 调用失败，进入登录判定: ${selected.adapter.name} ${toolName} — ${err.message}${err.code ? ` (${err.code})` : ''}\n`);
+        this._emitTraceEvent(workId, traceID, toolName, 'auth_required', {
+          site: String(selected.adapter.name || '').slice(0, 128),
+          code: typeof err.code === 'string' && err.code ? err.code : undefined,
+        });
       }
       const retried = await this._siteLogin().handleFailure(err, {
         site: selected.adapter.name, command: selected.command, retry: run, loginWaitMs,
       });
       if (workId) {
         process.stderr.write(`[${ts()}] [Bridge] [work:${String(workId).slice(0, 8)}] 登录后重试完成: ${toolName}\n`);
+        this._emitTraceEvent(workId, traceID, toolName, 'auth_retry', { site: String(selected.adapter.name || '').slice(0, 128) });
       }
       return retried;
     }
@@ -2039,6 +2058,21 @@ export class WebSocketBridge extends EventEmitter {
       if (client === exclude || client.readyState !== 1 || extensions.has(client)) continue;
       try { client.send(payload); } catch {}
     }
+  }
+
+  /**
+   * Per-conversation stage events for the desktop work log. Metadata only:
+   * never page content, credentials or argument values. Old clients that do
+   * not know `trace_event` drop it (unknown type, no request id).
+   */
+  _emitTraceEvent(workId, traceID, toolName, stage, fields = {}) {
+    if (!workId || !traceID) return;
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(String(workId))) return;
+    this._broadcastToClients({
+      type: 'trace_event', workId: String(workId), traceID: String(traceID).slice(0, 64),
+      toolName: String(toolName || '').slice(0, 160), stage: String(stage),
+      ...fields,
+    });
   }
 
   /** Deliver login progress to its caller and to persistent desktop clients, never extensions. */
@@ -2186,6 +2220,7 @@ export class WebSocketBridge extends EventEmitter {
     args = businessArgs(args);
     if (selected?.command.runtime === 'http') {
       const { runHttpTool } = await import('./http-runner.js');
+      this._emitTraceEvent(workId, traceID, toolName, 'http_run');
       const completed = await runHttpTool(selected, args || {}, { traceID,
         resolveCookies: async payload => {
           const result = await this._request({ type: 'http_credentials', payload }, 10_000);
@@ -2196,6 +2231,7 @@ export class WebSocketBridge extends EventEmitter {
     }
     if (selected?.command.runtime === 'wewright') {
       const { runToolkitTool } = await import('./toolkit-runner.js');
+      this._emitTraceEvent(workId, traceID, toolName, 'toolkit_run');
       const completed = await runToolkitTool({
         adapter: { root: selected.adapter.root, entryPath: path.join(selected.adapter.root, selected.command.module) },
         tool: { id: selected.command.id, name: toolName },
@@ -2234,6 +2270,7 @@ export class WebSocketBridge extends EventEmitter {
     if (selected?.command.pageStrategy === 'INTERCEPT' && !this._extensionCapabilities?.includes('intercept_read_v1')) throw new Error('Reload the browser extension before calling intercepted page queries.');
     const timeout = resolveToolCallTimeout(toolName);
     const request = { type: 'call_tool', toolName, args, ...(selected ? { adapterSnapshot: selected.snapshot } : {}), ...(workId ? { workId } : {}) };
+    this._emitTraceEvent(workId, traceID, toolName, 'dispatched', { timeoutMs: timeout });
     if (typeof onPrepared !== 'function') return this._request(request, timeout, traceID);
     const response = await this._request(request, timeout, traceID, true);
     if (selected?.command.safety === 'write' && response.execution?.phase === 'prepared') onPrepared();

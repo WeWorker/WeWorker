@@ -41,6 +41,23 @@ export interface BridgeSiteAuthEvent {
   [key: string]: unknown
 }
 
+/** Bridge-side lifecycle of one `webcli call`; metadata only, never page content. */
+export interface BridgeTraceEvent {
+  type: 'trace_event'
+  workId: string
+  traceID: string
+  toolName: string
+  stage: 'received' | 'dispatched' | 'http_run' | 'toolkit_run' | 'auth_required' | 'auth_retry' | 'done' | 'error'
+  loginWaitMs?: number
+  timeoutMs?: number
+  durationMs?: number
+  prepared?: boolean
+  code?: string
+  site?: string
+  auth?: { site?: string; status?: string }
+  [key: string]: unknown
+}
+
 export interface GenerationRunSnapshot {
   artifacts?: Record<string, unknown>
   id: string
@@ -112,6 +129,7 @@ export class BridgeRpcClient {
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private _pending = new Map<string, PendingRequest>()
   private readonly _authListeners = new Set<(event: BridgeSiteAuthEvent) => void>()
+  private readonly _traceListeners = new Set<(event: BridgeTraceEvent) => void>()
 
   constructor(
     private readonly _url = DEFAULT_BRIDGE_URL,
@@ -148,6 +166,12 @@ export class BridgeRpcClient {
   onAuthEvent(listener: (event: BridgeSiteAuthEvent) => void): () => void {
     this._authListeners.add(listener)
     return () => this._authListeners.delete(listener)
+  }
+
+  /** Subscribe to per-conversation webcli stage events broadcast by the Bridge. */
+  onTraceEvent(listener: (event: BridgeTraceEvent) => void): () => void {
+    this._traceListeners.add(listener)
+    return () => this._traceListeners.delete(listener)
   }
 
   async listExplorableTabs(): Promise<ExplorableTab[]> {
@@ -495,6 +519,14 @@ export class BridgeRpcClient {
       const event = message as unknown as BridgeSiteAuthEvent
       for (const listener of this._authListeners) {
         try { listener(event) } catch (error) { log.error('auth event listener failed:', error) }
+      }
+      return
+    }
+    if (type === 'trace_event') {
+      if (typeof message.workId !== 'string' || typeof message.traceID !== 'string' || typeof message.stage !== 'string') return
+      const event = message as unknown as BridgeTraceEvent
+      for (const listener of this._traceListeners) {
+        try { listener(event) } catch (error) { log.error('trace event listener failed:', error) }
       }
       return
     }
