@@ -45,7 +45,8 @@ import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import './settings-secret-input.css'
 import { API, backendFetch } from '../../api/http.js'
-import { fetchProviderModels } from '../../api/provider-models.js'
+import { fetchProviderModels, probeSavedExplorationModel } from '../../api/provider-models.js'
+import { connectionMessage } from '../../utils/model-connection.js'
 import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.js'
 import { showConfirm } from '../../store/dialog.js'
 import { showNotification, useNotificationsStore } from '../../store/notifications.js'
@@ -1655,6 +1656,14 @@ function ModelTab() {
   const testingProviders = useRef(new Set())
   const [testResult, setTestResult] = useState(null)
   const contextLimitNoticeId = useRef(null)
+  const explorationRevision = useSettingsStore(s => s.explorationModelRevision)
+  useEffect(() => {
+    for (const pid of Object.keys(probeRequestIds.current)) probeRequestIds.current[pid]++
+    testingProviders.current.clear()
+    setTesting({})
+    setProbeChecks({})
+    setProbeResults({})
+  }, [explorationRevision])
 
   const reportContextLimitError = () => {
     const { notices } = useNotificationsStore.getState()
@@ -2010,8 +2019,12 @@ function ModelTab() {
     const timer = setTimeout(() => controller.abort(), 30000)
     try {
       const probe = async (target) => {
-        const fallbackProtocol = getForm(pid).weworker_protocol || 'anthropic_messages'
+        const fallbackProtocol = target === 'weworker' ? getForm(pid).weworker_protocol || 'anthropic_messages' : ''
         try {
+          if (target === 'webwright') {
+            const data = await probeSavedExplorationModel(controller.signal)
+            return { ...data, message: data.ok ? connectionMessage(data) : data.detail || connectionMessage(data) }
+          }
           const res = await backendFetch(`${API}/settings/provider/probe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2033,7 +2046,7 @@ function ModelTab() {
       const targets = buildProviderProbeTargets()
       const checks = targets.map((target) => ({
         target,
-        label: `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`,
+        label: target === 'webwright' ? '网站探索接口' : `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`,
         status: 'running',
         message: '',
       }))
