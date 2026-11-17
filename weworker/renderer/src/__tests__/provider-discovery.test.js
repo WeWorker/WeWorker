@@ -219,6 +219,7 @@ test('model settings have a compact search toolbar and a discovery dialog beside
   assert.equal(header.querySelector('.model-settings-sidebar__title'), null)
   assert.equal(header.querySelector('.model-settings-sidebar__count'), null)
   assert.ok(header.querySelector('[aria-label="搜索模型配置名称"]'))
+  assert.ok(header.querySelector('.model-settings-search').compareDocumentPosition(header.querySelector('.model-settings-sidebar__tools')) & window.Node.DOCUMENT_POSITION_FOLLOWING)
   assert.ok(ariaButton('添加模型'))
   assert.ok(ariaButton('识别本地模型'))
   await click(ariaButton('识别本地模型'))
@@ -227,25 +228,42 @@ test('model settings have a compact search toolbar and a discovery dialog beside
   assert.ok(document.querySelector('[data-model-configuration="model-fixture"].is-selected'))
 })
 
-test('custom configurations expose one shared interface without separate exploration setup or checks', async () => {
+test('custom configurations keep separate conversation and exploration interfaces', async t => {
+  const timeout = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => delay === 2000 ? 0 : timeout(callback, delay, ...args))
   state.providers['model-fixture'] = { ...imported, openai_base_url: 'https://example.org/old', openai_model: 'old-model', has_openai_key: true }
   store.setState({ providers: state.providers, activeProvider: 'model-fixture' })
   await act(async () => root.render(React.createElement(SettingsPage)))
   assert.ok(document.querySelector('[aria-label="WeWorker 对话接口"]'))
-  assert.equal(button('高级配置'), undefined)
-  assert.equal(document.querySelector('[aria-label="OpenAI 接口地址"]'), null)
-  assert.equal(document.querySelector('[aria-label="网站探索agent API Key"]'), null)
+  assert.ok(button('高级配置'))
+  await click(button('高级配置'))
+  assert.equal(document.querySelector('[aria-label="OpenAI 接口地址"]').value, 'https://example.org/old')
+  assert.match(document.querySelector('[aria-label="Adapter工坊探索模型"]').textContent, /old-model/)
   const catalogs = calls.filter(c => c.endpoint === '/settings/provider/models')
-  assert.ok(catalogs.length > 0)
-  assert.ok(catalogs.every(c => JSON.parse(c.body).target === 'weworker'))
+  assert.ok(catalogs.some(c => JSON.parse(c.body).target === 'weworker'))
+  assert.ok(catalogs.some(c => JSON.parse(c.body).target === 'webwright'))
   await click(button('测试模型可用性'))
   const probes = calls.filter(c => c.endpoint === '/settings/provider/probe')
-  assert.equal(probes.length, 1)
-  const body = JSON.parse(probes[0].body)
-  assert.equal(body.target, 'weworker')
-  assert.equal(body.base_url, imported.base_url)
-  assert.equal(body.openai_base_url, undefined)
-  assert.equal(body.openai_model, undefined)
+  assert.deepEqual(probes.map(c => JSON.parse(c.body).target), ['weworker', 'webwright'])
+  assert.equal(JSON.parse(probes[1].body).openai_base_url, 'https://example.org/old')
+  await click(button('保存'))
+  const saved = JSON.parse(calls.find(c => c.endpoint === '/settings/provider').body)
+  assert.equal(saved.openai_base_url, 'https://example.org/old')
+  assert.equal(saved.openai_model, 'old-model')
+  assert.equal(saved.model, imported.model)
+  assert.equal(saved.base_url, imported.base_url)
+  assert.equal(saved.openai_api_key, undefined, 'blank exploration key retains its saved value')
+  assert.equal(calls.some(c => c.endpoint === '/settings/provider/activate'), false, 'saving does not activate the configuration')
+})
+
+test('preset configurations use their predefined exploration interfaces without extra forms', async () => {
+  state.providers.anthropic = { ...state.providers.anthropic, model: 'fixture-current' }
+  store.setState({ providers: state.providers, activeProvider: 'anthropic' })
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  assert.equal(button('高级配置'), undefined)
+  assert.equal(document.querySelector('.exploration-model-settings'), null)
+  assert.equal(document.querySelector('[aria-label="OpenAI 接口地址"]'), null)
+  assert.ok(document.querySelector('[aria-label="模型配置详情"]'))
 })
 
 test('every built-in has an editable context window and saves it without deployment fields', async t => {
@@ -486,35 +504,12 @@ test('another model remains clickable while a single-model check is pending', as
 })
 
 
-test('header detects and imports connections, exposes help, and reports new entries without switching models', async () => {
+test('model settings keep local connection discovery in the provider list', async () => {
   await act(async () => root.render(React.createElement(SettingsPage)))
-  assert.ok(document.querySelector('.settings-panel-top .model-discovery-action'))
-  await click(ariaButton('关于检测本地配置'))
-  assert.match(document.querySelector('[role="tooltip"]').textContent, /API Key/)
-  await click(button('检测本地配置'))
-  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/detect-and-import').length, 1)
+  assert.equal(document.querySelector('.settings-panel-top .model-discovery-action'), null)
+  await click(ariaButton('识别本地模型'))
+  await click(ariaButton('导入 Claude Code fixture-model'))
+  await click(ariaButton('关闭'))
   assert.ok(store.getState().providers['model-fixture'])
   assert.equal(store.getState().activeProvider, 'anthropic')
-  assert.equal(dialogs.getState().queue[0].title, '已发现并导入新配置')
-  assert.match(dialogs.getState().queue[0].message, /已导入 1 个新连接/)
-})
-
-test('one-click discovery prevents duplicate requests and reports empty, partial and failed scans', async () => {
-  let finish
-  batchResponse = () => new Promise(resolve => { finish = resolve })
-  await act(async () => root.render(React.createElement(SettingsPage)))
-  await click(button('检测本地配置'))
-  assert.equal(button('正在检测…').disabled, true)
-  await click(button('正在检测…'))
-  assert.equal(calls.filter(item => item.endpoint === '/settings/provider/detect-and-import').length, 1)
-  await act(async () => finish(Response.json({ ...state, discovery: { imported: 0, skipped: 1, issues: ['CodeBuddy'] } })))
-  assert.equal(button('检测本地配置').disabled, false)
-  assert.match(dialogs.getState().queue[0].message, /未发现新的可导入连接/)
-  assert.match(dialogs.getState().queue[0].message, /1 个连接未通过校验/)
-  assert.match(dialogs.getState().queue[0].message, /CodeBuddy/)
-  dialogs.setState({ queue: [] })
-  batchResponse = () => Response.json({ detail: '检测未完成，请检查本地服务后重试。' }, { status: 500 })
-  await click(button('检测本地配置'))
-  assert.equal(dialogs.getState().queue[0].title, '检测未完成')
-  assert.equal(button('检测本地配置').disabled, false)
 })

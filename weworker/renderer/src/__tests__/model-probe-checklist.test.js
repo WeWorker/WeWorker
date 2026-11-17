@@ -10,7 +10,7 @@ test('model availability checks include both conversation and exploration interf
   assert.deepEqual(buildProviderProbeTargets(), ['weworker', 'webwright'])
 })
 
-test('settings checklist probes the selected built-in provider exploration interface and displays both results and logs', async () => {
+test('settings checklist probes both built-in interfaces and displays separate results and logs', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true })
   const replacements = {
     window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage,
@@ -29,13 +29,11 @@ test('settings checklist probes the selected built-in provider exploration inter
     const body = options.body ? JSON.parse(options.body) : null
     calls.push({ path, body })
     if (path === '/settings/provider/models') return Response.json({ models: ['fixture-chat'], source: 'remote' })
-    if (path === '/settings/provider/probe') return Response.json({ ok: true, model: 'fixture-chat', protocol: 'anthropic_messages' })
-    if (path === '/settings/exploration-model') return Response.json({ active_provider: 'deepseek', providers: [
-      { id: 'deepseek', configured: true, model: 'stale-deepseek-model', protocol: 'openai_chat_completions' },
-    ] })
-    if (path === '/settings/exploration-model/check') return Response.json(failExplore
-      ? { ok: false, error: 'auth_failed', detail: 'Fixture exploration authentication failed', protocol: 'openai_chat_completions' }
-      : { ok: true, model: 'fixture-explore', protocol: 'openai_chat_completions' })
+    if (path === '/settings/provider/probe') return body.target === 'webwright'
+      ? Response.json(failExplore
+        ? { ok: false, error: 'auth_failed', detail: 'Fixture exploration authentication failed', protocol: 'openai_chat_completions' }
+        : { ok: true, model: 'fixture-explore', protocol: 'openai_chat_completions' })
+      : Response.json({ ok: true, model: 'fixture-chat', protocol: 'anthropic_messages' })
     throw new Error('Unexpected fixture request: ' + path)
   }
   try {
@@ -61,20 +59,16 @@ test('settings checklist probes the selected built-in provider exploration inter
     let checklist = await runCheck()
     assert.equal(checklist.querySelectorAll('[role="listitem"]').length, 2)
     assert.match(checklist.textContent, /WeWorker 对话接口.*连接成功 · fixture-chat/)
-    assert.match(checklist.textContent, /网站探索接口.*连接成功 · fixture-explore/)
+    assert.match(checklist.textContent, /Adapter工坊·探索接口.*连接成功 · fixture-explore/)
     assert.match(checklist.textContent, /全部通过/)
-    assert.deepEqual(calls.find(c => c.path.endsWith('/exploration-model/check')).body,
-      { force: true, selection: { provider: 'builtin', model: 'ark-code-latest', thinking_effort: 'off' } })
-    assert.deepEqual(calls.filter(c => c.path.endsWith('/provider/probe')).map(c => c.body.target), ['weworker'])
+    assert.deepEqual(calls.filter(c => c.path.endsWith('/provider/probe')).map(c => c.body.target), ['weworker', 'webwright'])
     failExplore = true
     checklist = await runCheck()
     assert.match(checklist.textContent, /检查未通过/)
-    assert.match(checklist.querySelector('.is-failure').textContent, /网站探索接口.*Fixture exploration authentication failed/)
+    assert.match(checklist.querySelector('.is-failure').textContent, /Adapter工坊·探索接口.*Fixture exploration authentication failed/)
     const logs = [...checklist.querySelectorAll('button')].find(e => e.textContent === '显示日志')
     await act(async () => logs.click())
     assert.match(checklist.querySelector('.model-probe-checklist__message.is-expanded').closest('[role="list"]').textContent, /fixture-chat.*Fixture exploration authentication failed/)
-    await act(async () => useSettingsStore.setState(state => ({ explorationModelRevision: state.explorationModelRevision + 1 })))
-    assert.equal(document.querySelector('[aria-label="连通性检查"]'), null, 'saved exploration changes invalidate the previous checklist')
   } finally {
     await act(async () => root?.unmount())
     await server?.close()
