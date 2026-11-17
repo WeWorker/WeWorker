@@ -25,7 +25,7 @@ import { buildOpenWarmupRequest } from '../../utils/chat-warmup.js'
 import { scheduledTasksPageState } from '../../utils/scheduled-tasks-view.js'
 import { scenarioForSend } from '../../utils/scenario-hint.js'
 
-export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, activeSidebarSection, compactLayout = false, workspaceToolbar }) {
+export default function MainArea({ sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, activeSidebarSection, compactLayout = false, workspaceToolbar }) {
   const activeWorkId = useWorksStore((s) => s.activeWorkId)
   const createWork = useWorksStore((s) => s.createWork)
   const activeTaskId = useScheduledTasksStore((s) => s.activeTaskId)
@@ -114,7 +114,7 @@ export default function MainArea({ onOpenSettings, sidebarWidth, sidebarCollapse
   }
 
   if (websiteOpen) {
-    return <MainWorkspaceShell><WebsiteExplorationPage onOpenSettings={onOpenSettings} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={workspaceToolbar} /></MainWorkspaceShell>
+    return <MainWorkspaceShell><WebsiteExplorationPage sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={workspaceToolbar} /></MainWorkspaceShell>
   }
 
   if (dedicatedAgentsOpen) {
