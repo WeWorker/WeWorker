@@ -1,4 +1,3 @@
-import DetectLocalProvidersButton from './DetectLocalProvidersButton.jsx'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
@@ -45,17 +44,14 @@ import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import './settings-secret-input.css'
 import { API, backendFetch } from '../../api/http.js'
-import { fetchProviderModels, probeExplorationProvider } from '../../api/provider-models.js'
-import { connectionMessage } from '../../utils/model-connection.js'
+import { fetchProviderModels } from '../../api/provider-models.js'
 import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.js'
 import { showConfirm } from '../../store/dialog.js'
 import { showNotification, useNotificationsStore } from '../../store/notifications.js'
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
-import ExplorationModelSettings from './ExplorationModelSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
 import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
-import { MODEL_SETTINGS_DESCRIPTION } from '../../config/model-settings-text.js'
 
 const OFFICIAL_URL = deploymentConfig.officialUrl
 const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
@@ -155,7 +151,7 @@ const SETTINGS_GROUPS = [
   { label: '应用信息', items: [['about', '关于']] },
 ]
 const SETTINGS_DESCRIPTIONS = {
-  model: MODEL_SETTINGS_DESCRIPTION,
+  model: '选择模型并管理连接配置。',
   config: '调整工作目录、回复风格与日常使用偏好。',
   memory: '管理跨对话保留的长期记忆。',
   channels: '配置外部消息通道与连接方式。',
@@ -277,7 +273,6 @@ export default function SettingsPage({ onClose }) {
               <h3>{SETTINGS_GROUPS.flatMap(group => group.items).find(([key]) => key === tab)?.[1] || '设置'}</h3>
               <p className="settings-page-description">{SETTINGS_DESCRIPTIONS[tab]}</p>
             </div>
-            {tab === 'model' && <DetectLocalProvidersButton />}
           </div>
           <div className={`settings-body${tab === 'model' || tab === 'channels' ? ' settings-body--model' : ''}`}>
             {tab === 'channels' && <ChannelsTab />}
@@ -1624,6 +1619,7 @@ function ModelTab() {
       items[next]?.focus()
     }
   }
+  const [advancedProviders, setAdvancedProviders] = useState({})
   const [catalogAddressExpanded, setCatalogAddressExpanded] = useState({})
   const [forms, setForms] = useState({})
   const previousProviders = useRef(providers)
@@ -1656,14 +1652,6 @@ function ModelTab() {
   const testingProviders = useRef(new Set())
   const [testResult, setTestResult] = useState(null)
   const contextLimitNoticeId = useRef(null)
-  const explorationRevision = useSettingsStore(s => s.explorationModelRevision)
-  useEffect(() => {
-    for (const pid of Object.keys(probeRequestIds.current)) probeRequestIds.current[pid]++
-    testingProviders.current.clear()
-    setTesting({})
-    setProbeChecks({})
-    setProbeResults({})
-  }, [explorationRevision])
 
   const reportContextLimitError = () => {
     const { notices } = useNotificationsStore.getState()
@@ -1704,7 +1692,7 @@ function ModelTab() {
   }, [visibleProviders, providerSearch])
   const providerType = (id) => providers[id]?.provider_id || id
   const providerDefinition = (id) => PROVIDERS.find(provider => provider.id === providerType(id))
-  const catalogKey = (id) => `${id}:weworker`
+  const catalogKey = (id, target = 'weworker') => `${id}:${target}`
 
   useEffect(() => {
     setSelectedProvider((current) => {
@@ -1740,16 +1728,22 @@ function ModelTab() {
     return {
       name,
       api_key: '',
+      openai_api_key: '',
       model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.model || p?.defaultModel || '',
       custom_models,
+      openai_model: hasFixedModel(providerType(pid)) ? p.defaultModel : stored.openai_model ?? (stored.model || p?.defaultModel || ''),
       context_limit: formatContextLimitInput(stored.context_limit ?? (isBuiltinProvider(pid) ? DEFAULT_BUILTIN_CONTEXT_LIMIT : undefined)),
       base_url: stored.base_url || '',
       base_url_is_full: stored.base_url_is_full === true,
+      openai_base_url: stored.openai_base_url || '',
+      openai_base_url_is_full: stored.openai_base_url_is_full === true,
       weworker_protocol: stored.weworker_protocol === 'openai_responses' ? 'openai_responses' : stored.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages',
       auth_type: stored.auth_type === 'api_key' ? 'api_key' : 'auth_token',
       models_url: stored.models_url || '',
       models_url_is_full: stored.models_url_is_full ?? Boolean(stored.models_url),
       models_auth_type: stored.models_auth_type || 'inherit',
+      openai_models_url: stored.openai_models_url || '',
+      openai_models_url_is_full: stored.openai_models_url_is_full ?? Boolean(stored.openai_models_url),
     }
   }
 
@@ -1775,8 +1769,8 @@ function ModelTab() {
     })
     setProbeExpanded((expanded) => ({ ...expanded, [pid]: false }))
     setProbeLogsVisible((visible) => ({ ...visible, [pid]: false }))
-    if (['api_key', 'base_url', 'base_url_is_full', 'auth_type', 'weworker_protocol', 'models_url', 'models_url_is_full', 'models_auth_type'].includes(k)) {
-      const key = catalogKey(pid)
+    if (['api_key', 'openai_api_key', 'base_url', 'base_url_is_full', 'openai_base_url', 'openai_base_url_is_full', 'auth_type', 'weworker_protocol', 'models_url', 'models_url_is_full', 'models_auth_type', 'openai_models_url', 'openai_models_url_is_full'].includes(k)) {
+      const key = catalogKey(pid, k.startsWith('openai_') ? 'webwright' : 'weworker')
       catalogRequestIds.current[key] = (catalogRequestIds.current[key] || 0) + 1
       setCatalogLoading((current) => ({ ...current, [key]: false }))
       setCatalogs((current) => {
@@ -1792,21 +1786,23 @@ function ModelTab() {
     return {
       provider: pid,
       api_key: f.api_key,
+      openai_api_key: f.openai_api_key,
       model: f.model,
-      ...(providerType(pid) === 'custom' ? { base_url: f.base_url, base_url_is_full: f.base_url_is_full, weworker_protocol: f.weworker_protocol, auth_type: f.auth_type } : {}),
+      openai_model: f.openai_model,
+      ...(providerType(pid) === 'custom' ? { base_url: f.base_url, base_url_is_full: f.base_url_is_full, weworker_protocol: f.weworker_protocol, openai_base_url: f.openai_base_url, openai_base_url_is_full: f.openai_base_url_is_full, auth_type: f.auth_type } : {}),
     }
   }
 
-  const loadModels = async (pid, explicitRefresh = false) => {
+  const loadModels = async (pid, explicitRefresh = false, target = 'weworker') => {
     if (hasFixedModel(providerType(pid))) return
-    const key = catalogKey(pid)
+    const key = catalogKey(pid, target)
     const requestId = (catalogRequestIds.current[key] || 0) + 1
     catalogRequestIds.current[key] = requestId
     const form = getForm(pid)
-    if (getModelCatalogIssue(providerType(pid), form, providers[pid])) return
+    if (getModelCatalogIssue(providerType(pid), form, providers[pid], target)) return
     setCatalogLoading((current) => ({ ...current, [key]: true }))
     try {
-      const data = await fetchProviderModels(buildModelCatalogAccess(pid, providerType(pid), form))
+      const data = await fetchProviderModels(buildModelCatalogAccess(pid, providerType(pid), form, target))
       if (catalogRequestIds.current[key] !== requestId) return
       setCatalogs((current) => ({ ...current, [key]: { ...data, explicitRefresh } }))
       setForms((current) => {
@@ -1816,10 +1812,11 @@ function ModelTab() {
         const latestStored = latestState.providers[pid]
         const latestForm = { ...(current[pid] || getForm(pid)), custom_models: latestStored?.custom_models || [] }
         if (latestStored?.model !== providers[pid]?.model) latestForm.model = latestStored.model
-        const nextModel = selectModelAfterCatalogRefresh(latestForm.model, data, {
-          customModels: latestForm.custom_models,
+        const field = target === 'webwright' ? 'openai_model' : 'model'
+        const nextModel = selectModelAfterCatalogRefresh(latestForm[field], data, {
+          customModels: target === 'weworker' ? latestForm.custom_models : [],
         })
-        return nextModel === latestForm.model ? current : { ...current, [pid]: { ...latestForm, model: nextModel } }
+        return nextModel === latestForm[field] ? current : { ...current, [pid]: { ...latestForm, [field]: nextModel } }
       })
     } catch (error) {
       if (catalogRequestIds.current[key] !== requestId) return
@@ -1852,6 +1849,7 @@ function ModelTab() {
   useEffect(() => {
     if (!selectedProvider || isBuiltinProvider(selectedProvider)) return
     void loadModels(selectedProvider)
+    if (providerType(selectedProvider) === 'custom') void loadModels(selectedProvider, false, 'webwright')
   }, [selectedProvider])
 
   const handleSave = async (pid) => {
@@ -1873,20 +1871,26 @@ function ModelTab() {
     clearContextLimitError()
     const updates = isBuiltinProvider(pid) ? { name, context_limit: contextLimit } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
     if (f.api_key) updates.api_key = f.api_key
+    if (f.openai_api_key) updates.openai_api_key = f.openai_api_key
     if (providerType(pid) === 'custom') {
       updates.base_url = f.base_url
       updates.base_url_is_full = f.base_url_is_full
       updates.weworker_protocol = f.weworker_protocol
+      updates.openai_base_url = f.openai_base_url
+      updates.openai_base_url_is_full = f.openai_base_url_is_full
       updates.auth_type = f.auth_type
       updates.models_url = f.models_url
       updates.models_url_is_full = f.models_url_is_full
       updates.models_auth_type = f.models_auth_type
+      updates.openai_models_url = f.openai_models_url
+      updates.openai_models_url_is_full = f.openai_models_url_is_full
+      if (f.openai_model) updates.openai_model = f.openai_model
     }
     try {
       await saveProvider(pid, updates)
       // Clear the api_key field after save
       formNameTouched.current[pid] = false
-      setForms((prev) => ({ ...prev, [pid]: { ...getForm(pid), name, api_key: '' } }))
+      setForms((prev) => ({ ...prev, [pid]: { ...getForm(pid), name, api_key: '', openai_api_key: '' } }))
       setSaved(pid)
       setTestResult({ ok: true, message: '配置已保存' })
       setTimeout(() => setSaved(null), 2000)
@@ -2018,13 +2022,12 @@ function ModelTab() {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 30000)
     try {
+      const provider = providerDefinition(pid)
       const probe = async (target) => {
-        const fallbackProtocol = target === 'weworker' ? getForm(pid).weworker_protocol || 'anthropic_messages' : ''
+        const fallbackProtocol = target === 'weworker'
+          ? getForm(pid).weworker_protocol || 'anthropic_messages'
+          : provider?.webwright?.protocol || (providerType(pid) === 'anthropic' ? 'anthropic_messages' : 'openai_chat_completions')
         try {
-          if (target === 'webwright') {
-            const data = await probeExplorationProvider(pid, getForm(pid).model, controller.signal)
-            return { ...data, message: data.ok ? connectionMessage(data) : data.detail || connectionMessage(data) }
-          }
           const res = await backendFetch(`${API}/settings/provider/probe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2043,10 +2046,12 @@ function ModelTab() {
           }
         }
       }
-      const targets = buildProviderProbeTargets()
+      const targets = buildProviderProbeTargets(providerType(pid), getForm(pid).openai_base_url)
       const checks = targets.map((target) => ({
         target,
-        label: target === 'webwright' ? '网站探索接口' : `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`,
+        label: target === 'weworker'
+          ? `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`
+          : 'Adapter工坊·探索接口（OpenAI）',
         status: 'running',
         message: '',
       }))
@@ -2061,6 +2066,17 @@ function ModelTab() {
           [pid]: (current[pid] || []).map((check) => check.target === target
             ? { ...check, status: result.ok ? 'success' : 'failure', message: result.message }
             : check),
+        }))
+      }
+      if (providerType(pid) === 'custom' && !targets.includes('webwright')) {
+        results.push({
+          ok: null,
+          protocol: 'openai_chat_completions',
+          message: '未配置，仅影响Adapter工坊的网站探索',
+        })
+        setProbeChecks((current) => ({
+          ...current,
+          [pid]: [...(current[pid] || []), { target: 'webwright', label: 'Adapter工坊·探索接口（OpenAI）', status: 'skipped', message: '未配置地址，跳过检查' }],
         }))
       }
       if (probeRequestIds.current[pid] !== requestId) return
@@ -2079,6 +2095,16 @@ function ModelTab() {
       <div className="model-settings-layout">
         <aside className="model-settings-sidebar">
           <div className="model-settings-sidebar__header model-settings-sidebar__header--models">
+            <label className="model-settings-search">
+              <SearchOutlined aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="搜索模型配置名称"
+                placeholder="搜索配置名称"
+                value={providerSearch}
+                onChange={(event) => setProviderSearch(event.target.value)}
+              />
+            </label>
             <div className="model-settings-sidebar__tools">
               {addableProviders.length > 0 && (
               <button
@@ -2102,16 +2128,6 @@ function ModelTab() {
                 <ScanSearch size={18} aria-hidden="true" />
               </button>
             </div>
-            <label className="model-settings-search">
-              <SearchOutlined aria-hidden="true" />
-              <input
-                type="search"
-                aria-label="搜索模型配置名称"
-                placeholder="搜索配置名称"
-                value={providerSearch}
-                onChange={(event) => setProviderSearch(event.target.value)}
-              />
-            </label>
           </div>
           <div className="model-settings-provider-list">
             {filteredProviders.map((provider) => {
@@ -2209,9 +2225,13 @@ function ModelTab() {
           const f = getForm(p.id)
           const templateId = p.providerId || p.id
           const catalog = catalogs[catalogKey(p.id)]
+          const openAiCatalog = catalogs[catalogKey(p.id, 'webwright')]
           const loadingModels = catalogLoading[catalogKey(p.id)]
+          const loadingOpenAiModels = catalogLoading[catalogKey(p.id, 'webwright')]
           const catalogIssue = getModelCatalogIssue(templateId, f, stored)
+          const openAiCatalogIssue = getModelCatalogIssue(templateId, f, stored, 'webwright')
           const { hint: catalogHint, failed: catalogRefreshFailed, detail: catalogErrorDetail } = getModelCatalogStatus(catalog, loadingModels, catalogIssue)
+          const openAiCatalogStatus = getModelCatalogStatus(openAiCatalog, loadingOpenAiModels, openAiCatalogIssue)
           const remoteModels = !catalogIssue && catalog?.source === 'remote' ? catalog.models : []
           const modelOptions = buildModelOptions(remoteModels, f.model, { customModels: f.custom_models })
             .map(option => ({ ...option, removable: option.custom }))
@@ -2239,6 +2259,7 @@ function ModelTab() {
               : f.model
             void persistCustomModels(model, custom_models)
           }
+          const openAiModelOptions = buildModelOptions(!openAiCatalogIssue && openAiCatalog?.source === 'remote' ? openAiCatalog.models : [], f.openai_model)
           const providerColor = templateId === 'custom' ? 'var(--provider-custom)' : p.color
           const detailActions = (
             <div className="settings-btn-group model-settings-header-actions">
@@ -2288,12 +2309,13 @@ function ModelTab() {
               />
             </Field>
           )
-          const catalogAddressFields = () => {
-            const field = 'models_url'
-            const mode = 'models_url_is_full'
-            const key = catalogKey(p.id)
+          const catalogAddressFields = (openai = false) => {
+            const field = openai ? 'openai_models_url' : 'models_url'
+            const mode = openai ? 'openai_models_url_is_full' : 'models_url_is_full'
+            const target = openai ? 'webwright' : 'weworker'
+            const key = catalogKey(p.id, target)
             const expanded = catalogAddressExpanded[key] ?? Boolean(f[field])
-            const openAiCatalog = f.weworker_protocol !== 'anthropic_messages'
+            const openAiCatalog = openai || (!openai && f.weworker_protocol !== 'anthropic_messages')
             const catalogProtocolName = openAiCatalog ? 'OpenAI' : 'Anthropic'
             return (
               <details className="settings-catalog-address" open={expanded}
@@ -2305,11 +2327,11 @@ function ModelTab() {
                       checked={f[mode]} onChange={(e) => setFormField(p.id, mode, e.target.checked)} />
                     使用完整 URL
                   </label>
-                  <input className="settings-input" aria-label={openAiCatalog ? 'OpenAI 模型列表地址' : 'Claude Code 模型列表地址'}
+                  <input className="settings-input" aria-label={openai ? 'OpenAI 模型列表地址' : 'Claude Code 模型列表地址'}
                     value={f[field]} onChange={(e) => { setCatalogAddressExpanded(current => ({ ...current, [key]: true })); setFormField(p.id, field, e.target.value) }}
-                    onBlur={() => { void loadModels(p.id) }} placeholder={f[mode] ? 'https://example.com/v1/models' : `https://example.com/${openAiCatalog ? 'v1' : 'anthropic'}`} />
+                    onBlur={() => { void loadModels(p.id, false, target) }} placeholder={f[mode] ? 'https://example.com/v1/models' : `https://example.com/${openAiCatalog ? 'v1' : 'anthropic'}`} />
                 </Field>
-                {f.weworker_protocol === 'anthropic_messages' && <Field label="列表认证方式" hint="使用本接口 API Key">
+                {!openai && f.weworker_protocol === 'anthropic_messages' && <Field label="列表认证方式" hint="使用本接口 API Key">
                   <AppDropdownSelect value={f.models_auth_type} ariaLabel="模型列表认证方式"
                     options={[{ value: 'inherit', label: '跟随对话接口' }, { value: 'auth_token', label: 'Bearer Token' }, { value: 'api_key', label: 'API Key（x-api-key）' }]}
                     onChange={(value) => setFormField(p.id, 'models_auth_type', value)} matchAnchorWidth />
@@ -2338,7 +2360,6 @@ function ModelTab() {
                   {actionFeedback}
                   {identityFields}
                   <div className="model-settings-grid">{contextLimitField}</div>
-                  <ExplorationModelSettings configurationId={p.id} />
                   {renderProbeChecklist(p.id)}
                 </div>
               </div>
@@ -2434,7 +2455,7 @@ function ModelTab() {
                           <AppSwitch checked={f.base_url_is_full} onChange={(e) => setFormField(p.id, 'base_url_is_full', e.target.checked)} />
                           使用完整 URL
                         </label>
-                        <input aria-label="WeWorker 对话接口地址" className="settings-input" value={f.base_url} onChange={(e) => setFormField(p.id, 'base_url', e.target.value)} onBlur={() => { if (f.base_url) void loadModels(p.id) }} placeholder={f.weworker_protocol !== 'anthropic_messages'
+                        <input aria-label="WeWorker 对话接口地址" className="settings-input" value={f.base_url} onChange={(e) => setFormField(p.id, 'base_url', e.target.value)} onBlur={() => { if (f.base_url) void loadModels(p.id, false, 'weworker') }} placeholder={f.weworker_protocol !== 'anthropic_messages'
                           ? (f.base_url_is_full ? `https://gateway.example/v1/${f.weworker_protocol === 'openai_responses' ? 'responses' : 'chat/completions'}` : 'https://gateway.example/v1')
                           : (f.base_url_is_full ? 'https://gateway.example/v1/messages' : 'https://gateway.example/anthropic')} />
                       </Field>
@@ -2457,7 +2478,7 @@ function ModelTab() {
                         />
                       </Field>}
                       <Field label="API Key" hint={`${stored.has_key ? '已设置（留空保持不变）' : '未设置'}${f.weworker_protocol !== 'anthropic_messages' ? ' · Bearer Token' : ''}`}>
-                        <SecretInput value={f.api_key} provider={p.id} hasSavedKey={stored.has_key} onChange={(e) => setFormField(p.id, 'api_key', e.target.value)} onBlur={() => { if (f.api_key) void loadModels(p.id) }} placeholder={stored.has_key ? '••••••••••••' : 'sk-...'} />
+                        <SecretInput value={f.api_key} provider={p.id} hasSavedKey={stored.has_key} onChange={(e) => setFormField(p.id, 'api_key', e.target.value)} onBlur={() => { if (f.api_key) void loadModels(p.id, false, 'weworker') }} placeholder={stored.has_key ? '••••••••••••' : 'sk-...'} />
                       </Field>
                       <Field label="模型" hint={catalogHint} hintError={catalogRefreshFailed || Boolean(catalogErrorDetail)} errorDetail={catalogErrorDetail}>
                         <div className="settings-model-input-row">
@@ -2476,7 +2497,7 @@ function ModelTab() {
                             searchPlaceholder="搜索或者添加自定义模型"
                             customOptionLabel={(value) => `添加并使用“${value}”模型`}
                           />
-                          <button data-app-button="action" type="button" onClick={() => loadModels(p.id, true)} disabled={hasFixedModel(templateId) || loadingModels || Boolean(catalogIssue)} className="settings-btn settings-btn-secondary">
+                          <button data-app-button="action" type="button" onClick={() => loadModels(p.id, true, 'weworker')} disabled={hasFixedModel(templateId) || loadingModels || Boolean(catalogIssue)} className="settings-btn settings-btn-secondary">
                             {loadingModels ? '获取中…' : '刷新模型'}
                           </button>
                         </div>
@@ -2487,7 +2508,64 @@ function ModelTab() {
                     </section>
                   )}
 
-                  <ExplorationModelSettings configurationId={p.id} />
+                  {templateId === 'custom' && (
+                    <>
+                      {(() => {
+                        const advancedExpanded = advancedProviders[p.id] ?? false
+                        return (
+                          <div className="settings-field">
+                            <button
+                              type="button"
+                              className="settings-btn settings-btn-secondary"
+                              onClick={() => setAdvancedProviders((current) => ({ ...current, [p.id]: !advancedExpanded }))}
+                              aria-expanded={advancedExpanded}
+                            >
+                              <span>{advancedExpanded ? '收起高级配置' : '高级配置'}</span>
+                              <span className="settings-advanced-toggle__icon" aria-hidden="true">
+                                {advancedExpanded ? <UpOutlined /> : <DownOutlined />}
+                              </span>
+                            </button>
+                            {advancedExpanded && (
+                              <section className="settings-interface-section settings-interface-section--advanced" aria-label="Adapter工坊·探索接口（OpenAI）">
+                                <div className="settings-interface-section__title">Adapter工坊·探索接口（OpenAI）</div>
+                                <div className="model-settings-grid">
+                                <Field label="接口地址" hint={getOpenAiUrlHint(f.openai_base_url_is_full)}>
+                                  <label className="settings-url-mode">
+                                    <AppSwitch checked={f.openai_base_url_is_full} onChange={(e) => setFormField(p.id, 'openai_base_url_is_full', e.target.checked)} />
+                                    使用完整 URL
+                                  </label>
+                                  <input aria-label="OpenAI 接口地址" className="settings-input" value={f.openai_base_url} onChange={(e) => setFormField(p.id, 'openai_base_url', e.target.value)} onBlur={() => { if (f.openai_base_url) void loadModels(p.id, false, 'webwright') }} placeholder={f.openai_base_url_is_full ? 'https://gateway.example/custom/completions' : 'https://gateway.example/openai/v1'} />
+                                </Field>
+                                <Field label="API Key" hint={(stored.has_openai_key || stored.openai_has_key) ? '已设置（留空保持不变）' : '未设置'}>
+                                  <SecretInput value={f.openai_api_key} provider={p.id} target="webwright" hasSavedKey={stored.has_openai_key || stored.openai_has_key} onChange={(e) => setFormField(p.id, 'openai_api_key', e.target.value)} onBlur={() => { if (f.openai_api_key) void loadModels(p.id, false, 'webwright') }} placeholder={(stored.has_openai_key || stored.openai_has_key) ? '••••••••••••' : 'sk-...'} ariaLabel="网站探索agent API Key" />
+                                </Field>
+                                <Field label="模型" hint={openAiCatalogStatus.hint} hintError={openAiCatalogStatus.failed || Boolean(openAiCatalogStatus.detail)} errorDetail={openAiCatalogStatus.detail}>
+                                  <div className="settings-model-input-row">
+                                    <AppDropdownSelect
+                                      value={f.openai_model}
+                                      options={openAiModelOptions}
+                                      disabled={hasFixedModel(templateId)}
+                                      onChange={(value) => setFormField(p.id, 'openai_model', value)}
+                                      ariaLabel="Adapter工坊探索模型"
+                                      minMenuWidth={280}
+                                      matchAnchorWidth
+                                      className="settings-model-dropdown"
+                                    />
+                                    <button data-app-button="action" type="button" onClick={() => loadModels(p.id, true, 'webwright')} disabled={hasFixedModel(templateId) || loadingOpenAiModels || Boolean(openAiCatalogIssue)} className="settings-btn settings-btn-secondary">
+                                      {loadingOpenAiModels ? '获取中…' : '刷新模型'}
+                                    </button>
+                                  </div>
+                                </Field>
+                                {catalogAddressFields(true)}
+                                </div>
+                              </section>
+                            )}
+                          </div>
+                        )
+                      })()}
+                    </>
+                  )}
+
                   {renderProbeChecklist(p.id)}
               </div>
             </div>

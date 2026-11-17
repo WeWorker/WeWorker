@@ -49,12 +49,13 @@ describe('model catalog connection prerequisites', () => {
     assert.match(getModelCatalogIssue('custom', { ...form, base_url: 'invalid' }, { has_key: true }), /有效/)
     assert.match(getModelCatalogIssue('custom', { ...form, base_url: 'file:///fixture' }, { has_key: true }), /HTTP/)
     assert.match(getModelCatalogIssue('custom', { ...form, api_key: '  ' }), /API Key/)
+    assert.match(getModelCatalogIssue('custom', { ...form, api_key: 'fixture-key' }, { has_key: true }, 'webwright'), /API Key/)
   })
 
-  it('accepts the saved conversation key and ignores legacy exploration key metadata', () => {
+  it('accepts saved keys without revealing them, including legacy OpenAI metadata', () => {
     assert.equal(getModelCatalogIssue('custom', form, { has_key: true }), '')
-    assert.match(getModelCatalogIssue('custom', form, { has_openai_key: true }), /API Key/)
-    assert.match(getModelCatalogIssue('custom', form, { openai_has_key: true }), /API Key/)
+    assert.equal(getModelCatalogIssue('custom', form, { has_openai_key: true }, 'webwright'), '')
+    assert.equal(getModelCatalogIssue('custom', form, { openai_has_key: true }, 'webwright'), '')
     assert.equal(getModelCatalogIssue('deepseek', form, { has_key: true }), '')
   })
 
@@ -62,13 +63,19 @@ describe('model catalog connection prerequisites', () => {
     assert.match(getModelCatalogIssue('custom', { ...form, base_url_is_full: true }, { has_key: true }), /完整 URL/)
   })
 
-  it('sends only conversation credentials without legacy exploration configuration fields', () => {
+  it('sends only the selected interface credentials and ignores unrelated invalid edits', () => {
     const draft = { ...form, api_key: ' fixture-main-key ', openai_api_key: ' fixture-openai-key ' }
     const main = buildModelCatalogAccess('model-fixture', 'custom', { ...draft, openai_base_url: 'unfinished' })
     assert.equal(main.api_key, 'fixture-main-key')
-    assert.equal(Object.keys(main).some(key => key.startsWith('openai_')), false)
+    assert.equal(main.openai_api_key, '')
+    assert.equal(main.openai_base_url, '')
     assert.equal(main.target, 'weworker')
-    assert.equal(main.base_url, form.base_url)
+    const openai = buildModelCatalogAccess('model-fixture', 'custom', { ...draft, base_url: 'unfinished' }, 'webwright')
+    assert.equal(openai.api_key, '')
+    assert.equal(openai.base_url, '')
+    assert.equal(openai.openai_api_key, 'fixture-openai-key')
+    assert.equal(openai.openai_base_url, form.openai_base_url)
+    assert.equal(openai.target, 'webwright')
   })
 
   it('uses the selected WeWorker protocol when validating and requesting its model catalog', () => {
@@ -77,27 +84,31 @@ describe('model catalog connection prerequisites', () => {
     const access = buildModelCatalogAccess('fixture', 'custom', openaiChat)
     assert.equal(access.weworker_protocol, 'openai_chat_completions')
     assert.equal(access.api_key, '')
-    assert.equal(Object.hasOwn(access, 'openai_api_key'), false)
+    assert.equal(access.openai_api_key, '')
     assert.equal(access.base_url, openaiChat.base_url)
   })
 
-  it('allows an explicit catalog URL with a full conversation endpoint', () => {
+  it('allows explicit catalog URLs with full conversation endpoints and keeps the two catalogs separate', () => {
     const draft = { ...form, base_url_is_full: true, models_url: 'https://example.org/models?version=1', models_auth_type: 'auth_token', openai_models_url: 'https://example.com/catalog' }
     assert.equal(getModelCatalogIssue('custom', draft, { has_key: true }), '')
     assert.match(getModelCatalogIssue('custom', { ...draft, models_url: 'invalid' }, { has_key: true }), /有效/)
     const main = buildModelCatalogAccess('fixture', 'custom', draft)
     assert.equal(main.models_url, draft.models_url)
     assert.equal(main.models_auth_type, 'auth_token')
-    assert.equal(Object.hasOwn(main, 'openai_models_url'), false)
+    assert.equal(main.openai_models_url, '')
+    const openai = buildModelCatalogAccess('fixture', 'custom', draft, 'webwright')
+    assert.equal(openai.models_url, '')
+    assert.equal(openai.openai_models_url, draft.openai_models_url)
     assert.equal(buildModelCatalogAccess('fixture', 'custom', form).models_url, '')
   })
 
-  it('supports catalog URL modes and requires full mode for query parameters', () => {
-    const draft = { ...form, models_url: 'https://example.com/v1', models_url_is_full: false }
+  it('sends independent catalog URL modes and requires full mode for query parameters', () => {
+    const draft = { ...form, models_url: 'https://example.com/v1', models_url_is_full: false, openai_models_url: 'https://example.org/models?version=1', openai_models_url_is_full: true }
     assert.equal(buildModelCatalogAccess('fixture', 'custom', draft).models_url_is_full, false)
+    assert.equal(buildModelCatalogAccess('fixture', 'custom', draft, 'webwright').openai_models_url_is_full, true)
     assert.equal(getModelCatalogIssue('custom', draft, { has_key: true }), '')
-    assert.match(getModelCatalogIssue('custom', { ...draft, models_url: 'https://example.org/models?version=1' }, { has_key: true }), /完整 URL/)
-    assert.equal(getModelCatalogIssue('custom', { ...draft, models_url: 'https://example.org/models?version=1', models_url_is_full: true }, { has_key: true }), '')
+    assert.equal(getModelCatalogIssue('custom', draft, { has_openai_key: true }, 'webwright'), '')
+    assert.match(getModelCatalogIssue('custom', { ...draft, openai_models_url_is_full: false }, { has_openai_key: true }, 'webwright'), /完整 URL/)
     assert.equal(buildModelCatalogAccess('fixture', 'custom', { ...form, models_url: 'https://example.com/models' }).models_url_is_full, true)
   })
 
