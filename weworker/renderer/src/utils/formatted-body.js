@@ -31,13 +31,13 @@ export function createFormattedBody(markdown) {
   return { content: renderToStaticMarkup(React.createElement(FormattedBody, { markdown })), 'markdown-content': markdown }
 }
 
-export function clipboardMarkdown({ html = '', text = '' }, Parser = globalThis.DOMParser) {
+export function clipboardMarkdown({ html = '', text = '', preserveCodeSource = true }, Parser = globalThis.DOMParser) {
   // Code editors usually supply HTML only for syntax colouring. Preserve their
   // plain source, including indentation and blank lines.
   if (!html || !Parser) return text
   const doc = new Parser().parseFromString(html, 'text/html')
-  if (doc.querySelector('pre') && !doc.querySelector('p,li,table,h1,h2,h3,blockquote')) return text || doc.body.textContent
-  if (!doc.querySelector('p,div,br,li,table,h1,h2,h3,h4,h5,h6,blockquote,strong,b,em,i,a,del,span[style]')) return text
+  if (preserveCodeSource && doc.querySelector('pre') && !doc.querySelector('p,li,table,h1,h2,h3,blockquote')) return text || doc.body.textContent
+  if (!doc.querySelector('p,div,br,li,table,h1,h2,h3,h4,h5,h6,blockquote,strong,b,em,i,a,del,code,pre,span[style]')) return text
   doc.querySelectorAll('script,style,iframe,object,embed,svg,math,form,button,input,select,textarea,template,meta,link').forEach(node => node.remove())
   // Browser/office copy often expresses emphasis with inline CSS instead of
   // semantic tags. Keep emphasis, but never export arbitrary CSS or attributes.
