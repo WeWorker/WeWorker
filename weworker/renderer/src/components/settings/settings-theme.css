@@ -1487,7 +1487,7 @@
 }
 
 .model-settings-sidebar__header--models .model-settings-search { max-width: none; }
-.model-settings-sidebar__tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
+.model-settings-sidebar__tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .settings-btn.model-settings-discover {
   display: inline-flex;
   align-items: center;
