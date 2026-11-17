@@ -2261,6 +2261,8 @@ function ModelTab() {
             </div>
           )
           const contextLimitField = (
+            <details className="settings-model-advanced">
+            <summary>高级设置</summary>
             <Field label="上下文窗口" hint="用于上下文占用和自动压缩，单位支持 K 或 M">
               <AppDropdownInput
                 className="settings-input"
@@ -2273,6 +2275,7 @@ function ModelTab() {
                 inputMode="text"
               />
             </Field>
+            </details>
           )
           const catalogAddressFields = () => {
             const field = 'models_url'
