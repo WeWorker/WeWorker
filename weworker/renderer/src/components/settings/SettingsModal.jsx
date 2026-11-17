@@ -45,7 +45,7 @@ import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import './settings-secret-input.css'
 import { API, backendFetch } from '../../api/http.js'
-import { fetchProviderModels, probeSavedExplorationModel } from '../../api/provider-models.js'
+import { fetchProviderModels, probeExplorationProvider } from '../../api/provider-models.js'
 import { connectionMessage } from '../../utils/model-connection.js'
 import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.js'
 import { showConfirm } from '../../store/dialog.js'
@@ -2022,7 +2022,7 @@ function ModelTab() {
         const fallbackProtocol = target === 'weworker' ? getForm(pid).weworker_protocol || 'anthropic_messages' : ''
         try {
           if (target === 'webwright') {
-            const data = await probeSavedExplorationModel(controller.signal)
+            const data = await probeExplorationProvider(pid, getForm(pid).model, controller.signal)
             return { ...data, message: data.ok ? connectionMessage(data) : data.detail || connectionMessage(data) }
           }
           const res = await backendFetch(`${API}/settings/provider/probe`, {

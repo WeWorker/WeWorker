@@ -131,16 +131,23 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       active_provider: selectedExplorationProvider,
       providers: PROVIDERS.map(provider => {
         const saved = settings.exploration_providers?.[provider.id]
+        let builtinAvailable = false
+        if (provider.builtin) {
+          try { builtinAvailable = Boolean(resolveConversationModelSettings(settings, { provider: provider.id, model: provider.defaultModel }).api_key) }
+          catch { builtinAvailable = false }
+        }
         return {
           id: provider.id, name: provider.name, models: [...new Set([saved?.model, ...provider.models].filter(Boolean))],
           default_model: provider.defaultModel, model: saved ? saved.model || settings.model : provider.defaultModel,
           fixed_model: provider.fixedModel === true,
+          builtin: provider.builtin === true,
+          saved_exploration: Boolean(saved),
           base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
           protocol: provider.id === 'custom' ? saved?.protocol || 'openai_chat_completions' : provider.webwright.protocol,
           base_url_is_full: saved?.base_url_is_full === true,
-          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(saved?.api_key || (saved?.use_main_key && mainKeyAvailable)),
-          configured: Boolean(saved && (saved.api_key || (saved.use_main_key && mainKeyAvailable)) && (saved.model || settings.model)
-            && (provider.id !== 'custom' || saved.base_url)),
+          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(builtinAvailable || saved?.api_key || (saved?.use_main_key && mainKeyAvailable)),
+          configured: Boolean(builtinAvailable || (saved && (saved.api_key || (saved.use_main_key && mainKeyAvailable)) && (saved.model || settings.model)
+            && (provider.id !== 'custom' || saved.base_url))),
         }
       }),
     }

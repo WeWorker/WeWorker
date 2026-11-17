@@ -10,7 +10,7 @@ test('model availability checks include both conversation and exploration interf
   assert.deepEqual(buildProviderProbeTargets(), ['weworker', 'webwright'])
 })
 
-test('settings checklist tests the saved exploration configuration and displays both results and logs', async () => {
+test('settings checklist probes the selected built-in provider exploration interface and displays both results and logs', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true })
   const replacements = {
     window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage,
@@ -22,7 +22,7 @@ test('settings checklist tests the saved exploration configuration and displays 
   const previous = new Map(Object.keys(replacements).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   for (const [key, value] of Object.entries(replacements)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
   const originalFetch = globalThis.fetch
-  let server, root, failExplore = false, unconfigured = false
+  let server, root, failExplore = false
   const calls = []
   globalThis.fetch = async (url, options = {}) => {
     const path = new URL(url).pathname
@@ -30,8 +30,8 @@ test('settings checklist tests the saved exploration configuration and displays 
     calls.push({ path, body })
     if (path === '/settings/provider/models') return Response.json({ models: ['fixture-chat'], source: 'remote' })
     if (path === '/settings/provider/probe') return Response.json({ ok: true, model: 'fixture-chat', protocol: 'anthropic_messages' })
-    if (path === '/settings/exploration-model') return Response.json({ active_provider: 'custom', providers: unconfigured ? [] : [
-      { id: 'custom', configured: true, model: 'fixture-explore', protocol: 'openai_chat_completions' },
+    if (path === '/settings/exploration-model') return Response.json({ active_provider: 'deepseek', providers: [
+      { id: 'deepseek', configured: true, model: 'stale-deepseek-model', protocol: 'openai_chat_completions' },
     ] })
     if (path === '/settings/exploration-model/check') return Response.json(failExplore
       ? { ok: false, error: 'auth_failed', detail: 'Fixture exploration authentication failed', protocol: 'openai_chat_completions' }
@@ -43,15 +43,15 @@ test('settings checklist tests the saved exploration configuration and displays 
       server: { middlewareMode: true, hmr: false, ws: false, watch: null }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
     const Component = (await server.ssrLoadModule('/src/components/settings/SettingsModal.jsx')).default
     const { useSettingsStore } = await server.ssrLoadModule('/src/store/settings.js')
-    useSettingsStore.setState({ activeProvider: 'fixture-chat', model: 'fixture-chat', providers: {
-      'fixture-chat': { provider_id: 'custom', name: 'Fixture chat', has_key: true, model: 'fixture-chat',
+    useSettingsStore.setState({ activeProvider: 'builtin', model: 'ark-code-latest', providers: {
+      builtin: { provider_id: 'builtin', name: '内置模型', has_key: true, model: 'ark-code-latest',
         base_url: 'https://example.com/chat', weworker_protocol: 'anthropic_messages', added: true },
     } })
     const { createRoot } = await import('react-dom/client')
     root = createRoot(document.getElementById('root'))
     await act(async () => root.render(React.createElement(Component)))
     const runCheck = async () => {
-      const button = [...document.querySelectorAll('button')].find(e => e.textContent === '测试模型可用性')
+      const button = [...document.querySelectorAll('button')].find(e => e.textContent.includes('测试连通性'))
       assert.ok(button)
       await act(async () => button.click())
       const checklist = document.querySelector('[aria-label="连通性检查"]')
@@ -64,7 +64,7 @@ test('settings checklist tests the saved exploration configuration and displays 
     assert.match(checklist.textContent, /网站探索接口.*连接成功 · fixture-explore/)
     assert.match(checklist.textContent, /全部通过/)
     assert.deepEqual(calls.find(c => c.path.endsWith('/exploration-model/check')).body,
-      { force: true, selection: { provider: '__exploration__:custom', model: 'fixture-explore', thinking_effort: 'off' } })
+      { force: true, selection: { provider: 'builtin', model: 'ark-code-latest', thinking_effort: 'off' } })
     assert.deepEqual(calls.filter(c => c.path.endsWith('/provider/probe')).map(c => c.body.target), ['weworker'])
     failExplore = true
     checklist = await runCheck()
@@ -73,11 +73,6 @@ test('settings checklist tests the saved exploration configuration and displays 
     const logs = [...checklist.querySelectorAll('button')].find(e => e.textContent === '显示日志')
     await act(async () => logs.click())
     assert.match(checklist.querySelector('.model-probe-checklist__message.is-expanded').closest('[role="list"]').textContent, /fixture-chat.*Fixture exploration authentication failed/)
-    const count = calls.filter(c => c.path.endsWith('/exploration-model/check')).length
-    unconfigured = true
-    checklist = await runCheck()
-    assert.match(checklist.querySelector('.is-failure').textContent, /网站探索接口.*配置/)
-    assert.equal(calls.filter(c => c.path.endsWith('/exploration-model/check')).length, count, 'missing exploration settings must not fall back to probing chat')
     await act(async () => useSettingsStore.setState(state => ({ explorationModelRevision: state.explorationModelRevision + 1 })))
     assert.equal(document.querySelector('[aria-label="连通性检查"]'), null, 'saved exploration changes invalidate the previous checklist')
   } finally {
