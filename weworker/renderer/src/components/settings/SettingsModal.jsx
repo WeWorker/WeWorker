@@ -53,6 +53,7 @@ import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
 import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
+import { MODEL_SETTINGS_DESCRIPTION } from '../../config/model-settings-text.js'
 
 const OFFICIAL_URL = deploymentConfig.officialUrl
 const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
@@ -152,7 +153,7 @@ const SETTINGS_GROUPS = [
   { label: '应用信息', items: [['about', '关于']] },
 ]
 const SETTINGS_DESCRIPTIONS = {
-  model: '选择模型并管理连接配置。',
+  model: MODEL_SETTINGS_DESCRIPTION,
   config: '调整工作目录、回复风格与日常使用偏好。',
   memory: '管理跨对话保留的长期记忆。',
   channels: '配置外部消息通道与连接方式。',
