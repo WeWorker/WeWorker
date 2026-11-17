@@ -202,6 +202,7 @@ export function queryStats(db, { by = "domain", since = "30d", from = null, to =
   // 按用户聚合：user × domain 二维分布，结构不同于单维聚合，单独处理
   // 失败原因聚合（by=err）：仅统计失败调用（ok=0），按脱敏后的 err 分组
   if (by === "err") return queryByErr(db, { since, from, to, top });
+  if (by === "errdetail") return queryByErrDetail(db, { since, from, to, kind, top });
   if (by === "user") return queryByUser(db, { since, from, to, kind, top });
   if (by === "active") return queryActiveUsers(db, { since, from, to, kind });
 
@@ -273,6 +274,54 @@ function queryByErr(db, { since = "30d", from = null, to = null, top = null } = 
        ORDER BY calls DESC`
     )
     .all(...params);
+  const sliced = top ? rows.slice(0, top) : rows;
+  const totalFailed = rows.reduce((s, r) => s + r.calls, 0);
+  return { rows: sliced, totalFailed };
+}
+
+/**
+ * 报错明细聚合（by=errdetail）：每个报错下钻到 tool 与 user 维度（带各自调用数）。
+ *   [{ err, calls, tools: [{tool, calls}], users: [{user, calls}] }]，按 calls 倒序。
+ * 与 by=err 同口径：仅统计失败调用（ok=0），噪音排除，空 user 归 (unknown) 不漏计。
+ * @param {DatabaseSync} db
+ * @param {{since?:string, from?:string|null, to?:string|null, kind?:string, top?:number}} opts
+ */
+function queryByErrDetail(db, { since = "30d", from = null, to = null, kind = null, top = null } = {}) {
+  const { start, end } = resolveWindow({ since, from, to });
+  const params = [];
+  const where = windowSql(start, end, params);
+  let kindClause = "";
+  if (kind) { kindClause = "AND kind = ?"; params.push(kind); }
+  const failClause = `${where} AND ok = 0${noiseExcludeClause()} ${kindClause} AND err IS NOT NULL AND err != ''`;
+
+  const byTool = db
+    .prepare(`SELECT err, tool, COUNT(*) AS calls FROM metrics WHERE ${failClause} GROUP BY err, tool`)
+    .all(...params);
+  const byUser = db
+    .prepare(
+      `SELECT err, COALESCE(NULLIF(user, ''), '(unknown)') AS user, COUNT(*) AS calls
+       FROM metrics WHERE ${failClause} GROUP BY err, COALESCE(NULLIF(user, ''), '(unknown)')`
+    )
+    .all(...params);
+
+  const map = new Map();
+  for (const r of byTool) {
+    if (!map.has(r.err)) map.set(r.err, { err: r.err, calls: 0, tools: [], users: [] });
+    const g = map.get(r.err);
+    g.calls += r.calls;
+    g.tools.push({ tool: r.tool, calls: r.calls });
+  }
+  for (const r of byUser) {
+    const g = map.get(r.err);
+    if (!g) continue; // err 非空约束两侧一致，理论不可达；防御性跳过
+    g.users.push({ user: r.user, calls: r.calls });
+  }
+  for (const g of map.values()) {
+    g.tools.sort((a, b) => b.calls - a.calls);
+    g.users.sort((a, b) => b.calls - a.calls);
+  }
+  const rows = [...map.values()];
+  rows.sort((a, b) => b.calls - a.calls);
   const sliced = top ? rows.slice(0, top) : rows;
   const totalFailed = rows.reduce((s, r) => s + r.calls, 0);
   return { rows: sliced, totalFailed };

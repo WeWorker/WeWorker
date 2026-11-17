@@ -59,7 +59,7 @@ METRICS_PORT=8787 METRICS_DB=/var/lib/webcli/metrics.db METRICS_TOKEN=xxx node s
 
 | query | 默认 | 说明 |
 |---|---|---|
-| `by` | `domain` | `domain` 或 `tool` |
+| `by` | `domain` | `domain` / `tool` / `err` / `errdetail`（报错下钻 tool 与 user 明细）/ `user` / `route` / `active` |
 | `since` | `30d` | 时间窗，支持 `d`/`h`/`m` |
 | `kind` | 全部 | `adapter` 或 `builtin` |
 | `top` | 全部 | 只返回前 N |
