@@ -673,7 +673,7 @@ def create_app(
                     "NOT_FOUND" if isinstance(exc, FileNotFoundError) else
                     "BUSY" if isinstance(exc, BusyError) else
                     "INVALID_STATE" if isinstance(exc, InvalidStateError) else "INVALID_ARGUMENT")
-            status = 404 if code == "NOT_FOUND" else 409 if code in {"STALE_REVISION", "STALE_PACKAGE", "TOOL_EXISTS", "BUSY", "INVALID_STATE"} else 400
+            status = 404 if code == "NOT_FOUND" else 409 if code in {"STALE_PACKAGE", "TOOL_EXISTS", "BUSY", "INVALID_STATE"} else 400
             return jsonify({**envelope, "ok": False, "error": {"code": code, "message": str(exc)}}), status
 
     @app.before_request

@@ -22,14 +22,14 @@ def api(tmp_path, monkeypatch):
 
 
 def create(call):
-    status, response = call("create", {"toolkit_id": "demo", "tool_id": "read_title", "allowed_domains": ["example.com"],
+    status, response = call("create", {"toolkit_id": "demo", "tool_id": "read_title", "allowed_domains": "example.com",
                                        "goal": "Read title", "start_url": "https://example.com/"})
     assert status == 200, response
     return response["data"]
 
 
-def submission(revision=0, **changes):
-    return {"toolkit_id": "demo", "tool_id": "read_title", "expected_revision": revision,
+def submission(**changes):
+    return {"toolkit_id": "demo", "tool_id": "read_title",
             "code": 'async def read_title(ctx):\n    return {"title": await ctx.page.title()}',
             "description": "Read title", "risk_notice": "", "safety": "read",
             "parameters_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
@@ -46,7 +46,7 @@ def test_save_build_exact_package_without_install(api):
     assert saved["data"]["formal"] is None
     slot = saved["data"]["development"]
     assert isinstance(slot["parameters_schema"], dict)
-    status, built = call("build", {"toolkit_id": "demo", "expected_revision": 1})
+    status, built = call("build", {"toolkit_id": "demo"})
     assert status == 200, built
     data = built["data"]
     assert data["digest"] == saved["data"]["candidate_digest"]
@@ -56,13 +56,17 @@ def test_save_build_exact_package_without_install(api):
     store = app.config["WEBWRIGHT_TOOLKIT_STORE"]
     state = read_state(store, "demo")
     assert state["last_applied_digest"] is None
-    # Metadata-only changes also participate in the concurrency revision.
-    status, updated = call("save", submission(1, description="Updated description"))
+    # Repeated saves return revision metadata without requiring it as input.
+    status, updated = call("save", submission(description="Updated description"))
     assert status == 200
     assert updated["data"]["revision"] == 2
     assert updated["data"]["development"]["code_hash"] == slot["code_hash"]
-    assert call("save", submission(1))[1]["error"]["code"] == "STALE_REVISION"
-    assert call("build", {"toolkit_id": "demo", "expected_revision": 1})[1]["error"]["code"] == "STALE_REVISION"
+    status, latest = call("build", {"toolkit_id": "demo"})
+    assert status == 200, latest
+    assert latest["data"]["revision"] == updated["data"]["revision"]
+    assert latest["data"]["digest"] == updated["data"]["candidate_digest"]
+    assert latest["data"]["digest"] != data["digest"]
+    assert latest["data"]["manifest"]["commands"][0]["description"] == "Updated description"
 
 
 @pytest.mark.parametrize("changes", [
@@ -70,7 +74,7 @@ def test_save_build_exact_package_without_install(api):
     {"code": "def read_title(ctx):\n    return {}"},
     {"code": "async def read_title(ctx, value):\n    return {}"},
     {"code": "async def read_title(ctx, cdp_url):\n    return {}"},
-    {"description": {}}, {"safety": "unsafe"}, {"expected_revision": True},
+    {"description": {}}, {"safety": "unsafe"}, {"expected_revision": 0}, {"revision": 0},
     {"source_exploration_id": "untrusted"},
 ])
 def test_invalid_save_does_not_advance_workspace(api, changes):
@@ -86,11 +90,24 @@ def test_invalid_save_does_not_advance_workspace(api, changes):
 def test_validate_has_no_writes_and_requires_object_schemas(api):
     app, _, call = api
     args = submission()
-    for key in ("toolkit_id", "expected_revision"):
-        args.pop(key)
+    args.pop("toolkit_id")
     assert call("validate", args)[0] == 200
     assert app.config["WEBWRIGHT_TOOLKIT_STORE"].list_toolkits() == []
     assert call("validate", {**args, "result_schema": "{}"})[0] == 400
+
+
+@pytest.mark.parametrize("command", ["build", "debug"])
+@pytest.mark.parametrize("field", ["revision", "expected_revision"])
+def test_revision_is_output_metadata_not_an_input(api, command, field):
+    _, _, call = api
+    create(call)
+    saved = call("save", submission())[1]["data"]
+    args = {"toolkit_id": "demo"}
+    if command == "debug":
+        args.update(tool_id="read_title", expected_digest=saved["candidate_digest"], parameters={}, confirmed=True)
+    status, result = call(command, {**args, field: saved["revision"]})
+    assert status == 400, result
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
 
 
 def test_identity_unknown_command_and_origin_boundary(api):
@@ -104,11 +121,40 @@ def test_identity_unknown_command_and_origin_boundary(api):
 def test_create_never_overwrites_or_widens_grants(api):
     app, _, call = api
     create(call)
-    assert call("create", {"toolkit_id": "demo", "tool_id": "read_title", "allowed_domains": ["example.com"],
+    assert call("create", {"toolkit_id": "demo", "tool_id": "read_title", "allowed_domains": "example.com",
                            "goal": "Changed", "start_url": "https://example.com/"})[1]["error"]["code"] == "TOOL_EXISTS"
-    assert call("create", {"toolkit_id": "demo", "tool_id": "other", "allowed_domains": ["example.org"],
+    assert call("create", {"toolkit_id": "demo", "tool_id": "other", "allowed_domains": "example.org",
                            "goal": "Other", "start_url": "https://example.org/"})[0] == 400
     assert app.config["WEBWRIGHT_TOOLKIT_STORE"].get_toolkit("demo")["allowed_domains"] == ["example.com"]
+
+
+def test_create_normalizes_domain_strings_and_keeps_array_metadata(api):
+    app, _, call = api
+    args = {"toolkit_id": "demo", "tool_id": "read_title", "allowed_domains": " Example.COM., api.example.com,example.com ",
+            "goal": "Read title", "start_url": "https://example.com/"}
+    status, created = call("create", args)
+    assert status == 200, created
+    assert created["data"]["toolkit"]["allowed_domains"] == ["example.com", "api.example.com"]
+    status, added = call("create", {**args, "tool_id": "read_api", "allowed_domains": "api.example.com,example.com",
+                                 "start_url": "https://api.example.com/"})
+    assert status == 200, added
+    assert app.config["WEBWRIGHT_TOOLKIT_STORE"].get_toolkit("demo")["allowed_domains"] == ["example.com", "api.example.com"]
+    call("save", submission())
+    built = call("build", {"toolkit_id": "demo"})[1]["data"]
+    assert built["manifest"]["runtime_allowed_hosts"] == ["example.com", "api.example.com"]
+
+
+@pytest.mark.parametrize("domains", [
+    ["example.com"], [], {"host": "example.com"}, None, True, 123,
+    "", " , ", "https://example.com/", "example.com/path", "example.com:443", "example.org",
+])
+def test_create_rejects_invalid_domain_inputs_without_creating_workspace(api, domains):
+    app, _, call = api
+    status, result = call("create", {"toolkit_id": "demo", "tool_id": "read_title", "allowed_domains": domains,
+                                   "goal": "Read title", "start_url": "https://example.com/"})
+    assert status == 400, result
+    assert result["error"]["code"] == "INVALID_ARGUMENT"
+    assert app.config["WEBWRIGHT_TOOLKIT_STORE"].list_toolkits() == []
 
 
 def test_busy_save_is_rejected(api, monkeypatch):
@@ -126,14 +172,14 @@ def test_debug_uses_exact_package_cli_channel_and_requires_confirmation(api, mon
     status, saved = call("save", submission(safety="write", risk_notice="May submit changes"))
     assert status == 200
     data = saved["data"]
-    built = call("build", {"toolkit_id": "demo", "expected_revision": 1})[1]["data"]
+    built = call("build", {"toolkit_id": "demo"})[1]["data"]
     assert built["manifest"]["commands"][0]["safety"] == "write"
     received = []
     def start(**kwargs):
         received.append(kwargs)
         return {"debug_run_id": "debug_placeholder", "status": "running"}
     monkeypatch.setattr(app.config["WEBWRIGHT_PROCESS_MANAGER"], "start_debug_run", start)
-    args = {"toolkit_id": "demo", "tool_id": "read_title", "expected_revision": 1,
+    args = {"toolkit_id": "demo", "tool_id": "read_title",
             "expected_digest": data["candidate_digest"], "parameters": {}, "confirmed": False}
     assert call("debug", args)[1]["error"]["code"] == "CONFIRMATION_REQUIRED"
     assert call("debug", {**args, "confirmed": True, "expected_digest": "changed"})[1]["error"]["code"] == "STALE_PACKAGE"
@@ -149,9 +195,9 @@ def test_tampered_package_cannot_build(api):
     _, _, call = api
     create(call)
     call("save", submission())
-    built = call("build", {"toolkit_id": "demo", "expected_revision": 1})[1]["data"]
+    built = call("build", {"toolkit_id": "demo"})[1]["data"]
     (Path(built["package_path"]) / 'manifest.json').write_text('{}')
-    assert call("build", {"toolkit_id": "demo", "expected_revision": 1})[0] == 400
+    assert call("build", {"toolkit_id": "demo"})[0] == 400
 
 def test_saved_package_passes_host_v2_reader(api):
     import shutil
@@ -163,7 +209,7 @@ def test_saved_package_passes_host_v2_reader(api):
     _, _, call = api
     create(call)
     call("save", submission())
-    built = call("build", {"toolkit_id": "demo", "expected_revision": 1})[1]["data"]
+    built = call("build", {"toolkit_id": "demo"})[1]["data"]
     repo = Path(__file__).resolve().parents[4]
     reader = (repo / 'webcli' / 'adapter-package-files.js').as_uri()
     code = f'import {{readPackageDirectory}} from {json.dumps(reader)}; console.log(JSON.stringify(readPackageDirectory(process.argv[1]).digest));'
@@ -195,7 +241,7 @@ def test_real_debug_manager_builds_isolated_snapshot_without_applying(api, monke
     monkeypatch.setattr(manager, '_spawn', spawn)
     monkeypatch.setattr(process_manager.threading, 'Thread', Thread)
     status, response = call('debug', {'toolkit_id': 'demo', 'tool_id': 'read_title',
-        'expected_revision': 1, 'expected_digest': saved['candidate_digest'], 'parameters': {}, 'confirmed': True})
+        'expected_digest': saved['candidate_digest'], 'parameters': {}, 'confirmed': True})
     assert status == 200, response
     spec = json.loads((captured[0] / 'debug_spec.json').read_text())
     assert spec['v2'] is True and spec['channel'] == 'formal'
@@ -222,7 +268,7 @@ def test_busy_slot_cannot_lose_write_classification(api):
     call('save', submission(safety='write'))
     store = app.config['WEBWRIGHT_TOOLKIT_STORE']
     replacement = submission()
-    for key in ('toolkit_id', 'tool_id', 'expected_revision', 'safety'):
+    for key in ('toolkit_id', 'tool_id', 'safety'):
         replacement.pop(key)
     store.write_development_slot('demo', 'read_title', replacement)
     assert store.read_development_slot('demo', 'read_title')['safety'] == 'write'
@@ -241,7 +287,7 @@ def test_host_ack_promotes_exact_cli_candidate_without_losing_newer_work(tmp_pat
     prepared = client.get("/api/toolkits/demo/v2-package").get_json()
     assert prepared["digest"] == saved["candidate_digest"]
     if newer_draft:
-        assert call("save", submission(1, description="Newer draft"))[0] == 200
+        assert call("save", submission(description="Newer draft"))[0] == 200
     ack = client.post("/api/toolkits/demo/installation-ack", json={
         "digest": prepared["digest"], "revision": 1, "profile": "public", "operation_id": prepared["operation_id"]})
     assert ack.status_code == 200, ack.get_json()
@@ -373,15 +419,14 @@ def test_list_bound_adapter_retains_original_runtime_and_bytes_when_adding_tool(
     assert workspace['install_baseline_digest'] == digest
     assert workspace['retained_commands'] == [{'id': 'existing', 'runtime': 'extension'}]
     assert workspace['tools'] == []
-    status, conflict = call('create', {'toolkit_id': 'bound', 'tool_id': 'existing', 'allowed_domains': ['example.com'],
+    status, conflict = call('create', {'toolkit_id': 'bound', 'tool_id': 'existing', 'allowed_domains': 'example.com',
                                        'goal': 'Do not replace', 'start_url': 'https://example.com/'})
     assert status == 400
     assert conflict['error']['code'] == 'RETAINED_COMMAND'
     assert call('list', {})[1]['data']['workspaces'][0]['tools'] == []
-    assert call('create', {'toolkit_id': 'bound', 'tool_id': 'read_title', 'allowed_domains': ['example.com'],
+    assert call('create', {'toolkit_id': 'bound', 'tool_id': 'read_title', 'allowed_domains': 'example.com',
                           'goal': 'Read title', 'start_url': 'https://example.com/'})[0] == 200
-    revision = call('inspect', {'toolkit_id': 'bound', 'tool_id': 'read_title'})[1]['data']['revision']
-    status, saved = call('save', submission(revision, toolkit_id='bound'))
+    status, saved = call('save', submission(toolkit_id='bound'))
     assert status == 200, saved
     package = client.get('/api/toolkits/bound/v2-package').get_json()
     assert package['files']['extension/commands/existing.js'] == base64.b64encode(files['extension/commands/existing.js']).decode()
