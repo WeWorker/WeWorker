@@ -342,7 +342,7 @@ describe('System Prompt - complete output contract before externalization', () =
       黑名单说明：
       - 每条规则会按“路径精确匹配”或“路径正则匹配”执行。
       - 被黑名单命中的路径不可读取、写入、列出、上传、解密或发送。
-      - 如果工具返回 blocked / blacklist 错误，请明确告知用户该路径已被管理员加入黑名单，无法访问。
+      - 如果工具返回 blocked / blacklist 错误，请说明该路径被文件访问黑名单拦截，并引导用户前往“设置 → 权限与安全 → 文件访问黑名单”查看或调整对应规则。
 
 
       ## 本地命令执行规则
