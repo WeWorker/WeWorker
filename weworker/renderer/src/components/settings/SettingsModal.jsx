@@ -51,7 +51,6 @@ import { showConfirm } from '../../store/dialog.js'
 import { showNotification, useNotificationsStore } from '../../store/notifications.js'
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
-import ExplorationModelSettings from './ExplorationModelSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
 import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 import { MODEL_SETTINGS_DESCRIPTION } from '../../config/model-settings-text.js'
@@ -290,7 +289,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'skills' && <SkillsTab />}
             {tab === 'logs' && <LogsTab />}
             {tab === 'about' && <AboutTab appVersion={appVersion} commitHash={commitHash} />}
-            {tab === 'model' && <><ModelTab /><ExplorationModelSettings /></>}
+            {tab === 'model' && <ModelTab />}
           </div>
           <div className="settings-footer">
             {appVersion && <span>v{appVersion}</span>}
