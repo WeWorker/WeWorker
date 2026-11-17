@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { updateModelRequestNotice } from '../../utils/model-request-notice.js'
 import { DownloadOutlined, TagOutlined } from '@ant-design/icons'
 import { useWorkActivityStore } from '../../store/work-activity.js'
 import { useWorksStore } from '../../store/works.js'
@@ -55,6 +56,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     return () => useWorkActivityStore.getState().leave(workId)
   }, [workId])
   const [error, setError] = useState(null)
+  const [modelRequestNotices, setModelRequestNotices] = useState({})
+  const modelRequestNotice = modelRequestNotices[workId] ?? null
   const handleSendRef = useRef(null)
   const { inputText, setInputText, attachments, setAttachments } = useChatDraft(`work:${workId}`)
   const fillSeq = useChatInputFillStore((s) => s.seq)
@@ -205,6 +208,16 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     let steered = false
     try {
       await streamChat(workId, text, (event) => {
+        setModelRequestNotices(previous => {
+          const current = previous[workId] ?? null
+          const next = updateModelRequestNotice(current, event)
+          if (current === next) return previous
+          const notices = { ...previous }
+          if (next === null) delete notices[workId]
+          else notices[workId] = next
+          return notices
+        })
+        if (event.type === 'api_retry' || event.type === 'api_retry_resolved') return
         if (event.type === 'error') failed = true
         if (event.type === 'user_choice') useWorkActivityStore.getState().wait(workId, controller, event.id)
         // A choice can also resolve by timeout; only clear its matching request.
@@ -422,6 +435,12 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
     } finally {
       clearTimeout(slowTimerRef.current)
       setSlowWarning(false)
+      setModelRequestNotices(previous => {
+        if (!previous[workId]) return previous
+        const next = { ...previous }
+        delete next[workId]
+        return next
+      })
       if (!accepted) {
         useWorksStore.setState(s => ({ messages: { ...s.messages, [workId]: (s.messages[workId] ?? []).filter(message => message.id !== optimisticUserId && message.id !== optimisticAssistantId) } }))
       }
@@ -741,6 +760,11 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
       {slowWarning && (
         <div style={{ padding: '8px 20px', color: '#f59e0b', fontSize: 12, background: 'rgba(245,158,11,0.1)', borderTop: '1px solid rgba(245,158,11,0.3)' }}>
           ⚠️ 响应较慢，可能是网络问题或 API 连接超时。可查看后端日志排查，或点击停止后重试。
+        </div>
+      )}
+      {modelRequestNotice && (
+        <div role="status" aria-live="polite" style={{ padding: '8px 20px', color: '#f59e0b', fontSize: 12, background: 'rgba(245,158,11,0.1)' }}>
+          {modelRequestNotice}
         </div>
       )}
       {error && (

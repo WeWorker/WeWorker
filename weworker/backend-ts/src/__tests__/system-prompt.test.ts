@@ -72,11 +72,12 @@ vi.mock('../adapter-parser.js', () => ({
 
 // Mock getSiteEnabled to control which adapters are "enabled"
 const enabledSites = new Set<string>()
+const mockBlacklistRules: Array<{ type: 'exact_path' | 'regex_path'; pattern: string }> = []
 
 vi.mock('../config.js', () => ({
   getSiteEnabled: (id: string) => enabledSites.has(id),
   getUserDirectory: () => 'C:\\Users\\test\\.weworker\\user-files',
-  getUserDirectoryBlacklist: () => [],
+  getUserDirectoryBlacklist: () => mockBlacklistRules,
 }))
 
 // Mock logger
@@ -431,8 +432,16 @@ describe('System Prompt - file encryption rules', () => {
 
 describe('System Prompt - channel permission modes', () => {
   beforeEach(() => {
+    mockBlacklistRules.length = 0
     mockAdapterMap.clear()
     enabledSites.clear()
+  })
+
+  it('directs blacklist denials to the current permission settings', async () => {
+    mockBlacklistRules.push({ type: 'exact_path', pattern: 'private/report.txt' })
+    const { buildSystemPrompt } = await import('../agent.js')
+    const prompt = buildSystemPrompt({ channelPermissionMode: 'workspace' })
+    expect(prompt).toContain('设置 → 权限与安全 → 文件访问黑名单')
   })
 
   it('qa_only prompt forbids webcli and bash automation', async () => {

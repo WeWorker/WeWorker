@@ -271,7 +271,7 @@ export function ensureAgentWorkingDirectory(directory = getUserDirectory()): str
 }
 
 export interface SSEEvent {
-  type: 'text_delta' | 'tool_call_start' | 'tool_call_result' | 'tool_call_image' | 'skill_context' | 'user_choice' | 'done' | 'error' | 'usage' | 'context_snapshot' | 'context_compaction_start' | 'context_compaction_end' | 'memory_status' | 'memory_candidate' | 'memory_parse'
+  type: 'text_delta' | 'tool_call_start' | 'tool_call_result' | 'tool_call_image' | 'skill_context' | 'user_choice' | 'done' | 'error' | 'api_retry' | 'api_retry_resolved' | 'usage' | 'context_snapshot' | 'context_compaction_start' | 'context_compaction_end' | 'memory_status' | 'memory_candidate' | 'memory_parse'
   skillContext?: LoadedSkillContext
   content?: string
   id?: string
@@ -294,6 +294,11 @@ export interface SSEEvent {
   error?: string
   candidate?: MemoryUpdateCandidate
   memoryParse?: MemoryParseSummary
+  attempt?: number
+  maxRetries?: number
+  retryDelayMs?: number
+  errorStatus?: number | null
+  errorType?: string
   compaction?: Partial<ConversationCompactionSnapshot> & {
     strategy?: 'summary' | 'drop_oldest'
     status?: 'started' | 'completed' | 'skipped' | 'failed'
@@ -355,7 +360,7 @@ ${blacklistEntries.map((entry) => `- ${formatBlacklistEntry(entry)}`).join('\n')
 黑名单说明：
 - 每条规则会按“路径精确匹配”或“路径正则匹配”执行。
 - 被黑名单命中的路径不可读取、写入、列出、上传、解密或发送。
-- 如果工具返回 blocked / blacklist 错误，请明确告知用户该路径已被管理员加入黑名单，无法访问。
+- 如果工具返回 blocked / blacklist 错误，请说明该路径被文件访问黑名单拦截，并引导用户前往“设置 → 权限与安全 → 文件访问黑名单”查看或调整对应规则。
 `
     : ''
 
@@ -987,6 +992,26 @@ export function* mapSdkMessage(
   // fire dozens of times per turn and carry no timing signal, so skip them.
   if (msg.type !== 'stream_event' && msg.type !== 'system') {
     log.info(`sdk-event: ${describeSdkMessage(msg)}`)
+  }
+  if (msg.type === 'system' && msg.subtype === 'api_retry') {
+    const errorLabels: Record<string, string> = {
+      authentication_failed: '身份验证失败', oauth_org_not_allowed: '组织授权受限',
+      account_on_hold: '账号暂不可用', billing_error: '计费错误', rate_limit: '请求限流',
+      overloaded: '服务繁忙', invalid_request: '请求无效', model_not_found: '模型不存在',
+      server_error: '服务端错误', unknown: '请求失败', max_output_tokens: '输出超出限制',
+    }
+    const status = msg.error_status === null ? '网络连接错误' : `HTTP ${msg.error_status}`
+    const delaySeconds = Math.max(0, msg.retry_delay_ms / 1000)
+    yield {
+      type: 'api_retry',
+      content: `模型请求遇到 ${status}（${errorLabels[msg.error] ?? '请求失败'}），将在 ${delaySeconds} 秒后重试（第 ${msg.attempt}/${msg.max_retries} 次）`,
+      attempt: msg.attempt,
+      maxRetries: msg.max_retries,
+      retryDelayMs: msg.retry_delay_ms,
+      errorStatus: msg.error_status,
+      errorType: msg.error,
+    }
+    return
   }
   // Streaming text deltas 鈥?only used in streaming mode
   if (msg.type === 'stream_event') {
@@ -2138,6 +2163,7 @@ async function* streamChatWithBaseUrl(
 
   let completed = false
   let turnFailed = false
+  let apiRetryPending = false
   const contextUsageTracker = createContextUsageTracker()
   const readQueryCalls = new Set<string>()
   try {
@@ -2172,12 +2198,21 @@ async function* streamChatWithBaseUrl(
       }
       if (msg.type === 'assistant') assistantResponseCount += 1
       const latestModelInputTokens = contextUsageTracker.observe(msg)
+      if (apiRetryPending && (
+        (msg.type === 'stream_event' && !msg.parent_tool_use_id && msg.event.type === 'message_start')
+        || (msg.type === 'assistant' && !msg.parent_tool_use_id && !msg.error)
+        || (msg.type === 'result' && msg.subtype === 'success')
+      )) {
+        apiRetryPending = false
+        yield { type: 'api_retry_resolved' }
+      }
       for (const skillContext of skillContextCollector.observe(msg)) {
         turnContextCollector.observe({ type: 'skill_context', id: skillContext.tool_use_id, content: skillContext.text })
         log.info('skill_context_captured', { chars: skillContext.text.length })
         yield { type: 'skill_context', skillContext }
       }
       for (const event of mapSdkMessage(msg, includePartialMessages, textBlockBuf, apiDurationTracker)) {
+        if (event.type === 'api_retry') apiRetryPending = true
         if (event.type === 'usage' && event.usage && latestModelInputTokens !== undefined) {
           event.usage = { ...event.usage, context_input_tokens: latestModelInputTokens }
         }
