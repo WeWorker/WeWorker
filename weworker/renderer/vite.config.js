@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import adapterHubProfile from '../../webcli/adapterhub-profile.json' with { type: 'json' }
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +46,7 @@ export default defineConfig(({ command }) => {
     server: { port: 5173 },
     build: { outDir: 'dist' },
     define: {
+      '__BUILD_ADAPTERHUB_ENDPOINT__': JSON.stringify(adapterHubProfile.endpoint ?? ''),
       '__BUILD_PROVIDERS__': JSON.stringify(publicProviders(buildDefines.providers)),
       '__BUILD_DEFAULT_PROVIDER__': JSON.stringify(buildDefines.defaultProvider),
       '__BUILD_COMMIT_HASH__': JSON.stringify(buildDefines.commitHash || devCommitHash),
