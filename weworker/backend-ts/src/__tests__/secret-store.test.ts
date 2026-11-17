@@ -67,6 +67,19 @@ const baseSettings = (): Settings => ({
 })
 
 describe('settings-secrets', () => {
+  it('protects every independent exploration provider key', () => {
+    const settings = baseSettings()
+    settings.exploration_providers = Object.fromEntries(['anthropic', 'glm', 'deepseek', 'custom'].map(id => [id, {
+      api_key: `fixture-explore-${id}`, model: 'fixture-model', base_url: '', protocol: 'openai_chat_completions' as const, auth_type: 'api_key' as const,
+    }]))
+    const secrets = extractSecrets(settings)
+    const cleared = clearSecretsOnDisk(settings)
+    for (const id of ['anthropic', 'glm', 'deepseek', 'custom']) {
+      expect(secrets[`exploration_providers.${id}.api_key`]).toBe(`fixture-explore-${id}`)
+      expect(cleared.exploration_providers?.[id].api_key).toBe('')
+      expect(applySecrets(cleared, secrets).exploration_providers?.[id].api_key).toBe(`fixture-explore-${id}`)
+    }
+  })
   it('extracts and applies secret fields', () => {
     const settings = baseSettings()
     const secrets = extractSecrets(settings)

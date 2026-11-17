@@ -80,13 +80,17 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   useEffect(() => {
     const controller = new AbortController()
     setCatalog(null)
-    if (selected && selected !== '__independent__' && !fixedModel) {
+    if (selected === '__exploration__' && config?.active_provider) {
+      api.listExplorationModels({ provider: config.active_provider, model: currentModel })
+        .then(value => { if (!controller.signal.aborted) setCatalog({ provider: selected, models: value.models || [] }) })
+        .catch(() => {})
+    } else if (selected && selected !== '__independent__' && !fixedModel) {
       fetchProviderModels({ provider: selected, target: 'weworker' }, controller.signal)
         .then(value => { if (!controller.signal.aborted) setCatalog({ provider: selected, models: value.models }) })
         .catch(() => {})
     }
     return () => controller.abort()
-  }, [selected, providers, fixedModel])
+  }, [selected, providers, fixedModel, config?.active_provider, currentModel])
 
   async function save(patch) {
     if (disabled || pendingRef.current) return
@@ -105,6 +109,11 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   }
   async function selectProvider(id) {
     if (id === selected || disabled || pendingRef.current) return
+    if (id === '__exploration__') {
+      const independent = config?.providers?.find(item => item.id === config.active_provider)
+      if (independent?.configured) await save({ provider: id, model: independent.model })
+      return
+    }
     const entry = providers[id]
     const preset = PROVIDERS.find(item => item.id === (entry?.provider_id || id))
     if (!preset?.builtin && !entry?.has_key) { setKeyProvider(id); return }
@@ -124,6 +133,9 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       onCheck={interactive ? () => { void checkModel(selected, option.value) } : undefined} />
   }
   const providerOptions = buildChatProviderOptions(PROVIDERS, providers, selected)
+  if (config?.providers?.some(item => item.configured)) providerOptions.push({
+    value: '__exploration__', label: '网站探索独立模型', keyConfigured: true,
+  })
   const modelOptions = buildModelOptions(fixedModel ? [currentModel] : catalog?.provider === selected ? catalog.models : definition?.models, currentModel, { annotateCurrent: false })
   const glm = config?.model_class === 'zhipu' || /^glm-/i.test(currentModel)
   const thinkingOptions = glm ? (/^glm-5\.3/i.test(currentModel) ? [] : [{ value: 'off', label: '关' }]).concat({ value: 'high', label: '开' }) : BASIC_OPTIONS

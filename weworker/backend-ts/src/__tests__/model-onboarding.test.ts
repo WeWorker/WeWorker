@@ -338,3 +338,72 @@ describe('exploration settings API', () => {
     })
   })
 })
+
+describe('independent exploration provider settings API', () => {
+  it.each([
+    ['anthropic', 'anthropic_messages', 'https://api.anthropic.com/v1/messages'],
+    ['glm', 'openai_chat_completions', 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions'],
+    ['deepseek', 'openai_chat_completions', 'https://api.deepseek.com/chat/completions'],
+  ])('saves %s exploration credentials without changing ordinary conversation settings', async (provider, protocol, endpoint) => {
+    const upstream = vi.fn(async () => protocol === 'anthropic_messages' ? anthropicTextResponse() : chatResponse())
+    await withRoutes(upstream, async (url, get) => {
+      const before = { ...get() }
+      const response = await post(url, { provider, model: 'explore-model', api_key: 'fixture-explore-key' })
+      expect(response.status).toBe(200)
+      const data = await response.json()
+      expect(data).toMatchObject({ ok: true, active_provider: provider })
+      expect(JSON.stringify(data)).not.toContain('fixture-explore-key')
+      expect(get()).toMatchObject({ active_provider: before.active_provider, model: before.model, api_key: before.api_key, exploration_active_provider: provider })
+      expect((upstream.mock.calls[0] as unknown as [string])[0]).toBe(endpoint)
+    })
+  })
+
+  it.each(['anthropic_messages', 'openai_chat_completions'])('saves a custom exploration %s service with independent auth', async protocol => {
+    const upstream = vi.fn(async () => protocol === 'anthropic_messages' ? anthropicTextResponse() : chatResponse())
+    await withRoutes(upstream, async (url, get) => {
+      expect(await (await post(url, { provider: 'custom', model: 'custom-explore', api_key: 'fixture-custom-key', base_url: 'https://example.org/gateway', protocol, auth_type: 'auth_token' })).json()).toMatchObject({ ok: true })
+      const [endpoint, options] = upstream.mock.calls[0] as unknown as [string, RequestInit]
+      expect(endpoint).toBe('https://example.org/gateway' + (protocol === 'anthropic_messages' ? '/v1/messages' : '/chat/completions'))
+      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-custom-key')
+      expect(get().api_key).toBe('fixture-main-key')
+      expect(await (await post(url, { provider: 'custom', model: 'next-model', api_key: '', base_url: 'https://example.org/gateway', protocol, auth_type: 'auth_token' })).json()).toMatchObject({ ok: true })
+      expect(get().exploration_providers?.custom.api_key).toBe('fixture-custom-key')
+    })
+  })
+
+  it('switches saved exploration providers and models independently', async () => {
+    const upstream = vi.fn(async () => chatResponse())
+    await withRoutes(upstream, async (url, get) => {
+      for (const provider of ['glm', 'deepseek']) {
+        expect(await (await post(url, { provider, model: provider + '-explore', api_key: 'fixture-' + provider + '-key' })).json()).toMatchObject({ ok: true })
+      }
+      expect(await (await post(url + '/activate', { provider: 'glm', model: 'glm-other-model' })).json()).toMatchObject({ ok: true, active_provider: 'glm' })
+      expect(get()).toMatchObject({ active_provider: 'custom', model: 'fixture-model', api_key: 'fixture-main-key', exploration_active_provider: 'glm' })
+      expect(get().exploration_providers?.glm.model).toBe('glm-other-model')
+      expect(get().exploration_providers?.deepseek.model).toBe('deepseek-explore')
+      const before = JSON.stringify(get())
+      expect((await post(url + '/activate', { provider: 'anthropic' })).status).toBe(400)
+      expect(JSON.stringify(get())).toBe(before)
+    })
+  })
+
+  it('lists models using exploration credentials and masks reflected keys', async () => {
+    const upstream = vi.fn(async () => new Response('invalid fixture-explore-key', { status: 401 }))
+    await withRoutes(upstream, async (url, _get, set) => {
+      set({ exploration_active_provider: 'custom', exploration_providers: { custom: { api_key: 'fixture-explore-key', model: 'explore-model', base_url: 'https://example.org/v1', protocol: 'openai_chat_completions', auth_type: 'auth_token' } } })
+      const data = await (await post(url + '/models', { provider: 'custom' })).json()
+      expect(data.source).toBe('fallback')
+      expect(JSON.stringify(data)).not.toContain('fixture-explore-key')
+      const [endpoint, options] = upstream.mock.calls[0] as unknown as [string, RequestInit]
+      expect(endpoint).toBe('https://example.org/v1/models')
+      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-explore-key')
+    })
+  })
+
+  it('keeps independently verified exploration usable after ordinary model changes', async () => {
+    const service = createExplorationModelService(vi.fn(async () => chatResponse()))
+    const value = settings({ exploration_active_provider: 'deepseek', exploration_providers: { deepseek: { api_key: 'fixture-explore', model: 'explore-model', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' } } })
+    await service.check(value)
+    expect(service.status({ ...value, active_provider: 'anthropic', api_key: 'fixture-main-changed', model: 'changed-model' }).status).toBe('independent')
+  })
+})
