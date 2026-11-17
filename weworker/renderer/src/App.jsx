@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { ConfigProvider } from 'antd'
+import { ArrowUpRight, Layers } from 'lucide-react'
+import { handleChatLinkClick } from './utils/chat-links.js'
 import { RestoreWindowIcon } from './components/icons/PanelIcons'
 import zhCN from 'antd/locale/zh_CN'
 import Sidebar from './components/layout/Sidebar.jsx'
@@ -37,6 +39,9 @@ import useResponsiveSidebar from './hooks/useResponsiveSidebar.js'
 import SidebarToggleIcon from './components/icons/SidebarToggleIcon.jsx'
 import './workspace-theme.css'
 
+
+const hubEndpoint = typeof __BUILD_ADAPTERHUB_ENDPOINT__ === 'string' ? __BUILD_ADAPTERHUB_ENDPOINT__.trim() : ''
+const hubHref = URL.canParse(hubEndpoint) && ['http:', 'https:'].includes(new URL(hubEndpoint).protocol) ? hubEndpoint : ''
 
 function getInitialTheme() {
   const saved = localStorage.getItem('theme')
@@ -398,6 +403,16 @@ export default function App() {
     : (userFilesOpen ? '收起用户目录' : '打开用户目录')
   const workspaceToolbar = (
     <WorkspaceToolbar>
+        {websiteOpen && hubHref && (
+          <a className="workspace-toolbar__button workspace-toolbar__hub"
+            href={hubHref} target="_blank" rel="noopener noreferrer"
+            aria-label="在浏览器中打开 AdapterHub"
+            onClick={handleChatLinkClick} onAuxClick={handleChatLinkClick}>
+            <Layers size={15} aria-hidden="true" />
+            AdapterHub
+            <ArrowUpRight size={12} aria-hidden="true" />
+          </a>
+        )}
         {(!minimalWorkspaceToolbar || websiteOpen) && (
           <Tooltip text={filesToggleLabel} delay={800} placement="top">
             <button
