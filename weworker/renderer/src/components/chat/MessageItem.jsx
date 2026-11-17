@@ -13,6 +13,7 @@ import { isPlanManagementTool } from '../../utils/todowrite-state.js'
 import { normalizeUserChoiceBlock } from '../../utils/user-choice.js'
 import { localFileUrl } from '../../utils/local-file-url.js'
 import { handleChatLinkClick } from '../../utils/chat-links.js'
+import { captureMessageSelection, messageCopyContent } from '../../utils/message-copy.js'
 import FileGlyph, { getFileTypeLabel, getFileTypeMeta } from '../files/FileTypeIcon.jsx'
 
 const BUBBLE_USER = {
@@ -58,7 +59,8 @@ export default function MessageItem({ message, workId, streaming, compacting = f
   const [showTime, setShowTime] = useState(false)
   const hoverTimerRef = useRef(null)
   const lastDblClickRef = useRef(0)
-  const selectedTextRef = useRef('')
+  const messageRef = useRef(null)
+  const selectedContentRef = useRef(null)
 
   const handleContextMenu = (e) => {
     if (selectMode || streaming) return
@@ -67,7 +69,7 @@ export default function MessageItem({ message, workId, streaming, compacting = f
     const native = e.nativeEvent
     if (native instanceof MouseEvent && native.button !== 2) return
     e.preventDefault()
-    selectedTextRef.current = selection
+    selectedContentRef.current = captureMessageSelection(e.currentTarget, window.getSelection())
     setMenuPos({ x: e.clientX, y: e.clientY })
     setShowMenu(true)
   }
@@ -93,19 +95,11 @@ export default function MessageItem({ message, workId, streaming, compacting = f
     }
   }, [showMenu])
 
-  const handleCopy = () => {
+  const handleCopy = (format) => {
+    const content = messageCopyContent(message, messageRef.current, selectedContentRef.current)
+    selectedContentRef.current = null
     setShowMenu(false)
-    const selected = selectedTextRef.current || window.getSelection()?.toString()?.trim()
-    if (selected) {
-      navigator.clipboard.writeText(selected)
-      selectedTextRef.current = ''
-      return
-    }
-    const text = (message.content ?? [])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('\n')
-    navigator.clipboard.writeText(text)
+    navigator.clipboard.writeText(content[format])
   }
 
   const handleMultiSelect = () => {
@@ -131,6 +125,7 @@ export default function MessageItem({ message, workId, streaming, compacting = f
 
   return (
     <div
+      ref={messageRef}
       className={rowClassName}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
@@ -227,7 +222,8 @@ export default function MessageItem({ message, workId, streaming, compacting = f
           borderRadius: 8, padding: 4, boxShadow: 'none',
           minWidth: 120, userSelect: 'none', WebkitUserSelect: 'none',
         }}>
-          <MenuItem label="复制" onClick={handleCopy} />
+          <MenuItem label="复制 Markdown" onClick={() => handleCopy('markdown')} />
+          <MenuItem label="复制纯文本" onClick={() => handleCopy('plainText')} />
           <MenuItem label="多选" onClick={handleMultiSelect} />
           <MenuItem label="删除" onClick={handleDelete} danger />
         </div>
