@@ -2079,16 +2079,6 @@ function ModelTab() {
       <div className="model-settings-layout">
         <aside className="model-settings-sidebar">
           <div className="model-settings-sidebar__header model-settings-sidebar__header--models">
-            <label className="model-settings-search">
-              <SearchOutlined aria-hidden="true" />
-              <input
-                type="search"
-                aria-label="搜索模型配置名称"
-                placeholder="搜索配置名称"
-                value={providerSearch}
-                onChange={(event) => setProviderSearch(event.target.value)}
-              />
-            </label>
             <div className="model-settings-sidebar__tools">
               {addableProviders.length > 0 && (
               <button
@@ -2112,6 +2102,16 @@ function ModelTab() {
                 <ScanSearch size={18} aria-hidden="true" />
               </button>
             </div>
+            <label className="model-settings-search">
+              <SearchOutlined aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="搜索模型配置名称"
+                placeholder="搜索配置名称"
+                value={providerSearch}
+                onChange={(event) => setProviderSearch(event.target.value)}
+              />
+            </label>
           </div>
           <div className="model-settings-provider-list">
             {filteredProviders.map((provider) => {
