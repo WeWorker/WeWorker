@@ -19,7 +19,7 @@ describe('development CLI', () => {
   it('preserves nested schemas, source quoting, unicode and newlines through --args', () => {
     const value = { code: 'async def read_title(ctx):\n    return {"标题": "a\\b"}',
       parameters_schema: { type: 'object', properties: {}, additionalProperties: false },
-      result_schema: { type: 'object', properties: { count: { type: 'integer' } } }, expected_revision: 0 };
+      result_schema: { type: 'object', properties: { count: { type: 'integer' } } } };
     expect(extractFlagArgs(['--args', JSON.stringify(value)]).args).toEqual(value);
   });
   it('help is offline, machine-readable and packaged with the inline skill', () => {
@@ -32,11 +32,12 @@ describe('development CLI', () => {
     const skill = fs.readFileSync(new URL('../skills/adapter-development/SKILL.md', import.meta.url), 'utf8');
     expect(skill).not.toMatch(/webcli call development\.[\w-]+ --args(?:\s|=)/);
     expect(skill).toContain('expected_digest');
+    expect(skill).not.toContain('expected_revision');
     expect(skill).not.toContain('webwright');
     expect(listBundledSkills().some(item => item.name === 'adapter-development')).toBe(true);
     expect(readBundledSkill('adapter-development').content).toBe(skill);
   });
-  it.skipIf(process.platform !== 'win32')('passes the documented prepare and save arguments through PowerShell 5.1 and a cmd launcher', () => {
+  it.skipIf(process.platform !== 'win32')('passes the documented prepare, create and save arguments through PowerShell 5.1 and a cmd launcher', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'development skill '));
     try {
       // Stop at the CLI parser: inspect exactly what the handler would receive, without contacting a host.
@@ -47,22 +48,30 @@ describe('development CLI', () => {
       fs.writeFileSync(path.join(root, 'webcli.cmd'), '@echo off\r\n"' + process.execPath + '" "%~dp0probe.mjs" %*\r\n');
       const skill = readBundledSkill('adapter-development').content;
       const prepare = skill.match(/^\$prepared = webcli call development\.prepare .+$/m)[0];
+      const create = skill.match(/^webcli call development\.create .+$/m)[0];
       const save = skill.match(/^\$submission = @\{[\s\S]+?^\$saved = webcli call development\.save .+$/m)[0];
       const script = [
         "$ErrorActionPreference = 'Stop'", '[Console]::OutputEncoding = [Text.UTF8Encoding]::new()',
         "$env:Path = (Get-Location).Path + ';' + $env:Path",
-        "$selected = @(@{id='example.com'; digest=('a' * 64)})", '$current = @{data=@{revision=3}}',
-        prepare, save, '@{prepared=$prepared; saved=$saved} | ConvertTo-Json -Depth 20 -Compress',
+        "$selected = @(@{id='example.com'; digest=('a' * 64)})",
+        prepare, '$created = ' + create + ' | ConvertFrom-Json',
+        "$domains = @('example.com', 'api.example.com') -join ','",
+        '$multiple = ' + create.replace('--allowed_domains=example.com', '"--allowed_domains=$domains"') + ' | ConvertFrom-Json',
+        save, '@{prepared=$prepared; created=$created; multiple=$multiple; saved=$saved} | ConvertTo-Json -Depth 20 -Compress',
       ].join('\n');
       const ps = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
       const run = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-EncodedCommand',
         Buffer.from(script, 'utf16le').toString('base64')], { cwd: root, encoding: 'utf8' });
       expect(run.status, run.stderr).toBe(0);
-      const { prepared, saved } = JSON.parse(run.stdout);
+      const { prepared, created, multiple, saved } = JSON.parse(run.stdout);
       expect(prepared).toEqual({ adapter_id: 'example.com', expected_digest: 'a'.repeat(64) });
-      expect(saved).toMatchObject({ expected_revision: 3, description: '读取当前页面标题',
+      expect(created).toEqual({ toolkit_id: 'example_tools', tool_id: 'get_page_title', allowed_domains: 'example.com',
+        goal: '读取页面标题', start_url: 'https://example.com/', expected_effect: '返回页面标题' });
+      expect(multiple).toEqual({ ...created, allowed_domains: 'example.com,api.example.com' });
+      expect(saved).toMatchObject({ description: '读取当前页面标题',
         code: 'async def get_page_title(ctx):\n    return {"title": await ctx.page.title()}',
         parameters_schema: { required: [], additionalProperties: false } });
+      expect(saved).not.toHaveProperty('expected_revision');
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
   it('requires trusted host identity before any network activity', async () => {
@@ -86,8 +95,31 @@ describe('development CLI', () => {
     expect(options.headers['X-WeWorker-Exploration-Instance']).toBe(env.WEWORKER_EXPLORATION_INSTANCE_ID);
     expect(JSON.parse(options.body)).toEqual(args);
   });
+  it.each([
+    ['create', extractFlagArgs(['--toolkit_id=demo', '--tool_id=read_title', '--allowed_domains=example.com,api.example.com',
+      '--goal=Read title', '--start_url=https://example.com/']).args],
+    ['save', { ...args, code: 'async def read_title(ctx):\n    return {}', description: 'Read title',
+      parameters_schema: { type: 'object', properties: {} }, result_schema: { type: 'object' }, risk_notice: '', safety: 'read' }],
+    ['build', extractFlagArgs(['--toolkit_id=demo']).args],
+    ['debug', { ...args, expected_digest: 'a'.repeat(64), parameters: {}, confirmed: true }],
+  ])('submits %s without a workspace revision input', async (command, input) => {
+    const fetch = vi.fn().mockResolvedValueOnce(health()).mockResolvedValueOnce(Response.json(result(command)));
+    expect(await callDevelopment(command, input, { fetch, env })).toEqual(result(command));
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual(input);
+    expect(developmentCommands[command].required).not.toContain('expected_revision');
+    fetch.mockClear();
+    expect((await callDevelopment(command, { ...input, expected_revision: 0 }, { fetch, env })).error.code).toBe('INVALID_ARGUMENT');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([['example.com'], [], {}, null, true, 123].map(value => [value]))('rejects non-string create domains before I/O: %j', async (domains) => {
+    const fetch = vi.fn();
+    const response = await callDevelopment('create', { ...args, allowed_domains: domains, goal: 'Read title',
+      start_url: 'https://example.com/' }, { fetch, env });
+    expect(response.error).toMatchObject({ code: 'INVALID_ARGUMENT', message: expect.stringContaining('comma-separated string') });
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('reports structured conflicts and never retries a submitted command', async () => {
-    const conflict = { schemaVersion: 1, ok: false, command: 'development.inspect', error: { code: 'STALE_REVISION' } };
+    const conflict = { schemaVersion: 1, ok: false, command: 'development.inspect', error: { code: 'BUSY' } };
     const fetch = vi.fn().mockResolvedValueOnce(health()).mockResolvedValueOnce(new Response(JSON.stringify(conflict), { status: 409 }));
     expect(await callDevelopment('inspect', args, { fetch, env })).toEqual(conflict);
     expect(fetch).toHaveBeenCalledTimes(2);

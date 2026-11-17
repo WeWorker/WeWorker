@@ -24,9 +24,9 @@ COMMAND_FIELDS = {
     "create": (_COMMON | {"allowed_domains", "goal", "start_url"}, {"expected_effect"}),
     "inspect": (_COMMON, set()),
     "validate": ({"tool_id"} | _FIELDS, set()),
-    "save": (_COMMON | _FIELDS | {"expected_revision"}, set()),
-    "build": ({"toolkit_id", "expected_revision"}, set()),
-    "debug": (_COMMON | {"expected_revision", "expected_digest", "parameters", "confirmed"}, {"timeout_seconds"}),
+    "save": (_COMMON | _FIELDS, set()),
+    "build": ({"toolkit_id"}, set()),
+    "debug": (_COMMON | {"expected_digest", "parameters", "confirmed"}, {"timeout_seconds"}),
     "debug-get": ({"debug_run_id"}, set()),
     "debug-cancel": ({"debug_run_id"}, set()),
 }
@@ -61,8 +61,6 @@ class DevelopmentCommands:
             if not isinstance(args[key], str):
                 raise ValueError(f"{key} must be a string.")
             _validate_slug(args[key], field=key)
-        if "expected_revision" in args and (type(args["expected_revision"]) is not int or args["expected_revision"] < 0):
-            raise ValueError("expected_revision must be a non-negative integer.")
         if "debug_run_id" in args and not isinstance(args["debug_run_id"], str):
             raise ValueError("debug_run_id must be a string.")
         if command == "validate":
@@ -85,8 +83,6 @@ class DevelopmentCommands:
             toolkit_id = args["toolkit_id"]
             self.store.get_toolkit(toolkit_id)
             state = read_state(self.store, toolkit_id)
-            if "expected_revision" in args:
-                self._check_revision(state, args)
             if command == "build":
                 return self._package(toolkit_id, state)
             tool_id = args["tool_id"]
@@ -129,15 +125,10 @@ class DevelopmentCommands:
             })
         return {"workspaces": workspaces}
 
-    @staticmethod
-    def _check_revision(state, args):
-        if state["revision"] != args["expected_revision"]:
-            raise DevelopmentCommandError("STALE_REVISION", "Workspace changed; inspect it before submitting again.")
-
     def _create(self, args):
         toolkit_id, tool_id = args["toolkit_id"], args["tool_id"]
-        if not isinstance(args["allowed_domains"], list) or any(not isinstance(v, str) for v in args["allowed_domains"]):
-            raise ValueError("allowed_domains must be a string array.")
+        if not isinstance(args["allowed_domains"], str):
+            raise ValueError("allowed_domains must be a comma-separated string, for example example.com,api.example.com.")
         domains = _normalize_domains(args["allowed_domains"])
         if not isinstance(args["goal"], str) or not args["goal"].strip():
             raise ValueError("goal is required.")
@@ -202,7 +193,6 @@ class DevelopmentCommands:
         with self.store._slot_lock:
             self.store.get_tool(args["toolkit_id"], args["tool_id"])
             state = read_state(self.store, args["toolkit_id"])
-            self._check_revision(state, args)
             if not isinstance(args["expected_digest"], str) or args["expected_digest"] != state["candidate_digest"]:
                 raise DevelopmentCommandError("STALE_PACKAGE", "Candidate package changed; build it again.")
             if args["tool_id"] not in state["drafts"]:

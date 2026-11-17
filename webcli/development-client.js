@@ -13,6 +13,9 @@ export async function callDevelopment(command, args, { fetch: fetcher = globalTh
       || Object.keys(args).some(key => ![...spec.required, ...(spec.optional || [])].includes(key))) {
     return failure('INVALID_ARGUMENT', 'Use exactly the documented required and optional arguments.');
   }
+  if (command === 'create' && typeof args.allowed_domains !== 'string') {
+    return failure('INVALID_ARGUMENT', 'allowed_domains must be a comma-separated string, for example example.com,api.example.com.');
+  }
   const identity = env.WEWORKER_EXPLORATION_INSTANCE_ID;
   if (typeof identity !== 'string' || !identity.trim()) return failure('HOST_IDENTITY_REQUIRED', 'Run in the desktop host environment with WEWORKER_EXPLORATION_INSTANCE_ID. No service was started or adopted.');
   if (['prepare', 'review', 'apply'].includes(command)) return callDevelopmentInstall(command, args, { fetch: fetcher, env });

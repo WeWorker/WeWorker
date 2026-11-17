@@ -5,7 +5,9 @@ description: 基于网站探索agent的 input.json 和实时 Adapter 目录，�
 
 # Adapter 开发
 
-读取 input.json 的 instruction、site、source_exploration 和可选 target，提取业务目标与验收条件。输入不要求 toolkit/tool；目标由你结合实时目录确定。普通参数每项写成一个 --key=value。数组、对象、多行代码和必须为整数的版本号使用 UTF-8 JSON 参数文件（--args-file）；文件仅用于传参，不手工生成候选包。
+读取 input.json 的 instruction、site、source_exploration 和可选 target，提取业务目标与验收条件。输入不要求 toolkit/tool；目标由你结合实时目录确定。普通参数每项写成一个 --key=value。数组、对象、多行代码使用 UTF-8 JSON 参数文件（--args-file）；文件仅用于传参，不手工生成候选包。revision 仅作为返回属性记录工作区状态，不作为命令输入。
+
+development.create 的 allowed_domains 只接受普通字符串：单域名用 `--allowed_domains=example.com`，多域名用 `--allowed_domains=example.com,api.example.com`。不传 JSON 数组，也不重复该 flag；create 无需 JSON 参数文件。目录、prepare 和探索输入中的域名仍是数组，传给 create 前用英文逗号连接。
 
 ## 先发现，再确定目标
 
@@ -13,7 +15,7 @@ description: 基于网站探索agent的 input.json 和实时 Adapter 目录，�
 2. 按域名、业务语义、参数、runtime、execution 和鉴权来源匹配，不只比较名字。`source_exploration.provenance` 仅表示探索来源；可选 `target` 才是用户明确指定的目标。多个合理候选或目标不明确时询问，不凭空指定一个 ID。
 3. 已有 Tool 足够则复用，报告调用方式，不开发重复能力。已有 Tool 不足则修改；已有 Adapter 缺少能力则新增 Tool；没有合适 Adapter 或开发工作区才新建。先说明判断理由。破坏性参数变更、覆盖其他功能或新增权限先确认。
 4. 修改/扩展已安装 Adapter 前运行 `development.prepare`，传 `adapter_id` 和最新目录的 `digest`。多个匹配工作区时结合 `development.list` 明确 `toolkit_id`，不自动挑第一个。prepare 不安装、不覆盖；版本冲突需先处理，不新建同名 Adapter 绕过。
-5. prepare 返回 `toolkit_id`、`allowed_domains`、`editable_tools`、`retained_commands`。修改仅限 editable_tools 内的 Tool；先 inspect 读取最新槽位/版本，再 save。新增 Tool 使用返回的 toolkit_id 和完整原 allowed_domains 调用 create；不得碰撞 retained_commands 的 ID。tool_id 与对外 command_id 不能混淆，以返回字段为准，不猜测名称转换。
+5. prepare 返回 `toolkit_id`、`allowed_domains`、`editable_tools`、`retained_commands`。修改仅限 editable_tools 内的 Tool；先 inspect 读取当前槽位，再 save。新增 Tool 使用返回的 toolkit_id，并将完整原 allowed_domains 数组用英文逗号连接后调用 create（PowerShell：`$prepared.data.allowed_domains -join ','`）；不得碰撞 retained_commands 的 ID。tool_id 与对外 command_id 不能混淆，以返回字段为准，不猜测名称转换。
 6. `retained_commands` 必须保留原文件和契约。Extension/HTTP 命令、缺少可编辑槽位的外部 Toolkit 命令不能用这套 Toolkit 工具重写；明确报告不支持，或使用已有对应运行时的开发流程，不能改写为页面操作或偷偷创建替代 Tool。给混合 Adapter 新增独立 Toolkit Tool 可以走 prepare/create，原命令保持不变。
 7. 尚未安装的目标从 development.list 选择已有工作区后 inspect；确无匹配时自行确定唯一、合规的 toolkit_id/tool_id，再 create。site.allowed_domains 是本次探索范围，不包含探索中偶然发现的其他域名；没有授权不扩大范围。prepare 返回更广的已有域名不等于本次任务可访问所有站点。
 
@@ -52,19 +54,13 @@ if (-not $prepared.ok) { throw '准备失败，先处理歧义或版本冲突' }
 已有 Tool 先 inspect；仅在完成目标判断且 Tool 不存在时，根据探索目标构造定义并 create。create 不覆盖已有 Tool，不扩大现有 Toolkit 域名。探索输入不携带旧 base_slot；先 inspect，再据当前槽位决定如何修改。
 
 ```powershell
-@{
-  toolkit_id='example_tools'; tool_id='get_page_title'
-  allowed_domains=@('example.com'); goal='读取页面标题'
-  start_url='https://example.com/'; expected_effect='返回页面标题'
-} | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./create-args.json
-webcli call development.create --args-file=./create-args.json
+webcli call development.create --toolkit_id=example_tools --tool_id=get_page_title --allowed_domains=example.com "--goal=读取页面标题" --start_url=https://example.com/ "--expected_effect=返回页面标题"
 
 $current = webcli call development.inspect --toolkit_id=example_tools --tool_id=get_page_title | ConvertFrom-Json
 if (-not $current.ok) { throw '读取失败，先处理错误' }
 
 $submission = @{
   toolkit_id='example_tools'; tool_id='get_page_title'
-  expected_revision=$current.data.revision
   code="async def get_page_title(ctx):`n    return {`"title`": await ctx.page.title()}"
   description='读取当前页面标题'; risk_notice=''; safety='read'
   parameters_schema=@{type='object'; properties=@{}; required=@(); additionalProperties=$false}
@@ -72,16 +68,13 @@ $submission = @{
 }
 $submission | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./save-args.json
 $saved = webcli call development.save --args-file=./save-args.json | ConvertFrom-Json
-if (-not $saved.ok) { throw '保存失败，依据 error 修复；版本冲突先重新 inspect' }
+if (-not $saved.ok) { throw '保存失败，依据 error 修复' }
 
-@{
-  toolkit_id='example_tools'; expected_revision=$saved.data.revision
-} | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./build-args.json
-$built = webcli call development.build --args-file=./build-args.json | ConvertFrom-Json
+$built = webcli call development.build --toolkit_id=example_tools | ConvertFrom-Json
 if (-not $built.ok) { throw '候选包校验失败' }
 ```
 
-save 内部强制校验，成功才原子推进槽位与候选包指针。需要预检时调用 development.validate，仅传 tool_id、code、description、parameters_schema、result_schema、risk_notice、safety，不传 toolkit_id 或 expected_revision。
+save 内部强制校验，成功才原子推进槽位与候选包指针。需要预检时调用 development.validate，仅传 tool_id、code、description、parameters_schema、result_schema、risk_notice、safety，不传 toolkit_id。
 
 build 校验并返回 save 已生成的标准 Adapter v2 快照，含 package_path、manifest、digest、revision；不安装、不发布，也不表示业务已验证。不要手工编辑内容寻址的包目录。
 
@@ -92,7 +85,7 @@ build 校验并返回 save 已生成的标准 Adapter v2 快照，含 package_pa
 ```powershell
 @{
   toolkit_id='example_tools'; tool_id='get_page_title'
-  expected_revision=$built.data.revision; expected_digest=$built.data.digest
+  expected_digest=$built.data.digest
   parameters=@{}; confirmed=$true; timeout_seconds=60
 } | ConvertTo-Json -Depth 30 -Compress | Set-Content -Encoding UTF8 -ErrorAction Stop ./debug-args.json
 $run = webcli call development.debug --args-file=./debug-args.json | ConvertFrom-Json
@@ -102,7 +95,7 @@ webcli call development.debug-get "--debug_run_id=$($run.data.debug_run_id)"
 
 - debug 锁定包哈希，复用已有隔离 WebCLI catalog，通过 `webcli call <adapter-id>.<tool-id>` 和 Toolkit Runtime 执行，不覆盖用户安装。内部记录沿用 formal 调试渠道，表示包级调用，不表示发布或安装。
 - debug-get 返回 running 时有限轮询同一 run；必要时用 development.debug-cancel。取消不撤销已有副作用。不抛异常不等于业务正确，必须检查返回值和验收条件。
-- 参数校验失败则修正后 save；STALE_REVISION / STALE_PACKAGE 则重新 inspect、保留用户修改，不能盲目覆写。OUTCOME_UNKNOWN 表示提交后连接中断，应检查状态，不能盲目重放 debug，尤其是写操作。
+- 参数校验失败则修正后 save；STALE_PACKAGE 则检查当前候选包并重新 build，不能盲目覆写。OUTCOME_UNKNOWN 表示提交后连接中断，应检查状态，不能盲目重放 debug，尤其是写操作。
 - 修改后重新 build/debug，旧包成功不能证明新包正确。声称无需业务页时需验证后台执行及关闭任务自有业务页后的普通调用；不得关闭用户已有页面。
 - 缺登录、权限、授权或关键证据时说明阻塞。重复失败没有新证据时停止盲试。
 - 交付 package_path、digest、调用命令、实际验证范围及未验证项。开发成功不自动授权安装、覆盖、上传或发布。
