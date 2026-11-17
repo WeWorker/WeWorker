@@ -5,7 +5,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBlock from './ToolCallBlock.jsx'
 import ToolExecutionGroup from './ToolExecutionGroup.jsx'
-import FileChangesCard from './FileChangesCard.jsx'
 import ImageLightbox from './ImageLightbox.jsx'
 import { formatTimingDuration, formatTimingTotal } from '../../utils/format-timing-duration.js'
 import ComplexTaskPlanPanel from './ComplexTaskPlanPanel.jsx'
@@ -213,7 +212,6 @@ export default function MessageItem({ message, workId, streaming, compacting = f
               })
             )}
             {!isEmpty && showStreaming && isLast && !isUser && <WorkingIndicator />}
-            {!isUser && <FileChangesCard workId={workId || message.work_id} content={message.content} streaming={streaming} />}
           </div>
         )}
       </div>

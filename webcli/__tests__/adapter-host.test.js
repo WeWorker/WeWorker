@@ -66,7 +66,7 @@ describe('host catalog and execution snapshots', () => {
     const installed = install();
     const request = vi.fn().mockResolvedValue('fixture result');
     // Without known capabilities the Bridge starts WeWorker 浏览器 first; here it is already running.
-    const bridge = { _request: request, _extensionCapabilities: ['adapter_catalog_v1'], _ensureBrowser: async () => {} };
+    const bridge = { _request: request, _emitTraceEvent: vi.fn(), _extensionCapabilities: ['adapter_catalog_v1'], _ensureBrowser: async () => {} };
     const run = (snapshot) => WebSocketBridge.prototype._callToolInner.call(bridge, 'demo.list', {}, 'fixture-trace', snapshot);
     expect(await run()).toBe('fixture result');
     const before = request.mock.calls[0][0].adapterSnapshot;
@@ -113,7 +113,7 @@ describe('host catalog and execution snapshots', () => {
     ]) });
     const request = vi.fn();
     const parameters = { count: '007' };
-    const output = await WebSocketBridge.prototype._callToolInner.call({ _request: request }, 'toolkit-fixture.run', parameters);
+    const output = await WebSocketBridge.prototype._callToolInner.call({ _request: request, _emitTraceEvent: vi.fn() }, 'toolkit-fixture.run', parameters);
     expect(output).toEqual(parameters);
     expect(request).not.toHaveBeenCalled();
     const [match, args] = runToolkitTool.mock.calls.at(-1);

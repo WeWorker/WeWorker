@@ -83,7 +83,6 @@ test('history renders before browser readiness and the chat-styled controls reta
     if (path.endsWith('/health')) return Response.json({ ok: true })
     if (path.endsWith('/activity')) return Response.json({ running: false })
     if (path.endsWith('/development/chats')) return Response.json([])
-    if (path.endsWith('/file-changes')) return Response.json({ records: [], nextOffset: null })
     if (path.endsWith('/explorations')) return Response.json({ explorations: history })
     if (path.endsWith('/explorations/example')) return Response.json({ exploration_id: 'example', title: history.find(item => item.exploration_id === 'example')?.title, status: runStatus, start_url: 'https://example.com', instruction: 'Read the example page', context_usage: { input_tokens: 1234, context_limit: 200000 } })
     if (path.endsWith('/example/timeline')) return Response.json({ items: [{ type: 'agent_step', step: 1, status: 'ok', thought: 'Example observation', code: 'print("example")', observation: { title: 'Example page', url: 'https://example.com', screenshot_url: '/api/explorations/example/files/page.png' } }] })

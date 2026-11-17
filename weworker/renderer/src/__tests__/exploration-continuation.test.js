@@ -48,7 +48,6 @@ async function mount(t, draft = '', attachments = []) {
     if (path === '/settings/exploration-model/resolve') return Response.json({ selection, selected_provider: selection.provider, effective_model: selection.model, thinking_effort: 'off' })
     if (path === '/settings/exploration-model/check') return Response.json({ ok: true })
     if (path.endsWith('/model')) return Response.json({ model_selection: selection })
-    if (path.endsWith('/file-changes')) return Response.json({ records: [], nextOffset: null })
     if (options.method === 'POST') {
       posts.push({ path, body: JSON.parse(options.body) })
       runId = 'run_next'
