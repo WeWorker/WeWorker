@@ -2338,7 +2338,7 @@ function ModelTab() {
                   {actionFeedback}
                   {identityFields}
                   <div className="model-settings-grid">{contextLimitField}</div>
-                  <ExplorationModelSettings />
+                  <ExplorationModelSettings configurationId={p.id} />
                   {renderProbeChecklist(p.id)}
                 </div>
               </div>
@@ -2487,7 +2487,7 @@ function ModelTab() {
                     </section>
                   )}
 
-                  <ExplorationModelSettings />
+                  <ExplorationModelSettings configurationId={p.id} />
                   {renderProbeChecklist(p.id)}
               </div>
             </div>

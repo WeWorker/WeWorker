@@ -7,6 +7,7 @@ import type { Settings } from '../config.js'
 import { EXPLORATION_ATTACHMENT_BYTES, readExplorationAttachments } from '../exploration-attachments.js'
 import { resolveWebwrightModelConfig } from '../webwright-model-config.js'
 import { createExplorationModelService, registerExplorationModelRoutes } from '../exploration-model-settings.js'
+import { applySecrets, clearSecretsOnDisk, extractSecrets } from '../settings-secrets.js'
 
 function settings(): Settings {
   return { active_provider: 'glm', api_key: 'placeholder-main-key', model: 'example-main', context_limit: 200000,
@@ -18,6 +19,69 @@ function settings(): Settings {
 }
 
 describe('exploration composer configuration', () => {
+  it('lists named exploration configurations using their settings names and excludes chat-only entries', () => {
+    const saved = settings()
+    saved.model_configurations!['chat-only'] = { ...saved.model_configurations!['example-config'], name: 'Chat only' }
+    saved.exploration_providers = { 'example-config': { api_key: 'placeholder-explore-key', model: 'explorer',
+      base_url: 'https://example.org/explore', protocol: 'anthropic_messages', auth_type: 'api_key' } }
+    const before = structuredClone(saved)
+    const data = createExplorationModelService().status(saved)
+    expect(data.providers.find(item => item.id === 'example-config')).toMatchObject({ name: 'Example', configured: true, model: 'explorer' })
+    expect(data.providers.find(item => item.id === 'chat-only')).toMatchObject({ name: 'Chat only', configured: false })
+    expect(data.providers.find(item => item.id === 'builtin')).toMatchObject({ selection_provider: 'builtin', configured: true })
+    expect(JSON.stringify(data)).not.toContain('placeholder-')
+    expect(saved).toEqual(before)
+    expect(resolveWebwrightModelConfig({ ...saved, exploration_model_selection: { provider: '__exploration__:example-config', model: 'session-model' } }))
+      .toMatchObject({ base_url: 'https://example.org/explore', api_key: 'placeholder-explore-key', protocol: 'anthropic_messages', model: 'session-model' })
+  })
+  it.each(['anthropic_messages', 'openai_chat_completions', 'openai_responses'] as const)('saves a named %s exploration connection independently and catalogs it with the same credentials', async protocol => {
+    let saved = settings()
+    const before = structuredClone(saved)
+    const handlers = new Map<string, Function>(), calls: { url: unknown; options?: RequestInit }[] = []
+    saved.model_configurations!['example-config'].models_url = 'https://example.com/chat-only-catalog'
+    before.model_configurations!['example-config'].models_url = 'https://example.com/chat-only-catalog'
+    registerExplorationModelRoutes({ get: (p: string, h: Function) => handlers.set('GET ' + p, h), post: (p: string, h: Function) => handlers.set(p, h) } as unknown as Express,
+      { getSettings: () => saved, updateSettings: patch => (saved = { ...saved, ...patch }), fetchImpl: async (url, options) => {
+        calls.push({ url, options })
+        if (!options?.body) return Response.json({ data: [{ id: 'explorer-next' }] })
+        return Response.json(protocol === 'anthropic_messages' ? { content: [{ type: 'text', text: '{"ok":true}' }] }
+          : protocol === 'openai_responses' ? { output: [{ content: [{ type: 'output_text', text: '{"ok":true}' }] }] }
+          : { choices: [{ message: { content: '{"ok":true}' } }] })
+      } })
+    let data: any, status = 200
+    const res = { json(value: unknown) { data = value; return this }, status(code: number) { status = code; return this } }
+    await handlers.get('/settings/exploration-model')!({ body: { configuration: 'example-config', base_url: 'https://example.org/explore',
+      base_url_is_full: false, use_main_key: false, api_key: 'placeholder-independent-key', model: 'explorer', protocol, auth_type: 'api_key' } }, res)
+    expect(status).toBe(200)
+    expect(data).toMatchObject({ ok: true, configuration_id: 'example-config', configured_model: 'explorer', configured_base_url: 'https://example.org/explore' })
+    expect(saved).toEqual({ ...before, exploration_providers: { 'example-config': expect.objectContaining({ model: 'explorer', key_source: 'example-config', protocol }) } })
+    expect(calls[0].url).toBe('https://example.org/explore' + (protocol === 'anthropic_messages' ? '/v1/messages' : protocol === 'openai_responses' ? '/responses' : '/chat/completions'))
+    expect(JSON.parse(String(calls[0].options?.body)).model).toBe('explorer')
+    expect(JSON.stringify(data)).not.toContain('placeholder-')
+    handlers.get('GET /settings/exploration-model')!({ query: { configuration: 'builtin' } }, res)
+    expect(data).toMatchObject({ builtin: true, main_model: 'ark-code-latest' })
+    expect(data.configured_base_url).not.toBe('https://example.org/explore')
+    const snapshot = structuredClone(saved)
+    await handlers.get('/settings/exploration-model/models')!({ body: { provider: '__exploration__:example-config', model: 'explorer' } }, res)
+    expect(data.models).toContain('explorer-next')
+    expect(calls[1].url).toBe('https://example.org/explore' + (protocol === 'anthropic_messages' ? '/v1/models?limit=1000' : '/models'))
+    const headers = new Headers(calls[1].options?.headers)
+    expect(headers.get('x-api-key') || headers.get('authorization')?.replace(/^Bearer /, '')).toBe('placeholder-independent-key')
+    expect(saved).toEqual(snapshot)
+    const restored = applySecrets(clearSecretsOnDisk(saved), extractSecrets(saved))
+    expect(restored.exploration_providers!['example-config']).toEqual(saved.exploration_providers!['example-config'])
+    expect(extractSecrets(restored)).toEqual(extractSecrets(saved))
+    expect(JSON.stringify(clearSecretsOnDisk(saved))).not.toContain('placeholder-independent-key')
+  })
+
+  it('binds reuse of the main key to the named configuration, regardless of the active chat provider', () => {
+    const saved = settings()
+    saved.exploration_providers = { 'example-config': { api_key: '', use_main_key: true, key_source: 'example-config', model: 'explorer',
+      base_url: 'https://example.org/explore', protocol: 'anthropic_messages', auth_type: 'api_key' } }
+    const selection = { provider: '__exploration__:example-config', model: 'session-model' }
+    expect(resolveWebwrightModelConfig({ ...saved, exploration_model_selection: selection }).api_key).toBe('placeholder-main-config-key')
+    expect(resolveWebwrightModelConfig({ ...saved, active_provider: 'deepseek', api_key: 'placeholder-another-key', exploration_model_selection: selection }).api_key).toBe('placeholder-main-config-key')
+  })
   it('uses the selected builtin window without inheriting another providers default window', () => {
     const initial = { ...settings(), context_limit: 1000000, exploration_model_selection: { provider: 'builtin', model: 'ignored' } }
     expect(resolveWebwrightModelConfig(initial).context_limit).toBe(200000)

@@ -22,5 +22,6 @@ export function explorationForm(data) {
     api_key: '',
     use_main_key: data.use_main_key !== false,
     model: data.configured_model || '',
+    ...(data.configuration_id ? { protocol: data.protocol || 'openai_chat_completions', auth_type: data.auth_type || 'api_key' } : {}),
   }
 }

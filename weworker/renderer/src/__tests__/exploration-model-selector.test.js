@@ -5,7 +5,7 @@ import React, { act } from 'react'
 import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
 
-test('exploration picker uses only saved exploration configurations and their model catalog', async () => {
+test('exploration picker preserves configuration names, saved-only options, builtin references and per-session choices', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true })
   const replacements = {
     window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
@@ -22,6 +22,8 @@ test('exploration picker uses only saved exploration configurations and their mo
   const configurations = [
     { id: 'custom', name: '网站探索配置（自定义）', model: 'fixture-explore', models: ['fixture-explore'], configured: true, has_key: true },
     { id: 'glm', name: 'Exploration GLM', model: 'glm-explore', models: ['glm-explore'], configured: true, has_key: true },
+    { id: 'named-config', name: 'Claude Code', model: 'named-explore', models: ['named-explore'], configured: true, has_key: true },
+    { id: 'builtin', selection_provider: 'builtin', name: '内置模型', model: 'builtin-model', models: ['builtin-model'], configured: true, has_key: true, fixed_model: true },
     { id: 'anthropic', name: 'Unconfigured exploration', configured: false },
   ]
   globalThis.fetch = async (url, options = {}) => {
@@ -34,7 +36,7 @@ test('exploration picker uses only saved exploration configurations and their mo
       const selection = body.selection || { provider: 'chat-only', model: 'chat-only-model' }
       return Response.json({ ...status, selected_provider: selection.provider, active_provider: selection.provider.split(':')[1], effective_model: selection.model, selection })
     }
-    if (path.endsWith('/models')) return Response.json({ models: body.provider === 'glm' ? ['glm-explore', 'glm-next'] : ['fixture-explore'] })
+    if (path.endsWith('/models')) return Response.json({ models: body.provider === '__exploration__:glm' ? ['glm-explore', 'glm-next'] : ['fixture-explore'] })
     if (path.endsWith('/check')) return Response.json({ ok: true })
     if (path === '/settings/provider/models') return Response.json({ models: ['chat-only-model'] })
     throw new Error('Unexpected fixture request: ' + path)
@@ -61,15 +63,26 @@ test('exploration picker uses only saved exploration configurations and their mo
     }
     await click('[aria-label="模型供应商选择"]')
     const options = [...document.querySelectorAll('[role="option"]')]
-    assert.deepEqual(options.map(el => el.textContent.trim()), ['网站探索配置（自定义）', 'Exploration GLM'])
+    assert.deepEqual(options.map(el => el.textContent.trim()), ['网站探索配置（自定义）', 'Exploration GLM', 'Claude Code', '内置模型'])
     assert.doesNotMatch(document.body.textContent, /Chat only|自动识别|Unconfigured exploration/)
     await act(async () => options[1].click())
     assert.deepEqual(useWebsiteExplorationStore.getState().drafts['fixture/model'], { provider: '__exploration__:glm', model: 'glm-explore', thinking_effort: 'off' })
-    assert.ok(requests.some(r => r.path === '/settings/exploration-model/models' && r.body.provider === 'glm'))
+    assert.ok(requests.some(r => r.path === '/settings/exploration-model/models' && r.body.provider === '__exploration__:glm'))
     assert.equal(requests.some(r => r.path === '/settings/provider/models'), false)
     await click('[aria-label="模型选择"]')
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
     assert.match(document.querySelector('.chat-model-health-menu').textContent, /glm-next/)
+    await click('[aria-label="模型选择"]')
+    await click('[aria-label="模型供应商选择"]')
+    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === 'Claude Code').click())
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, '__exploration__:named-config')
+    await render('reload')
+    assert.match(document.querySelector('[aria-label="模型供应商选择"]').textContent, /Claude Code/)
+    await click('[aria-label="模型供应商选择"]')
+    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '内置模型').click())
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, 'builtin')
+    assert.ok(requests.some(r => r.path.endsWith('/check') && r.body.selection.provider === 'builtin'))
+    assert.equal(requests.some(r => r.path === '/settings/exploration-model/selection' || r.path === '/settings/exploration-model' && r.body), false)
     assert.equal(useSettingsStore.getState().activeProvider, 'chat-only')
     const checks = requests.filter(r => r.path.endsWith('/check')).length
     empty = true

@@ -57,3 +57,37 @@ test('restores the original exploration form, saved fields, key toggle and verif
   assert.equal(toggle.getAttribute('aria-expanded'), 'false')
   assert.equal(document.querySelector('.exploration-provider-tabs'), null, 'does not introduce the replacement provider tabs')
 })
+
+test('loads and saves only the selected model configuration and checks its pinned exploration reference', async t => {
+  const previousFetch = globalThis.fetch
+  const requests = []
+  const configurations = {
+    first: { ...saved, configuration_id: 'first', configured_base_url: 'https://example.com/first', configured_model: 'first-model', protocol: 'anthropic_messages', auth_type: 'api_key' },
+    second: { ...saved, configuration_id: 'second', configured_base_url: 'https://example.org/second', configured_model: 'second-model', protocol: 'openai_responses', auth_type: 'auth_token' },
+  }
+  globalThis.fetch = async (url, options) => {
+    const parsed = new URL(url)
+    const body = options?.body ? JSON.parse(options.body) : undefined
+    requests.push({ url: parsed, body })
+    const id = parsed.searchParams.get('configuration') || body?.configuration || 'second'
+    return Response.json({ ...configurations[id], ok: true })
+  }
+  const root = createRoot(document.getElementById('test'))
+  t.after(async () => { await act(async () => root.unmount()); globalThis.fetch = previousFetch })
+  await act(async () => root.render(React.createElement(Component, { configurationId: 'first' })))
+  await act(async () => document.querySelector('.exploration-model-toggle').click())
+  assert.equal(document.querySelector('input[type="url"]').value, 'https://example.com/first')
+  assert.equal(document.querySelector('select').value, 'anthropic_messages')
+  await act(async () => root.render(React.createElement(Component, { configurationId: 'second' })))
+  assert.equal(document.querySelector('input[type="url"]').value, 'https://example.org/second')
+  assert.equal(document.querySelector('select').value, 'openai_responses')
+  await act(async () => document.querySelector('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+  const save = requests.find(item => item.body?.configuration)
+  assert.equal(save.body.configuration, 'second')
+  assert.equal(save.body.base_url, 'https://example.org/second')
+  assert.equal(save.body.protocol, 'openai_responses')
+  await act(async () => document.querySelector('.exploration-model-toggle').click())
+  await act(async () => [...document.querySelectorAll('button')].find(el => el.textContent === '重新检测已保存配置').click())
+  assert.deepEqual(requests.find(item => item.url.pathname.endsWith('/check')).body.selection,
+    { provider: '__exploration__:second', model: 'second-model' })
+})

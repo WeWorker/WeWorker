@@ -11,7 +11,7 @@ async function modelRequest(path = '', body, signal) {
   if (!response.ok) throw new Error(data.detail || '网站探索模型连接失败')
   return data
 }
-export const getExplorationModel = signal => modelRequest('', undefined, signal)
+export const getExplorationModel = (signal, configuration) => modelRequest(configuration ? `?configuration=${encodeURIComponent(configuration)}` : '', undefined, signal)
 export const checkExplorationModel = (force = false, selection, signal) => modelRequest('/check', { force, selection }, signal)
 export const resolveExplorationSessionModel = selection => modelRequest('/resolve', { selection })
 export const getExplorationSessionModel = id => request(`/api/explorations/${encodeURIComponent(id)}/model`)
