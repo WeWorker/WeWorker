@@ -30,10 +30,39 @@ export function defaultConversationModel(settings: Settings): ConversationModel 
   return { provider: settings.active_model_configuration || settings.active_provider, model: settings.model, thinking_effort: 'off' }
 }
 
+// Explicit references keep an exploration session pinned when its global
+// default changes. The original sentinel remains valid for older records.
+export function explorationProviderId(settings: Settings, selection = settings.exploration_model_selection): string {
+  const id = selection?.provider
+  if (!id || id === '__exploration__') return settings.exploration_active_provider || ''
+  return id.startsWith('__exploration__:') ? id.slice('__exploration__:'.length) : ''
+}
+
 // Resolve credentials from their existing source; persist only the configuration
 // reference and model name. Never activate or rewrite a default configuration.
 export function resolveConversationModelSettings(settings: Settings, value: ConversationModel): Settings {
   const selection = parseConversationModel(value)
+  if (selection.provider === '__exploration__' || selection.provider.startsWith('__exploration__:')) {
+    const provider = getProvider(explorationProviderId(settings, selection))
+    const saved = provider && settings.exploration_providers?.[provider.id]
+    const apiKey = saved?.use_main_key
+      ? resolveConversationModelSettings(settings, defaultConversationModel(settings)).api_key : saved?.api_key
+    if (!provider || !saved || !apiKey) throw new Error('请先在高级设置中配置网站探索模型')
+    const custom = provider.id === 'custom'
+    const protocol = custom ? saved.protocol : provider.weworker.protocol
+    return {
+      ...settings,
+      active_provider: provider.id,
+      active_model_configuration: '',
+      model: provider.fixedModel ? provider.defaultModel : selection.model,
+      api_key: apiKey,
+      base_url: custom ? saved.base_url : provider.weworker.baseUrl,
+      base_url_is_full: custom && saved.base_url_is_full === true,
+      active_auth_type: custom ? saved.auth_type : provider.authType || 'api_key',
+      active_weworker_protocol: protocol,
+      context_limit: normalizeContextLimit(settings.context_limit, DEFAULT_CONTEXT_LIMIT),
+    }
+  }
   const config = getModelConfiguration(settings, selection.provider)
   const provider = getProvider(config?.provider_id || selection.provider)
   if (!provider) throw new Error('会话使用的模型配置已不存在，请重新选择')

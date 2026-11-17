@@ -11,13 +11,16 @@ async function modelRequest(path = '', body, signal) {
   if (!response.ok) throw new Error(data.detail || '网站探索模型连接失败')
   return data
 }
-export const getExplorationModel = () => modelRequest()
-export const checkExplorationModel = (force = false, selection) => modelRequest('/check', { force, selection })
+export const getExplorationModel = signal => modelRequest('', undefined, signal)
+export const checkExplorationModel = (force = false, selection, signal) => modelRequest('/check', { force, selection }, signal)
 export const resolveExplorationSessionModel = selection => modelRequest('/resolve', { selection })
 export const getExplorationSessionModel = id => request(`/api/explorations/${encodeURIComponent(id)}/model`)
 export const saveExplorationSessionModel = (id, selection) => request(`/api/explorations/${encodeURIComponent(id)}/model`, { method: 'POST', body: { model_selection: selection } })
 export const probeExplorationModel = (provider, model) => modelRequest('/probe', { provider, model }, AbortSignal.timeout(35000))
 export const saveExplorationSelection = body => modelRequest('/selection', body)
+export const saveExplorationModel = body => modelRequest('', body)
+export const activateExplorationModel = (provider, model) => modelRequest('/activate', { provider, ...(model ? { model } : {}) })
+export const listExplorationModels = body => modelRequest('/models', body)
 
 export function resourcePath(path) {
   if (typeof path !== 'string' || path.includes('..') || path.includes('\\')) throw new Error('无效的网站探索资源')

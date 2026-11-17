@@ -1,0 +1,16 @@
+.exploration-model-settings { margin: 16px 0; border: 1px solid var(--border); border-radius: 8px; color: inherit; flex-shrink: 0; max-height: 65vh; overflow: auto; }
+.exploration-model-toggle { display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 14px 16px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.exploration-model-toggle span { font-size: 12px; }
+.exploration-model-body { padding: 0 16px 16px; max-width: 760px; }
+.exploration-model-body p { line-height: 1.6; font-size: 13px; overflow-wrap: anywhere; }
+.exploration-model-body fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
+.exploration-model-body label { display: grid; gap: 6px; font-size: 13px; }
+.exploration-model-body input:not([type=checkbox]), .exploration-model-body select { width: 100%; box-sizing: border-box; padding: 9px 12px; color: inherit; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.exploration-model-body .exploration-model-checkbox { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.exploration-model-body input[type=checkbox] { width: auto; }
+.exploration-model-body pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.exploration-model-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.exploration-model-actions button { padding: 8px 12px; cursor: pointer; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; }
+.exploration-model-actions button[type=submit] { color: #fff; background: #1675d1; border-color: transparent; }
+.exploration-model-body :disabled { cursor: wait; opacity: .65; }
+.exploration-model-settings :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
