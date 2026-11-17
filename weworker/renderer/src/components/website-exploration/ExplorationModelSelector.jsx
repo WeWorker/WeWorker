@@ -12,6 +12,8 @@ import { ModelHealthIndicator, ModelHealthToolbar } from '../chat/ModelHealth.js
 import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 import '../chat/model-selector.css'
 
+const selectionProvider = item => item.selection_provider || `__exploration__:${item.id}`
+
 export default function ExplorationModelSelector({ disabled, usage, conversationId, draftModelKey = 'site/new/instruction/model', onPendingChange, onReadyChange, children }) {
   const providers = useSettingsStore(s => s.providers)
   const activeProvider = useSettingsStore(s => s.activeProvider)
@@ -39,9 +41,8 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       const available = await api.getExplorationModel()
       if (!alive || version !== requestVersion.current) return
       const configured = available.providers?.filter(item => item.configured) || []
-      const savedId = saved?.provider === '__exploration__' ? available.active_provider
-        : saved?.provider?.startsWith('__exploration__:') ? saved.provider.slice('__exploration__:'.length) : ''
-      const previous = configured.find(item => item.id === savedId)
+      const savedReference = saved?.provider === '__exploration__' ? `__exploration__:${available.active_provider}` : saved?.provider
+      const previous = configured.find(item => selectionProvider(item) === savedReference)
       const entry = previous || configured.find(item => item.id === available.active_provider) || configured[0]
       if (!entry) {
         selectionRef.current = null
@@ -49,9 +50,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
         setError('请先在模型设置中验证并保存网站探索模型')
         return
       }
-      // Older drafts can refer to ordinary chat configurations. Adopt an
-      // exploration configuration before checking, listing, or sending.
-      const selection = { provider: `__exploration__:${entry.id}`, model: previous ? saved.model : entry.model,
+      const selection = { provider: selectionProvider(entry), model: previous ? saved.model : entry.model,
         thinking_effort: saved?.thinking_effort || 'off' }
       if (conversationId && saved && saved.provider !== selection.provider && disabled) {
         selectionRef.current = null
@@ -90,13 +89,13 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   const checkModel = useHealth(s => s.checkModel)
   const checkModels = useHealth(s => s.checkModels)
   useEffect(() => () => useHealth.getState().cancelBatch(selected), [useHealth, selected])
-  const provider = config?.providers?.find(item => `__exploration__:${item.id}` === selected)
+  const provider = config?.providers?.find(item => selectionProvider(item) === selected)
   const fixedModel = provider?.fixed_model === true
   useEffect(() => {
     const controller = new AbortController()
     setCatalog(null)
     if (provider?.configured) {
-      api.listExplorationModels({ provider: provider.id, model: currentModel })
+      api.listExplorationModels({ provider: selected, model: currentModel })
         .then(value => { if (!controller.signal.aborted) setCatalog({ provider: selected, models: value.models || [] }) })
         .catch(() => {})
     }
@@ -120,7 +119,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   }
   async function selectProvider(id) {
     if (id === selected || disabled || pendingRef.current) return
-    const entry = config?.providers?.find(item => `__exploration__:${item.id}` === id && item.configured)
+    const entry = config?.providers?.find(item => selectionProvider(item) === id && item.configured)
     if (entry) await save({ provider: id, model: entry.model })
   }
   const unavailable = disabled || pending || loading || !config?.selection
@@ -132,7 +131,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       onCheck={interactive ? () => { void checkModel(selected, option.value) } : undefined} />
   }
   const providerOptions = (config?.providers || []).filter(item => item.configured).map(item => ({
-    value: `__exploration__:${item.id}`, label: item.id === 'custom' ? '网站探索配置（自定义）' : item.name, keyConfigured: item.has_key,
+    value: selectionProvider(item), label: item.name, keyConfigured: item.has_key,
   }))
   const modelOptions = buildModelOptions(fixedModel ? [currentModel] : catalog?.provider === selected ? catalog.models : provider?.models, currentModel, { annotateCurrent: false })
   const glm = config?.model_class === 'zhipu' || /^glm-/i.test(currentModel)

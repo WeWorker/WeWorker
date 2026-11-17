@@ -43,10 +43,13 @@ export function explorationProviderId(settings: Settings, selection = settings.e
 export function resolveConversationModelSettings(settings: Settings, value: ConversationModel): Settings {
   const selection = parseConversationModel(value)
   if (selection.provider === '__exploration__' || selection.provider.startsWith('__exploration__:')) {
-    const provider = getProvider(explorationProviderId(settings, selection))
-    const saved = provider && settings.exploration_providers?.[provider.id]
+    const id = explorationProviderId(settings, selection)
+    const configuration = getModelConfiguration(settings, id)
+    const provider = getProvider(configuration?.provider_id || id)
+    const saved = provider && settings.exploration_providers?.[id]
     const apiKey = saved?.use_main_key
-      ? resolveConversationModelSettings(settings, defaultConversationModel(settings)).api_key : saved?.api_key
+      ? resolveConversationModelSettings(settings, saved.key_source
+        ? { provider: saved.key_source, model: selection.model } : defaultConversationModel(settings)).api_key : saved?.api_key
     if (!provider || !saved || !apiKey) throw new Error('请先在高级设置中配置网站探索模型')
     const custom = provider.id === 'custom'
     const protocol = custom ? saved.protocol : provider.weworker.protocol

@@ -7,6 +7,7 @@ import { probeProviderProtocol, listProviderModels, type ProtocolProbeResult } f
 import { resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { defaultConversationModel, explorationProviderId, resolveConversationModelSettings, parseConversationModel, type ConversationModel } from './conversation-models.js'
 import { getProvider, PROVIDERS } from './provider-registry.js'
+import { buildModelConfigurationNames, getModelConfiguration } from './model-configurations.js'
 
 export function explorationConversationSettings(settings: Settings, input?: unknown): Settings {
   if (input === undefined || input === null) return settings
@@ -40,6 +41,30 @@ function transactionFingerprint(settings: Settings): string {
 }
 
 function settingsPatch(body: Record<string, unknown>, settings: Settings): Partial<Settings> {
+  if (typeof body.configuration === 'string') {
+    const id = body.configuration
+    const configuration = getModelConfiguration(settings, id)
+    const provider = getProvider(configuration?.provider_id || id)
+    if (!provider || provider.builtin) throw new Error('请选择可编辑的模型配置')
+    const previous = settings.exploration_providers?.[id]
+    const main = resolveConversationModelSettings(settings, { provider: id, model: configuration?.model || provider.defaultModel })
+    if (typeof body.model !== 'string' || typeof body.base_url !== 'string'
+      || typeof body.use_main_key !== 'boolean' || (body.api_key !== undefined && typeof body.api_key !== 'string')
+      || (body.base_url_is_full !== undefined && typeof body.base_url_is_full !== 'boolean')) throw new Error('网站探索配置无效')
+    const custom = provider.id === 'custom'
+    const protocol = custom ? body.protocol ?? previous?.protocol ?? main.active_weworker_protocol : provider.webwright.protocol
+    if (!['anthropic_messages', 'openai_chat_completions', 'openai_responses'].includes(String(protocol))) throw new Error('请选择有效的模型协议')
+    const auth = custom ? body.auth_type ?? previous?.auth_type ?? main.active_auth_type : provider.authType || 'api_key'
+    if (auth !== 'api_key' && auth !== 'auth_token') throw new Error('请选择有效的鉴权方式')
+    const full = custom && body.base_url_is_full === true
+    return { exploration_providers: { ...settings.exploration_providers, [id]: {
+      api_key: body.use_main_key ? '' : (typeof body.api_key === 'string' && body.api_key.trim() ? body.api_key.trim() : previous?.api_key || ''),
+      model: provider.fixedModel ? provider.defaultModel : body.model.trim(),
+      base_url: custom ? normalizeLlmUrlInput(body.base_url.trim(), full) : provider.webwright.baseUrl,
+      base_url_is_full: full, protocol: protocol as import('./llm-egress.js').LlmProtocol,
+      auth_type: auth, use_main_key: body.use_main_key, key_source: id,
+    } } }
+  }
   if (body.provider === undefined && body.base_url !== undefined) {
     if (typeof body.base_url !== 'string' || !body.base_url.trim()) throw new Error('请填写网站探索服务地址')
     if (typeof body.use_main_key !== 'boolean') throw new Error('请选择是否使用现有 API Key')
@@ -87,16 +112,23 @@ function settingsPatch(body: Record<string, unknown>, settings: Settings): Parti
 export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
   let verified = ''
   const pending = new Map<string, Promise<ProtocolProbeResult>>()
-  function status(settings: Settings) {
+  function status(settings: Settings, configurationId?: string) {
     let effective: ReturnType<typeof resolveWebwrightModelConfig> | undefined
     try { effective = resolveWebwrightModelConfig(settings) } catch { /* Keep incomplete configurations editable. */ }
-    const selectedExplorationProvider = explorationProviderId(settings) || settings.exploration_active_provider || ''
+    const selectedExplorationProvider = configurationId ?? (explorationProviderId(settings) || settings.exploration_active_provider || '')
     const saved = settings.exploration_providers?.[selectedExplorationProvider]
+    const configuration = getModelConfiguration(settings, selectedExplorationProvider)
+    const formProvider = getProvider(configuration?.provider_id || selectedExplorationProvider)
+    let formMain: Settings | undefined
     let candidateUrl = ''
     let suggested = false
     let mainKeyAvailable = false
     try {
-      const main = resolveConversationModelSettings(settings, defaultConversationModel(settings))
+      const main = resolveConversationModelSettings(settings, configurationId
+        ? { provider: configurationId, model: configuration?.model || (configurationId === (settings.active_model_configuration || settings.active_provider)
+          ? settings.model : (settings as unknown as Record<string, string>)[`model_${configurationId}`]) || formProvider?.defaultModel || settings.model }
+        : defaultConversationModel(settings))
+      formMain = main
       mainKeyAvailable = Boolean(main.api_key)
       const provider = getProvider(main.active_provider)
       if (main.active_provider !== 'custom') candidateUrl = provider?.webwright.baseUrl || ''
@@ -107,6 +139,15 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
         suggested = !mapped
       }
     } catch { /* Incomplete main configurations remain editable. */ }
+    if (configurationId) candidateUrl = formProvider?.id === 'custom' ? formMain?.base_url || '' : formProvider?.webwright.baseUrl || ''
+    const scoped = configurationId ? { ...settings, exploration_model_selection: {
+      provider: formProvider?.builtin ? configurationId : `__exploration__:${configurationId}`,
+      model: saved?.model || formMain?.model || '', thinking_effort: 'off' as const,
+    } } : settings
+    if (configurationId) {
+      try { effective = resolveWebwrightModelConfig(scoped) } catch { effective = undefined }
+    }
+    const names = buildModelConfigurationNames(settings)
     return {
       health_scope: effective ? createHash('sha256').update(JSON.stringify([
         effective.provider_id, effective.protocol, effective.base_url, effective.api_key, effective.auth_type,
@@ -120,33 +161,52 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       base_url_is_full: effective?.base_url_is_full === true,
       candidate_url: candidateUrl,
       suggested,
-      configured_model: saved ? saved.model : settings.exploration_model || '',
-      configured_base_url: saved ? saved.base_url || getProvider(selectedExplorationProvider)?.webwright.baseUrl || '' : settings.exploration_base_url || '',
-      configured_base_url_is_full: saved ? saved.base_url_is_full === true : settings.exploration_base_url_is_full === true,
-      has_independent_key: Boolean(saved ? saved.api_key : settings.exploration_api_key),
-      main_model: settings.model,
+      configured_base_url: saved ? saved.base_url || formProvider?.webwright.baseUrl || '' : configurationId ? candidateUrl : settings.exploration_base_url || '',
+      has_independent_key: Boolean(saved ? saved.api_key : !configurationId && settings.exploration_api_key),
+      main_model: formMain?.model || settings.model,
       use_main_key: saved ? saved.use_main_key === true : settings.exploration_use_main_key !== false,
       has_key: Boolean(effective?.api_key),
-      status: verified === fingerprint(settings) ? settings.exploration_active_provider ? 'independent' : 'connected' : 'pending',
+      status: verified === fingerprint(scoped) ? (saved ? 'independent' : 'connected') : 'pending',
       active_provider: selectedExplorationProvider,
-      providers: PROVIDERS.map(provider => {
-        const saved = settings.exploration_providers?.[provider.id]
+      configuration_id: configurationId,
+      fixed_provider: Boolean(formProvider && formProvider.id !== 'custom'),
+      fixed_model: formProvider?.fixedModel === true,
+      builtin: formProvider?.builtin === true,
+      protocol: saved?.protocol || (formProvider?.id === 'custom' ? formMain?.active_weworker_protocol : formProvider?.webwright.protocol) || 'openai_chat_completions',
+      auth_type: saved?.auth_type || formMain?.active_auth_type || 'api_key',
+      candidate_url_is_full: formProvider?.id === 'custom' && formMain?.base_url_is_full === true,
+      configured_model: saved ? saved.model : configurationId ? '' : settings.exploration_model || '',
+      configured_base_url_is_full: saved ? saved.base_url_is_full === true : configurationId ? formMain?.base_url_is_full === true : settings.exploration_base_url_is_full === true,
+      providers: [...PROVIDERS.map(provider => ({ id: provider.id, provider })),
+        ...Object.keys(settings.model_configurations || {}).flatMap(id => {
+          const configuration = getModelConfiguration(settings, id)
+          const provider = configuration && getProvider(configuration.provider_id)
+          return provider ? [{ id, provider }] : []
+        })].map(({ id, provider }) => {
+        const saved = settings.exploration_providers?.[id]
+        let mainKey = mainKeyAvailable
+        if (saved?.key_source) {
+          try { mainKey = Boolean(resolveConversationModelSettings(settings, { provider: saved.key_source, model: saved.model || provider.defaultModel }).api_key) }
+          catch { mainKey = false }
+        }
         let builtinAvailable = false
         if (provider.builtin) {
           try { builtinAvailable = Boolean(resolveConversationModelSettings(settings, { provider: provider.id, model: provider.defaultModel }).api_key) }
           catch { builtinAvailable = false }
         }
         return {
-          id: provider.id, name: provider.name, models: [...new Set([saved?.model, ...provider.models].filter(Boolean))],
-          default_model: provider.defaultModel, model: saved ? saved.model || settings.model : provider.defaultModel,
+          id, name: names[id] || provider.name, selection_provider: provider.builtin ? id : `__exploration__:${id}`,
+          models: [...new Set([saved?.model, ...(getModelConfiguration(settings, id)?.custom_models || []), ...provider.models].filter(Boolean))],
+          default_model: provider.defaultModel, model: provider.fixedModel ? provider.defaultModel : saved ? saved.model || getModelConfiguration(settings, id)?.model
+            || (settings as unknown as Record<string, string>)[`model_${id}`] || settings.model : provider.defaultModel,
           fixed_model: provider.fixedModel === true,
           builtin: provider.builtin === true,
           saved_exploration: Boolean(saved),
           base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
           protocol: provider.id === 'custom' ? saved?.protocol || 'openai_chat_completions' : provider.webwright.protocol,
           base_url_is_full: saved?.base_url_is_full === true,
-          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(builtinAvailable || saved?.api_key || (saved?.use_main_key && mainKeyAvailable)),
-          configured: Boolean(builtinAvailable || (saved && (saved.api_key || (saved.use_main_key && mainKeyAvailable)) && (saved.model || settings.model)
+          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(builtinAvailable || saved?.api_key || (saved?.use_main_key && mainKey)),
+          configured: Boolean(builtinAvailable || (saved && (saved.api_key || (saved.use_main_key && mainKey)) && (saved.model || getModelConfiguration(settings, id)?.model || settings.model)
             && (provider.id !== 'custom' || saved.base_url))),
         }
       }),
@@ -180,7 +240,13 @@ export function registerExplorationModelRoutes(app: Express, deps: {
   fetchImpl?: typeof fetch
 }) {
   const service = createExplorationModelService(deps.fetchImpl)
-  app.get('/settings/exploration-model', (_req, res) => res.json(service.status(deps.getSettings())))
+  app.get('/settings/exploration-model', (req, res) => {
+    const id = req.query?.configuration
+    if (id !== undefined && (typeof id !== 'string' || (!getProvider(id) && !getModelConfiguration(deps.getSettings(), id)))) {
+      res.status(400).json({ detail: '模型配置不存在' }); return
+    }
+    res.json(service.status(deps.getSettings(), id as string | undefined))
+  })
   app.post('/settings/exploration-model/resolve', (req, res) => {
     try {
       const settings = explorationConversationSettings(deps.getSettings(), req.body?.selection)
@@ -225,6 +291,18 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       const current = deps.getSettings()
       const transaction = transactionFingerprint(current)
       const patch = settingsPatch(req.body || {}, current)
+      if (typeof req.body.configuration === 'string') {
+        const id = req.body.configuration
+        const entry = patch.exploration_providers![id]
+        const configuration = getModelConfiguration(current, id)
+        const main = resolveConversationModelSettings(current, { provider: id, model: configuration?.model || getProvider(id)?.defaultModel || current.model })
+        const selection = { provider: `__exploration__:${id}`, model: entry.model || main.model, thinking_effort: 'off' as const }
+        const result = await service.check({ ...current, ...patch, exploration_model_selection: selection }, true)
+        if (transaction !== transactionFingerprint(deps.getSettings())) { res.status(409).json({ detail: '模型配置已改变，请重新验证' }); return }
+        if (!result.ok) { res.json({ ...result, ...service.status(current, id) }); return }
+        const saved = deps.updateSettings(patch)
+        res.json({ ...result, ...service.status(saved, id) }); return
+      }
       const model = patch.exploration_providers?.[patch.exploration_active_provider || '']?.model || current.model
       const selection: ConversationModel | null = req.body.provider === undefined && !req.body.model.trim()
         ? null : { provider: '__exploration__', model, thinking_effort: 'off' }
@@ -259,19 +337,23 @@ export function registerExplorationModelRoutes(app: Express, deps: {
   app.post('/settings/exploration-model/models', async (req, res) => {
     try {
       const settings = deps.getSettings()
-      const provider = typeof req.body?.provider === 'string' ? getProvider(req.body.provider) : undefined
+      const reference = typeof req.body?.provider === 'string' ? req.body.provider : ''
+      const id = reference.replace(/^__exploration__:/, '')
+      const configuration = getModelConfiguration(settings, id)
+      const provider = getProvider(configuration?.provider_id || id)
       if (!provider) throw new Error('请选择有效的网站探索供应商')
-      const saved = settings.exploration_providers?.[provider.id]
+      if (provider.builtin && provider.fixedModel) { res.json({ models: [provider.defaultModel], source: 'fallback' }); return }
+      const saved = settings.exploration_providers?.[id]
       if (!saved || (!saved.api_key && !saved.use_main_key)) throw new Error('请先保存该网站探索供应商的 API Key')
-      const patch = settingsPatch({ ...saved, ...req.body, provider: provider.id, api_key: saved.api_key, model: req.body?.model || saved.model || 'catalog' }, settings)
-      const candidate = { ...settings, ...patch, exploration_model_selection: { provider: '__exploration__', model: req.body?.model || saved.model || 'catalog' } }
+      const candidate = { ...settings, exploration_model_selection: { provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model } }
       const config = resolveWebwrightModelConfig(candidate)
-      const entry: ProviderEntry = { ...provider, id: 'custom', weworker: { protocol: 'anthropic_messages', baseUrl: config.base_url },
+      const entry: ProviderEntry = { ...provider, id: 'custom', weworker: { protocol: config.protocol, baseUrl: config.base_url },
         webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output } }
       const catalog = await listProviderModels({ provider: entry, apiKey: config.api_key,
-        ...(config.protocol === 'anthropic_messages' ? { anthropicBaseUrl: config.base_url } : { openaiBaseUrl: config.base_url }),
-        anthropicFullUrl: config.base_url_is_full, openaiFullUrl: config.base_url_is_full,
-        anthropicAuthType: config.auth_type }, deps.fetchImpl)
+        target: 'weworker', weworkerProtocol: config.protocol, weworkerBaseUrl: config.base_url, anthropicBaseUrl: config.base_url,
+        weworkerFullUrl: config.base_url_is_full, anthropicFullUrl: config.base_url_is_full,
+        anthropicAuthType: config.auth_type,
+      }, deps.fetchImpl)
       const redact = (value: string) => value.split(config.api_key).join('[REDACTED]')
       res.json({ ...catalog, models: catalog.models.map(redact), ...(catalog.warning ? { warning: redact(catalog.warning) } : {}) })
     } catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '获取模型列表失败' }) }
