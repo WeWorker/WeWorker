@@ -548,7 +548,7 @@ export default function App() {
           {!showSettings && !focusedWorkspaceOpen && workspaceToolbar}
           {showSettings
             ? <SettingsPage onClose={() => setShowSettings(false)} />
-            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onResizeStart} compactLayout={compactLayout} workspaceToolbar={workspaceToolbar} onOpenSettings={() => setShowSettings((current) => !current)} />}
+            : <MainArea activeSidebarSection={activeSidebarSection} sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onResizeStart} compactLayout={compactLayout} workspaceToolbar={workspaceToolbar} />}
         </div>
         </>}
       </div>

@@ -87,8 +87,6 @@
 .wx-heading-title { display:flex;align-items:center;gap:10px;min-width:0;flex:1; }
 .wx-heading-title .chat-heading__title { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
 .wx-heading-title .wx-status { flex:none;white-space:nowrap; }
-.wx-service-actions { flex:none;flex-wrap:nowrap; }
-.wx-service-actions .wx-menu-trigger>.wx-quiet { border:0;background:transparent;color:var(--text-secondary);font:inherit;font-size:var(--font-size-caption);padding:6px;cursor:pointer;border-radius:8px;white-space:nowrap; }
 .wx-notices { flex:none;padding:0 20px; }
 .wx-notices:empty { display:none; }
 .wx-status { display:inline-block;font-size:12px;color:var(--wx-muted); }

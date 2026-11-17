@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { message } from 'antd'
 import * as api from '../../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as useStore } from '../../store/website-exploration.js'
 import ExploreWorkspace from './ExploreWorkspace.jsx'
-import { ActionMenu, ErrorMessage, Modal, useAction, useSnapshot } from './shared.jsx'
+import { ErrorMessage, Modal, useAction, useSnapshot } from './shared.jsx'
 import './website-exploration.css'
 
-export default function WebsiteExplorationPage({ onOpenSettings, sidebarWidth, sidebarCollapsed, onSidebarResizeStart, toolbar }) {
+export default function WebsiteExplorationPage({ sidebarWidth, sidebarCollapsed, onSidebarResizeStart, toolbar }) {
   const [messageApi, messageContextHolder] = message.useMessage()
   const status = useSnapshot(async () => {
     const [health, activity] = await Promise.all([api.getHealth(), api.getActivity()])
@@ -23,19 +23,14 @@ export default function WebsiteExplorationPage({ onOpenSettings, sidebarWidth, s
   const unavailable = Boolean(status.error || !status.data)
   const globalBusy = Boolean(status.data?.activity.running)
   const activeExploration = globalBusy && status.data?.activity.kind === 'exploration' && status.data.activity.id
-  const serviceActions = <div className="wx-actions wx-service-actions">
-        <ActionMenu label={unavailable ? '服务未就绪' : !browser.data ? '服务已就绪' : browser.data.running ? '浏览器已连接' : '浏览器未连接'}>
-          <button onClick={onOpenSettings}>模型设置</button><button disabled={action.busy || unavailable} onClick={() => action.run(() => api.openBrowser(''))}>打开浏览器</button>
-        </ActionMenu>
-        {!unavailable && browser.data && !browser.data.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(''))} disabled={action.busy}>连接浏览器</button>}
-      </div>
   const notices = <>
+    {!unavailable && browser.data && !browser.data.running && <button data-app-button="action" onClick={() => action.run(() => api.openBrowser(''))} disabled={action.busy}>连接浏览器</button>}
     <ErrorMessage>{pageError}</ErrorMessage>
   </>
   return <div className="website-exploration wx-page" aria-label="Adapter工坊" aria-busy={status.loading}>
     {messageContextHolder}
     <ExploreWorkspace disabled={unavailable || browser.loading || Boolean(browser.error)} globalBusy={globalBusy} activeExplorationId={activeExploration || ''} activityReady={Boolean(status.data || status.error)}
-      sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={toolbar} serviceActions={serviceActions} notices={notices} />
+      sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={toolbar} notices={notices} />
   </div>
 }
 

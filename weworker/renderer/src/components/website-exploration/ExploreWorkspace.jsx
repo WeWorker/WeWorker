@@ -22,7 +22,7 @@ import ExplorationStep, { ExplorationStatus } from './ExplorationStep.jsx'
 
 const EMPTY_ATTACHMENTS = []
 
-export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, activeExplorationId = '', activityReady = true, sidebarWidth = 260, sidebarCollapsed = false, onSidebarResizeStart, toolbar, serviceActions, notices }) {
+export default function ExploreWorkspace({ disabled, globalBusy, modelReady = true, activeExplorationId = '', activityReady = true, sidebarWidth = 260, sidebarCollapsed = false, onSidebarResizeStart, toolbar, notices }) {
   const key = 'site'
   const context = useStore(s => s.explorationContext)
   // null: resolve entry from fresh activity; '': new exploration; ID: explicit record.
@@ -77,7 +77,7 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
     useStore.setState({ explorationContext: null })
     void list.refresh()
   }
-  const renderHeader = (title, status) => <ExplorationHeader title={title} status={status} toolbar={toolbar} serviceActions={serviceActions} notices={notices} />
+  const renderHeader = (title, status) => <ExplorationHeader title={title} status={status} toolbar={toolbar} notices={notices} />
   const renameRecord = async (id, title) => {
     const saved = await api.renameExploration(id, title)
     setRenamedTitles(previous => ({ ...previous, [id]: saved.title }))
@@ -118,10 +118,9 @@ export default function ExploreWorkspace({ disabled, globalBusy, modelReady = tr
   </div>
 }
 
-export function ExplorationHeader({ title, status, toolbar, serviceActions, notices }) {
+export function ExplorationHeader({ title, status, toolbar, notices }) {
   const context = <div className="wx-heading">
     <div className="wx-heading-title"><span className="chat-heading__title" title={title}>{title}</span>{status}</div>
-    {serviceActions}
   </div>
   return <>
     {toolbar ? React.cloneElement(toolbar, { context, label: '网站探索工具栏' }) : <WorkspaceToolbar context={context} label="网站探索工具栏" />}

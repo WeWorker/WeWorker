@@ -379,16 +379,15 @@ test('flat exploration list shows its generated title and relative time without 
   assert.doesNotMatch(html, /<small|<strong|work-folder/)
 })
 
-test('exploration uses shared toolbar with its own title, service actions and resize-only sidebar props', async () => {
+test('exploration uses shared toolbar with its own title and resize-only sidebar props', async () => {
   const { default: Toolbar } = await server.ssrLoadModule('/src/components/layout/WorkspaceToolbar.jsx')
   const toolbar = React.createElement(Toolbar, null, React.createElement('button', { type: 'button' }, '主题'))
   const html = renderToStaticMarkup(React.createElement(components.ExplorationHeader, {
-    title: 'Example conversation', toolbar, serviceActions: React.createElement('button', { type: 'button' }, '模型设置'),
+    title: 'Example conversation', toolbar,
   }))
   assert.equal((html.match(/class="workspace-toolbar"/g) || []).length, 1)
   assert.match(html, /网站探索工具栏/)
   assert.match(html, /chat-heading__title/)
-  assert.match(html, /模型设置/)
   assert.match(html, /主题/)
   const sidebar = renderToStaticMarkup(React.createElement(components.default, { sidebarWidth: 320, onSidebarResizeStart() {} }))
   assert.match(sidebar, /width:320px;min-width:320px/)
