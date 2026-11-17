@@ -312,7 +312,17 @@ export interface Settings {
   exploration_api_key: string
   exploration_model: string
   exploration_use_main_key: boolean
-  exploration_model_selection?: { provider: string; model: string } | null
+  exploration_active_provider?: string
+  exploration_providers?: Record<string, {
+    api_key: string
+    model: string
+    base_url: string
+    protocol: 'anthropic_messages' | 'openai_chat_completions'
+    auth_type: import('./anthropic-auth.js').AnthropicAuthType
+    use_main_key?: boolean
+    base_url_is_full?: boolean
+  }>
+  exploration_model_selection?: { provider: string; model: string; thinking_effort?: import('./conversation-models.js').ConversationModel['thinking_effort'] } | null
   exploration_thinking_effort?: 'off' | 'low' | 'medium' | 'high'
 
   custom_auth_type: import('./anthropic-auth.js').AnthropicAuthType
@@ -469,6 +479,8 @@ const DEFAULTS: Settings = {
   exploration_api_key: '',
   exploration_model: '',
   exploration_use_main_key: true,
+  exploration_active_provider: '',
+  exploration_providers: {},
 
   custom_auth_type: 'auth_token',
 

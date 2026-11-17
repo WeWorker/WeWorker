@@ -24,8 +24,9 @@ test('history renders before browser readiness and the chat-styled controls reta
   const modelWrites = []
   const modelProbes = []
   const pendingProbes = new Map()
-  let modelConfig = { selected_provider: 'example-config', effective_model: 'example-model', context_limit: 200000, thinking_effort: 'off' }
-  const sessionModels = { example: { provider: 'example-config', model: 'example-model', thinking_effort: 'off' } }
+  let modelConfig = { selected_provider: '__exploration__:custom', active_provider: 'custom', effective_model: 'example-model', context_limit: 200000, thinking_effort: 'off',
+    providers: [{ id: 'custom', name: 'Example exploration', model: 'example-model', models: ['example-model', 'example-new'], configured: true, has_key: true }] }
+  const sessionModels = { example: { provider: '__exploration__:custom', model: 'example-model', thinking_effort: 'off' } }
   const attachment = { path: 'C:/example/requirements.txt', name: 'requirements.txt' }
   dom.window.electronAPI = { selectFiles: async () => [attachment.path] }
   let runStatus = 'paused'
@@ -61,7 +62,7 @@ test('history renders before browser readiness and the chat-styled controls reta
       if (options.method === 'POST') { sessionModels[id] = JSON.parse(options.body).model_selection; modelWrites.push({ id, selection: sessionModels[id] }) }
       return Response.json({ model_selection: sessionModels[id] || null })
     }
-    if (path === '/settings/provider/models') return Response.json({ models: ['example-model', 'example-new'] })
+    if (path === '/settings/exploration-model/models') return Response.json({ models: ['example-model', 'example-new'] })
     if (path === '/settings/exploration-model/probe') {
       const body = JSON.parse(options.body)
       modelProbes.push(body)
@@ -171,7 +172,7 @@ test('history renders before browser readiness and the chat-styled controls reta
     assert.equal(document.querySelector(probeButton('example-new')).textContent, '检测中')
     assert.equal(document.querySelector(probeButton('example-new')).disabled, true)
     await click(probeButton('example-model'))
-    assert.deepEqual(modelProbes, [{ provider: 'example-config', model: 'example-new' }, { provider: 'example-config', model: 'example-model' }])
+    assert.deepEqual(modelProbes, [{ provider: '__exploration__:custom', model: 'example-new' }, { provider: '__exploration__:custom', model: 'example-model' }])
     assert.equal(modelWrites.length, 0, 'probes must not activate a model or close the menu')
     await act(async () => { pendingProbes.get('example-new')({ ok: true, elapsed_ms: 42 }); pendingProbes.get('example-model')({ ok: false, error: 'protocol_mismatch' }) })
     assert.equal(document.querySelector(probeButton('example-new')).textContent, '42ms')
@@ -189,7 +190,7 @@ test('history renders before browser readiness and the chat-styled controls reta
     const high = [...document.querySelectorAll('[role="option"]')].find(el => el.textContent === '高')
     await act(async () => { high.click() })
     const { useWebsiteExplorationStore } = await server.ssrLoadModule('/src/store/website-exploration.js')
-    assert.deepEqual(useWebsiteExplorationStore.getState().drafts['site/new/instruction/model'], { provider: 'example-config', model: 'example-new', thinking_effort: 'high' })
+    assert.deepEqual(useWebsiteExplorationStore.getState().drafts['site/new/instruction/model'], { provider: '__exploration__:custom', model: 'example-new', thinking_effort: 'high' })
     assert.deepEqual(modelWrites, [], 'changing a new exploration draft must not write the default or another record')
     assert.equal(modelConfig.effective_model, 'example-model')
     await click('[aria-label="模型选择"]')
@@ -203,7 +204,7 @@ test('history renders before browser readiness and the chat-styled controls reta
     assert.match(document.querySelector('[aria-label="模型选择"]').textContent, /example-model/, 'existing exploration keeps its own model')
     await click('[aria-label="模型选择"]')
     await act(async () => { [...document.querySelectorAll('[role="option"]')].find(el => el.textContent === 'example-new').click() })
-    assert.deepEqual(modelWrites.at(-1), { id: 'example', selection: { provider: 'example-config', model: 'example-new', thinking_effort: 'off' } })
+    assert.deepEqual(modelWrites.at(-1), { id: 'example', selection: { provider: '__exploration__:custom', model: 'example-new', thinking_effort: 'off' } })
     assert.equal(modelConfig.effective_model, 'example-model')
     assert.match(document.querySelector('.workspace-toolbar').textContent, /Example history/)
     assert.match(document.querySelector('.wx-message-content').textContent, /Example observation/)
@@ -252,7 +253,7 @@ test('history renders before browser readiness and the chat-styled controls reta
     await fill('textarea[aria-label="探索消息"]', 'Read the page title')
     await click('[aria-label="上传文件"]')
     await click('button[aria-label="发送消息"]')
-    assert.deepEqual(writes.at(-1), { path: '/api/website-exploration/explorations', body: { start_url: 'https://example.org', instruction: 'Read the page title', model_selection: { provider: 'example-config', model: 'example-new', thinking_effort: 'high' }, attachments: [attachment] } })
+    assert.deepEqual(writes.at(-1), { path: '/api/website-exploration/explorations', body: { start_url: 'https://example.org', instruction: 'Read the page title', model_selection: { provider: '__exploration__:custom', model: 'example-new', thinking_effort: 'high' }, attachments: [attachment] } })
     assert.equal(requests.includes('/settings/exploration-model/selection'), false, 'composer never saves global defaults')
     assert.equal(writes.length, 4)
     runStatus = 'succeeded'

@@ -115,8 +115,7 @@ export function buildProbeResultRows(results) {
 }
 
 export function buildProviderProbeTargets() {
-  // Chat and exploration share this connection; no second endpoint to check.
-  return ['weworker']
+  return ['weworker', 'webwright']
 }
 
 export function buildChatProviderOptions(providerList, providers, activeProvider) {

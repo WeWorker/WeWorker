@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Settings } from '../config.js'
 import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from '../webwright-model-config.js'
-import { resolveConversationModelSettings } from '../conversation-models.js'
+import { defaultConversationModel, resolveConversationModelSettings } from '../conversation-models.js'
+import { resolveAnthropicEndpoint } from '../llm-egress.js'
 import { explorationConversationSettings, defaultExplorationModel, createExplorationModelService } from '../exploration-model-settings.js'
 
 function settings(overrides: Partial<Settings> = {}): Settings {
@@ -62,6 +63,28 @@ describe('managed conversation configuration', () => {
     const main = resolveConversationModelSettings(saved, { provider: active_provider, model: saved.model })
     expect(resolveWebwrightModelConfig(saved)).toMatchObject({ protocol: main.active_weworker_protocol, base_url: main.base_url,
       auth_type: main.active_auth_type, api_key: main.api_key, model: main.model })
+  })
+  it('checks the built-in exploration endpoint despite a stale independent exploration provider', async () => {
+    const saved = settings({ active_provider: 'builtin', api_key: '', model: 'ark-code-latest',
+      exploration_active_provider: 'deepseek', exploration_providers: { deepseek: {
+        api_key: 'fixture-stale-explore-key', model: 'stale-model', base_url: 'https://api.deepseek.com',
+        protocol: 'openai_chat_completions', auth_type: 'api_key',
+      } } })
+    const candidate = { ...saved, exploration_model_selection: { provider: 'builtin', model: 'ark-code-latest' } }
+    const main = resolveConversationModelSettings(candidate, { provider: 'builtin', model: 'ark-code-latest' })
+    const config = resolveWebwrightModelConfig(candidate)
+    expect(config).toMatchObject({ provider_id: 'builtin', protocol: main.active_weworker_protocol,
+      base_url: main.base_url, model: 'ark-code-latest', api_key: main.api_key })
+    expect(config.api_key).not.toBe('fixture-stale-explore-key')
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ content: [{ type: 'text', text: '{"ok":true}' }] }))
+    const service = createExplorationModelService(fetchMock)
+    const builtinStatus = service.status(candidate).providers.find(provider => provider.id === 'builtin')
+    expect(builtinStatus).toMatchObject({ configured: true, has_key: true, builtin: true, saved_exploration: false })
+    expect(await service.check(candidate, true)).toMatchObject({ ok: true, target: 'webwright', model: 'ark-code-latest' })
+    expect(fetchMock.mock.calls[0][0]).toBe(resolveAnthropicEndpoint({ base_url: main.base_url }))
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ model: 'ark-code-latest', output_config: { format: { type: 'json_schema' } } })
+    const headers = new Headers(fetchMock.mock.calls[0][1]?.headers)
+    expect(headers.get('x-api-key') || headers.get('authorization')?.replace(/^Bearer /, '')).toBe(main.api_key)
   })
   it('preserves exact full URLs including query parameters in legacy main settings', () => {
     const url = 'https://example.com/custom/infer/?v=1&route=a%2Fb'
