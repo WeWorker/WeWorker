@@ -5,7 +5,7 @@ import type { ProviderEntry } from './llm-egress.js'
 import { normalizeLlmBaseUrl, normalizeLlmUrlInput } from './llm-egress.js'
 import { probeProviderProtocol, listProviderModels, type ProtocolProbeResult } from './provider-model-services.js'
 import { resolveWebwrightModelConfig } from './webwright-model-config.js'
-import { defaultConversationModel, resolveConversationModelSettings, parseConversationModel, type ConversationModel } from './conversation-models.js'
+import { defaultConversationModel, explorationProviderId, resolveConversationModelSettings, parseConversationModel, type ConversationModel } from './conversation-models.js'
 import { getProvider, PROVIDERS } from './provider-registry.js'
 
 export function explorationConversationSettings(settings: Settings, input?: unknown): Settings {
@@ -90,11 +90,14 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
   function status(settings: Settings) {
     let effective: ReturnType<typeof resolveWebwrightModelConfig> | undefined
     try { effective = resolveWebwrightModelConfig(settings) } catch { /* Keep incomplete configurations editable. */ }
-    const saved = settings.exploration_active_provider ? settings.exploration_providers?.[settings.exploration_active_provider] : undefined
+    const selectedExplorationProvider = explorationProviderId(settings) || settings.exploration_active_provider || ''
+    const saved = settings.exploration_providers?.[selectedExplorationProvider]
     let candidateUrl = ''
     let suggested = false
+    let mainKeyAvailable = false
     try {
       const main = resolveConversationModelSettings(settings, defaultConversationModel(settings))
+      mainKeyAvailable = Boolean(main.api_key)
       const provider = getProvider(main.active_provider)
       if (main.active_provider !== 'custom') candidateUrl = provider?.webwright.baseUrl || ''
       else if (!main.base_url_is_full && main.base_url) {
@@ -118,24 +121,26 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       candidate_url: candidateUrl,
       suggested,
       configured_model: saved ? saved.model : settings.exploration_model || '',
-      configured_base_url: saved ? saved.base_url || getProvider(settings.exploration_active_provider!)?.webwright.baseUrl || '' : settings.exploration_base_url || '',
+      configured_base_url: saved ? saved.base_url || getProvider(selectedExplorationProvider)?.webwright.baseUrl || '' : settings.exploration_base_url || '',
       configured_base_url_is_full: saved ? saved.base_url_is_full === true : settings.exploration_base_url_is_full === true,
       has_independent_key: Boolean(saved ? saved.api_key : settings.exploration_api_key),
       main_model: settings.model,
       use_main_key: saved ? saved.use_main_key === true : settings.exploration_use_main_key !== false,
       has_key: Boolean(effective?.api_key),
       status: verified === fingerprint(settings) ? settings.exploration_active_provider ? 'independent' : 'connected' : 'pending',
-      active_provider: settings.exploration_active_provider || '',
+      active_provider: selectedExplorationProvider,
       providers: PROVIDERS.map(provider => {
         const saved = settings.exploration_providers?.[provider.id]
         return {
           id: provider.id, name: provider.name, models: [...new Set([saved?.model, ...provider.models].filter(Boolean))],
-          default_model: provider.defaultModel, model: saved?.model || (saved?.use_main_key ? settings.model : provider.defaultModel),
+          default_model: provider.defaultModel, model: saved ? saved.model || settings.model : provider.defaultModel,
+          fixed_model: provider.fixedModel === true,
           base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
           protocol: provider.id === 'custom' ? saved?.protocol || 'openai_chat_completions' : provider.webwright.protocol,
           base_url_is_full: saved?.base_url_is_full === true,
-          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(saved?.api_key || (saved?.use_main_key && settings.api_key)),
-          configured: Boolean((saved?.api_key || (saved?.use_main_key && settings.api_key)) && (saved?.model || settings.model)),
+          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(saved?.api_key || (saved?.use_main_key && mainKeyAvailable)),
+          configured: Boolean(saved && (saved.api_key || (saved.use_main_key && mainKeyAvailable)) && (saved.model || settings.model)
+            && (provider.id !== 'custom' || saved.base_url)),
         }
       }),
     }

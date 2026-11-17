@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import type { Settings } from './config.js'
 import { normalizeLlmBaseUrl, normalizeLlmUrlInput } from './llm-egress.js'
 import { normalizeCompactionMaxAttempts, normalizeCompactionRatio } from './context/conversation-compaction.js'
-import { defaultConversationModel, resolveConversationModelSettings } from './conversation-models.js'
+import { defaultConversationModel, explorationProviderId, resolveConversationModelSettings } from './conversation-models.js'
 import { getProvider, findProviderByWeWorkerBaseUrl, PROVIDERS } from './provider-registry.js'
 import { usesAnthropicBearerToken } from './anthropic-auth.js'
 import { assertAllowedLlmBaseUrl } from './llm-egress.js'
@@ -23,8 +23,8 @@ export function resolveWebwrightModelConfig(saved: Settings) {
   const selection = saved.exploration_model_selection || (saved.exploration_active_provider
     ? { provider: '__exploration__', model: independentModel }
     : defaultConversationModel(saved))
-  if (selection.provider === '__exploration__') {
-    const provider = getProvider(saved.exploration_active_provider || '')
+  if (selection.provider === '__exploration__' || selection.provider.startsWith('__exploration__:')) {
+    const provider = getProvider(explorationProviderId(saved, selection))
     const entry = provider && saved.exploration_providers?.[provider.id]
     const apiKey = entry?.use_main_key
       ? resolveConversationModelSettings(saved, defaultConversationModel(saved)).api_key : entry?.api_key

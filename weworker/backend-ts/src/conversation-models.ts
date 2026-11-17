@@ -30,12 +30,20 @@ export function defaultConversationModel(settings: Settings): ConversationModel 
   return { provider: settings.active_model_configuration || settings.active_provider, model: settings.model, thinking_effort: 'off' }
 }
 
+// Explicit references keep an exploration session pinned when its global
+// default changes. The original sentinel remains valid for older records.
+export function explorationProviderId(settings: Settings, selection = settings.exploration_model_selection): string {
+  const id = selection?.provider
+  if (!id || id === '__exploration__') return settings.exploration_active_provider || ''
+  return id.startsWith('__exploration__:') ? id.slice('__exploration__:'.length) : ''
+}
+
 // Resolve credentials from their existing source; persist only the configuration
 // reference and model name. Never activate or rewrite a default configuration.
 export function resolveConversationModelSettings(settings: Settings, value: ConversationModel): Settings {
   const selection = parseConversationModel(value)
-  if (selection.provider === '__exploration__') {
-    const provider = getProvider(settings.exploration_active_provider || '')
+  if (selection.provider === '__exploration__' || selection.provider.startsWith('__exploration__:')) {
+    const provider = getProvider(explorationProviderId(settings, selection))
     const saved = provider && settings.exploration_providers?.[provider.id]
     const apiKey = saved?.use_main_key
       ? resolveConversationModelSettings(settings, defaultConversationModel(settings)).api_key : saved?.api_key

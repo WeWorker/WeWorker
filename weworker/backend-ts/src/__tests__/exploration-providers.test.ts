@@ -53,4 +53,15 @@ describe('independent exploration providers', () => {
     expect(value.api_key).toBe('fixture-main-key')
     expect(value.model).toBe('main-model')
   })
+
+  it('pins the selected exploration configuration even when the global default changes', () => {
+    const value = settings({ exploration_active_provider: 'deepseek', exploration_providers: {
+      glm: { api_key: 'fixture-glm-explore-key', model: 'glm-explore', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' },
+      deepseek: { api_key: 'fixture-deepseek-explore-key', model: 'deepseek-explore', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' },
+    }, exploration_model_selection: { provider: '__exploration__:glm', model: 'glm-session' } })
+    expect(resolveWebwrightModelConfig(value)).toMatchObject({ provider_id: 'glm', api_key: 'fixture-glm-explore-key', model: 'glm-session', protocol: 'openai_chat_completions' })
+    expect(resolveWebwrightModelConfig({ ...value, exploration_active_provider: 'custom', active_provider: 'custom', api_key: 'fixture-other-chat-key' }))
+      .toEqual(resolveWebwrightModelConfig(value))
+    expect(value.exploration_active_provider).toBe('deepseek')
+  })
 })

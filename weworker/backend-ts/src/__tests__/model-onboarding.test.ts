@@ -456,6 +456,25 @@ describe('independent exploration provider settings API', () => {
     })
   })
 
+  it('resolves and probes a selected exploration configuration without activating it globally', async () => {
+    const upstream = vi.fn<typeof fetch>(async () => chatResponse())
+    await withRoutes(upstream, async (url, get, set) => {
+      set({ exploration_active_provider: 'deepseek', exploration_providers: {
+        glm: { api_key: 'fixture-glm-explore-key', model: 'glm-explore', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' },
+        deepseek: { api_key: 'fixture-deepseek-explore-key', model: 'deepseek-explore', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' },
+      } })
+      const before = JSON.stringify(get())
+      const selection = { provider: '__exploration__:glm', model: 'glm-session', thinking_effort: 'off' }
+      expect(await (await post(url + '/resolve', { selection })).json()).toMatchObject({ selection, active_provider: 'glm', selected_provider: selection.provider })
+      expect(await (await post(url + '/check', { selection })).json()).toMatchObject({ ok: true })
+      const [endpoint, options] = upstream.mock.calls[0] as [string, RequestInit]
+      expect(endpoint).toBe('https://open.bigmodel.cn/api/coding/paas/v4/chat/completions')
+      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-glm-explore-key')
+      expect(JSON.parse(String(options.body)).model).toBe('glm-session')
+      expect(JSON.stringify(get())).toBe(before)
+    })
+  })
+
   it('keeps independently verified exploration usable after ordinary model changes', async () => {
     const service = createExplorationModelService(vi.fn(async () => chatResponse()))
     const value = settings({ exploration_active_provider: 'deepseek', exploration_providers: { deepseek: { api_key: 'fixture-explore', model: 'explore-model', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' } } })
