@@ -1,62 +1,93 @@
-import React, { useEffect, useState } from 'react'
-import { useExplorationModelStore } from '../../store/exploration-model.js'
+import React, { useEffect, useRef, useState } from 'react'
+import { useSettingsStore } from '../../store/settings.js'
 import * as api from '../../api/website-exploration-api.js'
-import { connectionMessage } from '../../utils/model-connection.js'
+import { connectionMessage, explorationForm } from '../../utils/model-connection.js'
 import './exploration-model-settings.css'
 
-function providerForm(provider) {
-  return { provider: provider.id, base_url: provider.base_url || '', model: provider.model || '',
-    protocol: provider.protocol, auth_type: provider.auth_type || 'api_key', api_key: '' }
-}
-
 export default function ExplorationModelSettings() {
-  const { data, load, save, busy, error } = useExplorationModelStore()
+  const providers = useSettingsStore(s => s.providers)
+  const activeProvider = useSettingsStore(s => s.activeProvider)
+  const model = useSettingsStore(s => s.model)
+  const revision = useSettingsStore(s => s.explorationModelRevision)
+  const [form, setForm] = useState(null)
+  const [stored, setStored] = useState(null)
   const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState('')
-  const [forms, setForms] = useState({})
-  const [catalogs, setCatalogs] = useState({})
-  const [checking, setChecking] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
-  useEffect(() => { void load() }, [load])
-  const providerId = selected || data?.active_provider || (data?.base_url ? 'custom' : data?.providers?.[0]?.id)
-  const provider = data?.providers?.find(item => item.id === providerId)
-  const form = provider ? forms[providerId] || providerForm(provider) : null
-  const edit = (key, value) => { setResult(null); setForms(current => ({ ...current, [providerId]: { ...form, [key]: value } })) }
-  const isBusy = busy || checking
-  const active = data?.providers?.find(item => item.id === data?.active_provider)
-  const status = isBusy ? '正在验证…' : active ? `${active.name} · ${active.model}` : '保留原配置'
+  const [loadError, setLoadError] = useState('')
+  const requestId = useRef(0)
+
+  useEffect(() => {
+    const id = ++requestId.current
+    setResult(null)
+    setLoadError('')
+    setBusy(true)
+    async function load() {
+      try {
+        const data = await api.getExplorationModel()
+        if (id !== requestId.current) return
+        setStored(data)
+        setForm(explorationForm(data))
+      } catch (error) {
+        if (id !== requestId.current) return
+        setLoadError(error.message)
+        setOpen(true)
+      } finally { if (id === requestId.current) setBusy(false) }
+    }
+    void load()
+    return () => { ++requestId.current }
+  }, [providers, activeProvider, model, revision])
+
+  function edit(key, value) {
+    ++requestId.current
+    setForm(current => ({ ...current, [key]: value }))
+    setResult(null)
+    setLoadError('')
+  }
+
+  async function run(save) {
+    const id = ++requestId.current
+    setBusy(true)
+    setResult(null)
+    setLoadError('')
+    try {
+      const data = save ? await api.saveExplorationModel(form) : await api.checkExplorationModel(true)
+      if (id !== requestId.current) return
+      setResult(data)
+      if (data.ok) {
+        setStored(data)
+        setForm(explorationForm(data))
+        setOpen(false)
+        if (save) useSettingsStore.setState(state => ({ explorationModelRevision: state.explorationModelRevision + 1 }))
+      } else setOpen(true)
+    } catch (error) {
+      if (id !== requestId.current) return
+      setLoadError(error.message)
+      setOpen(true)
+    } finally { if (id === requestId.current) setBusy(false) }
+  }
+
+  const status = busy ? '正在检测…' : result && !result.ok ? '连接待修复' : ['connected', 'independent'].includes(stored?.status) ? '已连接' : '待验证'
   return <section className="exploration-model-settings" aria-label="网站探索模型">
     <button type="button" className="exploration-model-toggle" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-      <strong>高级设置 · 网站探索模型</strong><span className="exploration-model-toggle-meta"><span>{status}</span><span>· {open ? '收起' : '配置'}</span></span>
+      <strong>网站探索模型</strong><span>{status} · {open ? '收起' : '配置'}</span>
     </button>
     {open && <div className="exploration-model-body">
-      <p>独立配置网站探索与开发使用的模型，在探索输入框下方切换供应商和模型。</p>
-      <div className="exploration-provider-tabs" role="group" aria-label="网站探索供应商">
-        {data?.providers?.map(item => <button type="button" key={item.id} aria-pressed={providerId === item.id} disabled={isBusy} onClick={() => { setSelected(item.id); setResult(null) }}>{item.name}{item.configured ? ' · 已配置' : ''}</button>)}
-      </div>
-      {form && <form onSubmit={event => { event.preventDefault(); void (async () => {
-        const ok = await save(form)
-        if (ok) { setForms(current => ({ ...current, [providerId]: { ...form, api_key: '' } })); setResult({ ok: true, model: form.model }) }
-      })() }}>
-        <fieldset disabled={isBusy}>
-          <label>API Key<input type="password" autoComplete="new-password" value={form.api_key} onChange={event => edit('api_key', event.target.value)} placeholder={provider.has_key ? '已保存，留空保持不变' : '填写此探索供应商的 API Key'} required={!provider.has_key} /></label>
-          {providerId === 'custom' && <>
-            <label>接口协议<select value={form.protocol} onChange={event => edit('protocol', event.target.value)}><option value="openai_chat_completions">OpenAI Chat Completions</option><option value="anthropic_messages">Anthropic Messages</option></select></label>
-            <label>服务地址<input type="url" required value={form.base_url} onChange={event => edit('base_url', event.target.value)} placeholder="https://example.com/v1" /></label>
-            {form.protocol === 'anthropic_messages' && <label>鉴权方式<select value={form.auth_type} onChange={event => edit('auth_type', event.target.value)}><option value="api_key">API Key</option><option value="auth_token">Bearer Token</option></select></label>}
-          </>}
-          <label>模型<input required list={'exploration-models-' + providerId} value={form.model} onChange={event => edit('model', event.target.value)} placeholder="选择或填写模型名称" /></label>
-          <datalist id={'exploration-models-' + providerId}>{[...new Set([...(catalogs[providerId]?.models || []), ...provider.models])].map(model => <option key={model} value={model} />)}</datalist>
-          <div className="exploration-model-actions">
-            <button type="button" onClick={() => { setChecking(true); setResult(null); void api.listExplorationModels(form).then(catalog => setCatalogs(current => ({ ...current, [providerId]: catalog }))).catch(error => setResult({ ok: false, detail: error.message })).finally(() => setChecking(false)) }}>刷新模型列表</button>
-            <button type="button" disabled={!provider.configured} onClick={() => { setChecking(true); setResult(null); void api.checkExplorationModel(true).then(setResult).catch(error => setResult({ ok: false, detail: error.message })).finally(() => setChecking(false)) }}>重新检测当前探索配置</button>
-            <button type="submit">验证并使用此探索模型</button>
-          </div>
+      <p>确认服务地址，验证后保存。不影响主任务使用。</p>
+      {form && <form onSubmit={event => { event.preventDefault(); void run(true) }}>
+        <fieldset disabled={busy}>
+            <label>网站探索服务地址<input required type="url" value={form.base_url} onChange={event => edit('base_url', event.target.value)} placeholder={form.base_url_is_full ? 'https://example.com/custom/infer' : 'https://example.com/v1'} /></label>
+            <label className="exploration-model-checkbox"><input type="checkbox" checked={form.base_url_is_full} onChange={event => edit('base_url_is_full', event.target.checked)} />使用完整接口 URL</label>
+            <p>{form.base_url_is_full ? '直接使用填写的 OpenAI Chat Completions 完整接口 URL，不追加后缀' : stored?.suggested && form.base_url === stored.candidate_url ? '根据主服务地址生成，请验证' : '填写服务商提供的 Base URL，不包含请求接口后缀'}</p>
+            <label className="exploration-model-checkbox"><input type="checkbox" checked={form.use_main_key} onChange={event => edit('use_main_key', event.target.checked)} />使用现有 API Key（跟随当前主模型服务）</label>
+            {!form.use_main_key && <label>API Key<input type="password" autoComplete="new-password" required={!(stored?.has_independent_key ?? stored?.has_key)} value={form.api_key} onChange={event => edit('api_key', event.target.value)} placeholder={(stored?.has_independent_key ?? stored?.has_key) ? '已保存，留空保持不变' : '填写此服务的 API Key'} /></label>}
+            <label>模型<input value={form.model} onChange={event => edit('model', event.target.value)} placeholder={`留空使用主模型${stored?.main_model ? `：${stored.main_model}` : ''}`} /></label>
+          <div className="exploration-model-actions"><button type="button" onClick={() => run(false)}>重新检测已保存配置</button><button type="submit">验证并保存</button></div>
         </fieldset>
       </form>}
-      {catalogs[providerId]?.warning && <p role="status">{catalogs[providerId].warning}</p>}
-      {error && <p role="alert">{error}</p>}
-      {result && <div role="status" className={`exploration-model-result${result.ok ? ' is-success' : ''}`}><p>{connectionMessage(result)}</p>{!result.ok && result.detail && <details><summary>查看详情</summary><pre>{result.detail}</pre></details>}</div>}
+      {!form && <button type="button" disabled={busy} onClick={() => run(false)}>重新检测</button>}
+      {loadError && <p role="alert">{loadError}</p>}
+      {result && <div role="status"><p>{connectionMessage(result)}</p>{!result.ok && result.detail && <details><summary>查看详情</summary><pre>{result.detail}</pre></details>}</div>}
     </div>}
   </section>
 }

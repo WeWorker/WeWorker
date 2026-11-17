@@ -12,3 +12,15 @@ export function connectionMessage(result) {
     service_unavailable: '模型服务暂不可用',
   }[result.error] || '模型连接失败'
 }
+
+export function explorationForm(data) {
+  const baseUrl = data.configured_base_url ?? data.base_url
+  const fullUrl = data.configured_base_url_is_full ?? data.base_url_is_full
+  return {
+    base_url: baseUrl || data.candidate_url || '',
+    base_url_is_full: baseUrl ? fullUrl === true : data.candidate_url_is_full === true,
+    api_key: '',
+    use_main_key: data.use_main_key !== false,
+    model: data.configured_model || '',
+  }
+}

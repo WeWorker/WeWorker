@@ -33,6 +33,18 @@ describe('independent exploration providers', () => {
     expect(() => resolveWebwrightModelConfig(settings({ exploration_active_provider: 'glm', exploration_providers: {} }))).toThrow(/网站探索/)
   })
 
+  it('uses the active configuration key by reference while preserving a complete exploration URL', () => {
+    const value = settings({ active_model_configuration: 'fixture-chat', model_configurations: { 'fixture-chat': {
+      provider_id: 'custom', api_key: 'fixture-config-key', model: 'main-model', base_url: 'https://example.com/chat',
+      context_limit: 1000000, openai_base_url: '', auth_type: 'api_key',
+    } }, exploration_active_provider: 'custom', exploration_providers: { custom: {
+      api_key: '', use_main_key: true, model: '', base_url: 'https://example.org/infer/?version=1', base_url_is_full: true,
+      protocol: 'openai_chat_completions', auth_type: 'api_key',
+    } } })
+    expect(resolveWebwrightModelConfig(value)).toMatchObject({ api_key: 'fixture-config-key', base_url: 'https://example.org/infer/?version=1', base_url_is_full: true, model: 'main-model' })
+    expect(value.api_key).toBe('fixture-main-key')
+  })
+
   it('resolves a session-specific model through the independent credentials without changing chat settings', () => {
     const value = settings({ exploration_active_provider: 'deepseek', exploration_providers: { deepseek: {
       api_key: 'fixture-explore-key', model: 'saved-explore-model', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key',

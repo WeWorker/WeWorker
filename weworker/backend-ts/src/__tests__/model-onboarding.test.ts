@@ -258,15 +258,71 @@ async function withRoutes(upstream: typeof fetch, run: (url: string, get: () => 
 const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 describe('exploration settings API', () => {
-  it('rejects legacy independent configuration writes without sending or saving anything', async () => {
+  it('reloads the original saved exploration fields and retains their encrypted key when explicitly revalidated', async () => {
     const upstream = vi.fn<typeof fetch>(async () => chatResponse())
-    await withRoutes(upstream, async (url, get) => {
+    await withRoutes(upstream, async (url, get, set) => {
+      set({ exploration_base_url: 'https://example.org/original', exploration_model: 'original-model',
+        exploration_api_key: 'fixture-original-key', exploration_use_main_key: false })
+      expect(await (await fetch(url)).json()).toMatchObject({ configured_base_url: 'https://example.org/original',
+        configured_model: 'original-model', has_independent_key: true, use_main_key: false })
+      expect(await (await post(url, { base_url: 'https://example.org/original', model: 'original-model', api_key: '', use_main_key: false })).json()).toMatchObject({ ok: true })
+      expect(get().exploration_providers?.custom.api_key).toBe('fixture-original-key')
+      expect(get().api_key).toBe('fixture-main-key')
+    })
+  })
+  it('restores the original exploration form with a service address and a live reference to the main key', async () => {
+    const upstream = vi.fn<typeof fetch>(async () => chatResponse())
+    await withRoutes(upstream, async (url, get, set) => {
       const before = structuredClone(get())
       const response = await post(url, { base_url: 'https://example.org/custom', use_main_key: true, model: '' })
-      expect(response.status).toBe(400)
-      expect((await response.json()).detail).toContain('统一使用对话接口')
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ ok: true, base_url: 'https://example.org/custom', use_main_key: true, configured_model: '', main_model: before.model })
+      expect(get()).toMatchObject({ active_provider: before.active_provider, api_key: before.api_key, model: before.model })
+      expect((upstream.mock.calls[0] as unknown as [string])[0]).toBe('https://example.org/custom/chat/completions')
+      set({ api_key: 'fixture-replaced-main-key', model: 'new-main-model' })
+      const checked = await post(url + '/check', { force: true })
+      expect(await checked.json()).toMatchObject({ ok: true, effective_model: 'new-main-model' })
+      const [, options] = upstream.mock.calls.at(-1) as unknown as [string, RequestInit]
+      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-replaced-main-key')
+      expect(get().exploration_providers?.custom.api_key).toBe('')
+    })
+  })
+
+  it('restores independent key persistence and complete exploration endpoint URLs', async () => {
+    const upstream = vi.fn<typeof fetch>(async () => chatResponse())
+    await withRoutes(upstream, async (url, get) => {
+      const body = { base_url: 'https://example.org/infer/?version=1', base_url_is_full: true, use_main_key: false, model: 'explore-model', api_key: 'fixture-exploration-key' }
+      expect(await (await post(url, body)).json()).toMatchObject({ ok: true, base_url: body.base_url, base_url_is_full: true, use_main_key: false, configured_model: 'explore-model', has_key: true })
+      expect(await (await post(url, { ...body, api_key: '' })).json()).toMatchObject({ ok: true })
+      expect(get().exploration_providers?.custom.api_key).toBe('fixture-exploration-key')
+      const [endpoint, options] = upstream.mock.calls.at(-1) as unknown as [string, RequestInit]
+      expect(endpoint).toBe(body.base_url)
+      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-exploration-key')
+      expect(JSON.stringify(await (await fetch(url)).json())).not.toContain('fixture-exploration-key')
+      expect(get().api_key).toBe('fixture-main-key')
+    })
+  })
+
+  it('does not persist the restored form when verification fails', async () => {
+    await withRoutes(vi.fn(async () => new Response('invalid placeholder key', { status: 401 })), async (url, get) => {
+      const before = structuredClone(get())
+      const response = await post(url, { base_url: 'https://example.org/v1', use_main_key: false, model: 'explore-model', api_key: 'fixture-invalid-key' })
+      expect(await response.json()).toMatchObject({ ok: false, error: 'auth_failed' })
       expect(get()).toEqual(before)
-      expect(upstream).not.toHaveBeenCalled()
+    })
+  })
+
+  it('rejects a stale form save if the main configuration changes while verification is running', async () => {
+    let release!: (value: Response) => void
+    let started!: () => void
+    const start = new Promise<void>(resolve => { started = resolve })
+    await withRoutes(vi.fn(() => { started(); return new Promise<Response>(resolve => { release = resolve }) }), async (url, get, set) => {
+      const response = post(url, { base_url: 'https://example.org/v1', use_main_key: true, model: '' })
+      await start
+      set({ api_key: 'fixture-changed-main-key' })
+      release(chatResponse())
+      expect((await response).status).toBe(409)
+      expect(get().exploration_active_provider).toBeUndefined()
     })
   })
 

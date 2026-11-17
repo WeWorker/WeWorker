@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import type { Express } from 'express'
 import type { Settings } from './config.js'
 import type { ProviderEntry } from './llm-egress.js'
-import { normalizeLlmBaseUrl } from './llm-egress.js'
+import { normalizeLlmBaseUrl, normalizeLlmUrlInput } from './llm-egress.js'
 import { probeProviderProtocol, listProviderModels, type ProtocolProbeResult } from './provider-model-services.js'
 import { resolveWebwrightModelConfig } from './webwright-model-config.js'
-import { parseConversationModel, type ConversationModel } from './conversation-models.js'
+import { defaultConversationModel, resolveConversationModelSettings, parseConversationModel, type ConversationModel } from './conversation-models.js'
 import { getProvider, PROVIDERS } from './provider-registry.js'
 
 export function explorationConversationSettings(settings: Settings, input?: unknown): Settings {
@@ -20,7 +20,7 @@ export function defaultExplorationModel(settings: Settings): ConversationModel {
   if (selection) return { ...selection, thinking_effort: selection.thinking_effort || settings.exploration_thinking_effort || 'off' }
   if (settings.exploration_active_provider) {
     const saved = settings.exploration_providers?.[settings.exploration_active_provider]
-    if (saved?.model) return { provider: '__exploration__', model: saved.model, thinking_effort: 'off' }
+    if (saved) return { provider: '__exploration__', model: saved.model || settings.model, thinking_effort: 'off' }
   }
   return { provider: settings.active_model_configuration || settings.active_provider, model: settings.model, thinking_effort: 'off' }
 }
@@ -33,13 +33,34 @@ function fingerprint(settings: Settings): string {
 function transactionFingerprint(settings: Settings): string {
   return createHash('sha256').update(JSON.stringify([
     settings.exploration_active_provider, settings.exploration_providers,
+    settings.exploration_model_selection,
     settings.active_provider, settings.active_model_configuration, settings.model_configurations,
     settings.api_key, settings.base_url, settings.model,
   ])).digest('hex')
 }
 
 function settingsPatch(body: Record<string, unknown>, settings: Settings): Partial<Settings> {
-  if (body.provider === undefined && body.base_url !== undefined) throw new Error('网站探索已统一使用对话接口，请在模型配置中修改')
+  if (body.provider === undefined && body.base_url !== undefined) {
+    if (typeof body.base_url !== 'string' || !body.base_url.trim()) throw new Error('请填写网站探索服务地址')
+    if (typeof body.use_main_key !== 'boolean') throw new Error('请选择是否使用现有 API Key')
+    if (typeof body.model !== 'string') throw new Error('模型名称必须为文本')
+    if (body.api_key !== undefined && typeof body.api_key !== 'string') throw new Error('API Key 必须为文本')
+    if (body.base_url_is_full !== undefined && typeof body.base_url_is_full !== 'boolean') throw new Error('请选择有效的接口地址模式')
+    const previous = settings.exploration_providers?.custom
+    const fullUrl = body.base_url_is_full === true
+    const baseUrl = normalizeLlmUrlInput(body.base_url.trim(), fullUrl)
+    const mapped = !fullUrl && PROVIDERS.find(provider => provider.id !== 'custom'
+      && normalizeLlmBaseUrl(provider.webwright.baseUrl) === baseUrl)
+    return {
+      exploration_active_provider: 'custom',
+      exploration_providers: { ...settings.exploration_providers, custom: {
+        base_url: baseUrl, base_url_is_full: fullUrl, use_main_key: body.use_main_key,
+        api_key: body.use_main_key ? '' : typeof body.api_key === 'string' && body.api_key.trim()
+          ? body.api_key.trim() : previous?.api_key || settings.exploration_api_key || '',
+        model: body.model.trim(), protocol: mapped && mapped.webwright.protocol === 'anthropic_messages' ? 'anthropic_messages' : 'openai_chat_completions', auth_type: 'api_key',
+      } },
+    }
+  }
   if (typeof body.provider !== 'string' || !body.provider.trim()) throw new Error('请选择有效的网站探索供应商')
   const provider = getProvider(body.provider)
   if (!provider) throw new Error('请选择有效的网站探索供应商')
@@ -51,12 +72,14 @@ function settingsPatch(body: Record<string, unknown>, settings: Settings): Parti
   if (protocol !== 'anthropic_messages' && protocol !== 'openai_chat_completions') throw new Error('请选择有效的模型协议')
   const auth_type = custom ? body.auth_type ?? previous?.auth_type ?? 'api_key' : 'api_key'
   if (auth_type !== 'api_key' && auth_type !== 'auth_token') throw new Error('请选择有效的鉴权方式')
-  const base_url = custom ? normalizeLlmBaseUrl(String(body.base_url ?? previous?.base_url ?? '').trim()) : provider.webwright.baseUrl
+  const base_url_is_full = custom && (body.base_url_is_full === undefined ? previous?.base_url_is_full === true : body.base_url_is_full === true)
+  const base_url = custom ? normalizeLlmUrlInput(String(body.base_url ?? previous?.base_url ?? '').trim(), base_url_is_full) : provider.webwright.baseUrl
+  const use_main_key = body.use_main_key === undefined ? previous?.use_main_key === true : body.use_main_key === true
   const api_key = typeof body.api_key === 'string' && body.api_key.trim() ? body.api_key.trim() : previous?.api_key || ''
   return {
     exploration_active_provider: provider.id,
     exploration_providers: { ...settings.exploration_providers, [provider.id]: {
-      api_key, model: body.model.trim(), base_url, protocol, auth_type,
+      api_key: use_main_key ? '' : api_key, model: body.model.trim(), base_url, protocol, auth_type, use_main_key, base_url_is_full,
     } },
   }
 }
@@ -67,6 +90,20 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
   function status(settings: Settings) {
     let effective: ReturnType<typeof resolveWebwrightModelConfig> | undefined
     try { effective = resolveWebwrightModelConfig(settings) } catch { /* Keep incomplete configurations editable. */ }
+    const saved = settings.exploration_active_provider ? settings.exploration_providers?.[settings.exploration_active_provider] : undefined
+    let candidateUrl = ''
+    let suggested = false
+    try {
+      const main = resolveConversationModelSettings(settings, defaultConversationModel(settings))
+      const provider = getProvider(main.active_provider)
+      if (main.active_provider !== 'custom') candidateUrl = provider?.webwright.baseUrl || ''
+      else if (!main.base_url_is_full && main.base_url) {
+        const base = normalizeLlmBaseUrl(main.base_url)
+        const mapped = PROVIDERS.find(item => item.id !== 'custom' && normalizeLlmBaseUrl(item.weworker.baseUrl) === base)
+        candidateUrl = mapped ? mapped.webwright.baseUrl : base.endsWith('/v1') ? base : `${base}/v1`
+        suggested = !mapped
+      }
+    } catch { /* Incomplete main configurations remain editable. */ }
     return {
       health_scope: effective ? createHash('sha256').update(JSON.stringify([
         effective.provider_id, effective.protocol, effective.base_url, effective.api_key, effective.auth_type,
@@ -78,6 +115,14 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       thinking_effort: settings.exploration_model_selection?.thinking_effort || settings.exploration_thinking_effort || 'off',
       base_url: effective?.base_url || '',
       base_url_is_full: effective?.base_url_is_full === true,
+      candidate_url: candidateUrl,
+      suggested,
+      configured_model: saved ? saved.model : settings.exploration_model || '',
+      configured_base_url: saved ? saved.base_url || getProvider(settings.exploration_active_provider!)?.webwright.baseUrl || '' : settings.exploration_base_url || '',
+      configured_base_url_is_full: saved ? saved.base_url_is_full === true : settings.exploration_base_url_is_full === true,
+      has_independent_key: Boolean(saved ? saved.api_key : settings.exploration_api_key),
+      main_model: settings.model,
+      use_main_key: saved ? saved.use_main_key === true : settings.exploration_use_main_key !== false,
       has_key: Boolean(effective?.api_key),
       status: verified === fingerprint(settings) ? settings.exploration_active_provider ? 'independent' : 'connected' : 'pending',
       active_provider: settings.exploration_active_provider || '',
@@ -85,10 +130,12 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
         const saved = settings.exploration_providers?.[provider.id]
         return {
           id: provider.id, name: provider.name, models: [...new Set([saved?.model, ...provider.models].filter(Boolean))],
-          default_model: provider.defaultModel, model: saved?.model || provider.defaultModel,
+          default_model: provider.defaultModel, model: saved?.model || (saved?.use_main_key ? settings.model : provider.defaultModel),
           base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
           protocol: provider.id === 'custom' ? saved?.protocol || 'openai_chat_completions' : provider.webwright.protocol,
-          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(saved?.api_key), configured: Boolean(saved?.api_key && saved?.model),
+          base_url_is_full: saved?.base_url_is_full === true,
+          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(saved?.api_key || (saved?.use_main_key && settings.api_key)),
+          configured: Boolean((saved?.api_key || (saved?.use_main_key && settings.api_key)) && (saved?.model || settings.model)),
         }
       }),
     }
@@ -164,10 +211,16 @@ export function registerExplorationModelRoutes(app: Express, deps: {
   app.post('/settings/exploration-model', async (req, res) => {
     try {
       const current = deps.getSettings()
+      const transaction = transactionFingerprint(current)
       const patch = settingsPatch(req.body || {}, current)
-      const selection: ConversationModel = { provider: '__exploration__', model: String(req.body.model).trim(), thinking_effort: 'off' }
+      const model = patch.exploration_providers?.[patch.exploration_active_provider || '']?.model || current.model
+      const selection: ConversationModel | null = req.body.provider === undefined && !req.body.model.trim()
+        ? null : { provider: '__exploration__', model, thinking_effort: 'off' }
       const candidate: Settings = { ...current, ...patch, exploration_model_selection: selection }
       const result = await service.check(candidate, true)
+      if (transaction !== transactionFingerprint(deps.getSettings())) {
+        res.status(409).json({ detail: '模型配置已改变，请重新验证' }); return
+      }
       if (!result.ok) { res.json({ ...result, ...service.status(current) }); return }
       const saved = deps.updateSettings({ ...patch, exploration_model_selection: candidate.exploration_model_selection })
       res.json({ ...result, ...service.status(saved) })
@@ -178,8 +231,8 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       const current = deps.getSettings()
       const provider = typeof req.body?.provider === 'string' ? getProvider(req.body.provider) : undefined
       const saved = provider && current.exploration_providers?.[provider.id]
-      if (!provider || !saved?.api_key) throw new Error('请先在高级设置中配置该网站探索供应商')
-      const model = typeof req.body.model === 'string' && req.body.model.trim() ? req.body.model.trim() : saved.model
+      if (!provider || !saved || (!saved.api_key && !saved.use_main_key)) throw new Error('请先在高级设置中配置该网站探索供应商')
+      const model = typeof req.body.model === 'string' && req.body.model.trim() ? req.body.model.trim() : saved.model || current.model
       const candidate = { ...current, exploration_active_provider: provider.id,
         exploration_providers: { ...current.exploration_providers, [provider.id]: { ...saved, model } },
         exploration_model_selection: { provider: '__exploration__', model, thinking_effort: 'off' as const } as const }
@@ -197,7 +250,7 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       const provider = typeof req.body?.provider === 'string' ? getProvider(req.body.provider) : undefined
       if (!provider) throw new Error('请选择有效的网站探索供应商')
       const saved = settings.exploration_providers?.[provider.id]
-      if (!saved?.api_key) throw new Error('请先保存该网站探索供应商的 API Key')
+      if (!saved || (!saved.api_key && !saved.use_main_key)) throw new Error('请先保存该网站探索供应商的 API Key')
       const patch = settingsPatch({ ...saved, ...req.body, provider: provider.id, api_key: saved.api_key, model: req.body?.model || saved.model || 'catalog' }, settings)
       const candidate = { ...settings, ...patch, exploration_model_selection: { provider: '__exploration__', model: req.body?.model || saved.model || 'catalog' } }
       const config = resolveWebwrightModelConfig(candidate)
@@ -205,6 +258,7 @@ export function registerExplorationModelRoutes(app: Express, deps: {
         webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output } }
       const catalog = await listProviderModels({ provider: entry, apiKey: config.api_key,
         ...(config.protocol === 'anthropic_messages' ? { anthropicBaseUrl: config.base_url } : { openaiBaseUrl: config.base_url }),
+        anthropicFullUrl: config.base_url_is_full, openaiFullUrl: config.base_url_is_full,
         anthropicAuthType: config.auth_type }, deps.fetchImpl)
       const redact = (value: string) => value.split(config.api_key).join('[REDACTED]')
       res.json({ ...catalog, models: catalog.models.map(redact), ...(catalog.warning ? { warning: redact(catalog.warning) } : {}) })

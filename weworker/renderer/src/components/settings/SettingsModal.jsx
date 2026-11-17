@@ -51,6 +51,7 @@ import { showConfirm } from '../../store/dialog.js'
 import { showNotification, useNotificationsStore } from '../../store/notifications.js'
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
+import ExplorationModelSettings from './ExplorationModelSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
 import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 import { MODEL_SETTINGS_DESCRIPTION } from '../../config/model-settings-text.js'
@@ -2261,8 +2262,6 @@ function ModelTab() {
             </div>
           )
           const contextLimitField = (
-            <details className="settings-model-advanced">
-            <summary>高级设置</summary>
             <Field label="上下文窗口" hint="用于上下文占用和自动压缩，单位支持 K 或 M">
               <AppDropdownInput
                 className="settings-input"
@@ -2275,7 +2274,6 @@ function ModelTab() {
                 inputMode="text"
               />
             </Field>
-            </details>
           )
           const catalogAddressFields = () => {
             const field = 'models_url'
@@ -2327,6 +2325,7 @@ function ModelTab() {
                   {actionFeedback}
                   {identityFields}
                   <div className="model-settings-grid">{contextLimitField}</div>
+                  <ExplorationModelSettings />
                   {renderProbeChecklist(p.id)}
                 </div>
               </div>
@@ -2475,6 +2474,7 @@ function ModelTab() {
                     </section>
                   )}
 
+                  <ExplorationModelSettings />
                   {renderProbeChecklist(p.id)}
               </div>
             </div>

@@ -37,7 +37,9 @@ export function resolveConversationModelSettings(settings: Settings, value: Conv
   if (selection.provider === '__exploration__') {
     const provider = getProvider(settings.exploration_active_provider || '')
     const saved = provider && settings.exploration_providers?.[provider.id]
-    if (!provider || !saved?.api_key) throw new Error('请先在高级设置中配置网站探索模型')
+    const apiKey = saved?.use_main_key
+      ? resolveConversationModelSettings(settings, defaultConversationModel(settings)).api_key : saved?.api_key
+    if (!provider || !saved || !apiKey) throw new Error('请先在高级设置中配置网站探索模型')
     const custom = provider.id === 'custom'
     const protocol = custom ? saved.protocol : provider.weworker.protocol
     return {
@@ -45,9 +47,9 @@ export function resolveConversationModelSettings(settings: Settings, value: Conv
       active_provider: provider.id,
       active_model_configuration: '',
       model: provider.fixedModel ? provider.defaultModel : selection.model,
-      api_key: saved.api_key,
+      api_key: apiKey,
       base_url: custom ? saved.base_url : provider.weworker.baseUrl,
-      base_url_is_full: false,
+      base_url_is_full: custom && saved.base_url_is_full === true,
       active_auth_type: custom ? saved.auth_type : provider.authType || 'api_key',
       active_weworker_protocol: protocol,
       context_limit: normalizeContextLimit(settings.context_limit, DEFAULT_CONTEXT_LIMIT),

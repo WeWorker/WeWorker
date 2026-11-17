@@ -319,6 +319,8 @@ export interface Settings {
     base_url: string
     protocol: 'anthropic_messages' | 'openai_chat_completions'
     auth_type: import('./anthropic-auth.js').AnthropicAuthType
+    use_main_key?: boolean
+    base_url_is_full?: boolean
   }>
   exploration_model_selection?: { provider: string; model: string; thinking_effort?: import('./conversation-models.js').ConversationModel['thinking_effort'] } | null
   exploration_thinking_effort?: 'off' | 'low' | 'medium' | 'high'
