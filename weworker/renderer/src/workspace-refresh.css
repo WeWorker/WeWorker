@@ -554,6 +554,7 @@ html.dark .dedicated-agents-sidebar {
 .settings-side-nav.is-active { background: #ededed; font-weight: 400; }
 html.dark .settings-side-nav.is-active { background: #383838; }
 .settings-page-description { margin: 6px 0 0; font-size: var(--font-size-caption); line-height: 1.6; color: var(--text-secondary); }
+.settings-page-description--danger { color: var(--error); }
 .settings-panel-top { min-height: 82px; }
 .settings-body:not(.settings-body--model) > * { max-width: 900px; margin-inline: auto; }
 .settings-field-label { font-size: var(--font-size-label); }

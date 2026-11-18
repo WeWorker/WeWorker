@@ -2,6 +2,7 @@ import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import SecretInput from './SecretInput.jsx'
+import { MODEL_SETTINGS_DESCRIPTION, MODEL_SETTINGS_DESCRIPTION_DANGER } from '../../config/model-settings-text.js'
 import { ScanSearch } from 'lucide-react'
 import AppDropdownInput from '../common/AppDropdownInput.jsx'
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react'
@@ -151,7 +152,7 @@ const SETTINGS_GROUPS = [
   { label: '应用信息', items: [['about', '关于']] },
 ]
 const SETTINGS_DESCRIPTIONS = {
-  model: '选择模型并管理连接配置。',
+  model: MODEL_SETTINGS_DESCRIPTION,
   config: '调整工作目录、回复风格与日常使用偏好。',
   memory: '管理跨对话保留的长期记忆。',
   channels: '配置外部消息通道与连接方式。',
@@ -271,7 +272,7 @@ export default function SettingsPage({ onClose }) {
           <div className="settings-panel-top">
             <div>
               <h3>{SETTINGS_GROUPS.flatMap(group => group.items).find(([key]) => key === tab)?.[1] || '设置'}</h3>
-              <p className="settings-page-description">{SETTINGS_DESCRIPTIONS[tab]}</p>
+              <p className={`settings-page-description${tab === 'model' && MODEL_SETTINGS_DESCRIPTION_DANGER ? ' settings-page-description--danger' : ''}`}>{SETTINGS_DESCRIPTIONS[tab]}</p>
             </div>
           </div>
           <div className={`settings-body${tab === 'model' || tab === 'channels' ? ' settings-body--model' : ''}`}>
