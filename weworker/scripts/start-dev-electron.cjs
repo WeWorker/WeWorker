@@ -2,11 +2,12 @@ const path = require('node:path')
 const { spawn } = require('node:child_process')
 const { prepareDevElectron } = require('./prepare-dev-electron.cjs')
 
-function startDevElectron({ executable, args = process.argv.slice(2), spawnProcess = spawn, host = process } = {}) {
+function startDevElectron({ executable, args = process.argv.slice(2), spawnProcess = spawn, host = process, env = process.env } = {}) {
   const child = spawnProcess(executable, ['.', ...args], {
     cwd: path.resolve(__dirname, '..'),
     stdio: 'inherit',
     windowsHide: false,
+    env,
   })
   const forward = (signal) => { if (!child.killed) child.kill(signal) }
   const onSigint = () => forward('SIGINT')

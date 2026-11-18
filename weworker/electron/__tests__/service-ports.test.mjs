@@ -1,13 +1,31 @@
 import assert from 'node:assert/strict'
 import net from 'node:net'
 import test from 'node:test'
-import { selectServicePorts } from '../service-ports.js'
+import { selectRendererPort, selectServicePorts } from '../service-ports.js'
 
 test('available preferred ports remain unchanged', async () => {
   const ports = await selectServicePorts({ backend: 0, exploration: 0, bridge: 0 })
   assert.equal(new Set(Object.values(ports)).size, 3)
   assert.ok(Object.values(ports).every(port => port > 0 && port <= 65535))
   assert.deepEqual(await selectServicePorts(ports), ports)
+})
+
+test('renderer receives an available port when its default is occupied', async t => {
+  const holder = net.createServer()
+  await new Promise(resolve => holder.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => holder.close(resolve)))
+  const preferredRenderer = holder.address().port
+  const rendererPort = await selectRendererPort(preferredRenderer)
+  assert.notEqual(rendererPort, preferredRenderer)
+  assert.ok(rendererPort > 0 && rendererPort <= 65535)
+})
+
+test('renderer keeps its preferred port when available', async () => {
+  const reservation = net.createServer()
+  await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve))
+  const preferred = reservation.address().port
+  await new Promise(resolve => reservation.close(resolve))
+  assert.equal(await selectRendererPort(preferred), preferred)
 })
 
 test('occupied ports are replaced without connecting to or stopping their holders', async t => {

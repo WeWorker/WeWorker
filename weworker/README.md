@@ -95,12 +95,12 @@ cd ../../webcli && npm install   # WebCLI Bridge（ws、@anthropic-ai/sdk）
 npm run dev
 ```
 
-同时启动渲染进程 Vite dev server（`localhost:5173`）和 Electron 主进程。
-Electron 主进程会自动启动 `backend-ts`，通常不需要另外启动后端。
+统一启动器先启动渲染进程 Vite dev server，再将实际监听地址传给 Electron。Renderer 默认使用 `127.0.0.1:5173`；端口被占用时自动选择可用端口，无需手动指定。终端会显示实际地址。
+Electron 主进程自动启动 `backend-ts`、浏览器桥接和探索服务，默认端口分别为 8765、3711 和 8766；端口被占用时为本次应用实例选择其他可用端口，并将实际地址传给各服务。
 
-如需单独查看或调试后端日志，可以先在 `backend-ts` 目录执行 `npm run dev`，再在 `weworker` 目录执行 `npm run dev`。开发版 Electron 会识别并使用这个外部后端，退出 WeWorker 时不会结束它。
+开发启动不会接管或结束占用这些端口的外部进程。Electron 退出后，统一启动器关闭本次创建的 Vite 服务；Vite 启动失败时不会启动 Electron。
 
-Electron 主进程会自动从 `components/webwright` 源码启动 Webwright，并监听 `127.0.0.1:8766`。不需要手动启动 Webwright Server；界面中的“打开 Webwright”只调用系统默认浏览器打开固定地址。
+探索服务由 Electron 从仓库内源码启动，使用本次分配的探索端口；开发模式无需单独启动探索服务。
 
 ## 构建桌面应用
 
