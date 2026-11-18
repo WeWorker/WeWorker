@@ -1487,19 +1487,6 @@
 }
 
 .model-settings-sidebar__header--models .model-settings-search { max-width: none; }
-.model-settings-sidebar__tools { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
-.settings-btn.model-settings-discover {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  min-height: 32px;
-  padding: 0;
-  border-radius: 8px;
-}
-
 .model-settings-search > .anticon {
   flex: 0 0 auto;
   font-size: 13px;
@@ -1584,6 +1571,13 @@
   padding: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.model-settings-provider-divider {
+  flex-shrink: 0;
+  margin: 6px 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
 }
 
 .model-settings-provider-empty {

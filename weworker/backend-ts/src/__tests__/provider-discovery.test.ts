@@ -25,6 +25,43 @@ function claude(key = 'fixture-claude-key') {
 const discover = (env: NodeJS.ProcessEnv = {}) => discoverLocalProviders({ home, env, validate: false })
 
 describe('local provider discovery', () => {
+  it('recognizes and imports an OpenAI workshop sibling while retaining Anthropic chat', async () => {
+    claude()
+    const fetchImpl = vi.fn(async (url, init) => {
+      if (String(url).endsWith('/chat/completions')) {
+        expect(String(url)).toBe('https://example.com/anthropic/v1/chat/completions')
+        expect(init?.headers).toMatchObject({ authorization: 'Bearer fixture-claude-key' })
+        return Response.json({ choices: [{ message: { content: '{"ok":true}' } }] })
+      }
+      return Response.json({ data: [{ id: 'fixture-claude-model' }] })
+    }) as typeof fetch
+    const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl })
+    const preview = publicDiscoveredProviders(settings(), providers)[0]
+    expect(preview).toMatchObject({ weworker_protocol: 'anthropic_messages',
+      openai_base_url: 'https://example.com/anthropic/v1', openai_model: 'fixture-claude-model' })
+    expect(JSON.stringify(preview)).not.toContain('fixture-claude-key')
+    const result = importDiscoveredProviders(settings(), providers, true)
+    expect(result.updates.model_configurations![result.imported[0]]).toMatchObject({
+      weworker_protocol: 'anthropic_messages', base_url: 'https://example.com/anthropic',
+      openai_base_url: 'https://example.com/anthropic/v1', openai_api_key: 'fixture-claude-key',
+    })
+    const old = { ...providers[0].configuration, openai_base_url: '', openai_api_key: '' }
+    const refreshed = importDiscoveredProviders({ ...settings(), model_configurations: { old } }, providers, true)
+    expect(refreshed.updates.model_configurations!.old.openai_base_url).toBe('https://example.com/anthropic/v1')
+  })
+
+  it('keeps real failed Anthropic sources visible without fabricated OpenAI routes', async () => {
+    claude()
+    const { providers } = await discoverLocalProviders({ home, env: {},
+      fetchImpl: async () => new Response('{}', { status: 401 }) })
+    expect(publicDiscoveredProviders(settings(), providers)[0]).toMatchObject({
+      base_url: 'https://example.com/anthropic', weworker_protocol: 'anthropic_messages',
+      validation: { ok: false, reason: 'auth' }, openai_base_url: '', openai_model: '',
+    })
+    const imported = importDiscoveredProviders(settings(), providers, true)
+    expect(imported.updates.model_configurations![imported.imported[0]].openai_base_url).toBe('')
+  })
+
   it('reads Claude settings and local overrides without changing the source', async () => {
     claude()
     write('.claude/settings.local.json', { env: { ANTHROPIC_AUTH_TOKEN: 'fixture-local-token' } })
