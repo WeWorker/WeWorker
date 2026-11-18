@@ -5,7 +5,7 @@
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "npm run ensure:webwright && npm run build:webcli && concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev": "npm run ensure:webwright && npm run build:webcli && node scripts/start-dev-app.cjs",
     "ensure:webwright": "node scripts/ensure-webwright.cjs",
     "sync:webwright": "uv sync --project ../components/webwright",
     "build:webwright": "node scripts/build-webwright.cjs",

@@ -104,3 +104,17 @@ test('development launcher passes arguments, forwards signals and propagates exi
     assert.equal(host.listenerCount(signal), 0)
   }
 })
+
+test('development launcher passes the selected renderer address to Electron', () => {
+  const host = new EventEmitter()
+  const child = new EventEmitter()
+  const env = { WEWORKER_RENDERER_DEV_URL: 'http://127.0.0.1:45123' }
+  startDevElectron({
+    executable: 'fixture-electron', args: [], host, env,
+    spawnProcess: (_executable, _args, options) => {
+      assert.deepEqual(options.env, env)
+      return child
+    },
+  })
+  child.emit('close', 0)
+})

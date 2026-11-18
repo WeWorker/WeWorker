@@ -10,6 +10,19 @@ function bind(port) {
   })
 }
 
+export async function selectRendererPort(preferred = 5173) {
+  if (!Number.isInteger(preferred) || preferred < 0 || preferred > 65535) throw new Error('Invalid renderer port')
+  let server
+  try { server = await bind(preferred) }
+  catch (error) {
+    if (!['EADDRINUSE', 'EACCES'].includes(error.code)) throw error
+    server = await bind(0)
+  }
+  const port = server.address().port
+  await new Promise(resolve => server.close(resolve))
+  return port
+}
+
 export async function selectServicePorts(preferred = DEFAULT_SERVICE_PORTS) {
   const servers = []
   const ports = {}
