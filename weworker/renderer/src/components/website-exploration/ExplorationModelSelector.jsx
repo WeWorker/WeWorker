@@ -14,6 +14,7 @@ import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 import '../chat/model-selector.css'
 
 const selectionProvider = item => item.selection_provider || `__exploration__:${item.id}`
+const hasExplorationEndpoint = item => item?.has_key && item.base_url && item.protocol === 'openai_chat_completions'
 
 export default function ExplorationModelSelector({ disabled, usage, conversationId, draftModelKey = 'site/new/instruction/model', onPendingChange, onReadyChange, children }) {
   const providers = useSettingsStore(s => s.providers)
@@ -43,8 +44,9 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
         : useWebsiteExplorationStore.getState().drafts[draftModelKey]
       const available = await api.getExplorationModel()
       if (!alive || version !== requestVersion.current) return
-      const configured = available.providers?.filter(item => item.configured) || []
       const savedReference = saved?.provider === '__exploration__' ? `__exploration__:${available.active_provider}` : saved?.provider
+      const configured = available.providers?.filter(item => item.configured
+        || selectionProvider(item) === savedReference && saved?.model && hasExplorationEndpoint(item)) || []
       const previous = configured.find(item => selectionProvider(item) === savedReference)
       const entry = previous || configured.find(item => item.id === available.active_provider) || configured[0]
       if (!entry) {
@@ -97,7 +99,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   useEffect(() => {
     const controller = new AbortController()
     setCatalog(null)
-    if (provider?.configured) {
+    if (provider && config?.selection) {
       api.listExplorationModels({ provider: selected, model: currentModel })
         .then(value => { if (!controller.signal.aborted) setCatalog({ provider: selected, models: value.models || [] }) })
         .catch(() => {})
@@ -113,11 +115,25 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     selectionRef.current = result.selection
     setConfig(result)
   }
+  async function providerSelection(entry) {
+    if (!entry?.configured) {
+      if (!hasExplorationEndpoint(entry)) throw new Error('请先在设置 → 模型中配置该供应商的 Adapter 工坊 OpenAI 接口')
+      const catalog = await api.listExplorationModels({ provider: selectionProvider(entry) })
+      const model = catalog.models?.find(value => typeof value === 'string' && value.trim())
+      if (!model) throw new Error('未获取到可用模型，请在设置 → 模型中选择或填写模型')
+      return { provider: selectionProvider(entry), model }
+    }
+    return { provider: selectionProvider(entry), model: entry.model }
+  }
   async function save(patch) {
     if (disabled || pendingRef.current) return
     requestVersion.current++
     pendingRef.current = true; setPending(true); onPendingChange?.(true); setError('')
     try {
+      if (patch.provider && !patch.model) {
+        const entry = config?.providers?.find(item => selectionProvider(item) === patch.provider)
+        patch = { ...patch, ...await providerSelection(entry) }
+      }
       await persistSelection(patch)
       return true
     } catch (e) { setError(e.message); return false }
@@ -130,10 +146,10 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     if (entry.fixed_provider && !entry.has_key && !providers[entry.id]?.has_key) {
       setError(''); setKeyProvider(entry); return
     }
-    if (!entry.configured) {
+    if (!entry.configured && !hasExplorationEndpoint(entry)) {
       setError('请先在设置 → 模型中配置该供应商的 Adapter 工坊 OpenAI 接口'); return
     }
-    await save({ provider: id, model: entry.model })
+    await save({ provider: id, model: entry.configured ? entry.model : '' })
   }
   async function savePresetKey(apiKey) {
     if (disabled || pendingRef.current) throw new Error('请稍后重试')
@@ -143,8 +159,8 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       await useSettingsStore.getState().saveProvider(keyProvider.id, { api_key: apiKey })
       const available = await api.getExplorationModel()
       const entry = available.providers?.find(item => item.id === keyProvider.id)
-      if (!entry?.configured) throw new Error('API Key 已保存，请在设置 → 模型中配置该供应商的 Adapter 工坊 OpenAI 接口')
-      await persistSelection({ provider: selectionProvider(entry), model: entry.model })
+      if (!entry?.configured && !hasExplorationEndpoint(entry)) throw new Error('API Key 已保存，请在设置 → 模型中配置该供应商的 Adapter 工坊 OpenAI 接口')
+      await persistSelection(await providerSelection(entry))
     } finally {
       pendingRef.current = false; setPending(false); onPendingChange?.(false)
     }

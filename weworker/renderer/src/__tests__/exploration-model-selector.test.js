@@ -18,14 +18,15 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
   for (const [key, value] of Object.entries(replacements)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
   const originalFetch = globalThis.fetch
   const requests = []
-  let empty = false, failKeySave = false, server, root
+  let empty = false, failKeySave = false, failCatalog = false, server, root
+  let chatProvider = 'chat-only', chatModel = 'chat-only-model'
   const configurations = [
     { id: 'custom', name: '网站探索配置（自定义）', model: 'fixture-explore', models: ['fixture-explore'], configured: true, has_key: true },
     { id: 'glm', name: 'Exploration GLM', model: 'glm-explore', models: ['glm-explore'], configured: true, has_key: true },
     { id: 'named-config', name: 'Claude Code', model: 'named-explore', models: ['named-explore'], configured: true, has_key: true },
     { id: 'builtin', selection_provider: 'builtin', name: '内置模型', model: 'builtin-model', models: ['builtin-model'], configured: true, has_key: true, fixed_model: true },
     { id: 'anthropic', name: 'Anthropic', configured: false, fixed_provider: true, has_key: false },
-    { id: 'deepseek', name: 'DeepSeek', model: 'deepseek-chat', configured: false, fixed_provider: true, has_key: false },
+    { id: 'deepseek', name: 'DeepSeek', model: '', protocol: 'openai_chat_completions', base_url: 'https://example.org/v1', configured: false, fixed_provider: true, has_key: false },
     { id: 'unconfigured-custom', name: 'Unconfigured exploration', configured: false },
   ]
   globalThis.fetch = async (url, options = {}) => {
@@ -37,8 +38,13 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     if (path === '/settings/provider') {
       if (failKeySave) return Response.json({ detail: 'Fixture key save failed' }, { status: 400 })
       const entry = configurations.find(item => item.id === body.provider)
-      if (entry.id !== 'anthropic') Object.assign(entry, { configured: true, has_key: true })
-      return Response.json({ active_provider: 'chat-only', model: 'chat-only-model', providers: {
+      if (entry.id !== 'anthropic') {
+        entry.has_key = true
+        if (body.model) entry.model = body.model
+        entry.configured = Boolean(entry.has_key && entry.model)
+      }
+      if (body.provider === chatProvider && body.model) chatModel = body.model
+      return Response.json({ active_provider: chatProvider, model: chatModel, providers: {
         'chat-only': { has_key: true }, [body.provider]: { has_key: true, model: entry.model },
       } })
     }
@@ -46,7 +52,12 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
       const selection = body.selection || { provider: 'chat-only', model: 'chat-only-model' }
       return Response.json({ ...status, selected_provider: selection.provider, active_provider: selection.provider.split(':')[1], effective_model: selection.model, selection })
     }
-    if (path.endsWith('/models')) return Response.json({ models: body.provider === '__exploration__:glm' ? ['glm-explore', 'glm-next'] : ['fixture-explore'] })
+    if (path.endsWith('/models')) {
+      if (body.provider === '__exploration__:deepseek') return failCatalog
+        ? Response.json({ detail: 'Fixture catalog failed' }, { status: 400 })
+        : Response.json({ models: ['deepseek-chat'], source: 'remote' })
+      return Response.json({ models: body.provider === '__exploration__:glm' ? ['glm-explore', 'glm-next'] : ['fixture-explore'] })
+    }
     if (path.endsWith('/check')) return Response.json({ ok: true })
     if (path === '/settings/provider/models') return Response.json({ models: ['chat-only-model'] })
     throw new Error('Unexpected fixture request: ' + path)
@@ -106,6 +117,8 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     assert.ok(requests.some(r => r.path.endsWith('/check') && r.body.selection.provider === 'builtin'))
     assert.equal(requests.some(r => r.path === '/settings/exploration-model/selection' || r.path === '/settings/exploration-model' && r.body), false)
     assert.equal(useSettingsStore.getState().activeProvider, 'chat-only')
+    chatProvider = 'deepseek'; chatModel = ''
+    await act(async () => useSettingsStore.setState({ activeProvider: chatProvider, model: chatModel }))
     await click('[aria-label="模型供应商选择"]')
     await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === 'DeepSeek').click())
     const keyInput = document.querySelector('[role="dialog"] input[type="password"]')
@@ -119,12 +132,36 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     assert.match(document.querySelector('[role="dialog"]').textContent, /Fixture key save failed/)
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, 'builtin')
     failKeySave = false
+    failCatalog = true
+    await act(async () => document.querySelector('[role="dialog"] form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })))
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Fixture catalog failed/)
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, 'builtin')
+    failCatalog = false
     await act(async () => document.querySelector('[role="dialog"] form').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })))
     assert.equal(document.querySelector('[role="dialog"]'), null)
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, '__exploration__:deepseek')
-    assert.equal(useSettingsStore.getState().activeProvider, 'chat-only')
+    assert.equal(useSettingsStore.getState().activeProvider, 'deepseek')
+    assert.equal(useSettingsStore.getState().model, '', 'an active chat supplier with no model must keep its default unchanged')
+    assert.equal(configurations.find(item => item.id === 'deepseek').model, '')
     assert.equal(requests.some(r => r.path === '/settings/provider/activate'), false)
     assert.ok(requests.some(r => r.path === '/settings/provider' && r.body.provider === 'deepseek' && r.body.api_key === 'fixture-api-key'))
+    assert.equal(requests.some(r => r.path === '/settings/provider' && r.body.provider === 'deepseek' && 'model' in r.body), false,
+      'catalog discovery must not change ordinary chat model settings')
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].model, 'deepseek-chat',
+      'the first catalog model is selected only for the exploration session')
+    await render('fresh-supplier-reload')
+    assert.match(document.querySelector('[aria-label="模型供应商选择"]').textContent, /DeepSeek/)
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].model, 'deepseek-chat')
+    await click('[aria-label="模型供应商选择"]')
+    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '内置模型').click())
+    await click('[aria-label="模型供应商选择"]')
+    const savesBeforeReselect = requests.filter(r => r.path === '/settings/provider').length
+    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === 'DeepSeek').click())
+    assert.equal(document.querySelector('[role="dialog"]'), null)
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, '__exploration__:deepseek')
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].model, 'deepseek-chat')
+    assert.equal(requests.filter(r => r.path === '/settings/provider').length, savesBeforeReselect)
+    assert.equal(useSettingsStore.getState().model, '')
     await click('[aria-label="模型供应商选择"]')
     await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === 'Anthropic').click())
     const unsupportedKeyInput = document.querySelector('[role="dialog"] input[type="password"]')

@@ -5,6 +5,7 @@ import { createExplorationModelService, defaultExplorationModel, registerExplora
 import { resolveOpenAiEndpoint } from '../llm-egress.js'
 import { getProvider } from '../provider-registry.js'
 import { resolveWebwrightModelConfig } from '../webwright-model-config.js'
+import { resolveConversationModelSettings } from '../conversation-models.js'
 
 function settings(): Settings {
   return {
@@ -26,6 +27,17 @@ function settings(): Settings {
 }
 
 describe('exploration reads the model settings exploration interface', () => {
+  it.each(['glm', 'deepseek'])('shares the fixed %s supplier key across its built-in chat and exploration protocols', id => {
+    const saved = { ...settings(), [`api_key_${id}`]: 'placeholder-shared-supplier-key', [`model_${id}`]: '' }
+    const before = structuredClone(saved)
+    expect(resolveConversationModelSettings(saved, { provider: id, model: 'fixture-session-model' })).toMatchObject({
+      api_key: 'placeholder-shared-supplier-key', active_weworker_protocol: 'anthropic_messages',
+    })
+    expect(resolveWebwrightModelConfig({ ...saved, exploration_model_selection: { provider: `__exploration__:${id}`, model: 'fixture-session-model' } }))
+      .toMatchObject({ api_key: 'placeholder-shared-supplier-key', protocol: 'openai_chat_completions', model: 'fixture-session-model' })
+    expect(saved).toEqual(before)
+  })
+
   it('marks fixed supplier entries for display without treating missing credentials as configured', () => {
     const providers = createExplorationModelService().status(settings()).providers
     for (const id of ['anthropic', 'glm', 'deepseek']) {
@@ -113,6 +125,26 @@ describe('exploration reads the model settings exploration interface', () => {
     expect(requests[0].headers.has('x-api-key')).toBe(false)
     expect(requests[0].headers.get('authorization')).toMatch(/^Bearer /)
     expect(requests[0].body).toMatchObject({ model: provider.defaultModel, response_format: { type: 'json_object' } })
+  })
+
+  it('lists a fresh fixed supplier catalog before any model is selected', async () => {
+    const saved = { ...settings(), model: '', model_deepseek: '', api_key_deepseek: 'placeholder-preset-key' }
+    const before = structuredClone(saved)
+    const requests: Array<{ url: string; authorization: string | null; body: unknown }> = []
+    const handlers = new Map<string, Function>()
+    registerExplorationModelRoutes({ get() {}, post: (route: string, handler: Function) => handlers.set(route, handler) } as unknown as Express,
+      { getSettings: () => saved, updateSettings: () => { throw new Error('must not write settings') },
+        fetchImpl: async (url, options) => {
+          requests.push({ url: String(url), authorization: new Headers(options?.headers).get('authorization'), body: options?.body })
+          return Response.json({ data: [{ id: 'fixture-preset-model' }] })
+        } })
+    let data: any, status = 200
+    const response = { json(value: unknown) { data = value; return this }, status(value: number) { status = value; return this } }
+    await handlers.get('/settings/exploration-model/models')!({ body: { provider: '__exploration__:deepseek' } }, response)
+    expect(status).toBe(200)
+    expect(data.models).toEqual(['fixture-preset-model'])
+    expect(requests).toEqual([{ url: expect.stringMatching(/\/models$/), authorization: 'Bearer placeholder-preset-key', body: undefined }])
+    expect(saved).toEqual(before)
   })
 
   it('probes and lists models with the settings exploration credentials and its explicit catalog URL', async () => {
