@@ -280,9 +280,9 @@ function queryByErr(db, { since = "30d", from = null, to = null, top = null } = 
 }
 
 /**
- * 报错明细聚合（by=errdetail）：每个报错下钻到 tool 与 user 维度（带各自调用数）。
- *   [{ err, calls, tools: [{tool, calls}], users: [{user, calls}] }]，按 calls 倒序。
- * 与 by=err 同口径：仅统计失败调用（ok=0），噪音排除，空 user 归 (unknown) 不漏计。
+ * 报错明细聚合（by=errdetail）：每个报错下钻到 tool / user / webcliVersion 维度（带各自调用数）。
+ *   [{ err, calls, tools: [{tool, calls}], users: [{user, calls}], versions: [{version, calls}] }]，按 calls 倒序。
+ * 与 by=err 同口径：仅统计失败调用（ok=0），噪音排除，空 user / 空版本归 (unknown) 不漏计。
  * @param {DatabaseSync} db
  * @param {{since?:string, from?:string|null, to?:string|null, kind?:string, top?:number}} opts
  */
@@ -303,10 +303,16 @@ function queryByErrDetail(db, { since = "30d", from = null, to = null, kind = nu
        FROM metrics WHERE ${failClause} GROUP BY err, COALESCE(NULLIF(user, ''), '(unknown)')`
     )
     .all(...params);
+  const byVersion = db
+    .prepare(
+      `SELECT err, COALESCE(NULLIF(webcli_version, ''), '(unknown)') AS version, COUNT(*) AS calls
+       FROM metrics WHERE ${failClause} GROUP BY err, COALESCE(NULLIF(webcli_version, ''), '(unknown)')`
+    )
+    .all(...params);
 
   const map = new Map();
   for (const r of byTool) {
-    if (!map.has(r.err)) map.set(r.err, { err: r.err, calls: 0, tools: [], users: [] });
+    if (!map.has(r.err)) map.set(r.err, { err: r.err, calls: 0, tools: [], users: [], versions: [] });
     const g = map.get(r.err);
     g.calls += r.calls;
     g.tools.push({ tool: r.tool, calls: r.calls });
@@ -316,9 +322,15 @@ function queryByErrDetail(db, { since = "30d", from = null, to = null, kind = nu
     if (!g) continue; // err 非空约束两侧一致，理论不可达；防御性跳过
     g.users.push({ user: r.user, calls: r.calls });
   }
+  for (const r of byVersion) {
+    const g = map.get(r.err);
+    if (!g) continue;
+    g.versions.push({ version: r.version, calls: r.calls });
+  }
   for (const g of map.values()) {
     g.tools.sort((a, b) => b.calls - a.calls);
     g.users.sort((a, b) => b.calls - a.calls);
+    g.versions.sort((a, b) => b.calls - a.calls);
   }
   const rows = [...map.values()];
   rows.sort((a, b) => b.calls - a.calls);

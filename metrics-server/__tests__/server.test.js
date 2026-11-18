@@ -295,7 +295,7 @@ test("queryStats by=errdetail：报错下钻 tool 与 user 明细，口径同 by
     ],
   });
   insertBatch(db, {
-    clientId: "c2", user: "u9",
+    clientId: "c2", user: "u9", webcliVersion: "1.1.2",
     batch: [rec({ ts: now, traceID: "d7", ok: false, ms: 10, err: "E_LOGIN", tool: "a.com.t1", domain: "a.com" })],
   });
   const { rows, totalFailed } = queryStats(db, { by: "errdetail", since: "1d" });
@@ -312,6 +312,10 @@ test("queryStats by=errdetail：报错下钻 tool 与 user 明细，口径同 by
   assert.deepEqual(g.users, [
     { user: "(unknown)", calls: 4 }, // c1 无 user 归 (unknown)
     { user: "u9", calls: 1 },
+  ]);
+  assert.deepEqual(g.versions, [
+    { version: "(unknown)", calls: 4 }, // c1 无 webcliVersion 归 (unknown)
+    { version: "1.1.2", calls: 1 },
   ]);
 });
 
