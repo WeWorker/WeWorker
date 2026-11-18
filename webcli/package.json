@@ -168,7 +168,8 @@
     "cli-name.js",
     "service-spawn.js",
     "cdp-websocket.js",
-    "stdout-flush.js"
+    "stdout-flush.js",
+    "internal-registry.json"
   ],
   "scripts": {
     "start": "node index.js",

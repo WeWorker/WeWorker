@@ -18,6 +18,8 @@ const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 /**
  * 解析升级/检查用的 registry。优先级:显式覆盖(env/--registry)> 包内
  * internal-registry.json(行内 repack 注入,不入公开仓)> npmjs 默认。
+ * pkgName 保留仅为调用方签名兼容:兜底与包名无关——行内源完全由注入文件提供
+ * (源码树与公开包零行内地址),无注入时回 npmjs,行内包名查 404 静默无副作用。
  */
 export function resolveRegistry(pkgName, override = null, { internalRegistryFile = null, readFileImpl = null } = {}) {
   if (override) return override;
@@ -26,7 +28,7 @@ export function resolveRegistry(pkgName, override = null, { internalRegistryFile
     const data = JSON.parse((readFileImpl ?? readFileSync)(file, "utf8"));
     if (data && typeof data.registry === "string" && data.registry) return data.registry;
   } catch { /* 文件不存在(公开包/源码树)→ 默认 */ }
-  return pkgName === "weworker-webcli" ? DEFAULT_REGISTRY : DEFAULT_REGISTRY;
+  return DEFAULT_REGISTRY;
 }
 
 /** 轻量 semver 数字段比较:a<b → -1,a=b → 0,a>b → 1。非数字段按 0 处理。 */
