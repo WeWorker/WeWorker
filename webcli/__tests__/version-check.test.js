@@ -82,4 +82,10 @@ describe('resolveRegistry', () => {
   it('公开包默认 npmjs', () => {
     expect(resolveRegistry('weworker-webcli')).toBe('https://registry.npmjs.org')
   })
+  it('兜底回落 npmjs 且与 pkgName 无关(钉死历史死三元回归:两分支曾同值,行内包误落公开源)', () => {
+    const missing = { readFileSync: () => { throw new Error('ENOENT') } }
+    for (const pkg of ['weworker-webcli', '@webank/webgo', '@webank/webcli']) {
+      expect(resolveRegistry(pkg, null, { internalRegistryFile: 'unused', readFileImpl: missing.readFileSync })).toBe('https://registry.npmjs.org')
+    }
+  })
 })
