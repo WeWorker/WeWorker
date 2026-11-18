@@ -105,6 +105,7 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
           default_model: provider.defaultModel, model: provider.fixedModel ? provider.defaultModel : saved ? saved.model || getModelConfiguration(settings, id)?.model
             || (settings as unknown as Record<string, string>)[`model_${id}`] || settings.model : provider.defaultModel,
           fixed_model: provider.fixedModel === true,
+          fixed_provider: id === provider.id && provider.fixed === true,
           builtin: provider.builtin === true,
           saved_exploration: Boolean(saved),
           base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,

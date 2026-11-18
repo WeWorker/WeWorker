@@ -9,6 +9,7 @@ import * as api from '../../api/website-exploration-api.js'
 import AppDropdownSelect from '../common/AppDropdownSelect.jsx'
 import ContextPanel from '../chat/ContextPanel.jsx'
 import { ModelHealthIndicator, ModelHealthToolbar } from '../chat/ModelHealth.jsx'
+import PresetKeyDialog from '../chat/PresetKeyDialog.jsx'
 import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 import '../chat/model-selector.css'
 
@@ -29,7 +30,9 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   const [loading, setLoading] = useState(true)
   const [connection, setConnection] = useState(null)
   const [retry, setRetry] = useState(0)
+  const [keyProvider, setKeyProvider] = useState(null)
   useEffect(() => {
+    if (keyProvider || pendingRef.current) return
     let alive = true
     const version = ++requestVersion.current
     setLoading(true)
@@ -66,7 +69,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       if (alive && version === requestVersion.current) { setConfig(value); setError('') }
     })().catch(e => { if (alive && version === requestVersion.current) setError(e.message) }).finally(() => { if (alive && version === requestVersion.current) setLoading(false) })
     return () => { alive = false }
-  }, [conversationId, draftModelKey, providers, activeProvider, mainModel, revision, disabled])
+  }, [conversationId, draftModelKey, providers, activeProvider, mainModel, revision, disabled, keyProvider])
   const connectionKey = JSON.stringify([config?.selection, config?.health_scope])
   useEffect(() => {
     let alive = true
@@ -102,27 +105,51 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     return () => controller.abort()
   }, [selected, config?.health_scope, provider?.id, provider?.configured, currentModel])
 
+  async function persistSelection(patch) {
+    const selection = { thinking_effort: 'off', ...selectionRef.current, ...patch }
+    const result = await api.resolveExplorationSessionModel(selection)
+    if (conversationId) await api.saveExplorationSessionModel(conversationId, result.selection)
+    else useWebsiteExplorationStore.getState().setDraft(draftModelKey, result.selection)
+    selectionRef.current = result.selection
+    setConfig(result)
+  }
   async function save(patch) {
     if (disabled || pendingRef.current) return
     requestVersion.current++
     pendingRef.current = true; setPending(true); onPendingChange?.(true); setError('')
     try {
-      const selection = { thinking_effort: 'off', ...selectionRef.current, ...patch }
-      const result = await api.resolveExplorationSessionModel(selection)
-      if (conversationId) await api.saveExplorationSessionModel(conversationId, result.selection)
-      else useWebsiteExplorationStore.getState().setDraft(draftModelKey, result.selection)
-      selectionRef.current = result.selection
-      setConfig(result)
+      await persistSelection(patch)
       return true
     } catch (e) { setError(e.message); return false }
     finally { pendingRef.current = false; setPending(false); setLoading(false); onPendingChange?.(false) }
   }
   async function selectProvider(id) {
     if (id === selected || disabled || pendingRef.current) return
-    const entry = config?.providers?.find(item => selectionProvider(item) === id && item.configured)
-    if (entry) await save({ provider: id, model: entry.model })
+    const entry = config?.providers?.find(item => selectionProvider(item) === id)
+    if (!entry) return
+    if (entry.fixed_provider && !entry.has_key && !providers[entry.id]?.has_key) {
+      setError(''); setKeyProvider(entry); return
+    }
+    if (!entry.configured) {
+      setError('请先在设置 → 模型中配置该供应商的 Adapter 工坊 OpenAI 接口'); return
+    }
+    await save({ provider: id, model: entry.model })
   }
-  const unavailable = disabled || pending || loading || !config?.selection
+  async function savePresetKey(apiKey) {
+    if (disabled || pendingRef.current) throw new Error('请稍后重试')
+    requestVersion.current++
+    pendingRef.current = true; setPending(true); onPendingChange?.(true); setError('')
+    try {
+      await useSettingsStore.getState().saveProvider(keyProvider.id, { api_key: apiKey })
+      const available = await api.getExplorationModel()
+      const entry = available.providers?.find(item => item.id === keyProvider.id)
+      if (!entry?.configured) throw new Error('API Key 已保存，请在设置 → 模型中配置该供应商的 Adapter 工坊 OpenAI 接口')
+      await persistSelection({ provider: selectionProvider(entry), model: entry.model })
+    } finally {
+      pendingRef.current = false; setPending(false); onPendingChange?.(false)
+    }
+  }
+  const unavailable = disabled || pending || loading || Boolean(keyProvider) || !config?.selection
   const renderModelHealth = (option, interactive = false) => {
     if (!option) return null
     const key = modelHealthKey(selected, option.value)
@@ -130,8 +157,8 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       disabled={unavailable} protocolLabel="网站探索接口"
       onCheck={interactive ? () => { void checkModel(selected, option.value) } : undefined} />
   }
-  const providerOptions = (config?.providers || []).filter(item => item.configured).map(item => ({
-    value: selectionProvider(item), label: item.name, keyConfigured: item.has_key,
+  const providerOptions = (config?.providers || []).filter(item => item.fixed_provider || item.builtin || item.configured).map(item => ({
+    value: selectionProvider(item), label: item.name, keyConfigured: Boolean(item.has_key || item.fixed_provider && providers[item.id]?.has_key),
   }))
   const modelOptions = buildModelOptions(fixedModel ? [currentModel] : catalog?.provider === selected ? catalog.models : provider?.models, currentModel, { annotateCurrent: false })
   const glm = config?.model_class === 'zhipu' || /^glm-/i.test(currentModel)
@@ -146,11 +173,11 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       <div className="chat-model-selector" aria-busy={pending || loading} title="仅用于当前探索会话">
         <AppDropdownSelect className="chat-model-selector__provider" menuClassName="app-dropdown-menu chat-model-selector-menu"
           value={selected} options={providerOptions} ariaLabel="模型供应商选择" placement="top" minMenuWidth={240}
-          disabled={unavailable} onChange={selectProvider}
+          disabled={disabled || pending || loading || Boolean(keyProvider)} onChange={selectProvider}
           prefix={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)" /><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)" /></svg>}
           fallbackOption={{ value: '', label: '未配置网站探索模型' }}
           menuHeader={<div className="provider-discovery-toolbar">网站探索配置</div>}
-          renderOptionSuffix={option => <span className={`provider-key-status${option?.keyConfigured ? ' is-configured' : ''}`} aria-label={option?.keyConfigured ? '已填写 API Key' : '未填写 API Key'}>{option?.keyConfigured ? <CheckCircleFilled /> : <KeyOutlined />}</span>} />
+          renderOptionSuffix={option => <span className={`provider-key-status${option?.keyConfigured ? ' is-configured' : ''}`} title={option?.keyConfigured ? '已填写 API Key' : '未填写 API Key，点击配置'} aria-label={option?.keyConfigured ? '已填写 API Key' : '未填写 API Key'}>{option?.keyConfigured ? <CheckCircleFilled /> : <KeyOutlined />}</span>} />
         <AppDropdownSelect className="chat-model-selector__model" menuClassName="app-dropdown-menu chat-model-selector-menu chat-model-health-menu"
           value={currentModel} options={modelOptions} ariaLabel="模型选择" placement="top" minMenuWidth={280}
           disabled={unavailable} searchable={!fixedModel} allowCustom={!fixedModel} searchPlaceholder="搜索或输入模型名"
@@ -167,5 +194,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     </div>
     {error && <span className="wx-composer-error" role="alert">{error}</span>}
     {!error && connection && !connection.ok && <span className="wx-composer-error" role="alert">{connection.detail || '当前会话模型连接失败'} <button type="button" className="wx-quiet" disabled={unavailable} onClick={() => setRetry(value => value + 1)}>重试</button></span>}
+    {keyProvider && <PresetKeyDialog providerName={keyProvider.name} dismissible={false}
+      onSave={savePresetKey} onClose={() => setKeyProvider(null)} />}
   </>
 }

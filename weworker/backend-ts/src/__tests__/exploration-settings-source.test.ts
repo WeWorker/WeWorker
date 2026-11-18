@@ -26,6 +26,14 @@ function settings(): Settings {
 }
 
 describe('exploration reads the model settings exploration interface', () => {
+  it('marks fixed supplier entries for display without treating missing credentials as configured', () => {
+    const providers = createExplorationModelService().status(settings()).providers
+    for (const id of ['anthropic', 'glm', 'deepseek']) {
+      expect(providers.find(item => item.id === id)).toMatchObject({ fixed_provider: true, configured: false, has_key: false })
+    }
+    expect(providers.find(item => item.id === 'chat-only')).toMatchObject({ fixed_provider: false, configured: false })
+  })
+
   it.each(['configured-custom', '__exploration__:configured-custom', '__exploration__'])('resolves %s from model settings only', provider => {
     const saved = { ...settings(), exploration_active_provider: 'configured-custom',
       exploration_model_selection: { provider, model: 'session-model' } }
