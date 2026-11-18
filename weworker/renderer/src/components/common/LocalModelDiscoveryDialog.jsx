@@ -151,6 +151,16 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported, dismiss
                         <span className="local-model-discovery__protocol">{protocolNames[candidate.weworker_protocol] || candidate.weworker_protocol}</span>
                       </div>
                       <span className="local-model-discovery__endpoint" title={candidate.base_url}>{candidate.base_url}</span>
+                      {candidate.weworker_protocol === 'anthropic_messages' && candidate.openai_base_url && (
+                        <div aria-label="已验证的 OpenAI 接口">
+                          <div className="local-model-discovery__model">
+                            <span>Adapter 工坊</span>
+                            <span className="local-model-discovery__protocol">OpenAI Chat Completions</span>
+                            {candidate.openai_model && candidate.openai_model !== candidate.model && <span>{candidate.openai_model}</span>}
+                          </div>
+                          <span className="local-model-discovery__endpoint" title={candidate.openai_base_url}>{candidate.openai_base_url}</span>
+                        </div>
+                      )}
                       <span className="local-model-discovery__key">
                         <span className="local-model-discovery__key-label">API Key</span><code>{revealed || `••••••••${candidate.api_key_hint || ''}`}</code>
                         <button type="button" className="local-model-discovery__eye"

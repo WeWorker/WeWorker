@@ -1888,9 +1888,13 @@ function ModelTab() {
     }
     try {
       await saveProvider(pid, updates)
-      // Clear the api_key field after save
+      // Reload saved fields, including any automatically verified workshop endpoint.
       formNameTouched.current[pid] = false
-      setForms((prev) => ({ ...prev, [pid]: { ...getForm(pid), name, api_key: '', openai_api_key: '' } }))
+      setForms((prev) => {
+        const next = { ...prev }
+        delete next[pid]
+        return next
+      })
       setSaved(pid)
       setTestResult({ ok: true, message: '配置已保存' })
       setTimeout(() => setSaved(null), 2000)
@@ -2105,31 +2109,35 @@ function ModelTab() {
                 onChange={(event) => setProviderSearch(event.target.value)}
               />
             </label>
-            <div className="model-settings-sidebar__tools">
-              {addableProviders.length > 0 && (
-              <button
-                ref={addTriggerRef}
-                type="button"
-                className="settings-btn settings-btn-primary model-settings-add"
-                disabled={Boolean(addingProvider)}
-                onClick={() => setAddPickerOpen((open) => !open)}
-                onKeyDown={handleAddMenuKeyDown}
-                aria-haspopup="menu"
-                aria-controls={addPickerOpen ? 'model-provider-add-menu' : undefined}
-                aria-expanded={addPickerOpen}
-                aria-label={addPickerOpen ? '收起添加模型' : '添加模型'}
-                title={addPickerOpen ? '收起' : '添加模型'}
-              >
-                {addPickerOpen ? <CloseOutlined aria-hidden="true" /> : <AppstoreAddOutlined aria-hidden="true" />}
-              </button>
-              )}
-              <button type="button" className="settings-btn model-settings-discover"
-                aria-label="识别本地模型" title="识别本地模型" onClick={() => setDiscoveryOpen(true)}>
-                <ScanSearch size={18} aria-hidden="true" />
-              </button>
-            </div>
           </div>
           <div className="model-settings-provider-list">
+            {addableProviders.length > 0 && (
+              <div className="model-settings-provider-row">
+                <button
+                  ref={addTriggerRef}
+                  type="button"
+                  className="model-settings-provider"
+                  disabled={Boolean(addingProvider)}
+                  onClick={() => setAddPickerOpen((open) => !open)}
+                  onKeyDown={handleAddMenuKeyDown}
+                  aria-haspopup="menu"
+                  aria-controls={addPickerOpen ? 'model-provider-add-menu' : undefined}
+                  aria-expanded={addPickerOpen}
+                  aria-label={addPickerOpen ? '收起添加模型' : '添加模型'}
+                >
+                  <span className="model-settings-provider__icon">{addPickerOpen ? <CloseOutlined aria-hidden="true" /> : <AppstoreAddOutlined aria-hidden="true" />}</span>
+                  <span className="model-settings-provider__text"><span className="model-settings-provider__name">添加模型</span></span>
+                </button>
+              </div>
+            )}
+            <div className="model-settings-provider-row">
+              <button type="button" className="model-settings-provider"
+                aria-label="识别本地模型" onClick={() => setDiscoveryOpen(true)}>
+                <span className="model-settings-provider__icon"><ScanSearch size={18} aria-hidden="true" /></span>
+                <span className="model-settings-provider__text"><span className="model-settings-provider__name">识别模型</span></span>
+              </button>
+            </div>
+            <hr className="model-settings-provider-divider" />
             {filteredProviders.map((provider) => {
               const templateId = provider.providerId || provider.id
               const stored = providers[provider.id] ?? {}

@@ -83,6 +83,7 @@ import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
 import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
+import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
 import { configuredModel } from './provider-config.js'
@@ -805,7 +806,7 @@ app.post('/settings/provider/delete', (req, res) => {
   }
 })
 
-app.post('/settings/provider', (req, res) => {
+app.post('/settings/provider', async (req, res) => {
   const { provider, name, api_key, openai_api_key, model, openai_model, context_limit, base_url, base_url_is_full, openai_base_url, openai_base_url_is_full, auth_type, weworker_protocol, added } = req.body as {
     provider: string; name?: unknown; api_key?: string; openai_api_key?: string; model?: string; openai_model?: string; context_limit?: unknown; base_url?: string; base_url_is_full?: boolean; openai_base_url?: string; openai_base_url_is_full?: boolean; auth_type?: unknown; weworker_protocol?: unknown; added?: boolean
   }
@@ -824,7 +825,12 @@ app.post('/settings/provider', (req, res) => {
   }
   if (getModelConfiguration(getSettings(), provider)) {
     try {
-      res.json(buildSettingsResponse(updateSettings(updateModelConfiguration(getSettings(), provider, req.body))))
+      const settings = getSettings()
+      const current = getModelConfiguration(settings, provider)!
+      const pending = updateModelConfiguration(settings, provider, req.body)
+      const automatic = await automaticWorkshopUpdate(current, pending.model_configurations![provider], req.body)
+      // Re-read after the network probe so another configuration saved meanwhile is preserved.
+      res.json(buildSettingsResponse(updateSettings(updateModelConfiguration(getSettings(), provider, { ...req.body, ...automatic }))))
     } catch (error) {
       res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -943,6 +949,21 @@ app.post('/settings/provider', (req, res) => {
   if (provider === 'custom' && openai_base_url_is_full !== undefined) updates.openai_base_url_is_full_custom = openai_base_url_is_full
   if (provider === 'custom' && isAnthropicAuthType(auth_type)) updates.custom_auth_type = auth_type
   if (provider === 'custom' && isLlmProtocol(weworker_protocol)) updates.weworker_protocol_custom = weworker_protocol
+  if (provider === 'custom') {
+    const settings = getSettings()
+    const legacy = (value: Settings) => ({ provider_id: 'custom', api_key: value.api_key_custom || '',
+      model: value.model_custom || '', base_url: value.base_url_custom || '',
+      base_url_is_full: value.base_url_is_full_custom, weworker_protocol: value.weworker_protocol_custom,
+      openai_base_url: value.openai_base_url_custom || '', openai_base_url_is_full: value.openai_base_url_is_full_custom,
+      openai_api_key: value.openai_api_key_custom, openai_model: value.openai_model_custom,
+      auth_type: value.custom_auth_type, context_limit: value.context_limit_custom,
+    })
+    const automatic = await automaticWorkshopUpdate(legacy(settings), legacy({ ...settings, ...updates }), req.body)
+    if (automatic.openai_base_url !== undefined) updates.openai_base_url_custom = automatic.openai_base_url
+    if (automatic.openai_base_url_is_full !== undefined) updates.openai_base_url_is_full_custom = automatic.openai_base_url_is_full
+    if (automatic.openai_api_key !== undefined) updates.openai_api_key_custom = automatic.openai_api_key
+    if (automatic.openai_model !== undefined) updates.openai_model_custom = automatic.openai_model
+  }
   // If this provider is currently active, also update the active key/model/url
   const current = getSettings()
   if (added === true) {

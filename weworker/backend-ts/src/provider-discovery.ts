@@ -9,6 +9,7 @@ import { DEFAULT_CONTEXT_LIMIT } from './context-window.js'
 import { activateModelConfiguration, type ModelConfiguration } from './model-configurations.js'
 import { normalizeLlmUrlInput, type LlmProtocol } from './llm-egress.js'
 import { discoverHarnessProviders } from './harness-provider-discovery.js'
+import { discoverWorkshopConfig } from './adapter-workshop-config.js'
 
 type RecordValue = Record<string, any>
 type Product = 'Claude Code' | 'Codex' | 'WorkBuddy' | 'CodeBuddy' | 'OpenCode' | 'DeepSeek Harness'
@@ -269,7 +270,12 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
     const fetchImpl = options.fetchImpl ?? fetch
     const timeoutMs = options.validateTimeoutMs ?? 6000
     await Promise.all(grouped.map(async (item) => {
-      item.validation = await validateProviderConnection(item.configuration, fetchImpl, timeoutMs)
+      const [validation, workshop] = await Promise.all([
+        validateProviderConnection(item.configuration, fetchImpl, timeoutMs),
+        discoverWorkshopConfig(item.configuration, fetchImpl, timeoutMs),
+      ])
+      item.validation = validation
+      Object.assign(item.configuration, workshop)
     }))
   }
   return { providers: grouped, issues: [...issues] }
@@ -287,6 +293,9 @@ export function publicDiscoveredProviders(settings: Settings, discovered: Discov
       models: item.configuration.custom_models || [],
       base_url: item.configuration.base_url,
       weworker_protocol: item.configuration.weworker_protocol,
+      openai_base_url: item.configuration.openai_base_url || '',
+      openai_base_url_is_full: item.configuration.openai_base_url_is_full === true,
+      openai_model: item.configuration.openai_model || '',
       imported: Boolean(existing),
       configuration_id: existing?.[0] || '',
       api_key_hint: item.configuration.api_key ? item.configuration.api_key.slice(-4) : '',
@@ -325,6 +334,12 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
       }
       const next = { ...saved, custom_models: [...models],
         ...(saved.external_source_id ? { external_source_id: item.sourceId } : {}),
+        ...(!saved.openai_base_url && item.configuration.openai_base_url ? {
+          openai_base_url: item.configuration.openai_base_url,
+          openai_base_url_is_full: item.configuration.openai_base_url_is_full === true,
+          openai_api_key: saved.openai_api_key || item.configuration.openai_api_key,
+          openai_model: saved.openai_model || item.configuration.openai_model,
+        } : {}),
       }
       if (JSON.stringify(next) !== JSON.stringify(saved)) {
         configurations[id] = next

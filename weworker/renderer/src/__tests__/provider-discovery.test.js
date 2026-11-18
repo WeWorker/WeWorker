@@ -132,6 +132,23 @@ test('discovery opens a preview dialog and imports only a clicked row without sw
   assert.equal(document.querySelector('.app-dropdown-select__removable-option'), null)
 })
 
+test('discovery shows only a verified OpenAI sibling alongside the original Anthropic protocol', async () => {
+  detectResponse = () => Response.json({ candidates: [
+    { ...candidates[0], openai_base_url: 'https://example.com/v1', openai_model: 'fixture-model' },
+    { ...candidates[0], source_id: 'fixture-failed', name: 'Failed sibling', validation: { ok: false, detail: 'HTTP 401' } },
+  ] })
+  await render()
+  await open()
+  await click(button('自动识别'))
+  const rows = document.querySelectorAll('.local-model-discovery__list li')
+  assert.match(rows[0].textContent, /Anthropic/)
+  assert.match(rows[0].textContent, /OpenAI Chat Completions/)
+  assert.match(rows[0].textContent, /https:\/\/example.com\/v1/)
+  assert.equal(rows[0].querySelector('[aria-label="已验证的 OpenAI 接口"]') !== null, true)
+  assert.doesNotMatch(rows[1].textContent, /OpenAI/)
+  assert.match(rows[1].textContent, /HTTP 401/)
+})
+
 test('imported providers remain selectable without a delete column', async () => {
   state.providers['model-fixture'] = imported
   store.setState({ providers: state.providers })
@@ -213,15 +230,24 @@ test('import errors leave the candidate available and block duplicate requests w
   assert.equal(ariaButton('导入 Claude Code fixture-model').disabled, false)
 })
 
-test('model settings have a compact search toolbar and a discovery dialog beside Add', async () => {
+test('model settings put Add and Discover first in the model list below search', async () => {
   await act(async () => root.render(React.createElement(SettingsPage)))
   const header = document.querySelector('.model-settings-sidebar__header')
   assert.equal(header.querySelector('.model-settings-sidebar__title'), null)
   assert.equal(header.querySelector('.model-settings-sidebar__count'), null)
   assert.ok(header.querySelector('[aria-label="搜索模型配置名称"]'))
-  assert.ok(header.querySelector('.model-settings-search').compareDocumentPosition(header.querySelector('.model-settings-sidebar__tools')) & window.Node.DOCUMENT_POSITION_FOLLOWING)
-  assert.ok(ariaButton('添加模型'))
-  assert.ok(ariaButton('识别本地模型'))
+  assert.equal(Boolean(header.querySelector('button')), false)
+  const list = document.querySelector('.model-settings-provider-list')
+  assert.ok(list.children[0].querySelector('button') === ariaButton('添加模型'))
+  assert.ok(list.children[1].querySelector('button') === ariaButton('识别本地模型'))
+  assert.equal(list.children[2].tagName, 'HR')
+  assert.equal(list.children[2].className, 'model-settings-provider-divider')
+  assert.equal(list.children[3].hasAttribute('data-model-configuration'), true)
+  assert.match(list.children[0].textContent, /添加模型/)
+  assert.match(list.children[1].textContent, /识别模型/)
+  await click(ariaButton('添加模型'))
+  assert.ok(document.querySelector('#model-provider-add-menu'))
+  await click(ariaButton('收起添加模型'))
   await click(ariaButton('识别本地模型'))
   await click(ariaButton('导入 Claude Code fixture-model'))
   await click(ariaButton('关闭'))
@@ -254,6 +280,32 @@ test('custom configurations keep separate conversation and exploration interface
   assert.equal(saved.base_url, imported.base_url)
   assert.equal(saved.openai_api_key, undefined, 'blank exploration key retains its saved value')
   assert.equal(calls.some(c => c.endpoint === '/settings/provider/activate'), false, 'saving does not activate the configuration')
+})
+
+test('saving reloads the automatically configured OpenAI workshop fields from the backend', async t => {
+  const timeout = globalThis.setTimeout
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => delay === 2000 ? 0 : timeout(callback, delay, ...args))
+  state.providers['model-fixture'] = { ...imported, openai_base_url: '', weworker_protocol: 'anthropic_messages' }
+  store.setState({ providers: state.providers, activeProvider: 'model-fixture' })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, options) => {
+    if (new URL(url).pathname === '/settings/provider') {
+      state.providers['model-fixture'] = { ...state.providers['model-fixture'],
+        openai_base_url: 'https://example.com/v1', openai_model: 'fixture-model', has_openai_key: true }
+    }
+    return originalFetch(url, options)
+  }
+  await act(async () => root.render(React.createElement(SettingsPage)))
+  await click(button('高级配置'))
+  const addressInput = document.querySelector('[aria-label="WeWorker 对话接口地址"]')
+  assert.ok(addressInput)
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(addressInput, 'https://example.com/')
+    addressInput.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  await click(button('保存'))
+  assert.equal(document.querySelector('[aria-label="OpenAI 接口地址"]').value, 'https://example.com/v1')
+  assert.equal(document.querySelector('[aria-label="WeWorker 对话接口地址"]').value, 'https://example.com')
 })
 
 test('preset configurations use their predefined exploration interfaces without extra forms', async () => {
