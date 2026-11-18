@@ -2,13 +2,35 @@ import { timingSafeEqual } from 'node:crypto'
 import type { Settings } from './config.js'
 import { normalizeLlmBaseUrl, normalizeLlmUrlInput } from './llm-egress.js'
 import { normalizeCompactionMaxAttempts, normalizeCompactionRatio } from './context/conversation-compaction.js'
-import { defaultConversationModel, explorationProviderId, resolveConversationModelSettings } from './conversation-models.js'
-import { getProvider, findProviderByWeWorkerBaseUrl, PROVIDERS } from './provider-registry.js'
-import { usesAnthropicBearerToken } from './anthropic-auth.js'
+import { defaultConversationModel, explorationProviderId, resolveConversationModelSettings, type ConversationModel } from './conversation-models.js'
+import { getProvider, PROVIDERS } from './provider-registry.js'
 import { assertAllowedLlmBaseUrl } from './llm-egress.js'
 import { buildRuntimeAllowedLlmBaseUrls } from './provider-registry.js'
 import { getModelConfiguration } from './model-configurations.js'
 export { explorationResetPatch } from './provider-config.js'
+
+// The model settings page owns these fields. Never substitute the retired
+// independent exploration store for an explicit model-configuration reference.
+export function modelSettingsExplorationEntry(saved: Settings, id: string) {
+  const configuration = getModelConfiguration(saved, id)
+  const provider = getProvider(configuration?.provider_id || id)
+  if (!provider || provider.builtin || provider.webwright.protocol !== 'openai_chat_completions') return undefined
+  const legacy = saved as unknown as Record<string, string>
+  const model = configuration?.openai_model || configuration?.model
+    || (provider.id === 'custom' ? saved.openai_model_custom || saved.model_custom : legacy[`model_${id}`])
+    || (id === (saved.active_model_configuration || saved.active_provider) ? saved.model : '') || provider.defaultModel
+  const main = resolveConversationModelSettings(saved, { provider: id, model: model || 'unconfigured' })
+  return {
+    api_key: provider.id === 'custom'
+      ? configuration ? configuration.openai_api_key || configuration.api_key : saved.openai_api_key_custom || main.api_key
+      : configuration?.openai_api_key || main.api_key,
+    model: provider.fixedModel ? provider.defaultModel : model,
+    base_url: provider.id === 'custom' ? configuration ? configuration.openai_base_url : saved.openai_base_url_custom : provider.webwright.baseUrl,
+    base_url_is_full: provider.id === 'custom' && (configuration ? configuration.openai_base_url_is_full === true : saved.openai_base_url_is_full_custom === true),
+    protocol: provider.webwright.protocol,
+    auth_type: 'auth_token' as const,
+  }
+}
 
 export function isAuthorizedModelConfigRequest(authorization: string | undefined, expectedToken: string): boolean {
   const actual = authorization?.startsWith('Bearer ') ? authorization.slice(7) : ''
@@ -18,71 +40,50 @@ export function isAuthorizedModelConfigRequest(authorization: string | undefined
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
 }
 
-export function resolveWebwrightModelConfig(saved: Settings) {
-  const independentModel = saved.exploration_active_provider
-    ? saved.exploration_providers?.[saved.exploration_active_provider]?.model || saved.model : ''
-  const selection = saved.exploration_model_selection || (saved.exploration_active_provider
-    ? { provider: '__exploration__', model: independentModel }
-    : defaultConversationModel(saved))
-  if (selection.provider === '__exploration__' || selection.provider.startsWith('__exploration__:')) {
-    const id = explorationProviderId(saved, selection)
-    const configuration = getModelConfiguration(saved, id)
-    const provider = getProvider(configuration?.provider_id || id)
-    const entry = provider && saved.exploration_providers?.[id]
-    const apiKey = entry?.use_main_key
-      ? resolveConversationModelSettings(saved, entry.key_source
-        ? { provider: entry.key_source, model: selection.model } : defaultConversationModel(saved)).api_key : entry?.api_key
-    if (!provider || !entry || !apiKey || !selection.model) throw new Error('请先在高级设置中配置网站探索模型')
-    const custom = provider.id === 'custom'
-    const protocol = custom ? entry.protocol : provider.webwright.protocol
-    const baseUrl = custom ? entry.base_url : provider.webwright.baseUrl
-    if (!baseUrl) throw new Error('请填写网站探索服务地址')
-    const mapped = custom && !entry.base_url_is_full ? PROVIDERS.find(item => item.id !== 'custom'
-      && normalizeLlmBaseUrl(item.webwright.baseUrl) === normalizeLlmBaseUrl(baseUrl)) : undefined
-    return {
-      provider_id: provider.id,
-      protocol,
-      model_class: custom ? mapped ? mapped.webwright.modelClass : protocol === 'anthropic_messages' ? 'anthropic' as const : protocol === 'openai_responses' ? 'openai' as const : 'openai_chat' as const : provider.webwright.modelClass,
-      base_url: custom && entry.base_url_is_full
-        ? normalizeLlmUrlInput(baseUrl, true)
-        : assertAllowedLlmBaseUrl(baseUrl, buildRuntimeAllowedLlmBaseUrls(custom ? baseUrl : undefined)),
-      base_url_is_full: custom && entry.base_url_is_full === true,
-      model: provider.fixedModel ? provider.defaultModel : selection.model,
-      api_key: apiKey,
-      structured_output: protocol === 'anthropic_messages' ? 'anthropic_json_schema' as const : protocol === 'openai_responses' ? 'openai_json_schema' as const : 'openai_json_object' as const,
-      auth_type: protocol === 'anthropic_messages' ? custom && entry.auth_type === 'auth_token' ? 'auth_token' as const : 'api_key' as const : 'auth_token' as const,
-      context_limit: configuration?.context_limit || saved.context_limit,
-      compaction_ratio: normalizeCompactionRatio(saved.compaction_ratio),
-      compaction_max_attempts: normalizeCompactionMaxAttempts(saved.compaction_max_attempts),
-      thinking_effort: selection.thinking_effort || saved.exploration_thinking_effort || 'off',
-    } as const
-  }
+// Selections persist a reference and optional session model, never a second
+// endpoint or credential. Old sentinel records resolve the same canonical source.
+export function defaultWebwrightModelSelection(saved: Settings): ConversationModel {
+  const selected = saved.exploration_model_selection
+  if (selected) return { ...selected, thinking_effort: selected.thinking_effort || saved.exploration_thinking_effort || 'off' }
+  const main = defaultConversationModel(saved)
+  return { ...main, model: modelSettingsExplorationEntry(saved, main.provider)?.model || main.model,
+    thinking_effort: saved.exploration_thinking_effort || 'off' }
+}
 
-  const settings = resolveConversationModelSettings(saved, selection)
-  if (!settings.api_key || !settings.model) throw new Error('请先配置对话接口的 API Key 和模型')
-  if (!settings.base_url) throw new Error('请填写对话接口地址')
-  const protocol = settings.active_weworker_protocol || 'anthropic_messages'
-  const authProvider = settings.active_provider === 'custom'
-    ? findProviderByWeWorkerBaseUrl(settings.base_url)?.id || settings.active_provider : settings.active_provider
-  const modelClass = protocol === 'anthropic_messages' ? 'anthropic'
-    : protocol === 'openai_responses' ? 'openai' : 'openai_chat'
-  const structuredOutput = protocol === 'anthropic_messages' ? 'anthropic_json_schema'
-    : protocol === 'openai_responses' ? 'openai_json_schema' : 'openai_json_object'
+export function resolveWebwrightModelConfig(saved: Settings) {
+  const selection = defaultWebwrightModelSelection(saved)
+  const id = selection.provider === '__exploration__' || selection.provider.startsWith('__exploration__:')
+    ? explorationProviderId(saved, selection) : selection.provider
+  const configuration = getModelConfiguration(saved, id)
+  const provider = getProvider(configuration?.provider_id || id)
+  if (!provider || provider.webwright.protocol !== 'openai_chat_completions') {
+    throw new Error('请在模型配置中选择已配置 OpenAI 接口的 Adapter 工坊模型')
+  }
+  const main = resolveConversationModelSettings(saved, { provider: id, model: selection.model })
+  const entry = provider.builtin ? {
+    api_key: main.api_key, base_url: provider.webwright.baseUrl, base_url_is_full: false,
+  } : modelSettingsExplorationEntry(saved, id)
+  if (!entry?.api_key || !selection.model) throw new Error('请先在模型配置中配置 Adapter 工坊的 API Key 和模型')
+  if (!entry.base_url) throw new Error('请在模型配置中填写网站探索 OpenAI 接口地址')
+  const custom = provider.id === 'custom'
+  const mapped = custom && !entry.base_url_is_full ? PROVIDERS.find(item => item.id !== 'custom'
+    && item.webwright.protocol === 'openai_chat_completions'
+    && normalizeLlmBaseUrl(item.webwright.baseUrl) === normalizeLlmBaseUrl(entry.base_url!)) : undefined
   return {
-    provider_id: settings.active_provider,
-    protocol,
-    model_class: modelClass,
-    base_url: normalizeLlmUrlInput(settings.base_url, settings.base_url_is_full === true),
-    ...(settings.base_url_is_full ? { base_url_is_full: true } : {}),
-    auth_type: protocol === 'anthropic_messages'
-      ? usesAnthropicBearerToken(authProvider, settings.active_auth_type) ? 'auth_token' : 'api_key'
-      : settings.active_auth_type || 'api_key',
-    model: settings.model,
-    api_key: settings.api_key,
-    structured_output: structuredOutput,
-    context_limit: settings.context_limit,
-    compaction_ratio: normalizeCompactionRatio(settings.compaction_ratio),
-    compaction_max_attempts: normalizeCompactionMaxAttempts(settings.compaction_max_attempts),
+    provider_id: provider.id,
+    protocol: 'openai_chat_completions' as const,
+    model_class: custom ? mapped?.webwright.modelClass || 'openai_chat' as const : provider.webwright.modelClass,
+    base_url: custom && entry.base_url_is_full
+      ? normalizeLlmUrlInput(entry.base_url, true)
+      : assertAllowedLlmBaseUrl(entry.base_url, buildRuntimeAllowedLlmBaseUrls(custom ? entry.base_url : undefined)),
+    base_url_is_full: custom && entry.base_url_is_full === true,
+    model: provider.fixedModel ? provider.defaultModel : selection.model,
+    api_key: entry.api_key,
+    structured_output: 'openai_json_object' as const,
+    auth_type: 'auth_token' as const,
+    context_limit: main.context_limit,
+    compaction_ratio: normalizeCompactionRatio(saved.compaction_ratio),
+    compaction_max_attempts: normalizeCompactionMaxAttempts(saved.compaction_max_attempts),
     thinking_effort: selection.thinking_effort || saved.exploration_thinking_effort || 'off',
-  } as const
+  }
 }

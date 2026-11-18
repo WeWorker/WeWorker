@@ -192,7 +192,7 @@ describe('multiple model configurations', () => {
     state = { ...state, ...activateModelConfiguration(state, created.id) }
     state = { ...state, ...updateModelConfiguration(state, created.id, { model: 'changed-model', api_key: '' }) }
     expect(state).toMatchObject({ model: 'changed-model', api_key: 'custom-key', active_auth_type: 'auth_token', custom_auth_type: 'api_key' })
-    expect(resolveWebwrightModelConfig(state)).toMatchObject({ base_url: 'https://example.org/anthropic', model: 'changed-model' })
+    expect(resolveWebwrightModelConfig(state)).toMatchObject({ base_url: 'https://example.org/v1', api_key: 'custom-key', model: 'changed-model', protocol: 'openai_chat_completions' })
     expect(state.openai_base_url_custom).toBe('https://example.com/legacy/v1')
     expect(() => updateModelConfiguration(state, created.id, { base_url: '' })).toThrow()
     expect(() => updateModelConfiguration(state, created.id, { context_limit: -1 })).toThrow()
@@ -217,7 +217,7 @@ describe('multiple model configurations', () => {
     expect(() => updateModelConfiguration(state, created.id, { weworker_protocol: 'unsupported' })).toThrow()
   })
 
-  it('uses the conversation credentials while retaining legacy fields in storage', () => {
+  it('uses the configured OpenAI exploration credentials while preserving chat credentials', () => {
     const created = createModelConfiguration(legacySettings(), 'custom')
     let state = { ...legacySettings(), ...created.updates }
     state = { ...state, ...updateModelConfiguration(state, created.id, {
@@ -230,7 +230,7 @@ describe('multiple model configurations', () => {
 
     expect(state).toMatchObject({ api_key: 'fixture-claude-key', model: 'fixture-claude-model' })
     expect(resolveWebwrightModelConfig(state)).toMatchObject({
-      api_key: 'fixture-claude-key', model: 'fixture-claude-model', base_url: 'https://example.com/anthropic',
+      api_key: 'fixture-openai-key', model: 'fixture-openai-model', base_url: 'https://example.org/v1', protocol: 'openai_chat_completions',
     })
   })
 
@@ -246,7 +246,7 @@ describe('multiple model configurations', () => {
     expect(applySecrets(publicSettings, secrets).model_configurations?.[created.id].api_key).toBe('private-entry-key')
   })
 
-  it('uses each custom conversation configuration while ignoring legacy exploration settings', () => {
+  it('requires the custom OpenAI interface and ignores retired independent settings', () => {
     const created = createModelConfiguration(legacySettings(), 'custom')
     let state = { ...legacySettings(), ...created.updates }
     state = { ...state, ...updateModelConfiguration(state, created.id, {
@@ -254,12 +254,10 @@ describe('multiple model configurations', () => {
       base_url: 'https://example.org/custom', openai_base_url: '',
     }) }
     state = { ...state, ...activateModelConfiguration(state, created.id) }
-    expect(resolveWebwrightModelConfig(state)).toMatchObject({
-      base_url: 'https://example.org/custom', api_key: 'fixture-config-key', model: 'fixture-config-model',
-    })
+    expect(() => resolveWebwrightModelConfig(state)).toThrow(/OpenAI/)
     const independent = { ...state, exploration_base_url: 'https://example.com/exploration',
       exploration_use_main_key: false, exploration_api_key: 'fixture-exploration-key', exploration_model: 'fixture-exploration-model' }
-    expect(resolveWebwrightModelConfig(independent)).toEqual(resolveWebwrightModelConfig(state))
+    expect(() => resolveWebwrightModelConfig(independent)).toThrow(/OpenAI/)
 
     const preset = createModelConfiguration(independent, 'glm')
     let switched = { ...independent, ...preset.updates }
@@ -274,7 +272,7 @@ describe('multiple model configurations', () => {
     })
     expect(resolveWebwrightModelConfig(switched)).toMatchObject({
       provider_id: 'glm',
-      base_url: 'https://open.bigmodel.cn/api/anthropic',
+      base_url: 'https://open.bigmodel.cn/api/coding/paas/v4', protocol: 'openai_chat_completions',
       model: 'glm-5.2',
       api_key: 'fixture-glm-key',
     })

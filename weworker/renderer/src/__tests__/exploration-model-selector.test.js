@@ -87,7 +87,7 @@ test('exploration picker preserves configuration names, saved-only options, buil
     const checks = requests.filter(r => r.path.endsWith('/check')).length
     empty = true
     await render('empty')
-    assert.match(document.body.textContent, /请先.*网站探索/)
+    assert.match(document.body.textContent, /请先在设置 → 模型中配置 Adapter 工坊 OpenAI 接口/)
     assert.equal(document.querySelector('[aria-label="模型选择"]').disabled, true)
     assert.equal(requests.filter(r => r.path.endsWith('/check')).length, checks, 'missing exploration settings must not probe chat credentials')
   } finally {
