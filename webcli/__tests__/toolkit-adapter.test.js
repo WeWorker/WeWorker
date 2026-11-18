@@ -6,7 +6,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   loadToolkitAdapters,
   resolveToolkitTool,
@@ -355,6 +355,59 @@ process.stdin.on('end', () => {
   it("reports a clear error when the embedded runtime is absent", () => {
     expect(() => resolveToolkitRuntime({ candidates: [join(tmpdir(), "missing-webwright-runtime")] }))
       .toThrow("Toolkit Runtime 不可用");
+  });
+
+  it("非零退出把 stderr 尾部带进上报 err 与返回值(exit 1 可诊断)", async () => {
+    const fixture = await createToolkit();
+    const match = resolveToolkitTool("blog-admin.search-blog", { cwd: fixture.root, env: {} });
+    const runtime = join(fixture.root, "fake-runtime-stderr");
+    writeFileSync(runtime, `#!/usr/bin/env node
+process.stderr.write('Traceback (most recent call last):\\n  File "cmd.py", line 9, in check_subsys\\nValueError: subsys is required\\n');
+console.log(JSON.stringify({ ok: false, error: 'tool failed' }));
+process.exit(1);
+`);
+    chmodSync(runtime, 0o755);
+
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    let completed;
+    try {
+      completed = await runToolkitTool(match, {}, {
+        runtimePath: process.execPath,
+        runtimeArgs: [runtime],
+        env: { ...process.env, PYTHONHOME: "/unsafe", PYTHONPATH: "/unsafe" },
+        metricsConfig: { endpoint: "http://metrics.example" },
+        traceID: "tracestderr",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(completed.exitCode).toBe(1);
+    expect(completed.stderrTail).toContain("ValueError: subsys is required");
+    expect(completed.result).toMatchObject({ ok: false });
+    // 上报 err 带上异常行;服务器端入库截 200 字符,取尾语义保证异常行存活
+    expect(fetchMock).toHaveBeenCalled();
+    const record = JSON.parse(fetchMock.mock.calls[0][1].body).batch[0];
+    expect(record.err).toContain("Toolkit Adapter exited with code 1");
+    expect(record.err).toContain("ValueError: subsys is required");
+    expect(record.err.length).toBeLessThanOrEqual(200);
+  });
+
+  it("stdout 无有效 JSON 时抛错信息带 stderr 尾部", async () => {
+    const fixture = await createToolkit();
+    const match = resolveToolkitTool("blog-admin.search-blog", { cwd: fixture.root, env: {} });
+    const runtime = join(fixture.root, "fake-runtime-nojson");
+    writeFileSync(runtime, `#!/usr/bin/env node
+process.stderr.write('ModuleNotFoundError: No module named \\'webwright\\'\\n');
+process.exit(1);
+`);
+    chmodSync(runtime, 0o755);
+    await expect(runToolkitTool(match, {}, {
+      runtimePath: process.execPath,
+      runtimeArgs: [runtime],
+      env: { ...process.env },
+      metricsConfig: { endpoint: null },
+    })).rejects.toThrow(/ModuleNotFoundError: No module named 'webwright'/);
   });
 
   it("rejects a historical self-launching runtime before spawning it", async () => {
