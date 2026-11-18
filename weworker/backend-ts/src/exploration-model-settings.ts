@@ -105,6 +105,7 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
           default_model: provider.defaultModel, model: provider.fixedModel ? provider.defaultModel : saved ? saved.model || getModelConfiguration(settings, id)?.model
             || (settings as unknown as Record<string, string>)[`model_${id}`] || settings.model : provider.defaultModel,
           fixed_model: provider.fixedModel === true,
+          fixed_provider: id === provider.id && provider.fixed === true,
           builtin: provider.builtin === true,
           saved_exploration: Boolean(saved),
           base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
@@ -210,7 +211,9 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       if (provider.builtin && provider.fixedModel) { res.json({ models: [provider.defaultModel], source: 'fallback' }); return }
       const saved = modelSettingsExplorationEntry(settings, id)
       if (!saved?.api_key) throw new Error('请先在模型配置中保存 Adapter 工坊的 API Key')
-      const candidate = { ...settings, exploration_model_selection: { provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model } }
+      // Catalog discovery needs endpoint credentials before the user has a
+      // model. This temporary resolver value is never saved or sent to a model.
+      const candidate = { ...settings, exploration_model_selection: { provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model || 'model-catalog' } }
       const config = resolveWebwrightModelConfig(candidate)
       const entry: ProviderEntry = { ...provider, id: 'custom', weworker: { protocol: config.protocol, baseUrl: config.base_url },
         webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output } }
