@@ -19,7 +19,7 @@ import {
   findTemplate,
   questionAnswerText,
   renderTemplateSkill,
-  TEMPLATE_QUESTIONS,
+  templateQuestions,
   validateTemplateAnswers,
   validateTemplateQuestion,
 } from './templates.js'
@@ -70,6 +70,11 @@ function QuickPairStep({ agent, template, answers, draftKey, onDone }) {
     setupRef.current = true
     ;(async () => {
       try {
+        if (buildTemplateTasks(template, answers).length === 0) {
+          // 按需使用的模板没有定时任务，无需创建。
+          setTaskState({ tasks: [], note: 'no-tasks' })
+          return
+        }
         if (agentChannelOf(current) !== 'wecom') {
           // send_agent_message 仅支持企微：微信 Bot 跳过定时任务。
           setTaskState({ tasks: [], note: 'weixin' })
@@ -117,7 +122,8 @@ function QuickPairStep({ agent, template, answers, draftKey, onDone }) {
           <Button data-app-button="action" onClick={() => navigator.clipboard?.writeText(pairingCommand(current?.pairing_code)).catch(() => {})}>复制</Button>
         </div>
         <div style={{ ...hintStyle, marginTop: 12 }}>
-          <LoadingOutlined /> 等待配对…配对成功后会自动为它安排定时任务。
+          <LoadingOutlined /> 等待配对…
+          {buildTemplateTasks(template, answers).length > 0 ? '配对成功后会自动为它安排定时任务。' : '配对成功后就可以直接使用了。'}
           {connection === 'error' && <span style={{ color: 'var(--error, #ef4444)', marginLeft: 8 }}>机器人连接异常：{current?.connection?.error || '请检查网络'}</span>}
         </div>
       </div>
@@ -140,7 +146,7 @@ function QuickPairStep({ agent, template, answers, draftKey, onDone }) {
             type="info"
             showIcon
             message="微信机器人暂不支持定时推送"
-            description="Bot 的专属知识和查询能力不受影响；之后换绑企业微信机器人即可启用日报和额度告警。"
+            description="Bot 的专属知识和查询能力不受影响；之后换绑企业微信机器人即可启用定时推送。"
           />
         )}
         {taskState?.note === 'no-target' && (
@@ -151,6 +157,11 @@ function QuickPairStep({ agent, template, answers, draftKey, onDone }) {
             message="未能自动创建定时任务"
             description="没找到它观察到的会话。可以再给它发一条消息，然后在 Bot 详情的「定时任务」里手动创建。"
           />
+        )}
+        {taskState?.note === 'no-tasks' && (
+          <div style={{ ...hintStyle, marginBottom: 8 }}>
+            这个 Bot 按需使用，没有定时任务；直接在{im}里让它开始复查就可以了。
+          </div>
         )}
         {taskState?.note === 'error' && (
           <Alert style={{ marginBottom: 10 }} type="warning" showIcon message="定时任务创建失败" description={taskState.error} />
@@ -209,7 +220,8 @@ export default function QuickCreateFlow({ draftKey }) {
   /** 一问一答流程当前问到第几题。 */
   const [qIndex, setQIndex] = useState(() => {
     const saved = Number(existingDraft?.quickQuestionIndex)
-    return Number.isInteger(saved) && saved >= 0 && saved < TEMPLATE_QUESTIONS.length ? saved : 0
+    const total = templateQuestions(findTemplate(existingDraft?.templateId)).length
+    return Number.isInteger(saved) && saved >= 0 && saved < total ? saved : 0
   })
   /** 转场方向：forward 前进（从右滑入），back 后退（从左滑入）。 */
   const [direction, setDirection] = useState('forward')
@@ -237,6 +249,10 @@ export default function QuickCreateFlow({ draftKey }) {
     )
   }
 
+  /** 该模板的一问一答问题清单与定时任务（纯数据，可安全地在渲染期计算）。 */
+  const questions = templateQuestions(template)
+  const templateTasks = buildTemplateTasks(template, answers)
+
   const goPreview = () => {
     const message = validateTemplateAnswers(template, answers)
     setError(message)
@@ -249,12 +265,12 @@ export default function QuickCreateFlow({ draftKey }) {
 
   /** 提交当前问题的回答：通过则问下一题，最后一题直接进入预览。 */
   const submitAnswer = (nextAnswers = answers) => {
-    const question = TEMPLATE_QUESTIONS[qIndex]
+    const question = questions[qIndex]
     if (!question) return
     const message = validateTemplateQuestion(template, question.id, nextAnswers)
     setError(message)
     if (message) return
-    if (qIndex + 1 >= TEMPLATE_QUESTIONS.length) {
+    if (qIndex + 1 >= questions.length) {
       goPreview()
       return
     }
@@ -335,9 +351,9 @@ export default function QuickCreateFlow({ draftKey }) {
 
       <div className="agent-create-wizard__section" style={sectionStyle}>
         {step === 'questions' && (() => {
-          const question = TEMPLATE_QUESTIONS[qIndex]
+          const question = questions[qIndex]
           if (!question) return null
-          const isLast = qIndex + 1 === TEMPLATE_QUESTIONS.length
+          const isLast = qIndex + 1 === questions.length
           const pick = (patch) => {
             const next = { ...answers, ...patch }
             updateAnswers(patch)
@@ -345,8 +361,8 @@ export default function QuickCreateFlow({ draftKey }) {
           }
           return (
             <div className="qflow">
-              <div className="qflow__dots" aria-label={`第 ${qIndex + 1} / ${TEMPLATE_QUESTIONS.length} 个问题`}>
-                {TEMPLATE_QUESTIONS.map((item, index) => (
+              <div className="qflow__dots" aria-label={`第 ${qIndex + 1} / ${questions.length} 个问题`}>
+                {questions.map((item, index) => (
                   <span
                     key={item.id}
                     className={`qflow__dot${index === qIndex ? ' is-current' : ''}${index < qIndex ? ' is-done' : ''}`}
@@ -367,9 +383,9 @@ export default function QuickCreateFlow({ draftKey }) {
                   {question.type === 'text' && (
                     <Input
                       className="qflow__input"
-                      value={answers.name}
-                      maxLength={40}
-                      onChange={(event) => updateAnswers({ name: event.target.value })}
+                      value={answers[question.answerKey || 'name']}
+                      maxLength={question.maxLength || 40}
+                      onChange={(event) => updateAnswers({ [question.answerKey || 'name']: event.target.value })}
                       onPressEnter={() => submitAnswer()}
                       placeholder={question.placeholder}
                       aria-label={question.title}
@@ -393,7 +409,7 @@ export default function QuickCreateFlow({ draftKey }) {
                   {question.type === 'hour' && (
                     <div className="qflow__chips" role="radiogroup" aria-label={question.title}>
                       {question.hours.map((hour) => {
-                        const selected = Number(answers.dailyHour) === hour
+                        const selected = Number(answers[question.answerKey || 'dailyHour']) === hour
                         return (
                           <button
                             key={hour}
@@ -402,11 +418,33 @@ export default function QuickCreateFlow({ draftKey }) {
                             aria-checked={selected}
                             className={`qflow__chip${selected ? ' is-selected' : ''}`}
                             onClick={() => {
-                              const next = pick({ dailyHour: hour })
+                              const next = pick({ [question.answerKey || 'dailyHour']: hour })
                               window.setTimeout(() => submitAnswer(next), 260)
                             }}
                           >
                             {String(hour).padStart(2, '0')}:00
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {question.type === 'choice' && (
+                    <div className="qflow__chips" role="radiogroup" aria-label={question.title}>
+                      {question.options.map((option) => {
+                        const selected = answers[question.answerKey] === option.value
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            className={`qflow__chip${selected ? ' is-selected' : ''}`}
+                            onClick={() => {
+                              const next = pick({ [question.answerKey]: option.value })
+                              window.setTimeout(() => submitAnswer(next), 260)
+                            }}
+                          >
+                            {option.label}
                           </button>
                         )
                       })}
@@ -474,7 +512,9 @@ export default function QuickCreateFlow({ draftKey }) {
                   className="qflow__next"
                   onClick={() => submitAnswer()}
                 >
-                  {isLast ? '生成专属知识 ✨' : '继续'}
+                  {question.optional && !String(answers[question.answerKey] || '').trim()
+                    ? '跳过，稍后提供'
+                    : isLast ? '下一步' : '继续'}
                 </Button>
               </div>
             </div>
@@ -484,7 +524,8 @@ export default function QuickCreateFlow({ draftKey }) {
         {step === 'preview' && (
           <div>
             <div style={{ ...hintStyle, marginBottom: 10 }}>
-              专属知识已经按你的回答填好了 ✍️（这一步不需要等 AI）。可以直接修改，右边是它会安排的定时任务：
+              专属知识已经按你的回答填好了 ✍️（这一步不需要等 AI）。可以直接修改
+              {templateTasks.length > 0 ? '，右边是它会安排的定时任务：' : '，右边是你的回答和示例问题：'}
             </div>
             <div className="quick-create__preview">
               <Input.TextArea
@@ -499,20 +540,24 @@ export default function QuickCreateFlow({ draftKey }) {
               <div className="quick-create__preview-side">
                 <div style={labelStyle}>💬 你的回答</div>
                 <div className="quick-create__answer-summary">
-                  {TEMPLATE_QUESTIONS.map((question) => (
+                  {questions.map((question) => (
                     <div key={question.id} className="quick-create__answer-summary-row">
                       <span className="quick-create__answer-summary-q">{question.title}</span>
                       <span className="quick-create__answer-summary-a">{questionAnswerText(question.id, answers) || '—'}</span>
                     </div>
                   ))}
                 </div>
-                <div style={{ ...labelStyle, marginTop: 14 }}>📅 会自动创建的定时任务</div>
-                {buildTemplateTasks(template, answers).map((task) => (
-                  <div key={task.key} className="quick-create__task-item">
-                    <span>{task.title}</span>
-                    <span style={hintStyle}>{describeCron(task.cron_expression)}</span>
-                  </div>
-                ))}
+                {templateTasks.length > 0 && (
+                  <>
+                    <div style={{ ...labelStyle, marginTop: 14 }}>📅 会自动创建的定时任务</div>
+                    {templateTasks.map((task) => (
+                      <div key={task.key} className="quick-create__task-item">
+                        <span>{task.title}</span>
+                        <span style={hintStyle}>{describeCron(task.cron_expression)}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
                 <div style={{ ...labelStyle, marginTop: 14 }}>💬 示例问题</div>
                 <ul style={{ ...hintStyle, paddingLeft: 18 }}>
                   {buildTemplateExamples(template, answers).map((example) => <li key={example}>{example}</li>)}
@@ -528,13 +573,13 @@ export default function QuickCreateFlow({ draftKey }) {
               <span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>
               给「{String(answers.name || '').trim() || template.defaultName}」绑定一个机器人，扫个码就好
             </div>
-            {botChannel === 'weixin' && (
+            {botChannel === 'weixin' && templateTasks.length > 0 && (
               <Alert
                 type="info"
                 showIcon
                 style={{ marginBottom: 12 }}
                 message="微信机器人暂不支持定时推送"
-                description="Bot 的查询能力不受影响，但日报和额度告警需要企业微信机器人；建议优先选企业微信。"
+                description="Bot 的查询能力不受影响，但定时推送需要企业微信机器人；建议优先选企业微信。"
               />
             )}
             <BotChannelPicker

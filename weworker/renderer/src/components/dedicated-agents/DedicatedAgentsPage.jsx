@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Alert, Button, Checkbox, Popconfirm } from 'antd'
-import { FormOutlined, PlusOutlined } from '@ant-design/icons'
+import { Alert, Checkbox, Popconfirm } from 'antd'
+import { FormOutlined } from '@ant-design/icons'
 import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { useSitesStore } from '../../store/sites.js'
 import SiteIcon from '../icons/SiteIcon.jsx'
@@ -12,7 +12,7 @@ import { RenameIcon, TrashIcon } from '../icons/PanelIcons.jsx'
 import AgentCreateWizard from './AgentCreateWizard.jsx'
 import AgentDetail from './AgentDetail.jsx'
 import AgentNameEditor from './AgentNameEditor.jsx'
-import { contentStyle, hintStyle, listColumnStyle, pageStyle, sectionStyle, titleStyle } from './styles.js'
+import { contentStyle, hintStyle, listColumnStyle, pageStyle } from './styles.js'
 
 const LIST_REFRESH_MS = 8000
 
@@ -105,32 +105,6 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
   )
 }
 
-function Intro({ onCreate, hasAgents }) {
-  return (
-    <div style={{ maxWidth: 720 }}>
-      <h2 style={titleStyle}>WeWorker Bot</h2>
-      <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', margin: '8px 0 20px' }}>
-        组合网站能力、专属知识和一个本地目录，得到一个独立运行、随时在线的 Agent：像 Claude 一样干活，还能替你操作网站。它连接企业微信或微信机器人，你在手机上直接和它对话，不影响 WeWorker 的主对话。
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 20 }}>
-        {[
-          ['1. 选网站与目录', '网站可多选或全不选；再给一个本地目录，它就在那里工作'],
-          ['2. 写专属知识', '用大白话描述，AI 帮你整理成 Skill'],
-          ['3. 扫码绑定', '企业微信或微信扫码，一键获得机器人'],
-          ['4. 发绑定码', '给机器人发一句话完成配对'],
-        ].map(([title, text]) => (
-          <div key={title} style={{ ...sectionStyle, marginBottom: 0 }}>
-            <div style={{ fontSize: 'var(--font-size-label)', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>{title}</div>
-            <div style={hintStyle}>{text}</div>
-          </div>
-        ))}
-      </div>
-      <Button data-app-button="action" type="primary" size="large" icon={<PlusOutlined />} onClick={onCreate}>新建WeWorker Bot</Button>
-      {hasAgents && <div style={{ ...hintStyle, marginTop: 12 }}>也可以在左侧选择一个已有的 Agent 查看和管理。</div>}
-    </div>
-  )
-}
-
 export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = false, onSidebarResizeStart, compactLayout = false, toolbar }) {
   const agents = useDedicatedAgentsStore((s) => s.agents)
   const view = useDedicatedAgentsStore((s) => s.view)
@@ -167,6 +141,23 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
   }
   const showDetail = view === 'detail' && selectedId && agents.some((agent) => agent.id === selectedId)
   const activeDraft = agents.find((agent) => agent.draft && agent.id === selectedId)
+
+  // 新建页本身就是介绍页：未选中任何 Bot 时主区域始终展示新建流程（BotHub）。
+  // 已有进行中的草稿则直接恢复，否则开一个新草稿；有选中的 Bot 时不动。
+  useEffect(() => {
+    if (showDetail || activeDraft) return
+    const state = useDedicatedAgentsStore.getState()
+    const draft = state.agents.find((agent) => agent.draft)
+    if (draft) selectAgent(draft.id)
+    else startCreate()
+  }, [showDetail, activeDraft, selectAgent, startCreate])
+
+  /** 新建按钮：已有进行中的草稿则回到它，避免草稿越积越多。 */
+  const handleStartCreate = () => {
+    const draft = useDedicatedAgentsStore.getState().agents.find((agent) => agent.draft)
+    if (draft) selectAgent(draft.id)
+    else startCreate()
+  }
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
   const visibleAgents = normalizedQuery
     ? agents.filter((agent) => {
@@ -183,7 +174,7 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
         <button
           type="button"
           className="sidebar-new-chat sidebar-conversation-action"
-          onClick={startCreate}
+          onClick={handleStartCreate}
           style={{
             width: 'calc(100% - 16px)',
             margin: '4px 8px 12px',
@@ -306,8 +297,7 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
           </div>
         ) : (
           <div style={contentStyle}>
-            {view === 'create' && activeDraft && <AgentCreateWizard key={activeDraft.draftKey || activeDraft.id} draftKey={activeDraft.draftKey || activeDraft.id} />}
-            {view !== 'create' && <Intro onCreate={startCreate} hasAgents={agents.length > 0} />}
+            {activeDraft && <AgentCreateWizard key={activeDraft.draftKey || activeDraft.id} draftKey={activeDraft.draftKey || activeDraft.id} />}
           </div>
         )}
       </div>
