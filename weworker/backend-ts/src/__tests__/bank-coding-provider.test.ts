@@ -96,10 +96,10 @@ describe('user-configured coding provider', () => {
     expect(JSON.parse(String(init?.body)).model).toBe('fixture-selected-model')
   })
 
-  it('resolves the managed endpoint for exploration without failing its allowlist', () => {
+  it('rejects exploration when a managed provider offers no OpenAI interface', () => {
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
     const runtime = resolveBankCodingSettings(saved, PROVIDERS, env)
-    expect(resolveWebwrightModelConfig(runtime)).toMatchObject({ provider_id: 'bank_coding', protocol: 'anthropic_messages', base_url: 'https://example.com/public', model: 'fixture-selected-model' })
+    expect(() => resolveWebwrightModelConfig(runtime)).toThrow(/OpenAI/)
   })
 })
 

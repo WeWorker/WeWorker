@@ -47,7 +47,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
       if (!entry) {
         selectionRef.current = null
         setConfig({ ...available, selection: null, selected_provider: '', effective_model: '' })
-        setError('请先在模型设置中验证并保存网站探索模型')
+        setError('请先在设置 → 模型中配置 Adapter 工坊 OpenAI 接口')
         return
       }
       const selection = { provider: selectionProvider(entry), model: previous ? saved.model : entry.model,

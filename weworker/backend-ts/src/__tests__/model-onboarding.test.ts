@@ -9,7 +9,7 @@ import { createExplorationModelService, registerExplorationModelRoutes } from '.
 
 const settings = (patch: Partial<Settings> = {}) => ({
   active_provider: 'custom', api_key: 'fixture-main-key', model: 'fixture-model',
-  base_url_custom: 'https://example.com/proxy', weworker_protocol_custom: 'openai_chat_completions', openai_base_url_custom: '',
+  base_url_custom: 'https://example.com/proxy', weworker_protocol_custom: 'openai_chat_completions', openai_base_url_custom: 'https://example.com/proxy',
   exploration_base_url: '', exploration_api_key: '', exploration_model: '', exploration_use_main_key: true,
   ...patch,
 } as Settings)
@@ -21,7 +21,7 @@ const configuredSettings = (id: string, baseUrl: string) => settings({
   active_model_configuration: id,
   model_configurations: {
     [id]: { provider_id: 'custom', api_key: 'fixture-main-key', model: 'fixture-model',
-      base_url: baseUrl, weworker_protocol: 'openai_chat_completions', openai_base_url: '', context_limit: 1000000, auth_type: 'api_key' },
+      base_url: baseUrl, weworker_protocol: 'openai_chat_completions', openai_base_url: baseUrl, context_limit: 1000000, auth_type: 'api_key' },
   },
 })
 
@@ -182,10 +182,10 @@ describe('exploration connection preparation', () => {
   it('passes through a complete OpenAI endpoint and rechecks after changing its URL mode', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => chatResponse())
     const service = createExplorationModelService(fetchMock)
-    const full = settings({ base_url_custom: 'https://example.com/inference', base_url_is_full_custom: true })
+    const full = settings({ openai_base_url_custom: 'https://example.com/inference', openai_base_url_is_full_custom: true })
     await service.check(full)
     expect(service.status(full)).toMatchObject({ status: 'connected', base_url_is_full: true })
-    const base = { ...full, base_url_is_full_custom: false }
+    const base = { ...full, openai_base_url_is_full_custom: false }
     expect(service.status(base).status).toBe('pending')
     await service.check(base)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
@@ -258,71 +258,16 @@ async function withRoutes(upstream: typeof fetch, run: (url: string, get: () => 
 const post = (url: string, body: unknown) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 describe('exploration settings API', () => {
-  it('reloads the original saved exploration fields and retains their encrypted key when explicitly revalidated', async () => {
-    const upstream = vi.fn<typeof fetch>(async () => chatResponse())
-    await withRoutes(upstream, async (url, get, set) => {
-      set({ exploration_base_url: 'https://example.org/original', exploration_model: 'original-model',
-        exploration_api_key: 'fixture-original-key', exploration_use_main_key: false })
-      expect(await (await fetch(url)).json()).toMatchObject({ configured_base_url: 'https://example.org/original',
-        configured_model: 'original-model', has_independent_key: true, use_main_key: false })
-      expect(await (await post(url, { base_url: 'https://example.org/original', model: 'original-model', api_key: '', use_main_key: false })).json()).toMatchObject({ ok: true })
-      expect(get().exploration_providers?.custom.api_key).toBe('fixture-original-key')
-      expect(get().api_key).toBe('fixture-main-key')
-    })
-  })
-  it('restores the original exploration form with a service address and a live reference to the main key', async () => {
-    const upstream = vi.fn<typeof fetch>(async () => chatResponse())
-    await withRoutes(upstream, async (url, get, set) => {
-      const before = structuredClone(get())
-      const response = await post(url, { base_url: 'https://example.org/custom', use_main_key: true, model: '' })
-      expect(response.status).toBe(200)
-      expect(await response.json()).toMatchObject({ ok: true, base_url: 'https://example.org/custom', use_main_key: true, configured_model: '', main_model: before.model })
-      expect(get()).toMatchObject({ active_provider: before.active_provider, api_key: before.api_key, model: before.model })
-      expect((upstream.mock.calls[0] as unknown as [string])[0]).toBe('https://example.org/custom/chat/completions')
-      set({ api_key: 'fixture-replaced-main-key', model: 'new-main-model' })
-      const checked = await post(url + '/check', { force: true })
-      expect(await checked.json()).toMatchObject({ ok: true, effective_model: 'new-main-model' })
-      const [, options] = upstream.mock.calls.at(-1) as unknown as [string, RequestInit]
-      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-replaced-main-key')
-      expect(get().exploration_providers?.custom.api_key).toBe('')
-    })
-  })
-
-  it('restores independent key persistence and complete exploration endpoint URLs', async () => {
-    const upstream = vi.fn<typeof fetch>(async () => chatResponse())
+  it.each(['', '/activate'])('rejects the retired independent editor %s without saving or contacting a model', async suffix => {
+    const upstream = vi.fn<typeof fetch>(async () => { throw new Error('must not request') })
     await withRoutes(upstream, async (url, get) => {
-      const body = { base_url: 'https://example.org/infer/?version=1', base_url_is_full: true, use_main_key: false, model: 'explore-model', api_key: 'fixture-exploration-key' }
-      expect(await (await post(url, body)).json()).toMatchObject({ ok: true, base_url: body.base_url, base_url_is_full: true, use_main_key: false, configured_model: 'explore-model', has_key: true })
-      expect(await (await post(url, { ...body, api_key: '' })).json()).toMatchObject({ ok: true })
-      expect(get().exploration_providers?.custom.api_key).toBe('fixture-exploration-key')
-      const [endpoint, options] = upstream.mock.calls.at(-1) as unknown as [string, RequestInit]
-      expect(endpoint).toBe(body.base_url)
-      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-exploration-key')
-      expect(JSON.stringify(await (await fetch(url)).json())).not.toContain('fixture-exploration-key')
-      expect(get().api_key).toBe('fixture-main-key')
-    })
-  })
-
-  it('does not persist the restored form when verification fails', async () => {
-    await withRoutes(vi.fn(async () => new Response('invalid placeholder key', { status: 401 })), async (url, get) => {
       const before = structuredClone(get())
-      const response = await post(url, { base_url: 'https://example.org/v1', use_main_key: false, model: 'explore-model', api_key: 'fixture-invalid-key' })
-      expect(await response.json()).toMatchObject({ ok: false, error: 'auth_failed' })
+      const response = await post(url + suffix, { provider: 'custom', base_url: 'https://example.org/old',
+        api_key: 'placeholder-independent-key', model: 'old-model', use_main_key: false })
+      expect(response.status).toBe(410)
+      expect((await response.json()).detail).toContain('模型配置')
       expect(get()).toEqual(before)
-    })
-  })
-
-  it('rejects a stale form save if the main configuration changes while verification is running', async () => {
-    let release!: (value: Response) => void
-    let started!: () => void
-    const start = new Promise<void>(resolve => { started = resolve })
-    await withRoutes(vi.fn(() => { started(); return new Promise<Response>(resolve => { release = resolve }) }), async (url, get, set) => {
-      const response = post(url, { base_url: 'https://example.org/v1', use_main_key: true, model: '' })
-      await start
-      set({ api_key: 'fixture-changed-main-key' })
-      release(chatResponse())
-      expect((await response).status).toBe(409)
-      expect(get().exploration_active_provider).toBeUndefined()
+      expect(upstream).not.toHaveBeenCalled()
     })
   })
 
@@ -395,58 +340,11 @@ describe('exploration settings API', () => {
   })
 })
 
-describe('independent exploration provider settings API', () => {
-  it.each([
-    ['anthropic', 'anthropic_messages', 'https://api.anthropic.com/v1/messages'],
-    ['glm', 'openai_chat_completions', 'https://open.bigmodel.cn/api/coding/paas/v4/chat/completions'],
-    ['deepseek', 'openai_chat_completions', 'https://api.deepseek.com/chat/completions'],
-  ])('saves %s exploration credentials without changing ordinary conversation settings', async (provider, protocol, endpoint) => {
-    const upstream = vi.fn(async () => protocol === 'anthropic_messages' ? anthropicTextResponse() : chatResponse())
-    await withRoutes(upstream, async (url, get) => {
-      const before = { ...get() }
-      const response = await post(url, { provider, model: 'explore-model', api_key: 'fixture-explore-key' })
-      expect(response.status).toBe(200)
-      const data = await response.json()
-      expect(data).toMatchObject({ ok: true, active_provider: provider })
-      expect(JSON.stringify(data)).not.toContain('fixture-explore-key')
-      expect(get()).toMatchObject({ active_provider: before.active_provider, model: before.model, api_key: before.api_key, exploration_active_provider: provider })
-      expect((upstream.mock.calls[0] as unknown as [string])[0]).toBe(endpoint)
-    })
-  })
-
-  it.each(['anthropic_messages', 'openai_chat_completions'])('saves a custom exploration %s service with independent auth', async protocol => {
-    const upstream = vi.fn(async () => protocol === 'anthropic_messages' ? anthropicTextResponse() : chatResponse())
-    await withRoutes(upstream, async (url, get) => {
-      expect(await (await post(url, { provider: 'custom', model: 'custom-explore', api_key: 'fixture-custom-key', base_url: 'https://example.org/gateway', protocol, auth_type: 'auth_token' })).json()).toMatchObject({ ok: true })
-      const [endpoint, options] = upstream.mock.calls[0] as unknown as [string, RequestInit]
-      expect(endpoint).toBe('https://example.org/gateway' + (protocol === 'anthropic_messages' ? '/v1/messages' : '/chat/completions'))
-      expect(new Headers(options.headers).get('authorization')).toBe('Bearer fixture-custom-key')
-      expect(get().api_key).toBe('fixture-main-key')
-      expect(await (await post(url, { provider: 'custom', model: 'next-model', api_key: '', base_url: 'https://example.org/gateway', protocol, auth_type: 'auth_token' })).json()).toMatchObject({ ok: true })
-      expect(get().exploration_providers?.custom.api_key).toBe('fixture-custom-key')
-    })
-  })
-
-  it('switches saved exploration providers and models independently', async () => {
-    const upstream = vi.fn(async () => chatResponse())
-    await withRoutes(upstream, async (url, get) => {
-      for (const provider of ['glm', 'deepseek']) {
-        expect(await (await post(url, { provider, model: provider + '-explore', api_key: 'fixture-' + provider + '-key' })).json()).toMatchObject({ ok: true })
-      }
-      expect(await (await post(url + '/activate', { provider: 'glm', model: 'glm-other-model' })).json()).toMatchObject({ ok: true, active_provider: 'glm' })
-      expect(get()).toMatchObject({ active_provider: 'custom', model: 'fixture-model', api_key: 'fixture-main-key', exploration_active_provider: 'glm' })
-      expect(get().exploration_providers?.glm.model).toBe('glm-other-model')
-      expect(get().exploration_providers?.deepseek.model).toBe('deepseek-explore')
-      const before = JSON.stringify(get())
-      expect((await post(url + '/activate', { provider: 'anthropic' })).status).toBe(400)
-      expect(JSON.stringify(get())).toBe(before)
-    })
-  })
-
+describe('model settings exploration API', () => {
   it('lists models using exploration credentials and masks reflected keys', async () => {
     const upstream = vi.fn(async () => new Response('invalid fixture-explore-key', { status: 401 }))
     await withRoutes(upstream, async (url, _get, set) => {
-      set({ exploration_active_provider: 'custom', exploration_providers: { custom: { api_key: 'fixture-explore-key', model: 'explore-model', base_url: 'https://example.org/v1', protocol: 'openai_chat_completions', auth_type: 'auth_token' } } })
+      set({ openai_api_key_custom: 'fixture-explore-key', openai_model_custom: 'explore-model', openai_base_url_custom: 'https://example.org/v1' })
       const data = await (await post(url + '/models', { provider: 'custom' })).json()
       expect(data.source).toBe('fallback')
       expect(JSON.stringify(data)).not.toContain('fixture-explore-key')
@@ -459,10 +357,7 @@ describe('independent exploration provider settings API', () => {
   it('resolves and probes a selected exploration configuration without activating it globally', async () => {
     const upstream = vi.fn<typeof fetch>(async () => chatResponse())
     await withRoutes(upstream, async (url, get, set) => {
-      set({ exploration_active_provider: 'deepseek', exploration_providers: {
-        glm: { api_key: 'fixture-glm-explore-key', model: 'glm-explore', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' },
-        deepseek: { api_key: 'fixture-deepseek-explore-key', model: 'deepseek-explore', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' },
-      } })
+      set({ api_key_glm: 'fixture-glm-explore-key' })
       const before = JSON.stringify(get())
       const selection = { provider: '__exploration__:glm', model: 'glm-session', thinking_effort: 'off' }
       expect(await (await post(url + '/resolve', { selection })).json()).toMatchObject({ selection, active_provider: 'glm', selected_provider: selection.provider })
@@ -475,10 +370,11 @@ describe('independent exploration provider settings API', () => {
     })
   })
 
-  it('keeps independently verified exploration usable after ordinary model changes', async () => {
+  it('keeps a pinned model settings reference verified after ordinary model changes', async () => {
     const service = createExplorationModelService(vi.fn(async () => chatResponse()))
-    const value = settings({ exploration_active_provider: 'deepseek', exploration_providers: { deepseek: { api_key: 'fixture-explore', model: 'explore-model', base_url: '', protocol: 'openai_chat_completions', auth_type: 'api_key' } } })
+    const value = settings({ api_key_deepseek: 'fixture-explore',
+      exploration_model_selection: { provider: '__exploration__:deepseek', model: 'explore-model' } })
     await service.check(value)
-    expect(service.status({ ...value, active_provider: 'anthropic', api_key: 'fixture-main-changed', model: 'changed-model' }).status).toBe('independent')
+    expect(service.status({ ...value, active_provider: 'anthropic', api_key: 'fixture-main-changed', model: 'changed-model' }).status).toBe('connected')
   })
 })
