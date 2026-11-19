@@ -8,7 +8,7 @@ it.each(['/settings/provider', '/settings/provider/activate'])('uses checked act
   const before = { active_provider: 'builtin' }
   const patch = { model_configurations: { example: {} } }
   const prepareCheckedModelSave = vi.fn(async () => patch)
-  const activateCheckedModelSettings = vi.fn(async () => { throw new Error('example unavailable') })
+  const activateCheckedModelSettings = vi.fn(async (..._args: unknown[]) => { throw new Error('example unavailable') })
   const updateSettings = vi.fn()
   const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
   const start = source.indexOf(`app.post('${path}',`)
