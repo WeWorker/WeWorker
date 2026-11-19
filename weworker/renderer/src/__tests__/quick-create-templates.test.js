@@ -9,13 +9,17 @@ import {
   buildTemplateTasks,
   describeCron,
   findTemplate,
+  isQuestionEmpty,
+  normalizeAliyunCredential,
   normalizeQccKey,
+  normalizeTencentCredential,
   parseMembers,
   questionAnswerText,
   renderTemplateSkill,
   templateQuestions,
   validateTemplateAnswers,
   validateTemplateQuestion,
+  visibleTemplateQuestions,
 } from '../components/dedicated-agents/quick-create/templates.js'
 
 const template = findTemplate('apikey-usage-helper')
@@ -138,15 +142,63 @@ test('the costplus template is registered with its own questions and no schedule
   assert.equal(costplus.siteId, 'costplus.weoa.com')
   assert.match(costplus.skillName, /^[A-Za-z0-9][A-Za-z0-9._-]*$/)
   const questions = templateQuestions(costplus)
-  assert.deepEqual(questions.map((question) => question.id), ['name', 'qccApiKey'])
+  assert.deepEqual(
+    questions.map((question) => question.id),
+    ['name', 'qccApiKey', 'tencentAuth', 'tencentServiceEnable', 'aliyunAuth', 'aliyunServiceEnable'],
+  )
   assert.notEqual(questions[1].optional, true, 'the API key question is required')
   assert.ok(questions[1].subtitle.includes('[[https://agent.qcc.com/profile/api-key]]'), 'subtitle carries a clickable link token')
   assert.ok(!questions[1].subtitle.includes('之后在对话里提供'), 'no skip wording left')
+  assert.equal(questions[2].type, 'credentials')
+  assert.equal(questions[2].optional, true, 'the tencent credentials question is optional')
+  assert.deepEqual(questions[2].fields.map((field) => field.answerKey), ['tencentSecretId', 'tencentSecretKey'])
+  assert.equal(questions[2].fields[1].secret, true, 'SecretKey uses masked input')
+  assert.ok(questions[2].subtitle.includes('[[https://console.cloud.tencent.com/cam/capi]]'), 'tencent subtitle carries CAM CAPI link')
+  assert.ok(questions[2].subtitle.includes('暂不需要可直接跳过，仅复查销售方注册状态。'), 'tencent subtitle keeps skip explanation')
+  assert.ok(questions[2].note.includes('仅保存在客户端本地'), 'tencent step reminds user credentials stay local')
+  assert.equal(questions[3].type, 'guide')
+  assert.equal(questions[3].actionUrl, 'https://cloud.tencent.com/product/vtiv')
+  assert.ok(questions[3].subtitle.includes('开通后您可享 50 次免费额度'), 'tencent guide mentions 50 free calls')
+  assert.ok(questions[3].warning.includes('千万不要有余额'), 'tencent guide warns about balance after free quota')
+  assert.equal(questions[4].type, 'credentials')
+  assert.equal(questions[4].optional, true, 'the aliyun credentials question is optional')
+  assert.deepEqual(questions[4].fields.map((field) => field.answerKey), ['aliyunAccessKeyId', 'aliyunAccessKeySecret'])
+  assert.equal(questions[4].fields[1].secret, true, 'AccessKey Secret uses masked input')
+  assert.ok(questions[4].subtitle.includes('[[https://ram.console.aliyun.com/manage/ak]]'), 'aliyun subtitle carries RAM AK link')
+  assert.ok(questions[4].note.includes('仅保存在客户端本地'), 'aliyun step reminds user credentials stay local')
+  assert.equal(questions[5].type, 'guide')
+  assert.ok(questions[5].actionUrl.includes('commodityCode=ocr_cardverification_public_cn'), 'guide step carries the Aliyun service enable URL')
+  assert.ok(questions[5].subtitle.includes('开通后您可享 50 次免费额度'), 'aliyun guide mentions 50 free calls')
+  assert.ok(questions[5].warning.includes('千万不要有余额'), 'aliyun guide warns about balance after free quota')
+  // 未填写对应凭证时自动隐藏开通引导步；填写后出现在对应 AK/SK 的下一步。
+  assert.deepEqual(
+    visibleTemplateQuestions(costplus, costplus.defaultAnswers).map((q) => q.id),
+    ['name', 'qccApiKey', 'tencentAuth', 'aliyunAuth'],
+  )
+  assert.deepEqual(
+    visibleTemplateQuestions(costplus, {
+      ...costplus.defaultAnswers,
+      tencentSecretId: 'TEST_TC_ID_PLACEHOLDER',
+      tencentSecretKey: 'TEST_TC_KEY_PLACEHOLDER',
+    }).map((q) => q.id),
+    ['name', 'qccApiKey', 'tencentAuth', 'tencentServiceEnable', 'aliyunAuth'],
+  )
+  assert.deepEqual(
+    visibleTemplateQuestions(costplus, {
+      ...costplus.defaultAnswers,
+      aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER',
+      aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER',
+    }).map((q) => q.id),
+    ['name', 'qccApiKey', 'tencentAuth', 'aliyunAuth', 'aliyunServiceEnable'],
+  )
+  assert.equal(questionAnswerText('tencentServiceEnable', costplus.defaultAnswers), '已确认开通发票核验服务')
+  assert.equal(questionAnswerText('aliyunServiceEnable', costplus.defaultAnswers), '已确认开通票证核验服务')
   assert.deepEqual(buildTemplateTasks(costplus, costplus.defaultAnswers), [])
 })
 
-test('costplus validation requires a name and the qcc API key', () => {
+test('costplus validation requires a name and qcc key, and validates optional aliyun credentials as a pair', () => {
   const costplus = findTemplate('invoice-self-check-helper')
+  const aliyunQuestion = templateQuestions(costplus).find((q) => q.id === 'aliyunAuth')
   const answers = { ...costplus.defaultAnswers, qccApiKey: 'qcc-test-key' }
   assert.equal(validateTemplateAnswers(costplus, answers), '')
   assert.match(validateTemplateAnswers(costplus, { ...answers, name: '' }), /名字/)
@@ -154,6 +206,70 @@ test('costplus validation requires a name and the qcc API key', () => {
   assert.match(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: '' }), /请先填写/)
   assert.match(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: 'x'.repeat(600) }), /过长/)
   assert.equal(questionAnswerText('qccApiKey', answers), '已提供，将写入专属知识')
+
+  // 腾讯云凭证：全空允许跳过，半填报错，成对填写通过，摘要不回显原文。
+  const tencentQuestion = templateQuestions(costplus).find((q) => q.id === 'tencentAuth')
+  assert.equal(isQuestionEmpty(tencentQuestion, answers), true)
+  assert.equal(validateTemplateQuestion(costplus, 'tencentAuth', answers), '')
+  assert.equal(questionAnswerText('tencentAuth', answers), '未配置，已跳过')
+
+  const onlyTencentId = { ...answers, tencentSecretId: 'TEST_TC_ID_PLACEHOLDER' }
+  assert.equal(isQuestionEmpty(tencentQuestion, onlyTencentId), false)
+  assert.match(validateTemplateQuestion(costplus, 'tencentAuth', onlyTencentId), /SecretKey/)
+
+  const onlyTencentKey = { ...answers, tencentSecretKey: 'TEST_TC_KEY_PLACEHOLDER' }
+  assert.equal(isQuestionEmpty(tencentQuestion, onlyTencentKey), false)
+  assert.match(validateTemplateQuestion(costplus, 'tencentAuth', onlyTencentKey), /SecretId/)
+
+  const withTencent = {
+    ...answers,
+    tencentSecretId: '  TEST_TC_ID_PLACEHOLDER  ',
+    tencentSecretKey: '  TEST_TC_KEY_PLACEHOLDER  ',
+  }
+  assert.equal(normalizeTencentCredential('  TEST_TC_ID_PLACEHOLDER  '), 'TEST_TC_ID_PLACEHOLDER')
+  assert.equal(validateTemplateAnswers(costplus, withTencent), '')
+  assert.equal(questionAnswerText('tencentAuth', withTencent), '已提供，将写入专属知识')
+  assert.ok(!questionAnswerText('tencentAuth', withTencent).includes('TEST_TC_KEY_PLACEHOLDER'))
+
+  // 阿里云凭证：全空允许跳过，半填报错，成对填写通过，摘要不回显原文。
+  assert.equal(isQuestionEmpty(aliyunQuestion, answers), true)
+  assert.equal(validateTemplateQuestion(costplus, 'aliyunAuth', answers), '')
+  assert.equal(questionAnswerText('aliyunAuth', answers), '未配置，仅复查销售方状态')
+
+  const onlyId = { ...answers, aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER' }
+  assert.equal(isQuestionEmpty(aliyunQuestion, onlyId), false)
+  assert.match(validateTemplateQuestion(costplus, 'aliyunAuth', onlyId), /AccessKey Secret/)
+
+  const onlySecret = { ...answers, aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER' }
+  assert.equal(isQuestionEmpty(aliyunQuestion, onlySecret), false)
+  assert.match(validateTemplateQuestion(costplus, 'aliyunAuth', onlySecret), /AccessKey ID/)
+
+  assert.match(
+    validateTemplateQuestion(costplus, 'aliyunAuth', {
+      ...answers,
+      aliyunAccessKeyId: 'a'.repeat(129),
+      aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER',
+    }),
+    /AccessKey ID 过长/,
+  )
+  assert.match(
+    validateTemplateQuestion(costplus, 'aliyunAuth', {
+      ...answers,
+      aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER',
+      aliyunAccessKeySecret: 's'.repeat(257),
+    }),
+    /AccessKey Secret 过长/,
+  )
+
+  const withAliyun = {
+    ...answers,
+    aliyunAccessKeyId: '  TEST_AK_ID_PLACEHOLDER  ',
+    aliyunAccessKeySecret: '  TEST_AK_SECRET_PLACEHOLDER  ',
+  }
+  assert.equal(normalizeAliyunCredential('  TEST_AK_ID_PLACEHOLDER  '), 'TEST_AK_ID_PLACEHOLDER')
+  assert.equal(validateTemplateAnswers(costplus, withAliyun), '')
+  assert.equal(questionAnswerText('aliyunAuth', withAliyun), '已提供，将写入专属知识')
+  assert.ok(!questionAnswerText('aliyunAuth', withAliyun).includes('TEST_AK_SECRET_PLACEHOLDER'))
 })
 
 test('costplus skill renders the fixed review window, data chain and safety rules', () => {
@@ -218,13 +334,109 @@ test('costplus skill embeds the API key when provided and keeps ask-at-runtime o
   assert.ok(!prefixed.includes('Bearer Bearer'))
 })
 
+test('costplus skill embeds aliyun VerifyVATInvoice Node.js recipe and handles optional credentials', () => {
+  const costplus = findTemplate('invoice-self-check-helper')
+  const withoutAliyun = renderTemplateSkill(costplus, { ...costplus.defaultAnswers, qccApiKey: 'qcc-test-key-123' })
+  assert.ok(withoutAliyun.includes('VerifyVATInvoice'))
+  assert.ok(withoutAliyun.includes('ocr-api.cn-hangzhou.aliyuncs.com'))
+  assert.ok(withoutAliyun.includes('ACS3-HMAC-SHA256'))
+  assert.ok(withoutAliyun.includes('const akId = "<向主人确认>";'))
+  assert.ok(withoutAliyun.includes('const akSecret = "<向主人确认>";'))
+  assert.ok(withoutAliyun.includes('默认跳过'))
+  assert.ok(withoutAliyun.includes('invalidMark'))
+  assert.ok(withoutAliyun.includes('InvalidAccessKeyId.NotFound'))
+  assert.ok(withoutAliyun.includes('ocrServiceNotOpen'))
+  assert.ok(withoutAliyun.includes('commodityCode=ocr_cardverification_public_cn'))
+  assert.ok(withoutAliyun.includes('ServiceUnavailable'))
+  assert.ok(withoutAliyun.includes('更换阿里云 Key'))
+
+  const withAliyun = renderTemplateSkill(costplus, {
+    ...costplus.defaultAnswers,
+    qccApiKey: 'qcc-test-key-123',
+    aliyunAccessKeyId: '  TEST_AK_ID_PLACEHOLDER  ',
+    aliyunAccessKeySecret: '  TEST_AK_SECRET_PLACEHOLDER  ',
+  })
+  assert.ok(withAliyun.includes('const akId = "TEST_AK_ID_PLACEHOLDER";'))
+  assert.ok(withAliyun.includes('const akSecret = "TEST_AK_SECRET_PLACEHOLDER";'))
+  assert.ok(withAliyun.includes('AK/SK 已内置'))
+  assert.ok(!withAliyun.includes('const akId = "<向主人确认>";'))
+  assert.ok(withAliyun.includes('"invoiceNumber"|"invoiceType"|"billingDate"'), 'Select-String keeps billingDate and invoiceNumber')
+  assert.ok(withAliyun.includes('InvoiceSum: \'<amount>\''), 'batch example passes InvoiceSum for e-invoices')
+  assert.ok(withAliyun.includes('非20位数电票'), 'non-20-digit invoices are skipped before calling Aliyun')
+
+  // 提取全部 Node.js 内联脚本（腾讯云 + 阿里云），确认语法均合法。
+  const blocks = [...withAliyun.matchAll(/```js\n([\s\S]*?)\n```/g)]
+  assert.equal(blocks.length, 2, 'both Tencent and Aliyun Node.js code blocks are rendered')
+  for (const [, code] of blocks) {
+    assert.doesNotThrow(() => new Function(code), 'rendered Node.js recipe has valid syntax')
+  }
+
+  // 腾讯云凭证单独配置与双通道互补配置。
+  const withTencent = renderTemplateSkill(costplus, {
+    ...costplus.defaultAnswers,
+    qccApiKey: 'qcc-test-key-123',
+    tencentSecretId: '  TEST_TC_ID_PLACEHOLDER  ',
+    tencentSecretKey: '  TEST_TC_KEY_PLACEHOLDER  ',
+  })
+  assert.ok(withTencent.includes('VatInvoiceVerifyNew'))
+  assert.ok(withTencent.includes('ocr.tencentcloudapi.com'))
+  assert.ok(withTencent.includes('TC3-HMAC-SHA256'))
+  assert.ok(withTencent.includes('const secretId = "TEST_TC_ID_PLACEHOLDER";'))
+  assert.ok(withTencent.includes('const secretKey = "TEST_TC_KEY_PLACEHOLDER";'))
+  assert.ok(withTencent.includes('SecretId/SecretKey 已内置'))
+  assert.ok(withTencent.includes('StateCode'))
+  assert.ok(withTencent.includes('Additional: \'<amount>\''))
+  assert.ok(withTencent.includes('AlgorithmTimeout'))
+  assert.ok(withTencent.includes('更换腾讯云 Key'))
+
+  const withBoth = renderTemplateSkill(costplus, {
+    ...costplus.defaultAnswers,
+    qccApiKey: 'qcc-test-key-123',
+    tencentSecretId: 'TEST_TC_ID_PLACEHOLDER',
+    tencentSecretKey: 'TEST_TC_KEY_PLACEHOLDER',
+    aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER',
+    aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER',
+  })
+  assert.ok(withBoth.includes('双通道'), 'both Tencent and Aliyun enabled describes dual-channel fallback')
+})
+
 test('costplus description and examples use the fixed review window', () => {
   const costplus = findTemplate('invoice-self-check-helper')
   assert.equal(
     buildTemplateDescription(costplus, {}),
     '复查 CostPlus 费控系统 2024 年至今（含2026年）的历史报销发票，输出注册状态异常的销售方清单。',
   )
-  const examples = buildTemplateExamples(costplus, {})
-  assert.ok(examples[0].includes('2024 年以来的报销发票'))
-  assert.ok(examples.some((example) => example.includes('注册状态异常')))
+  assert.equal(
+    buildTemplateDescription(costplus, {
+      tencentSecretId: 'TEST_TC_ID_PLACEHOLDER',
+      tencentSecretKey: 'TEST_TC_KEY_PLACEHOLDER',
+    }),
+    '复查 CostPlus 费控系统 2024 年至今（含2026年）的历史报销发票，输出注册状态异常的销售方及状态异常的发票清单。',
+  )
+  assert.equal(
+    buildTemplateDescription(costplus, {
+      aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER',
+      aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER',
+    }),
+    '复查 CostPlus 费控系统 2024 年至今（含2026年）的历史报销发票，输出注册状态异常的销售方及状态异常的发票清单。',
+  )
+  const expectedExamples = [
+    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？**不要查发票是否作废/红冲**',
+    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？**同时查发票是否作废/红冲， 每个api供应商只查询50次免费额度即可**',
+  ]
+  assert.deepEqual(buildTemplateExamples(costplus, {}), expectedExamples)
+  assert.deepEqual(
+    buildTemplateExamples(costplus, {
+      tencentSecretId: 'TEST_TC_ID_PLACEHOLDER',
+      tencentSecretKey: 'TEST_TC_KEY_PLACEHOLDER',
+    }),
+    expectedExamples,
+  )
+  assert.deepEqual(
+    buildTemplateExamples(costplus, {
+      aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER',
+      aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER',
+    }),
+    expectedExamples,
+  )
 })
