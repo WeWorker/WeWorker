@@ -72,6 +72,7 @@ test('both copy actions use the selection captured before the menu takes focus',
     await openMenu(message)
     window.getSelection().removeAllRanges()
     await clickCopy(label)
+    assert.equal(window.getSelection().toString(), 'bold', '复制完成后恢复蓝色选中高亮')
   }
   assert.deepEqual(copied, ['**bold**', 'bold'])
 })

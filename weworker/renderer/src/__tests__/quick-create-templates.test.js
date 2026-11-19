@@ -311,6 +311,32 @@ test('costplus skill renders the fixed review window, data chain and safety rule
   assert.ok(!markdown.includes('allowed-tools'), 'no tool allowlist: PowerShell recipes must stay callable')
 })
 
+test('costplus skill renders the tab-separated problem list format with the paste hint', () => {
+  const costplus = findTemplate('invoice-self-check-helper')
+  const markdown = renderTemplateSkill(costplus, costplus.defaultAnswers)
+  // 问题清单：围栏代码块 + Tab 分隔的固定 30 列表头 + 占位示例行。
+  const headerLine = markdown.split('\n').find((line) => line.startsWith('发票号码\t'))
+  assert.ok(headerLine, 'tab-separated header row present')
+  assert.equal(headerLine.split('\t').length, 31, 'the header has exactly 31 columns')
+  assert.ok(headerLine.endsWith('涉及月份\t企查查状态'), 'column order ends with month and qcc status')
+  const exampleRow = markdown.split('\n').find((line) => line.startsWith('25462000000003977123\t'))
+  assert.ok(exampleRow, 'placeholder example row present')
+  assert.equal(exampleRow.split('\t').length, 31, 'the example row has exactly 31 columns')
+  assert.ok(markdown.includes('每行字段数必须与表头完全一致'), 'rows must match the header column count')
+  assert.ok(markdown.includes('企查查状态=该行销售方的注册状态查询结论'), 'qcc status column source documented')
+  assert.ok(markdown.includes('制表符（Tab 字符）'), 'rows must be tab-separated, not space-aligned')
+  assert.ok(markdown.includes('不要写「无」「-」'), 'empty cells stay empty')
+  assert.ok(markdown.includes('doc.weixin.qq.com/sheet/'), 'paste hint links the company sheet')
+  assert.ok(markdown.includes('分列（不要选智能分列）'), 'Excel split-column hint present')
+  assert.ok(markdown.includes('只勾选「Tab 键」'), 'split wizard only checks Tab')
+  // 2026-11 起识别号不再从发票 PDF 补查（--include-tax-no 已移除）：
+  // 销方识别号来自内部库打包串/企查查，购方识别号用固定值，取不到一律「待补充」。
+  assert.ok(!markdown.includes('include-tax-no'), 'no include-tax-no backfill step')
+  assert.ok(!markdown.includes('sellerTaxNo') && !markdown.includes('purchaserTaxNo'), 'tax ids no longer come from invoice details')
+  assert.ok(markdown.includes('"purchaser"|"amount"|"tax"'), 'invoice filter keeps purchaser and tax fields')
+  assert.ok(markdown.includes('"ledgerNo"|"employee"|"department"|"applyDate"'), 'ledger filter keeps ledger-level columns')
+})
+
 test('costplus skill embeds the API key when provided and keeps ask-at-runtime otherwise', () => {
   const costplus = findTemplate('invoice-self-check-helper')
   const withoutKey = renderTemplateSkill(costplus, costplus.defaultAnswers)
@@ -385,7 +411,11 @@ test('costplus skill embeds aliyun VerifyVATInvoice Node.js recipe and handles o
   assert.ok(withTencent.includes('const secretKey = "TEST_TC_KEY_PLACEHOLDER";'))
   assert.ok(withTencent.includes('SecretId/SecretKey 已内置'))
   assert.ok(withTencent.includes('StateCode'))
-  assert.ok(withTencent.includes('Additional: \'<amount>\''))
+  assert.ok(withTencent.includes('Amount: \'<amount>\''), 'batch example passes Amount (the real VatInvoiceVerifyNew field)')
+  assert.ok(withTencent.includes('{ Amount: String(input.Amount).trim() }'), 'payload maps amount to Amount')
+  assert.ok(!withTencent.includes('input.Additional'), 'the unknown Additional parameter is gone from the payload')
+  assert.ok(withTencent.includes('UnknownParameter'), 'the skill warns why Additional must not be sent')
+  assert.ok(withTencent.includes('ResourcePackageRunOut'), 'resource package exhaustion is a stop-and-renew error')
   assert.ok(withTencent.includes('AlgorithmTimeout'))
   assert.ok(withTencent.includes('更换腾讯云 Key'))
 
@@ -421,8 +451,8 @@ test('costplus description and examples use the fixed review window', () => {
     '复查 CostPlus 费控系统 2024 年至今（含2026年）的历史报销发票，输出注册状态异常的销售方及状态异常的发票清单。',
   )
   const expectedExamples = [
-    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？**不要查发票是否作废/红冲**',
-    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？**同时查发票是否作废/红冲， 每个api供应商只查询50次免费额度即可**',
+    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？不要查发票是否作废/红冲',
+    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？同时查发票是否作废/红冲， 每个api供应商只查询50次免费额度即可',
   ]
   assert.deepEqual(buildTemplateExamples(costplus, {}), expectedExamples)
   assert.deepEqual(
