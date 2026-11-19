@@ -3,6 +3,15 @@ import { describe, it } from 'node:test'
 import fs from 'node:fs'
 import { selectModelAfterCatalogRefresh, buildProbeResultRows, buildProviderProbeTargets, buildModelOptions, buildModelCatalogAccess, getModelCatalogIssue, getModelCatalogStatus, buildSettingsProviderLists, buildChatProviderOptions, getVisibleModelRefreshDetail, isModelRefreshFailed, shouldShowModelRefreshFailure } from '../utils/model-selection.js'
 import { getOpenAiUrlHint } from '../utils/provider-url.js'
+import { BUILD_PROVIDERS } from '../utils/provider-config.js'
+
+it('orders fixed public suppliers consistently in settings, chat and the add menu', () => {
+  const order = ['builtin', 'bank_coding', 'glm', 'deepseek', 'openai', 'qwen']
+  const lists = buildSettingsProviderLists(BUILD_PROVIDERS, {})
+  assert.deepEqual(lists.visible.map(p => p.id), order)
+  assert.deepEqual(lists.addable.map(p => p.id), [...order, 'custom'])
+  assert.deepEqual(buildChatProviderOptions(BUILD_PROVIDERS, {}, 'builtin').map(p => p.value), order)
+})
 
 it('defaults OpenAI protocol to Chat Completions and offers Responses as an alternate', () => {
   const settings = fs.readFileSync(new URL('../components/settings/SettingsModal.jsx', import.meta.url), 'utf8')
@@ -218,7 +227,7 @@ describe('provider model selection', () => {
       custom: { model: '', base_url: '', openai_base_url: '' },
     })
     assert.deepEqual(visible.map(provider => provider.id), ['builtin', 'anthropic', 'deepseek'])
-    assert.deepEqual(addable.map(provider => provider.id), ['anthropic', 'deepseek', 'custom'])
+    assert.deepEqual(addable.map(provider => provider.id), ['builtin', 'anthropic', 'deepseek', 'custom'])
   })
 
   it('retains historical model-only settings and explicit additions without changing saved data', () => {
@@ -270,7 +279,7 @@ describe('provider model selection', () => {
     const { visible, addable } = buildSettingsProviderLists(providerList, stored)
     assert.deepEqual(visible.map(provider => provider.name), ['内置助手', 'DeepSeek', 'DeepSeek(2)', 'DeepSeek(1)'])
     assert.deepEqual(visible.map(provider => provider.supplierName), ['内置模型', 'DeepSeek', 'DeepSeek', 'DeepSeek'])
-    assert.equal(addable[0].name, 'DeepSeek')
+    assert.equal(addable[1].name, 'DeepSeek')
     assert.deepEqual(stored, original)
     assert.equal(buildSettingsProviderLists(providerList, {}).visible[0].name, '内置模型')
   })

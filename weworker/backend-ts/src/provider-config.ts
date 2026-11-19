@@ -38,6 +38,7 @@ export function resolveConfiguredSettings(settings: Settings, providers: Provide
       base_url: provider.weworker.baseUrl,
       base_url_is_full: false,
       active_auth_type: provider.authType || 'api_key',
+      active_weworker_protocol: provider.weworker.protocol,
     }),
   }
 }

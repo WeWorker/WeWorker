@@ -27,30 +27,31 @@
       "encryptedApiKey": "KblwyJ8H-s6noP51.8CHYHFuC2Ry2BHjvRIby9g.OQVfEBpevOgdzHsJbpAS7lEJrTa-k1Ua4r77Uy3zMxZ0yRQnIEQy-EFyOu2YqA"
     },
     {
-      "id": "anthropic",
-      "name": "Anthropic",
+      "id": "bank_coding",
+      "name": "行内CodingPlan",
       "models": [],
       "defaultModel": "",
       "weworker": {
-        "protocol": "anthropic_messages",
-        "baseUrl": "https://api.anthropic.com"
+        "protocol": "openai_chat_completions",
+        "baseUrl": ""
       },
       "webwright": {
-        "protocol": "anthropic_messages",
-        "modelClass": "anthropic",
-        "baseUrl": "https://api.anthropic.com",
-        "structuredOutput": "anthropic_json_schema"
+        "protocol": "openai_chat_completions",
+        "modelClass": "openai_chat",
+        "baseUrl": "",
+        "structuredOutput": "openai_json_object"
       },
       "fixed": true,
       "builtin": false,
       "fixedModel": false,
-      "allowMultiple": true,
-      "authType": "api_key",
+      "allowMultiple": false,
+      "authType": "auth_token",
       "presentation": {
-        "subtitle": "Claude 系列",
-        "color": "#D97706",
-        "bg": "rgba(217,119,6,0.12)"
-      }
+        "subtitle": "行内CodingPlan",
+        "color": "#339CFF",
+        "bg": "rgba(51,156,255,0.12)"
+      },
+      "baseUrlEnv": "WEWORKER_BANK_CODING_BASE_URL"
     },
     {
       "id": "glm",
@@ -105,6 +106,58 @@
       }
     },
     {
+      "id": "openai",
+      "name": "OpenAI",
+      "models": [],
+      "defaultModel": "",
+      "weworker": {
+        "protocol": "openai_chat_completions",
+        "baseUrl": "https://api.openai.com/v1"
+      },
+      "webwright": {
+        "protocol": "openai_chat_completions",
+        "modelClass": "openai_chat",
+        "baseUrl": "https://api.openai.com/v1",
+        "structuredOutput": "openai_json_object"
+      },
+      "fixed": true,
+      "builtin": false,
+      "fixedModel": false,
+      "allowMultiple": true,
+      "authType": "auth_token",
+      "presentation": {
+        "subtitle": "OpenAI",
+        "color": "#339CFF",
+        "bg": "rgba(51,156,255,0.12)"
+      }
+    },
+    {
+      "id": "qwen",
+      "name": "通义千问",
+      "models": [],
+      "defaultModel": "",
+      "weworker": {
+        "protocol": "openai_chat_completions",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "webwright": {
+        "protocol": "openai_chat_completions",
+        "modelClass": "openai_chat",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "structuredOutput": "openai_json_object"
+      },
+      "fixed": true,
+      "builtin": false,
+      "fixedModel": false,
+      "allowMultiple": true,
+      "authType": "auth_token",
+      "presentation": {
+        "subtitle": "通义千问",
+        "color": "#339CFF",
+        "bg": "rgba(51,156,255,0.12)"
+      }
+    },
+    {
       "id": "custom",
       "name": "自定义",
       "models": [],
@@ -129,6 +182,33 @@
         "color": "#8B5CF6",
         "bg": "rgba(139,92,246,0.12)"
       }
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "models": [],
+      "defaultModel": "",
+      "weworker": {
+        "protocol": "anthropic_messages",
+        "baseUrl": "https://api.anthropic.com"
+      },
+      "webwright": {
+        "protocol": "anthropic_messages",
+        "modelClass": "anthropic",
+        "baseUrl": "https://api.anthropic.com",
+        "structuredOutput": "anthropic_json_schema"
+      },
+      "fixed": true,
+      "builtin": false,
+      "fixedModel": false,
+      "allowMultiple": true,
+      "authType": "api_key",
+      "presentation": {
+        "subtitle": "Claude 系列",
+        "color": "#D97706",
+        "bg": "rgba(217,119,6,0.12)"
+      },
+      "hidden": true
     }
   ]
 }

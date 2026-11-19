@@ -164,7 +164,7 @@ export function isProviderVisibleInSettings(provider, stored) {
 }
 
 export function buildSettingsProviderLists(providerList, providers) {
-  const allProviders = Array.isArray(providerList) ? providerList : []
+  const allProviders = Array.isArray(providerList) ? providerList.filter(provider => !provider.hidden) : []
   const storedProviders = providers || {}
   const visible = allProviders.filter((provider) => isProviderVisibleInSettings(provider, storedProviders[provider.id]))
   for (const [id, configuration] of Object.entries(storedProviders)) {
@@ -188,10 +188,6 @@ export function buildSettingsProviderLists(providerList, providers) {
     }
     return { ...provider, supplierName, name }
   })
-  const addable = allProviders.filter((provider) => (
-    !provider.builtin
-    && !isBuiltinProvider(provider.id)
-    && (provider.allowMultiple ?? configuredProvider(provider.id)?.allowMultiple) !== false
-  ))
+  const addable = allProviders.filter(provider => provider.builtin || provider.fixed || provider.allowMultiple !== false)
   return { visible: namedVisible, addable }
 }

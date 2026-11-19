@@ -1833,6 +1833,12 @@ function ModelTab() {
   }
 
   const handleAddProvider = async (pid) => {
+    if (isBuiltinProvider(pid) || providerDefinition(pid)?.allowMultiple === false) {
+      setAddPickerOpen(false)
+      setProviderSearch('')
+      setSelectedProvider(pid)
+      return
+    }
     setAddingProvider(pid)
     setTestResult(null)
     try {

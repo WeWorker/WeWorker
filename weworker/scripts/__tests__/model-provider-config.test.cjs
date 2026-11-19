@@ -60,7 +60,7 @@ test('whole-file JSON replacement restores optional providers without source cha
     webwright: { ...managedTemplate.webwright, baseUrl: 'https://example.org/managed' } };
   const template = reduced.providers.find(p => p.id === 'anthropic');
   const coding = { ...template, id: 'bank_coding', name: 'Fixture coding provider',
-    fixed: true, builtin: false, fixedModel: false, allowMultiple: false, authType: 'auth_token',
+    fixed: true, builtin: false, fixedModel: false, allowMultiple: false, hidden: false, authType: 'auth_token',
     baseUrlEnv: 'WEWORKER_FIXTURE_CODING_BASE_URL', models: [], defaultModel: '',
     weworker: { ...template.weworker, baseUrl: 'https://example.com/coding' },
     webwright: { ...template.webwright, baseUrl: 'https://example.org/coding' } };
@@ -87,7 +87,8 @@ test('whole-file JSON replacement restores optional providers without source cha
       assert.equal(metadata.hasFixedModel(managed.id), true);
       assert.equal(metadata.hasFixedModel(coding.id), false);
       const { addable } = selection.buildSettingsProviderLists(metadata.BUILD_PROVIDERS, {});
-      assert.equal(addable.some(p => [managed.id, coding.id].includes(p.id)), false);
+      assert.equal(addable.some(p => p.id === managed.id), true);
+      assert.equal(addable.some(p => p.id === coding.id), true);
       const backend = compiled('backend-ts/src/builtin-provider.ts', profile);
       const access = backend.builtinProviderAccess(backend.BUILTIN_DEV_PROVIDER, {
         WEWORKER_FIXTURE_MANAGED_API_KEY: 'fixture-managed-key',
@@ -183,7 +184,7 @@ test('runtime presets use JSON gateways and auth while custom settings retain us
     base_url_is_full: true, model: 'fixture-selected', active_auth_type: 'auth_token' };
   assert.deepEqual(runtime.resolveConfiguredSettings(settings, profile.providers), {
     ...settings, base_url: profile.providers.find(p => p.id === 'deepseek').weworker.baseUrl,
-    base_url_is_full: false, active_auth_type: 'api_key',
+    base_url_is_full: false, active_auth_type: 'api_key', active_weworker_protocol: 'anthropic_messages',
   });
   const custom = { ...settings, active_provider: 'custom' };
   assert.deepEqual(runtime.resolveConfiguredSettings(custom, profile.providers), custom);
