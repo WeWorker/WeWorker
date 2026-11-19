@@ -351,24 +351,12 @@
   animation-name: qflow-in-back;
 }
 
-.qflow__back {
-  position: absolute;
-  top: -4px;
-  left: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-size-caption);
-  font-family: inherit;
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 8px;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.qflow__back:hover {
-  color: var(--accent);
-  background: var(--bg-secondary);
+.qflow__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
 }
 
 .qflow__emoji {
@@ -505,7 +493,6 @@
 
 .qflow__next {
   min-width: 200px;
-  margin-top: 10px;
 }
 
 @keyframes qflow-in-forward {

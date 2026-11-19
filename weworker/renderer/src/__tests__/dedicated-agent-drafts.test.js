@@ -36,7 +36,7 @@ test('each click creates a separate persistent draft and selection restores its 
   assert.equal(restored.getState().agents[0].knowledge, 'Example notes')
   assert.equal(restored.getState().agents[0].wizardStep, 1)
   assert.equal(restored.getState().agents[1].goal, undefined)
-  assert.equal(agentStatusPresentation(restored.getState().agents[0]).label, '未配置')
+  assert.equal(agentStatusPresentation(restored.getState().agents[0]).label, '配置中')
 })
 
 test('late async updates stay with their draft and backend ID replacement preserves stable identity', () => {
@@ -54,7 +54,7 @@ test('late async updates stay with their draft and backend ID replacement preser
   restored.getState().selectAgent('saved-example')
   assert.equal(restored.getState().view, 'create')
   restored.getState().updateDraftAgent({ paired: true }, first)
-  assert.equal(agentStatusPresentation(restored.getState().agents[0]).label, '未配置')
+  assert.equal(agentStatusPresentation(restored.getState().agents[0]).label, '配置中')
   restored.getState().completeCreate({ id: 'saved-example', paired: true }, first)
   assert.equal(restored.getState().agents.find(agent => agent.id === second).draft, true)
   assert.equal(restored.getState().agents.find(agent => agent.id === 'saved-example').draft, false)

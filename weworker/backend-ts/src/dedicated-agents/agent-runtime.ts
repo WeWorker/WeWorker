@@ -187,6 +187,8 @@ export function buildAgentChatOptions(input: {
   actorUserId?: string
   /** Set by the scheduler, enabling only this task's explicit message targets. */
   taskId?: string
+  /** Desktop turns run as the local app owner (no IM identity to match). */
+  desktop?: boolean
   runtimeSkillsDir?: string
   agentsRoot?: string
   libraryDir?: string
@@ -220,6 +222,7 @@ export function buildAgentChatOptions(input: {
         ownerUserId: input.agent.owner_user_id,
         actorUserId: input.actorUserId,
         taskId: input.taskId,
+        ...(input.desktop ? { desktop: true } : {}),
       },
     }),
   }

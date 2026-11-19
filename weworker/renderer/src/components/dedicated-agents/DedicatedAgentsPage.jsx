@@ -5,7 +5,7 @@ import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
 import { useSitesStore } from '../../store/sites.js'
 import SiteIcon from '../icons/SiteIcon.jsx'
 import Tooltip from '../Tooltip.jsx'
-import { agentSiteIds, agentStatusPresentation, TONE_COLORS } from '../../utils/dedicated-agents.js'
+import { agentSiteIds, agentStatusPresentation, isPristineDraft, listableAgents, TONE_COLORS } from '../../utils/dedicated-agents.js'
 import { deleteAgent } from '../../api/dedicated-agents-api.js'
 import { showAlert } from '../../store/dialog.js'
 import { RenameIcon, TrashIcon } from '../icons/PanelIcons.jsx'
@@ -76,17 +76,19 @@ function AgentListItem({ agent, site, active, onSelect, onRenamed, onDelete }) {
             <RenameIcon size={13} />
           </button>
         <Popconfirm
-          title={`删除「${agent.name}」？`}
-          description={(
+          title={agent.draft ? `放弃创建「${agent.name}」？` : `删除「${agent.name}」？`}
+          description={agent.draft ? (
+            <div style={{ maxWidth: 260 }}>这是一个创建中的 Bot，还没有保存到后端；放弃后已填的内容会被清除。</div>
+          ) : (
             <div style={{ maxWidth: 260 }}>
               <div style={{ marginBottom: 6 }}>机器人连接会断开，专属 Skill 会保留。</div>
               <Checkbox checked={keepConversations} onChange={(event) => setKeepConversations(event.target.checked)}>保留对话记录（移到「对话」列表）</Checkbox>
             </div>
           )}
-          okText="删除"
+          okText={agent.draft ? '放弃' : '删除'}
           okButtonProps={{ danger: true }}
           cancelText="取消"
-          onConfirm={() => onDelete?.(keepConversations)}
+          onConfirm={() => onDelete?.(agent.draft ? false : keepConversations)}
         >
           <button
             type="button"
@@ -143,30 +145,33 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
   const activeDraft = agents.find((agent) => agent.draft && agent.id === selectedId)
 
   // 新建页本身就是介绍页：未选中任何 Bot 时主区域始终展示新建流程（BotHub）。
-  // 已有进行中的草稿则直接恢复，否则开一个新草稿；有选中的 Bot 时不动。
+  // 优先恢复有进度的草稿，其次空白草稿，否则开一个新草稿；有选中的 Bot 时不动。
   useEffect(() => {
     if (showDetail || activeDraft) return
     const state = useDedicatedAgentsStore.getState()
-    const draft = state.agents.find((agent) => agent.draft)
+    const drafts = state.agents.filter((agent) => agent.draft)
+    const draft = drafts.find((agent) => !isPristineDraft(agent)) || drafts[0]
     if (draft) selectAgent(draft.id)
     else startCreate()
   }, [showDetail, activeDraft, selectAgent, startCreate])
 
-  /** 新建按钮：已有进行中的草稿则回到它，避免草稿越积越多。 */
+  /** 新建按钮：已有进行中的草稿则回到它（优先有进度的），避免草稿越积越多。 */
   const handleStartCreate = () => {
-    const draft = useDedicatedAgentsStore.getState().agents.find((agent) => agent.draft)
+    const drafts = useDedicatedAgentsStore.getState().agents.filter((agent) => agent.draft)
+    const draft = drafts.find((agent) => !isPristineDraft(agent)) || drafts[0]
     if (draft) selectAgent(draft.id)
     else startCreate()
   }
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase()
-  const visibleAgents = normalizedQuery
+  // 侧栏列表不展示空白草稿（自动补开的那个），有进度的草稿正常显示。
+  const visibleAgents = listableAgents(normalizedQuery
     ? agents.filter((agent) => {
       const siteText = agentSiteIds(agent)
         .map((id) => siteById.get(id)?.name || id)
         .join(' ')
       return `${agent.name || ''} ${agent.work_dir || ''} ${siteText}`.toLocaleLowerCase().includes(normalizedQuery)
     })
-    : agents
+    : agents)
 
   return (
     <div style={pageStyle}>
@@ -254,8 +259,8 @@ export default function DedicatedAgentsPage({ sidebarWidth, sidebarCollapsed = f
         )}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loadError && <Alert type="error" showIcon message={loadError} style={{ margin: 4 }} />}
-          {loaded && !agents.length && !loadError && <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', padding: '8px 12px' }}>还没有WeWorker Bot</div>}
-          {agents.length > 0 && visibleAgents.length === 0 && <div style={{ ...hintStyle, fontSize: 'var(--font-size-caption)', padding: '8px 12px' }}>没有匹配的WeWorker Bot</div>}
+          {loaded && !visibleAgents.length && !loadError && <div style={{ ...hintStyle, fontSize: 'var(--font-size-body)', padding: '8px 12px' }}>还没有WeWorker Bot</div>}
+          {normalizedQuery && agents.length > 0 && visibleAgents.length === 0 && <div style={{ ...hintStyle, fontSize: 'var(--font-size-caption)', padding: '8px 12px' }}>没有匹配的WeWorker Bot</div>}
           {visibleAgents.map((agent) => (
             <AgentListItem
               key={agent.id}

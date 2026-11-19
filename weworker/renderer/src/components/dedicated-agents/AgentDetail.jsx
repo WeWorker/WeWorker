@@ -140,6 +140,32 @@ function BotCard({ agent, onChanged }) {
     }
   }
   const connection = agent.connection || {}
+  const rebindModal = (
+    <Modal title="绑定机器人" open={rebindOpen} onCancel={() => !busy && setRebindOpen(false)} footer={null} destroyOnClose maskClosable={false} width={620}>
+      <div style={{ ...hintStyle, marginBottom: 12 }}>可以绑定企业微信或微信机器人。绑定后需要在{channelLabel(rebindChannel)}里重新配对。</div>
+      <BotChannelPicker
+        value={rebindChannel}
+        disabled={busy}
+        onChange={(next) => { setError(''); setRebindChannel(next); setRebindKey((value) => value + 1) }}
+      />
+      <WecomQrBind key={`${rebindChannel}-${rebindKey}`} channel={rebindChannel} onBound={rebind} busy={busy} />
+      {error && <Alert type="error" showIcon style={{ marginTop: 12 }} message={error} />}
+    </Modal>
+  )
+  if (channel === 'desktop') {
+    return (
+      <div style={sectionStyle}>
+        <h3 style={sectionTitleStyle}>机器人（未绑定）</h3>
+        <div style={hintStyle}>
+          这个 Bot 还没有绑定机器人，当前在 WeWorker 桌面端使用；绑定企业微信或微信机器人后，就可以在手机上和它对话。
+        </div>
+        <Space style={{ marginTop: 14 }}>
+          <Button data-app-button="action" onClick={() => { setError(''); setRebindChannel('wecom'); setRebindKey((value) => value + 1); setRebindOpen(true) }}>绑定机器人</Button>
+        </Space>
+        {rebindModal}
+      </div>
+    )
+  }
   return (
     <div style={sectionStyle}>
       <h3 style={sectionTitleStyle}>{im}机器人</h3>
@@ -184,16 +210,7 @@ function BotCard({ agent, onChanged }) {
         )}
       </Space>
 
-      <Modal title="更换机器人" open={rebindOpen} onCancel={() => !busy && setRebindOpen(false)} footer={null} destroyOnClose maskClosable={false} width={620}>
-        <div style={{ ...hintStyle, marginBottom: 12 }}>可以换成企业微信或微信机器人。换成另一个机器人后需要重新配对。</div>
-        <BotChannelPicker
-          value={rebindChannel}
-          disabled={busy}
-          onChange={(next) => { setError(''); setRebindChannel(next); setRebindKey((value) => value + 1) }}
-        />
-        <WecomQrBind key={`${rebindChannel}-${rebindKey}`} channel={rebindChannel} onBound={rebind} busy={busy} />
-        {error && <Alert type="error" showIcon style={{ marginTop: 12 }} message={error} />}
-      </Modal>
+      {rebindModal}
     </div>
   )
 }
@@ -233,7 +250,7 @@ function AccessCard({ agent, onChanged }) {
               : '已允许企业微信后台授权使用该机器人的成员与它对话。成员权限仍由企业微信后台管理。'}
           </div>
         </>
-      ) : <div style={hintStyle}>微信机器人当前仅支持主人使用。</div>}
+      ) : <div style={hintStyle}>{channel === 'desktop' ? '绑定机器人后可以在这里设置访问范围。' : '微信机器人当前仅支持主人使用。'}</div>}
       {error && <Alert type="error" showIcon style={{ marginTop: 8 }} message={error} />}
     </div>
   )

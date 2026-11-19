@@ -19,6 +19,8 @@ import {
   filterSites,
   formatRelativeTime,
   isAgentChannelKey,
+  isPristineDraft,
+  listableAgents,
   normalizeAgentName,
   pairingCommand,
   parseExamples,
@@ -46,13 +48,14 @@ const site = {
 
 test('agent status combines enabled flag, connection and pairing', () => {
   assert.equal(agentStatusPresentation(null).label, '未知')
-  assert.deepEqual(agentStatusPresentation({ draft: true, paired: false }), { label: '未配置', tone: 'muted' })
-  assert.deepEqual(agentStatusPresentation({ draft: true, paired: true }), { label: '未配置', tone: 'muted' })
+  assert.deepEqual(agentStatusPresentation({ draft: true, paired: false }), { label: '配置中', tone: 'muted' })
+  assert.deepEqual(agentStatusPresentation({ draft: true, paired: true }), { label: '配置中', tone: 'muted' })
   assert.equal(agentStatusPresentation({ enabled: false }).label, '已停用')
   assert.deepEqual(agentStatusPresentation({ enabled: true, connection: { status: 'error', error: 'subscribe failed' } }), { label: '连接异常', tone: 'error', detail: 'subscribe failed' })
   assert.equal(agentStatusPresentation({ enabled: true, connection: { status: 'starting' } }).label, '连接中')
   assert.equal(agentStatusPresentation({ enabled: true, paired: false, connection: { status: 'connected' } }).label, '待配对')
-  assert.equal(agentStatusPresentation({ enabled: true, paired: true, connection: { status: 'connected' } }).tone, 'success')
+  assert.equal(agentStatusPresentation({ enabled: true, paired: true, connection: { status: 'connected' } }).label, '企微在线')
+  assert.equal(agentStatusPresentation({ enabled: true, channel: 'weixin', paired: true, connection: { status: 'connected' } }).label, '微信在线')
 })
 
 test('wizard validation allows plain agents and follows the selected skill mode', () => {
@@ -158,4 +161,26 @@ test('inline agent rename trims the new name and reports whether it changed', ()
   assert.deepEqual(normalizeAgentName(null), { ok: false, error: '名称不能为空' })
   assert.deepEqual(normalizeAgentName('x'.repeat(41), { maxLength: 40 }), { ok: false, error: '名称最长 40 个字符' })
   assert.equal(normalizeAgentName('x'.repeat(40), { maxLength: 40 }).ok, true)
+})
+test('desktop channel renders without an IM bot', () => {
+  const agent = { channel: 'desktop', enabled: true, connection: { status: 'stopped' } }
+  assert.equal(agentChannelOf(agent), 'desktop')
+  assert.equal(channelLabel('desktop'), '桌面端')
+  assert.equal(channelLabel('desktop', { short: true }), '桌面端')
+  assert.equal(agentBotId(agent), '')
+  assert.equal(agentAccessMode(agent), 'owner_only')
+  assert.deepEqual(agentStatusPresentation(agent), { label: '桌面端', tone: 'success' })
+})
+
+test('pristine auto-drafts stay out of the sidebar list until they have progress', () => {
+  const pristine = { id: 'draft-1', draft: true, name: '新建WeWorker Bot', siteIds: [], wizardStep: 0 }
+  assert.equal(isPristineDraft(pristine), true)
+  assert.equal(isPristineDraft({ ...pristine, createMode: 'template', templateId: 'invoice-self-check-helper' }), false)
+  assert.equal(isPristineDraft({ ...pristine, createMode: 'custom' }), false)
+  assert.equal(isPristineDraft({ ...pristine, siteIds: ['example.com'] }), false)
+  assert.equal(isPristineDraft({ ...pristine, skillMarkdown: '# skill' }), false)
+  assert.equal(isPristineDraft({ ...pristine, wizardStep: 2 }), false)
+  assert.equal(isPristineDraft({ id: 'agent-1', name: 'Real' }), false, 'real agents are never pristine drafts')
+  assert.deepEqual(listableAgents([pristine, { id: 'agent-1', name: 'Real' }]), [{ id: 'agent-1', name: 'Real' }])
+  assert.deepEqual(listableAgents(undefined), [])
 })

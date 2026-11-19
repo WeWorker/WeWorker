@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDesktopChatPermission } from '../chat-permission-mode.js'
+import { agentConversationPermission, resolveDesktopChatPermission } from '../chat-permission-mode.js'
 import { createWeWorkerToolPolicy } from '../agent-tool-policy.js'
 
 describe('desktop chat permission modes', () => {
@@ -34,5 +34,21 @@ describe('desktop chat permission modes', () => {
   it('defaults missing and unknown client values to workspace editing', () => {
     expect(resolveDesktopChatPermission(undefined)).toEqual(resolveDesktopChatPermission('workspace'))
     expect(resolveDesktopChatPermission('unexpected')).toEqual(resolveDesktopChatPermission('workspace'))
+  })
+})
+
+describe('agentConversationPermission', () => {
+  it('runs WeWorker Bot turns as full while keeping canUseTool in charge', () => {
+    expect(agentConversationPermission()).toEqual({
+      channelPermissionMode: 'full',
+      sdkPermissionMode: 'default',
+      allowDangerouslySkipPermissions: false,
+    })
+  })
+
+  it('never inherits the desktop full bypass form', () => {
+    const agent = agentConversationPermission()
+    expect(agent.sdkPermissionMode).not.toBe('bypassPermissions')
+    expect(agent.allowDangerouslySkipPermissions).toBe(false)
   })
 })

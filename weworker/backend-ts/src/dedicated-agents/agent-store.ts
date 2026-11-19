@@ -16,13 +16,14 @@ import { expandHomePath, getConfigDirectory } from '../config.js'
 import { assertAllowedWeixinBaseUrl } from '../channel-egress.js'
 import { decryptSecret, encryptSecret, isSecretStoreReady } from '../secret-store.js'
 
-export type AgentChannelType = 'wecom' | 'weixin'
+export type AgentChannelType = 'wecom' | 'weixin' | 'desktop'
 /** Whether a WeCom agent is private to its pairing owner or shared through WeCom. */
 export type AgentAccessMode = 'owner_only' | 'wecom_authorized'
 
 export const AGENT_CHANNEL_LABELS: Record<AgentChannelType, string> = {
   wecom: '企业微信',
   weixin: '微信',
+  desktop: '桌面端',
 }
 
 export interface DedicatedAgentRecord {
@@ -37,7 +38,7 @@ export interface DedicatedAgentRecord {
   work_dir: string
   examples: string[]
   enabled: boolean
-  /** Which IM serves this agent. Records written before WeChat support are WeCom. */
+  /** Which IM serves this agent; 'desktop' = no bot bound, usable in the WeWorker desktop only. Records written before WeChat support are WeCom. */
   channel?: AgentChannelType
   /** Owner-only by default; sharing is available only for WeCom bots. */
   access_mode: AgentAccessMode
@@ -131,7 +132,9 @@ export function getDedicatedAgentsFile(): string {
 }
 
 export function agentChannel(agent: Pick<DedicatedAgentRecord, 'channel'>): AgentChannelType {
-  return agent.channel === 'weixin' ? 'weixin' : 'wecom'
+  if (agent.channel === 'weixin') return 'weixin'
+  if (agent.channel === 'desktop') return 'desktop'
+  return 'wecom'
 }
 
 /** Validate a requested access mode against the selected IM channel. */
@@ -254,11 +257,13 @@ export function normalizeSkillName(value: unknown): string {
 type ValidBot =
   | { channel: 'wecom'; bot_id: string; secret: string }
   | { channel: 'weixin'; bot_id: string; token: string; base_url: string }
+  | { channel: 'desktop' }
 
 function validateBot(input: AgentBotInput): ValidBot {
-  if (input.channel !== undefined && input.channel !== 'wecom' && input.channel !== 'weixin') {
+  if (input.channel !== undefined && input.channel !== 'wecom' && input.channel !== 'weixin' && input.channel !== 'desktop') {
     throw new DedicatedAgentError('不支持的机器人类型')
   }
+  if (input.channel === 'desktop') return { channel: 'desktop' }
   if (input.channel === 'weixin') {
     const bot_id = String(input.bot_id ?? '').trim()
     const token = String(input.token ?? '').trim()
@@ -296,6 +301,7 @@ function decryptOrEmpty(value: string | undefined): string {
 }
 
 function assertBotUnused(agents: DedicatedAgentRecord[], bot: ValidBot, exceptId: string | null, reserved: ReservedBots): void {
+  if (bot.channel === 'desktop') return
   const others = agents.filter((agent) => agent.id !== exceptId && agentChannel(agent) === bot.channel)
   if (bot.channel === 'wecom') {
     if ((reserved.reservedBotIds ?? []).includes(bot.bot_id)) {
@@ -317,6 +323,13 @@ function assertBotUnused(agents: DedicatedAgentRecord[], bot: ValidBot, exceptId
 
 /** Store fields for a validated bot; the other channel's fields are cleared. */
 function botFields(bot: ValidBot): Pick<DedicatedAgentRecord, 'channel' | 'wecom' | 'weixin'> {
+  if (bot.channel === 'desktop') {
+    return {
+      channel: 'desktop',
+      wecom: { bot_id: '', secret_enc: '' },
+      weixin: undefined,
+    }
+  }
   if (bot.channel === 'weixin') {
     return {
       channel: 'weixin',
@@ -329,6 +342,7 @@ function botFields(bot: ValidBot): Pick<DedicatedAgentRecord, 'channel' | 'wecom
 
 /** Identity used to decide whether rebinding changed who can reach the bot. */
 function botIdentity(agent: DedicatedAgentRecord): string {
+  if (agentChannel(agent) === 'desktop') return `desktop:${agent.id}`
   return agentChannel(agent) === 'weixin'
     ? `weixin:${agent.weixin?.bot_id || decryptOrEmpty(agent.weixin?.token_enc)}`
     : `wecom:${agent.wecom.bot_id}`
@@ -515,11 +529,14 @@ export interface DedicatedAgentView {
   owner_user_id: string
   pairing_code: string
   conversation_count: number
+  /** Conversations owned by this agent (the desktop needs them to adapt chat UI). */
+  work_ids: string[]
   created_at: string
   updated_at: string
 }
 
 export function toAgentView(agent: DedicatedAgentRecord): DedicatedAgentView {
+  const desktop = agentChannel(agent) === 'desktop'
   return {
     id: agent.id,
     name: agent.name,
@@ -535,10 +552,12 @@ export function toAgentView(agent: DedicatedAgentRecord): DedicatedAgentView {
     access_mode: agent.access_mode,
     wecom: { bot_id: agent.wecom?.bot_id ?? '', has_secret: !!agent.wecom?.secret_enc },
     weixin: { bot_id: agent.weixin?.bot_id ?? '', has_token: !!agent.weixin?.token_enc },
-    paired: !!agent.owner_user_id,
+    // Desktop-only agents have no IM pairing step: they are usable right away.
+    paired: desktop || !!agent.owner_user_id,
     owner_user_id: agent.owner_user_id,
-    pairing_code: agent.owner_user_id ? '' : agent.pairing_code,
+    pairing_code: desktop ? '' : (agent.owner_user_id ? '' : agent.pairing_code),
     conversation_count: agent.work_ids.length,
+    work_ids: [...agent.work_ids],
     created_at: agent.created_at,
     updated_at: agent.updated_at,
   }

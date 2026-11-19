@@ -24,11 +24,35 @@ import {
   validateTemplateQuestion,
 } from './templates.js'
 import { createAgentTask, fetchAgentNotificationTargets, fetchAgentTasks } from './api.js'
+import { handleChatLinkClick } from '../../../utils/chat-links.js'
 import { codeBadgeStyle, hintStyle, labelStyle, markdownEditorStyle, sectionStyle, titleStyle } from '../styles.js'
 import './quick-create.css'
 
+/** 问题说明文字：[[url]] 记号渲染为可点击链接，经系统默认浏览器打开。 */
+function QuestionSubtitle({ text }) {
+  const parts = String(text || '').split(/(\[\[[^\]]+\]\])/)
+  return (
+    <div className="qflow__subtitle">
+      {parts.map((part, index) => {
+        const match = /^\[\[([^\]]+)\]\]$/.exec(part)
+        if (!match) return part
+        return (
+          <a
+            key={index}
+            href={match[1]}
+            onClick={handleChatLinkClick}
+            style={{ color: 'var(--accent)', wordBreak: 'break-all' }}
+          >
+            {match[1]}
+          </a>
+        )
+      })}
+    </div>
+  )
+}
+
 const PAIR_POLL_MS = 2500
-const FLOW_STEPS = ['回答问题', '预览知识', '扫码绑定', '完成配对']
+const FLOW_STEPS = ['回答问题', '预览知识', '绑定机器人', '完成配对']
 const FLOW_STEP_KEYS = { questions: 0, preview: 1, bind: 2, pair: 3, done: 3 }
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({ value: hour, label: `${String(hour).padStart(2, '0')}:00` }))
@@ -302,26 +326,46 @@ export default function QuickCreateFlow({ draftKey }) {
     throw new Error('Skill 名称冲突，请重试')
   }
 
+  /** Save the rendered skill and create the agent; botPayload binds a scanned bot or makes it desktop-only. */
+  const createAgentFromTemplate = async (botPayload) => {
+    const markdown = String(skillMarkdown || '').trim() || renderTemplateSkill(template, answers)
+    const saved = await createSkillWithRetry(markdown)
+    const result = await createAgent({
+      name: String(answers.name || '').trim(),
+      description: buildTemplateDescription(template, answers),
+      site_ids: [template.siteId],
+      work_dir: '',
+      skill_names: [saved.name],
+      examples: buildTemplateExamples(template, answers),
+      access_mode: 'owner_only',
+      ...botPayload,
+    })
+    await loadWorks()
+    return result
+  }
+
   const handleBound = async (bot) => {
     setSaving(true)
     setError('')
     try {
-      const markdown = String(skillMarkdown || '').trim() || renderTemplateSkill(template, answers)
-      const saved = await createSkillWithRetry(markdown)
-      const result = await createAgent({
-        name: String(answers.name || '').trim(),
-        description: buildTemplateDescription(template, answers),
-        site_ids: [template.siteId],
-        work_dir: '',
-        skill_names: [saved.name],
-        examples: buildTemplateExamples(template, answers),
-        access_mode: 'owner_only',
-        ...boundBotPayload(bot),
-      })
-      await loadWorks()
+      const result = await createAgentFromTemplate(boundBotPayload(bot))
       updateDraftAgent({ ...result.agent, quickStep: 'pair' }, draftKey)
       setCreatedAgent(result.agent)
       setStep('pair')
+    } catch (err) {
+      setError(err.message || '创建失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /** 跳过扫码：创建不绑定机器人的桌面端 Bot，直接进入它的对话。 */
+  const handleSkipBot = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const result = await createAgentFromTemplate({ channel: 'desktop' })
+      completeCreate(result.agent, draftKey)
     } catch (err) {
       setError(err.message || '创建失败')
     } finally {
@@ -370,14 +414,9 @@ export default function QuickCreateFlow({ draftKey }) {
                 ))}
               </div>
               <div key={question.id} className={`qflow__screen qflow__screen--${direction}`}>
-                {qIndex > 0 && (
-                  <button type="button" className="qflow__back" onClick={() => backToQuestion(qIndex - 1)}>
-                    ‹ 上一步
-                  </button>
-                )}
                 <div className="qflow__emoji" aria-hidden="true">{question.emoji}</div>
                 <h3 className="qflow__title">{question.title}</h3>
-                <div className="qflow__subtitle">{question.subtitle}</div>
+                <QuestionSubtitle text={question.subtitle} />
 
                 <div className="qflow__control">
                   {question.type === 'text' && (
@@ -505,17 +544,22 @@ export default function QuickCreateFlow({ draftKey }) {
 
                 {error && <div className="qflow__error" role="alert">{error}</div>}
 
-                <Button
-                  data-app-button="action"
-                  type="primary"
-                  size="large"
-                  className="qflow__next"
-                  onClick={() => submitAnswer()}
-                >
-                  {question.optional && !String(answers[question.answerKey] || '').trim()
-                    ? '跳过，稍后提供'
-                    : isLast ? '下一步' : '继续'}
-                </Button>
+                <div className="qflow__actions">
+                  {qIndex > 0 && (
+                    <Button data-app-button="action" size="large" onClick={() => backToQuestion(qIndex - 1)}>‹ 上一步</Button>
+                  )}
+                  <Button
+                    data-app-button="action"
+                    type="primary"
+                    size="large"
+                    className="qflow__next"
+                    onClick={() => submitAnswer()}
+                  >
+                    {question.optional && !String(answers[question.answerKey] || '').trim()
+                      ? '跳过，稍后提供'
+                      : isLast ? '下一步' : '继续'}
+                  </Button>
+                </div>
               </div>
             </div>
           )
@@ -570,8 +614,7 @@ export default function QuickCreateFlow({ draftKey }) {
         {step === 'bind' && (
           <div>
             <div style={{ ...labelStyle, marginBottom: 12 }}>
-              <span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>
-              给「{String(answers.name || '').trim() || template.defaultName}」绑定一个机器人，扫个码就好
+              给「{String(answers.name || '').trim() || template.defaultName}」绑定一个机器人（可选），扫个码就能在手机上和它对话
             </div>
             {botChannel === 'weixin' && templateTasks.length > 0 && (
               <Alert
@@ -602,6 +645,9 @@ export default function QuickCreateFlow({ draftKey }) {
                 action={<Button data-app-button="action" size="small" onClick={() => { setError(''); setBindKey((value) => value + 1) }}>重新扫码</Button>}
               />
             )}
+            <div style={{ marginTop: 16, ...hintStyle }}>
+              扫码绑定后可以在手机 IM 里和它对话{templateTasks.length > 0 ? '，定时推送也从此开始' : ''}；不绑定也能直接在桌面端用。
+            </div>
           </div>
         )}
 
@@ -623,7 +669,10 @@ export default function QuickCreateFlow({ draftKey }) {
             {(step === 'preview' || step === 'bind') && (
               <Button data-app-button="action" disabled={saving} onClick={() => setStepPersisted(step === 'preview' ? 'questions' : 'preview')}>上一步</Button>
             )}
-            {step === 'preview' && <Button data-app-button="action" type="primary" onClick={() => setStepPersisted('bind')}>下一步：扫码绑定</Button>}
+            {step === 'bind' && (
+              <Button data-app-button="action" onClick={handleSkipBot} disabled={saving}>暂不绑定，直接在桌面端用</Button>
+            )}
+            {step === 'preview' && <Button data-app-button="action" type="primary" onClick={() => setStepPersisted('bind')}>下一步</Button>}
           </Space>
         </div>
       )}

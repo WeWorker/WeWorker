@@ -16,7 +16,9 @@ function AgentChatIntro({ agent, siteName, fill }) {
       <div style={{ ...hintStyle, maxWidth: 480, marginBottom: 18 }}>
         {agent.description || `专门处理「${siteName}」上的工作。`}
         <br />
-        在这里对话和在{channelLabel(agentChannelOf(agent))}里一样，但回复只显示在桌面端。
+        {agentChannelOf(agent) === 'desktop'
+          ? '在这里直接和它对话。'
+          : `在这里对话和在${channelLabel(agentChannelOf(agent))}里一样，但回复只显示在桌面端。`}
       </div>
       {agent.examples?.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 560 }}>
@@ -126,7 +128,9 @@ export default function AgentChatPanel({ agent, siteName, conversations, onConve
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 6px 10px' }} aria-label="对话列表">
           {conversations.length === 0
-            ? <div style={{ ...hintStyle, padding: '8px 6px' }}>还没有对话。在{channelLabel(agentChannelOf(agent))}里给机器人发消息，或点「新对话」在这里直接聊。</div>
+            ? <div style={{ ...hintStyle, padding: '8px 6px' }}>{agentChannelOf(agent) === 'desktop'
+              ? '还没有对话。点「新对话」在这里直接聊。'
+              : `还没有对话。在${channelLabel(agentChannelOf(agent))}里给机器人发消息，或点「新对话」在这里直接聊。`}</div>
             : conversations.map((conversation) => (
               <ConversationItem
                 key={conversation.id}
@@ -139,7 +143,9 @@ export default function AgentChatPanel({ agent, siteName, conversations, onConve
             ))}
         </div>
         <div style={{ ...hintStyle, fontSize: 11, padding: '8px 10px', borderTop: '1px solid var(--border)' }}>
-          {channelLabel(agentChannelOf(agent))}里发送 /new 开启新对话，/stop 停止当前任务。
+          {agentChannelOf(agent) === 'desktop'
+            ? '发送 /new 开启新对话，/stop 停止当前任务。'
+            : `${channelLabel(agentChannelOf(agent))}里发送 /new 开启新对话，/stop 停止当前任务。`}
         </div>
       </div>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -150,6 +156,7 @@ export default function AgentChatPanel({ agent, siteName, conversations, onConve
             embedded
             onTurnFinished={onConversationsChanged}
             renderEmpty={(fill) => <AgentChatIntro agent={agent} siteName={siteName} fill={fill} />}
+            hidePermissionMode
           />
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>

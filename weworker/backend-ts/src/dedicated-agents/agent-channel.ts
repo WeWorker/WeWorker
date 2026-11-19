@@ -226,7 +226,7 @@ export function createAgentProfile(agentId: string, options: { attempts?: Pairin
  */
 export function buildDesktopAgentTurnOptions(agent: DedicatedAgentRecord) {
   return {
-    ...buildAgentChatOptions({ agent }),
+    ...buildAgentChatOptions({ agent, desktop: true }),
     memoryEnabled: false,
   }
 }
@@ -238,6 +238,9 @@ export async function stopAgentChannel(agentId: string): Promise<void> {
 export async function startAgentChannel(agent: DedicatedAgentRecord): Promise<void> {
   await stopAgentChannel(agent.id)
   if (!agent.enabled) return
+  // Desktop-only agent: no bot bound, nothing to connect. The desktop chat
+  // serves it through buildDesktopAgentTurnOptions.
+  if (agentChannel(agent) === 'desktop') return
   let channel: WecomChannel | WeixinChannel
   if (agentChannel(agent) === 'weixin') {
     const token = getAgentWeixinToken(agent)
