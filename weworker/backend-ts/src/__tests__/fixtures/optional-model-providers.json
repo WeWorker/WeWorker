@@ -1,0 +1,56 @@
+[
+  {
+    "id": "bank_coding",
+    "name": "行内CodingPlan",
+    "models": [],
+    "defaultModel": "",
+    "weworker": {
+      "protocol": "openai_chat_completions",
+      "baseUrl": ""
+    },
+    "webwright": {
+      "protocol": "openai_chat_completions",
+      "modelClass": "openai_chat",
+      "baseUrl": "",
+      "structuredOutput": "openai_json_object"
+    },
+    "fixed": true,
+    "builtin": false,
+    "fixedModel": false,
+    "allowMultiple": false,
+    "authType": "auth_token",
+    "presentation": {
+      "subtitle": "行内CodingPlan",
+      "color": "#339CFF",
+      "bg": "rgba(51,156,255,0.12)"
+    },
+    "baseUrlEnv": "WEWORKER_BANK_CODING_BASE_URL"
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "models": [],
+    "defaultModel": "",
+    "weworker": {
+      "protocol": "anthropic_messages",
+      "baseUrl": "https://api.anthropic.com"
+    },
+    "webwright": {
+      "protocol": "anthropic_messages",
+      "modelClass": "anthropic",
+      "baseUrl": "https://api.anthropic.com",
+      "structuredOutput": "anthropic_json_schema"
+    },
+    "fixed": true,
+    "builtin": false,
+    "fixedModel": false,
+    "allowMultiple": true,
+    "authType": "api_key",
+    "presentation": {
+      "subtitle": "Claude 系列",
+      "color": "#D97706",
+      "bg": "rgba(217,119,6,0.12)"
+    },
+    "hidden": true
+  }
+]

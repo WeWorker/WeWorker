@@ -36,6 +36,18 @@ test('build profile obtains provider metadata and the default from the reference
   assert.equal(effective.defaultProvider, source.defaultProvider);
 });
 
+test('public builds contain only the ordered public catalog and a valid default', () => {
+  const profile = loadBuildProfile();
+  const ids = ['builtin', 'glm', 'deepseek', 'openai', 'qwen', 'custom'];
+  assert.deepEqual(profile.providers.map(provider => provider.id), ids);
+  assert.equal(profile.defaultProvider, 'builtin');
+  const registry = compiled('backend-ts/src/provider-registry.ts', profile);
+  const metadata = compiled('renderer/src/utils/provider-config.js', profile);
+  assert.deepEqual([...registry.ALLOWED_PROVIDER_IDS], ids);
+  assert.deepEqual(metadata.BUILD_PROVIDERS.map(provider => provider.id), ids);
+  assert.equal(metadata.BUILD_DEFAULT_PROVIDER, 'builtin');
+});
+
 test('JSON changes replace stale public definitions in development and production', t => {
   const workspace = fixture(t, { profile: 'public', providers: [], defaultProvider: 'obsolete' });
   const config = structuredClone(source);
@@ -51,14 +63,14 @@ test('whole-file JSON replacement restores optional providers without source cha
   const workspace = fixture(t, { profile: 'public', providers: [], defaultProvider: 'obsolete' });
   const reduced = structuredClone(source);
   reduced.providers = reduced.providers.filter(p => !['builtin_dev', 'bank_coding'].includes(p.id));
-  reduced.defaultProvider = 'anthropic';
+  reduced.defaultProvider = 'builtin';
   const { encryptedApiKey, ...managedTemplate } = reduced.providers.find(p => p.id === 'builtin');
   const managed = { ...managedTemplate, id: 'builtin_dev', name: 'Fixture managed provider',
     baseUrlEnv: 'WEWORKER_FIXTURE_MANAGED_BASE_URL', apiKeyEnv: 'WEWORKER_FIXTURE_MANAGED_API_KEY',
     models: ['fixture-locked'], defaultModel: 'fixture-locked',
     weworker: { ...managedTemplate.weworker, baseUrl: 'https://example.com/managed' },
     webwright: { ...managedTemplate.webwright, baseUrl: 'https://example.org/managed' } };
-  const template = reduced.providers.find(p => p.id === 'anthropic');
+  const template = reduced.providers.find(p => p.id === 'glm');
   const coding = { ...template, id: 'bank_coding', name: 'Fixture coding provider',
     fixed: true, builtin: false, fixedModel: false, allowMultiple: false, hidden: false, authType: 'auth_token',
     baseUrlEnv: 'WEWORKER_FIXTURE_CODING_BASE_URL', models: [], defaultModel: '',
@@ -149,7 +161,7 @@ test('invalid flags, authentication, gateways and duplicate IDs fail validation'
   for (const patch of [{ fixed: 'false' }, { authType: 'invalid' }, { fixedModel: true, defaultModel: '' },
     { weworker: { protocol: 'anthropic_messages', baseUrl: 'https://fixture:fixture@example.com' } }, { baseUrlEnv: 'not valid' }]) {
     const config = structuredClone(source);
-    Object.assign(config.providers.find(p => p.id === 'anthropic'), patch);
+    Object.assign(config.providers.find(p => p.id === 'glm'), patch);
     workspace.save(config);
     assert.throws(() => loadBuildDefines(workspace));
   }
@@ -262,7 +274,7 @@ test('encrypted credentials reject plaintext and user-managed suppliers', t => {
   workspace.save(config);
   assert.throws(() => loadBuildDefines(workspace), /encryptedApiKey/);
   config.providers[0].encryptedApiKey = source.providers[0].encryptedApiKey;
-  config.providers.find(p => p.id === 'anthropic').encryptedApiKey = source.providers[0].encryptedApiKey;
+  config.providers.find(p => p.id === 'glm').encryptedApiKey = source.providers[0].encryptedApiKey;
   workspace.save(config);
   assert.throws(() => loadBuildDefines(workspace), /encryptedApiKey/);
 });
@@ -293,8 +305,12 @@ test('running Vite refreshes fixed-provider flags when the referenced JSON chang
   const { createRequire } = require('node:module');
   const { pathToFileURL } = require('node:url');
   const vm = require('node:vm');
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-vite-model-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-vite-model-'));
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const directory = path.join(workspace, 'weworker');
+  fs.mkdirSync(directory);
+  fs.mkdirSync(path.join(workspace, 'webcli'));
+  fs.writeFileSync(path.join(workspace, 'webcli/adapterhub-profile.json'), JSON.stringify({ endpoint: '' }));
   const renderer = path.join(directory, 'renderer');
   fs.mkdirSync(renderer);
   fs.mkdirSync(path.join(directory, 'scripts'));
@@ -310,7 +326,7 @@ test('running Vite refreshes fixed-provider flags when the referenced JSON chang
   fs.copyFileSync(path.join(root, 'renderer/vite.config.js'), path.join(renderer, 'vite.config.mjs'));
   fs.symlinkSync(fs.realpathSync(path.join(root, 'renderer/node_modules')), path.join(directory, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
   fs.writeFileSync(path.join(directory, 'build-profile.json'), JSON.stringify({ adapters: [], modelProviders: './model.json' }));
-  const config = { defaultProvider: 'anthropic', providers: source.providers.filter(p => p.id === 'anthropic').map(p => ({
+  const config = { defaultProvider: 'glm', providers: source.providers.filter(p => p.id === 'glm').map(p => ({
     ...p, weworker: { ...p.weworker, baseUrl: 'https://example.com' },
     webwright: { ...p.webwright, baseUrl: 'https://example.org' },
   })) };

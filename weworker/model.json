@@ -1,9 +1,9 @@
 {
-  "defaultProvider": "anthropic",
+  "defaultProvider": "builtin",
   "providers": [
     {
       "id": "builtin",
-      "name": "内置模型",
+      "name": "免费内置模型（办公VDI）",
       "models": [
         "ark-code-latest"
       ],
@@ -27,35 +27,8 @@
       "encryptedApiKey": "KblwyJ8H-s6noP51.8CHYHFuC2Ry2BHjvRIby9g.OQVfEBpevOgdzHsJbpAS7lEJrTa-k1Ua4r77Uy3zMxZ0yRQnIEQy-EFyOu2YqA"
     },
     {
-      "id": "bank_coding",
-      "name": "行内CodingPlan",
-      "models": [],
-      "defaultModel": "",
-      "weworker": {
-        "protocol": "openai_chat_completions",
-        "baseUrl": ""
-      },
-      "webwright": {
-        "protocol": "openai_chat_completions",
-        "modelClass": "openai_chat",
-        "baseUrl": "",
-        "structuredOutput": "openai_json_object"
-      },
-      "fixed": true,
-      "builtin": false,
-      "fixedModel": false,
-      "allowMultiple": false,
-      "authType": "auth_token",
-      "presentation": {
-        "subtitle": "行内CodingPlan",
-        "color": "#339CFF",
-        "bg": "rgba(51,156,255,0.12)"
-      },
-      "baseUrlEnv": "WEWORKER_BANK_CODING_BASE_URL"
-    },
-    {
       "id": "glm",
-      "name": "智谱 coding plan",
+      "name": "智谱 GLM",
       "models": [],
       "defaultModel": "",
       "weworker": {
@@ -182,33 +155,6 @@
         "color": "#8B5CF6",
         "bg": "rgba(139,92,246,0.12)"
       }
-    },
-    {
-      "id": "anthropic",
-      "name": "Anthropic",
-      "models": [],
-      "defaultModel": "",
-      "weworker": {
-        "protocol": "anthropic_messages",
-        "baseUrl": "https://api.anthropic.com"
-      },
-      "webwright": {
-        "protocol": "anthropic_messages",
-        "modelClass": "anthropic",
-        "baseUrl": "https://api.anthropic.com",
-        "structuredOutput": "anthropic_json_schema"
-      },
-      "fixed": true,
-      "builtin": false,
-      "fixedModel": false,
-      "allowMultiple": true,
-      "authType": "api_key",
-      "presentation": {
-        "subtitle": "Claude 系列",
-        "color": "#D97706",
-        "bg": "rgba(217,119,6,0.12)"
-      },
-      "hidden": true
     }
   ]
 }

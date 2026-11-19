@@ -45,6 +45,14 @@ export function buildModelConfigurationNames(settings: Settings): Record<string,
       return provider ? [{ id, provider, name: isFixedProvider(id) ? provider.name : configuration.name }] : []
     }),
   ]
+  // Refresh previous built-in default labels while preserving user-given names.
+  const builtinLabels: Record<string, string[]> = {
+    builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）'],
+    builtin_dev: ['内置模型（开发VDI）'],
+  }
+  for (const entry of entries) {
+    if (builtinLabels[entry.id]?.includes(entry.name?.trim() || '')) entry.name = entry.provider.name
+  }
   const used = new Set(entries.map(entry => entry.name?.trim()).filter(Boolean))
   const result: Record<string, string> = {}
   for (const entry of entries) {

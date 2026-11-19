@@ -2192,7 +2192,7 @@ function ModelTab() {
                       type="button"
                       className="model-settings-provider__action is-danger"
                       aria-label="删除配置"
-                      title={isBuiltinProvider(provider.id) ? '内置模型不能删除' : isFixedProvider(provider.id) ? '固定供应商不能删除' : isActive ? '当前使用中的配置不能删除' : '删除配置'}
+                      title={isBuiltinProvider(provider.id) ? '免费内置模型不能删除' : isFixedProvider(provider.id) ? '固定供应商不能删除' : isActive ? '当前使用中的配置不能删除' : '删除配置'}
                       disabled={isBuiltinProvider(provider.id) || isFixedProvider(provider.id) || isActive || deletingProvider === provider.id}
                       onClick={(event) => { event.stopPropagation(); void handleDelete(provider.id) }}
                     >

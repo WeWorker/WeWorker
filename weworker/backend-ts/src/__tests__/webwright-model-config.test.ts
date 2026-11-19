@@ -67,7 +67,7 @@ describe('managed conversation configuration', () => {
   it('excludes presets that do not provide an OpenAI exploration interface', () => {
     const saved = settings({ active_provider: 'anthropic' })
     expect(() => resolveWebwrightModelConfig(saved)).toThrow(/OpenAI/)
-    expect(createExplorationModelService().status(saved).providers.find(item => item.id === 'anthropic')?.configured).toBe(false)
+    expect(createExplorationModelService().status(saved).providers.find(item => item.id === 'anthropic')).toBeUndefined()
   })
   it('checks the built-in exploration endpoint despite a stale independent exploration provider', async () => {
     const saved = settings({ active_provider: 'builtin', api_key: '', model: 'ark-code-latest',
