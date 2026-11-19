@@ -34,10 +34,10 @@ function fixture(active = 'builtin') {
 }
 
 describe('built-in context settings API', () => {
-  it.each(['builtin', 'anthropic'])('saves an override when %s is active and returns consistent metadata', active => {
+  it.each(['builtin', 'anthropic'])('saves an override when %s is active and returns consistent metadata', async active => {
     const f = fixture(active)
     const res = f.response()
-    f.call({ provider: 'builtin', name: 'Fixture model', context_limit: '128K' }, res)
+    await f.call({ provider: 'builtin', name: 'Fixture model', context_limit: '128K' }, res)
     expect(res.status).not.toHaveBeenCalled()
     expect(f.state().builtin_context_limits).toEqual({ builtin: 128000 })
     expect(res.json.mock.calls[0][0].providers.builtin.context_limit).toBe(128000)

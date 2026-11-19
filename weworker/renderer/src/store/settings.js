@@ -191,11 +191,11 @@ export const useSettingsStore = create((set, get) => ({
     set(settingsPatch(data, get()))
   },
 
-  saveProvider: async (provider, updates) => {
+  saveProvider: async (provider, updates, { activate = false } = {}) => {
     const res = await backendFetch(`${API}/settings/provider`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, ...updates }),
+      body: JSON.stringify({ provider, ...updates, ...(activate ? { activate: true } : {}) }),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail || '保存失败')

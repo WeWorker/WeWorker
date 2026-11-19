@@ -14,6 +14,19 @@ afterEach(() => {
 })
 
 describe('chat model settings integration', () => {
+  it('submits settings saves as one checked activation and preserves state on rejection', async () => {
+    globalThis.window = {}
+    const before = useSettingsStore.getState()
+    globalThis.fetch = async (url, options) => {
+      assert.ok(url.endsWith('/settings/provider'))
+      assert.deepEqual(JSON.parse(options.body), { provider: 'custom', model: 'example-draft', activate: true })
+      return Response.json({ detail: '网站探索模型不可用' }, { status: 400 })
+    }
+    await assert.rejects(useSettingsStore.getState().saveProvider('custom', { model: 'example-draft' }, { activate: true }), /不可用/)
+    assert.equal(useSettingsStore.getState().activeProvider, before.activeProvider)
+    assert.equal(useSettingsStore.getState().providers, before.providers)
+  })
+
   it('completes first-run onboarding through the backend and updates the gate state', async () => {
     globalThis.window = {}
     let request

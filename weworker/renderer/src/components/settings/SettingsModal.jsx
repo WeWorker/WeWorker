@@ -1888,7 +1888,7 @@ function ModelTab() {
       if (f.openai_model) updates.openai_model = f.openai_model
     }
     try {
-      await saveProvider(pid, updates)
+      await saveProvider(pid, updates, { activate: true })
       // Reload saved fields, including any automatically verified workshop endpoint.
       formNameTouched.current[pid] = false
       setForms((prev) => {
@@ -1897,7 +1897,7 @@ function ModelTab() {
         return next
       })
       setSaved(pid)
-      setTestResult({ ok: true, message: '配置已保存' })
+      setTestResult({ ok: true, message: '检测通过，配置已保存并激活' })
       setTimeout(() => setSaved(null), 2000)
     } catch (e) {
       setTestResult({ ok: false, message: e.message || '保存失败' })
