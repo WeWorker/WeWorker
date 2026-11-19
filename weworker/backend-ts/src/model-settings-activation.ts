@@ -68,11 +68,18 @@ export function providerActivationPatch(settings: Settings, id: string): Partial
   }
 }
 
+export type ModelActivationCheck = {
+  target: 'weworker' | 'webwright'
+  status: 'success' | 'failure'
+  message: string
+}
+
 type Dependencies = {
   getSettings: () => Settings
   updateSettings: (patch: Partial<Settings>) => Settings
   probeMain?: typeof probeTimedMainConnection
   probeExploration?: typeof probeProviderProtocol
+  onCheck?: (check: ModelActivationCheck) => void
 }
 
 // Do not write drafts, credentials or selections until every required probe has
@@ -96,18 +103,29 @@ export async function activateCheckedModelSettings(id: string, patch: Partial<Se
     weworkerFullUrl: main.base_url_is_full, anthropicBaseUrl: main.base_url,
     anthropicFullUrl: main.base_url_is_full, anthropicAuthType: main.active_auth_type,
   }
-  const result = await (deps.probeMain || probeTimedMainConnection)(input)
+  const check = async (target: ModelActivationCheck['target'], probe: () => Promise<{ ok: boolean; detail?: string; error?: string }>, model: string) => {
+    try {
+      const result = await probe()
+      deps.onCheck?.({ target, status: result.ok ? 'success' : 'failure',
+        message: result.ok ? `连接成功 · ${model}` : result.detail || result.error || '检测失败' })
+      return result
+    } catch (error) {
+      deps.onCheck?.({ target, status: 'failure', message: error instanceof Error ? error.message : '检测失败' })
+      throw error
+    }
+  }
+  const result = await check('weworker', () => (deps.probeMain || probeTimedMainConnection)(input), main.model)
   if (!result.ok) throw new Error(`对话模型不可用：${result.detail || result.error || '检测失败'}`)
   const exploration = builtin ? {
     protocol: provider.webwright.protocol, base_url: builtin.openaiBaseUrl, base_url_is_full: false,
     api_key: builtin.apiKey, model: builtin.model,
   } : resolveWebwrightModelConfig({ ...active, exploration_model_selection: undefined })
-  const explored = await (deps.probeExploration || probeProviderProtocol)({
+  const explored = await check('webwright', () => (deps.probeExploration || probeProviderProtocol)({
     provider: { ...provider, webwright: { ...provider.webwright, protocol: exploration.protocol, baseUrl: exploration.base_url } },
     apiKey: exploration.api_key, openaiApiKey: exploration.api_key, model: exploration.model,
     openaiModel: exploration.model, openaiBaseUrl: exploration.base_url,
     openaiFullUrl: exploration.base_url_is_full, target: 'webwright', verifyResponse: true,
-  })
+  }), exploration.model)
   if (!explored.ok) throw new Error(`网站探索模型不可用：${explored.detail || explored.error || '检测失败'}`)
   assertUnchanged()
   return deps.updateSettings({ ...patch, ...activation })

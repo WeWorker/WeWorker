@@ -198,8 +198,9 @@ export const useSettingsStore = create((set, get) => ({
       body: JSON.stringify({ provider, ...updates, ...(activate ? { activate: true } : {}) }),
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.detail || '保存失败')
+    if (!res.ok) throw Object.assign(new Error(data.detail || '保存失败'), { modelChecks: data.model_checks })
     set(settingsPatch(data, get()))
+    return data
   },
 
   // Keep the operation alive across settings-page unmounts. Only model fields
@@ -248,8 +249,9 @@ export const useSettingsStore = create((set, get) => ({
       body: JSON.stringify({ provider }),
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.detail || '切换失败')
+    if (!res.ok) throw Object.assign(new Error(data.detail || '切换失败'), { modelChecks: data.model_checks })
     set(settingsPatch(data, get()))
+    return data
   },
 
   saveUserDirectory: async (userDirectory) => {

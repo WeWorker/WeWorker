@@ -1,3 +1,4 @@
+import { runModelSaveChecks } from '../../utils/model-save-checks.js'
 import { withModelSettingsNotice } from '../../utils/model-settings-notice.js'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
@@ -1891,7 +1892,7 @@ function ModelTab() {
       if (f.openai_model) updates.openai_model = f.openai_model
     }
     try {
-      await withModelSettingsNotice(() => saveProvider(pid, updates, { activate: true }), {
+      await withModelSettingsNotice(() => runCheckedAction(pid, () => saveProvider(pid, updates, { activate: true })), {
         pending: '正在检测模型并保存…', success: '检测通过，配置已保存并激活', failure: '保存失败',
       })
       // Reload saved fields, including any automatically verified workshop endpoint.
@@ -1913,10 +1914,10 @@ function ModelTab() {
   const handleActivate = async (pid) => {
     setActivating(pid)
     try {
-      await withModelSettingsNotice(async () => {
+      await withModelSettingsNotice(() => runCheckedAction(pid, async () => {
         await cancelActiveQrForModelSwitch()
         return activateProvider(pid)
-      }, {
+      }), {
         pending: '正在检测并切换模型…', success: '检测通过，模型已切换', failure: '切换失败',
       })
     } catch {
@@ -2020,6 +2021,31 @@ function ModelTab() {
         )}
       </section>
     )
+  }
+
+  const runCheckedAction = async (pid, action) => {
+    if (testingProviders.current.has(pid)) throw new Error('模型正在检测，请稍候')
+    testingProviders.current.add(pid)
+    const requestId = (probeRequestIds.current[pid] || 0) + 1
+    probeRequestIds.current[pid] = requestId
+    setTesting(current => ({ ...current, [pid]: true }))
+    setProbeExpanded(current => ({ ...current, [pid]: true }))
+    setProbeResults(current => ({ ...current, [pid]: null }))
+    const protocol = providerType(pid) === 'custom' ? getForm(pid).weworker_protocol : providerDefinition(pid)?.weworker?.protocol
+    const checks = [
+      { target: 'weworker', label: 'WeWorker 对话接口（' + (protocol === 'openai_responses' ? 'OpenAI Responses API' : protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages') + '）' },
+      { target: 'webwright', label: 'Adapter工坊·探索接口（OpenAI）' },
+    ]
+    try {
+      return await runModelSaveChecks(action, checks, next => {
+        if (probeRequestIds.current[pid] === requestId) setProbeChecks(current => ({ ...current, [pid]: next }))
+      })
+    } finally {
+      if (probeRequestIds.current[pid] === requestId) {
+        testingProviders.current.delete(pid)
+        setTesting(current => ({ ...current, [pid]: false }))
+      }
+    }
   }
 
   const handleTest = async (pid) => {
@@ -2282,11 +2308,11 @@ function ModelTab() {
                 {testing[p.id] ? '检测中…' : isBuiltinProvider(p.id) ? '测试连通性' : '测试模型可用性'}
               </button>
               {!singleProvider && !isActive && (
-                <button data-app-button="action" type="button" onClick={() => handleActivate(p.id)} disabled={!!activating || !stored.has_key} title={!stored.has_key ? '请先保存 API Key' : ''} className="settings-btn settings-btn-provider" style={{ '--provider-color': providerColor }}>
+                <button data-app-button="action" type="button" onClick={() => handleActivate(p.id)} disabled={!!activating || !stored.has_key || !!testing[p.id]} title={!stored.has_key ? '请先保存 API Key' : ''} className="settings-btn settings-btn-provider" style={{ '--provider-color': providerColor }}>
                   {activating === p.id ? '切换中...' : '切换使用'}
                 </button>
               )}
-              <button data-app-button="action" type="button" onClick={() => handleSave(p.id)} disabled={saving === p.id || modelSaving} className={`settings-btn ${saved === p.id ? 'settings-btn-success' : 'settings-btn-primary'}`}>
+              <button data-app-button="action" type="button" onClick={() => handleSave(p.id)} disabled={saving === p.id || modelSaving || !!testing[p.id]} className={`settings-btn ${saved === p.id ? 'settings-btn-success' : 'settings-btn-primary'}`}>
                 {saving === p.id || modelSaving ? '保存中...' : saved === p.id ? '已保存 ✓' : '保存'}
               </button>
             </div>

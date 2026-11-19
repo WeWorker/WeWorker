@@ -79,7 +79,7 @@ import { listProviderModels, probeTimedMainConnection, probeProviderProtocol, ty
 import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-catalog-config.js'
 import { registerExplorationModelRoutes, explorationConversationSettings } from './exploration-model-settings.js'
 import { conversationModels, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
-import { activateCheckedModelSettings, prepareCheckedModelSave } from './model-settings-activation.js'
+import { activateCheckedModelSettings, prepareCheckedModelSave, type ModelActivationCheck } from './model-settings-activation.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
 import { createModelConfiguration, getModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
@@ -812,12 +812,14 @@ app.post('/settings/provider/delete', (req, res) => {
 
 app.post('/settings/provider', async (req, res) => {
   if (req.body?.activate === true) {
+    const modelChecks: ModelActivationCheck[] = []
     try {
       const before = getSettings()
       const patch = await prepareCheckedModelSave(before, req.body.provider, req.body)
-      res.json(buildSettingsResponse(await activateCheckedModelSettings(req.body.provider, patch, { getSettings, updateSettings }, before)))
+      const settings = await activateCheckedModelSettings(req.body.provider, patch, { getSettings, updateSettings, onCheck: check => modelChecks.push(check) }, before)
+      res.json({ ...buildSettingsResponse(settings), model_checks: modelChecks })
     } catch (error) {
-      res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
+      res.status(400).json({ detail: error instanceof Error ? error.message : String(error), model_checks: modelChecks })
     }
     return
   }
@@ -1005,11 +1007,13 @@ app.post('/settings/provider', async (req, res) => {
 
 // Switch which provider is active
 app.post('/settings/provider/activate', async (req, res) => {
+  const modelChecks: ModelActivationCheck[] = []
   try {
     const provider = typeof req.body?.provider === 'string' ? req.body.provider : ''
-    res.json(buildSettingsResponse(await activateCheckedModelSettings(provider, {}, { getSettings, updateSettings })))
+    const settings = await activateCheckedModelSettings(provider, {}, { getSettings, updateSettings, onCheck: check => modelChecks.push(check) })
+    res.json({ ...buildSettingsResponse(settings), model_checks: modelChecks })
   } catch (error) {
-    res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
+    res.status(400).json({ detail: error instanceof Error ? error.message : String(error), model_checks: modelChecks })
   }
 
 })
