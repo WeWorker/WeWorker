@@ -45,6 +45,10 @@ export function buildModelConfigurationNames(settings: Settings): Record<string,
       return provider ? [{ id, provider, name: configuration.name }] : []
     }),
   ]
+  // Upgrade the previous default label while preserving names chosen by users.
+  for (const entry of entries) {
+    if (entry.id === 'builtin' && entry.name?.trim() === '内置模型') entry.name = entry.provider.name
+  }
   const used = new Set(entries.map(entry => entry.name?.trim()).filter(Boolean))
   const result: Record<string, string> = {}
   for (const entry of entries) {

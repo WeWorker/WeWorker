@@ -176,6 +176,7 @@ export function buildSettingsProviderLists(providerList, providers) {
   const namedVisible = visible.map(provider => {
     const supplierName = provider.name || provider.id
     let name = isFixedProvider(provider.id) ? supplierName : storedProviders[provider.id]?.name?.trim()
+    if (provider.id === 'builtin' && name === '内置模型') name = supplierName
     if (!name) {
       if (provider.builtin || isBuiltinProvider(provider.id)) {
         name = supplierName

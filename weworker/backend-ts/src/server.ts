@@ -504,7 +504,7 @@ app.post('/settings/onboarding/complete', (req, res) => {
   const provider = typeof req.body?.provider === 'string' ? req.body.provider.trim() : ''
   const isPredefined = getProvider(provider)?.fixed === true
   if (!isBuiltinProvider(provider) && !isPredefined) {
-    res.status(400).json({ detail: '请选择内置模型或预定义供应商' })
+    res.status(400).json({ detail: '请选择免费内置模型或预定义供应商' })
     return
   }
 
@@ -513,7 +513,7 @@ app.post('/settings/onboarding/complete', (req, res) => {
     let updates: Partial<Settings>
     if (isBuiltinProvider(provider)) {
       const builtin = getProvider(provider)
-      if (!builtin) throw new Error('内置模型在当前构建中不可用')
+      if (!builtin) throw new Error('免费内置模型在当前构建中不可用')
       updates = activateBuiltinProvider(builtin)
     } else {
       const apiKey = provider === 'anthropic' ? current.api_key_anthropic
@@ -842,7 +842,7 @@ app.post('/settings/provider', async (req, res) => {
   }
   if (isBuiltinProvider(provider)) {
     if (Object.keys(req.body).some(key => !['provider', 'name', 'context_limit'].includes(key))) {
-      res.status(403).json({ detail: '内置模型仅支持修改名称和上下文窗口' })
+      res.status(403).json({ detail: '免费内置模型仅支持修改名称和上下文窗口' })
       return
     }
     const limit = parseContextLimit(context_limit)

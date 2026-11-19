@@ -16,6 +16,10 @@ function legacySettings(): Settings {
 }
 
 describe('multiple model configurations', () => {
+  it('refreshes the old builtin default name while retaining a user supplied name', () => {
+    expect(buildModelConfigurationNames({ ...legacySettings(), model_configuration_names: { builtin: '内置模型' } }).builtin).toBe('免费内置模型')
+    expect(buildModelConfigurationNames({ ...legacySettings(), model_configuration_names: { builtin: '我的助手' } }).builtin).toBe('我的助手')
+  })
   it('persists a deduplicated custom model list and rejects invalid entries', () => {
     const created = createModelConfiguration(legacySettings(), 'custom')
     const state = { ...legacySettings(), ...created.updates }
@@ -30,7 +34,7 @@ describe('multiple model configurations', () => {
   it('fixes preset names and protects only fixed entries from rename and deletion', () => {
     const state = { ...legacySettings(), model_configuration_names: { anthropic: 'old name', glm: 'old name', deepseek: 'old name' } }
     const original = structuredClone(state)
-    const names = { anthropic: 'Anthropic', glm: '智谱 coding plan', deepseek: 'DeepSeek' }
+    const names = { anthropic: 'Anthropic', glm: '智谱GLM', deepseek: 'DeepSeek' }
     expect(buildModelConfigurationNames(state)).toMatchObject(names)
     for (const [id, name] of Object.entries(names)) {
       expect(() => renameModelConfiguration(state, id, 'changed name')).toThrow('固定供应商名称不能修改')

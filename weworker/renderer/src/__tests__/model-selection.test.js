@@ -3,6 +3,15 @@ import { describe, it } from 'node:test'
 import fs from 'node:fs'
 import { selectModelAfterCatalogRefresh, buildProbeResultRows, buildProviderProbeTargets, buildModelOptions, buildModelCatalogAccess, getModelCatalogIssue, getModelCatalogStatus, buildSettingsProviderLists, buildChatProviderOptions, getVisibleModelRefreshDetail, isModelRefreshFailed, shouldShowModelRefreshFailure } from '../utils/model-selection.js'
 import { getOpenAiUrlHint } from '../utils/provider-url.js'
+import { BUILD_PROVIDERS } from '../utils/provider-config.js'
+
+it('uses the public provider names and refreshes the old builtin default without losing a custom name', () => {
+  assert.equal(BUILD_PROVIDERS.find(p => p.id === 'builtin').name, '免费内置模型')
+  assert.equal(BUILD_PROVIDERS.find(p => p.id === 'glm').name, '智谱GLM')
+  const listed = name => buildSettingsProviderLists(BUILD_PROVIDERS, { builtin: { name } }).visible.find(p => p.id === 'builtin').name
+  assert.equal(listed('内置模型'), '免费内置模型')
+  assert.equal(listed('我的助手'), '我的助手')
+})
 
 it('defaults OpenAI protocol to Chat Completions and offers Responses as an alternate', () => {
   const settings = fs.readFileSync(new URL('../components/settings/SettingsModal.jsx', import.meta.url), 'utf8')
