@@ -1,3 +1,4 @@
+import ProviderIcon from '../icons/ProviderIcon.jsx'
 import React, { useEffect, useRef, useState } from 'react'
 import { Brain } from 'lucide-react'
 import { CheckCircleFilled, KeyOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -169,6 +170,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
             </button>
           </div>
         )}
+        renderOptionPrefix={option => <ProviderIcon provider={providers[option.value]?.provider_id || option.value} size={18} />}
         renderOptionSuffix={option => option?.keyConfigured === undefined ? null : (
           <span className={`provider-key-status${option.keyConfigured ? ' is-configured' : ''}`}
             title={option.keyConfigured ? '已填写 API Key' : '未填写 API Key，点击配置'}
