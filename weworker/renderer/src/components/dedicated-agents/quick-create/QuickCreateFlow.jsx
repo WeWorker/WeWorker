@@ -4,7 +4,7 @@ import { LoadingOutlined } from '@ant-design/icons'
 import WecomQrBind, { BotChannelPicker } from '../WecomQrBind.jsx'
 import { useDedicatedAgentsStore } from '../../../store/dedicated-agents.js'
 import { useWorksStore } from '../../../store/works.js'
-import { createAgent, createSkill, fetchAgentDetail } from '../../../api/dedicated-agents-api.js'
+import { createAgent, createSkill, fetchAgentDetail, fetchAgentSkill } from '../../../api/dedicated-agents-api.js'
 import {
   agentChannelOf,
   boundBotPayload,
@@ -25,6 +25,7 @@ import {
   visibleTemplateQuestions,
 } from './templates.js'
 import { createAgentTask, fetchAgentNotificationTargets, fetchAgentTasks } from './api.js'
+import { createTemplateSkill } from './skill-retry.js'
 import { handleChatLinkClick } from '../../../utils/chat-links.js'
 import { codeBadgeStyle, hintStyle, labelStyle, markdownEditorStyle, sectionStyle, titleStyle } from '../styles.js'
 import './quick-create.css'
@@ -317,19 +318,13 @@ export default function QuickCreateFlow({ draftKey }) {
     updateDraftAgent({ quickQuestionIndex: index }, draftKey)
   }
 
-  /** 重名时自动加后缀重试：apikey-usage-helper、-2、-3… */
-  const createSkillWithRetry = async (markdown) => {
-    for (let attempt = 1; attempt <= 9; attempt++) {
-      const candidate = attempt === 1 ? template.skillName : `${template.skillName}-${attempt}`
-      try {
-        return await createSkill(candidate, markdown, 'private')
-      } catch (err) {
-        if (attempt < 9 && /已存在/.test(String(err?.message || ''))) continue
-        throw err
-      }
-    }
-    throw new Error('Skill 名称冲突，请重试')
-  }
+  /** 重名时先比对内容：一致说明上次其实创建成功（网络瞬断误报后的重试），直接复用；不一致才加后缀新建。 */
+  const createSkillWithRetry = (markdown) => createTemplateSkill({
+    baseName: template.skillName,
+    markdown,
+    createSkill: (name, content) => createSkill(name, content, 'private'),
+    fetchSkill: fetchAgentSkill,
+  })
 
   /** Save the rendered skill and create the agent; botPayload binds a scanned bot or makes it desktop-only. */
   const createAgentFromTemplate = async (botPayload) => {
@@ -345,7 +340,8 @@ export default function QuickCreateFlow({ draftKey }) {
       access_mode: 'owner_only',
       ...botPayload,
     })
-    await loadWorks()
+    // 到这里创建已经成功；列表刷新失败不应误报「创建失败」，否则用户重试会造出重复 Bot。
+    void loadWorks().catch(() => {})
     return result
   }
 

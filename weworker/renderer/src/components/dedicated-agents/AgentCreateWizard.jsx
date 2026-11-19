@@ -322,7 +322,8 @@ export default function AgentCreateWizard({ draftKey }) {
         access_mode: bot.channel === 'wecom' ? draft.accessMode : 'owner_only',
         ...boundBotPayload(bot),
       })
-      await loadWorks()
+      // 创建已成功；列表刷新失败不应误报「创建失败」，否则用户重试会造出重复 Bot。
+      void loadWorks().catch(() => {})
       updateDraftAgent({ ...result.agent, wizardStep: 3 }, draftKey)
       setCreatedAgent(result.agent)
       setStep(3)
@@ -349,7 +350,8 @@ export default function AgentCreateWizard({ draftKey }) {
         access_mode: 'owner_only',
         channel: 'desktop',
       })
-      await loadWorks()
+      // 同上：创建已成功，列表刷新不阻塞也不报错。
+      void loadWorks().catch(() => {})
       completeCreate(result.agent, draftKey)
     } catch (err) {
       setError(err.message || '创建失败')
