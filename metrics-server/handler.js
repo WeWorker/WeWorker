@@ -3,7 +3,7 @@
  *
  * 路由：
  *   POST /v1/metrics/batch   接收上报（鉴权 + 限尺 + 校验 + 脱敏 + 幂等落库）
- *   GET  /v1/stats           聚合查询（by=domain|tool|err|user|route|active）
+ *   GET  /v1/stats           聚合查询（by=domain|tool|err|errdetail|user|route|active）
  *   POST /v1/visits          站点访问上报（PV 逐次累加，UV 查询时按 ip 去重）
  *   GET  /v1/visits          站点访问 PV/UV 聚合查询
  *   GET  /v1/healthz         健康检查
@@ -104,7 +104,7 @@ export async function handle(req, res, ctx) {
     if (!checkAuth(req, ctx.token)) return send(res, 401, { error: "unauthorized" });
     const byRaw = url.searchParams.get("by");
     const by =
-      byRaw === "tool" ? "tool" : byRaw === "err" ? "err" : byRaw === "user" ? "user" : byRaw === "route" ? "route" : byRaw === "active" ? "active" : "domain";
+      byRaw === "tool" ? "tool" : byRaw === "err" ? "err" : byRaw === "errdetail" ? "errdetail" : byRaw === "user" ? "user" : byRaw === "route" ? "route" : byRaw === "active" ? "active" : "domain";
     const since = url.searchParams.get("since") || "30d";
     const kind = url.searchParams.get("kind") || null;
     const topRaw = url.searchParams.get("top");
