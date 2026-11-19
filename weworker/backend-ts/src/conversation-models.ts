@@ -11,27 +11,36 @@ import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeContextL
 export interface ConversationModel {
   provider: string
   model: string
+  selection_revision?: string
   thinking_effort?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 }
 
 export function parseConversationModel(value: unknown): ConversationModel {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('会话模型配置无效')
   const v = value as Record<string, unknown>
-  if (Object.keys(v).some(key => !['provider', 'model', 'thinking_effort'].includes(key))
+  if (Object.keys(v).some(key => !['provider', 'model', 'thinking_effort', 'selection_revision'].includes(key))
+    || (v.selection_revision !== undefined && (typeof v.selection_revision !== 'string' || v.selection_revision.length > 100))
     || typeof v.provider !== 'string' || !v.provider.trim() || v.provider.length > 200
     || typeof v.model !== 'string' || !v.model.trim() || v.model.length > 200
     || (v.thinking_effort !== undefined && !['off', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(v.thinking_effort)))) {
     throw new Error('会话模型配置无效')
   }
-  return { provider: v.provider.trim(), model: v.model.trim(), thinking_effort: (v.thinking_effort || 'off') as ConversationModel['thinking_effort'] }
+  return { provider: v.provider.trim(), model: v.model.trim(), thinking_effort: (v.thinking_effort || 'off') as ConversationModel['thinking_effort'],
+    ...(v.selection_revision === undefined ? {} : { selection_revision: v.selection_revision as string }) }
 }
 
 export function defaultConversationModel(settings: Settings): ConversationModel {
-  return { provider: settings.active_model_configuration || settings.active_provider, model: settings.model, thinking_effort: 'off' }
+  return { provider: settings.active_model_configuration || settings.active_provider, model: settings.model, thinking_effort: 'off',
+    ...(settings.model_selection_revision ? { selection_revision: settings.model_selection_revision } : {}) }
 }
 
-// Explicit references keep an exploration session pinned when its global
-// default changes. The original sentinel remains valid for older records.
+export function currentConversationModel(settings: Settings, selection?: ConversationModel): ConversationModel {
+  return !selection || (settings.model_selection_revision && selection.selection_revision !== settings.model_selection_revision)
+    ? defaultConversationModel(settings) : selection
+}
+
+// Keep legacy exploration references readable; selection revisions determine
+// whether an override still belongs to the current global activation.
 export function explorationProviderId(settings: Settings, selection = settings.exploration_model_selection): string {
   const id = selection?.provider
   if (!id || id === '__exploration__') return settings.exploration_active_provider || ''
@@ -114,7 +123,7 @@ export function createConversationModelStore(file = path.join(os.homedir(), '.we
 
 export const conversationModels = createConversationModelStore()
 export function workModelSelection(workId: string, settings: Settings): ConversationModel {
-  return conversationModels.ensure(workId, defaultConversationModel(settings))
+  return currentConversationModel(settings, conversationModels.get(workId))
 }
 export function resolveWorkModelSettings(workId: string, settings: Settings): Settings {
   return resolveConversationModelSettings(settings, workModelSelection(workId, settings))
@@ -130,7 +139,7 @@ export function registerConversationModelRoutes(app: Express, deps: {
   app.post('/chat/model/resolve', (req, res) => {
     try {
       const settings = deps.getSettings()
-      const selection = parseConversationModel(req.body?.selection || defaultConversationModel(settings))
+      const selection = currentConversationModel(settings, parseConversationModel(req.body?.selection || defaultConversationModel(settings)))
       res.json(conversationModelStatus(settings, selection))
     } catch (e) { res.status(400).json({ detail: e instanceof Error ? e.message : '会话模型配置无效' }) }
   })
@@ -138,7 +147,7 @@ export function registerConversationModelRoutes(app: Express, deps: {
     if (!deps.hasWork(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
     try {
       const settings = deps.getSettings()
-      const selection = models.ensure(req.params.id, defaultConversationModel(settings))
+      const selection = currentConversationModel(settings, models.get(req.params.id))
       try { res.json(conversationModelStatus(settings, selection)) }
       catch (e) {
         // Keep the missing reference visible so users can select a replacement;
@@ -149,10 +158,13 @@ export function registerConversationModelRoutes(app: Express, deps: {
   })
   app.post('/works/:id/model', (req, res) => {
     if (!deps.hasWork(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
-    if (deps.isBusy(req.params.id)) { res.status(409).json({ detail: '请等待当前回复结束后切换模型' }); return }
     try {
+      const settings = deps.getSettings()
       const selection = parseConversationModel(req.body)
-      const result = conversationModelStatus(deps.getSettings(), selection)
+      if (settings.model_selection_revision && selection.selection_revision !== settings.model_selection_revision) {
+        res.status(409).json({ detail: '全局模型已切换，请刷新后重新选择' }); return
+      }
+      const result = conversationModelStatus(settings, selection)
       models.set(req.params.id, selection)
       res.json(result)
     } catch (e) { res.status(400).json({ detail: e instanceof Error ? e.message : '会话模型保存失败' }) }

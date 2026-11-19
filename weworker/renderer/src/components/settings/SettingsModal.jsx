@@ -52,7 +52,6 @@ import { showNotification, useNotificationsStore } from '../../store/notificatio
 import { BROWSER_MODE_OPTIONS, describeBrowserMode } from '../../utils/dedicated-browser.js'
 import SiteLoginSettings from '../site-login/SiteLoginSettings.jsx'
 import { deploymentConfig } from '../../config/deployment.js'
-import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 
 const OFFICIAL_URL = deploymentConfig.officialUrl
 const GITHUB_RELEASE_URL = 'https://github.com/WeWorker/WeWorker/releases/latest'
@@ -1910,7 +1909,6 @@ function ModelTab() {
     setActivating(pid)
     setTestResult(null)
     try {
-      await cancelActiveQrForModelSwitch()
       await activateProvider(pid)
     } catch (e) {
       setTestResult({ ok: false, message: e.message || '切换失败' })

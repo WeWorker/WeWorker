@@ -10,7 +10,9 @@ import { buildModelConfigurationNames, getModelConfiguration } from './model-con
 
 export function explorationConversationSettings(settings: Settings, input?: unknown): Settings {
   if (input === undefined || input === null) return settings
-  const selection = parseConversationModel(input)
+  const parsed = parseConversationModel(input)
+  const selection = settings.model_selection_revision && parsed.selection_revision !== settings.model_selection_revision
+    ? defaultWebwrightModelSelection({ ...settings, exploration_model_selection: undefined }) : parsed
   if (selection.provider === '__independent__') throw new Error('旧独立配置已停用，请重新选择模型配置中的 Adapter 工坊接口')
   return { ...settings, exploration_model_selection: selection }
 }
@@ -30,6 +32,7 @@ function transactionFingerprint(settings: Settings): string {
     PROVIDERS.map(provider => modelSettingsExplorationEntry(settings, provider.id)),
     settings.exploration_model_selection,
     settings.active_provider, settings.active_model_configuration, settings.model_configurations,
+    settings.model_selection_revision,
     settings.api_key, settings.base_url, settings.model,
   ])).digest('hex')
 }
@@ -53,12 +56,14 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
     const candidateUrl = saved?.base_url || (formProvider?.builtin ? formProvider.webwright.baseUrl : '')
     const scoped = configurationId ? { ...settings, exploration_model_selection: {
       provider: configurationId, model: saved?.model || formProvider?.defaultModel || '', thinking_effort: 'off' as const,
+      ...(settings.model_selection_revision ? { selection_revision: settings.model_selection_revision } : {}),
     } } : settings
     if (configurationId) {
       try { effective = resolveWebwrightModelConfig(scoped) } catch { effective = undefined }
     }
     const names = buildModelConfigurationNames(settings)
     return {
+      model_selection_revision: settings.model_selection_revision || '',
       health_scope: effective ? createHash('sha256').update(JSON.stringify([
         effective.provider_id, effective.protocol, effective.base_url, effective.base_url_is_full, effective.api_key, effective.auth_type,
       ])).digest('hex') : '',
@@ -185,7 +190,7 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       const body = req.body || {}
       const original = deps.getSettings()
       const transaction = transactionFingerprint(original)
-      const settings = explorationConversationSettings(original, body)
+      const settings = explorationConversationSettings(original, { ...body, ...(original.model_selection_revision ? { selection_revision: original.model_selection_revision } : {}) })
       const result = await service.check(settings, true)
       if (transaction !== transactionFingerprint(deps.getSettings())) {
         res.status(409).json({ detail: '模型配置已改变，请重新检测' }); return
@@ -213,7 +218,7 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       if (!saved?.api_key) throw new Error('请先在模型配置中保存 Adapter 工坊的 API Key')
       // Catalog discovery needs endpoint credentials before the user has a
       // model. This temporary resolver value is never saved or sent to a model.
-      const candidate = { ...settings, exploration_model_selection: { provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model || 'model-catalog' } }
+      const candidate = { ...settings, exploration_model_selection: { provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model || 'model-catalog', ...(settings.model_selection_revision ? { selection_revision: settings.model_selection_revision } : {}) } }
       const config = resolveWebwrightModelConfig(candidate)
       const entry: ProviderEntry = { ...provider, id: 'custom', weworker: { protocol: config.protocol, baseUrl: config.base_url },
         webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output } }

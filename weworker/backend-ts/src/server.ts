@@ -78,7 +78,7 @@ import {
 import { listProviderModels, probeTimedMainConnection, probeProviderProtocol, type ProbeTarget } from './provider-model-services.js'
 import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-catalog-config.js'
 import { registerExplorationModelRoutes, explorationConversationSettings } from './exploration-model-settings.js'
-import { conversationModels, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
+import { conversationModels, currentConversationModel, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
 import { activateCheckedModelSettings, prepareCheckedModelSave } from './model-settings-activation.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
@@ -447,6 +447,7 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
   const names = buildModelConfigurationNames(s)
   return {
     active_provider: s.active_model_configuration || s.active_provider,
+    model_selection_revision: s.model_selection_revision || '',
     onboarding_completed: s.onboarding_completed === true,
     user_directory: s.user_directory,
     download_subdirectory: getDownloadSubdirectory(),
@@ -2458,7 +2459,7 @@ app.post('/works', (req, res) => {
   try {
     const defaults = getSettings()
     if (req.body.model_selection) {
-      selection = parseConversationModel(req.body.model_selection)
+      selection = currentConversationModel(defaults, parseConversationModel(req.body.model_selection))
       resolveConversationModelSettings(defaults, selection)
     } else if (defaults.model) selection = defaultConversationModel(defaults)
   } catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '会话模型无效' }); return }
@@ -3147,7 +3148,7 @@ async function prewarmChatSession(input: {
   chatWarmupsInFlight.add(input.key)
   try {
     const defaults = getSettings()
-    const selection = input.workId ? workModelSelection(input.workId, defaults) : input.modelSelection || defaultConversationModel(defaults)
+    const selection = input.workId ? workModelSelection(input.workId, defaults) : currentConversationModel(defaults, input.modelSelection)
     const settings = resolveConversationModelSettings(defaults, selection)
     const styleId = resolveStyleId(input.zcf, settings)
     for await (const event of streamChat(input.messages, settings, undefined, {

@@ -1,4 +1,5 @@
 import type { Settings } from './config.js'
+import { randomUUID } from 'node:crypto'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider } from './builtin-provider.js'
 import { defaultConversationModel, resolveConversationModelSettings } from './conversation-models.js'
 import { getModelConfiguration, activateModelConfiguration, updateModelConfiguration, renameModelConfiguration } from './model-configurations.js'
@@ -110,5 +111,5 @@ export async function activateCheckedModelSettings(id: string, patch: Partial<Se
   })
   if (!explored.ok) throw new Error(`网站探索模型不可用：${explored.detail || explored.error || '检测失败'}`)
   assertUnchanged()
-  return deps.updateSettings({ ...patch, ...activation })
+  return deps.updateSettings({ ...patch, ...activation, model_selection_revision: randomUUID(), exploration_model_selection: undefined })
 }

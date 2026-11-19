@@ -1024,7 +1024,7 @@ export default function InputBar({
       <div className="chat-input-toolbar-actions">
         <ModelSelector
           conversationScope={attachmentTarget}
-          disabled={!!disabled || !!streaming}
+          disabled={!!disabled}
           onPendingChange={setModelSelectionPending}
           thinkingEffort={thinkingEffort}
           onThinkingEffortChange={handleThinkingEffortChange}

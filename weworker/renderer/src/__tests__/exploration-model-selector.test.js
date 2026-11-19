@@ -20,6 +20,7 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
   const requests = []
   let empty = false, failKeySave = false, failCatalog = false, server, root
   let chatProvider = 'chat-only', chatModel = 'chat-only-model'
+  let selectionRevision = ''
   const configurations = [
     { id: 'custom', name: '网站探索配置（自定义）', model: 'fixture-explore', models: ['fixture-explore'], configured: true, has_key: true },
     { id: 'glm', name: 'Exploration GLM', model: 'glm-explore', models: ['glm-explore'], configured: true, has_key: true },
@@ -33,7 +34,7 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     const path = new URL(url).pathname
     const body = options.body ? JSON.parse(options.body) : null
     requests.push({ path, body })
-    const status = { providers: empty ? configurations.filter(item => item.fixed_provider) : configurations, active_provider: 'custom', selected_provider: 'chat-only', effective_model: 'chat-only-model' }
+    const status = { model_selection_revision: selectionRevision, providers: empty ? configurations.filter(item => item.fixed_provider) : configurations, active_provider: 'custom', selected_provider: 'chat-only', effective_model: 'chat-only-model' }
     if (path === '/settings/exploration-model') return Response.json(status)
     if (path === '/settings/provider') {
       if (failKeySave) return Response.json({ detail: 'Fixture key save failed' }, { status: 400 })
@@ -111,6 +112,11 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, '__exploration__:named-config')
     await render('reload')
     assert.match(document.querySelector('[aria-label="模型供应商选择"]').textContent, /Claude Code/)
+    selectionRevision = 'revision-next'
+    await act(async () => useSettingsStore.setState({ modelSelectionRevision: selectionRevision }))
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, '__exploration__:custom')
+    assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].selection_revision, selectionRevision)
+    assert.equal(useSettingsStore.getState().activeProvider, 'chat-only')
     await click('[aria-label="模型供应商选择"]')
     await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '内置模型').click())
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, 'builtin')

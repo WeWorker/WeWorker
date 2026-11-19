@@ -18,6 +18,20 @@ function settings(overrides: Partial<Settings> = {}): Settings {
 }
 
 describe('model settings Adapter workshop interface', () => {
+  it('uses the latest global exploration model for old records and honors only current local overrides', () => {
+    const state = settings({ active_provider: 'custom', active_model_configuration: 'example', model: 'global-chat',
+      model_selection_revision: 'revision-new', model_configurations: {
+        example: { provider_id: 'custom', api_key: 'placeholder-key', model: 'global-chat', base_url: 'https://example.com/v1',
+          openai_base_url: 'https://example.org/v1', openai_model: 'global-exploration', auth_type: 'auth_token', context_limit: 128000 },
+      } })
+    const stale = { provider: 'missing-old', model: 'old-model', selection_revision: 'revision-old' }
+    expect(resolveWebwrightModelConfig(explorationConversationSettings(state, stale)).model).toBe('global-exploration')
+    expect(resolveWebwrightModelConfig({ ...state, exploration_model_selection: stale }).model).toBe('global-exploration')
+    const local = { provider: '__exploration__:example', model: 'local-next', selection_revision: 'revision-new' }
+    expect(resolveWebwrightModelConfig(explorationConversationSettings(state, local)).model).toBe('local-next')
+    expect(state.model).toBe('global-chat')
+  })
+
   function configured(protocol: 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses') {
     return settings({ active_provider: 'custom', active_model_configuration: 'example-config', model: 'example-model',
       model_configurations: { 'example-config': { provider_id: 'custom', model: 'example-model', api_key: 'placeholder-main-key',

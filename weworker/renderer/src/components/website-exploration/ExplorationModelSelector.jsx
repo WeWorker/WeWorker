@@ -20,7 +20,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   const providers = useSettingsStore(s => s.providers)
   const activeProvider = useSettingsStore(s => s.activeProvider)
   const mainModel = useSettingsStore(s => s.model)
-  const revision = useSettingsStore(s => s.explorationModelRevision)
+  const revision = useSettingsStore(s => s.modelSelectionRevision)
   const [config, setConfig] = useState(null)
   const [catalog, setCatalog] = useState(null)
   const [pending, setPending] = useState(false)
@@ -39,10 +39,11 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     setLoading(true)
     setConfig(null)
     ;(async () => {
-      const saved = conversationId
+      let saved = conversationId
         ? (await api.getExplorationSessionModel(conversationId)).model_selection
         : useWebsiteExplorationStore.getState().drafts[draftModelKey]
       const available = await api.getExplorationModel()
+      if (available.model_selection_revision && saved?.selection_revision !== available.model_selection_revision) saved = null
       if (!alive || version !== requestVersion.current) return
       const savedReference = saved?.provider === '__exploration__' ? `__exploration__:${available.active_provider}` : saved?.provider
       const configured = available.providers?.filter(item => item.configured
@@ -56,17 +57,12 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
         return
       }
       const selection = { provider: selectionProvider(entry), model: previous ? saved.model : entry.model,
-        thinking_effort: saved?.thinking_effort || 'off' }
-      if (conversationId && saved && saved.provider !== selection.provider && disabled) {
-        selectionRef.current = null
-        setConfig({ ...available, selection: null, selected_provider: '', effective_model: '' })
-        setError('当前记录使用旧模型配置，请在任务停止后选择网站探索配置')
-        return
-      }
+        thinking_effort: saved?.thinking_effort || 'off',
+        ...(available.model_selection_revision ? { selection_revision: available.model_selection_revision } : {}) }
       const value = await api.resolveExplorationSessionModel(selection)
       if (!alive || version !== requestVersion.current) return
       selectionRef.current = value.selection
-      if (conversationId && !disabled && (!saved || saved.provider !== value.selection.provider)) await api.saveExplorationSessionModel(conversationId, value.selection)
+      if (conversationId && (!saved || saved.provider !== value.selection.provider)) await api.saveExplorationSessionModel(conversationId, value.selection)
       if (!conversationId) useWebsiteExplorationStore.getState().setDraft(draftModelKey, value.selection)
       if (alive && version === requestVersion.current) { setConfig(value); setError('') }
     })().catch(e => { if (alive && version === requestVersion.current) setError(e.message) }).finally(() => { if (alive && version === requestVersion.current) setLoading(false) })
@@ -108,8 +104,12 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
   }, [selected, config?.health_scope, provider?.id, provider?.configured, currentModel])
 
   async function persistSelection(patch) {
-    const selection = { thinking_effort: 'off', ...selectionRef.current, ...patch }
+    const currentRevision = useSettingsStore.getState().modelSelectionRevision
+    if (revision !== currentRevision) throw new Error('全局模型已切换，请重新选择')
+    const selection = { thinking_effort: 'off', ...selectionRef.current, ...patch,
+      ...(currentRevision ? { selection_revision: currentRevision } : {}) }
     const result = await api.resolveExplorationSessionModel(selection)
+    if (revision !== useSettingsStore.getState().modelSelectionRevision) throw new Error('全局模型已切换，请重新选择')
     if (conversationId) await api.saveExplorationSessionModel(conversationId, result.selection)
     else useWebsiteExplorationStore.getState().setDraft(draftModelKey, result.selection)
     selectionRef.current = result.selection

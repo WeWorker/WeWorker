@@ -323,7 +323,7 @@ export interface Settings {
     key_source?: string
     base_url_is_full?: boolean
   }>
-  exploration_model_selection?: { provider: string; model: string; thinking_effort?: import('./conversation-models.js').ConversationModel['thinking_effort'] } | null
+  exploration_model_selection?: { selection_revision?: string; provider: string; model: string; thinking_effort?: import('./conversation-models.js').ConversationModel['thinking_effort'] } | null
   exploration_thinking_effort?: 'off' | 'low' | 'medium' | 'high'
 
   custom_auth_type: import('./anthropic-auth.js').AnthropicAuthType
@@ -336,6 +336,7 @@ export interface Settings {
   model_configuration_names?: Record<string, string>
   dismissed_model_sources?: string[]
   active_model_configuration?: string
+  model_selection_revision?: string
   active_auth_type?: import('./anthropic-auth.js').AnthropicAuthType
   active_weworker_protocol?: import('./llm-egress.js').LlmProtocol
   weworker_protocol_custom?: import('./llm-egress.js').LlmProtocol

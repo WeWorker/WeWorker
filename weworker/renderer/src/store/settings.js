@@ -31,6 +31,7 @@ function settingsPatch(data, fallback = {}) {
 
   return {
     activeProvider: data.active_provider,
+    modelSelectionRevision: data.model_selection_revision ?? fallback.modelSelectionRevision ?? '',
     onboardingCompleted: data.onboarding_completed ?? fallback.onboardingCompleted ?? false,
     webcliRouteEnabled: data.webcli_route_enabled ?? fallback.webcliRouteEnabled ?? false,
     modelDiscoveryEnabled: data.model_discovery_enabled ?? fallback.modelDiscoveryEnabled ?? true,
@@ -72,6 +73,7 @@ export const PROVIDERS = BUILD_PROVIDERS.map(p => ({ ...p, ...(p.presentation ||
 
 export const useSettingsStore = create((set, get) => ({
   activeProvider: BUILD_DEFAULT_PROVIDER,
+  modelSelectionRevision: '',
   onboardingCompleted: false,
   webcliRouteEnabled: false,
   modelDiscoveryEnabled: true,

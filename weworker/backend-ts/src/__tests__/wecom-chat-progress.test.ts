@@ -5,9 +5,11 @@ const fixture = vi.hoisted(() => ({
   messages: [] as Message[],
   streamChat: vi.fn(),
   route: vi.fn(),
+  resolveModel: vi.fn((_id, settings) => settings),
   work: { id: 'example-channel-work', title: 'Example conversation' },
 }))
 vi.mock('../agent.js', () => ({ streamChat: fixture.streamChat }))
+vi.mock('../conversation-models.js', () => ({ resolveWorkModelSettings: fixture.resolveModel }))
 vi.mock('../routed-turn.js', () => ({ tryRoutedTurn: fixture.route, historyBeforeLastUser: (messages: Message[]) => messages.slice(0, -1) }))
 vi.mock('../config.js', () => ({ getSettings: () => ({ api_key: 'example-placeholder-key' }) }))
 vi.mock('../style-settings.js', () => ({ resolveStyleId: () => null }))
@@ -49,8 +51,20 @@ beforeEach(() => {
   fixture.messages = []
   fixture.route.mockReset().mockResolvedValue({ handled: false, text: '', timing: null })
   fixture.streamChat.mockReset()
+  fixture.resolveModel.mockImplementation((_id, settings) => settings)
 })
 afterEach(() => { expect(listBackgroundChatRuns()).toEqual([]) })
+
+it('runs the direct WeCom stream with its conversation model snapshot', async () => {
+  const snapshot = { api_key: 'placeholder-local', model: 'example-local' }
+  fixture.resolveModel.mockReturnValueOnce(snapshot)
+  fixture.streamChat.mockImplementation(async function* (_history, settings) {
+    expect(settings).toBe(snapshot)
+    yield { type: 'text_delta', content: 'Example response' }
+  })
+  await bot().send()
+  expect(fixture.resolveModel).toHaveBeenCalledWith(fixture.work.id, expect.any(Object))
+})
 
 it('exposes initial, partial text and running tools, rejects overlap, then persists once', async () => {
   const route = deferred(), entered = deferred(), release = deferred()

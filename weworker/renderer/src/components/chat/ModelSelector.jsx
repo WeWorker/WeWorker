@@ -14,7 +14,6 @@ import { modelHealthKey, useModelHealthStore } from '../../store/model-health.js
 import { ModelHealthIndicator, ModelHealthToolbar } from './ModelHealth.jsx'
 import { useConversationModel, useConversationModelsStore } from '../../store/conversation-models.js'
 import './model-selector.css'
-import { cancelActiveQrForModelSwitch } from '../../utils/model-switch-cancel.js'
 
 export default function ModelSelector({ disabled, onPendingChange, thinkingEffort = 'off', onThinkingEffortChange, conversationScope = 'welcome' }) {
   const session = useConversationModel(conversationScope)
@@ -22,8 +21,12 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
   const model = session.selection.model
   const providers = useSettingsStore(state => state.providers)
   const loaded = useSettingsStore(state => state.loaded)
+  const revision = useSettingsStore(state => state.modelSelectionRevision)
   const saveProvider = useSettingsStore(state => state.saveProvider)
-  const saveSelection = patch => useConversationModelsStore.getState().save(conversationScope, { ...session.selection, ...patch })
+  const saveSelection = patch => {
+    if (revision !== useSettingsStore.getState().modelSelectionRevision) throw new Error('全局模型已切换，请重新选择')
+    return useConversationModelsStore.getState().save(conversationScope, { ...session.selection, ...patch })
+  }
   const [discoveryOpen, setDiscoveryOpen] = useState(false)
   const [keyProvider, setKeyProvider] = useState(null)
   const [catalog, setCatalog] = useState(null)
@@ -81,7 +84,6 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     onPendingChange?.(true)
     setError('')
     try {
-      await cancelActiveQrForModelSwitch()
       if (kind === 'provider') {
         let nextModel = providers[value]?.model || PROVIDERS.find(item => item.id === value)?.defaultModel || ''
         if (!nextModel) {

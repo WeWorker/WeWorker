@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Settings } from '../config.js'
 import type { Express } from 'express'
-import { createConversationModelStore, defaultConversationModel, resolveConversationModelSettings, parseConversationModel, registerConversationModelRoutes } from '../conversation-models.js'
+import { createConversationModelStore, currentConversationModel, defaultConversationModel, resolveConversationModelSettings, parseConversationModel, registerConversationModelRoutes } from '../conversation-models.js'
 
 function defaults(): Settings {
   return { active_provider: 'custom', active_model_configuration: 'example-a', model: 'default-a', api_key: 'placeholder-a',
@@ -16,7 +16,21 @@ function defaults(): Settings {
 }
 
 describe('conversation-specific model configuration', () => {
-  it('route writes only the selected conversation and rejects running or missing conversations', () => {
+  it('global activation overrides old selections, while new local selections leave defaults and in-flight snapshots intact', () => {
+    const settings = { ...defaults(), model_selection_revision: 'revision-one' }
+    const local = { provider: 'example-b', model: 'local-b', selection_revision: 'revision-one' }
+    const running = resolveConversationModelSettings(settings, currentConversationModel(settings, local))
+    const activated = { ...settings, model: 'global-next', model_selection_revision: 'revision-two' }
+    expect(currentConversationModel(activated, local)).toEqual(defaultConversationModel(activated))
+    expect(currentConversationModel(activated, { provider: 'example-b', model: 'legacy' })).toEqual(defaultConversationModel(activated))
+    const newLocal = { ...local, model: 'next-local', selection_revision: 'revision-two' }
+    expect(currentConversationModel(activated, newLocal)).toEqual(newLocal)
+    expect(resolveConversationModelSettings(activated, currentConversationModel(activated, newLocal)).model).toBe('next-local')
+    expect(activated.model).toBe('global-next')
+    expect(running.model).toBe('local-b')
+  })
+
+  it('route writes only the selected conversation while running and rejects missing conversations', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conversation-route-test-'))
     try {
       const models = createConversationModelStore(path.join(dir, 'models.json'))
@@ -33,8 +47,8 @@ describe('conversation-specific model configuration', () => {
       handlers.get('GET /works/:id/model')!({ params: { id: 'b' } }, res)
       expect(data.model).toBe('default-a')
       handlers.get('POST /works/:id/model')!({ params: { id: 'running' }, body: selection }, res)
-      expect(status).toBe(409)
-      expect(models.get('running')).toBeUndefined()
+      expect(status).toBe(200)
+      expect(models.get('running')).toEqual(selection)
       handlers.get('POST /works/:id/model')!({ params: { id: 'missing' }, body: selection }, res)
       expect(status).toBe(404)
       expect(models.get('a')).toEqual(selection)
@@ -44,6 +58,12 @@ describe('conversation-specific model configuration', () => {
       handlers.get('POST /works/:id/model')!({ params: { id: 'deleted-config' }, body: selection }, res)
       expect(data).toMatchObject(selection)
       expect(data.unavailable).toBeUndefined()
+      settings.model_selection_revision = 'latest-revision'
+      handlers.get('POST /works/:id/model')!({ params: { id: 'a' }, body: selection }, res)
+      expect(status).toBe(409)
+      expect(models.get('a')).toEqual(selection)
+      handlers.get('GET /works/:id/model')!({ params: { id: 'a' } }, res)
+      expect(data).toMatchObject({ provider: 'example-a', model: 'default-a', selection_revision: 'latest-revision' })
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
   it('resolves a session model without modifying defaults or provider configurations', () => {

@@ -231,7 +231,7 @@ export function ExplorationComposer({ value, onChange, onAction, inputRef, conve
       }} />
       <div className="chat-input-toolbar wx-chat-toolbar">
         <button type="button" className="chat-input-upload" aria-label="上传文件" title="上传文件" disabled={disabled || !onAttachmentsChange} onClick={upload}><span>+</span></button>
-        <ExplorationModelSelector conversationId={conversationId} draftModelKey={draftModelKey} usage={usage} disabled={disabled || modelDisabled || stopping} onPendingChange={setModelPending} onReadyChange={modelReadyChanged}>
+        <ExplorationModelSelector conversationId={conversationId} draftModelKey={draftModelKey} usage={usage} disabled={disabled} onPendingChange={setModelPending} onReadyChange={modelReadyChanged}>
           {children}
           <button type="button" className={'chat-input-action wx-chat-send ' + (stopping ? 'chat-input-action-stop' : 'chat-input-action-send')} aria-label={actionLabel} title={actionLabel} disabled={blocked} onClick={onAction} />
         </ExplorationModelSelector>
