@@ -1,3 +1,4 @@
+import { withModelSettingsNotice } from '../../utils/model-settings-notice.js'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
@@ -1651,7 +1652,6 @@ function ModelTab() {
   const [activating, setActivating] = useState(null)
   const [testing, setTesting] = useState({})
   const testingProviders = useRef(new Set())
-  const [testResult, setTestResult] = useState(null)
   const contextLimitNoticeId = useRef(null)
 
   const reportContextLimitError = () => {
@@ -1754,7 +1754,6 @@ function ModelTab() {
       ...(f[pid] || getForm(pid)),
       [k]: v,
     } }))
-    setTestResult(null)
     probeRequestIds.current[pid] = (probeRequestIds.current[pid] || 0) + 1
     testingProviders.current.delete(pid)
     setTesting((current) => ({ ...current, [pid]: false }))
@@ -1840,14 +1839,13 @@ function ModelTab() {
       return
     }
     setAddingProvider(pid)
-    setTestResult(null)
     try {
       const configurationId = await addProvider(pid)
       setAddPickerOpen(false)
       setProviderSearch('')
       setSelectedProvider(configurationId)
     } catch (error) {
-      setTestResult({ ok: false, message: error.message || '添加模型失败' })
+      showNotification(error.message || '添加模型失败', { type: 'error' })
     } finally {
       setAddingProvider(null)
     }
@@ -1861,11 +1859,10 @@ function ModelTab() {
 
   const handleSave = async (pid) => {
     setSaving(pid)
-    setTestResult(null)
     const f = getForm(pid)
     const name = isFixedProvider(pid) ? providerDefinition(pid).name : f.name.trim()
     if (!name || name.length > 80) {
-      setTestResult({ ok: false, message: '配置名称请输入 1 到 80 个字符' })
+      showNotification('配置名称请输入 1 到 80 个字符', { type: 'error' })
       setSaving(null)
       return
     }
@@ -1894,7 +1891,9 @@ function ModelTab() {
       if (f.openai_model) updates.openai_model = f.openai_model
     }
     try {
-      await saveProvider(pid, updates, { activate: true })
+      await withModelSettingsNotice(() => saveProvider(pid, updates, { activate: true }), {
+        pending: '正在检测模型并保存…', success: '检测通过，配置已保存并激活', failure: '保存失败',
+      })
       // Reload saved fields, including any automatically verified workshop endpoint.
       formNameTouched.current[pid] = false
       setForms((prev) => {
@@ -1903,10 +1902,9 @@ function ModelTab() {
         return next
       })
       setSaved(pid)
-      setTestResult({ ok: true, message: '检测通过，配置已保存并激活' })
       setTimeout(() => setSaved(null), 2000)
-    } catch (e) {
-      setTestResult({ ok: false, message: e.message || '保存失败' })
+    } catch {
+      // The floating notice already reports the failed check; keep the form for retry.
     } finally {
       setSaving(null)
     }
@@ -1914,12 +1912,15 @@ function ModelTab() {
 
   const handleActivate = async (pid) => {
     setActivating(pid)
-    setTestResult(null)
     try {
-      await cancelActiveQrForModelSwitch()
-      await activateProvider(pid)
-    } catch (e) {
-      setTestResult({ ok: false, message: e.message || '切换失败' })
+      await withModelSettingsNotice(async () => {
+        await cancelActiveQrForModelSwitch()
+        return activateProvider(pid)
+      }, {
+        pending: '正在检测并切换模型…', success: '检测通过，模型已切换', failure: '切换失败',
+      })
+    } catch {
+      // Activation failed; the existing model remains active.
     } finally {
       setActivating(null)
     }
@@ -1930,7 +1931,6 @@ function ModelTab() {
     if (!provider || isBuiltinProvider(pid) || isFixedProvider(pid) || activeProvider === pid) return
     if (!await showConfirm(`确定删除“${provider.name}”吗？此配置中的设置将被移除。`, '删除模型配置', { danger: true })) return
     setDeletingProvider(pid)
-    setTestResult(null)
     try {
       await deleteProvider(pid)
       setForms((current) => {
@@ -1940,7 +1940,7 @@ function ModelTab() {
       })
       setSelectedProvider((current) => current === pid ? null : current)
     } catch (error) {
-      setTestResult({ ok: false, message: error.message || '删除失败' })
+      showNotification(error.message || '删除失败', { type: 'error' })
     } finally {
       setDeletingProvider(null)
     }
@@ -2159,7 +2159,7 @@ function ModelTab() {
                   <button
                     type="button"
                     className={`model-settings-provider${isSelected ? ' is-selected' : ''}${isActive ? ' is-active' : ''}`}
-                    onClick={() => { setSelectedProvider(provider.id); setTestResult(null) }}
+                    onClick={() => setSelectedProvider(provider.id)}
                     aria-selected={isSelected}
                   >
                     <span className="model-settings-provider__icon" style={{ color: providerColor }}>{LOGOS[templateId]}</span>
@@ -2291,11 +2291,6 @@ function ModelTab() {
               </button>
             </div>
           )
-          const actionFeedback = testResult && (
-            <div className={`settings-action-hint model-settings-feedback${testResult.ok ? ' is-success' : ' is-error'}`} role="status">
-              {testResult.message}
-            </div>
-          )
           const configurationName = <ModelConfigurationName key={p.id} name={p.name} readOnly={isFixedProvider(p.id)}
             disabled={saving === p.id || activating === p.id || deletingProvider === p.id}
             onSave={async name => {
@@ -2372,7 +2367,6 @@ function ModelTab() {
                   {detailActions}
                 </div>
                 <div className="settings-card-body">
-                  {actionFeedback}
                   {identityFields}
                   <div className="model-settings-grid">{contextLimitField}</div>
                   {renderProbeChecklist(p.id)}
@@ -2398,7 +2392,6 @@ function ModelTab() {
               </div>
 
               <div className="settings-card-body">
-                  {actionFeedback}
                   {identityFields}
                   {templateId !== 'custom' && <div className="model-settings-grid" role="group" aria-label="接口配置">
                   <Field label="API Key" hint={stored.has_key ? '已设置（留空保持不变）' : '未设置'}>
