@@ -254,9 +254,11 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
   /**
    * Bot credentials from a scan session (企业微信 / 微信) or, for WeCom, manual
    * BotID + Secret. Scanned secrets never pass through the renderer.
+   * `channel: 'desktop'` binds no bot: the agent is used in the desktop only.
    */
   const resolveBot = (body: Record<string, unknown>): { bot: AgentBotInput; consume: () => void } | null => {
     const sessionId = typeof body.qr_session_id === 'string' ? body.qr_session_id : ''
+    if (body.channel === 'desktop') return { bot: { channel: 'desktop' }, consume: () => {} }
     if (body.channel === 'weixin') {
       if (!sessionId) throw new DedicatedAgentError('请先用微信扫码绑定机器人')
       const creds = weixinQrSessions.peek(sessionId)

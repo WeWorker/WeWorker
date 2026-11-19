@@ -9,6 +9,7 @@ import {
   buildTemplateTasks,
   describeCron,
   findTemplate,
+  normalizeQccKey,
   parseMembers,
   questionAnswerText,
   renderTemplateSkill,
@@ -138,20 +139,21 @@ test('the costplus template is registered with its own questions and no schedule
   assert.match(costplus.skillName, /^[A-Za-z0-9][A-Za-z0-9._-]*$/)
   const questions = templateQuestions(costplus)
   assert.deepEqual(questions.map((question) => question.id), ['name', 'qccApiKey'])
-  assert.equal(questions[1].optional, true, 'the API key question is skippable')
-  assert.ok(questions[1].subtitle.includes('agent.qcc.com/profile/api-key'), 'tells the user where to get the key')
+  assert.notEqual(questions[1].optional, true, 'the API key question is required')
+  assert.ok(questions[1].subtitle.includes('[[https://agent.qcc.com/profile/api-key]]'), 'subtitle carries a clickable link token')
+  assert.ok(!questions[1].subtitle.includes('之后在对话里提供'), 'no skip wording left')
   assert.deepEqual(buildTemplateTasks(costplus, costplus.defaultAnswers), [])
 })
 
-test('costplus validation requires a name and treats the API key as optional', () => {
+test('costplus validation requires a name and the qcc API key', () => {
   const costplus = findTemplate('invoice-self-check-helper')
-  const answers = { ...costplus.defaultAnswers }
+  const answers = { ...costplus.defaultAnswers, qccApiKey: 'qcc-test-key' }
   assert.equal(validateTemplateAnswers(costplus, answers), '')
   assert.match(validateTemplateAnswers(costplus, { ...answers, name: '' }), /名字/)
-  assert.equal(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: '' }), '', 'empty key passes')
+  assert.match(validateTemplateAnswers(costplus, { ...costplus.defaultAnswers }), /API Key/)
+  assert.match(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: '' }), /请先填写/)
   assert.match(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: 'x'.repeat(600) }), /过长/)
-  assert.equal(questionAnswerText('qccApiKey', answers), '稍后在对话里提供')
-  assert.equal(questionAnswerText('qccApiKey', { qccApiKey: 'qcc-test-key' }), '已提供，将写入专属知识')
+  assert.equal(questionAnswerText('qccApiKey', answers), '已提供，将写入专属知识')
 })
 
 test('costplus skill renders the fixed review window, data chain and safety rules', () => {
@@ -164,8 +166,24 @@ test('costplus skill renders the fixed review window, data chain and safety rule
   }
   assert.ok(markdown.includes('--ledger-id='), 'exact id lookup documented')
   assert.ok(markdown.includes('--to-date'), 'range end parameter documented')
-  assert.ok(markdown.includes('foreach'), 'batch loop recipes documented')
+  assert.ok(markdown.includes('独立命令行'), 'standalone-command constraint documented')
   assert.ok(markdown.includes('批量执行原则'), 'batching principle stated')
+  assert.ok(!markdown.includes('foreach ($i in $ids)'), 'webcli must not be wrapped in loops')
+  assert.ok(!/--ledger-id=\$i/.test(markdown), 'webcli arguments must be literal, not variables')
+  assert.ok(markdown.includes('6–8 行'), 'explicit batch size guidance')
+  assert.ok(markdown.includes('timeout: 600000'), 'tool timeout parameter advised')
+  assert.ok(markdown.includes('^\\s+"\\d'), 'ledger filter keeps pure-number invoiceIds lines')
+  assert.ok(!markdown.includes('Pattern \'"id"|"invoiceIds"\''), 'the broken two-term ledger filter is gone')
+  assert.ok(markdown.includes('断点'), 'resume from breakpoint after timeouts')
+  assert.ok(markdown.includes('不带过滤'), 'first unfiltered probe to confirm field names')
+  assert.ok(markdown.includes('≤20'), 'company queries batched by 20')
+  assert.ok(markdown.includes('台账 → 发票 → 销售方'), 'invoice id kept for backtracking')
+  assert.ok(markdown.includes('invalid_token'), '401 diagnosis guidance present')
+  assert.ok(markdown.includes('error_description'), 'diagnosis keyed on error_description, not the shared error field')
+  assert.ok(markdown.includes('Invalid or expired token'), 'expired-token branch documented')
+  assert.ok(markdown.includes('Missing Authorization header'), 'missing-header branch documented')
+  assert.ok(markdown.includes('重新生成 API Key'), 'owner is told to regenerate the token')
+  assert.ok(markdown.includes('更换企查查 Key'), 'token replacement path via update_agent_skill documented')
   assert.ok(!markdown.includes('BT1090012026110271'), 'no concrete ledger numbers from examples')
   assert.ok(!markdown.includes('2261887'), 'no concrete invoice ids from examples')
   assert.ok(markdown.includes('http://weworker.weoa.com/cost/check'))
@@ -189,6 +207,15 @@ test('costplus skill embeds the API key when provided and keeps ask-at-runtime o
   assert.ok(withKey.includes('Token 已内置'))
   assert.ok(!withKey.includes('Bearer <向主人确认>'))
   assert.ok(!withKey.includes('- 企查查外部查询的 Bearer Token（API Key）。'), 'not asked again at runtime')
+
+  // 企查查页面复制的 Key 常带 Bearer 前缀：归一化后拼接，不会出现 Bearer Bearer。
+  assert.equal(normalizeQccKey('Bearer abc.def-123'), 'abc.def-123')
+  assert.equal(normalizeQccKey('bearer   abc'), 'abc')
+  assert.equal(normalizeQccKey('  abc  '), 'abc')
+  assert.equal(normalizeQccKey(undefined), '')
+  const prefixed = renderTemplateSkill(costplus, { ...costplus.defaultAnswers, qccApiKey: 'Bearer qcc-test-key-123' })
+  assert.ok(prefixed.includes("Authorization = 'Bearer qcc-test-key-123'"), 'a pasted Bearer prefix is not doubled')
+  assert.ok(!prefixed.includes('Bearer Bearer'))
 })
 
 test('costplus description and examples use the fixed review window', () => {

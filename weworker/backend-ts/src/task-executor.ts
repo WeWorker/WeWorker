@@ -23,6 +23,7 @@ import { createTurnTimingLedger } from './turn-timing.js'
 import { routedAssistantBlocks, tryRoutedTurn } from './routed-turn.js'
 import { getAgent } from './dedicated-agents/agent-store.js'
 import { buildAgentChatOptions } from './dedicated-agents/agent-runtime.js'
+import { agentConversationPermission } from './chat-permission-mode.js'
 import { chatTurns } from './chat-turn-lifecycle.js'
 import { trackScheduledTaskRun } from './scheduled-task-progress.js'
 
@@ -362,6 +363,10 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
           memoryScope: taskMemoryContext.scope,
           ...(agent ? {
             ...buildAgentChatOptions({ agent, taskId: task.id, knownSiteIds: [...allAdapters.keys()] }),
+            // 与 IM/桌面的 Bot 回合一致按 full 运行：定时任务里的 Skill 配方
+            // （含内部库/企查查等端点）不受主聊天 workspace URL 白名单限制；
+            // Bot 边界由 extraToolGuard 承担。SDK 权限保持默认，canUseTool 照常生效。
+            channelPermissionMode: agentConversationPermission().channelPermissionMode,
             memoryEnabled: false,
           } : {}),
           memoryExpectedType: 'task_execution',

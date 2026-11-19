@@ -242,7 +242,7 @@ interface McpServerContext {
    */
   userMedia?: () => UserMediaSink | null
   /** Dedicated Agent identity comes from the trusted runtime, never model input. */
-  dedicatedAgent?: { agentId: string; ownerUserId: string; actorUserId?: string; taskId?: string }
+  dedicatedAgent?: { agentId: string; ownerUserId: string; actorUserId?: string; taskId?: string; desktop?: boolean }
   /** Trusted per-turn binding; never populated from model-supplied arguments. */
   readQueryScope?: () => ReadQueryScope | null
   fileChangeReadGuard?: (file: string) => Promise<boolean>
@@ -293,6 +293,17 @@ function _findDecryptExe(): string | null {
 
 // ── MCP Server (weworker-specific tools only) ─────────────────────────────────
 
+/**
+ * 桌面端回合视为本机主人：WeWorker 桌面是单用户的，没有 IM 身份可比对
+ * （例如从未配对的 Bot owner_user_id 为空，但桌面用户天然是它的主人）。
+ * IM 回合仍按配对主人判定：actor 缺省（桌面续聊等）放行，有 actor 时必须匹配。
+ */
+export function isDedicatedAgentOwner(ctx: { desktop?: boolean; ownerUserId: string; actorUserId?: string } | undefined): boolean {
+  if (ctx?.desktop === true) return true
+  if (!ctx?.ownerUserId) return false
+  return !ctx.actorUserId || ctx.actorUserId === ctx.ownerUserId
+}
+
 export function buildMcpServer(opts?: McpServerContext) {
   const fixedWorkId = opts?.workId ?? null
   const currentWorkId = (): string | null => (opts?.workIdRef ? opts.workIdRef.current : fixedWorkId)
@@ -303,8 +314,7 @@ export function buildMcpServer(opts?: McpServerContext) {
   const channelPermissionMode = opts?.channelPermissionMode ?? 'full'
   const dedicatedAgent = opts?.dedicatedAgent
   const dedicatedChannelKey = dedicatedAgent ? `agent:${dedicatedAgent.agentId}` : ''
-  const isDedicatedOwner = !!dedicatedAgent?.ownerUserId
-    && (!dedicatedAgent.actorUserId || dedicatedAgent.actorUserId === dedicatedAgent.ownerUserId)
+  const isDedicatedOwner = isDedicatedAgentOwner(dedicatedAgent)
   const platform = opts?.platform ?? process.platform
   const toolDirectory = opts?.workspaceDirectory || getUserDirectory()
   const fileToolDescription = channelPermissionMode === 'workspace'
@@ -750,7 +760,7 @@ export function buildMcpServer(opts?: McpServerContext) {
     ),
     tool(
       'update_agent_skill',
-      '更新当前WeWorker Bot 的一份专属 Skill（写入完整的新 SKILL.md）。仅在两种情况调用：用户在对话中明确要求记住或修改某条规则、偏好、领域知识；或你发现 Skill 内容过时/有误，已向主人说明要改什么并得到确认。必须传完整的新 SKILL.md（保留 YAML frontmatter，name 与原 Skill 一致；只使用真实存在的工具；不写入密码、Token 等敏感信息），并用 change_summary 一句话概括本次改动，更新后在回复中向用户复述这条摘要。其余情况不要调用。',
+      '更新当前WeWorker Bot 的一份专属 Skill（写入完整的新 SKILL.md）。仅在两种情况调用：用户在对话中明确要求记住或修改某条规则、偏好、领域知识；或你发现 Skill 内容过时/有误，已向主人说明要改什么并得到确认。必须传完整的新 SKILL.md（保留 YAML frontmatter，name 与原 Skill 一致；只使用真实存在的工具；不主动写入密码、Token 等敏感信息——主人明确提供、用于替换本 Skill 已有凭证位置的值除外），并用 change_summary 一句话概括本次改动，更新后在回复中向用户复述这条摘要。其余情况不要调用。',
       {
         skill_name: z.string().min(1).max(100).describe('要更新的 Skill 名称，必须是本WeWorker Bot 已加载的专属 Skill'),
         markdown: z.string().min(1).max(200_000).describe('完整的新 SKILL.md 内容，以 YAML frontmatter 开头'),

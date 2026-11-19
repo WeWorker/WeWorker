@@ -19,7 +19,9 @@ export const AGENT_ACCESS_MODES = {
 }
 
 export function agentChannelOf(agent) {
-  return agent?.channel === 'weixin' ? 'weixin' : 'wecom'
+  if (agent?.channel === 'weixin') return 'weixin'
+  if (agent?.channel === 'desktop') return 'desktop'
+  return 'wecom'
 }
 
 /** Shared mode delegates member access to the WeCom bot's own authorization. */
@@ -34,6 +36,9 @@ export function agentAccessModeLabel(agent) {
 }
 
 export function channelLabel(channel, { short = false } = {}) {
+  // AGENT_CHANNELS lists IM channels only (the QR pickers use it); the desktop
+  // label lives here so unbound agents still render a meaningful name.
+  if (channel === 'desktop') return '桌面端'
   const entry = AGENT_CHANNELS.find((item) => item.value === channel) || AGENT_CHANNELS[0]
   return short ? entry.short : entry.label
 }
@@ -60,15 +65,17 @@ export const SKILL_MODES = {
 /** Status pill for an agent: combines enabled flag, pairing and the WeCom connection. */
 export function agentStatusPresentation(agent) {
   if (!agent) return { label: '未知', tone: 'muted' }
-  if (agent.draft) return { label: '未配置', tone: 'muted' }
+  if (agent.draft) return { label: '配置中', tone: 'muted' }
   if (!agent.enabled) return { label: '已停用', tone: 'muted' }
+  // Desktop-only agents have no connection lifecycle to show.
+  if (agentChannelOf(agent) === 'desktop') return { label: '桌面端', tone: 'success' }
   const status = agent.connection?.status
   if (status === 'error') {
     return { label: '连接异常', tone: 'error', detail: agent.connection?.error || '' }
   }
   if (status === 'starting' || status === 'stopped' || !status) return { label: '连接中', tone: 'warning' }
   if (!agent.paired) return { label: '待配对', tone: 'warning' }
-  return { label: '在线', tone: 'success' }
+  return { label: agentChannelOf(agent) === 'weixin' ? '微信在线' : '企微在线', tone: 'success' }
 }
 
 export const TONE_COLORS = {
@@ -255,4 +262,24 @@ export function formatRelativeTime(iso, now = Date.now()) {
   if (diff < 24 * 60 * minute) return `${Math.floor(diff / (60 * minute))} 小时前`
   const date = new Date(time)
   return `${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+/**
+ * 「空白草稿」：为了让新建页常显，页面会自动开一个创建草稿；只要用户还
+ * 没选过创建方式、没填任何内容，它就是空白的。空白草稿不在侧栏列表里
+ * 展示，这样删除有进度的草稿后自动补开的那个不会立刻“复活”回来。
+ */
+export function isPristineDraft(agent) {
+  if (!agent?.draft) return false
+  if (agent.createMode === 'template' || agent.createMode === 'custom') return false
+  if (agent.templateId) return false
+  if (Array.isArray(agent.siteIds) && agent.siteIds.length) return false
+  if (agent.skillMarkdown || agent.existingSkill) return false
+  if (Number(agent.wizardStep) > 0) return false
+  return true
+}
+
+/** 侧栏展示用的 Bot 列表：过滤掉空白草稿。 */
+export function listableAgents(agents) {
+  return (Array.isArray(agents) ? agents : []).filter((agent) => !isPristineDraft(agent))
 }

@@ -290,23 +290,29 @@ export default function AgentCreateWizard({ draftKey }) {
     updateDraftAgent({ wizardStep: previousStep }, draftKey)
   }
 
+  /** Save the AI-written skill (once); returns the skill name to bind. */
+  const saveDraftSkill = async () => {
+    let skillName = resolveDraftSkillName(draft)
+    if (draft.skillMode === SKILL_MODES.generate) {
+      if (draft.savedSkillName === draft.skillName) {
+        await saveSkill(draft.skillName, draft.skillMarkdown)
+        await setSkillScope(draft.skillName, draft.skillScope)
+      } else {
+        const saved = await createSkill(draft.skillName, draft.skillMarkdown, draft.skillScope)
+        skillName = saved.name
+        update({ savedSkillName: saved.name })
+      }
+    }
+    return skillName
+  }
+
   /** Save the AI-written skill (once), then create the agent with the bound bot. */
   const handleBound = async (bot) => {
     setSaving(true)
     setError('')
     try {
-      let skillName = resolveDraftSkillName(draft)
-      if (draft.skillMode === SKILL_MODES.generate) {
-        if (draft.savedSkillName === draft.skillName) {
-          await saveSkill(draft.skillName, draft.skillMarkdown)
-          await setSkillScope(draft.skillName, draft.skillScope)
-        } else {
-          const saved = await createSkill(draft.skillName, draft.skillMarkdown, draft.skillScope)
-          skillName = saved.name
-          update({ savedSkillName: saved.name })
-        }
-      }
-      const body = {
+      const skillName = await saveDraftSkill()
+      const result = await createAgent({
         name: draft.name.trim(),
         description: draft.description.trim(),
         site_ids: draft.siteIds,
@@ -315,12 +321,36 @@ export default function AgentCreateWizard({ draftKey }) {
         examples: parseExamples(draft.examplesText),
         access_mode: bot.channel === 'wecom' ? draft.accessMode : 'owner_only',
         ...boundBotPayload(bot),
-      }
-      const result = await createAgent(body)
+      })
       await loadWorks()
       updateDraftAgent({ ...result.agent, wizardStep: 3 }, draftKey)
       setCreatedAgent(result.agent)
       setStep(3)
+    } catch (err) {
+      setError(err.message || '创建失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /** 跳过扫码：创建不绑定机器人的桌面端 Bot，直接进入它的对话。 */
+  const handleSkipBound = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const skillName = await saveDraftSkill()
+      const result = await createAgent({
+        name: draft.name.trim(),
+        description: draft.description.trim(),
+        site_ids: draft.siteIds,
+        work_dir: String(draft.workDir || '').trim(),
+        skill_names: skillName ? [skillName] : [],
+        examples: parseExamples(draft.examplesText),
+        access_mode: 'owner_only',
+        channel: 'desktop',
+      })
+      await loadWorks()
+      completeCreate(result.agent, draftKey)
     } catch (err) {
       setError(err.message || '创建失败')
     } finally {
@@ -398,7 +428,7 @@ export default function AgentCreateWizard({ draftKey }) {
 
         {stepKey === 'bind' && (
           <div>
-            <div style={{ ...labelStyle, marginBottom: 12 }}><span aria-hidden="true" style={{ color: 'var(--error, #ef4444)', marginRight: 4 }}>*</span>给「{draft.name}」绑定一个机器人，之后在{channelLabel(botChannel)}里和它对话</div>
+            <div style={{ ...labelStyle, marginBottom: 12 }}>给「{draft.name}」绑定一个机器人（可选），之后在{channelLabel(botChannel)}里和它对话</div>
             <BotChannelPicker
               value={botChannel}
               disabled={saving}
@@ -420,6 +450,9 @@ export default function AgentCreateWizard({ draftKey }) {
                 action={<Button data-app-button="action" size="small" onClick={() => { setError(''); setBindKey((value) => value + 1) }}>重新扫码</Button>}
               />
             )}
+            <div style={{ marginTop: 16, ...hintStyle }}>
+              扫码绑定后可以在手机 IM 里和它对话；不绑定也能直接在桌面端用。
+            </div>
           </div>
         )}
 
@@ -433,6 +466,7 @@ export default function AgentCreateWizard({ draftKey }) {
           {error && stepKey !== 'bind' && <span style={{ ...hintStyle, color: 'var(--error, #ef4444)', flex: 1 }}>{error}</span>}
           <Space style={{ marginLeft: 'auto' }}>
             {step > 0 && <Button data-app-button="action" onClick={back} disabled={saving}>上一步</Button>}
+            {stepKey === 'bind' && <Button data-app-button="action" onClick={handleSkipBound} disabled={saving}>暂不绑定，直接在桌面端用</Button>}
             {stepKey !== 'bind' && <Button data-app-button="action" type="primary" onClick={next}>下一步</Button>}
           </Space>
         </div>

@@ -195,4 +195,40 @@ describe('dedicated agent store', () => {
     expect(updated).toMatchObject({ name: 'Renamed', enabled: false, examples: ['a', 'b'], skill_names: [], site_ids: ['example.org'], work_dir: '' })
     expect(() => updateAgent('missing', { name: 'x' })).toThrow('不存在')
   })
+
+  it('creates a desktop-only agent without bot credentials', () => {
+    const agent = create({ channel: 'desktop', bot_id: undefined, secret: undefined })
+    expect(agent.channel).toBe('desktop')
+    expect(agent.wecom).toEqual({ bot_id: '', secret_enc: '' })
+    expect(agent.access_mode).toBe('owner_only')
+    const view = toAgentView(agent)
+    expect(view.paired).toBe(true)
+    expect(view.pairing_code).toBe('')
+    expect(view.wecom).toEqual({ bot_id: '', has_secret: false })
+  })
+
+  it('exposes owned conversation ids in the view for desktop UI adaptation', () => {
+    const agent = create()
+    addAgentWork(agent.id, 'work-a')
+    const view = toAgentView(getAgent(agent.id)!)
+    expect(view.work_ids).toEqual(['work-a'])
+    expect(view.conversation_count).toBe(1)
+  })
+
+  it('allows multiple desktop-only agents and never reserves bot ids', () => {
+    create({ channel: 'desktop', bot_id: undefined, secret: undefined })
+    expect(() => create({ name: 'Second', channel: 'desktop', bot_id: undefined, secret: undefined })).not.toThrow()
+    expect(findAgentByBotId('')).toBeNull()
+  })
+
+  it('binds a bot to a desktop agent later and requires pairing again', () => {
+    const agent = create({ channel: 'desktop', bot_id: undefined, secret: undefined })
+    const rebound = updateAgent(agent.id, { bot: { channel: 'wecom', bot_id: 'placeholder-bot-9', secret: BOT_SECRET } })
+    expect(rebound.channel).toBe('wecom')
+    expect(rebound.wecom.bot_id).toBe('placeholder-bot-9')
+    expect(getAgentBotSecret(rebound)).toBe(BOT_SECRET)
+    expect(rebound.owner_user_id).toBe('')
+    expect(rebound.pairing_code).toMatch(/^\d{6}$/)
+    expect(toAgentView(rebound).paired).toBe(false)
+  })
 })

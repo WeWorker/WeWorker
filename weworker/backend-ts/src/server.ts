@@ -90,7 +90,7 @@ import { configuredModel } from './provider-config.js'
 import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
 import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { assertAllowedWeixinBaseUrl, buildAllowedWeixinBaseUrls } from './channel-egress.js'
-import { resolveDesktopChatPermission } from './chat-permission-mode.js'
+import { agentConversationPermission, resolveDesktopChatPermission } from './chat-permission-mode.js'
 import { cancelWeixinQrSession } from './weixin-qr-cancel.js'
 import { resolveWeixinToken, syncWeixinChannel } from './channels/sync-weixin-channel.js'
 import { isProbeChannel, probeChannel } from './channels/channel-probe.js'
@@ -3433,6 +3433,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           : msg
       ))
   const desktopPermission = resolveDesktopChatPermission(permissionMode)
+  // WeWorker Bot 会话与其 IM 路径一致按 full 运行（见 agentConversationPermission 注释）；
+  // 主聊天的 workspace URL 白名单与路径围栏不适用于 Bot。
+  const conversationPermission = dedicatedAgent ? agentConversationPermission() : desktopPermission
   const styleId = resolveStyleId(work, settings)
 
   // SSE headers
@@ -3723,9 +3726,9 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       workId,
       styleId,
       thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, thinkingEffort),
-      channelPermissionMode: desktopPermission.channelPermissionMode,
-      permissionMode: desktopPermission.sdkPermissionMode,
-      allowDangerouslySkipPermissions: desktopPermission.allowDangerouslySkipPermissions,
+      channelPermissionMode: conversationPermission.channelPermissionMode,
+      permissionMode: conversationPermission.sdkPermissionMode,
+      allowDangerouslySkipPermissions: conversationPermission.allowDangerouslySkipPermissions,
       memoryScope: initialMemoryScope,
       ...(siteToolkit ? { siteToolkitPrompt: siteToolkit.prompt } : {}),
       onAskUser: (event) => send(event),

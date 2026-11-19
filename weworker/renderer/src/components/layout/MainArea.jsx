@@ -35,6 +35,14 @@ export default function MainArea({ sidebarWidth, sidebarCollapsed = false, onSid
   const explorationOpen = useExplorationPageStore((s) => s.open)
   const websiteOpen = useWebsiteExplorationStore((s) => s.open)
   const dedicatedAgentsOpen = useDedicatedAgentsStore((s) => s.open)
+  // Bot 会话固定按 Bot 自身权限运行（后端 agentConversationPermission），
+  // 主聊天里打开时也隐藏权限选择器，避免展示一个不生效的设置。
+  const dedicatedAgents = useDedicatedAgentsStore((s) => s.agents)
+  const dedicatedAgentsLoaded = useDedicatedAgentsStore((s) => s.loaded)
+  const loadDedicatedAgents = useDedicatedAgentsStore((s) => s.loadAgents)
+  React.useEffect(() => { if (!dedicatedAgentsLoaded) loadDedicatedAgents() }, [dedicatedAgentsLoaded, loadDedicatedAgents])
+  const isAgentConversation = !!activeWorkId
+    && dedicatedAgents.some((agent) => !agent.draft && (agent.work_ids ?? []).includes(activeWorkId))
   const closeExplorationPage = useExplorationPageStore((s) => s.closePage)
   const closeToolPackagePage = useToolPackagePageStore((s) => s.closePage)
   const draftProjectId = useWorksStore(s => s.draftProjectId)
@@ -177,7 +185,7 @@ export default function MainArea({ sidebarWidth, sidebarCollapsed = false, onSid
   if (activeWorkId) {
     return (
       <MainWorkspaceShell>
-        <ChatView key={activeWorkId} workId={activeWorkId} />
+        <ChatView key={activeWorkId} workId={activeWorkId} hidePermissionMode={isAgentConversation} />
       </MainWorkspaceShell>
     )
   }

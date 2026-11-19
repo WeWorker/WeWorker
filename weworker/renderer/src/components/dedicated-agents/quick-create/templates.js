@@ -19,6 +19,14 @@ export function parseMembers(input) {
 const MEMBER_PATTERN = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/
 
 /**
+ * 企查查 API Key 归一化：从 agent.qcc.com 复制时往往带着 Bearer 前缀，
+ * 剥掉后统一由配方里的 'Bearer ' 拼接，避免出现 Bearer Bearer。
+ */
+export function normalizeQccKey(value) {
+  return String(value ?? '').trim().replace(/^Bearer\s+/i, '').trim()
+}
+
+/**
  * 校验单个问题的答案，返回错误文案或 ''（问题未答完时对未到的问题放行）。
  * 问题 id 同时是答案 key；optional 的问题留空直接放行。
  */
@@ -46,6 +54,7 @@ export function validateTemplateQuestion(template, questionId, answers) {
   }
   if (questionId === 'qccApiKey') {
     const key = String(answers?.qccApiKey ?? '').trim()
+    if (!key) return '请先填写企查查 API Key'
     return key.length > 512 ? 'API Key 过长，请核对后重试' : ''
   }
   if (questionId === 'monitor') {
@@ -82,7 +91,7 @@ export function questionAnswerText(questionId, answers) {
   if (questionId === 'dailyHour') return `每天 ${String(Number(answers?.dailyHour ?? 9)).padStart(2, '0')}:00`
   if (questionId === 'qccApiKey') {
     // 摘要里不回显 Key 本身，只说明是否已提供。
-    return String(answers?.qccApiKey ?? '').trim() ? '已提供，将写入专属知识' : '稍后在对话里提供'
+    return String(answers?.qccApiKey ?? '').trim() ? '已提供，将写入专属知识' : ''
   }
   if (questionId === 'monitor') {
     if (answers?.monitorEnabled === false) return '不用了，先不开'
@@ -162,12 +171,12 @@ const COSTPLUS_QUESTIONS = [
     id: 'qccApiKey',
     type: 'text',
     answerKey: 'qccApiKey',
-    optional: true,
     maxLength: 512,
     emoji: '🔑',
-    title: '企查查 API Key（可以跳过）',
-    subtitle: '复查时用它查询销售方公司的注册状态。登录 https://agent.qcc.com/profile/api-key 即可获取，新用户注册即送 600 积分。现在不方便也行，之后在对话里提供即可。',
-    placeholder: '粘贴 API Key，或留空稍后提供',
+    title: '企查查 API Key',
+    // 说明里的 [[url]] 会渲染成可点击链接，用系统默认浏览器打开。
+    subtitle: '复查时用它查询销售方公司的注册状态，点击 [[https://agent.qcc.com/profile/api-key]] 获取（新用户注册即送 600 积分）。',
+    placeholder: '粘贴企查查 API Key',
   },
 ]
 
@@ -190,7 +199,7 @@ export const BUILT_IN_TEMPLATES = [
     ],
     needs: [
       '需要 CostPlus（费控系统）网站能力已启用且已登录',
-      '企查查查询 Token 会在对话里按提示确认，不会提前收集',
+      '创建时需要填写企查查 API Key（agent.qcc.com 注册即送 600 积分）',
     ],
     defaultAnswers: {
       name: '发票自查助手',
@@ -313,8 +322,8 @@ function renderApikeySkill(template, answers) {
 function renderCostplusSkill(template, answers) {
   // 复查范围固定：2024 年至今（含 2026 年）。
   const from = '2024-01-01'
-  // 创建时可选提供企查查 API Key；未提供则运行时向主人确认。
-  const qccKey = String(answers?.qccApiKey ?? '').trim().slice(0, 512)
+  // 创建时填写的企查查 API Key（粘贴值可能带 Bearer 前缀，先归一化）；未提供则运行时向主人确认。
+  const qccKey = normalizeQccKey(answers?.qccApiKey).slice(0, 512)
   const tokenNote = qccKey
     ? 'Authorization Bearer Token（即 API Key）已由主人在创建时提供并写在下方配方中；仍属敏感信息，不要在任何输出、日志或回复里展示'
     : 'Authorization Bearer Token（即 API Key）为敏感信息，使用时向主人确认（不要写入任何输出），获取方式：登录 https://agent.qcc.com/profile/api-key（新用户注册即送 600 积分）'
@@ -346,19 +355,23 @@ function renderCostplusSkill(template, answers) {
     '',
     '- 台账数据链路：`list-subsidy-ledgers`（列表，返回每个台账的数值 id 与账本号）→ `get-subsidy-ledger`（详情，`--ledger-id=<数值ID>` 精确匹配〔推荐〕或 `--ledger-no=<账本号>` 模糊匹配，返回 invoiceIds）→ `list-subsidy-invoices`（发票明细，含销售方信息）。',
     '- `list-subsidy-ledgers` 支持 `--from-date` / `--to-date`（YYYY-MM-DD，均含边界）与 `--limit`（默认 20，可放大到 100 减少翻页）。',
-    '- 批量执行原则：一个阶段的 ID 先收齐（存入 PowerShell 数组或哈希表），再用 foreach 循环批量调用下一阶段命令，并用 Select-String 只保留需要的字段行；不要一轮对话逐条人工发命令，既慢又占上下文。',
+    '- 批量执行原则：一个阶段的 ID 先收齐，再把每条 webcli 命令逐字写全、一行一条放进同一次工具调用批量执行（行尾可用管道接 Select-String 过滤输出）；不要一轮对话逐条人工发命令，既慢又占上下文。',
+    '- 批次大小：每次工具调用放 6–8 行 webcli 命令为宜（单条估算 ≤10s，工具默认总超时约 120s，更大的批次会被中途截断、只拿到部分结果）；发起 PowerShell/Bash 工具调用时传 timeout: 600000 留足余量。',
+    '- 运行时限制：webcli 调用必须是独立命令行、参数逐字写全；嵌进 PowerShell 变量、循环体、子 shell 或 $(...) 会被直接拒绝。纯 PowerShell 命令（如 Invoke-RestMethod）不受此限制，可自由使用 foreach 和变量。',
     '- 内部库校验接口：`GET http://weworker.weoa.com/cost/check?companyName=<URL编码后的销售方全称>`，返回该公司是否已内部知晓注册/续存状态。',
     `- 外部查询接口：企查查 MCP \`POST https://agent.qcc.com/mcp/company/stream\`，${tokenNote}，method 为 \`tools/call\`、tool 为 \`get_company_registration_info\`、参数 \`searchKey\` 传公司全称。返回为 UTF-8 字节流，需按 ISO-8859-1 解码回 UTF-8。`,
+    '- 企查查 401 的判别与处理（以下为实测响应，直接对照）：401 时响应体是 JSON，形如 `{"error":"invalid_token","error_description":"...","message":"中文说明"}`。两种情况顶层 error 都是 invalid_token，必须看 error_description——`Invalid or expired token`＝Token 已失效或被吊销（不是积分、不是风控），不要等待或盲目重试，立即提醒主人到 https://agent.qcc.com/profile/api-key 重新生成 API Key 并提供新值；`Missing Authorization header`＝请求头没带上 Token，检查命令是否按配方原样执行（Headers 里 Authorization 是否被意外省略）。只有响应体是限流/风控类提示时才放慢节奏（每次调用间随机等待数秒）逐个重试。',
+    '- Token 更换路径：主人提供新 Key 后，用 `update_agent_skill` 更新本 Skill——只把配方中的旧 Bearer 值替换为新值（主人亲自提供、用于替换既有凭证），其余内容保持不变，change_summary 注明「更换企查查 Key」；主人也可以在 WeWorker 桌面端本 Bot 的专属知识里直接编辑。',
     '- 回写接口：`POST http://weworker.weoa.com/cost/upsert`，body 为 JSON：`{"companyName":..., "registrationStatus":...}`。',
     '- 「注册状态异常」定义：内部库或外部接口返回 未注册 / Company Not Found / 吊销 / 注销 / 除名 / 已停业等非「存续（在营、开业、在册）」状态。',
     '',
     '## 执行步骤',
     '',
     `1. \`webcli call costplus.weoa.com.list-subsidy-ledgers --from-date=${from} --to-date=<今天日期> --limit=100 --page=1\`，page 递增直到返回条数 < limit（未登录时 WeWorker 会自动处理登录，无需额外步骤）。`,
-    '2. 把列表里全部台账的数值 id 收进 PowerShell 数组，foreach 循环批量调 `get-subsidy-ledger --ledger-id=$i`，Select-String 过滤只保留 id / invoiceIds 相关行，整理成「台账 → invoiceIds」映射。',
-    '3. 把映射存进有序哈希表，foreach 循环按台账调 `list-subsidy-invoices --fp-ids=<该台账的发票池ID列表>`，每组输出前打印 `=== ledger <台账ID> ===` 分组标题，Select-String 过滤只保留销售方等需要的字段行；从结果提取销售方全称（完整全称，不要缩写）。',
-    '4. 对去重后的每个销售方全称，调用内部库 check 接口（PowerShell `Invoke-RestMethod`，companyName 需 `EscapeDataString`）。',
-    '5. check 返回未注册/未知 → 调企查查外部接口获取注册状态。',
+    '2. 从列表结果收齐全部台账的数值 id，把每个台账写成一行 `webcli call costplus.weoa.com.get-subsidy-ledger --ledger-id=<具体ID>`（ID 逐字替换，不要用变量），按 6–8 行一批放进同一次工具调用批量执行（并传 timeout: 600000）；行尾接 `| Out-String -Stream | Select-String -Pattern \'"id"|invoiceIds|^\\s+"\\d\'`——模式里的 `^\\s+"\\d` 用来保住 invoiceIds 数组中的纯数字行（只匹配 "id" 会把它们滤掉，导致整批结果不可用），整理成「台账 → invoiceIds」映射。',
+    '3. 首次查询发票明细时，先挑一个台账跑一条不带过滤的全量输出，确认实际字段名后再套用过滤模式；之后按台账把 `webcli call costplus.weoa.com.list-subsidy-invoices --fp-ids=<该台账的发票池ID，逗号分隔>` 逐台账写成一行（ID 逐字替换），同样按 6–8 行一批执行；行尾接 `| Out-String -Stream | Select-String -Pattern \'"id"|"seller"|"amount"\'`——保留 "id" 是为了建立「台账 → 发票 → 销售方」映射，只留 seller 会无法回溯涉及哪些台账；从结果提取销售方全称（完整全称，不要缩写）。',
+    '4. 对去重后的每个销售方全称，调用内部库 check 接口（PowerShell `Invoke-RestMethod`，companyName 需 `EscapeDataString`；不含 webcli，可用 foreach 循环和变量批量执行）。公司数 >40 时按每批 ≤20 分批，每批结束向主人汇报进度。',
+    '5. check 返回未注册/未知 → 调企查查外部接口获取注册状态；同样每批 ≤20，成功与失败名单分开记录，失败（超时/报错）的记入待处理、不回写。',
     '6. 外部查到状态 → 调 upsert 接口回写内部库（每个公司回写一次即可，避免重复提交）。',
     '7. 汇总输出所有注册状态异常的销售方清单。',
     '',
@@ -366,12 +379,14 @@ function renderCostplusSkill(template, answers) {
     '',
     '- 查台账列表（大页减少翻页）：',
     `  \`webcli call costplus.weoa.com.list-subsidy-ledgers --from-date=${from} --to-date=<今天日期> --limit=100 --page=1\``,
-    '- 批量查台账详情（数值 ID 来自列表结果）：',
-    '  `$ids = <台账数值ID，逗号分隔>; foreach ($i in $ids) { webcli call costplus.weoa.com.get-subsidy-ledger --ledger-id=$i | Out-String -Stream | Select-String -Pattern \'"id"|"invoiceIds"\' | Out-String }`',
+    '- 批量查台账详情（数值 ID 来自列表结果；每行一条、ID 逐字替换，6–8 行一批放进同一次工具调用执行）：',
+    '  `webcli call costplus.weoa.com.get-subsidy-ledger --ledger-id=<ID1> | Out-String -Stream | Select-String -Pattern \'"id"|invoiceIds|^\\s+"\\d\'`',
+    '  `webcli call costplus.weoa.com.get-subsidy-ledger --ledger-id=<ID2> | Out-String -Stream | Select-String -Pattern \'"id"|invoiceIds|^\\s+"\\d\'`',
     '- 单个台账速查（按账本号模糊匹配）：',
     '  `webcli call costplus.weoa.com.get-subsidy-ledger --ledger-no=<账本号>`',
-    '- 批量查发票明细（按台账分组，只保留关键字段行；过滤关键字按实际输出字段调整）：',
-    '  `$map = [ordered]@{ \'<台账ID>\' = \'<该台账的发票池ID，逗号分隔>\' }; foreach ($k in $map.Keys) { "=== ledger $k ==="; $out = webcli call costplus.weoa.com.list-subsidy-invoices --fp-ids=$($map[$k]); ($out | Out-String) -split "`n" | Select-String -Pattern \'"id"|"seller"|"amount"\' | ForEach-Object { $_.Line.Trim() } }`',
+    '- 批量查发票明细（每台账一行、fp-ids 逐字替换，放进同一次工具调用执行；过滤关键字按实际输出字段调整）：',
+    '  `webcli call costplus.weoa.com.list-subsidy-invoices --fp-ids=<台账1的发票池ID，逗号分隔> | Out-String -Stream | Select-String -Pattern \'"id"|"seller"|"amount"\'`',
+    '  `webcli call costplus.weoa.com.list-subsidy-invoices --fp-ids=<台账2的发票池ID，逗号分隔> | Out-String -Stream | Select-String -Pattern \'"id"|"seller"|"amount"\'`',
     '- 内部库校验（Bash 中可用 PowerShell）：',
     '  `$name = [Uri]::EscapeDataString(\'<销售方全称>\'); Invoke-RestMethod "http://weworker.weoa.com/cost/check?companyName=$name" | ConvertTo-Json -Compress`',
     `- 外部企查查查询${qccKey ? '（Token 已内置，直接使用，但不要在输出中展示）' : '（Token 向主人确认，不写入输出）'}：`,
@@ -381,10 +396,12 @@ function renderCostplusSkill(template, answers) {
     '',
     '## 注意事项与约束',
     '',
-    '- 优先「收集 ID → foreach 批量循环」一次跑完一个阶段，不要逐条手动发命令。',
+    '- 批量时把 webcli 命令逐字写全、一行一条放进同一次工具调用；不要逐条手动发命令，也不要试图用变量、循环或子 shell 包住 webcli（会被运行时拒绝）。',
+    '- 超时或中断后按台账 ID 顺序记录断点，只补跑未完成的批次；已拿到结果的行不要重发，避免成倍浪费调用。',
     '- webcli 输出用 Select-String 过滤只保留需要的字段行，避免整段 JSON 刷屏占用上下文。',
     '- 销售方名称必须取全称，禁止缩写或截断。',
     '- 企查查接口的 Bearer Token 不写入任何输出；' + (qccKey ? 'Token 已由主人在创建时提供，直接使用配方中的值即可。' : '实际调用时向主人确认。'),
+    '- 连续 401 时先读响应体的 error_description 再定策略：Invalid or expired token 立即停止重试、提醒主人换 Key；Missing Authorization header 检查请求头写法；限流类提示才放慢节奏重试，不要把鉴权失败当风控硬等。',
     '- upsert 属于写操作：仅对本次外部查询成功获得状态的公司执行，且每公司一次；查询失败/超时的不回写，记入待处理。',
     '- 外部接口调用有成本，同一公司只查一次；先查内部库，内部已有「存续」等明确状态的不再外呼。',
     '- 分页查询注意 `page` 递增直到返回条数 < limit。',
