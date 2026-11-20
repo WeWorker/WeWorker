@@ -1,3 +1,4 @@
+import { showNotification, updateNotification } from '../../store/notifications.js'
 import AppSwitch from '../common/AppSwitch.jsx'
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import QRCode from 'qrcode'
@@ -89,7 +90,14 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
   const [wecomQrBusy, setWecomQrBusy] = useState(false)
   const [wecomPairingBusy, setWecomPairingBusy] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [saveMessage, setSaveMessage] = useState(null)
+  const saveNotice = useRef(null)
+  const setSaveMessage = message => {
+    if (!message) return
+    const options = { type: message.ok ? 'success' : 'error', duration: message.ok ? 5000 : 8000 }
+    if (saveNotice.current !== null) updateNotification(saveNotice.current, message.text, options)
+    else showNotification(message.text, options)
+    saveNotice.current = null
+  }
   const [ownerIdErrors, setOwnerIdErrors] = useState({ qq: '', weixin: '', wecom: '', feishu: '' })
 
   // WeChat QR login state
@@ -245,7 +253,7 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
     }
 
     setSaving(true)
-    setSaveMessage(null)
+    saveNotice.current = showNotification('正在保存通道配置…', { type: 'loading', duration: 0 })
     const payload = {
       qq: {
         enabled: form.enabled,
@@ -325,7 +333,6 @@ export default function ChannelConfigurationEditor({ type, profileId, onBusyChan
         </header>
         <div className="channel-settings-body">
           {!currentChannel && <div className="channel-settings-empty"><MessageOutlined /><h4>添加你的第一个机器人</h4><p>从左侧顶部选择 QQ、飞书、企业微信或微信</p></div>}
-          {saveMessage && <div role="status" className={`channel-settings-feedback${saveMessage.ok ? ' is-success' : ''}`}>{saveMessage.text}</div>}
           <ChannelProbeChecklist state={probeState} onChange={patch => channelProbe.update(currentChannel.id, patch)} />
       {/* QQ Bot Card */}
       <div className="settings-channel-card" hidden={currentChannel?.id !== 'qq'}>
