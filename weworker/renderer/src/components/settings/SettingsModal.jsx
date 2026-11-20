@@ -2,6 +2,7 @@ import { runModelSaveChecks } from '../../utils/model-save-checks.js'
 import { withModelSettingsNotice } from '../../utils/model-settings-notice.js'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
+import ProviderIcon from '../icons/ProviderIcon.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import SecretInput from './SecretInput.jsx'
 import { MODEL_SETTINGS_DESCRIPTION, MODEL_SETTINGS_DESCRIPTION_DANGER } from '../../config/model-settings-text.js'
@@ -111,40 +112,6 @@ function hasInvalidBlacklistEntries(entries) {
   return (entries || []).some((entry) => validateBlacklistEntry(entry))
 }
 
-const LOGOS = {
-  anthropic: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-3.654 0H6.57L0 20h3.603l1.357-3.415h6.175l-1.357-3.415H6.57l2.245-5.638 1.358 3.415z" fill="currentColor"/>
-    </svg>
-  ),
-  glm: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <rect width="24" height="24" rx="5" fill="currentColor" fillOpacity="0.2"/>
-      <text x="12" y="16" textAnchor="middle" fontSize="9" fontWeight="bold" fill="currentColor">GLM</text>
-    </svg>
-  ),
-  bank_coding: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="5" fill="currentColor" fillOpacity="0.2"/><text x="12" y="16" textAnchor="middle" fontSize="9" fontWeight="bold" fill="currentColor">GLM</text></svg>
-  ),
-  builtin: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="currentColor" fillOpacity="0.18"/><path d="M7 12.5 10.2 15 17 8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-  ),
-  builtin_dev: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="currentColor" fillOpacity="0.18"/><path d="M7 12.5 10.2 15 17 8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-  ),
-  deepseek: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
-      <path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-      <circle cx="12" cy="12" r="2" fill="currentColor"/>
-    </svg>
-  ),
-  custom: (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  ),
-}
 
 const SETTINGS_GROUPS = [
   { label: '常用设置', items: [['model', '模型'], ['config', '应用偏好'], ['memory', '记忆']] },
@@ -2184,7 +2151,7 @@ function ModelTab() {
                     onClick={() => setSelectedProvider(provider.id)}
                     aria-selected={isSelected}
                   >
-                    <span className="model-settings-provider__icon" style={{ color: providerColor }}>{LOGOS[templateId]}</span>
+                    <span className="model-settings-provider__icon" style={{ color: providerColor }}><ProviderIcon provider={templateId} /></span>
                     <span className="model-settings-provider__text">
                       <span className="model-settings-provider__name" title={provider.name}>{provider.name}</span>
                     </span>
@@ -2248,7 +2215,8 @@ function ModelTab() {
                   onClick={() => handleAddProvider(provider.id)}
                   disabled={Boolean(addingProvider)}
                 >
-                  {addingProvider === provider.id ? '添加中…' : provider.id === 'custom' ? '自定义供应商' : provider.name}
+                  <ProviderIcon provider={provider.id} size={18} />
+                  <span>{addingProvider === provider.id ? '添加中…' : provider.id === 'custom' ? '自定义供应商' : provider.name}</span>
                 </button>
               ))}
             </div>
@@ -2377,7 +2345,7 @@ function ModelTab() {
             return (
             <div key={p.id} className={`settings-card settings-card-builtin model-settings-detail-card${builtinActive ? ' is-active' : ''}`}>
                 <div className="settings-card-header">
-                  <span style={{ color: p.color, flexShrink: 0 }}>{LOGOS[p.id] || LOGOS.builtin}</span>
+                  <span style={{ color: p.color, flexShrink: 0 }}><ProviderIcon provider={p.id} /></span>
                   <div className="model-settings-header-info">
                     <div className="settings-card-title" style={{ color: builtinActive ? p.color : 'var(--text-primary)' }}>
                       {configurationName}{builtinActive && <span className="settings-badge-active">使用中</span>}
@@ -2400,7 +2368,7 @@ function ModelTab() {
           return (
             <div key={p.id} data-model-configuration={p.id} className={`settings-card model-settings-detail-card${isActive ? ' is-active' : ''}`}>
               <div className="settings-card-header">
-                <span style={{ color: p.color, flexShrink: 0 }}>{LOGOS[templateId]}</span>
+                <span style={{ color: p.color, flexShrink: 0 }}><ProviderIcon provider={templateId} /></span>
                 <div className="model-settings-header-info">
                   <div className="settings-card-title" style={{ color: isActive ? p.color : 'var(--text-primary)' }}>
                     {configurationName}

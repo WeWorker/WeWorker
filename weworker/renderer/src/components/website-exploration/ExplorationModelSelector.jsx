@@ -1,3 +1,4 @@
+import ProviderIcon from '../icons/ProviderIcon.jsx'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Brain } from 'lucide-react'
 import { CheckCircleFilled, KeyOutlined } from '@ant-design/icons'
@@ -187,12 +188,13 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     <div className="wx-composer-context"><ContextPanel snapshot={snapshot} contextLimit={config?.context_limit || usage?.context_limit} usageOnly /></div>
     <div className="chat-input-toolbar-actions wx-chat-controls">
       <div className="chat-model-selector" aria-busy={pending || loading} title="仅用于当前探索会话">
-        <AppDropdownSelect className="chat-model-selector__provider" menuClassName="app-dropdown-menu chat-model-selector-menu"
+        <AppDropdownSelect className="chat-model-selector__provider" menuClassName="app-dropdown-menu chat-model-selector-menu provider-icons-menu"
           value={selected} options={providerOptions} ariaLabel="模型供应商选择" placement="top" minMenuWidth={240}
           disabled={disabled || pending || loading || Boolean(keyProvider)} onChange={selectProvider}
           prefix={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)" /><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)" /></svg>}
           fallbackOption={{ value: '', label: '未配置网站探索模型' }}
           menuHeader={<div className="provider-discovery-toolbar">网站探索配置</div>}
+          renderOptionPrefix={option => <ProviderIcon provider={providers[option.value.replace('__exploration__:', '')]?.provider_id || option.value.replace('__exploration__:', '')} size={18} />}
           renderOptionSuffix={option => <span className={`provider-key-status${option?.keyConfigured ? ' is-configured' : ''}`} title={option?.keyConfigured ? '已填写 API Key' : '未填写 API Key，点击配置'} aria-label={option?.keyConfigured ? '已填写 API Key' : '未填写 API Key'}>{option?.keyConfigured ? <CheckCircleFilled /> : <KeyOutlined />}</span>} />
         <AppDropdownSelect className="chat-model-selector__model" menuClassName="app-dropdown-menu chat-model-selector-menu chat-model-health-menu"
           value={currentModel} options={modelOptions} ariaLabel="模型选择" placement="top" minMenuWidth={280}

@@ -1,3 +1,4 @@
+import ProviderIcon from '../icons/ProviderIcon.jsx'
 import React, { useEffect, useRef, useState } from 'react'
 import { Brain } from 'lucide-react'
 import { CheckCircleFilled, KeyOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -153,7 +154,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     <div className="chat-model-selector" aria-busy={pending} title={errorTitle || '仅用于当前对话'}>
       <AppDropdownSelect
         className="chat-model-selector__provider"
-        menuClassName="app-dropdown-menu chat-model-selector-menu"
+        menuClassName="app-dropdown-menu chat-model-selector-menu provider-icons-menu"
         value={activeProvider}
         options={providerOptions}
         fallbackOption={{ value: activeProvider, label: provider?.name || activeProvider || '请选择', keyConfigured: Boolean(providers[activeProvider]?.has_key) }}
@@ -171,6 +172,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
             </button>
           </div>
         )}
+        renderOptionPrefix={option => <ProviderIcon provider={providers[option.value]?.provider_id || option.value} size={18} />}
         renderOptionSuffix={option => option?.keyConfigured === undefined ? null : (
           <span className={`provider-key-status${option.keyConfigured ? ' is-configured' : ''}`}
             title={option.keyConfigured ? '已填写 API Key' : '未填写 API Key，点击配置'}
