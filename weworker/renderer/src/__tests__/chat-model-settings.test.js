@@ -14,6 +14,19 @@ afterEach(() => {
 })
 
 describe('chat model settings integration', () => {
+  it('submits settings saves as one checked activation and preserves state on rejection', async () => {
+    globalThis.window = {}
+    const before = useSettingsStore.getState()
+    globalThis.fetch = async (url, options) => {
+      assert.ok(url.endsWith('/settings/provider'))
+      assert.deepEqual(JSON.parse(options.body), { provider: 'custom', model: 'example-draft', activate: true })
+      return Response.json({ detail: '网站探索模型不可用' }, { status: 400 })
+    }
+    await assert.rejects(useSettingsStore.getState().saveProvider('custom', { model: 'example-draft' }, { activate: true }), /不可用/)
+    assert.equal(useSettingsStore.getState().activeProvider, before.activeProvider)
+    assert.equal(useSettingsStore.getState().providers, before.providers)
+  })
+
   it('completes first-run onboarding through the backend and updates the gate state', async () => {
     globalThis.window = {}
     let request
@@ -44,15 +57,15 @@ describe('chat model settings integration', () => {
     const calls = []
     globalThis.fetch = async (url, options) => {
       calls.push({ path: new URL(url).pathname, body: JSON.parse(options.body) })
-      return Response.json({ active_provider: calls.length === 1 ? 'builtin' : 'anthropic', model: 'fixture-model', providers: { anthropic: { has_key: true, model: 'fixture-model' } } })
+      return Response.json({ active_provider: calls.length === 1 ? 'builtin' : 'openai', model: 'fixture-model', providers: { openai: { has_key: true, model: 'fixture-model' } } })
     }
-    await useSettingsStore.getState().configurePresetProvider('anthropic', '  fixture-key  ')
+    await useSettingsStore.getState().configurePresetProvider('openai', '  fixture-key  ')
     assert.deepEqual(calls, [
-      { path: '/settings/provider', body: { provider: 'anthropic', api_key: 'fixture-key' } },
-      { path: '/settings/provider/activate', body: { provider: 'anthropic' } },
+      { path: '/settings/provider', body: { provider: 'openai', api_key: 'fixture-key' } },
+      { path: '/settings/provider/activate', body: { provider: 'openai' } },
     ])
-    assert.equal(useSettingsStore.getState().providers.anthropic.has_key, true)
-    assert.equal(useSettingsStore.getState().activeProvider, 'anthropic')
+    assert.equal(useSettingsStore.getState().providers.openai.has_key, true)
+    assert.equal(useSettingsStore.getState().activeProvider, 'openai')
     assert.equal(JSON.stringify(useSettingsStore.getState()).includes('fixture-key'), false)
   })
 

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircleOutlined, CloseOutlined, ExclamationCircleOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, CloseOutlined, ExclamationCircleOutlined, InfoCircleOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useNotificationsStore } from '../store/notifications.js'
 import './notification-host.css'
 
@@ -12,10 +12,10 @@ function Notice({ notice, dismiss }) {
   }, [notice.id, notice.duration, dismiss])
 
   const urgent = notice.type === 'error' || notice.type === 'warning'
-  const Icon = notice.type === 'success' ? CheckCircleOutlined : urgent ? ExclamationCircleOutlined : InfoCircleOutlined
+  const Icon = notice.type === 'loading' ? LoadingOutlined : notice.type === 'success' ? CheckCircleOutlined : urgent ? ExclamationCircleOutlined : InfoCircleOutlined
   return (
     <div className={`app-notice app-notice--${notice.type}`} role={urgent ? 'alert' : 'status'}>
-      <Icon aria-hidden="true" />
+      <Icon aria-hidden="true" spin={notice.type === 'loading'} />
       <span>{notice.message}</span>
       <button type="button" aria-label="关闭提示" title="关闭" onClick={() => dismiss(notice.id)}><CloseOutlined aria-hidden="true" /></button>
     </div>

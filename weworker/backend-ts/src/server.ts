@@ -79,9 +79,10 @@ import { listProviderModels, probeTimedMainConnection, probeProviderProtocol, ty
 import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-catalog-config.js'
 import { registerExplorationModelRoutes, explorationConversationSettings } from './exploration-model-settings.js'
 import { conversationModels, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
+import { activateCheckedModelSettings, prepareCheckedModelSave, type ModelActivationCheck } from './model-settings-activation.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
-import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
+import { createModelConfiguration, getModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
 import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
@@ -810,6 +811,18 @@ app.post('/settings/provider/delete', (req, res) => {
 })
 
 app.post('/settings/provider', async (req, res) => {
+  if (req.body?.activate === true) {
+    const modelChecks: ModelActivationCheck[] = []
+    try {
+      const before = getSettings()
+      const patch = await prepareCheckedModelSave(before, req.body.provider, req.body)
+      const settings = await activateCheckedModelSettings(req.body.provider, patch, { getSettings, updateSettings, onCheck: check => modelChecks.push(check) }, before)
+      res.json({ ...buildSettingsResponse(settings), model_checks: modelChecks })
+    } catch (error) {
+      res.status(400).json({ detail: error instanceof Error ? error.message : String(error), model_checks: modelChecks })
+    }
+    return
+  }
   const { provider, name, api_key, openai_api_key, model, openai_model, context_limit, base_url, base_url_is_full, openai_base_url, openai_base_url_is_full, auth_type, weworker_protocol, added } = req.body as {
     provider: string; name?: unknown; api_key?: string; openai_api_key?: string; model?: string; openai_model?: string; context_limit?: unknown; base_url?: string; base_url_is_full?: boolean; openai_base_url?: string; openai_base_url_is_full?: boolean; auth_type?: unknown; weworker_protocol?: unknown; added?: boolean
   }
@@ -993,71 +1006,18 @@ app.post('/settings/provider', async (req, res) => {
 })
 
 // Switch which provider is active
-app.post('/settings/provider/activate', (req, res) => {
-  const { provider } = req.body as { provider: string }
-  if (getModelConfiguration(getSettings(), provider)) {
-    try {
-      res.json(buildSettingsResponse(updateSettings(activateModelConfiguration(getSettings(), provider))))
-    } catch (error) {
-      res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
-    }
-    return
-  }
-  if (!ALLOWED_PROVIDER_IDS.has(provider)) {
-    res.status(400).json({ detail: `Provider '${provider}' is not allowed in this build` })
-    return
-  }
-  const builtin = getProvider(provider)
-  if (builtin && isBuiltinProvider(provider)) {
-    try {
-      res.json(buildSettingsResponse(updateSettings(activateBuiltinProvider(builtin))))
-    } catch (error) {
-      res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
-    }
-    return
-  }
-  const current = getSettings()
-  const key =
-    provider === 'anthropic' ? current.api_key_anthropic :
-    provider === 'bank_coding' ? current.api_key_bank_coding || '' :
-    provider === 'glm'       ? current.api_key_glm :
-    provider === 'deepseek'  ? current.api_key_deepseek :
-    provider === 'custom'    ? current.api_key_custom : ''
-  const model =
-    provider === 'anthropic' ? current.model_anthropic :
-    provider === 'bank_coding' ? current.model_bank_coding || '' :
-    provider === 'glm'       ? current.model_glm :
-    provider === 'deepseek'  ? current.model_deepseek :
-    provider === 'custom'    ? current.model_custom : ''
-  const contextLimit =
-    provider === 'anthropic' ? current.context_limit_anthropic :
-    provider === 'bank_coding' ? current.context_limit_bank_coding || DEFAULT_CONTEXT_LIMIT :
-    provider === 'glm'       ? current.context_limit_glm :
-    provider === 'deepseek'  ? current.context_limit_deepseek :
-    provider === 'custom'    ? current.context_limit_custom : current.context_limit
-  const baseUrl =
-    provider === 'custom' ? current.base_url_custom : (getProvider(provider)?.weworker.baseUrl ?? '')
+app.post('/settings/provider/activate', async (req, res) => {
+  const modelChecks: ModelActivationCheck[] = []
   try {
-    if (provider === 'custom') normalizeLlmUrlInput(baseUrl, current.base_url_is_full_custom ?? false)
-  } catch (e) {
-    res.status(400).json({ detail: e instanceof Error ? e.message : String(e) })
-    return
+    const provider = typeof req.body?.provider === 'string' ? req.body.provider : ''
+    const settings = await activateCheckedModelSettings(provider, {}, { getSettings, updateSettings, onCheck: check => modelChecks.push(check) })
+    res.json({ ...buildSettingsResponse(settings), model_checks: modelChecks })
+  } catch (error) {
+    res.status(400).json({ detail: error instanceof Error ? error.message : String(error), model_checks: modelChecks })
   }
-  const updates: Partial<ReturnType<typeof getSettings>> = {
-    active_provider: provider,
-    active_model_configuration: '',
-    active_auth_type: provider === 'custom' ? current.custom_auth_type : getProvider(provider)?.authType || 'api_key',
-    active_weworker_protocol: provider === 'custom' ? current.weworker_protocol_custom || 'anthropic_messages' : getProvider(provider)?.weworker.protocol || 'anthropic_messages',
-    api_key: key,
-    model,
-    context_limit: contextLimit,
-    base_url: baseUrl,
-    base_url_is_full: provider === 'custom' && current.base_url_is_full_custom === true,
-    // Stale independent exploration settings must not outlive the provider they were configured for.
-    ...explorationResetPatch(provider),
-  }
-  res.json(buildSettingsResponse(updateSettings(updates)))
+
 })
+
 
 type ProviderRequestBody = {
   provider?: string
