@@ -197,7 +197,7 @@ describe('dedicated agent store', () => {
   })
 
   it('creates a desktop-only agent without bot credentials', () => {
-    const agent = create({ channel: 'desktop', bot_id: undefined, secret: undefined })
+    const agent = createAgent({ name: 'Desktop example', channel: 'desktop' })
     expect(agent.channel).toBe('desktop')
     expect(agent.wecom).toEqual({ bot_id: '', secret_enc: '' })
     expect(agent.access_mode).toBe('owner_only')
@@ -205,6 +205,11 @@ describe('dedicated agent store', () => {
     expect(view.paired).toBe(true)
     expect(view.pairing_code).toBe('')
     expect(view.wecom).toEqual({ bot_id: '', has_secret: false })
+  })
+
+  it('still requires credentials for the default WeCom channel', () => {
+    expect(() => createAgent({ name: 'Missing bot example' })).toThrow('BotID')
+    expect(() => createAgent({ name: 'Missing secret example', bot_id: 'placeholder-bot' })).toThrow('Secret')
   })
 
   it('exposes owned conversation ids in the view for desktop UI adaptation', () => {
