@@ -47,8 +47,8 @@ export function buildModelConfigurationNames(settings: Settings): Record<string,
   ]
   // Refresh previous built-in default labels while preserving user-given names.
   const builtinLabels: Record<string, string[]> = {
-    builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）'],
-    builtin_dev: ['内置模型（开发VDI）'],
+    builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）', '免费内置模型（办公VDI）'],
+    builtin_dev: ['内置模型（开发VDI）', '免费内置模型（开发VDI）'],
   }
   for (const entry of entries) {
     if (builtinLabels[entry.id]?.includes(entry.name?.trim() || '')) entry.name = entry.provider.name

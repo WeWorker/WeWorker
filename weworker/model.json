@@ -3,7 +3,7 @@
   "providers": [
     {
       "id": "builtin",
-      "name": "免费内置模型（办公VDI）",
+      "name": "免费模型（办公VDI）",
       "models": [
         "ark-code-latest"
       ],

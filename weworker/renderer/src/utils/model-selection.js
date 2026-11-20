@@ -177,8 +177,8 @@ export function buildSettingsProviderLists(providerList, providers) {
     const supplierName = provider.name || provider.id
     let name = isFixedProvider(provider.id) ? supplierName : storedProviders[provider.id]?.name?.trim()
     const previousBuiltinLabels = {
-      builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）'],
-      builtin_dev: ['内置模型（开发VDI）'],
+      builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）', '免费内置模型（办公VDI）'],
+      builtin_dev: ['内置模型（开发VDI）', '免费内置模型（开发VDI）'],
     }
     if (previousBuiltinLabels[provider.id]?.includes(name)) name = supplierName
     if (!name) {
