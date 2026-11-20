@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createConversationModelsStore, modelSelectionPayload } from '../store/conversation-models.js'
+import { createConversationModelsStore, modelSelectionPayload, useConversationModelsStore } from '../store/conversation-models.js'
+import { useSettingsStore } from '../store/settings.js'
 
 test('conversation model reads and writes are isolated, and drafts use a stateless resolver', async () => {
   const requests = []
@@ -38,4 +39,54 @@ test('late initial read cannot overwrite a new selection and failed saves preser
   await assert.rejects(store.getState().save('work:a', { provider: 'example', model: 'failed' }))
   assert.equal(store.getState().selections['work:a'].model, 'new')
   assert.equal(store.getState().pending['work:a'], false)
+})
+
+test('global reset discards both cached selections and late reads or writes', async () => {
+  let finishRead, finishWrite
+  const store = createConversationModelsStore(async (_path, body) => new Promise(resolve => {
+    if (body) finishWrite = resolve
+    else finishRead = resolve
+  }))
+  const reading = store.getState().load('work:a')
+  const writing = store.getState().save('work:b', { provider: 'example', model: 'old' })
+  await Promise.resolve()
+  store.getState().resetForGlobalModel()
+  finishRead({ provider: 'example', model: 'stale-read' })
+  finishWrite({ provider: 'example', model: 'stale-write' })
+  await Promise.all([reading, writing])
+  assert.deepEqual(store.getState().selections, {})
+  assert.deepEqual(store.getState().pending, {})
+})
+
+test('a successful global activation clears all conversation overrides and new local choices keep settings unchanged', async () => {
+  const previous = useSettingsStore.getState()
+  try {
+    useSettingsStore.setState({ modelSelectionRevision: 'revision-before' })
+    useConversationModelsStore.setState({ selections: { welcome: { provider: 'example', model: 'draft' },
+      'work:bot': { provider: 'example', model: 'bot-local' } } })
+    useSettingsStore.setState({ activeProvider: 'custom', model: 'global-next', modelSelectionRevision: 'revision-after' })
+    assert.deepEqual(useConversationModelsStore.getState().selections, {})
+    let request
+    const local = createConversationModelsStore(async (_path, body) => { request = body; return body })
+    await local.getState().save('work:bot', { provider: 'example', model: 'local-next' })
+    assert.equal(request.selection_revision, 'revision-after')
+    assert.equal(useSettingsStore.getState().model, 'global-next')
+    assert.equal(useSettingsStore.getState().activeProvider, 'custom')
+  } finally { useSettingsStore.setState(previous, true) }
+})
+
+test('a local switch waiting for an initial read cannot cross a global activation', async () => {
+  let finishRead
+  let writes = 0
+  const store = createConversationModelsStore(async (_path, body) => {
+    if (body) { writes++; return body }
+    return new Promise(resolve => { finishRead = resolve })
+  })
+  const reading = store.getState().load('work:a')
+  const saving = store.getState().save('work:a', { provider: 'example', model: 'old' })
+  store.getState().resetForGlobalModel()
+  finishRead({ provider: 'example', model: 'initial' })
+  await reading
+  await assert.rejects(saving, /全局模型已切换/)
+  assert.equal(writes, 0)
 })

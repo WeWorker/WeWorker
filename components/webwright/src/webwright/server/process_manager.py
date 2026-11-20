@@ -1224,8 +1224,6 @@ class ProcessManager:
 
     def save_exploration_model(self, exploration_id: str, selection: dict[str, str]) -> dict[str, Any]:
         with self.lock:
-            if self._active_running_locked() and self.active_task_id == exploration_id:
-                raise InvalidStateError("请等待当前探索结束后切换模型")
             return self.store.save_exploration_model(exploration_id, selection)
 
     def delete_exploration(self, exploration_id: str) -> None:

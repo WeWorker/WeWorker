@@ -400,6 +400,27 @@ def test_followup_before_first_step(monkeypatch, tmp_path: Path, outcome: str, u
     assert [turn["content"] for turn in store.read_user_turns(task_id)] == notes
 
 
+def test_running_model_switch_changes_only_the_next_exploration_turn(monkeypatch, tmp_path):
+    selections = []
+    def load(*, selection=None):
+        selections.append(selection)
+        return _managed_model(model=selection["model"], context_limit=128000)
+    manager, store, _ = _manager(tmp_path, monkeypatch, model_config_loader=load)
+    first = {"provider": "example-config", "model": "example-first", "selection_revision": "revision-one"}
+    record = manager.start_url_exploration(start_url="https://example.org", model_selection=first)
+    task_id = record["task_id"]
+    process = manager.active_process
+    next_selection = {**first, "model": "example-next"}
+    manager.save_exploration_model(task_id, next_selection)
+    assert manager.active_process is process
+    assert process.poll() is None
+    assert selections == [{**first, "thinking_effort": "off"}]
+    process.terminate()
+    manager._finish_task(task_id, -15)
+    manager.continue_task(task_id=task_id, followup="Continue the same exploration")
+    assert selections[-1] == {**next_selection, "thinking_effort": "off"}
+
+
 def test_exploration_start_and_resume_keep_own_model_and_context(monkeypatch, tmp_path):
     selections = []
     def load(*, selection=None):

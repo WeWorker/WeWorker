@@ -1,3 +1,4 @@
+import { resolveWorkModelSettings } from '../conversation-models.js'
 import type { Settings } from '../config.js'
 import type { ChannelPermissionMode } from './channel-permissions.js'
 import * as store from '../works-store.js'
@@ -127,6 +128,7 @@ export async function runChannelChat(
   // tools at all, so routing them would hand a guest a channel the model lacks.
   const currentUserText = lastUserMessageText(messages)
   const turnWorkId = messages[messages.length - 1]?.work_id ?? ''
+  if (turnWorkId) settings = resolveWorkModelSettings(turnWorkId, settings)
   const routed = opts?.dedicatedAgent || !currentUserText || !turnWorkId
     ? null
     : await tryRoutedTurn({

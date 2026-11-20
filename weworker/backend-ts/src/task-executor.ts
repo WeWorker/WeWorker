@@ -2,7 +2,7 @@
  * Task Executor — 执行单个定时任务的 AI 对话流程。
  * 复用现有 streamChat + runChannelChat 模式，非交互式执行。
  */
-import { getSettings } from './config.js'
+import { getSettings, type Settings } from './config.js'
 import { streamChat } from './agent.js'
 import { userFileBlock, userImageBlock } from './user-media.js'
 import { resolveStyleId } from './style-settings.js'
@@ -80,6 +80,7 @@ function formatTaskResultForSummary(blocks: ContentBlock[]): string {
 }
 
 async function summarizeTaskExecution(input: {
+  settings: Settings
   task: ScheduledTask
   workId: string
   status: 'completed' | 'failed'
@@ -113,7 +114,7 @@ async function summarizeTaskExecution(input: {
       }],
       created_at: createdAt,
     }]
-    for await (const event of streamChat(summaryMessages, getSettings(), input.abortController, {
+    for await (const event of streamChat(summaryMessages, input.settings, input.abortController, {
       streaming: false,
       workId: input.workId,
       notificationSummaryOnly: true,
@@ -197,6 +198,7 @@ function queueTaskMemoryProcessing(input: {
  * 执行一个定时任务：创建 work、记录执行、调用 AI Agent、更新状态。
  */
 export async function executeTask(task: ScheduledTask): Promise<ExecutionResult> {
+  const settings = getSettings()
   const taskProject = store.getOrCreateScheduledTaskProject()
   const taskWorkspace = store.ensureScheduledTaskWorkspace(task.id)
   const agent = task.agent_id ? getAgent(task.agent_id) : null
@@ -210,7 +212,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
       completed_at: new Date().toISOString(),
     })
     enforceTaskHistoryLimit(taskProject.id)
-    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: [], error: '任务提示词为空，跳过执行' })
+    const summary = await summarizeTaskExecution({ settings, task, workId: work.id, status: 'failed', blocks: [], error: '任务提示词为空，跳过执行' })
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
@@ -234,7 +236,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
     const execution = store.createTaskExecution(task.id, work.id)
     store.updateTaskExecution(execution.id, { status: 'failed', error_message: 'WeWorker Bot 不存在或已停用', completed_at: new Date().toISOString() })
     enforceTaskHistoryLimit(taskProject.id)
-    const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: [], error: 'WeWorker Bot 不存在或已停用' })
+    const summary = await summarizeTaskExecution({ settings, task, workId: work.id, status: 'failed', blocks: [], error: 'WeWorker Bot 不存在或已停用' })
     await safeNotify({
       taskId: task.id,
       taskTitle: task.title,
@@ -299,7 +301,6 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
     try {
       // 5. Get work with messages and settings
       const workWithMessages = store.getWorkWithMessages(work.id)!
-      const settings = getSettings()
 
       // 6. Build enabled adapter IDs (same pattern as server.ts chat endpoint)
       const allAdapters = parseAllAdapters()
@@ -488,7 +489,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
         status: 'completed',
         completed_at: new Date().toISOString(),
       })
-      const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'completed', blocks: assistantContent, abortController: turn.controller })
+      const summary = await summarizeTaskExecution({ settings, task, workId: work.id, status: 'completed', blocks: assistantContent, abortController: turn.controller })
 
       if (memoryCandidate) {
         queueTaskMemoryProcessing({
@@ -548,7 +549,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
         error_message: errorMessage,
         completed_at: new Date().toISOString(),
       })
-      const summary = await summarizeTaskExecution({ task, workId: work.id, status: 'failed', blocks: assistantContent, error: errorMessage, abortController: turn.controller })
+      const summary = await summarizeTaskExecution({ settings, task, workId: work.id, status: 'failed', blocks: assistantContent, error: errorMessage, abortController: turn.controller })
 
       try {
         if (memoryCandidate) {

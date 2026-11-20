@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   getAgent: vi.fn(),
   workspaceRoot: '',
   historyLimit: 50,
+  model: 'example-initial',
 }))
 
 // 路由引擎不在这里测（routed-turn.test.ts 覆盖），只桩掉 API 免得加载全部配置。
@@ -46,7 +47,7 @@ vi.mock('../conversation-archive.js', async (importOriginal) => {
 vi.mock('../adapter-parser.js', () => ({ parseAllAdapters: () => new Map() }))
 vi.mock('../style-settings.js', () => ({ resolveStyleId: () => null }))
 vi.mock('../config.js', () => ({
-  getSettings: () => ({ memory_budgets: {}, api_query_llm_route: false, scheduled_task_history_limit: mocks.historyLimit }),
+  getSettings: () => ({ model: mocks.model, memory_budgets: {}, api_query_llm_route: false, scheduled_task_history_limit: mocks.historyLimit }),
   getSiteEnabled: () => true,
   getUserDirectory: () => mocks.workspaceRoot,
   getConfigDirectory: () => path.join(mocks.workspaceRoot, '.weworker'),
@@ -114,6 +115,19 @@ function assistantTiming(workId: string): Record<string, unknown> | null {
 }
 
 describe('executeTask 的路由接线', () => {
+  it('keeps the execution model through its summary and uses a changed default next time', async () => {
+    mocks.model = 'example-initial'
+    mocks.streamChat.mockImplementation(async function* (_messages, settings, _controller, options) {
+      if (!options?.notificationSummaryOnly) mocks.model = 'example-next'
+      yield { type: 'text_delta', content: settings.model }
+    })
+    await executeTask(makeTask())
+    expect(mocks.streamChat.mock.calls.map(call => call[1].model)).toEqual(['example-initial', 'example-initial'])
+    mocks.streamChat.mockClear()
+    await executeTask(makeTask())
+    expect(mocks.streamChat.mock.calls.map(call => call[1].model)).toEqual(['example-next', 'example-next'])
+  })
+
   it('exposes live text and tools, holds the shared chat lock through summary, then clears progress', async () => {
     let release!: () => void
     const hold = new Promise<void>(resolve => { release = resolve })

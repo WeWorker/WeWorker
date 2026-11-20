@@ -43,7 +43,8 @@ export function isAuthorizedModelConfigRequest(authorization: string | undefined
 // Selections persist a reference and optional session model, never a second
 // endpoint or credential. Old sentinel records resolve the same canonical source.
 export function defaultWebwrightModelSelection(saved: Settings): ConversationModel {
-  const selected = saved.exploration_model_selection
+  const stored = saved.exploration_model_selection
+  const selected = !saved.model_selection_revision || stored?.selection_revision === saved.model_selection_revision ? stored : undefined
   if (selected) return { ...selected, thinking_effort: selected.thinking_effort || saved.exploration_thinking_effort || 'off' }
   const main = defaultConversationModel(saved)
   return { ...main, model: modelSettingsExplorationEntry(saved, main.provider)?.model || main.model,

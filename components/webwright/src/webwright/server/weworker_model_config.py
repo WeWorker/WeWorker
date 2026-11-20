@@ -90,14 +90,18 @@ class ManagedModelConfig:
 
 
 def validate_model_selection(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict) or set(value) - {"provider", "model", "thinking_effort"}:
+    if not isinstance(value, dict) or set(value) - {"provider", "model", "thinking_effort", "selection_revision"}:
         raise ValueError("会话模型配置无效")
     if any(not isinstance(value.get(key), str) or not value[key].strip() or len(value[key]) > 200 for key in ("provider", "model")):
         raise ValueError("会话模型配置无效")
     effort = value.get("thinking_effort", "off")
     if effort not in {"off", "low", "medium", "high"}:
         raise ValueError("会话思考配置无效")
-    return {"provider": value["provider"].strip(), "model": value["model"].strip(), "thinking_effort": effort}
+    revision = value.get("selection_revision")
+    if revision is not None and (not isinstance(revision, str) or len(revision) > 100):
+        raise ValueError("会话模型版本无效")
+    return {"provider": value["provider"].strip(), "model": value["model"].strip(), "thinking_effort": effort,
+            **({"selection_revision": revision} if revision is not None else {})}
 
 
 def load_managed_model_config(

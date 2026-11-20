@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   tryRoutedTurn: vi.fn(),
   streamChat: vi.fn(),
+  resolveWorkModelSettings: vi.fn((_workId, settings) => settings),
 }))
 
 // 路由引擎本身不在这里测（routed-turn.test.ts 覆盖），只桩掉 API 免得加载全部配置。
@@ -23,6 +24,7 @@ vi.mock('../routed-turn.js', async (importOriginal) => {
 })
 
 vi.mock('../agent.js', () => ({ streamChat: mocks.streamChat }))
+vi.mock('../conversation-models.js', () => ({ resolveWorkModelSettings: mocks.resolveWorkModelSettings }))
 
 import type { Message } from '../works-store.js'
 import { runChannelChat } from '../channels/channel-manager.js'
@@ -40,6 +42,14 @@ function message(role: string, text: string, workId = 'work-1'): Message {
 const settings = {} as never
 
 describe('runChannelChat 的路由接线', () => {
+  it('uses the conversation model for dedicated bot channel calls', async () => {
+    const selected = { model: 'example-local', active_provider: 'custom' }
+    mocks.resolveWorkModelSettings.mockReturnValueOnce(selected)
+    await runChannelChat([message('user', 'example request')], settings, { dedicatedAgent: true })
+    expect(mocks.resolveWorkModelSettings).toHaveBeenCalledWith('work-1', settings)
+    expect(mocks.streamChat.mock.calls[0][1]).toBe(selected)
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.streamChat.mockImplementation(async function* () {

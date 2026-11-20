@@ -18,6 +18,15 @@ function fixture() {
 }
 
 describe('checked settings activation', () => {
+  it('advances the global selection revision even when reactivating the same model', async () => {
+    const f = fixture()
+    await activateCheckedModelSettings('model-example', {}, f)
+    const first = f.getSettings().model_selection_revision
+    expect(first).toBeTruthy()
+    await activateCheckedModelSettings('model-example', {}, f)
+    expect(f.getSettings().model_selection_revision).not.toBe(first)
+  })
+
   it('reports both existing checks before saving once, without additional probes', async () => {
     const f = fixture()
     const checks: unknown[] = []

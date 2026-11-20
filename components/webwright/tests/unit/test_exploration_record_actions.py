@@ -36,7 +36,7 @@ def test_models_are_saved_per_exploration_without_changing_activity(tmp_path):
     assert "model_selection" not in store.read_exploration("exp_other")
     manager.active_task_id = "exp_example"
     manager.active_process = SimpleNamespace(poll=lambda: None)
-    assert client.post("/api/explorations/exp_example/model", json={"model_selection": selection}).status_code == 409
+    assert client.post("/api/explorations/exp_example/model", json={"model_selection": selection}).status_code == 200
     assert client.post("/api/explorations/exp_other/model", json={"model_selection": selection}).status_code == 200
     assert client.post("/api/explorations/exp_other/model", json={"model_selection": {**selection, "api_key": "placeholder-key"}}).status_code == 400
     assert client.post("/api/explorations/missing/model", json={"model_selection": selection}).status_code == 404

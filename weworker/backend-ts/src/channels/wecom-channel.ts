@@ -1,3 +1,4 @@
+import { resolveWorkModelSettings } from '../conversation-models.js'
 /**
  * 企业微信智能机器人通道 — WebSocket 长连接模式
  *
@@ -796,7 +797,7 @@ export class WecomChannel implements Channel {
     }
 
     // Normal message — process with AI
-    const settings = getSettings()
+    let settings = getSettings()
     if (!settings.api_key) {
       this._send({
         cmd: 'aibot_respond_msg',
@@ -811,6 +812,7 @@ export class WecomChannel implements Channel {
       return
     }
     const { work, created } = store.getOrCreateChannelWork(channelKey, userId, '', this._profile.projectId?.() ?? null)
+    settings = resolveWorkModelSettings(work.id, settings)
     const active = chatTurns.start(work.id)
     if (!active) {
       replyOnce('该对话正在执行任务，请等待完成或在 WeWorker 中停止后重试。')
