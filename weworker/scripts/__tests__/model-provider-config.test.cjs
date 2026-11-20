@@ -292,8 +292,12 @@ test('running Vite refreshes fixed-provider flags when the referenced JSON chang
   const { createRequire } = require('node:module');
   const { pathToFileURL } = require('node:url');
   const vm = require('node:vm');
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-vite-model-'));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-vite-model-'));
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const directory = path.join(workspace, 'weworker');
+  fs.mkdirSync(directory);
+  fs.mkdirSync(path.join(workspace, 'webcli'));
+  fs.writeFileSync(path.join(workspace, 'webcli/adapterhub-profile.json'), JSON.stringify({ endpoint: '' }));
   const renderer = path.join(directory, 'renderer');
   fs.mkdirSync(renderer);
   fs.mkdirSync(path.join(directory, 'scripts'));
