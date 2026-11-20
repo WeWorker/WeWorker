@@ -29,6 +29,13 @@ test('settings checklist probes both built-in interfaces and displays separate r
     const body = options.body ? JSON.parse(options.body) : null
     calls.push({ path, body })
     if (path === '/settings/provider/models') return Response.json({ models: ['fixture-chat'], source: 'remote' })
+    if (path === '/settings/provider') return Response.json({
+      active_provider: 'builtin', model: 'ark-code-latest', providers: { builtin: { provider_id: 'builtin', has_key: true, model: 'ark-code-latest' } },
+      model_checks: [
+        { target: 'weworker', status: 'success', message: '连接成功 · saved-chat' },
+        { target: 'webwright', status: 'success', message: '连接成功 · saved-explore' },
+      ],
+    })
     if (path === '/settings/provider/probe') return body.target === 'webwright'
       ? Response.json(failExplore
         ? { ok: false, error: 'auth_failed', detail: 'Fixture exploration authentication failed', protocol: 'openai_chat_completions' }
@@ -48,6 +55,14 @@ test('settings checklist probes both built-in interfaces and displays separate r
     const { createRoot } = await import('react-dom/client')
     root = createRoot(document.getElementById('root'))
     await act(async () => root.render(React.createElement(Component)))
+    const save = [...document.querySelectorAll('button')].find(element => element.textContent === '保存')
+    await act(async () => save.click())
+    const savedChecklist = document.querySelector('[aria-label="连通性检查"]')
+    assert.match(savedChecklist.textContent, /全部通过/)
+    assert.match(savedChecklist.textContent, /saved-chat/)
+    assert.match(savedChecklist.textContent, /saved-explore/)
+    assert.equal(calls.filter(call => call.path.endsWith('/provider/probe')).length, 0, 'saving must reuse the backend checks without probing again')
+    assert.equal(calls.filter(call => call.path === '/settings/provider').length, 1)
     const runCheck = async () => {
       const button = [...document.querySelectorAll('button')].find(e => e.textContent.includes('测试连通性'))
       assert.ok(button)
@@ -69,6 +84,8 @@ test('settings checklist probes both built-in interfaces and displays separate r
     const logs = [...checklist.querySelectorAll('button')].find(e => e.textContent === '显示日志')
     await act(async () => logs.click())
     assert.match(checklist.querySelector('.model-probe-checklist__message.is-expanded').closest('[role="list"]').textContent, /fixture-chat.*Fixture exploration authentication failed/)
+    // Let the temporary saved-button state settle while this DOM is still installed.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 2100)) })
   } finally {
     await act(async () => root?.unmount())
     await server?.close()

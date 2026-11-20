@@ -40,7 +40,7 @@ describe('exploration reads the model settings exploration interface', () => {
 
   it('marks fixed supplier entries for display without treating missing credentials as configured', () => {
     const providers = createExplorationModelService().status(settings()).providers
-    for (const id of ['anthropic', 'glm', 'deepseek']) {
+    for (const id of ['bank_coding', 'glm', 'deepseek', 'openai', 'qwen']) {
       expect(providers.find(item => item.id === id)).toMatchObject({ fixed_provider: true, configured: false, has_key: false })
     }
     expect(providers.find(item => item.id === 'chat-only')).toMatchObject({ fixed_provider: false, configured: false })

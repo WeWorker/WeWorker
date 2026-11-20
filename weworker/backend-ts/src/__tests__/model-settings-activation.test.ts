@@ -27,6 +27,32 @@ describe('checked settings activation', () => {
     expect(f.getSettings().model_selection_revision).not.toBe(first)
   })
 
+  it('reports both existing checks before saving once, without additional probes', async () => {
+    const f = fixture()
+    const checks: unknown[] = []
+    f.onCheck = (check: unknown) => {
+      expect(f.updateSettings).not.toHaveBeenCalled()
+      checks.push(check)
+    }
+    await activateCheckedModelSettings('model-example', {}, f)
+    expect(checks).toMatchObject([
+      { target: 'weworker', status: 'success' },
+      { target: 'webwright', status: 'success' },
+    ])
+    expect(f.probeMain).toHaveBeenCalledTimes(1)
+    expect(f.probeExploration).toHaveBeenCalledTimes(1)
+    expect(f.updateSettings).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a failed check without claiming the untested interface passed or committing', async () => {
+    const f = fixture()
+    f.onCheck = vi.fn()
+    f.probeMain.mockResolvedValue({ ok: false, detail: 'example rejected' })
+    await expect(activateCheckedModelSettings('model-example', {}, f)).rejects.toThrow('example rejected')
+    expect(f.onCheck).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ target: 'weworker', status: 'failure', message: 'example rejected' }))
+    expect(f.probeExploration).not.toHaveBeenCalled()
+    expect(f.updateSettings).not.toHaveBeenCalled()
+  })
   it('prepares legacy preset edits without mutating or writing the existing settings', async () => {
     const f = fixture()
     const before = f.getSettings()

@@ -92,11 +92,11 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       candidate_url_is_full: saved?.base_url_is_full === true,
       configured_model: saved?.model || (formProvider?.builtin ? formProvider.defaultModel : ''),
       configured_base_url_is_full: saved?.base_url_is_full === true,
-      providers: [...PROVIDERS.map(provider => ({ id: provider.id, provider })),
+      providers: [...PROVIDERS.filter(provider => !provider.hidden).map(provider => ({ id: provider.id, provider })),
         ...Object.keys(settings.model_configurations || {}).flatMap(id => {
           const configuration = getModelConfiguration(settings, id)
           const provider = configuration && getProvider(configuration.provider_id)
-          return provider ? [{ id, provider }] : []
+          return provider && !PROVIDERS.some(p => p.id === id) ? [{ id, provider }] : []
         })].map(({ id, provider }) => {
         const saved = modelSettingsExplorationEntry(settings, id)
         let builtinAvailable = false

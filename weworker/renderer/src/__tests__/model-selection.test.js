@@ -3,6 +3,26 @@ import { describe, it } from 'node:test'
 import fs from 'node:fs'
 import { selectModelAfterCatalogRefresh, buildProbeResultRows, buildProviderProbeTargets, buildModelOptions, buildModelCatalogAccess, getModelCatalogIssue, getModelCatalogStatus, buildSettingsProviderLists, buildChatProviderOptions, getVisibleModelRefreshDetail, isModelRefreshFailed, shouldShowModelRefreshFailure } from '../utils/model-selection.js'
 import { getOpenAiUrlHint } from '../utils/provider-url.js'
+import { BUILD_PROVIDERS } from '../utils/provider-config.js'
+
+it('orders fixed public suppliers consistently in settings, chat and the add menu', () => {
+  const order = ['builtin', 'glm', 'deepseek', 'openai', 'qwen']
+  const lists = buildSettingsProviderLists(BUILD_PROVIDERS, {})
+  assert.deepEqual(lists.visible.map(p => p.id), order)
+  assert.deepEqual(lists.addable.map(p => p.id), [...order, 'custom'])
+  assert.deepEqual(buildChatProviderOptions(BUILD_PROVIDERS, {}, 'builtin').map(p => p.value), order)
+  assert.equal(BUILD_PROVIDERS.find(p => p.id === 'builtin').name, '免费内置模型（办公VDI）')
+  assert.equal(BUILD_PROVIDERS.find(p => p.id === 'glm').name, '智谱 GLM')
+})
+
+it('refreshes old built-in default names while preserving user names', () => {
+  const nameFor = name => buildSettingsProviderLists(BUILD_PROVIDERS, { builtin: { name } })
+    .visible.find(provider => provider.id === 'builtin').name
+  for (const name of ['内置模型', '免费内置模型', '内置模型（仅OA）']) {
+    assert.equal(nameFor(name), '免费内置模型（办公VDI）')
+  }
+  assert.equal(nameFor('我的助手'), '我的助手')
+})
 
 it('defaults OpenAI protocol to Chat Completions and offers Responses as an alternate', () => {
   const settings = fs.readFileSync(new URL('../components/settings/SettingsModal.jsx', import.meta.url), 'utf8')
@@ -14,13 +34,13 @@ it('defaults OpenAI protocol to Chat Completions and offers Responses as an alte
 })
 
 it('shows unconfigured presets in chat with key state, keeping configured additional entries', () => {
-  const templates = [{ id: 'builtin', name: '内置模型' }, { id: 'anthropic', name: 'Anthropic' }, { id: 'glm', name: '智谱 coding plan' }, { id: 'deepseek', name: 'DeepSeek' }, { id: 'custom', name: '自定义' }]
+  const templates = [{ id: 'builtin', name: '内置模型' }, { id: 'openai', name: 'Anthropic' }, { id: 'glm', name: '智谱 coding plan' }, { id: 'deepseek', name: 'DeepSeek' }, { id: 'custom', name: '自定义' }]
   const options = buildChatProviderOptions(templates, {
-    anthropic: { has_key: true },
+    openai: { has_key: true },
     'model-extra': { provider_id: 'custom', has_key: true, base_url: 'https://example.com', name: '额外配置', model: 'fixture-model' },
     'model-empty': { provider_id: 'custom', has_key: false },
   }, 'builtin')
-  assert.deepEqual(options.map(item => item.value), ['builtin', 'anthropic', 'glm', 'deepseek', 'model-extra'])
+  assert.deepEqual(options.map(item => item.value), ['builtin', 'openai', 'glm', 'deepseek', 'model-extra'])
   assert.deepEqual(options.slice(1, 4).map(item => item.keyConfigured), [true, false, false])
   assert.equal(options[4].label, '额外配置')
   assert.deepEqual(options.map(item => item.keyConfigured), [true, true, false, false, true])
@@ -185,64 +205,64 @@ describe('provider model selection', () => {
 
   it('shows added and legacy-configured providers in settings', () => {
     const providerList = [
-      { id: 'anthropic' },
+      { id: 'openai' },
       { id: 'deepseek' },
       { id: 'custom' },
     ]
     const { visible, addable } = buildSettingsProviderLists(providerList, {
-      anthropic: { added: true },
+      openai: { added: true },
       deepseek: { has_key: true },
       custom: { base_url: 'https://gateway.example/v1' },
     })
-    assert.deepEqual(visible.map(({ id }) => id), ['anthropic', 'deepseek', 'custom'])
-    assert.deepEqual(addable.map(({ id }) => id), ['anthropic', 'deepseek', 'custom'])
+    assert.deepEqual(visible.map(({ id }) => id), ['openai', 'deepseek', 'custom'])
+    assert.deepEqual(addable.map(({ id }) => id), ['openai', 'deepseek', 'custom'])
   })
 
   it('shows fixed presets while custom configurations are added explicitly', () => {
-    const providerList = [{ id: 'anthropic' }, { id: 'custom' }]
+    const providerList = [{ id: 'openai' }, { id: 'custom' }]
     const { visible, addable } = buildSettingsProviderLists(providerList, {})
-    assert.deepEqual(visible.map(({ id }) => id), ['anthropic'])
-    assert.deepEqual(addable.map(({ id }) => id), ['anthropic', 'custom'])
+    assert.deepEqual(visible.map(({ id }) => id), ['openai'])
+    assert.deepEqual(addable.map(({ id }) => id), ['openai', 'custom'])
   })
 
   it('initially shows built-ins and fixed presets despite empty credentials', () => {
     const templates = [
       { id: 'builtin' },
-      { id: 'anthropic', defaultModel: 'default-claude' },
+      { id: 'openai', defaultModel: 'default-claude' },
       { id: 'deepseek', defaultModel: 'default-deepseek' },
       { id: 'custom', defaultModel: '' },
     ]
     const { visible, addable } = buildSettingsProviderLists(templates, {
-      anthropic: { model: 'default-claude', has_key: false, added: false, visible: false },
+      openai: { model: 'default-claude', has_key: false, added: false, visible: false },
       deepseek: { model: 'default-deepseek', has_key: false },
       custom: { model: '', base_url: '', openai_base_url: '' },
     })
-    assert.deepEqual(visible.map(provider => provider.id), ['builtin', 'anthropic', 'deepseek'])
-    assert.deepEqual(addable.map(provider => provider.id), ['anthropic', 'deepseek', 'custom'])
+    assert.deepEqual(visible.map(provider => provider.id), ['builtin', 'openai', 'deepseek'])
+    assert.deepEqual(addable.map(provider => provider.id), ['builtin', 'openai', 'deepseek', 'custom'])
   })
 
   it('retains historical model-only settings and explicit additions without changing saved data', () => {
     const templates = [
-      { id: 'anthropic', defaultModel: 'default-claude' },
+      { id: 'openai', defaultModel: 'default-claude' },
       { id: 'deepseek', defaultModel: 'default-deepseek' }, { id: 'custom' },
     ]
     const providers = {
-      anthropic: { model: 'user-selected-model', has_key: false },
+      openai: { model: 'user-selected-model', has_key: false },
       deepseek: { model: 'default-deepseek', has_key: true, visible: false },
       custom: { openai_base_url: 'https://example.com/custom', openai_base_url_is_full: true },
-      'model-added-empty': { provider_id: 'anthropic', added: true, has_key: false },
+      'model-added-empty': { provider_id: 'openai', added: true, has_key: false },
     }
     const before = structuredClone(providers)
     const { visible } = buildSettingsProviderLists(templates, providers)
-    assert.deepEqual(visible.map(provider => provider.id), ['anthropic', 'deepseek', 'custom', 'model-added-empty'])
+    assert.deepEqual(visible.map(provider => provider.id), ['openai', 'deepseek', 'custom', 'model-added-empty'])
     assert.deepEqual(providers, before)
   })
 
   it('keeps fixed presets visible even with legacy hidden metadata', () => {
-    const { visible } = buildSettingsProviderLists([{ id: 'anthropic', defaultModel: 'new-default' }], {
-      anthropic: { model: 'old-default', has_key: false, visible: false },
+    const { visible } = buildSettingsProviderLists([{ id: 'openai', defaultModel: 'new-default' }], {
+      openai: { model: 'old-default', has_key: false, visible: false },
     })
-    assert.deepEqual(visible.map(provider => provider.id), ['anthropic'])
+    assert.deepEqual(visible.map(provider => provider.id), ['openai'])
   })
 
   it('keeps the supplier selectable and shows multiple independent models', () => {
@@ -270,7 +290,7 @@ describe('provider model selection', () => {
     const { visible, addable } = buildSettingsProviderLists(providerList, stored)
     assert.deepEqual(visible.map(provider => provider.name), ['内置助手', 'DeepSeek', 'DeepSeek(2)', 'DeepSeek(1)'])
     assert.deepEqual(visible.map(provider => provider.supplierName), ['内置模型', 'DeepSeek', 'DeepSeek', 'DeepSeek'])
-    assert.equal(addable[0].name, 'DeepSeek')
+    assert.equal(addable[1].name, 'DeepSeek')
     assert.deepEqual(stored, original)
     assert.equal(buildSettingsProviderLists(providerList, {}).visible[0].name, '内置模型')
   })

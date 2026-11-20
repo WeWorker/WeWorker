@@ -4,7 +4,7 @@ import { LoadingOutlined } from '@ant-design/icons'
 import WecomQrBind, { BotChannelPicker } from '../WecomQrBind.jsx'
 import { useDedicatedAgentsStore } from '../../../store/dedicated-agents.js'
 import { useWorksStore } from '../../../store/works.js'
-import { createAgent, createSkill, fetchAgentDetail } from '../../../api/dedicated-agents-api.js'
+import { createAgent, createSkill, fetchAgentDetail, fetchAgentSkill } from '../../../api/dedicated-agents-api.js'
 import {
   agentChannelOf,
   boundBotPayload,
@@ -17,13 +17,15 @@ import {
   buildTemplateTasks,
   describeCron,
   findTemplate,
+  isQuestionEmpty,
   questionAnswerText,
   renderTemplateSkill,
-  templateQuestions,
   validateTemplateAnswers,
   validateTemplateQuestion,
+  visibleTemplateQuestions,
 } from './templates.js'
 import { createAgentTask, fetchAgentNotificationTargets, fetchAgentTasks } from './api.js'
+import { createTemplateSkill } from './skill-retry.js'
 import { handleChatLinkClick } from '../../../utils/chat-links.js'
 import { codeBadgeStyle, hintStyle, labelStyle, markdownEditorStyle, sectionStyle, titleStyle } from '../styles.js'
 import './quick-create.css'
@@ -244,7 +246,9 @@ export default function QuickCreateFlow({ draftKey }) {
   /** 一问一答流程当前问到第几题。 */
   const [qIndex, setQIndex] = useState(() => {
     const saved = Number(existingDraft?.quickQuestionIndex)
-    const total = templateQuestions(findTemplate(existingDraft?.templateId)).length
+    const initialTemplate = findTemplate(existingDraft?.templateId)
+    const initialAnswers = { ...(initialTemplate?.defaultAnswers || {}), ...(existingDraft?.templateAnswers || {}) }
+    const total = visibleTemplateQuestions(initialTemplate, initialAnswers).length
     return Number.isInteger(saved) && saved >= 0 && saved < total ? saved : 0
   })
   /** 转场方向：forward 前进（从右滑入），back 后退（从左滑入）。 */
@@ -274,7 +278,8 @@ export default function QuickCreateFlow({ draftKey }) {
   }
 
   /** 该模板的一问一答问题清单与定时任务（纯数据，可安全地在渲染期计算）。 */
-  const questions = templateQuestions(template)
+  const questions = visibleTemplateQuestions(template, answers)
+  const safeQIndex = Math.min(qIndex, Math.max(0, questions.length - 1))
   const templateTasks = buildTemplateTasks(template, answers)
 
   const goPreview = () => {
@@ -289,17 +294,18 @@ export default function QuickCreateFlow({ draftKey }) {
 
   /** 提交当前问题的回答：通过则问下一题，最后一题直接进入预览。 */
   const submitAnswer = (nextAnswers = answers) => {
-    const question = questions[qIndex]
+    const nextQuestions = visibleTemplateQuestions(template, nextAnswers)
+    const question = nextQuestions[safeQIndex]
     if (!question) return
     const message = validateTemplateQuestion(template, question.id, nextAnswers)
     setError(message)
     if (message) return
-    if (qIndex + 1 >= questions.length) {
+    if (safeQIndex + 1 >= nextQuestions.length) {
       goPreview()
       return
     }
     setDirection('forward')
-    const nextIndex = qIndex + 1
+    const nextIndex = safeQIndex + 1
     setQIndex(nextIndex)
     updateDraftAgent({ quickQuestionIndex: nextIndex }, draftKey)
   }
@@ -312,19 +318,13 @@ export default function QuickCreateFlow({ draftKey }) {
     updateDraftAgent({ quickQuestionIndex: index }, draftKey)
   }
 
-  /** 重名时自动加后缀重试：apikey-usage-helper、-2、-3… */
-  const createSkillWithRetry = async (markdown) => {
-    for (let attempt = 1; attempt <= 9; attempt++) {
-      const candidate = attempt === 1 ? template.skillName : `${template.skillName}-${attempt}`
-      try {
-        return await createSkill(candidate, markdown, 'private')
-      } catch (err) {
-        if (attempt < 9 && /已存在/.test(String(err?.message || ''))) continue
-        throw err
-      }
-    }
-    throw new Error('Skill 名称冲突，请重试')
-  }
+  /** 重名时先比对内容：一致说明上次其实创建成功（网络瞬断误报后的重试），直接复用；不一致才加后缀新建。 */
+  const createSkillWithRetry = (markdown) => createTemplateSkill({
+    baseName: template.skillName,
+    markdown,
+    createSkill: (name, content) => createSkill(name, content, 'private'),
+    fetchSkill: fetchAgentSkill,
+  })
 
   /** Save the rendered skill and create the agent; botPayload binds a scanned bot or makes it desktop-only. */
   const createAgentFromTemplate = async (botPayload) => {
@@ -340,7 +340,8 @@ export default function QuickCreateFlow({ draftKey }) {
       access_mode: 'owner_only',
       ...botPayload,
     })
-    await loadWorks()
+    // 到这里创建已经成功；列表刷新失败不应误报「创建失败」，否则用户重试会造出重复 Bot。
+    void loadWorks().catch(() => {})
     return result
   }
 
@@ -395,9 +396,9 @@ export default function QuickCreateFlow({ draftKey }) {
 
       <div className="agent-create-wizard__section" style={sectionStyle}>
         {step === 'questions' && (() => {
-          const question = questions[qIndex]
+          const question = questions[safeQIndex]
           if (!question) return null
-          const isLast = qIndex + 1 === questions.length
+          const isLast = safeQIndex + 1 === questions.length
           const pick = (patch) => {
             const next = { ...answers, ...patch }
             updateAnswers(patch)
@@ -405,11 +406,11 @@ export default function QuickCreateFlow({ draftKey }) {
           }
           return (
             <div className="qflow">
-              <div className="qflow__dots" aria-label={`第 ${qIndex + 1} / ${questions.length} 个问题`}>
+              <div className="qflow__dots" aria-label={`第 ${safeQIndex + 1} / ${questions.length} 个问题`}>
                 {questions.map((item, index) => (
                   <span
                     key={item.id}
-                    className={`qflow__dot${index === qIndex ? ' is-current' : ''}${index < qIndex ? ' is-done' : ''}`}
+                    className={`qflow__dot${index === safeQIndex ? ' is-current' : ''}${index < safeQIndex ? ' is-done' : ''}`}
                   />
                 ))}
               </div>
@@ -432,6 +433,44 @@ export default function QuickCreateFlow({ draftKey }) {
                       autoFocus
                       allowClear
                     />
+                  )}
+                  {question.type === 'credentials' && (
+                    <div className="qflow__credentials">
+                      {(question.fields || []).map((field, index) => {
+                        const FieldInput = field.secret ? Input.Password : Input
+                        return (
+                          <div key={field.answerKey} className="qflow__field">
+                            <label className="qflow__field-label" htmlFor={`qflow-${field.answerKey}`}>{field.label}</label>
+                            <FieldInput
+                              id={`qflow-${field.answerKey}`}
+                              className="qflow__input"
+                              value={answers[field.answerKey] || ''}
+                              maxLength={field.maxLength || 256}
+                              onChange={(event) => updateAnswers({ [field.answerKey]: event.target.value })}
+                              onPressEnter={() => submitAnswer()}
+                              placeholder={field.placeholder}
+                              aria-label={field.label}
+                              size="large"
+                              autoFocus={index === 0}
+                              allowClear
+                            />
+                          </div>
+                        )
+                      })}
+                      {question.note && <div className="qflow__note">{question.note}</div>}
+                    </div>
+                  )}
+                  {question.type === 'guide' && question.actionUrl && (
+                    <>
+                      <a
+                        className="qflow__guide-link"
+                        href={question.actionUrl}
+                        onClick={handleChatLinkClick}
+                      >
+                        {question.actionLabel || question.actionUrl}
+                      </a>
+                      {question.warning && <div className="qflow__warning">{question.warning}</div>}
+                    </>
                   )}
                   {question.type === 'textarea' && (
                     <Input.TextArea
@@ -545,8 +584,8 @@ export default function QuickCreateFlow({ draftKey }) {
                 {error && <div className="qflow__error" role="alert">{error}</div>}
 
                 <div className="qflow__actions">
-                  {qIndex > 0 && (
-                    <Button data-app-button="action" size="large" onClick={() => backToQuestion(qIndex - 1)}>‹ 上一步</Button>
+                  {safeQIndex > 0 && (
+                    <Button data-app-button="action" size="large" onClick={() => backToQuestion(safeQIndex - 1)}>‹ 上一步</Button>
                   )}
                   <Button
                     data-app-button="action"
@@ -555,9 +594,11 @@ export default function QuickCreateFlow({ draftKey }) {
                     className="qflow__next"
                     onClick={() => submitAnswer()}
                   >
-                    {question.optional && !String(answers[question.answerKey] || '').trim()
-                      ? '跳过，稍后提供'
-                      : isLast ? '下一步' : '继续'}
+                    {question.type === 'guide'
+                      ? (question.confirmLabel || (isLast ? '已完成，下一步' : '已完成，继续'))
+                      : question.optional && isQuestionEmpty(question, answers)
+                        ? '跳过，稍后提供'
+                        : isLast ? '下一步' : '继续'}
                   </Button>
                 </div>
               </div>

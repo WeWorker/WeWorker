@@ -26,7 +26,7 @@ it.each(['/settings/provider', '/settings/provider/activate'])('uses checked act
   const body = { provider: 'example', activate: true }
   await handler!({ body }, res)
   expect(res.status).toHaveBeenCalledWith(400)
-  expect(res.json.mock.calls[0][0]).toEqual({ detail: 'example unavailable' })
+  expect(res.json.mock.calls[0][0]).toEqual({ detail: 'example unavailable', model_checks: [] })
   expect(updateSettings).not.toHaveBeenCalled()
   expect(activateCheckedModelSettings.mock.calls[0][0]).toBe('example')
   if (path === '/settings/provider') {
