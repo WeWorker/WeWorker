@@ -365,8 +365,8 @@ html.dark .dedicated-agents-sidebar {
 .chat-view .message-bubble .markdown li { margin: .3em 0; }
 .chat-view .message-bubble .markdown pre { border: 1px solid var(--border); border-radius: 10px; line-height: 1.6; }
 .chat-view .message-item--assistant:not(.message-item--assistant-compact) { padding-top: 16px !important; padding-bottom: 20px !important; }
-.chat-model-selector .chat-model-selector__provider { width: 32px; }
-.chat-model-selector__provider > .app-dropdown-select__trigger { justify-content: center; padding: 0; }
+.chat-model-selector .chat-model-selector__provider { width: max-content; }
+.chat-model-selector__provider > .app-dropdown-select__trigger { justify-content: center; padding: 0 7px; gap: 6px; }
 .chat-model-selector__provider > .app-dropdown-select__trigger > .app-dropdown-select__label,
 .chat-model-selector__provider > .app-dropdown-select__trigger > .app-dropdown-select__caret,
 .chat-model-selector__provider > .app-dropdown-select__trigger > .provider-key-status { display: none; }

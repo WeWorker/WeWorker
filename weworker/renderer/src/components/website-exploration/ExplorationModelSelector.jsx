@@ -188,7 +188,7 @@ export default function ExplorationModelSelector({ disabled, usage, conversation
     <div className="wx-composer-context"><ContextPanel snapshot={snapshot} contextLimit={config?.context_limit || usage?.context_limit} usageOnly /></div>
     <div className="chat-input-toolbar-actions wx-chat-controls">
       <div className="chat-model-selector" aria-busy={pending || loading} title="仅用于当前探索会话">
-        <AppDropdownSelect className="chat-model-selector__provider" menuClassName="app-dropdown-menu chat-model-selector-menu"
+        <AppDropdownSelect className="chat-model-selector__provider" menuClassName="app-dropdown-menu chat-model-selector-menu provider-icons-menu"
           value={selected} options={providerOptions} ariaLabel="模型供应商选择" placement="top" minMenuWidth={240}
           disabled={disabled || pending || loading || Boolean(keyProvider)} onChange={selectProvider}
           prefix={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--bg-secondary)" /><circle cx="15" cy="17" r="3" fill="var(--bg-secondary)" /></svg>}

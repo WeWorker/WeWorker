@@ -152,7 +152,7 @@ export default function ModelSelector({ disabled, onPendingChange, thinkingEffor
     <div className="chat-model-selector" aria-busy={pending} title={errorTitle || '仅用于当前对话'}>
       <AppDropdownSelect
         className="chat-model-selector__provider"
-        menuClassName="app-dropdown-menu chat-model-selector-menu"
+        menuClassName="app-dropdown-menu chat-model-selector-menu provider-icons-menu"
         value={activeProvider}
         options={providerOptions}
         fallbackOption={{ value: activeProvider, label: provider?.name || activeProvider || '请选择', keyConfigured: Boolean(providers[activeProvider]?.has_key) }}

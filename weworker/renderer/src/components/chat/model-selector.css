@@ -190,6 +190,11 @@ html.dark .chat-model-selector__thinking { --thinking-color: #60a5fa; }
   min-width: 190px;
 }
 
+.provider-icons-menu .app-dropdown-menu-item__icon,
+.provider-icons-menu .app-dropdown-menu-item.is-selected .app-dropdown-menu-item__icon {
+  background: transparent;
+}
+
 .provider-key-status {
   display: inline-flex;
   align-items: center;
