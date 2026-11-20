@@ -12,9 +12,15 @@ export function showNotification(message, { type = 'info', duration = 5000 } = {
   const notice = {
     id,
     message: String(message ?? ''),
-    type: ['info', 'success', 'warning', 'error'].includes(type) ? type : 'info',
+    type: ['info', 'success', 'warning', 'error', 'loading'].includes(type) ? type : 'info',
     duration,
   }
   useNotificationsStore.setState((state) => ({ notices: [...state.notices, notice].slice(-3) }))
   return id
+}
+
+export function updateNotification(id, message, { type = 'info', duration = 5000 } = {}) {
+  useNotificationsStore.setState((state) => ({
+    notices: state.notices.map(notice => notice.id === id ? { ...notice, message: String(message ?? ''), type, duration } : notice),
+  }))
 }
