@@ -14,6 +14,7 @@ export interface ProviderEntry {
   models: string[]
   defaultModel: string
   fixed?: boolean
+  hidden?: boolean
   builtin?: boolean
   fixedModel?: boolean
   allowMultiple?: boolean

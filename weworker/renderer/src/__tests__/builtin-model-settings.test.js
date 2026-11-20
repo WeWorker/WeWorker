@@ -21,12 +21,12 @@ test('built-in metadata is visible before configuration without claiming a key e
 
 test('renderer initial state lists the built-ins and fixed presets declared in JSON before settings load', () => {
   const { visible } = buildSettingsProviderLists(PROVIDERS, initialState.providers)
-  assert.deepEqual(visible.map(provider => provider.id), PROVIDERS.filter(provider => provider.builtin || provider.fixed).map(provider => provider.id))
+  assert.deepEqual(visible.map(provider => provider.id), PROVIDERS.filter(provider => !provider.hidden && (provider.builtin || provider.fixed)).map(provider => provider.id))
 })
 
 test('unavailable built-in activation preserves the previous selection', async () => {
   globalThis.window = {}
-  globalThis.fetch = async () => Response.json({ detail: '内置模型服务尚未配置' }, { status: 400 })
+  globalThis.fetch = async () => Response.json({ detail: '免费内置模型服务尚未配置' }, { status: 400 })
   await assert.rejects(useSettingsStore.getState().activateProvider('builtin'), /服务尚未配置/)
   assert.equal(useSettingsStore.getState().activeProvider, initialState.activeProvider)
 })
@@ -49,7 +49,7 @@ test('built-in activation uses server state and does not send credentials from t
 test('provider visibility and initial state follow the JSON entries', () => {
   const { visible, addable } = buildSettingsProviderLists(PROVIDERS, {})
   for (const provider of PROVIDERS) {
-    assert.equal(visible.some(item => item.id === provider.id), Boolean(provider.builtin || provider.fixed))
+    assert.equal(visible.some(item => item.id === provider.id), Boolean(!provider.hidden && (provider.builtin || provider.fixed)))
     assert.equal(initialState.providers[provider.id].readonly === true, provider.builtin === true)
   }
   for (const id of ['fixture-unconfigured-provider']) {

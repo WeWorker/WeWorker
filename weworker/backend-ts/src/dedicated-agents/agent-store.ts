@@ -56,10 +56,11 @@ export interface DedicatedAgentRecord {
   updated_at: string
 }
 
-/** Bot credentials for either channel. `channel` defaults to WeCom. */
+/** Bot credentials; desktop needs none. `channel` defaults to WeCom. */
 export interface AgentBotInput {
   channel?: AgentChannelType
-  bot_id: string
+  /** Required by WeCom validation; desktop agents do not have a bot ID. */
+  bot_id?: string
   /** WeCom long-connection secret. */
   secret?: string
   /** WeChat iLink bot token. */
