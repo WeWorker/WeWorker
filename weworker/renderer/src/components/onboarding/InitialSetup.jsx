@@ -8,7 +8,7 @@ import './initial-setup.css'
 
 function providerOptions() {
   return PROVIDERS
-    .filter(provider => isBuiltinProvider(provider.id) || isFixedProvider(provider.id))
+    .filter(provider => !provider.hidden && (isBuiltinProvider(provider.id) || isFixedProvider(provider.id)))
     .map(provider => ({
       value: provider.id,
       label: provider.name,

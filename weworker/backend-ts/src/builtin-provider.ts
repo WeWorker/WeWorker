@@ -18,7 +18,7 @@ const EMBEDDED_SECRET_KEY = Buffer.from('33cfebfe2c3549b3de27164524c466c12dd9caa
 
 function decryptEmbeddedSecret(payload: string): string {
   const [iv, authTag, encrypted] = payload.split('.')
-  if (!iv || !authTag || !encrypted) throw new Error('内置模型配置无效')
+  if (!iv || !authTag || !encrypted) throw new Error('免费内置模型配置无效')
   const decipher = createDecipheriv('aes-256-gcm', EMBEDDED_SECRET_KEY, Buffer.from(iv, 'base64url'))
   decipher.setAuthTag(Buffer.from(authTag, 'base64url'))
   return Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8')
@@ -54,7 +54,7 @@ export function getBuiltinApiKey(id: string, env: NodeJS.ProcessEnv = process.en
 function getBuiltinRuntimeProvider(provider: ProviderEntry, env: NodeJS.ProcessEnv = process.env): ProviderEntry {
   if (provider.id !== 'builtin_dev') return provider
   const baseUrl = (env[provider.baseUrlEnv || ''] || provider.weworker.baseUrl || '').trim()
-  if (!baseUrl) throw new Error('内置模型服务尚未配置，请联系应用提供方或使用其他模型')
+  if (!baseUrl) throw new Error('免费内置模型服务尚未配置，请联系应用提供方或使用其他模型')
   const normalized = normalizeLlmBaseUrl(baseUrl)
   return {
     ...provider,
@@ -91,9 +91,9 @@ export function publicBuiltinProviders(providers: ProviderEntry[], env: NodeJS.P
 }
 
 export function builtinProviderAccess(provider: ProviderEntry, env: NodeJS.ProcessEnv = process.env) {
-  if (!isBuiltinProvider(provider.id)) throw new Error('不是内置模型')
+  if (!isBuiltinProvider(provider.id)) throw new Error('不是免费内置模型')
   const apiKey = getBuiltinApiKey(provider.id, env)
-  if (!apiKey) throw new Error('内置模型服务尚未配置，请联系应用提供方或使用其他模型')
+  if (!apiKey) throw new Error('免费内置模型服务尚未配置，请联系应用提供方或使用其他模型')
   const runtimeProvider = getBuiltinRuntimeProvider(provider, env)
   return {
     provider: runtimeProvider,

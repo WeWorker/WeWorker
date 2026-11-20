@@ -42,10 +42,17 @@ export async function backendFetch(pathOrUrl, options = {}) {
   const headers = new Headers(options.headers || {})
   if (token) headers.set('X-WeWorker-Auth', token)
 
-  return fetch(buildBackendUrl(pathOrUrl), {
-    ...options,
-    headers,
-  })
+  try {
+    return await fetch(buildBackendUrl(pathOrUrl), {
+      ...options,
+      headers,
+    })
+  } catch (error) {
+    // fetch 网络层失败（后端未启动/正在重启/连接被拒）只带 "Failed to fetch" 这种无从下手的文案，
+    // 统一转成可操作的提示；AbortError 等其余异常原样上抛。
+    if (error instanceof TypeError) throw new Error('无法连接 WeWorker 后端，请等待服务启动后重试')
+    throw error
+  }
 }
 
 export async function streamBackendEvents(onEvent, signal, onOpen) {

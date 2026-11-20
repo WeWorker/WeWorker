@@ -13,6 +13,7 @@ import { isPlanManagementTool } from '../../utils/todowrite-state.js'
 import { normalizeUserChoiceBlock } from '../../utils/user-choice.js'
 import { localFileUrl } from '../../utils/local-file-url.js'
 import { handleChatLinkClick } from '../../utils/chat-links.js'
+import { isTabTableBlock, preChildText } from '../../utils/code-block.js'
 import { captureMessageSelection, messageCopyContent } from '../../utils/message-copy.js'
 import FileGlyph, { getFileTypeLabel, getFileTypeMeta } from '../files/FileTypeIcon.jsx'
 
@@ -61,6 +62,8 @@ export default function MessageItem({ message, workId, streaming, compacting = f
   const lastDblClickRef = useRef(0)
   const messageRef = useRef(null)
   const selectedContentRef = useRef(null)
+  /** 打开右键菜单时的选区 Range 快照：复制后恢复蓝色高亮，方便继续复制下一行。 */
+  const savedSelectionRangesRef = useRef([])
 
   const handleContextMenu = (e) => {
     if (selectMode || streaming) return
@@ -69,7 +72,15 @@ export default function MessageItem({ message, workId, streaming, compacting = f
     const native = e.nativeEvent
     if (native instanceof MouseEvent && native.button !== 2) return
     e.preventDefault()
-    selectedContentRef.current = captureMessageSelection(e.currentTarget, window.getSelection())
+    const liveSelection = window.getSelection()
+    selectedContentRef.current = captureMessageSelection(e.currentTarget, liveSelection)
+    const ranges = []
+    if (liveSelection?.rangeCount) {
+      for (let index = 0; index < liveSelection.rangeCount; index += 1) {
+        ranges.push(liveSelection.getRangeAt(index).cloneRange())
+      }
+    }
+    savedSelectionRangesRef.current = ranges
     setMenuPos({ x: e.clientX, y: e.clientY })
     setShowMenu(true)
   }
@@ -100,6 +111,15 @@ export default function MessageItem({ message, workId, streaming, compacting = f
     selectedContentRef.current = null
     setShowMenu(false)
     navigator.clipboard.writeText(content[format])
+    // 复制后恢复选中高亮：点击菜单按钮及菜单卸载会让浏览器清掉选区。
+    const selection = window.getSelection()
+    const saved = savedSelectionRangesRef.current
+    if (selection && saved.length) {
+      selection.removeAllRanges()
+      for (const range of saved) {
+        try { selection.addRange(range) } catch { /* 节点已卸载等异常时放弃恢复 */ }
+      }
+    }
   }
 
   const handleMultiSelect = () => {
@@ -455,6 +475,20 @@ function ShellCommandCodeBlock({ code, className, commands, onShellCommand, ...p
   )
 }
 
+/**
+ * Tab 分隔的表格型代码块内容：每个 Tab 包进 span.tab-sep，竖线由 CSS 伪元素绘制
+ * （伪元素内容不进选区，选中/复制拿到的仍是真实 Tab，粘贴到表格仍按列拆分）。
+ */
+function TabTableCode({ text }) {
+  const parts = String(text ?? '').split('\t')
+  const nodes = []
+  parts.forEach((part, index) => {
+    if (index > 0) nodes.push(<span key={`sep-${index}`} className="tab-sep">{'\t'}</span>)
+    if (part) nodes.push(part)
+  })
+  return <code>{nodes}</code>
+}
+
 function MarkdownBody({ text, onShellCommand }) {
   if (!text) return null
   return (
@@ -476,6 +510,13 @@ function MarkdownBody({ text, onShellCommand }) {
             <table {...props}>{children}</table>
           </div>
         ),
+        pre: ({ children, ...props }) => {
+          const codeText = preChildText(children)
+          if (isTabTableBlock(codeText)) {
+            return <pre {...props} className="markdown-tab-table"><TabTableCode text={codeText} /></pre>
+          }
+          return <pre {...props} className={props.className}>{children}</pre>
+        },
         code: ({ inline, className, children, ...props }) => {
           const codeText = String(children ?? '').replace(/\n$/, '')
           if (!inline) {
