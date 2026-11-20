@@ -67,7 +67,7 @@ export function resolveWebwrightModelConfig(saved: Settings) {
   if (!entry.base_url) throw new Error('请在模型配置中填写网站探索 OpenAI 接口地址')
   const custom = provider.id === 'custom'
   const mapped = custom && !entry.base_url_is_full ? PROVIDERS.find(item => item.id !== 'custom'
-    && item.webwright.protocol === 'openai_chat_completions'
+    && item.webwright.protocol === 'openai_chat_completions' && Boolean(item.webwright.baseUrl)
     && normalizeLlmBaseUrl(item.webwright.baseUrl) === normalizeLlmBaseUrl(entry.base_url!)) : undefined
   return {
     provider_id: provider.id,

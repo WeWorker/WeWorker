@@ -1,9 +1,9 @@
 {
-  "defaultProvider": "anthropic",
+  "defaultProvider": "builtin",
   "providers": [
     {
       "id": "builtin",
-      "name": "免费内置模型",
+      "name": "免费内置模型（办公VDI）",
       "models": [
         "ark-code-latest"
       ],
@@ -27,34 +27,8 @@
       "encryptedApiKey": "KblwyJ8H-s6noP51.8CHYHFuC2Ry2BHjvRIby9g.OQVfEBpevOgdzHsJbpAS7lEJrTa-k1Ua4r77Uy3zMxZ0yRQnIEQy-EFyOu2YqA"
     },
     {
-      "id": "anthropic",
-      "name": "Anthropic",
-      "models": [],
-      "defaultModel": "",
-      "weworker": {
-        "protocol": "anthropic_messages",
-        "baseUrl": "https://api.anthropic.com"
-      },
-      "webwright": {
-        "protocol": "anthropic_messages",
-        "modelClass": "anthropic",
-        "baseUrl": "https://api.anthropic.com",
-        "structuredOutput": "anthropic_json_schema"
-      },
-      "fixed": true,
-      "builtin": false,
-      "fixedModel": false,
-      "allowMultiple": true,
-      "authType": "api_key",
-      "presentation": {
-        "subtitle": "Claude 系列",
-        "color": "#D97706",
-        "bg": "rgba(217,119,6,0.12)"
-      }
-    },
-    {
       "id": "glm",
-      "name": "智谱GLM",
+      "name": "智谱 GLM",
       "models": [],
       "defaultModel": "",
       "weworker": {
@@ -102,6 +76,58 @@
         "subtitle": "深度求索",
         "color": "#06B6D4",
         "bg": "rgba(6,182,212,0.12)"
+      }
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "models": [],
+      "defaultModel": "",
+      "weworker": {
+        "protocol": "openai_chat_completions",
+        "baseUrl": "https://api.openai.com/v1"
+      },
+      "webwright": {
+        "protocol": "openai_chat_completions",
+        "modelClass": "openai_chat",
+        "baseUrl": "https://api.openai.com/v1",
+        "structuredOutput": "openai_json_object"
+      },
+      "fixed": true,
+      "builtin": false,
+      "fixedModel": false,
+      "allowMultiple": true,
+      "authType": "auth_token",
+      "presentation": {
+        "subtitle": "OpenAI",
+        "color": "#339CFF",
+        "bg": "rgba(51,156,255,0.12)"
+      }
+    },
+    {
+      "id": "qwen",
+      "name": "通义千问",
+      "models": [],
+      "defaultModel": "",
+      "weworker": {
+        "protocol": "openai_chat_completions",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "webwright": {
+        "protocol": "openai_chat_completions",
+        "modelClass": "openai_chat",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "structuredOutput": "openai_json_object"
+      },
+      "fixed": true,
+      "builtin": false,
+      "fixedModel": false,
+      "allowMultiple": true,
+      "authType": "auth_token",
+      "presentation": {
+        "subtitle": "通义千问",
+        "color": "#339CFF",
+        "bg": "rgba(51,156,255,0.12)"
       }
     },
     {

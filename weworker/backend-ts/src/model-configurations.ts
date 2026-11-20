@@ -42,12 +42,16 @@ export function buildModelConfigurationNames(settings: Settings): Record<string,
       .map(provider => ({ id: provider.id, provider, name: isFixedProvider(provider.id) ? provider.name : settings.model_configuration_names?.[provider.id] })),
     ...Object.entries(settings.model_configurations || {}).flatMap(([id, configuration]) => {
       const provider = configuration && getProvider(configuration.provider_id)
-      return provider ? [{ id, provider, name: configuration.name }] : []
+      return provider ? [{ id, provider, name: isFixedProvider(id) ? provider.name : configuration.name }] : []
     }),
   ]
-  // Upgrade the previous default label while preserving names chosen by users.
+  // Refresh previous built-in default labels while preserving user-given names.
+  const builtinLabels: Record<string, string[]> = {
+    builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）'],
+    builtin_dev: ['内置模型（开发VDI）'],
+  }
   for (const entry of entries) {
-    if (entry.id === 'builtin' && entry.name?.trim() === '内置模型') entry.name = entry.provider.name
+    if (builtinLabels[entry.id]?.includes(entry.name?.trim() || '')) entry.name = entry.provider.name
   }
   const used = new Set(entries.map(entry => entry.name?.trim()).filter(Boolean))
   const result: Record<string, string> = {}
@@ -146,7 +150,7 @@ export function getModelConfiguration(settings: Settings, id: string | undefined
     ...(provider.id === 'custom' ? { weworker_protocol: configuration.weworker_protocol === 'openai_responses' ? 'openai_responses' : configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages' } : {
       base_url: provider.weworker.baseUrl, openai_base_url: provider.webwright.baseUrl,
       base_url_is_full: false, openai_base_url_is_full: false,
-      auth_type: provider.authType || 'api_key',
+      auth_type: provider.authType || 'api_key', weworker_protocol: provider.weworker.protocol,
     }),
   }
 }
@@ -177,6 +181,22 @@ export function deleteModelConfiguration(settings: Settings, id: string): Partia
   return { model_configurations, ...(sourceId ? {
     dismissed_model_sources: [...new Set([...(Array.isArray(settings.dismissed_model_sources) ? settings.dismissed_model_sources : []), sourceId])],
   } : {}) }
+}
+
+// New fixed suppliers use the existing encrypted configuration collection,
+// avoiding a new credential field for every supplier.
+export function updatePresetConfiguration(settings: Settings, id: string, input: Record<string, unknown>): Partial<Settings> {
+  const provider = getProvider(id)
+  if (!provider?.fixed || provider.builtin || provider.hidden) throw new Error('请选择固定供应商')
+  const configuration: ModelConfiguration = {
+    provider_id: id, name: provider.name, api_key: '', model: provider.defaultModel,
+    base_url: provider.weworker.baseUrl, openai_base_url: provider.webwright.baseUrl,
+    auth_type: provider.authType || 'api_key', weworker_protocol: provider.weworker.protocol,
+    context_limit: DEFAULT_CONTEXT_LIMIT,
+  }
+  return updateModelConfiguration({ ...settings, model_configurations: {
+    ...settings.model_configurations, [id]: getModelConfiguration(settings, id) || configuration,
+  } }, id, input)
 }
 
 export function activateModelConfiguration(settings: Settings, id: string): Partial<Settings> {

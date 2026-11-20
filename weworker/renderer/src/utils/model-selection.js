@@ -164,7 +164,7 @@ export function isProviderVisibleInSettings(provider, stored) {
 }
 
 export function buildSettingsProviderLists(providerList, providers) {
-  const allProviders = Array.isArray(providerList) ? providerList : []
+  const allProviders = Array.isArray(providerList) ? providerList.filter(provider => !provider.hidden) : []
   const storedProviders = providers || {}
   const visible = allProviders.filter((provider) => isProviderVisibleInSettings(provider, storedProviders[provider.id]))
   for (const [id, configuration] of Object.entries(storedProviders)) {
@@ -176,7 +176,11 @@ export function buildSettingsProviderLists(providerList, providers) {
   const namedVisible = visible.map(provider => {
     const supplierName = provider.name || provider.id
     let name = isFixedProvider(provider.id) ? supplierName : storedProviders[provider.id]?.name?.trim()
-    if (provider.id === 'builtin' && name === '内置模型') name = supplierName
+    const previousBuiltinLabels = {
+      builtin: ['内置模型', '免费内置模型', '内置模型（仅OA）'],
+      builtin_dev: ['内置模型（开发VDI）'],
+    }
+    if (previousBuiltinLabels[provider.id]?.includes(name)) name = supplierName
     if (!name) {
       if (provider.builtin || isBuiltinProvider(provider.id)) {
         name = supplierName
@@ -189,10 +193,6 @@ export function buildSettingsProviderLists(providerList, providers) {
     }
     return { ...provider, supplierName, name }
   })
-  const addable = allProviders.filter((provider) => (
-    !provider.builtin
-    && !isBuiltinProvider(provider.id)
-    && (provider.allowMultiple ?? configuredProvider(provider.id)?.allowMultiple) !== false
-  ))
+  const addable = allProviders.filter(provider => provider.builtin || provider.fixed || provider.allowMultiple !== false)
   return { visible: namedVisible, addable }
 }

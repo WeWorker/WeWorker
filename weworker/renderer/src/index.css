@@ -2233,6 +2233,23 @@ html.dark {
   margin: 0.8em 0;
 }
 .markdown pre code { background: none; padding: 0; }
+/* Tab 分隔的表格型代码块（如 Bot 输出的问题清单）：保持每行一行、横向滚动查看；
+   列间竖线由伪元素绘制，伪元素不进选区，选中复制的仍是真实 Tab。 */
+.markdown pre.markdown-tab-table {
+  tab-size: 2;
+  white-space: pre;
+}
+.markdown pre .tab-sep {
+  position: relative;
+}
+.markdown pre .tab-sep::before {
+  content: '│';
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+  opacity: 0.45;
+  pointer-events: none;
+}
 .markdown pre:has(.chat-shell-command-block) {
   padding: 0;
   border: none;

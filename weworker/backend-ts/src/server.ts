@@ -81,7 +81,7 @@ import { registerExplorationModelRoutes, explorationConversationSettings } from 
 import { conversationModels, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
-import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
+import { createModelConfiguration, getModelConfiguration, activateModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
 import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
@@ -469,6 +469,9 @@ function buildSettingsResponse(s: ReturnType<typeof getSettings>) {
     has_api_key: !!s.api_key,
     providers: Object.fromEntries(Object.entries({
       ...publicBuiltinProviders(PROVIDERS, process.env, s.builtin_context_limits),
+      ...Object.fromEntries(PROVIDERS.filter(p => ['openai', 'qwen'].includes(p.id)).map(p => [p.id, {
+        has_key: false, model: p.defaultModel, context_limit: DEFAULT_CONTEXT_LIMIT, visible: true,
+      }])),
       anthropic: { has_key: !!s.api_key_anthropic, model: configuredModel('anthropic', s.model_anthropic || ''), context_limit: s.context_limit_anthropic, added: s.added_providers.includes('anthropic'), visible: visible('anthropic') },
       bank_coding: { has_key: !!s.api_key_bank_coding, model: configuredModel('bank_coding', s.model_bank_coding || ''), context_limit: s.context_limit_bank_coding || DEFAULT_CONTEXT_LIMIT, added: s.added_providers.includes('bank_coding'), visible: visible('bank_coding') },
       glm:       { has_key: !!s.api_key_glm,       model: configuredModel('glm', s.model_glm || ''), context_limit: s.context_limit_glm, added: s.added_providers.includes('glm'), visible: visible('glm') },
@@ -840,6 +843,11 @@ app.post('/settings/provider', async (req, res) => {
     res.status(400).json({ detail: `Provider '${provider}' is not allowed in this build` })
     return
   }
+  if (provider === 'openai' || provider === 'qwen') {
+    try { res.json(buildSettingsResponse(updateSettings(updatePresetConfiguration(getSettings(), provider, req.body)))) }
+    catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : String(error) }) }
+    return
+  }
   if (isBuiltinProvider(provider)) {
     if (Object.keys(req.body).some(key => !['provider', 'name', 'context_limit'].includes(key))) {
       res.status(403).json({ detail: '免费内置模型仅支持修改名称和上下文窗口' })
@@ -1039,7 +1047,7 @@ app.post('/settings/provider/activate', (req, res) => {
     active_provider: provider,
     active_model_configuration: '',
     active_auth_type: provider === 'custom' ? current.custom_auth_type : getProvider(provider)?.authType || 'api_key',
-    active_weworker_protocol: provider === 'custom' ? current.weworker_protocol_custom || 'anthropic_messages' : 'anthropic_messages',
+    active_weworker_protocol: provider === 'custom' ? current.weworker_protocol_custom || 'anthropic_messages' : getProvider(provider)?.weworker.protocol || 'anthropic_messages',
     api_key: key,
     model,
     context_limit: contextLimit,
@@ -1082,7 +1090,7 @@ function resolveProviderAccess(body: ProviderRequestBody) {
     configuration?.api_key ?? (provider.id === 'anthropic' ? settings.api_key_anthropic :
       provider.id === 'bank_coding' ? settings.api_key_bank_coding || '' :
       provider.id === 'glm' ? settings.api_key_glm :
-      provider.id === 'deepseek' ? settings.api_key_deepseek : settings.api_key_custom)
+      provider.id === 'deepseek' ? settings.api_key_deepseek : provider.id === 'custom' ? settings.api_key_custom : '')
   const savedOpenAiApiKey = configuration?.openai_api_key ?? (provider.id === 'custom' ? settings.openai_api_key_custom || savedApiKey : savedApiKey)
   const anthropicFullUrl = provider.id === 'custom'
     && (body.base_url_is_full ?? (configuration ? configuration.base_url_is_full ?? false : settings.base_url_is_full_custom ?? false))
@@ -1134,7 +1142,7 @@ function resolveProviderRequest(body: ProviderRequestBody) {
     access.provider.id === 'anthropic' ? settings.model_anthropic :
     access.provider.id === 'bank_coding' ? settings.model_bank_coding || '' :
     access.provider.id === 'glm' ? settings.model_glm :
-    access.provider.id === 'deepseek' ? settings.model_deepseek : settings.model_custom)
+    access.provider.id === 'deepseek' ? settings.model_deepseek : access.provider.id === 'custom' ? settings.model_custom : '')
   const savedOpenAiModel = getModelConfiguration(settings, body.provider)?.openai_model || savedModel
   return {
     ...access,
