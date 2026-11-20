@@ -79,7 +79,7 @@ export default function ExplorationModelSettings({ configurationId } = {}) {
     </button>
     {open && <div className="exploration-model-body">
       <p>确认服务地址，验证后保存。不影响主任务使用。</p>
-      {stored?.builtin && <><p>使用免费内置模型的固定接口，凭据由应用提供。</p><button type="button" disabled={busy} onClick={() => run(false)}>检测网站探索接口</button></>}
+      {stored?.builtin && <><p>使用免费模型的固定接口，凭据由应用提供。</p><button type="button" disabled={busy} onClick={() => run(false)}>检测网站探索接口</button></>}
       {form && !stored?.builtin && <form onSubmit={event => { event.preventDefault(); void run(true) }}>
         <fieldset disabled={busy}>
             {configurationId && <label>接口协议<select disabled={stored?.fixed_provider} value={form.protocol} onChange={event => edit('protocol', event.target.value)}><option value="anthropic_messages">Anthropic Messages</option><option value="openai_chat_completions">OpenAI Chat Completions</option><option value="openai_responses">OpenAI Responses</option></select></label>}

@@ -26,7 +26,7 @@ test('renderer initial state lists the built-ins and fixed presets declared in J
 
 test('unavailable built-in activation preserves the previous selection', async () => {
   globalThis.window = {}
-  globalThis.fetch = async () => Response.json({ detail: '免费内置模型服务尚未配置' }, { status: 400 })
+  globalThis.fetch = async () => Response.json({ detail: '免费模型服务尚未配置' }, { status: 400 })
   await assert.rejects(useSettingsStore.getState().activateProvider('builtin'), /服务尚未配置/)
   assert.equal(useSettingsStore.getState().activeProvider, initialState.activeProvider)
 })

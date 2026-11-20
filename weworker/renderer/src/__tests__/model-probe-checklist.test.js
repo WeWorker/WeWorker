@@ -49,7 +49,7 @@ test('settings checklist probes both built-in interfaces and displays separate r
     const Component = (await server.ssrLoadModule('/src/components/settings/SettingsModal.jsx')).default
     const { useSettingsStore } = await server.ssrLoadModule('/src/store/settings.js')
     useSettingsStore.setState({ activeProvider: 'builtin', model: 'ark-code-latest', providers: {
-      builtin: { provider_id: 'builtin', name: '免费内置模型（办公VDI）', has_key: true, model: 'ark-code-latest',
+      builtin: { provider_id: 'builtin', name: '免费模型（办公VDI）', has_key: true, model: 'ark-code-latest',
         base_url: 'https://example.com/chat', weworker_protocol: 'anthropic_messages', added: true },
     } })
     const { createRoot } = await import('react-dom/client')

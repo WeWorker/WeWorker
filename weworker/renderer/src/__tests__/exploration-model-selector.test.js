@@ -25,7 +25,7 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     { id: 'custom', name: '网站探索配置（自定义）', model: 'fixture-explore', models: ['fixture-explore'], configured: true, has_key: true },
     { id: 'glm', name: 'Exploration GLM', model: 'glm-explore', models: ['glm-explore'], configured: true, has_key: true },
     { id: 'named-config', name: 'Claude Code', model: 'named-explore', models: ['named-explore'], configured: true, has_key: true },
-    { id: 'builtin', selection_provider: 'builtin', name: '免费内置模型（办公VDI）', model: 'builtin-model', models: ['builtin-model'], configured: true, has_key: true, fixed_model: true },
+    { id: 'builtin', selection_provider: 'builtin', name: '免费模型（办公VDI）', model: 'builtin-model', models: ['builtin-model'], configured: true, has_key: true, fixed_model: true },
     { id: 'anthropic', name: 'Anthropic', configured: false, fixed_provider: true, has_key: false },
     { id: 'deepseek', name: 'DeepSeek', model: '', protocol: 'openai_chat_completions', base_url: 'https://example.org/v1', configured: false, fixed_provider: true, has_key: false },
     { id: 'unconfigured-custom', name: 'Unconfigured exploration', configured: false },
@@ -85,7 +85,7 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     }
     await click('[aria-label="模型供应商选择"]')
     const options = [...document.querySelectorAll('[role="option"]')]
-    assert.deepEqual(options.map(el => el.textContent.trim()), ['网站探索配置（自定义）', 'Exploration GLM', 'Claude Code', '免费内置模型（办公VDI）', 'Anthropic', 'DeepSeek'])
+    assert.deepEqual(options.map(el => el.textContent.trim()), ['网站探索配置（自定义）', 'Exploration GLM', 'Claude Code', '免费模型（办公VDI）', 'Anthropic', 'DeepSeek'])
     const unconfiguredPreset = options.find(el => el.textContent.trim() === 'Anthropic')
     assert.equal(unconfiguredPreset.disabled, false)
     assert.ok(unconfiguredPreset.querySelector('[aria-label="未填写 API Key"]'))
@@ -118,7 +118,7 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].selection_revision, selectionRevision)
     assert.equal(useSettingsStore.getState().activeProvider, 'chat-only')
     await click('[aria-label="模型供应商选择"]')
-    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '免费内置模型（办公VDI）').click())
+    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '免费模型（办公VDI）').click())
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].provider, 'builtin')
     assert.ok(requests.some(r => r.path.endsWith('/check') && r.body.selection.provider === 'builtin'))
     assert.equal(requests.some(r => r.path === '/settings/exploration-model/selection' || r.path === '/settings/exploration-model' && r.body), false)
@@ -159,7 +159,7 @@ test('exploration picker configures fixed supplier keys and preserves exploratio
     assert.match(document.querySelector('[aria-label="模型供应商选择"]').textContent, /DeepSeek/)
     assert.equal(useWebsiteExplorationStore.getState().drafts['fixture/model'].model, 'deepseek-chat')
     await click('[aria-label="模型供应商选择"]')
-    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '免费内置模型（办公VDI）').click())
+    await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === '免费模型（办公VDI）').click())
     await click('[aria-label="模型供应商选择"]')
     const savesBeforeReselect = requests.filter(r => r.path === '/settings/provider').length
     await act(async () => [...document.querySelectorAll('[role="option"]')].find(el => el.textContent.trim() === 'DeepSeek').click())

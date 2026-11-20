@@ -17,9 +17,9 @@ function legacySettings(): Settings {
 
 describe('multiple model configurations', () => {
   it('refreshes old built-in default names without renaming user configurations', () => {
-    for (const name of ['内置模型', '免费内置模型', '内置模型（仅OA）']) {
+    for (const name of ['内置模型', '免费内置模型', '内置模型（仅OA）', '免费内置模型（办公VDI）']) {
       const state = { ...legacySettings(), model_configuration_names: { builtin: name } }
-      expect(buildModelConfigurationNames(state).builtin).toBe('免费内置模型（办公VDI）')
+      expect(buildModelConfigurationNames(state).builtin).toBe('免费模型（办公VDI）')
       expect(state.model_configuration_names.builtin).toBe(name)
     }
     expect(buildModelConfigurationNames({ ...legacySettings(), model_configuration_names: { builtin: '我的助手' } }).builtin).toBe('我的助手')

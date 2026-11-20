@@ -11,15 +11,15 @@ it('orders fixed public suppliers consistently in settings, chat and the add men
   assert.deepEqual(lists.visible.map(p => p.id), order)
   assert.deepEqual(lists.addable.map(p => p.id), [...order, 'custom'])
   assert.deepEqual(buildChatProviderOptions(BUILD_PROVIDERS, {}, 'builtin').map(p => p.value), order)
-  assert.equal(BUILD_PROVIDERS.find(p => p.id === 'builtin').name, '免费内置模型（办公VDI）')
+  assert.equal(BUILD_PROVIDERS.find(p => p.id === 'builtin').name, '免费模型（办公VDI）')
   assert.equal(BUILD_PROVIDERS.find(p => p.id === 'glm').name, '智谱 GLM')
 })
 
 it('refreshes old built-in default names while preserving user names', () => {
   const nameFor = name => buildSettingsProviderLists(BUILD_PROVIDERS, { builtin: { name } })
     .visible.find(provider => provider.id === 'builtin').name
-  for (const name of ['内置模型', '免费内置模型', '内置模型（仅OA）']) {
-    assert.equal(nameFor(name), '免费内置模型（办公VDI）')
+  for (const name of ['内置模型', '免费内置模型', '内置模型（仅OA）', '免费内置模型（办公VDI）']) {
+    assert.equal(nameFor(name), '免费模型（办公VDI）')
   }
   assert.equal(nameFor('我的助手'), '我的助手')
 })
