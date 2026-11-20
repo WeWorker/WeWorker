@@ -1,6 +1,6 @@
-import ProviderIcon from '../icons/ProviderIcon.jsx'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
+import ProviderIcon from '../icons/ProviderIcon.jsx'
 import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import SecretInput from './SecretInput.jsx'
 import { MODEL_SETTINGS_DESCRIPTION, MODEL_SETTINGS_DESCRIPTION_DANGER } from '../../config/model-settings-text.js'
