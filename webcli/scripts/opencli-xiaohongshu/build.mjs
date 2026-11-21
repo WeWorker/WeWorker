@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 const root = path.resolve(import.meta.dirname, '../..');
 const dir = import.meta.dirname;
 const require = createRequire(path.join(root, '../weworker/package.json'));
-const { build } = require('esbuild');
+const { build } = process.env.WEBCLI_BUILD_TOOLS_DIR ? createRequire(path.join(path.resolve(process.env.WEBCLI_BUILD_TOOLS_DIR), 'package.json'))('esbuild') : require('esbuild');
 const repo = path.resolve(root, '..');
 const pkg = path.join(repo, 'adapters/xiaohongshu.com');
 const upstream = fs.readdirSync(path.join(dir, 'upstream')).filter(f => f.endsWith('.js') && !f.endsWith('.test.js') && f !== 'auth.js');
@@ -18,7 +18,7 @@ const aliases = {
   'node:fs': 'files.js', 'node:path': 'files.js',
 };
 const result = await build({
-  stdin: { contents: upstream.map(f => `import './upstream/${f}';`).join('\n') + "\nimport './auth.js'; export * from './runtime.js';", resolveDir: dir },
+  stdin: { contents: upstream.map(f => `import './upstream/${f}';`).join('\n') + "\nimport './auth.js'; import './publish-status.js'; export * from './runtime.js';", resolveDir: dir },
   bundle: true, format: 'iife', globalName: '__xhsOpenCLI', platform: 'browser', write: false,
   banner: { js: banner },
   plugins: [{ name: 'xiaohongshu-host-bindings', setup(builder) {
@@ -32,6 +32,39 @@ const result = await build({
     });
     builder.onLoad({ filter: /upstream[\\/]publish\.js$/ }, args => {
       let contents = fs.readFileSync(args.path, 'utf8');
+      // Keep vendored source pinned; apply host-specific publishing contracts here.
+      contents = contents.replace('async function fillField(page, selectors, text, fieldName) {', `async function fillField(page, selectors, text, fieldName) {
+        if (fieldName === 'content' && page.fillBody) return page.fillBody(selectors, text);`);
+      contents = contents.replace("{ name: 'draft', type: 'bool'", "{ name: 'content-declaration', choices: ['none', 'ai'], default: 'none', help: '内容类型声明：none 不添加，ai 标注笔记含AI合成内容' },\n        { name: 'draft', type: 'bool'");
+      contents = contents.replace('// ── Step 2: Select', `if (page.beginPublish) await page.beginPublish({ title, draft: isDraft, imageCount: cards.length + absImagePaths.length });
+        // ── Step 2: Select`);
+      contents = contents.replace('// ── Step 7: Publish', `if (page.prepareSubmit) await page.prepareSubmit();
+        // ── Step 7: Publish`);
+      contents = contents.replace('const invokeResult = await page.evaluate(`', 'page.submitAttempted = true;\n        const invokeResult = await page.evaluate(`');
+      contents = contents.replace('(cfg => {', '(async cfg => {');
+      // Exactly one submission attempt. An exception may follow a dispatched write.
+      const start = contents.indexOf('        // Try every host + every candidate;');
+      const end = contents.indexOf('        // Path 2:', start);
+      if (start < 0 || end < 0) throw new Error('Publish submit source changed');
+      contents = contents.slice(0, start) + `        let lastMethodError = null;
+        for (const host of hosts) {
+          for (const name of wanted) {
+            if (typeof host[name] !== 'function') continue;
+            await host[name]();
+            return { ok: true, via: 'method', name };
+          }
+        }
+` + contents.slice(end);
+      const fallbackStart = contents.indexOf('        if (!invokeResult?.ok) {\n            // ── Draft fallback:');
+      // The next same-indentation block is the final error check, after all nested fallbacks.
+      const finalError = contents.indexOf("        if (!invokeResult?.ok) {\n            await page.screenshot({ path: '/tmp/xhs_publish_submit_debug.png'", fallbackStart);
+      if (fallbackStart < 0 || finalError < 0) throw new Error('Publish fallback source changed');
+      contents = contents.slice(0, fallbackStart) + contents.slice(finalError);
+      contents = contents.replace('const finalUrl = await page.evaluate', `if (page.finishPublish) {
+          const receipt = await page.finishPublish({ draft: isDraft });
+          return [{ ...receipt, detail: title, submitted: !isDraft, declaration: kwargs['content-declaration'] || 'none' }];
+        }
+        const finalUrl = await page.evaluate`);
       // A redirect to login is not proof of successful publishing.
       contents = contents.replace("const navigatedAway = !finalUrl.includes('/publish/publish');", "const navigatedAway = /^https:\\/\\/creator\\.xiaohongshu\\.com\\/new\\/note-manager(?:[/?#]|$)/.test(finalUrl);");
       contents = contents.replaceAll('Debug screenshot: /tmp/xhs_publish_tab_debug.png', 'Inspect the connected browser page').replaceAll('Debug screenshot: /tmp/xhs_publish_upload_debug.png', 'Inspect the connected browser page').replaceAll('Debug screenshot: /tmp/xhs_publish_form_debug.png', 'Inspect the connected browser page');
@@ -76,6 +109,7 @@ vm.createContext(ctx); vm.runInContext(bundled, ctx);
 const commands = [...ctx.__xhsOpenCLI.commands.values()];
 const manifestPath = path.join(pkg, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath));
+manifest.version = '2.0.4';
 manifest.description = '小红书：搜索、笔记、评论、媒体下载、用户列表、创作者分析、图文发布与本地草稿管理';
 manifest.match = ['xiaohongshu.com', 'www.xiaohongshu.com', 'creator.xiaohongshu.com'];
 manifest.runtime_allowed_hosts = ['xiaohongshu.com', 'xhscdn.com', 'xhslink.com'];
@@ -103,6 +137,13 @@ for (const id of ['search-notes', 'open-note', 'read-comments', 'check-login-sta
   manifest.commands.push(command);
 }
 manifest.commands.push(...legacy);
+// Local album capabilities remain reproducible alongside pinned upstream commands.
+const localCommands = JSON.parse(fs.readFileSync(path.join(dir, 'local-commands/commands.json'), 'utf8'));
+for (const command of localCommands) {
+  if (manifest.commands.some(existing => existing.id === command.id)) throw new Error(`Duplicate command ${command.id}`);
+  manifest.commands.push(command);
+  fs.copyFileSync(path.join(dir, 'local-commands', `${command.id}.js`), path.join(pkg, command.module));
+}
 for (const command of manifest.commands) {
   if (resultMetadata[command.id]) command.results = resultMetadata[command.id];
   for (const key of ['id', 'note-id', 'user-id', 'url']) {

@@ -36,10 +36,10 @@ function setup(url = WEB + '/explore', values = [], privileged) {
   return { pkg, ctx, calls, queue, storage, run: async (name, args = {}) => handlers.get('xiaohongshu.com.' + name)(args) };
 }
 describe('Xiaohongshu v2 migration contracts', () => {
-  it('registers all 25 upstream commands, seven local/compatibility entries and derived guidance', () => {
+  it('registers upstream commands, compatibility entries, albums and publish status', () => {
     const s = setup();
-    expect(s.pkg.commands).toHaveLength(32);
-    expect(s.ctx.__xhsOpenCLI.commands.size).toBe(25);
+    expect(s.pkg.commands).toHaveLength(36);
+    expect(s.ctx.__xhsOpenCLI.commands.size).toBe(26);
     expect(managedAdapterSkill({ ...s.pkg.manifest, id: s.pkg.manifest.name, tools: [], guidance: readFileSync(resolve(base, 'guidance.md'), 'utf8') })).toContain('xsec_token');
     for (const cmd of s.pkg.commands.filter(c => c.safety === 'write' && !['like-note', 'favorite-note'].includes(c.id))) expect(cmd.requires_confirmation).toBeUndefined();
     expect(s.pkg.manifest.verified_on).toBeUndefined();
@@ -125,7 +125,7 @@ describe('Xiaohongshu v2 migration contracts', () => {
   it('downloads only allowed MIME/hosts with base64 bytes and no account cookies', async () => {
     const media = { noteId: ID, media: [{ type: 'image', url: 'https://sns-img.xhscdn.com/fixture.jpg' }] };
     const s = setup(NOTE, [media], action => action === 'backend_fetch' ? { ok: true, status: 200, bodyEncoding: 'base64', body: '/9j/', size: 3, headers: { 'content-type': 'image/jpeg' } } : action === 'backend_file_write' ? { path: 'fixture-output/image.jpg' } : undefined);
-    const rows = await s.run('download', { 'note-id': NOTE, output: 'fixture-output' });
+    const rows = await s.run('download', { __confirmed: true, 'note-id': NOTE, output: 'fixture-output' });
     expect(rows[0]).toMatchObject({ status: 'saved', size: 3 });
     expect(s.calls.find(c => c.action === 'backend_fetch').options).toMatchObject({ redirect: 'manual', responseEncoding: 'base64' });
     expect(s.calls.find(c => c.action === 'backend_file_write')).toMatchObject({ content: '/9j/', encoding: 'base64' });
@@ -152,15 +152,15 @@ describe('Xiaohongshu v2 migration contracts', () => {
   });
   it.each(['https://example.org/image.jpg', 'https://xhscdn.com.example.org/image.jpg', 'http://sns-img.xhscdn.com/image.jpg'])('rejects media host %s', async url => {
     const s = setup(NOTE, [{ noteId: ID, media: [{ type: 'image', url }] }]);
-    await expect(s.run('download', { 'note-id': NOTE })).rejects.toMatchObject({ code: 'ARGUMENT' }); expect(s.calls.some(c => c.action === 'backend_fetch')).toBe(false);
+    await expect(s.run('download', { __confirmed: true, 'note-id': NOTE })).rejects.toMatchObject({ code: 'ARGUMENT' }); expect(s.calls.some(c => c.action === 'backend_fetch')).toBe(false);
   });
   it('resolves short links with bounded trusted redirects before note navigation', async () => {
     const s = setup(WEB + '/explore', [], action => action === 'backend_fetch' ? { status: 302, headers: { location: NOTE } } : undefined);
-    expect((await s.run('download', { 'note-id': 'https://xhslink.com/fixture' })).__webcli_navigation.url).toBe(NOTE);
+    expect((await s.run('download', { __confirmed: true, 'note-id': 'https://xhslink.com/fixture' })).__webcli_navigation.url).toBe(NOTE);
   });
   it('rejects a short-link redirect to an unrelated host', async () => {
     const s = setup(WEB + '/explore', [], action => action === 'backend_fetch' ? { status: 302, headers: { location: 'https://example.org/' } } : undefined);
-    await expect(s.run('download', { 'note-id': 'https://xhslink.com/fixture' })).rejects.toMatchObject({ code: 'ARGUMENT' });
+    await expect(s.run('download', { __confirmed: true, 'note-id': 'https://xhslink.com/fixture' })).rejects.toMatchObject({ code: 'ARGUMENT' });
   });
   it('rejects missing upload files before any page mutation', async () => {
     const s = setup(PUBLISH, [], action => { if (action === 'backend_file_read') throw new Error('File not found'); });
@@ -195,8 +195,15 @@ describe('Xiaohongshu v2 migration contracts', () => {
     let final = false;
     const s = setup(PUBLISH, [], (action, args) => {
       if (action === 'backend_file_read') return { path: 'C:/weworker-fixtures/image.jpg', content: '/9j/', encoding: 'base64', size: 3 };
+      if (action === 'network_capture_read') return { entries: [{ responseStatus: 200, responsePreview: JSON.stringify({ success: true, data: { notes: final ? [{ id: ID, display_title: 'Fixture title', images_list: [{}], tab_status: 2, time: '2026-01-01 12:00' }] : [] } }) }] };
       if (action !== 'main_world_eval') return;
       const code = args.expression; let value;
+      if (code.includes('function assignImageFiles')) value = { verified: true, count: 1 };
+      else if (code.includes('function replaceBodyParagraphs')) value = { verified: true, paragraphs: 1 };
+      else if (code.includes('input[placeholder*="标题"], input[placeholder*="赞"]')) value = false;
+      else if (code.includes('history.pushState')) value = true;
+      else if (code.includes('const openDb')) value = { ok: true, entries: final ? [{ key: 'fixture-draft', row: { content: { draftStore: { title: 'Fixture title', imgList: [{}] } } } }] : [] };
+      else
       if (code.includes('location.href')) value = final ? CREATOR + '/publish/success' : PUBLISH;
       else if (code.includes("const targets = ['上传图文', '图文', '图片']")) value = { ok: true, text: '上传图文' };
       else if (code.includes('hasTitleInput') && code.includes('hasVideoSurface')) value = { state: 'editor_ready', hasTitleInput: true, hasImageInput: true, hasVideoSurface: false };
@@ -212,9 +219,10 @@ describe('Xiaohongshu v2 migration contracts', () => {
       return { value: { ok: true, value } };
     });
     const rows = await s.run('publish', { title: 'Fixture title', content: 'Fixture body', images: 'C:/weworker-fixtures/image.jpg', draft: String(draft), __confirmed: true });
-    expect(rows[0].status).toContain(draft ? '暂存成功' : '发布成功');
-    expect(s.calls.filter(c => c.action === 'native_input').map(c => c.text)).toEqual(['Fixture title', 'Fixture body']);
-    expect(s.calls.find(c => c.action === 'set_file_input').files).toEqual(['C:/weworker-fixtures/image.jpg']);
+    expect(rows[0].status).toBe(draft ? 'draft_saved' : 'reviewing');
+    expect(rows[0].image_count).toBe(1);
+    expect(s.calls.filter(c => c.action === 'native_input').map(c => c.text)).toEqual(['Fixture title']);
+    expect(s.calls.some(c => c.action === 'set_file_input')).toBe(false);
   });
   it('does not confuse creator login with a requested public web command', async () => {
     const s = setup(CREATOR + '/login');

@@ -48,7 +48,7 @@
 - 主世界求值用于 Pinia、IndexedDB、站点签名请求与 DOM；异常显式返回。跨页面首次只读调用使用宿主导航续执行，创作者后续页面转换沿用站点 SPA 路由。一次风险提示冷却重载有跨续执行标记，不无限重试。登录／非预期重定向单独报告。
 - 新增写命令保持确认要求。写命令首次跳转返回 ready_to_retry / executed=false，由调用者以相同已确认参数再次调用，不自动重放。execute 默认为 false 的删除命令仍保持预演语义。超时可能发生在副作用之后，不能盲目重试。
 - 通用 `native_input` 只允许文本和固定按键，绑定 sender tab，不暴露任意 CDP。仅同步此 helper、测试、说明到内部仓库；站点包和站点构建／测试只在公开仓库。
-- 本地文件预读每张最多 8 MiB、总计 32 MiB、最多 9 张；使用既有 set_file_input，失败时保留来源的有界 base64 回退。媒体下载每文件最多 50 MiB，允许 xhscdn.com 及其子域，验证 MIME，拒绝下载重定向，不向 CDN 发送账号 Cookie；短链接仅有界跟随到可信小红书详情 URL。
+- 本地文件预读每张最多 8 MiB、总计 32 MiB、最多 9 张；发布上传使用有界预读图片构造原生 FileList，核对文件后派发事件；不重新附加 debugger 或在派发后回退重试。媒体下载每文件最多 50 MiB，允许 xhscdn.com 及其子域，验证 MIME，拒绝下载重定向，不向 CDN 发送账号 Cookie；短链接仅有界跟随到可信小红书详情 URL。
 
 ## 相对来源的明确调整
 
@@ -87,3 +87,33 @@ node webcli/index.js call xiaohongshu.com.search --query=咖啡 --limit=2
 ```
 
 包与映射状态表示代码迁入，不表示所有真实流程已验收。原用户文章和内部两个 lockfile 改动保持；未推送、合并或发版。
+
+
+## 收藏专辑扩展（v2.0.3）
+
+在原有 Extension Adapter 内新增 `albums`、`album-notes`、`video-media` 三个只读命令，保留原有 32 个命令、鉴权及运行时。源码位于 `webcli/scripts/opencli-xiaohongshu/local-commands/`，build.mjs 将声明和实现同步至标准 v2 包，避免重建覆盖。无需增加域名权限或修改构建 profile；小红书包已在现有打包范围内。
+
+```sh
+webcli call xiaohongshu.com.albums --limit=200
+webcli call xiaohongshu.com.album-notes --album-id=<album-id> --limit=200
+webcli call xiaohongshu.com.video-media --url='<完整笔记URL>'
+python3 webcli/scripts/opencli-xiaohongshu/download-album.py --webcli <webcli路径> --album-id <album-id> --output <输出目录>
+node --test webcli/__tests__/xiaohongshu-albums.node.mjs
+```
+
+`albums` 返回专辑 ID、名称、笔记总数和 URL；同名专辑按 ID 区分。`album-notes` 返回笔记类型及带当前访问上下文的笔记 URL。两者有限滚动加载并提供 `complete`；调用方不可把不完整结果当作全量。`video-media` 提取允许的 CDN 上含音轨的 HTTPS MP4 流，URL 临时有效。页面数据通过现有 `main_world_eval` 桥读取，不导出 Cookie 或重造接口签名。导航使用宿主只读续执行协议。
+
+文件下载由本地脚本调用 yt-dlp 完成，下载后 ffprobe 检查音视频轨道；不修改原有 download 命令。原因是宿主媒体读取当前上限为单文件 50 MiB，较长视频会超出该限制。脚本不是新的 Adapter runtime，包内三个命令仍使用原有 Extension Runner。真实账号、专辑列表、媒体签名与视频文件不进入仓库。
+
+已在本地开发包实测 49 个专辑的完整列表，以及一个仅含 1 个视频的专辑的笔记读取、媒体解析、yt-dlp 下载与音视频轨道检查。仓库包另经静态检查；大型专辑和访问受限笔记未验证。依赖网页 Pinia 数据结构，站点改版需重新验证。
+
+
+## 图文发布修复（v2.0.4）
+
+原 publish 上传路径会重复附加已占用的 debugger。现在在既有 MAIN world 执行环境构造原生 FileList，核对文件名和大小；正文按转义后的段落写入并核对。新增 content-declaration=none|ai，AI 声明使用聚焦与原生 Enter 展开站点控件。调整在 build.mjs 显式转换和 publish-support.js 中维护，不修改固定版本 upstream 源码。
+
+草稿核对本地 IndexedDB 唯一新增记录；公开提交先记录作品基线，再核对唯一新增作品，避免将旧同名作品或模糊跳转误报成功。提交只选一个方法并等待完成，派发后不尝试其他提交路径。结果不明返回 OUTCOME_UNKNOWN，必须先检查，禁止自动重发。新增只读 publish-status，捕获站点自身已签名的最近作品列表请求；不在第一页不代表删除。
+
+沿用目标分支现有宿主写入协议，不重新引入包内隐藏确认参数；写操作仅在用户明确要求时执行。无需新增域名、扩展权限、runtime 或构建打包范围。指导文件同步进入应用生成的 Skill。
+
+真实验证：修复后的 publish 保存 3 图草稿，确认分段和 AI 声明选择；只读状态查询确认此前由基础浏览器发布的测试作品已通过审核。修复后的公开提交路径仅经自动化模拟，未额外公开发帖。账号、作品 ID 和图片均保留在仓库外。
