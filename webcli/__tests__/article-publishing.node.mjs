@@ -96,3 +96,58 @@ test('Zhihu status falls back to owner draft when public article is absent',asyn
  ctx.fetch=async url=>{urls.push(url);return urls.length===1?{ok:false,status:404}:{ok:true,text:async()=>JSON.stringify({id:'123',title:'示例',state:'draft'})}};
  assert.equal((await api.status({id:'123'})).status,'draft');assert.equal(urls[1],'/api/articles/123/draft');
 });
+function zhihuEditor({ stale = false, mismatched = false, outcome = 'published', failedImage = false } = {}) {
+ const {api,ctx,calls}=env('zhihu',{host:'zhuanlan.zhihu.com'});
+ ctx.location.pathname='/p/123/edit';ctx.location.href='https://zhuanlan.zhihu.com/p/123/edit';ctx.location.origin='https://zhuanlan.zhihu.com';
+ const storage=()=>{const data=new Map();return {getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)}};
+ ctx.localStorage=storage();ctx.sessionStorage=storage();
+ ctx.setTimeout=(fn,ms)=>{if(ms<30000)fn();return 1;};
+ if(stale)ctx.__wwArticleSavedNeedsReload='123';
+ const image={getAttribute:()=> 'https://pic.example.org/image.png',complete:true,naturalWidth:failedImage?0:1200};
+ const html='<p>Example body</p><img src="https://pic.example.org/image.png">';
+ ctx.DOMParser=class {parseFromString(value){return {body:{textContent:value.replace(/<[^>]*>/g,''),querySelectorAll:tag=>tag==='img'&&value.includes('<img')?[image]:[]}}}};
+ const node={syncDraft(){},state:{content:mismatched?'<p>old content</p>':html,realTimeContent:html},props:{content:html,postId:'123'}};
+ const editor={__reactFiber$example:{stateNode:node},querySelectorAll:()=>[image]};
+ let clicks=0,published=false;
+ ctx.document={querySelector:sel=>sel==='.public-DraftEditor-content'?editor:{value:'Example title'},querySelectorAll:sel=>sel==='button'?[{getClientRects:()=>[1],textContent:'发布',disabled:false,click(){clicks++;if(outcome!=='silent')ctx.fetch('/api/articles/123/publish',{method:'POST'});}}]:[]};
+ ctx.fetch=async(url,opts)=>{
+  calls.push({url,opts});
+  if(url.endsWith('/publish')){if(outcome==='published')published=true;return {ok:outcome!=='rejected',status:outcome==='rejected'?403:200};}
+  const j={id:'123',title:'Example title',content:html,state:published?'published':'draft'};
+  return {ok:true,status:200,text:async()=>JSON.stringify(j)};
+ };
+ return {api,ctx,calls,clicks:()=>clicks};
+}
+const publishExample={execute:true,'draft-id':'123',title:'Example title',declaration:'none'};
+test('Zhihu freshly saved or stale editor reloads without a single submit click',async()=>{
+ for(const opts of [{stale:true},{mismatched:true}]){
+  const e=zhihuEditor(opts);const r=await e.api.publish(publishExample);
+  assert.equal(r.__webcli_navigation.resume,false);assert.equal(r.__webcli_navigation.result.executed,false);
+  assert.equal(e.clicks(),0);assert.equal(e.ctx.localStorage.getItem('ww-article-submit:123'),null);
+ }
+});
+test('Zhihu image load failure blocks submission',async()=>{
+ const e=zhihuEditor({failedImage:true});await assert.rejects(e.api.publish(publishExample),/images have not finished/);assert.equal(e.clicks(),0);
+});
+test('Zhihu requires API proof for published and prevents cross-tab repeat submission',async()=>{
+ const e=zhihuEditor();const r=await e.api.publish(publishExample);
+ assert.equal(r.status,'published');assert.equal(r.verified,true);assert.equal(e.clicks(),1);
+ assert.equal(JSON.parse(e.ctx.localStorage.getItem('ww-article-submit:123')).request_seen,true);
+ // Simulate another tab/reload: session journal is gone, origin-wide journal remains.
+ e.ctx.sessionStorage={getItem:()=>null};
+ await assert.rejects(e.api.publish(publishExample),x=>x.code==='OUTCOME_UNKNOWN');assert.equal(e.clicks(),1);
+});
+test('Zhihu silent click cannot masquerade as a submission receipt',async()=>{
+ const e=zhihuEditor({outcome:'silent'});
+ await assert.rejects(e.api.publish(publishExample),x=>x.code==='OUTCOME_UNKNOWN'&&/no publish response/.test(x.message));
+ assert.equal(e.clicks(),1);assert.equal(JSON.parse(e.ctx.localStorage.getItem('ww-article-submit:123')).request_seen,false);
+});
+test('Zhihu rejected publish request retains evidence without a retry',async()=>{
+ const e=zhihuEditor({outcome:'rejected'});
+ await assert.rejects(e.api.publish(publishExample),x=>x.code==='OUTCOME_UNKNOWN'&&/403/.test(x.message));
+ assert.equal(e.clicks(),1);
+});
+test('Zhihu HTTP success while still draft is explicitly unverified',async()=>{
+ const e=zhihuEditor({outcome:'pending'});const r=await e.api.publish(publishExample);
+ assert.equal(r.status,'submission_received');assert.equal(r.verified,false);assert.equal(r.http_status,200);assert.equal(e.clicks(),1);
+});

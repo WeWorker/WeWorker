@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 const dir = import.meta.dirname;
 const root = path.resolve(dir, '../../..');
-for (const [site, domain, version, namespace] of [['juejin','juejin.cn','1.1.0','__juejinPublishing'], ['zhihu','zhihu.com','0.2.0','__zhihuPublishing']]) {
+for (const [site, domain, version, namespace] of [['juejin','juejin.cn','1.1.0','__juejinPublishing'], ['zhihu','zhihu.com','0.2.1','__zhihuPublishing']]) {
   const pkg = path.join(root,'adapters',domain);
   fs.copyFileSync(path.join(dir,'common.js'),path.join(pkg,'extension/internal/article-common.js'));
   fs.copyFileSync(path.join(dir,site+'.js'),path.join(pkg,'extension/internal/article-publishing.js'));
