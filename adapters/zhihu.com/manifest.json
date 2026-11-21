@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "name": "zhihu.com",
-  "version": "0.1.2",
+  "version": "0.2.1",
   "enabled": true,
   "description": "知乎热榜、搜索、回答、评论和用户内容",
   "match": [
@@ -1948,6 +1948,102 @@
         },
         "required": [
           "url"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "prepare-article",
+      "runtime": "extension",
+      "module": "extension/commands/prepare-article.js",
+      "routeDomain": "zhuanlan.zhihu.com",
+      "description": "将 HTML 与本地配图上传并保存为知乎专栏草稿（不公开），通过服务器读回核验",
+      "safety": "write",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "file": {
+            "type": "string",
+            "description": "UTF-8 HTML 文件绝对路径；支持标题、列表、链接、表格及本地图片"
+          },
+          "draft-id": {
+            "type": "string",
+            "pattern": "^\\d{1,30}$",
+            "description": "显式指定要编辑的现有草稿，防止误覆盖"
+          },
+          "execute": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "title",
+          "file"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "publish-article",
+      "runtime": "extension",
+      "module": "extension/commands/publish-article.js",
+      "routeDomain": "zhuanlan.zhihu.com",
+      "description": "发布已保存的匹配草稿；须用户授权和 execute=true，结果不明不得自动重发",
+      "safety": "write",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "draft-id": {
+            "type": "string",
+            "pattern": "^\\d{1,30}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "execute": {
+            "type": "boolean",
+            "default": false
+          },
+          "declaration": {
+            "type": "string",
+            "enum": [
+              "none",
+              "ai"
+            ],
+            "default": "none"
+          }
+        },
+        "required": [
+          "draft-id",
+          "title"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "article-status",
+      "runtime": "extension",
+      "module": "extension/commands/article-status.js",
+      "routeDomain": "zhuanlan.zhihu.com",
+      "description": "只读查询文章 ID、标题及平台状态；保留原始状态，不把提交等同审核通过",
+      "safety": "read",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^\\d{1,30}$"
+          }
+        },
+        "required": [
+          "id"
         ],
         "additionalProperties": false
       }
