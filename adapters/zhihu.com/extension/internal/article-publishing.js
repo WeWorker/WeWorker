@@ -122,6 +122,18 @@
     const titleInput = document.querySelector('textarea[placeholder*="标题"]');
     const states = [node.state.content, node.state.realTimeContent, node.props.content].filter(v => typeof v === 'string');
     if (titleInput?.value !== title || !states.every(matches) || ed.querySelectorAll('img').length !== images.length) return { reload: true, reason: 'editor_server_mismatch' };
+    // Below-the-fold images use loading=lazy; check the actual resource rather than
+    // treating viewport deferral as an upload failure. This does not edit the draft.
+    await Promise.all([...ed.querySelectorAll('img')].map(async img => {
+      if (img.complete && img.naturalWidth) return;
+      img.loading = 'eager';
+      let timer;
+      try {
+        if (typeof img.decode === 'function') await Promise.race([
+          img.decode(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Image load timed out')), 8000); }),
+        ]);
+      } finally { if (timer) clearTimeout(timer); }
+    }));
     const failedImages = [...ed.querySelectorAll('img')].some(img => !img.complete || !img.naturalWidth);
     if (failedImages) throw new Error('Editor images have not finished loading');
     return { reload: false, image_count: images.length };

@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const source = name => fs.readFileSync(path.join(root,'webcli/scripts/article-publishing',name+'.js'),'utf8');
 function env(site, { host = 'example.org', response, files = {} } = {}) {
  const calls = [];
- const ctx = { URL, Map, Set, crypto: globalThis.crypto, atob, location:{hostname:host,pathname:'/'}, setTimeout:fn=>{fn();return 1;}, fetch:async(url,opts)=>{calls.push({url,opts});return {ok:true,status:200,json:async()=>response,text:async()=>typeof response==='string'?response:JSON.stringify(response)}} };
+ const ctx = { URL, Map, Set, crypto: globalThis.crypto, atob, clearTimeout, location:{hostname:host,pathname:'/'}, setTimeout:fn=>{fn();return 1;}, fetch:async(url,opts)=>{calls.push({url,opts});return {ok:true,status:200,json:async()=>response,text:async()=>typeof response==='string'?response:JSON.stringify(response)}} };
  ctx.window = ctx;
  ctx.__webmcpWecliRuntime = {requestPrivileged:async(action,args)=>{
    calls.push({action,args});
@@ -96,14 +96,15 @@ test('Zhihu status falls back to owner draft when public article is absent',asyn
  ctx.fetch=async url=>{urls.push(url);return urls.length===1?{ok:false,status:404}:{ok:true,text:async()=>JSON.stringify({id:'123',title:'示例',state:'draft'})}};
  assert.equal((await api.status({id:'123'})).status,'draft');assert.equal(urls[1],'/api/articles/123/draft');
 });
-function zhihuEditor({ stale = false, mismatched = false, outcome = 'published', failedImage = false } = {}) {
+function zhihuEditor({ stale = false, mismatched = false, outcome = 'published', failedImage = false, lazyImage = false } = {}) {
  const {api,ctx,calls}=env('zhihu',{host:'zhuanlan.zhihu.com'});
  ctx.location.pathname='/p/123/edit';ctx.location.href='https://zhuanlan.zhihu.com/p/123/edit';ctx.location.origin='https://zhuanlan.zhihu.com';
  const storage=()=>{const data=new Map();return {getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v)}};
  ctx.localStorage=storage();ctx.sessionStorage=storage();
- ctx.setTimeout=(fn,ms)=>{if(ms<30000)fn();return 1;};
+ ctx.setTimeout=(fn,ms)=>{if(ms<8000)fn();return 1;};
  if(stale)ctx.__wwArticleSavedNeedsReload='123';
  const image={getAttribute:()=> 'https://pic.example.org/image.png',complete:true,naturalWidth:failedImage?0:1200};
+ if(lazyImage){image.complete=false;image.naturalWidth=0;image.decode=async()=>{assert.equal(image.loading,'eager');image.complete=true;image.naturalWidth=1200;};}
  const html='<p>Example body</p><img src="https://pic.example.org/image.png">';
  ctx.DOMParser=class {parseFromString(value){return {body:{textContent:value.replace(/<[^>]*>/g,''),querySelectorAll:tag=>tag==='img'&&value.includes('<img')?[image]:[]}}}};
  const node={syncDraft(){},state:{content:mismatched?'<p>old content</p>':html,realTimeContent:html},props:{content:html,postId:'123'}};
@@ -150,4 +151,9 @@ test('Zhihu rejected publish request retains evidence without a retry',async()=>
 test('Zhihu HTTP success while still draft is explicitly unverified',async()=>{
  const e=zhihuEditor({outcome:'pending'});const r=await e.api.publish(publishExample);
  assert.equal(r.status,'submission_received');assert.equal(r.verified,false);assert.equal(r.http_status,200);assert.equal(e.clicks(),1);
+});
+
+test('Zhihu loads deferred images before validating the editor',async()=>{
+ const e=zhihuEditor({lazyImage:true});const r=await e.api.publish(publishExample);
+ assert.equal(r.status,'published');assert.equal(e.clicks(),1);
 });
