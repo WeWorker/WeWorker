@@ -1,3 +1,4 @@
+import { uploadPreloadedImages, fillBody, beginPublish, prepareSubmit, finishPublish } from './publish-support.js';
 import { commands } from './registry.js';
 import { decorateResults } from './context-results.js';
 import { files } from './files.js';
@@ -105,7 +106,11 @@ export class Page {
     });
   }
   async getCookies(options) { const r = await helper('cookies_get', options); return Array.isArray(r) ? r : r.cookies || []; }
-  async setFileInput(paths, selector) { this.check(); return helper('set_file_input', { selector, files: paths }); }
+  async setFileInput(paths, selector) { this.check(); return uploadPreloadedImages(this, paths, selector); }
+  async fillBody(selectors, text) { return fillBody(this, selectors, text); }
+  async beginPublish(expected) { return beginPublish(this, expected); }
+  async prepareSubmit() { return prepareSubmit(this); }
+  async finishPublish(options) { return finishPublish(this, options); }
   async insertText(text) { this.check(); return helper('native_input', { type: 'text', text }); }
   async pressKey(key) { this.check(); return helper('native_input', { type: 'key', key }); }
   // Upstream screenshots are failure diagnostics, never a required step.
@@ -188,6 +193,7 @@ export async function invoke(name, input) {
   const command = commands.get(name);
   if (!command) throw new ArgumentError('Unknown Xiaohongshu command');
   const args = normalizeArgs(command, input);
+  // Confirmation is enforced by the host command contract, never a hidden business parameter.
   const page = new Page(command, args);
   try {
     if (name === 'download') await resolveDownloadLink(args);
@@ -197,6 +203,7 @@ export async function invoke(name, input) {
     return decorateResults(name, args, result);
   } catch (error) {
     if (page.pending) return page.pending.result;
+    if (page.submitAttempted) throw new CliError('OUTCOME_UNKNOWN', 'Submission may have been dispatched. Check publish-status or the draft box before retrying.');
     throw error;
   } finally {
     files.clear();

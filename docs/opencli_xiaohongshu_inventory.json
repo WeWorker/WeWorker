@@ -427,6 +427,15 @@
           "help": "话题标签，逗号分隔，不含 # 号"
         },
         {
+          "name": "content-declaration",
+          "choices": [
+            "none",
+            "ai"
+          ],
+          "default": "none",
+          "help": "内容类型声明：none 不添加，ai 标注笔记含AI合成内容"
+        },
+        {
           "name": "draft",
           "type": "bool",
           "default": false,
@@ -609,6 +618,20 @@
       "name": "login",
       "access": "write",
       "args": [],
+      "implementation": "ported",
+      "live_status": "not_run",
+      "live_samples": []
+    },
+    {
+      "name": "publish-status",
+      "access": "read",
+      "args": [
+        {
+          "name": "note-id",
+          "required": true,
+          "help": "已提交笔记的 24 位 ID"
+        }
+      ],
       "implementation": "ported",
       "live_status": "not_run",
       "live_samples": []
