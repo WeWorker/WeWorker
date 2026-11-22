@@ -1173,6 +1173,82 @@ def test_spawn_does_not_inherit_parent_stdin(monkeypatch, tmp_path: Path) -> Non
     # stdout/stderr 仍按既有约定汇入同一个日志句柄。
     assert captured["stderr"] is subprocess.STDOUT
     assert getattr(captured["stdout"], "name", "") == str(log_path)
+    assert captured["stdout"].closed
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_spawn_preserves_logs_before_child_stdout_and_stderr(tmp_path: Path, fail: bool) -> None:
+    manager = ProcessManager(store=TaskStore(tmp_path / "tasks"))
+    log_path = tmp_path / "日志" / "process.log"
+    log_path.parent.mkdir()
+    log_path.write_text("previous run\n", encoding="utf-8")
+    release = tmp_path / "release"
+    script = """
+import json
+import sys
+import time
+from pathlib import Path
+
+log_path, release = map(Path, sys.argv[1:3])
+deadline = time.monotonic() + 15
+while not release.exists():
+    if time.monotonic() > deadline:
+        raise TimeoutError('parent did not release worker')
+    time.sleep(0.01)
+print('child stdout', flush=True)
+with log_path.open('a', encoding='utf-8') as handle:
+    handle.write('model response: ' + 'step data ' * 1000 + '\\n')
+print('child stderr', file=sys.stderr, flush=True)
+if sys.argv[3] == 'fail':
+    raise RuntimeError('example worker failure')
+print(json.dumps({'ok': True, 'result': '探索完成' * 1000}, ensure_ascii=False))
+"""
+    process = manager._spawn(
+        [sys.executable, "-c", script, str(log_path), str(release), "fail" if fail else "ok"],
+        log_path, env=manager._worker_environment(),
+    )
+    try:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write("parent step: " + "request data " * 1000 + "\n")
+        prefix = log_path.read_bytes()
+        release.touch()
+        assert process.wait(timeout=20) == (1 if fail else 0)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+    contents = log_path.read_bytes()
+    assert contents.startswith(prefix)
+    lines = contents.decode("utf-8").splitlines()
+    assert lines[0] == "previous run"
+    assert "worker_starting" in lines[1]
+    assert "worker_started" in lines[2]
+    assert lines[3] == "parent step: " + "request data " * 1000
+    assert lines[4:7] == [
+        "child stdout", "model response: " + "step data " * 1000, "child stderr",
+    ]
+    if fail:
+        assert lines[7] == "Traceback (most recent call last):"
+        assert lines[-1] == "RuntimeError: example worker failure"
+    else:
+        assert json.loads(lines[7]) == {"ok": True, "result": "探索完成" * 1000}
+
+
+def test_spawn_closes_log_on_launch_failure(monkeypatch, tmp_path: Path) -> None:
+    manager = ProcessManager(store=TaskStore(tmp_path / "tasks"))
+    captured = []
+
+    def fail_popen(command, **kwargs):
+        captured.append(kwargs["stdout"])
+        raise OSError("example launch failure")
+
+    monkeypatch.setattr(subprocess, "Popen", fail_popen)
+    log_path = tmp_path / "process.log"
+    with pytest.raises(OSError, match="example launch failure"):
+        manager._spawn(["example-worker"], log_path)
+    assert captured[0].closed
+    assert "worker_start_failed" in log_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("with_toolkit_store", [False, True])

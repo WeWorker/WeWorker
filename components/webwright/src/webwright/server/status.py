@@ -185,6 +185,7 @@ EXPLORATION_DOC_EVENTS = (
     "exploration_started",
     "cancel_requested",
     "step_finished",
+    "activity_updated",
     "waiting_for_user",
     "exploration_succeeded",
     "exploration_failed",
