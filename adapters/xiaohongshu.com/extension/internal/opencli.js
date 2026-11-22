@@ -2536,6 +2536,329 @@ var __xhsOpenCLI = (() => {
     }
   });
 
+  // webcli/scripts/opencli-xiaohongshu/files.js
+  var files = /* @__PURE__ */ new Map();
+  function resolve(p) {
+    return files.get(p)?.path || p;
+  }
+  function extname(p) {
+    return /\.[^./\\]+$/.exec(p)?.[0] || "";
+  }
+  function basename(p) {
+    return p.split(/[\\/]/).pop();
+  }
+  function existsSync(p) {
+    return files.has(p);
+  }
+  function readFileSync(p) {
+    const file = files.get(p);
+    if (!file) throw new ArgumentError("Image was not preloaded");
+    return { toString(encoding) {
+      if (encoding !== "base64") throw new ArgumentError("Expected base64");
+      return file.content;
+    } };
+  }
+
+  // webcli/scripts/opencli-xiaohongshu/upstream/draft-utils.js
+  var PUBLISH_URL = "https://creator.xiaohongshu.com/publish/publish?from=menu_left&target=image";
+  var DRAFT_DB_NAME = "draft-database-v1";
+  var STORE_NAME_MAP = {
+    image: "image-draft",
+    video: "video-draft",
+    article: "article-draft",
+    audio: "audio-draft"
+  };
+  function unwrapBrowserResult2(value2) {
+    if (value2 && typeof value2 === "object" && typeof value2.session === "string" && Object.prototype.hasOwnProperty.call(value2, "data")) {
+      return value2.data;
+    }
+    return value2;
+  }
+  function normalizeDraftType(value2, { allowAll = false } = {}) {
+    const raw = String(value2 ?? "image").trim().toLowerCase();
+    if (allowAll && raw === "all") return raw;
+    if (!STORE_NAME_MAP[raw]) {
+      const choices = allowAll ? "image, video, article, audio, all" : Object.keys(STORE_NAME_MAP).join(", ");
+      throw new ArgumentError(`Unsupported draft type "${raw}". Expected one of: ${choices}`);
+    }
+    return raw;
+  }
+  function normalizeDraftId(value2) {
+    const id = String(value2 ?? "").trim();
+    if (!id) throw new ArgumentError("Draft id is required");
+    return id;
+  }
+  function encodeDraftKey(key) {
+    const type = typeof key;
+    if (type === "string") return `s:${key}`;
+    if (type === "number") return `n:${String(key)}`;
+    if (type === "boolean") return `b:${String(key)}`;
+    try {
+      return `j:${encodeURIComponent(JSON.stringify(key))}`;
+    } catch {
+      return `s:${String(key)}`;
+    }
+  }
+  function findDraftEntry(entries, id) {
+    return entries.find((entry) => encodeDraftKey(entry?.key) === id) || null;
+  }
+  function normalizeDraftRecord(row, key, type, rank, { contentLimit = 80 } = {}) {
+    const content = row?.content ?? {};
+    const liveContext = content?.contextStore?.liveContext ?? {};
+    const draftStore = content?.draftStore ?? {};
+    const title = draftStore?.title || liveContext?.title || row?.title || row?.noteTitle || "";
+    const editorText = content?.editorContent?.text || content?.editorContent?.plainText || "";
+    const updatedAt = row?.updatedAt || row?.updateTime || row?.mtime || content?.updateTime || "";
+    const imageCount = draftStore?.imgList?.length || content?.noteImageConfig?.items?.length || content?.noteImageConfig?.imageList?.length || row?.images?.length || row?.imageList?.length || 0;
+    return {
+      rank,
+      id: encodeDraftKey(key),
+      type,
+      title: title || "(untitled)",
+      updated_at: updatedAt ? String(updatedAt) : "",
+      images: imageCount,
+      text_preview: String(editorText || "").replace(/\s+/g, " ").trim().slice(0, contentLimit)
+    };
+  }
+  async function ensureDraftDbPage(page) {
+    await page.goto(PUBLISH_URL);
+    await page.wait({ time: 2 });
+  }
+  function draftReadScript(storeName) {
+    return `
+    (async () => {
+      const openDb = () => new Promise((resolve, reject) => {
+        const req = indexedDB.open(${JSON.stringify(DRAFT_DB_NAME)});
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error('failed to open IndexedDB'));
+      });
+      try {
+        const db = await openDb();
+        if (!db.objectStoreNames.contains(${JSON.stringify(storeName)})) {
+          db.close();
+          return { ok: true, entries: [] };
+        }
+        const tx = db.transaction(${JSON.stringify(storeName)}, 'readonly');
+        const store = tx.objectStore(${JSON.stringify(storeName)});
+        const allRows = await new Promise((resolve, reject) => {
+          const req = store.getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error || new Error('failed to read drafts'));
+        });
+        const allKeys = await new Promise((resolve, reject) => {
+          if (!store.getAllKeys) return resolve([]);
+          const req = store.getAllKeys();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error || new Error('failed to read draft keys'));
+        });
+        db.close();
+        return {
+          ok: true,
+          entries: allRows.map((row, index) => ({ key: allKeys[index] ?? index, row })),
+        };
+      } catch (error) {
+        return { ok: false, error: String(error && error.message || error) };
+      }
+    })()
+  `;
+  }
+  async function readDraftEntries(page, draftType) {
+    const storeName = STORE_NAME_MAP[draftType];
+    const payload = unwrapBrowserResult2(await page.evaluate(draftReadScript(storeName)));
+    if (!payload?.ok) {
+      throw new CommandExecutionError(payload?.error || `Failed to read ${draftType} drafts`);
+    }
+    if (!Array.isArray(payload.entries)) {
+      throw new CommandExecutionError(`Malformed ${draftType} draft payload`);
+    }
+    return payload.entries;
+  }
+  function draftNotFound(id, draftType, command9) {
+    return new EmptyResultError(
+      command9,
+      `Draft ${id} was not found in ${draftType} drafts. Run opencli xiaohongshu drafts --type ${draftType} to list current ids.`
+    );
+  }
+
+  // webcli/scripts/opencli-xiaohongshu/publish-support.js
+  async function uploadPreloadedImages(page, paths, selector) {
+    const images = paths.map((path) => {
+      const file = files.get(path);
+      if (!file) throw new ArgumentError("Image was not preloaded");
+      const name = path.split(/[\\/]/).pop();
+      const ext = name.split(".").pop().toLowerCase();
+      const type = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" }[ext];
+      return { name, type, size: file.size, content: file.content };
+    });
+    const result = await page.evaluate(`(${assignImageFiles.toString()})(${JSON.stringify({ selector, images })})`);
+    if (!result?.verified || result.count !== images.length) throw new CommandExecutionError("Image input verification failed; inspect the editor before retrying");
+    return result;
+  }
+  function assignImageFiles({ selector, images }) {
+    const inputs = Array.from(document.querySelectorAll(selector));
+    if (inputs.length !== 1) throw new Error("Expected exactly one image file input");
+    const input = inputs[0];
+    if (input.disabled || !input.multiple && images.length > 1) throw new Error("Image input does not accept the requested files");
+    const transfer = new DataTransfer();
+    for (const image of images) {
+      const binary = atob(image.content);
+      const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+      if (bytes.byteLength !== image.size) throw new Error("Preloaded image size mismatch");
+      transfer.items.add(new File([bytes], image.name, { type: image.type }));
+    }
+    input.files = transfer.files;
+    const selected = Array.from(input.files || []);
+    if (selected.length !== images.length || selected.some((file, i) => file.name !== images[i].name || file.size !== images[i].size)) throw new Error("Image selection mismatch");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    return { verified: true, count: selected.length };
+  }
+  function replaceBodyParagraphs({ selectors, text }) {
+    let editor;
+    for (const selector of selectors) {
+      const visible = Array.from(document.querySelectorAll(selector)).filter((el) => el.isContentEditable && el.offsetParent !== null);
+      if (visible.length > 1) throw new Error("Ambiguous body editor");
+      if (visible.length === 1) {
+        editor = visible[0];
+        break;
+      }
+    }
+    if (!editor) throw new Error("Body editor not found");
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    const escape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = lines.map((line) => "<p>" + (line ? escape(line) : "<br>") + "</p>").join("");
+    editor.focus();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    if (!document.execCommand("insertHTML", false, html)) throw new Error("Editor rejected paragraph insertion");
+    const actual = Array.from(editor.children).map((node) => node.textContent || "");
+    if (actual.length !== lines.length || actual.some((line, i) => line !== lines[i])) throw new Error("Body paragraph verification failed");
+    editor.blur();
+    return { verified: true, paragraphs: actual.length };
+  }
+  async function fillBody(page, selectors, text) {
+    const result = await page.evaluate(`(${replaceBodyParagraphs.toString()})(${JSON.stringify({ selectors, text })})`);
+    if (!result?.verified) throw new CommandExecutionError("Body paragraph verification failed");
+  }
+  function declarationStep({ phase }) {
+    const label = phase === "open" ? "\u6DFB\u52A0\u5185\u5BB9\u7C7B\u578B\u58F0\u660E" : "\u7B14\u8BB0\u542BAI\u5408\u6210\u5185\u5BB9";
+    const visible = (el) => el && el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
+    if (phase === "open") {
+      const selected = Array.from(document.querySelectorAll(".d-select")).find((el) => visible(el) && el.textContent.includes("\u7B14\u8BB0\u542BAI\u5408\u6210\u5185\u5BB9"));
+      if (selected) return { selected: true };
+    }
+    const matches = Array.from(document.querySelectorAll(phase === "open" ? ".d-select-placeholder" : ".d-option-name")).filter((el) => visible(el) && el.textContent.trim() === label);
+    if (matches.length !== 1) throw new Error("Content declaration control not found or ambiguous");
+    if (phase === "open") {
+      const wrapper = matches[0].closest(".d-select-wrapper");
+      if (!wrapper) throw new Error("Content declaration focus target missing");
+      wrapper.scrollIntoView({ block: "center" });
+      wrapper.focus();
+      return { focused: document.activeElement === wrapper };
+    }
+    matches[0].click();
+    return { clicked: true };
+  }
+  async function selectDeclaration(page, value2) {
+    if (!value2 || value2 === "none") return;
+    if (value2 !== "ai") throw new ArgumentError("content-declaration must be none or ai");
+    const opened = await page.evaluate(`(${declarationStep.toString()})({phase:'open'})`);
+    if (opened?.selected) return;
+    if (!opened?.focused) throw new CommandExecutionError("Content declaration focus failed");
+    await page.pressKey("Enter");
+    await page.wait(0.3);
+    await page.evaluate(`(${declarationStep.toString()})({phase:'select'})`);
+    const verified = await page.evaluate(`() => Array.from(document.querySelectorAll('.d-select')).some(el => el.getClientRects().length && el.textContent.includes('\u7B14\u8BB0\u542BAI\u5408\u6210\u5185\u5BB9'))`);
+    if (!verified) throw new CommandExecutionError("AI content declaration was not retained");
+  }
+  function normalizePosted(body) {
+    if (body.success !== true || !Array.isArray(body.data?.notes)) throw new CommandExecutionError("Malformed creator notes response");
+    return body.data.notes.map((n) => {
+      if (!/^[a-f0-9]{24}$/i.test(n.id || "") || typeof n.display_title !== "string" || !Array.isArray(n.images_list)) throw new CommandExecutionError("Malformed creator note");
+      return { id: n.id, title: n.display_title, image_count: n.images_list.length, published_at: n.time, tab_status: n.tab_status, type: n.type };
+    });
+  }
+  async function routeCreator(page, path) {
+    await page.evaluate(`() => { history.pushState({}, '', ${JSON.stringify(path)}); window.dispatchEvent(new PopStateEvent('popstate')); }`);
+    await page.wait(0.5);
+  }
+  async function readPosted(page, { navigate = true, installed = false } = {}) {
+    if (!installed) await page.installInterceptor("/api/galaxy/v2/creator/note/user/posted");
+    if (navigate) {
+      if (location.pathname === "/new/note-manager") await routeCreator(page, "/new/home");
+      await routeCreator(page, "/new/note-manager");
+    }
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const captures = await page.getInterceptedRequests();
+      if (captures.length) return normalizePosted(captures[captures.length - 1]);
+      await page.wait(0.5);
+    }
+    throw new CommandExecutionError("Creator notes response was not observed. Inspect login and the manager page.");
+  }
+  function publishReceipt(row) {
+    return {
+      note_id: row.id,
+      title: row.title,
+      image_count: row.image_count,
+      published_at: row.published_at,
+      status: row.tab_status === 2 ? "reviewing" : row.tab_status === 1 ? "published" : "submitted",
+      platform_status: row.tab_status,
+      verification: "creator_notes_api",
+      manager_url: "https://creator.xiaohongshu.com/new/note-manager"
+    };
+  }
+  async function beginPublish(page, expected) {
+    page.publishExpected = expected;
+    const occupied = await page.evaluate(`() => Array.from(document.querySelectorAll('input[placeholder*="\u6807\u9898"], input[placeholder*="\u8D5E"]')).some(el => el.offsetParent !== null && el.value.trim())`);
+    if (occupied) throw new CommandExecutionError("An existing editor is populated. Inspect it before starting another publish call.");
+    if (expected.draft) {
+      const entries = await readDraftEntries(page, "image");
+      page.publishBaseline = new Set(entries.map((entry) => encodeDraftKey(entry.key)));
+      return;
+    }
+    const rows = await readPosted(page);
+    page.publishBaseline = new Set(rows.map((row) => row.id));
+    await routeCreator(page, "/publish/publish?from=menu_left&target=image");
+  }
+  async function prepareSubmit(page) {
+    await selectDeclaration(page, page.args["content-declaration"]);
+  }
+  async function finishPublish(page, { draft }) {
+    if (draft) {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const entries = await readDraftEntries(page, "image");
+        const rows2 = entries.map((entry) => normalizeDraftRecord(entry.row, entry.key, "image", 0));
+        const matches2 = rows2.filter((row) => !page.publishBaseline.has(row.id) && row.title === page.publishExpected.title && row.images === page.publishExpected.imageCount);
+        if (matches2.length === 1) return { status: "draft_saved", draft_id: matches2[0].id, title: matches2[0].title, image_count: matches2[0].images, verification: "local_draft_database" };
+        if (matches2.length > 1) break;
+        await page.wait(0.5);
+      }
+      throw new CliError("OUTCOME_UNKNOWN", "Draft submission was dispatched but saving could not be verified. Inspect the draft box; do not automatically retry.");
+    }
+    const rows = await readPosted(page);
+    const matches = rows.filter((row) => !page.publishBaseline.has(row.id) && row.title === page.publishExpected.title && row.image_count === page.publishExpected.imageCount);
+    if (matches.length === 1) return publishReceipt(matches[0]);
+    throw new CliError("OUTCOME_UNKNOWN", "Submission was dispatched but no unique new note was verified. Check publish-status or the manager; do not automatically republish.");
+  }
+  async function getPublishStatus(page, args) {
+    const id = args["note-id"];
+    if (!/^[a-f0-9]{24}$/i.test(id || "")) throw new ArgumentError("note-id must be a 24 character hexadecimal ID");
+    await page.installInterceptor("/api/galaxy/v2/creator/note/user/posted");
+    await page.goto("https://creator.xiaohongshu.com/new/note-manager");
+    let rows;
+    try {
+      rows = await readPosted(page, { navigate: false, installed: true });
+    } catch {
+      rows = await readPosted(page);
+    }
+    const row = rows.find((row2) => row2.id === id);
+    if (!row) return { note_id: id, status: "not_in_recent_page", verified: false, scope: "recent_creator_notes_page" };
+    return { ...publishReceipt(row), verified: true };
+  }
+
   // webcli/scripts/opencli-xiaohongshu/context-results.js
   var from = (path) => ({ from: "item." + path });
   var value = (value2) => ({ value: value2 });
@@ -2611,29 +2934,6 @@ var __xhsOpenCLI = (() => {
         context_user_id: typeof user === "string" && /^[a-f0-9]{24}$/i.test(user) ? user : null
       };
     });
-  }
-
-  // webcli/scripts/opencli-xiaohongshu/files.js
-  var files = /* @__PURE__ */ new Map();
-  function resolve(p) {
-    return files.get(p)?.path || p;
-  }
-  function extname(p) {
-    return /\.[^./\\]+$/.exec(p)?.[0] || "";
-  }
-  function basename(p) {
-    return p.split(/[\\/]/).pop();
-  }
-  function existsSync(p) {
-    return files.has(p);
-  }
-  function readFileSync(p) {
-    const file = files.get(p);
-    if (!file) throw new ArgumentError("Image was not preloaded");
-    return { toString(encoding) {
-      if (encoding !== "base64") throw new ArgumentError("Expected base64");
-      return file.content;
-    } };
   }
 
   // webcli/scripts/opencli-xiaohongshu/runtime.js
@@ -2787,7 +3087,19 @@ var __xhsOpenCLI = (() => {
     }
     async setFileInput(paths, selector) {
       this.check();
-      return helper("set_file_input", { selector, files: paths });
+      return uploadPreloadedImages(this, paths, selector);
+    }
+    async fillBody(selectors, text) {
+      return fillBody(this, selectors, text);
+    }
+    async beginPublish(expected) {
+      return beginPublish(this, expected);
+    }
+    async prepareSubmit() {
+      return prepareSubmit(this);
+    }
+    async finishPublish(options) {
+      return finishPublish(this, options);
     }
     async insertText(text) {
       this.check();
@@ -2894,6 +3206,7 @@ var __xhsOpenCLI = (() => {
       return decorateResults(name, args, result);
     } catch (error) {
       if (page.pending) return page.pending.result;
+      if (page.submitAttempted) throw new CliError("OUTCOME_UNKNOWN", "Submission may have been dispatched. Check publish-status or the draft box before retrying.");
       throw error;
     } finally {
       files.clear();
@@ -3155,127 +3468,6 @@ var __xhsOpenCLI = (() => {
       });
     }
   });
-
-  // webcli/scripts/opencli-xiaohongshu/upstream/draft-utils.js
-  var PUBLISH_URL = "https://creator.xiaohongshu.com/publish/publish?from=menu_left&target=image";
-  var DRAFT_DB_NAME = "draft-database-v1";
-  var STORE_NAME_MAP = {
-    image: "image-draft",
-    video: "video-draft",
-    article: "article-draft",
-    audio: "audio-draft"
-  };
-  function unwrapBrowserResult2(value2) {
-    if (value2 && typeof value2 === "object" && typeof value2.session === "string" && Object.prototype.hasOwnProperty.call(value2, "data")) {
-      return value2.data;
-    }
-    return value2;
-  }
-  function normalizeDraftType(value2, { allowAll = false } = {}) {
-    const raw = String(value2 ?? "image").trim().toLowerCase();
-    if (allowAll && raw === "all") return raw;
-    if (!STORE_NAME_MAP[raw]) {
-      const choices = allowAll ? "image, video, article, audio, all" : Object.keys(STORE_NAME_MAP).join(", ");
-      throw new ArgumentError(`Unsupported draft type "${raw}". Expected one of: ${choices}`);
-    }
-    return raw;
-  }
-  function normalizeDraftId(value2) {
-    const id = String(value2 ?? "").trim();
-    if (!id) throw new ArgumentError("Draft id is required");
-    return id;
-  }
-  function encodeDraftKey(key) {
-    const type = typeof key;
-    if (type === "string") return `s:${key}`;
-    if (type === "number") return `n:${String(key)}`;
-    if (type === "boolean") return `b:${String(key)}`;
-    try {
-      return `j:${encodeURIComponent(JSON.stringify(key))}`;
-    } catch {
-      return `s:${String(key)}`;
-    }
-  }
-  function findDraftEntry(entries, id) {
-    return entries.find((entry) => encodeDraftKey(entry?.key) === id) || null;
-  }
-  function normalizeDraftRecord(row, key, type, rank, { contentLimit = 80 } = {}) {
-    const content = row?.content ?? {};
-    const liveContext = content?.contextStore?.liveContext ?? {};
-    const draftStore = content?.draftStore ?? {};
-    const title = draftStore?.title || liveContext?.title || row?.title || row?.noteTitle || "";
-    const editorText = content?.editorContent?.text || content?.editorContent?.plainText || "";
-    const updatedAt = row?.updatedAt || row?.updateTime || row?.mtime || content?.updateTime || "";
-    const imageCount = draftStore?.imgList?.length || content?.noteImageConfig?.items?.length || content?.noteImageConfig?.imageList?.length || row?.images?.length || row?.imageList?.length || 0;
-    return {
-      rank,
-      id: encodeDraftKey(key),
-      type,
-      title: title || "(untitled)",
-      updated_at: updatedAt ? String(updatedAt) : "",
-      images: imageCount,
-      text_preview: String(editorText || "").replace(/\s+/g, " ").trim().slice(0, contentLimit)
-    };
-  }
-  async function ensureDraftDbPage(page) {
-    await page.goto(PUBLISH_URL);
-    await page.wait({ time: 2 });
-  }
-  function draftReadScript(storeName) {
-    return `
-    (async () => {
-      const openDb = () => new Promise((resolve, reject) => {
-        const req = indexedDB.open(${JSON.stringify(DRAFT_DB_NAME)});
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error || new Error('failed to open IndexedDB'));
-      });
-      try {
-        const db = await openDb();
-        if (!db.objectStoreNames.contains(${JSON.stringify(storeName)})) {
-          db.close();
-          return { ok: true, entries: [] };
-        }
-        const tx = db.transaction(${JSON.stringify(storeName)}, 'readonly');
-        const store = tx.objectStore(${JSON.stringify(storeName)});
-        const allRows = await new Promise((resolve, reject) => {
-          const req = store.getAll();
-          req.onsuccess = () => resolve(req.result || []);
-          req.onerror = () => reject(req.error || new Error('failed to read drafts'));
-        });
-        const allKeys = await new Promise((resolve, reject) => {
-          if (!store.getAllKeys) return resolve([]);
-          const req = store.getAllKeys();
-          req.onsuccess = () => resolve(req.result || []);
-          req.onerror = () => reject(req.error || new Error('failed to read draft keys'));
-        });
-        db.close();
-        return {
-          ok: true,
-          entries: allRows.map((row, index) => ({ key: allKeys[index] ?? index, row })),
-        };
-      } catch (error) {
-        return { ok: false, error: String(error && error.message || error) };
-      }
-    })()
-  `;
-  }
-  async function readDraftEntries(page, draftType) {
-    const storeName = STORE_NAME_MAP[draftType];
-    const payload = unwrapBrowserResult2(await page.evaluate(draftReadScript(storeName)));
-    if (!payload?.ok) {
-      throw new CommandExecutionError(payload?.error || `Failed to read ${draftType} drafts`);
-    }
-    if (!Array.isArray(payload.entries)) {
-      throw new CommandExecutionError(`Malformed ${draftType} draft payload`);
-    }
-    return payload.entries;
-  }
-  function draftNotFound(id, draftType, command9) {
-    return new EmptyResultError(
-      command9,
-      `Draft ${id} was not found in ${draftType} drafts. Run opencli xiaohongshu drafts --type ${draftType} to list current ids.`
-    );
-  }
 
   // webcli/scripts/opencli-xiaohongshu/upstream/draft-clear.js
   function clearDraftsScript(storeNames, execute) {
@@ -4158,6 +4350,7 @@ var __xhsOpenCLI = (() => {
     }
   }
   async function fillField(page, selectors, text, fieldName) {
+    if (fieldName === "content" && page.fillBody) return page.fillBody(selectors, text);
     const located = await page.evaluate(`
     (function(selectors) {
       const __opencli_xhs_fill_phase = "locate";
@@ -4851,6 +5044,7 @@ var __xhsOpenCLI = (() => {
       { name: "card-text", required: false, help: `\u6587\u5B57\u914D\u56FE\u5361\u7247\u6587\u5B57\uFF0C\u591A\u5F20\u5361\u7247\u7528 ${CARD_TEXT_DELIM} \u5206\u9694\uFF0C\u5361\u5185\u6362\u884C\u7528 \\n` },
       { name: "card-style", required: false, help: `\u6587\u5B57\u914D\u56FE\u5361\u7247\u6837\u5F0F\uFF0C\u8FD0\u884C\u65F6\u6309\u9875\u9762\u5B9E\u9645\u9009\u9879\u5339\u914D\uFF1B\u627E\u4E0D\u5230\u4F1A\u5931\u8D25\u3002\u7701\u7565\u65F6\u4F7F\u7528${DEFAULT_CARD_STYLE}\u3002\u53EF\u9009: ${CARD_STYLE_GUIDE.map(([n, s]) => `${n}(${s})`).join(" ")}` },
       { name: "topics", required: false, help: "\u8BDD\u9898\u6807\u7B7E\uFF0C\u9017\u53F7\u5206\u9694\uFF0C\u4E0D\u542B # \u53F7" },
+      { name: "content-declaration", choices: ["none", "ai"], default: "none", help: "\u5185\u5BB9\u7C7B\u578B\u58F0\u660E\uFF1Anone \u4E0D\u6DFB\u52A0\uFF0Cai \u6807\u6CE8\u7B14\u8BB0\u542BAI\u5408\u6210\u5185\u5BB9" },
       { name: "draft", type: "bool", default: false, help: "\u4FDD\u5B58\u4E3A\u8349\u7A3F\uFF0C\u4E0D\u76F4\u63A5\u53D1\u5E03" }
     ],
     columns: ["status", "detail"],
@@ -4885,6 +5079,7 @@ var __xhsOpenCLI = (() => {
       if (!pageUrl.includes("creator.xiaohongshu.com")) {
         throw new Error("Redirected away from creator center \u2014 session may have expired. Re-capture browser login via: opencli xiaohongshu creator-profile");
       }
+      if (page.beginPublish) await page.beginPublish({ title, draft: isDraft, imageCount: cards.length + absImagePaths.length });
       const tabResult = await selectImageTextTab(page);
       const surface = await waitForPublishSurfaceState(page, tabResult?.ok ? 5e3 : 2e3);
       if (surface.state === "video_surface") {
@@ -4930,9 +5125,11 @@ var __xhsOpenCLI = (() => {
       if (topics.length) {
         addedTopics = await addTopics(page, BODY_SELECTORS, topics);
       }
+      if (page.prepareSubmit) await page.prepareSubmit();
       const actionLabels = isDraft ? ["\u6682\u5B58\u79BB\u5F00", "\u5B58\u8349\u7A3F"] : ["\u53D1\u5E03", "\u53D1\u5E03\u7B14\u8BB0"];
+      page.submitAttempted = true;
       const invokeResult = await page.evaluate(`
-      (cfg => {
+      (async cfg => {
         const { isDraftMode, publishNames, draftNames, labels } = cfg;
         const isVisible = (el) => {
           if (!el || el.offsetParent === null) return false;
@@ -4942,18 +5139,12 @@ var __xhsOpenCLI = (() => {
         // Path 1: web component method invoke on <xhs-publish-btn>.
         const hosts = Array.from(document.querySelectorAll('xhs-publish-btn')).filter(isVisible);
         const wanted = isDraftMode ? draftNames : publishNames;
-        // Try every host + every candidate; do NOT bail on the first throw
-        // (multiple hosts can exist, and a later name may succeed).
         let lastMethodError = null;
         for (const host of hosts) {
           for (const name of wanted) {
             if (typeof host[name] !== 'function') continue;
-            try {
-              host[name]();
-              return { ok: true, via: 'method', name };
-            } catch (err) {
-              lastMethodError = String(err && err.message || err);
-            }
+            await host[name]();
+            return { ok: true, via: 'method', name };
           }
         }
         // Path 2: legacy <button>/[role=button] text-match click fallback.
@@ -4978,66 +5169,6 @@ var __xhsOpenCLI = (() => {
       })})
     `);
       if (!invokeResult?.ok) {
-        if (isDraft) {
-          const leaveTriggered = await page.evaluate(`
-              (() => {
-                const labels = ['\u8FD4\u56DE', '\u5173\u95ED', '\u53D6\u6D88', '\u79BB\u5F00'];
-                const buttons = document.querySelectorAll('button, [role="button"], div, span');
-                for (const btn of buttons) {
-                  const text = (btn.innerText || btn.textContent || '').trim();
-                  if (labels.some(l => text === l || text.includes(l)) && btn.offsetParent !== null) {
-                    btn.click();
-                    return true;
-                  }
-                }
-                return false;
-              })()
-            `);
-          if (leaveTriggered) {
-            await page.wait({ time: 1 });
-            const saveLabels = ["\u6682\u5B58\u79BB\u5F00", "\u5B58\u8349\u7A3F", "\u4FDD\u5B58\u8349\u7A3F"];
-            const saved = await page.evaluate(`
-                (labels => {
-                  const buttons = document.querySelectorAll('button, [role="button"]');
-                  for (const btn of buttons) {
-                    const text = (btn.innerText || btn.textContent || '').trim();
-                    if (
-                      labels.some(l => text === l || text.includes(l)) &&
-                      btn.offsetParent !== null &&
-                      !btn.disabled
-                    ) {
-                      btn.click();
-                      return true;
-                    }
-                  }
-                  return false;
-                })(${JSON.stringify(saveLabels)})
-              `);
-            if (saved) {
-              invokeResult.ok = true;
-              invokeResult.via = "leave-save-fallback";
-            }
-          }
-          if (!invokeResult?.ok) {
-            await page.wait({ time: 2 });
-            const autoSaved = await page.evaluate(`
-                () => {
-                  const markers = ['\u8349\u7A3F\u7BB1(', '\u4FDD\u5B58\u4E8E', '\u7F16\u8F91\u4E8E'];
-                  for (const el of document.querySelectorAll('*')) {
-                    const text = (el.innerText || el.textContent || '').trim();
-                    if (text && markers.some(marker => text.includes(marker))) return true;
-                  }
-                  return false;
-                }
-              `);
-            if (autoSaved) {
-              invokeResult.ok = true;
-              invokeResult.via = "auto-save";
-            }
-          }
-        }
-      }
-      if (!invokeResult?.ok) {
         await page.screenshot({ path: "/tmp/xhs_publish_submit_debug.png" });
         const viaClause = invokeResult?.via ? ` (via=${invokeResult.via})` : "";
         const errorClause = invokeResult?.error ? `, error=${invokeResult.error}` : "";
@@ -5045,6 +5176,10 @@ var __xhsOpenCLI = (() => {
         throw new Error(`Could not trigger "${actionLabels[0]}" action${viaClause}${errorClause}${lastMethodClause}. Debug screenshot: /tmp/xhs_publish_submit_debug.png`);
       }
       await page.wait({ time: 4 });
+      if (page.finishPublish) {
+        const receipt = await page.finishPublish({ draft: isDraft });
+        return [{ ...receipt, detail: title, submitted: !isDraft, declaration: kwargs["content-declaration"] || "none" }];
+      }
       const finalUrl = await page.evaluate("() => location.href");
       const successMarkers = isDraft ? ["\u8349\u7A3F\u5DF2\u4FDD\u5B58", "\u6682\u5B58\u6210\u529F", "\u4FDD\u5B58\u6210\u529F", "\u4FDD\u5B58\u4E8E", "\u56FE\u6587\u7B14\u8BB0("] : ["\u53D1\u5E03\u6210\u529F", "\u4E0A\u4F20\u6210\u529F"];
       const successMsg = await page.evaluate(`
@@ -6205,6 +6340,16 @@ var __xhsOpenCLI = (() => {
   }
   cli({ name: "whoami", access: "read", domain: "creator.xiaohongshu.com", description: "\u901A\u8FC7\u521B\u4F5C\u8005\u4E2D\u5FC3\u63A5\u53E3\u9A8C\u8BC1\u5F53\u524D\u767B\u5F55\u8D26\u53F7", args: [], func: identity });
   cli({ name: "login", access: "write", domain: "creator.xiaohongshu.com", description: "\u6253\u5F00\u521B\u4F5C\u8005\u4E2D\u5FC3\u767B\u5F55\u9875\uFF1B\u5B8C\u6210\u767B\u5F55\u540E\u8C03\u7528 whoami", args: [], func: async () => ({ __webcli_navigation: { version: 1, url: home, resume: false, result: { status: "login_required", message: "\u8BF7\u5728\u6D4F\u89C8\u5668\u5B8C\u6210\u767B\u5F55\uFF0C\u7136\u540E\u8C03\u7528 whoami \u9A8C\u8BC1\u3002" } } }) });
+
+  // webcli/scripts/opencli-xiaohongshu/publish-status.js
+  cli({
+    name: "publish-status",
+    access: "read",
+    domain: "creator.xiaohongshu.com",
+    description: "\u67E5\u8BE2\u6700\u8FD1\u4E00\u9875\u521B\u4F5C\u8005\u7B14\u8BB0\u4E2D\u7684\u6307\u5B9A\u7B14\u8BB0\uFF0C\u8FD4\u56DE\u56FE\u7247\u6570\u4E0E\u5BA1\u6838\u72B6\u6001\uFF1B\u4E0D\u5B58\u5728\u4E0D\u4EE3\u8868\u5220\u9664",
+    args: [{ name: "note-id", required: true, help: "\u5DF2\u63D0\u4EA4\u7B14\u8BB0\u7684 24 \u4F4D ID" }],
+    func: getPublishStatus
+  });
   return __toCommonJS(stdin_exports);
 })();
 
