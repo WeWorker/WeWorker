@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -56,6 +57,8 @@ from webwright.server.status import (
     REPLAY_DOC_EVENTS,
     REPLAY_STATUS_EVENTS,
     REPLAY_STATUS_VALUES,
+    STREAM_TASK_STATUSES,
+    StepStatus,
     TASK_DOC_EVENTS,
     TASK_STATUS_EVENTS,
     TASK_STATUS_VALUES,
@@ -386,12 +389,130 @@ def _exploration_summary(task: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _parse_iso_ms(value: Any) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    try:
+        return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
+def _matching_checkpoint(task: dict[str, Any], checkpoint: Any) -> dict[str, Any] | None:
+    if not isinstance(checkpoint, dict):
+        return None
+    task_run_id = str(task.get("last_run_id") or "")
+    checkpoint_run_id = str(checkpoint.get("run_id") or "")
+    if task_run_id and checkpoint_run_id and checkpoint_run_id != task_run_id:
+        return None
+    return checkpoint
+
+
+def _exploration_live_activity(
+    task: dict[str, Any],
+    checkpoint: Any,
+    *,
+    current_step: int = 0,
+) -> dict[str, Any] | None:
+    status = str(task.get("status") or "")
+    if status not in STREAM_TASK_STATUSES:
+        return None
+    fallback_updated_ms = _parse_iso_ms(task.get("updated_at") or task.get("created_at"))
+    if status == TaskStatus.CANCEL_REQUESTED.value:
+        return {
+            "phase": "stopping",
+            "step": current_step,
+            "reason": "",
+            "updated_at_ms": fallback_updated_ms,
+            "deadline_at_ms": 0,
+            "thought": "",
+            "code": "",
+        }
+    if status in {TaskStatus.QUEUED.value, TaskStatus.STARTING_BROWSER.value}:
+        return {
+            "phase": status,
+            "step": current_step,
+            "reason": "",
+            "updated_at_ms": fallback_updated_ms,
+            "deadline_at_ms": 0,
+            "thought": "",
+            "code": "",
+        }
+    cp = _matching_checkpoint(task, checkpoint)
+    raw_phase = str(cp.get("phase") or "").strip() if isinstance(cp, dict) else ""
+    if not raw_phase:
+        return {
+            "phase": "starting",
+            "step": current_step,
+            "reason": "",
+            "updated_at_ms": fallback_updated_ms,
+            "deadline_at_ms": 0,
+            "thought": "",
+            "code": "",
+        }
+    try:
+        step = max(int(cp.get("step") or 0), 0)
+    except (TypeError, ValueError):
+        step = 0
+    reason = str(cp.get("reason") or "").strip()
+    try:
+        updated_at_ms = int(cp.get("updated_at_ms") or 0)
+    except (TypeError, ValueError):
+        updated_at_ms = 0
+    try:
+        deadline_at_ms = int(cp.get("deadline_at_ms") or 0)
+    except (TypeError, ValueError):
+        deadline_at_ms = 0
+    resolved_updated_ms = updated_at_ms or fallback_updated_ms
+    if raw_phase in {"completed", "initial_observation_completed"}:
+        return {
+            "phase": "thinking",
+            "step": max(step, current_step) + 1,
+            "reason": reason,
+            "updated_at_ms": resolved_updated_ms,
+            "deadline_at_ms": 0,
+            "thought": "",
+            "code": "",
+        }
+    if raw_phase in {"action_pending", "action_running"}:
+        return {
+            "phase": raw_phase,
+            "step": step or (current_step + 1),
+            "reason": reason,
+            "updated_at_ms": resolved_updated_ms,
+            "deadline_at_ms": deadline_at_ms,
+            "thought": str(cp.get("thought") or ""),
+            "code": str(cp.get("python_code") or ""),
+        }
+    if raw_phase in {"initial_observation", "thinking", "compacting"}:
+        return {
+            "phase": raw_phase,
+            "step": step,
+            "reason": reason,
+            "updated_at_ms": resolved_updated_ms,
+            "deadline_at_ms": deadline_at_ms,
+            "thought": "",
+            "code": "",
+        }
+    return {
+        "phase": "running",
+        "step": max(step, current_step),
+        "reason": reason,
+        "updated_at_ms": resolved_updated_ms,
+        "deadline_at_ms": deadline_at_ms,
+        "thought": "",
+        "code": "",
+    }
+
+
 def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
     view = _task_view(task)
     checkpoint = try_read_json(Path(task["output_dir"]) / ".server" / "checkpoint.json", attempts=1)
     usage = checkpoint.get("context_usage") if isinstance(checkpoint, dict) else None
     if not isinstance(usage, dict) or type(usage.get("input_tokens")) is not int or usage["input_tokens"] < 0:
         usage = None
+    live_activity = _exploration_live_activity(task, checkpoint, current_step=int(view["current_step"] or 0))
     exploration_id = view["task_id"]
     screenshot_url = str(view["last_screenshot_url"] or "").replace(
         f"/api/tasks/{exploration_id}/files/",
@@ -435,6 +556,7 @@ def _exploration_view(task: dict[str, Any]) -> dict[str, Any]:
         "error_code": view["error_code"],
         "error_stage": view["error_stage"],
         "active_issue": active_issue,
+        "live_activity": live_activity,
         "created_at": view["created_at"],
         "updated_at": view["updated_at"],
     }
@@ -1329,12 +1451,29 @@ def create_app(
     @app.get("/api/explorations/<exploration_id>/timeline")
     def get_exploration_timeline(exploration_id: str):
         exploration = task_store.read_exploration(exploration_id)
-        raw_steps = read_steps(
-            exploration_id, Path(exploration["output_dir"]).resolve()
+        output_dir = Path(exploration["output_dir"]).resolve()
+        raw_steps = read_steps(exploration_id, output_dir)
+        is_active = str(exploration.get("status") or "") in STREAM_TASK_STATUSES
+        checkpoint = (
+            _matching_checkpoint(
+                exploration,
+                try_read_json(output_dir / ".server" / "checkpoint.json", attempts=1),
+            )
+            if is_active
+            else None
         )
+        checkpoint_step = int(checkpoint.get("step") or 0) if isinstance(checkpoint, dict) else 0
         timeline_steps = []
         for raw_step in raw_steps:
             step = _exploration_step_view(exploration_id, raw_step)
+            if is_active and step.get("status") == StepStatus.UNKNOWN.value:
+                step["status"] = "running"
+                if (
+                    not step.get("thought")
+                    and isinstance(checkpoint, dict)
+                    and checkpoint_step == int(step.get("step") or 0)
+                ):
+                    step["thought"] = str(checkpoint.get("thought") or "")
             step["observation"] = raw_step.get("observation", {})
             step["exception"] = raw_step.get("exception", "")
             timeline_steps.append(step)
@@ -1374,29 +1513,37 @@ def create_app(
 
         @stream_with_context
         def generate():
-            max_step = 0
+            seen_steps: dict[int, str] = {}
             last_status = ""
+            last_activity_key: tuple[str, int, str, int] | None = None
             while True:
                 try:
                     exploration = task_store.read_exploration(exploration_id)
                     output_dir = Path(exploration["output_dir"]).resolve()
+                    status = str(exploration.get("status", ""))
+                    is_active = status in STREAM_TASK_STATUSES
                     for step in read_steps(exploration_id, output_dir):
                         step_number = int(step.get("step") or 0)
-                        if step_number <= max_step:
+                        raw_step_status = str(step.get("status") or "")
+                        effective_status = (
+                            "running"
+                            if is_active and raw_step_status == StepStatus.UNKNOWN.value
+                            else raw_step_status
+                        )
+                        if seen_steps.get(step_number) == effective_status:
                             continue
-                        max_step = step_number
+                        seen_steps[step_number] = effective_status
                         yield _sse(
                             "step_finished",
                             {
                                 "exploration_id": exploration_id,
                                 "step": step_number,
-                                "status": step.get("status", ""),
+                                "status": effective_status,
                                 "screenshot_url": _exploration_step_view(
                                     exploration_id, step
                                 ).get("screenshot_url", ""),
                             },
                         )
-                    status = str(exploration.get("status", ""))
                     if status != last_status:
                         last_status = status
                         event = EXPLORATION_STATUS_EVENTS.get(status)
@@ -1405,6 +1552,31 @@ def create_app(
                                 event,
                                 {"exploration_id": exploration_id, "status": status},
                             )
+                    if is_active:
+                        checkpoint = try_read_json(
+                            output_dir / ".server" / "checkpoint.json", attempts=1
+                        )
+                        activity = _exploration_live_activity(
+                            exploration,
+                            checkpoint,
+                            current_step=max(seen_steps, default=0),
+                        )
+                        if activity is not None:
+                            activity_key = (
+                                str(activity.get("phase") or ""),
+                                int(activity.get("step") or 0),
+                                str(activity.get("reason") or ""),
+                                int(activity.get("updated_at_ms") or 0),
+                            )
+                            if activity_key != last_activity_key:
+                                last_activity_key = activity_key
+                                yield _sse(
+                                    "activity_updated",
+                                    {
+                                        "exploration_id": exploration_id,
+                                        "live_activity": activity,
+                                    },
+                                )
                     if status in STOP_TASK_EVENT_STATUSES:
                         break
                     if status not in TASK_STATUS_VALUES:

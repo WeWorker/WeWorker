@@ -107,6 +107,7 @@ class DefaultAgent:
         self._run_start_calls = 0
         self.n_format_errors = 0
         self.n_consecutive_format_errors = 0
+        self._next_query_reason = ""
 
     def _write_checkpoint(
         self,
@@ -117,6 +118,7 @@ class DefaultAgent:
         deadline_ms: int = 0,
         error_code: str = "",
         error_stage: str = "",
+        reason: str = "",
     ) -> None:
         path = self.config.checkpoint_path
         if path is None:
@@ -128,12 +130,14 @@ class DefaultAgent:
             for action in actions
             if isinstance(action, dict) and _python_action_text(action)
         )
+        now_ms = int(time.time() * 1000)
         payload = {
             "run_id": self.config.checkpoint_run_id,
             "step": step,
             "phase": phase,
-            "updated_at_ms": int(time.time() * 1000),
-            "deadline_at_ms": int(time.time() * 1000) + deadline_ms if deadline_ms > 0 else 0,
+            "reason": reason,
+            "updated_at_ms": now_ms,
+            "deadline_at_ms": now_ms + deadline_ms if deadline_ms > 0 else 0,
             "thought": message.get("content", "") if isinstance(message, dict) else "",
             "python_code": python_code,
             "error_code": error_code,
@@ -201,6 +205,7 @@ class DefaultAgent:
                 if isinstance(exc, FormatError):
                     self.n_format_errors += 1
                     self.n_consecutive_format_errors += 1
+                    self._next_query_reason = "retrying_format"
                 self.add_messages(*exc.messages)
                 if (
                     isinstance(exc, FormatError)
@@ -619,6 +624,11 @@ class DefaultAgent:
         summary_messages = [summary_system, self.model.format_message(role="user", content=source), summary_request]
         model_config = getattr(self.model, "config", None)
         original_output_tokens = getattr(model_config, "max_output_tokens", None)
+        self._write_checkpoint(
+            phase="compacting",
+            step=self.n_calls,
+            reason="context_limit" if required else "periodic",
+        )
         try:
             if original_output_tokens is not None:
                 model_config.max_output_tokens = output_tokens
@@ -661,6 +671,7 @@ class DefaultAgent:
         self._run_start_calls = 0
         self.n_format_errors = 0
         self.n_consecutive_format_errors = 0
+        self._next_query_reason = ""
         self.add_messages(
             self.model.format_message(role="system", content=self._render_template(self.config.system_template)),
             self.model.format_message(role="user", content=self._render_template(self.config.instance_template)),
@@ -709,6 +720,7 @@ class DefaultAgent:
         self.n_consecutive_format_errors = int(
             prior_state.get("n_consecutive_format_errors", 0) or 0
         )
+        self._next_query_reason = ""
 
         if followup:
             self.add_messages(
@@ -779,6 +791,11 @@ class DefaultAgent:
                         "无法继续缩减历史上下文，请缩小本轮输入或新建任务。",
                         error_code="context_overflow", stage="compaction",
                     ) from last_overflow
+            self._write_checkpoint(
+                phase="thinking",
+                step=self.n_calls + 1,
+                reason=self._next_query_reason,
+            )
             try:
                 message = self.model.query(self._messages_for_model())
                 break
@@ -787,6 +804,7 @@ class DefaultAgent:
                     raise
                 last_overflow = exc
                 shrink = True
+        self._next_query_reason = ""
         self._last_query_message_count = len(self.messages)
         self.n_calls += 1
         self.n_consecutive_format_errors = 0
@@ -820,6 +838,7 @@ class DefaultAgent:
             gate_error = self._self_reflection_gate_error()
             if gate_error is not None:
                 extra["done"] = False
+                self._next_query_reason = "self_reflection"
                 return self.add_messages(
                     self.model.format_message(
                         role="user",
@@ -828,6 +847,7 @@ class DefaultAgent:
                     )
                 )
             self._write_debug_step_artifact(step_index=self.n_calls, assistant_message=message, outputs=[])
+            self._write_checkpoint(phase="completed", step=self.n_calls, message=message)
             return self.add_messages(
                 self.model.format_message(
                     role="exit",
@@ -893,10 +913,12 @@ class DefaultAgent:
                 error_code=error_code,
                 stage=error_stage,
             )
+        self._next_query_reason = "recovering_from_error" if action_failed else ""
         self._write_checkpoint(
             phase="completed",
             step=self.n_calls,
             message=message,
+            reason=self._next_query_reason,
         )
         observation_messages = self.model.format_observation_messages(message, outputs, self.get_template_vars())
         if recorded:

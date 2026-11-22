@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping, TextIO
 
 from webwright.server.artifacts import (
     environment_runtime_state,
@@ -76,6 +76,46 @@ CANCEL_ESCALATION_GRACE_S = 5
 # complete Tool implementation; the shared 120s default aborts it mid-generation
 # (seen as ReadTimeout at exactly 120s before any byte arrives).
 DEVELOPER_REQUEST_TIMEOUT_S = 600
+
+
+def _open_process_log(log_path: Path) -> TextIO:
+    if os.name != "nt":
+        return log_path.open("a", encoding="utf-8")
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = [wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+
+    def opener(path: str, flags: int) -> int:
+        # FILE_APPEND_DATA only (no FILE_WRITE_DATA): inherited stdout writes
+        # must append in the kernel, even after other handles extend the log.
+        # CRT O_APPEND alone does not protect raw writes by the child process.
+        handle = create_file(
+            path, 0x0004,  # FILE_APPEND_DATA
+            0x0001 | 0x0002,  # FILE_SHARE_READ | FILE_SHARE_WRITE
+            None, 4, 0x0080, None,  # OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL
+        )
+        if handle == wintypes.HANDLE(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            # Ownership passes to the CRT fd, then to the Python file object.
+            return msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_BINARY)
+        except BaseException:
+            close_handle(handle)
+            raise
+
+    return open(log_path, "a", encoding="utf-8", opener=opener)
 
 
 def _default_config_spec(
@@ -283,7 +323,7 @@ class ProcessManager:
     ) -> subprocess.Popen:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         append_process_log(log_path, source="lifecycle", event="worker_starting")
-        log_handle = log_path.open("a", encoding="utf-8")
+        log_handle = _open_process_log(log_path)
         try:
             process_options: dict[str, Any] = {}
             if process_group and os.name == "nt":

@@ -18,7 +18,7 @@ import { getPathsFromPasteEvent, mergeAttachmentPaths } from '../../utils/clipbo
 import ExplorationModelSelector from './ExplorationModelSelector.jsx'
 import { TrashIcon } from '../icons/PanelIcons.jsx'
 import { showConfirm } from '../../store/dialog.js'
-import ExplorationStep, { ExplorationStatus } from './ExplorationStep.jsx'
+import ExplorationStep, { ExplorationLiveActivity, ExplorationStatus } from './ExplorationStep.jsx'
 
 const EMPTY_ATTACHMENTS = []
 
@@ -413,6 +413,7 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
       {snapshot.data && <article className="wx-chat-message wx-chat-user"><div className="wx-user-bubble"><p className="wx-url">{data.start_url}</p><p>{data.instruction || '请探索这个网站的主要功能。'}</p><ExplorationAttachments files={data.attachments} /></div></article>}
       {(data.timeline || []).map((item, index) => item.type === 'agent_step' ? <ExplorationStep key={item.id || 'step-' + (item.step ?? index)} item={item} />
         : <article className={'wx-chat-message ' + (item.type === 'user' ? 'wx-chat-user' : 'wx-chat-assistant')} key={'message-' + index}><div className={item.type === 'user' ? 'wx-user-bubble' : ''}><p>{item.content}</p><ExplorationAttachments files={item.attachments} /></div></article>)}
+      <ExplorationLiveActivity status={data.status} activity={data.live_activity} timeline={data.timeline} />
       {!snapshot.data && <p className="wx-muted" role="status">探索记录暂不可用，仍可继续生成网站适配器。</p>}
       {data.status === 'succeeded' && <article className="wx-chat-message wx-chat-assistant">
         <CompletionQuestion key={data.last_run_id} submitted={submitted} developing={transferring} developDisabled={developDisabled} continueDisabled={!controls.canSend}
@@ -437,7 +438,7 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
   return <section className="wx-detail wx-chat-detail">
     {renderHeader(title || data.title || '网站探索', development ? <span className="wx-status">网站适配器生成</span> : <ExplorationStatus value={data.status} />)}
     {development ? <ChatView key={development.work.id} workId={development.work.id} embedded hidePermissionMode {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
-    <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, transferring, submitted])}><div className="wx-message-content">{explorationMessages}</div></ScrollArea>
+    <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, data.live_activity?.phase, data.live_activity?.step, data.live_activity?.reason, transferring, submitted])}><div className="wx-message-content">{explorationMessages}</div></ScrollArea>
     <ExplorationComposer conversationId={id} inputRef={composerInput} onModelReadyChange={setSessionModelReady} value={prompt} onChange={setPrompt} actionMode={actionMode}
       attachments={attachments} onAttachmentsChange={setAttachments} usage={data.context_usage} modelDisabled={globalBusy}
       onAction={actionMode === 'stop' ? () => action.run(() => api.stopExploration(id)) : () => sendMessage(prompt)}
