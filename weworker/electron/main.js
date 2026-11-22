@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, protocol, Tray, net } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, protocol, session, Tray, net } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
@@ -363,6 +363,35 @@ ipcMain.handle('read-main-log', (_event, requestedLines = 500) => {
 })
 
 /**
+ * renderer 网络兜底转发（设置-日志搜「main-fetch」）：renderer 的 Chromium 网络层被拦
+ * （安全软件/策略只作用于渲染进程）时，由主进程用 Node 栈转发同样的请求——
+ * 实测该场景下主进程网络可达。只允许转发到本应用后端，不开放任意目标。
+ */
+ipcMain.handle('main-fetch', async (_event, url, options = {}) => {
+  const base = pythonManager.getUrl()
+  let target
+  try { target = new URL(String(url)) } catch { return { error: 'invalid url' } }
+  if (target.origin !== base) return { error: 'invalid target' }
+  try {
+    const res = await fetch(target.toString(), {
+      method: options.method || 'GET',
+      headers: options.headers || {},
+      ...(typeof options.body === 'string' ? { body: options.body } : {}),
+      signal: AbortSignal.timeout(300_000),
+    })
+    const headers = {}
+    res.headers.forEach((value, key) => { headers[key] = value })
+    const body = [204, 205, 304].includes(res.status) ? null : await res.text()
+    log(`[main-fetch] renderer 网络失败兜底：主进程转发 ${options.method || 'GET'} ${target.pathname} → HTTP ${res.status}`)
+    return { ok: res.ok, status: res.status, statusText: res.statusText, headers, body }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    log(`[main-fetch] renderer 网络失败兜底：主进程转发 ${options.method || 'GET'} ${target.pathname} → 失败：${detail}`)
+    return { error: detail }
+  }
+})
+
+/**
  * 网络自检（设置-日志搜「net-selftest」）：renderer 网络失败时由 renderer 触发，
  * 主进程用两条路径探测后端，把拦截层钉死在日志里：
  * - Node 直连（绕过 Chromium，等价于 PowerShell/curl）：不通 = 系统级网络问题；
@@ -394,17 +423,47 @@ ipcMain.handle('net-selftest', async () => {
       done(`失败：${error instanceof Error ? error.message : String(error)}`)
     }
   })
+  // 大请求体探测：Chromium 网络栈 PUT 33KB 到无害端点（无令牌 → 预期 401，仅验证网络层是否按体积拦截）。
+  verdict.chromiumBigPut = ''
+  await new Promise((resolve) => {
+    let settled = false
+    const done = (value) => { if (!settled) { settled = true; verdict.chromiumBigPut = value; resolve() } }
+    try {
+      const req = net.request({ method: 'PUT', url: `${pythonManager.getUrl()}/dedicated-agents/skills/net-selftest-probe` })
+      req.on('response', (res) => { res.resume(); done(`HTTP ${res.statusCode}`) })
+      req.on('error', (error) => done(`失败：${error.message}`))
+      const timer = setTimeout(() => { try { req.destroy() } catch { /* 已结束 */ } done('超时（5s）') }, 5000)
+      timer.unref?.()
+      req.end('x'.repeat(33200))
+    } catch (error) {
+      done(`失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  })
   log(`[net-selftest] 探测 ${target}`)
+  log(`[net-selftest] 环境 app=${app.getVersion()} electron=${process.versions.electron} chromium=${process.versions.chrome} node=${process.versions.node} platform=${process.platform} arch=${process.arch}`)
+  let proxyLine = '解析失败'
+  try { proxyLine = await session.defaultSession.resolveProxy(target) } catch (error) { proxyLine = `解析失败：${error instanceof Error ? error.message : String(error)}` }
+  const proxySuspect = proxyLine !== 'DIRECT' && !proxyLine.startsWith('解析失败')
+  log(`[net-selftest] Chromium代理解析 → ${proxyLine}${proxySuspect ? '（非 DIRECT！renderer 请求会经过该代理，是重点嫌疑）' : ''}`)
+  const envProxy = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']
+    .map((key) => `${key}=${process.env[key] || '空'}`).join(' ')
+  log(`[net-selftest] 环境变量代理 ${envProxy}`)
   log(`[net-selftest] Node直连（绕过Chromium，等价curl/PowerShell）→ ${verdict.nodeStack}`)
   log(`[net-selftest] Chromium网络栈（与renderer fetch同栈）→ ${verdict.chromiumStack}`)
+  log(`[net-selftest] Chromium网络栈 PUT 33KB 大请求体 → ${verdict.chromiumBigPut}`)
   const nodeOk = /^HTTP \d{3}/.test(verdict.nodeStack)
   const chromiumOk = /^HTTP \d{3}/.test(verdict.chromiumStack)
+  const chromiumBigPutOk = /^HTTP \d{3}/.test(verdict.chromiumBigPut)
   if (!nodeOk) {
     log(`[net-selftest] 结论：两条路径都不通，后端未在服务或系统级网络问题（确认后端进程与端口）`)
+  } else if (!chromiumOk && proxySuspect) {
+    log(`[net-selftest] 结论：系统网络可达，但 Chromium 走了代理（${proxyLine}）且被拒——优先排查该代理（PAC/安全代理对回环地址的处理）`)
   } else if (!chromiumOk) {
     log(`[net-selftest] 结论：系统网络可达，但 Electron 的 Chromium 网络层被拒——大概率是安全软件/系统策略拦截 WeWorker 的网络访问，请找 IT/安全团队给 WeWorker 加白名单`)
+  } else if (!chromiumBigPutOk) {
+    log(`[net-selftest] 结论：小请求通但 33KB 大请求体在 Chromium 网络层被拒——按请求体大小拦截（结合 renderer-probe 结果判断是否仅限渲染进程）`)
   } else {
-    log(`[net-selftest] 结论：主进程两条路径都通，但 renderer fetch 失败——拦截只作用于渲染进程，请在复现时收集「后端连接失败」日志一并上报`)
+    log(`[net-selftest] 结论：主进程全部探测通过（GET 与 33KB 大请求体都通），但 renderer fetch 失败——拦截只作用于渲染进程，请对照「renderer-probe」结果：小请求也挂 = 渲染进程网络被整体拦截；只有大请求挂 = 渲染进程大请求体被拦`)
   }
   return verdict
 })
@@ -536,6 +595,7 @@ async function createWindow({ show = true } = {}) {
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   log('[main] app ready')
   Object.assign(servicePorts, await selectServicePorts())
+  log(`[main] versions app=${app.getVersion()} electron=${process.versions.electron} chromium=${process.versions.chrome} node=${process.versions.node} platform=${process.platform} arch=${process.arch}`)
   log(`[main] service ports: backend=${servicePorts.backend}, exploration=${servicePorts.exploration}, bridge=${servicePorts.bridge}`)
   // 默认端口被占（多开实例或遗留进程）会静默回退到随机端口——这是很多「连不上后端」现场的引信，
   // 必须落一条可搜索的醒目日志（设置-日志搜「备用端口」或「fallback-port」）。
