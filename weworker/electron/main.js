@@ -27,6 +27,7 @@ import { createTrayManager } from './tray-manager.js'
 import { BrowserControlClient, normalizeBrowserMode } from './dedicated-browser.js'
 import { sanitizeSiteAuthRequest, siteAuthNotification } from './site-auth-ipc.js'
 import { packagedMetricsEnvironment } from './metrics-environment.js'
+import { TemplateSkillWriteError, writeTemplateSkillLocally } from './template-skill-writer.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
@@ -349,6 +350,32 @@ async function browserAction(action, extra = {}) {
 }
 
 ipcMain.handle('app-settings:get', () => getAppSettings())
+
+/**
+ * 临时本地通道：仅用于内置模板快速创建专属 Bot。
+ *
+ * 个别受管 Windows 环境会拒绝 WeWorker/Electron 发往 loopback 的大请求体，
+ * 因此这里绕过 HTTP，将 private Skill 原子写入固定的本地 Skill library。
+ * Renderer 不能传目标路径或 scope，其他 Skill 创建与编辑流程不得使用此入口。
+ * TODO: 后续由统一的 Backend IPC 替代。
+ */
+ipcMain.handle('dedicated-agents:create-template-skill-local', (event, payload) => {
+  const trustedMainFrame = mainWindow
+    && !mainWindow.isDestroyed()
+    && event.sender === mainWindow.webContents
+    && event.senderFrame === event.sender.mainFrame
+  if (!trustedMainFrame) return { ok: false, code: 'FORBIDDEN', detail: '不允许的 Skill 创建来源' }
+  try {
+    const result = writeTemplateSkillLocally(payload)
+    log(`[template-skill-local] created name=${result.name} scope=${result.scope} bytes=${Buffer.byteLength(result.markdown, 'utf8')}`)
+    return { ok: true, name: result.name, scope: result.scope }
+  } catch (error) {
+    const code = error instanceof TemplateSkillWriteError ? error.code : 'WRITE_FAILED'
+    const detail = error instanceof Error ? error.message : String(error)
+    log(`[template-skill-local] failed code=${code} detail=${detail}`)
+    return { ok: false, code, detail }
+  }
+})
 
 // 后端不可用时设置-日志的兜底：直接读主进程日志文件，保证故障现场也能看日志。
 ipcMain.handle('read-main-log', (_event, requestedLines = 500) => {

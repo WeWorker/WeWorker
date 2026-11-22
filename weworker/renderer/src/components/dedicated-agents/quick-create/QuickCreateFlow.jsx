@@ -4,7 +4,7 @@ import { LoadingOutlined } from '@ant-design/icons'
 import WecomQrBind, { BotChannelPicker } from '../WecomQrBind.jsx'
 import { useDedicatedAgentsStore } from '../../../store/dedicated-agents.js'
 import { useWorksStore } from '../../../store/works.js'
-import { createAgent, createSkill, fetchAgentDetail, fetchAgentSkill } from '../../../api/dedicated-agents-api.js'
+import { createAgent, fetchAgentDetail, fetchAgentSkill } from '../../../api/dedicated-agents-api.js'
 import {
   agentChannelOf,
   boundBotPayload,
@@ -26,6 +26,7 @@ import {
 } from './templates.js'
 import { createAgentTask, fetchAgentNotificationTargets, fetchAgentTasks } from './api.js'
 import { createTemplateSkill } from './skill-retry.js'
+import { createTemplateSkillLocal } from './local-skill.js'
 import { handleChatLinkClick } from '../../../utils/chat-links.js'
 import { codeBadgeStyle, hintStyle, labelStyle, markdownEditorStyle, sectionStyle, titleStyle } from '../styles.js'
 import './quick-create.css'
@@ -322,7 +323,7 @@ export default function QuickCreateFlow({ draftKey }) {
   const createSkillWithRetry = (markdown) => createTemplateSkill({
     baseName: template.skillName,
     markdown,
-    createSkill: (name, content) => createSkill(name, content, 'private'),
+    createSkill: (name, content) => createTemplateSkillLocal(template.id, name, content),
     fetchSkill: fetchAgentSkill,
   })
 
