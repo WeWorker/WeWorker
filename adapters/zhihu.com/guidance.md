@@ -19,3 +19,15 @@ download 导出文章/回答全文 Markdown；output 指定本地目录，downlo
 仅在用户要求执行且目标、内容明确时提交写操作；参数不清楚时先澄清。导航准备不等于业务操作完成，写操作不得自动重放。超时后先核查站点状态，不能直接重发。
 
 多轮结果按实际 type 选择命令：问题进入 question，回答进入 answer-detail。文章无独立只读详情命令，想法无详情/互动入口，不套用回答动作。收藏夹使用真实内容 ID 生成公开 URL，不把 API URL 当操作目标。评论作者使用 url_token；没有 token 时不能用昵称代替。收藏夹名称、评论/回答文本、导出目录由用户补充；download 会写文件，按写动作处理。
+
+## 图文文章发布
+
+新增 prepare-article、publish-article、article-status；原有命令保持不变。只有用户授权发布且明确文章内容后，才传 execute=true。prepare-article 只保存草稿，必须核对 draft_saved 回执；publish-article 只有服务器确认 published 才返回发布成功；submission_received 仅表示观察到发布接口 HTTP 成功响应，仍须独立查询 article-status。导航准备 executed=false 时，确认编辑器加载后再次调用原参数，不把导航当作保存成功。
+
+上传只接受本地绝对路径图片，最多 16 张不同图片，每张最多 8 MiB，总计 32 MiB，支持 PNG/JPEG/WebP/GIF；正文为不超过 1 MiB 的 UTF-8 文件。依赖已登录浏览器及站点编辑器自身上传、保存动作；遇到登录、验证码、站点结构变化时停止并保留 trace。
+
+提交后超时、页面跳转断连或 OUTCOME_UNKNOWN 均先查询状态及创作中心，不得自动重发。会话提交标记阻止同一草稿重复点击，不自动清除。用户已发布的文章不作为新草稿覆盖。
+
+知乎 prepare-article 的 file 是 HTML（不是 Markdown），支持段落、标题、列表、链接及本地图片；图片 src 为绝对路径。仅接受允许的 HTML 标签和 HTTPS 链接，表格会转换为逐行列表以保留每个单元格文字。已有草稿须显式传 draft-id。保存使用站点自身动作，并读回服务器正文与图片数；发布命令会比较服务器草稿与编辑器标题、React 正文状态、图片数量及图片加载状态。保存后会先重新加载草稿并返回 prepared/executed=false；再次调用相同授权参数才提交，不需要调用者手动操作浏览器。
+
+publish-article 传 draft-id、与草稿一致的 title；AI 辅助文章传 declaration=ai，保留平台创作声明。发布可能持续数分钟，不因按钮停留在“发布中”重复提交。article-status --id 查询服务器状态：draft 是草稿，published 是已发布，其他原始状态保留为 submitted。不要将 submission_received 当作发布完成。若点击后没有观察到发布响应或 published 状态，返回 OUTCOME_UNKNOWN，不宣称提交成功。提交记录跨标签页和重新加载保留，不自动清除；先查询状态及页面校验提示，再处理结果未知。不要并行运行操作同一站点编辑器的任务。
