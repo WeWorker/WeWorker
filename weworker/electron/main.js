@@ -423,22 +423,40 @@ ipcMain.handle('net-selftest', async () => {
       done(`失败：${error instanceof Error ? error.message : String(error)}`)
     }
   })
-  // 大请求体探测：Chromium 网络栈 PUT 33KB 到无害端点（无令牌 → 预期 401，仅验证网络层是否按体积拦截）。
-  verdict.chromiumBigPut = ''
-  await new Promise((resolve) => {
+  // 大请求体探测与梯度扫描：Chromium 网络栈 PUT 到无害端点（无令牌 → 预期 401，仅验证网络层是否按体积拦截）。
+  const probeChromiumPut = (size) => new Promise((resolve) => {
     let settled = false
-    const done = (value) => { if (!settled) { settled = true; verdict.chromiumBigPut = value; resolve() } }
+    const done = (value) => { if (!settled) { settled = true; resolve(value) } }
     try {
       const req = net.request({ method: 'PUT', url: `${pythonManager.getUrl()}/dedicated-agents/skills/net-selftest-probe` })
       req.on('response', (res) => { res.resume(); done(`HTTP ${res.statusCode}`) })
       req.on('error', (error) => done(`失败：${error.message}`))
       const timer = setTimeout(() => { try { req.destroy() } catch { /* 已结束 */ } done('超时（5s）') }, 5000)
       timer.unref?.()
-      req.end('x'.repeat(33200))
+      req.end('x'.repeat(size))
     } catch (error) {
       done(`失败：${error instanceof Error ? error.message : String(error)}`)
     }
   })
+  verdict.chromiumBigPut = await probeChromiumPut(33200)
+  // 梯度扫描确定拦截边界（512B→32KB），给分块上传选安全块大小提供依据。
+  const sweepSizes = [512, 1024, 2048, 4096, 8192, 16384, 32768]
+  const sweepResults = []
+  for (const size of sweepSizes) {
+    const outcome = await probeChromiumPut(size)
+    sweepResults.push({ size, ok: /^HTTP \d{3}/.test(outcome), outcome })
+  }
+  verdict.sizeSweep = sweepResults.map(({ size, ok }) => ({ size, ok }))
+  const firstBlocked = sweepResults.find((entry) => !entry.ok)
+  const maxPassed = firstBlocked
+    ? [...sweepResults].reverse().find((entry) => entry.ok && entry.size < firstBlocked.size)?.size
+    : undefined
+  if (firstBlocked) {
+    verdict.blockBoundary = { maxPassedBytes: maxPassed || 0, minBlockedBytes: firstBlocked.size }
+    log(`[net-selftest] 拦截边界：≤${maxPassed || 0}B 通过、≥${firstBlocked.size}B 被拦——分块上传必须小于 ${firstBlocked.size}B（客户端当前分块为 1KB）`)
+  } else {
+    log('[net-selftest] 大小梯度扫描（512B→32KB）全部通过，本机无按请求体大小的拦截')
+  }
   log(`[net-selftest] 探测 ${target}`)
   log(`[net-selftest] 环境 app=${app.getVersion()} electron=${process.versions.electron} chromium=${process.versions.chrome} node=${process.versions.node} platform=${process.platform} arch=${process.arch}`)
   let proxyLine = '解析失败'

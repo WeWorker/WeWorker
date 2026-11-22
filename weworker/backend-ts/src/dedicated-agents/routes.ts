@@ -436,6 +436,60 @@ export function registerDedicatedAgentRoutes(app: express.Express, deps: Dedicat
     }
   })
 
+  // ── Skill 分块上传（客户端兜底通道：个别机器/安全策略会按请求体大小拦截回环上传，
+  //    整包 20KB+ 的 POST 被拒时改为多个 ≤1KB 的小请求分块组装。会话仅存内存，10 分钟过期）──
+  const skillUploads = new Map<string, { name: string; scope: SkillScope; parts: (string | null)[]; received: number; total: number; expiresAt: number }>()
+  const expireSkillUploads = () => {
+    const now = Date.now()
+    for (const [id, upload] of skillUploads) if (upload.expiresAt < now) skillUploads.delete(id)
+  }
+
+  app.post('/dedicated-agents/skills/chunked/start', (req, res) => {
+    try {
+      expireSkillUploads()
+      const name = normalizeSkillName(req.body?.skill_name)
+      if (!name) throw new DedicatedAgentError('请填写 Skill 名称')
+      const total = Number(req.body?.total_chunks)
+      if (!Number.isInteger(total) || total < 1 || total > 20000) throw new DedicatedAgentError('分块数量无效')
+      if (skillUploads.size > 100) skillUploads.clear()
+      const uploadId = randomUUID()
+      skillUploads.set(uploadId, { name, scope: parseScope(req.body?.scope, 'private'), parts: new Array(total).fill(null), received: 0, total, expiresAt: Date.now() + 10 * 60_000 })
+      res.json({ upload_id: uploadId })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
+  app.put('/dedicated-agents/skills/chunked/:id/:index', (req, res) => {
+    try {
+      const upload = skillUploads.get(String(req.params.id))
+      if (!upload || upload.expiresAt < Date.now()) throw new DedicatedAgentError('上传会话不存在或已过期，请重新上传', 410)
+      const index = Number(req.params.index)
+      if (!Number.isInteger(index) || index < 0 || index >= upload.total) throw new DedicatedAgentError('分块序号无效')
+      const data = String(req.body?.data ?? '')
+      if (Buffer.byteLength(data, 'utf8') > 4096) throw new DedicatedAgentError('分块过大（每片必须 ≤4KB）')
+      if (upload.parts[index] === null) upload.received += 1
+      upload.parts[index] = data
+      res.json({ received: upload.received, total: upload.total })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
+  app.post('/dedicated-agents/skills/chunked/:id/complete', (req, res) => {
+    try {
+      const upload = skillUploads.get(String(req.params.id))
+      if (!upload || upload.expiresAt < Date.now()) throw new DedicatedAgentError('上传会话不存在或已过期，请重新上传', 410)
+      if (upload.received < upload.total || upload.parts.some((part) => part === null)) throw new DedicatedAgentError('分块未收齐')
+      const markdown = normalizeSkillMarkdown(upload.parts.join(''), upload.name)
+      const created = createAgentSkill(upload.name, markdown, upload.scope, locations())
+      skillUploads.delete(String(req.params.id))
+      res.json({ ...created, markdown })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
   app.put('/dedicated-agents/skills/:name', (req, res) => {
     try {
       const name = normalizeSkillName(req.params.name)
