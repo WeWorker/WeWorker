@@ -5,7 +5,7 @@ import os from 'os'
 import { fileURLToPath } from 'url'
 import { randomBytes, randomUUID } from 'crypto'
 import { stopManagedServices } from './managed-shutdown.js'
-import { selectServicePorts } from './service-ports.js'
+import { DEFAULT_SERVICE_PORTS, selectServicePorts } from './service-ports.js'
 import {
   BridgeManager,
   NodeManager,
@@ -537,6 +537,15 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   log('[main] app ready')
   Object.assign(servicePorts, await selectServicePorts())
   log(`[main] service ports: backend=${servicePorts.backend}, exploration=${servicePorts.exploration}, bridge=${servicePorts.bridge}`)
+  // 默认端口被占（多开实例或遗留进程）会静默回退到随机端口——这是很多「连不上后端」现场的引信，
+  // 必须落一条可搜索的醒目日志（设置-日志搜「备用端口」或「fallback-port」）。
+  const portFallbacks = Object.entries(DEFAULT_SERVICE_PORTS).filter(([name, port]) => servicePorts[name] !== port)
+  if (portFallbacks.length) {
+    const occupied = portFallbacks.map(([name, port]) => `${name} 默认 ${port}`).join('、')
+    const using = portFallbacks.map(([name]) => `${name}=${servicePorts[name]}`).join('、')
+    const probe = portFallbacks.map(([, port]) => `:${port}`).join(' ')
+    log(`[main] [warn] 备用端口 fallback-port：默认端口被占用（${occupied}），本次改用 ${using}。若非刻意多开，可能是遗留的旧实例/进程占着端口，可用 netstat -ano 查 ${probe} 的占用进程后处理`)
+  }
 
   // Use the same rounded artwork as the macOS bundle icon, including in dev.
   if (process.platform === 'darwin' && app.dock && fs.existsSync(appIconPath)) {

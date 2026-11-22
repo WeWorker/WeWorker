@@ -26,3 +26,23 @@ test('network-level fetch failures become actionable Chinese errors', async t =>
   t.mock.method(globalThis, 'fetch', async () => { throw new DOMException('fixture', 'AbortError') })
   await assert.rejects(http.backendFetch('/events'), (error) => error.name === 'AbortError')
 })
+
+test('fallback-port scenarios name the alternate port in the error and log', async t => {
+  globalThis.window = { electronAPI: {
+    getBackendUrl: async () => 'http://127.0.0.1:58814',
+    getHttpAuthToken: async () => 'fixture-token',
+  } }
+  const http = await import('../api/http.js?fallback-port')
+  await http.initializeBackendConnection()
+
+  const errors = []
+  const restoreError = console.error; console.error = (...args) => errors.push(args.join(' '))
+  t.after(() => { console.error = restoreError })
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch') })
+  await assert.rejects(http.backendFetch('/dedicated-agents/skills'), (error) => {
+    assert.match(error.message, /备用端口 58814/)
+    assert.match(error.message, /默认端口被占用/)
+    return true
+  })
+  assert.ok(errors.some((line) => line.includes('备用端口 58814')), '日志行也带备用端口线索')
+})

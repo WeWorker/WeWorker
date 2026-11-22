@@ -120,6 +120,8 @@ export default function LogsTab() {
           setLogPath(fallback.path || '')
           setTotal(fallback.total || 0)
           setBackendDown(true)
+          // 落日志：日志页走兜底 = 当时 GET /logs 也不通，说明 renderer 网络整体不可用（搜「日志页兜底」）。
+          console.error(`[renderer] 日志页兜底 log-tab-fallback：GET /logs 网络失败（${e.message}），已改读主进程日志文件`)
           setLoading(false)
           return
         }

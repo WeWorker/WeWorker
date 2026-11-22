@@ -59,10 +59,12 @@ export async function backendFetch(pathOrUrl, options = {}) {
     // fetch 网络层失败（后端未启动/正在重启/连接被拒）只带 "Failed to fetch" 这种无从下手的文案，
     // 统一转成可操作的提示；AbortError 等其余异常原样上抛。
     if (error instanceof TypeError) {
+      // 端口回退场景（默认端口被占、后端落到随机端口）是重要线索，直接写进日志和提示。
+      const fallbackNote = API !== DEFAULT_API ? `（后端在备用端口 ${new URL(API).port}，默认端口被占用）` : ''
       triggerNetworkSelftest()
       // 落一条可搜索的核心日志（设置-日志里搜「后端连接失败」或「net-error」），主进程会转发 renderer 控制台错误。
-      console.error(`[renderer] 后端连接失败 net-error ${options.method || 'GET'} ${String(pathOrUrl)} -> ${API}：连接未建立（后端未启动/正在重启/被拦截）`)
-      throw new Error('无法连接 WeWorker 后端，请等待服务启动后重试')
+      console.error(`[renderer] 后端连接失败 net-error ${options.method || 'GET'} ${String(pathOrUrl)} -> ${API}：连接未建立${fallbackNote}（后端未启动/正在重启/被拦截）`)
+      throw new Error(`无法连接 WeWorker 后端${fallbackNote}，请等待服务启动后重试；若持续出现请查看设置-日志`)
     }
     throw error
   }
