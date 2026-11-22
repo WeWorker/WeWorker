@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, protocol, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, powerMonitor, protocol, Tray, net } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
@@ -360,6 +360,53 @@ ipcMain.handle('read-main-log', (_event, requestedLines = 500) => {
   } catch (error) {
     return { lines: [], path: logFile, total: 0, error: error instanceof Error ? error.message : String(error) }
   }
+})
+
+/**
+ * 网络自检（设置-日志搜「net-selftest」）：renderer 网络失败时由 renderer 触发，
+ * 主进程用两条路径探测后端，把拦截层钉死在日志里：
+ * - Node 直连（绕过 Chromium，等价于 PowerShell/curl）：不通 = 系统级网络问题；
+ * - Chromium 网络栈（Electron net 模块，与 renderer fetch 同一栈）：
+ *   Node 通而这条挂 = 安全软件/系统策略拦截 Electron 的 Chromium 网络层，找 IT 加白；
+ *   两条都通但 renderer 失败 = 拦截只作用于渲染进程（沙箱层面）。
+ */
+ipcMain.handle('net-selftest', async () => {
+  const target = `${pythonManager.getUrl()}/status`
+  const verdict = { target, nodeStack: '', chromiumStack: '' }
+  try {
+    const res = await fetch(target, { signal: AbortSignal.timeout(5000) })
+    verdict.nodeStack = `HTTP ${res.status}${res.status === 401 ? '（401=未带令牌的正常响应，网络可达）' : ''}`
+    try { await res.body?.cancel() } catch { /* 忽略取消 */ }
+  } catch (error) {
+    verdict.nodeStack = `失败：${error instanceof Error ? error.message : String(error)}`
+  }
+  await new Promise((resolve) => {
+    let settled = false
+    const done = (value) => { if (!settled) { settled = true; verdict.chromiumStack = value; resolve() } }
+    try {
+      const req = net.request(target)
+      req.on('response', (res) => { res.resume(); done(`HTTP ${res.statusCode}${res.statusCode === 401 ? '（网络可达）' : ''}`) })
+      req.on('error', (error) => done(`失败：${error.message}`))
+      const timer = setTimeout(() => { try { req.destroy() } catch { /* 已结束 */ } done('超时（5s）') }, 5000)
+      timer.unref?.()
+      req.end()
+    } catch (error) {
+      done(`失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  })
+  log(`[net-selftest] 探测 ${target}`)
+  log(`[net-selftest] Node直连（绕过Chromium，等价curl/PowerShell）→ ${verdict.nodeStack}`)
+  log(`[net-selftest] Chromium网络栈（与renderer fetch同栈）→ ${verdict.chromiumStack}`)
+  const nodeOk = /^HTTP \d{3}/.test(verdict.nodeStack)
+  const chromiumOk = /^HTTP \d{3}/.test(verdict.chromiumStack)
+  if (!nodeOk) {
+    log(`[net-selftest] 结论：两条路径都不通，后端未在服务或系统级网络问题（确认后端进程与端口）`)
+  } else if (!chromiumOk) {
+    log(`[net-selftest] 结论：系统网络可达，但 Electron 的 Chromium 网络层被拒——大概率是安全软件/系统策略拦截 WeWorker 的网络访问，请找 IT/安全团队给 WeWorker 加白名单`)
+  } else {
+    log(`[net-selftest] 结论：主进程两条路径都通，但 renderer fetch 失败——拦截只作用于渲染进程，请在复现时收集「后端连接失败」日志一并上报`)
+  }
+  return verdict
 })
 ipcMain.handle('app-settings:set', async (_event, patch = {}) => {
   const next = {}
