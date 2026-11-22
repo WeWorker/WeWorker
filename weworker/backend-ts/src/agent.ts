@@ -1368,6 +1368,13 @@ async function* streamChatWithBaseUrl(
     userMedia?: UserMediaSink | null;
     systemPromptOverride?: string;
     mcpServerOverride?: ReturnType<typeof _buildMcpServer>;
+    /**
+     * Dedicated Agent identity for this turn. The turn's tool server is built
+     * with it (instead of a caller-built override), so agent tools share this
+     * turn's bindings — userMedia above all: send_file_to_user / send_image_to_user
+     * must deliver to the chat or task that asked, not report "no sink".
+     */
+    dedicatedAgent?: NonNullable<Parameters<typeof _buildMcpServer>[0]>['dedicatedAgent'];
     restrictBuiltInTools?: boolean;
     memoryScope?: MemoryScope;
     /** siteGate 预注入的站点工具清单（server.ts 计算；与 loadedSkills 同通道前缀进 prompt）。 */
@@ -1429,6 +1436,10 @@ async function* streamChatWithBaseUrl(
     && !opts.channelAskUserHandler
     && !opts.systemPromptOverride
     && !opts.mcpServerOverride
+    // Agent turns have always run one-shot (their options used to carry
+    // mcpServerOverride, which blocked reuse); keep that now that the agent
+    // identity rides on dedicatedAgent instead.
+    && !opts.dedicatedAgent
     && !opts.restrictBuiltInTools
     && !opts.forceCompaction
     && !opts.compactionOnly
@@ -1449,6 +1460,9 @@ async function* streamChatWithBaseUrl(
   ;(turnBindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
   const mcpServer = _buildMcpServer({
     channelPermissionMode,
+    // A dedicated-agent turn uses this same server (identity via opts.dedicatedAgent),
+    // so its tools share the turn bindings below — send_file_to_user included.
+    ...(opts.dedicatedAgent ? { dedicatedAgent: opts.dedicatedAgent } : {}),
     workspaceDirectory,
     workId: opts.workId ?? null,
     askUserSSECallback: opts.onAskUser ?? null,
@@ -2053,6 +2067,9 @@ async function* streamChatWithBaseUrl(
       const bindings = turnBindings
       const sessionMcp = _buildMcpServer({
         channelPermissionMode,
+        // Same forwarding as the one-shot server above, so a future relaxation
+        // of the reuse gate cannot silently drop the agent identity again.
+        ...(opts.dedicatedAgent ? { dedicatedAgent: opts.dedicatedAgent } : {}),
         workspaceDirectory,
         abortSignal: sessionAbort.signal,
         workIdRef: bindings.workIdRef,

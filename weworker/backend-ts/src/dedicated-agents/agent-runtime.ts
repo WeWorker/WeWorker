@@ -11,7 +11,6 @@ import { parseAllAdapters } from '../adapter-parser.js'
 import type { DedicatedAgentRecord } from './agent-store.js'
 import { createWorkspaceToolGuard, WORKSPACE_AGENT_DISALLOWED_TOOLS } from './focused-tool-guard.js'
 import { locateSkill } from './skill-library.js'
-import { buildMcpServer } from '../tools.js'
 import type { WecomProfileChatOptions } from '../channels/wecom-channel.js'
 
 const log = createLogger('dedicated-agent-runtime')
@@ -215,16 +214,17 @@ export function buildAgentChatOptions(input: {
       ...(input.taskId ? ['mcp__weworker__send_agent_message'] : []),
     ]),
     extraDisallowedTools: [...WORKSPACE_AGENT_DISALLOWED_TOOLS],
-    mcpServerOverride: buildMcpServer({
-      channelPermissionMode: 'full',
-      dedicatedAgent: {
-        agentId: input.agent.id,
-        ownerUserId: input.agent.owner_user_id,
-        actorUserId: input.actorUserId,
-        taskId: input.taskId,
-        ...(input.desktop ? { desktop: true } : {}),
-      },
-    }),
+    // Agent identity as plain data: streamChat builds the turn's tool server with
+    // it, so agent tools share the turn's own bindings (userMedia above all —
+    // send_file_to_user must deliver to the chat or task that asked). A
+    // caller-built mcpServerOverride would replace that server and lose the sink.
+    dedicatedAgent: {
+      agentId: input.agent.id,
+      ownerUserId: input.agent.owner_user_id,
+      actorUserId: input.actorUserId,
+      taskId: input.taskId,
+      ...(input.desktop ? { desktop: true } : {}),
+    },
   }
 }
 

@@ -7703,21 +7703,67 @@ async function prepareSiteQrLogin(msg) {
         const rect = element.getBoundingClientRect();
         return /(?:qr|qrcode|二维码|扫码|scan)/i.test(hintOf(element)) && rect.width >= 80 && rect.height >= 80;
       });
+      // Data-URL images and canvases hand their pixels over directly; a remote-src
+      // image still yields them through an offscreen canvas redraw when same-origin
+      // (verified live on the SSO CorpApp page: its QR is a server-src img). A
+      // cross-origin src taints the canvas — then only the rect below survives.
+      const captureQrImage = (element) => {
+        try {
+          if (element instanceof HTMLImageElement) {
+            const src = element.currentSrc || element.src || '';
+            if (/^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(src)) return src;
+            if (/^https?:/i.test(src) && element.complete && element.naturalWidth > 0) {
+              const canvas = document.createElement('canvas');
+              canvas.width = element.naturalWidth;
+              canvas.height = element.naturalHeight;
+              canvas.getContext('2d').drawImage(element, 0, 0);
+              return canvas.toDataURL('image/png');
+            }
+          } else if (element instanceof HTMLCanvasElement) {
+            return element.toDataURL('image/png');
+          }
+        } catch { /* A tainted canvas still has the page-screenshot crop below. */ }
+        return '';
+      };
+      // Page rect (scroll-adjusted, same validation as the declared-command path)
+      // so the host can crop a login-tab screenshot when pixels are unreachable.
+      const pageRectOf = (element) => {
+        const rect = element.getBoundingClientRect();
+        const out = { x: rect.left + window.scrollX, y: rect.top + window.scrollY, width: rect.width, height: rect.height };
+        return ['x', 'y', 'width', 'height'].every((key) => Number.isFinite(out[key]) && out[key] >= 0)
+          && out.width >= 20 && out.height >= 20 && out.width <= 8000 && out.height <= 8000 ? out : null;
+      };
       const qrState = () => {
         const element = findQrElement();
         if (!element) return { available: false };
-        let imageDataUrl = '';
-        try {
-          if (element instanceof HTMLImageElement && /^data:image\/(?:png|jpeg|jpg|webp);base64,/i.test(element.currentSrc || element.src || '')) {
-            imageDataUrl = element.currentSrc || element.src;
-          } else if (element instanceof HTMLCanvasElement) {
-            imageDataUrl = element.toDataURL('image/png');
+        const imageDataUrl = captureQrImage(element);
+        const rect = pageRectOf(element);
+        return {
+          available: true,
+          ...(imageDataUrl.length > 0 && imageDataUrl.length <= 2_800_000 ? { imageDataUrl } : {}),
+          ...(rect ? { rect } : {}),
+        };
+      };
+      // The element can mount before its pixels load (or never yield them at all);
+      // hold out briefly for the image, but keep the best rect-only sighting.
+      const waitForQr = async (clicked) => {
+        let best = null;
+        for (let attempt = 0; attempt < 15; attempt += 1) {
+          const state = qrState();
+          if (state.available) {
+            best = state;
+            if (state.imageDataUrl) return { ...state, clicked };
           }
-        } catch { /* A tainted canvas still has a visible page-screenshot fallback. */ }
-        return { available: true, ...(imageDataUrl.length <= 2_800_000 ? { imageDataUrl } : {}) };
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        return best ? { ...best, clicked } : { available: false, clicked };
       };
       const currentQr = qrState();
-      if (currentQr.available) return { ...currentQr, clicked: false };
+      if (currentQr.available) {
+        if (currentQr.imageDataUrl) return { ...currentQr, clicked: false };
+        const settled = await waitForQr(false);
+        return settled.available ? settled : { ...currentQr, clicked: false };
+      }
       const commonSwitches = document.querySelectorAll('#switcher_qlogin, .qrcode_switch, [data-action*="qr" i], [data-testid*="qr" i]');
       const semanticSwitches = document.querySelectorAll('button, [role="button"], [role="tab"], a, input[type="button"]');
       const candidates = [...new Set([...commonSwitches, ...semanticSwitches])]
@@ -7727,12 +7773,7 @@ async function prepareSiteQrLogin(msg) {
         .filter(({ hint }) => !/(?:确认|提交|授权|注册|密码登录|短信登录|找回密码|sign\s*in|submit|authorize)/i.test(hint));
       if (candidates.length !== 1) return { available: false, clicked: false, reason: candidates.length ? 'AMBIGUOUS_QR_ENTRY' : 'QR_ENTRY_NOT_FOUND' };
       candidates[0].element.click();
-      for (let attempt = 0; attempt < 15; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        const nextQr = qrState();
-        if (nextQr.available) return { ...nextQr, clicked: true };
-      }
-      return { available: false, clicked: true };
+      return waitForQr(true);
     },
   });
   const heuristic = result && typeof result === 'object' ? result : { available: false, reason: 'QR_PREPARE_FAILED' };

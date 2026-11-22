@@ -33,7 +33,12 @@ vi.mock('../routed-turn.js', async (importOriginal) => {
 vi.mock('../agent.js', () => ({
   streamChat: mocks.streamChat,
 }))
-vi.mock('../notifier.js', () => ({ notify: mocks.notify }))
+// notify 是桩（不触通道），其余纯函数（collectExecutionFiles）用真实实现，
+// 这样「本轮产物文件随通知透传」的接线在本文件里也是被真实覆盖的。
+vi.mock('../notifier.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../notifier.js')>()
+  return { ...actual, notify: mocks.notify }
+})
 vi.mock('../conversation-archive.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../conversation-archive.js')>()
   const archiveFile = () => path.join(mocks.workspaceRoot, 'archived-works.json')
@@ -268,6 +273,27 @@ describe('executeTask 的路由接线', () => {
     expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
       summary: '总结：模型回答',
       fullText: '模型回答',
+    }), ['wecom'])
+  })
+
+  it('本轮 send_file_to_user 的产物作为附件随通知一起发出，失败通知不带附件', async () => {
+    const task = makeTask({ notify_channels: ['wecom'] })
+    const reportPath = path.join(mocks.workspaceRoot, 'report-fixture.pdf')
+    mocks.streamChat.mockImplementation(async function* (_messages: Message[], _settings, _abort, options) {
+      if (options?.notificationSummaryOnly) {
+        yield { type: 'text_delta', content: '结论' }
+        return
+      }
+      yield { type: 'text_delta', content: '报告已生成' }
+      await options?.userMedia?.file?.({ path: reportPath, name: 'report-fixture.pdf', size: 8, mime: 'application/pdf' })
+    })
+
+    const result = await executeTask(task)
+
+    expect(result.status).toBe('completed')
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({
+      fullText: '报告已生成',
+      files: [{ path: reportPath, name: 'report-fixture.pdf' }],
     }), ['wecom'])
   })
 

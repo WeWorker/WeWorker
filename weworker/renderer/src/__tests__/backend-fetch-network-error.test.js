@@ -10,8 +10,13 @@ test('network-level fetch failures become actionable Chinese errors', async t =>
   await http.initializeBackendConnection()
 
   // 后端未启动/重启中：Chromium 只报 "Failed to fetch"，用户无从下手。
+  const errors = []
+  const restoreError = console.error; console.error = (...args) => errors.push(args.join(' '))
+  t.after(() => { console.error = restoreError })
   t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('Failed to fetch') })
   await assert.rejects(http.backendFetch('/dedicated-agents/skills'), /无法连接 WeWorker 后端/)
+  // 网络失败必须落可搜索日志（主进程转发 renderer error 后在设置-日志可见）。
+  assert.ok(errors.some((line) => line.includes('后端连接失败') && line.includes('net-error') && line.includes('/dedicated-agents/skills')), 'logs searchable backend-connection failure')
 
   // 中止等其余异常原样上抛，调用方（如事件流）依赖其错误类型。
   t.mock.method(globalThis, 'fetch', async () => { throw new DOMException('fixture', 'AbortError') })

@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "id": "fannisi-reimburse-helper",
+  "version": "1.0.0",
+  "emoji": "💼",
+  "name": "范妮思助手",
+  "tagline": "搞定范妮思月度补贴报销：发票收集、卡包核验、绑定与提交",
+  "site": { "id": "weoa.webank.com", "label": "范妮思" },
+  "introCta": "开始创建，只要一分钟",
+  "vars": {
+    "nameTrim": { "from": "name", "trim": true },
+    "use163On": { "bool": { "answer": "use163", "isNot": false } }
+  },
+  "sites": [
+    { "id": "weoa.webank.com" },
+    { "id": "mail.163.com", "when": { "answer": "use163", "isNot": false } }
+  ],
+  "defaultAnswers": {
+    "name": "范妮思助手",
+    "use163": true
+  },
+  "questions": [
+    {
+      "id": "name",
+      "type": "text",
+      "emoji": "🤖",
+      "title": "先给它起个名字",
+      "subtitle": "它会用这个名字在 IM 里向你自我介绍。",
+      "placeholder": "范妮思助手",
+      "validate": { "kind": "name" },
+      "summary": [{ "text": "{{nameTrim}}" }]
+    },
+    {
+      "id": "use163",
+      "type": "choice",
+      "emoji": "📧",
+      "title": "发票从哪里来？",
+      "subtitle": "范妮思助手可以从 163 邮箱按「发票」「联通」「滴滴」等关键字自动搜索并下载发票。发票不走 163 邮箱也没关系，直接把 PDF/图片发给它就能报销。",
+      "options": [
+        { "value": true, "label": "163 邮箱，自动搜索下载发票" },
+        { "value": false, "label": "不用 163，我直接提供发票文件" }
+      ],
+      "summary": [
+        { "when": { "var": "use163On" }, "text": "163 邮箱，自动搜索下载" },
+        { "text": "不用 163，直接提供发票文件" }
+      ]
+    }
+  ],
+  "tasks": [],
+  "description": [
+    { "when": { "var": "use163On" }, "lines": [
+      "处理范妮思月度补贴报销：从163邮箱自动搜索下载发票、上传卡包核验、绑定月度补贴并提交报销。"
+    ] },
+    { "when": { "answer": "use163", "is": false }, "lines": [
+      "处理范妮思月度补贴报销：发票由主人直接提供，上传卡包核验、绑定月度补贴并提交报销。"
+    ] }
+  ],
+  "examples": [
+    "这个月的范妮思报销进度怎么样？各类别还差多少发票？",
+    { "when": { "var": "use163On" }, "lines": [
+      "去我的163邮箱把最近的发票找出来，能报销的都绑到这个月"
+    ] },
+    "发票文件我发给你了，帮我上传卡包核验并绑定到这个月提交"
+  ]
+}

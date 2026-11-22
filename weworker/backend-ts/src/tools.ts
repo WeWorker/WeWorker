@@ -15,7 +15,7 @@ import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import { runWithWorkspaceDirectory } from './workspace-access-context.js'
 import * as store from './works-store.js'
 import { scheduler, Scheduler } from './scheduler.js'
-import { channelManager } from './channels/channel-manager.js'
+import { channelManager, type ChannelNotificationFile } from './channels/channel-manager.js'
 import { getAgent, addAgentWork } from './dedicated-agents/agent-store.js'
 import { applyConversationSkillUpdate } from './dedicated-agents/skill-updates.js'
 import { broadcastSSE } from './notifier.js'
@@ -737,12 +737,13 @@ export function buildMcpServer(opts?: McpServerContext) {
     ),
     tool(
       'send_agent_message',
-      '向当前定时任务已授权的企业微信单聊或群聊主动发送消息。是否调用由你根据任务说明和本轮检查结果自主决定；未调用则不会推送。不得向未授权目标发送。',
+      '向当前定时任务已授权的企业微信单聊或群聊主动发送消息，可随消息附带生成的文件（如报告，最多 5 个，路径须在用户目录内）。是否调用由你根据任务说明和本轮检查结果自主决定；未调用则不会推送。不得向未授权目标发送。',
       {
         target_id: z.string().min(1).max(256),
         message: z.string().min(1).max(6000),
+        file_paths: z.array(z.string().min(1)).min(1).max(5).optional().describe('随消息附带的文件绝对路径列表，最多 5 个；文件必须在用户目录内且已生成完毕'),
       },
-      async ({ target_id, message }) => {
+      async ({ target_id, message, file_paths }) => {
         if (!dedicatedAgent?.taskId) return toolText({ success: false, error: '主动消息仅能在WeWorker Bot 定时任务运行中发送' })
         const task = store.getScheduledTask(dedicatedAgent.taskId)
         if (!task || task.agent_id !== dedicatedAgent.agentId || !task.enabled) return toolText({ success: false, error: '定时任务不存在、未授权或已停用' })
@@ -750,9 +751,28 @@ export function buildMcpServer(opts?: McpServerContext) {
         if (!target) return toolText({ success: false, error: '目标不在此任务的授权通知列表中' })
         const channel = channelManager.getChannel(dedicatedChannelKey)
         if (!channel?.sendNotificationToTarget) return toolText({ success: false, error: '企业微信机器人当前未连接或不支持主动消息' })
+        // 附件先整体校验再发正文：路径非法、文件缺失或通道不支持时直接失败，
+        // 不留一条「带了路径说明却没带文件」的半成品推送。
+        const attachments: ChannelNotificationFile[] = []
+        if (file_paths?.length) {
+          if (typeof channel.sendFilesToTarget !== 'function') {
+            return toolText({ success: false, target_id, error: '当前通道不支持随消息发送文件，请只发送文本并注明文件路径' })
+          }
+          for (const filePath of file_paths) {
+            try {
+              const resolved = assertPathInsideUserDirectory(filePath, 'file_paths')
+              attachments.push({ path: resolved, name: describeUserFile(resolved).name })
+            } catch (e) {
+              return toolText({ success: false, target_id, error: `附件无法发送（${filePath}）：${e instanceof Error ? e.message : String(e)}` })
+            }
+          }
+        }
         try {
           await channel.sendNotificationToTarget({ id: target.id, chatType: target.chat_type }, message)
-          return toolText({ success: true, target_id, delivered: true })
+          if (attachments.length > 0) {
+            await channel.sendFilesToTarget!({ id: target.id, chatType: target.chat_type }, attachments)
+          }
+          return toolText({ success: true, target_id, delivered: true, ...(attachments.length ? { attachments_sent: attachments.length } : {}) })
         } catch (error) {
           return toolText({ success: false, target_id, error: error instanceof Error ? error.message : String(error) })
         }

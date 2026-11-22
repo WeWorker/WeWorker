@@ -541,6 +541,17 @@ html.theme-instant-switch *::after {
   opacity: 0.6;
 }
 
+/* 宽版（表单里的选择器，如自定义 Bot 向导的 Skill 选择）：
+   占满所在容器，触发器与 matchAnchorWidth 的下拉菜单不再被紧凑版 168px 上限截断。 */
+.app-dropdown-select--wide {
+  width: 100%;
+}
+
+.app-dropdown-select--wide .app-dropdown-select__trigger {
+  max-width: none;
+  width: 100%;
+}
+
 .app-dropdown-select__prefix {
   flex-shrink: 0;
   font-size: 11px;

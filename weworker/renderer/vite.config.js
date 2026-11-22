@@ -43,7 +43,11 @@ export default defineConfig(({ command }) => {
       },
     }, react()],
     base: './',
-    server: { port: 5173 },
+    server: {
+      port: 5173,
+      // 允许开发态从仓库根读取 bothub/ 蓝图（与 model.json 的包外导入同类的寻址需求）。
+      fs: { allow: [fileURLToPath(new URL('../../', import.meta.url))] },
+    },
     build: { outDir: 'dist' },
     define: {
       '__BUILD_ADAPTERHUB_ENDPOINT__': JSON.stringify(adapterHubProfile.endpoint ?? ''),

@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "id": "apikey-usage-helper",
+  "version": "1.0.0",
+  "emoji": "🔑",
+  "name": "API Key 使用助手",
+  "tagline": "盯紧团队 codeplan API Key 的用量与额度，到点主动汇报",
+  "site": { "id": "aiep.weoa.com", "label": "aiep" },
+  "introCta": "开始创建，到点收日报",
+  "vars": {
+    "nameTrim": { "from": "name", "trim": true },
+    "roster": { "members": "members", "join": "、", "fallback": "（待补充）" },
+    "membersSummary": { "members": "members", "join": "、" },
+    "firstMember": { "memberFirst": "members" },
+    "hourNum": { "from": "dailyHour", "num": true, "fallback": 9 },
+    "hourPad": { "from": "dailyHour", "fallback": 9, "pad": true },
+    "startNum": { "from": "monitorStart", "num": true, "fallback": 9 },
+    "endNum": { "from": "monitorEnd", "num": true, "fallback": 21 },
+    "intervalNum": { "from": "monitorInterval", "num": true, "fallback": 2 },
+    "startPad": { "from": "monitorStart", "fallback": 9, "pad": true },
+    "endPad": { "from": "monitorEnd", "fallback": 21, "pad": true },
+    "monitorOn": { "bool": { "answer": "monitorEnabled", "isNot": false } },
+    "monitorSuffix": {
+      "if": { "var": "monitorOn" },
+      "then": "；每天 {{startNum}}–{{endNum}} 点每 {{intervalNum}} 小时监控额度告警",
+      "else": ""
+    }
+  },
+  "defaultAnswers": {
+    "name": "API Key 使用助手",
+    "members": "",
+    "dailyHour": 9,
+    "monitorEnabled": true,
+    "monitorStart": 9,
+    "monitorEnd": 21,
+    "monitorInterval": 2
+  },
+  "questions": [
+    {
+      "id": "name",
+      "type": "text",
+      "emoji": "🤖",
+      "title": "先给它起个名字",
+      "subtitle": "它会用这个名字在 IM 里向你自我介绍。",
+      "placeholder": "API Key 使用助手",
+      "validate": { "kind": "name" },
+      "summary": [{ "text": "{{nameTrim}}" }]
+    },
+    {
+      "id": "members",
+      "type": "textarea",
+      "emoji": "👥",
+      "title": "你的团队成员有哪些？",
+      "subtitle": "填英文名，逗号或换行分隔。想看到某位同事的用量，需要对方先在 aiep 上把你加为其 API Key 的关注人，没加的话它会在日报里提醒你们。",
+      "placeholder": "alice\nbob, carol",
+      "validate": { "kind": "members" },
+      "summary": [{ "text": "{{membersSummary}}" }]
+    },
+    {
+      "id": "dailyHour",
+      "type": "hour",
+      "emoji": "⏰",
+      "title": "每天几点给你发日报？",
+      "subtitle": "到点它会自动汇总团队成员 codeplan key 的使用情况，发到你们的对话里。",
+      "hours": [7, 8, 9, 10, 11, 12],
+      "validate": { "kind": "hour", "message": "请选择每天推送日报的时间" },
+      "summary": [{ "text": "每天 {{hourPad}}:00" }]
+    },
+    {
+      "id": "monitor",
+      "type": "monitor",
+      "emoji": "🔔",
+      "title": "要开启额度监控吗？",
+      "subtitle": "当周额度用到 60% / 70% / 80% / 90% 时分别提醒你，注明成员、Key 名称、供应商和当前百分比。",
+      "intervals": [1, 2, 3, 4, 6],
+      "validate": { "kind": "monitorWindow" },
+      "summary": [
+        { "when": { "answer": "monitorEnabled", "is": false }, "text": "不用了，先不开" },
+        { "text": "开！每天 {{startPad}}:00–{{endPad}}:00 每 {{intervalNum}} 小时查一次" }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "key": "daily",
+      "title": "团队 API Key 用量日报",
+      "cron": { "kind": "daily", "hour": { "from": "dailyHour", "num": true, "fallback": 9 } },
+      "prompt": [
+        "执行「团队 API Key 用量日报」：按照专属 Skill 中的方法，逐个查询团队成员（{{roster}}）名下带 codeplan 的 API Key 当周使用情况，汇总成简短日报，并用 send_agent_message 发送给主人。",
+        "日报包含：每位成员的 Key 名称、供应商、当周使用率；如果某个成员查询结果为空，在日报中提醒他需要先在 aiep 把主人加为其 API Key 的关注人。"
+      ]
+    },
+    {
+      "key": "monitor",
+      "title": "API Key 额度监控",
+      "when": { "var": "monitorOn" },
+      "cron": {
+        "kind": "window",
+        "start": { "from": "monitorStart", "num": true, "fallback": 9 },
+        "end": { "from": "monitorEnd", "num": true, "fallback": 21 },
+        "interval": { "from": "monitorInterval", "num": true, "fallback": 2 }
+      },
+      "prompt": [
+        "执行「API Key 额度监控」：检查团队成员（{{roster}}）名下带 codeplan 的 API Key 的当周额度使用率，按照专属 Skill 中的阈值规则（60%/70%/80%/90%）判断是否有新到达档位的 Key。",
+        "有新告警时，用 send_agent_message 发送成员、Key 名称、供应商和当前百分比；本轮没有新告警就不要发消息。"
+      ]
+    }
+  ],
+  "description": [
+    "每天 {{hourNum}} 点推送团队 codeplan API Key 用量{{monitorSuffix}}。"
+  ],
+  "examples": [
+    "查一下团队今天的 codeplan key 用量",
+    { "when": { "var": "firstMember" }, "lines": [
+      "{{firstMember}} 的 key 额度还剩多少？"
+    ] },
+    "这个 key 是哪家供应商的，用量多少？"
+  ]
+}

@@ -44,7 +44,7 @@ type StreamChatOptions = NonNullable<Parameters<typeof streamChat>[3]>
 /** Extra per-turn agent options a profile may contribute. */
 export type ChannelProfileChatOptions = Pick<
   StreamChatOptions,
-  'isolatedClaudeConfigDir' | 'appendSystemPrompt' | 'extraToolGuard' | 'extraDisallowedTools' | 'mcpServerOverride' | 'agentCwd'
+  'isolatedClaudeConfigDir' | 'appendSystemPrompt' | 'extraToolGuard' | 'extraDisallowedTools' | 'mcpServerOverride' | 'dedicatedAgent' | 'agentCwd'
 >
 
 export interface ChannelProfile {

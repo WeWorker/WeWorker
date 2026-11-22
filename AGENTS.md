@@ -17,6 +17,7 @@ WeWorker 是桌面端 AI 工作助手项目，包含 Electron 桌面端、TypeSc
 - `weworker/scripts/`：构建、打包、配置生成、校验和开发辅助脚本。
 - `extension/`：浏览器扩展、页面注入、Bridge 和扩展权限配置。
 - `adapters/`：仓库根目录的内置 Adapter v2 包（host-managed）定义与站点能力描述；新增或修改 Adapter 时必须同步构建 profile、权限、文档和对应验证。构建时由 `weworker/scripts/prepare-build.cjs` 打包为 host-managed 包，经 Bridge 下发，不随扩展内置。
+- `bothub/`：仓库根目录的 BotHub 内置 Bot 蓝图（一个 Bot 一个文件夹：`blueprint.json` 结构 + `skill.md` 技能正文模板 + 可选 `intro.md` 介绍页，`index.json` 为有序注册表；见 `bothub/README.md`），由 Renderer 经唯一渲染引擎 `blueprint-engine.js` 解释；新增/修改内置 Bot 只改本文件夹且只放纯数据（无代码），开源与内部仓库各自放置不同内容。
 - `webcli/`：WebCLI 命令入口与 Adapter 调用层；统一对外提供 `webcli call <adapter-id>.<tool-id>`。
 - `components/webwright/`：网站探索服务实现源码目录。源码中可以沿用既有包名和路径；用户侧功能入口和页面名称使用「Adapter工坊」，具体执行阶段使用「网站探索」。
 - `officialWeb/`：产品官网、文档站与下载页（Vite + React）。

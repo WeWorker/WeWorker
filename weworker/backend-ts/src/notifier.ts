@@ -7,7 +7,7 @@
  */
 
 import type { Response } from 'express'
-import { channelManager } from './channels/channel-manager.js'
+import { channelManager, type ChannelNotificationFile } from './channels/channel-manager.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('notifier')
@@ -26,6 +26,23 @@ export interface NotificationPayload {
   error?: string
   executionId: string
   workId: string
+  /** 本轮执行产出的附件，由支持文件推送的通道随正文一起发送。 */
+  files?: ChannelNotificationFile[]
+}
+
+/**
+ * 从本轮执行的 assistant blocks 里挑出待推送的附件：send_file_to_user 落下的
+ * file_attachment 块，按路径去重（后写的覆盖先写的）。只看本轮产物，
+ * 不回看历史执行，历史推送过的文件不会被重复发送。
+ */
+export function collectExecutionFiles(blocks: store.ContentBlock[]): ChannelNotificationFile[] {
+  const byPath = new Map<string, ChannelNotificationFile>()
+  for (const block of blocks) {
+    if (block.type === 'file_attachment' && block.path) {
+      byPath.set(block.path, { path: block.path, name: block.name })
+    }
+  }
+  return [...byPath.values()]
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +120,7 @@ export function formatNotificationMessage(payload: NotificationPayload): string 
 async function sendChannelNotification(
   payload: NotificationPayload,
   channel: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; warning?: string }> {
   try {
     const statuses = channelManager.getStatuses()
     const channelStatus = statuses[channel]
@@ -127,6 +144,17 @@ async function sendChannelNotification(
     const message = formatNotificationMessage(payload)
     await channelInstance.sendNotification(message)
     log.info(`通道 "${channel}" 通知发送成功`)
+
+    // 附件尽力而为：正文已送达，附件失败不改变本次通知的成败，
+    // 单独记为警告写进执行记录，桌面端会话里仍能看到文件本体。
+    if (payload.files?.length && typeof channelInstance.sendNotificationFiles === 'function') {
+      try {
+        await channelInstance.sendNotificationFiles(payload.files)
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err)
+        return { success: true, warning: `通道 "${channel}" 附件发送失败: ${errorMsg}` }
+      }
+    }
     return { success: true }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err)
@@ -155,6 +183,7 @@ export async function notify(
   if (channels.length === 0) return
 
   const failures: string[] = []
+  const warnings: string[] = []
 
   for (const channel of channels) {
     const result = await sendChannelNotification(payload, channel)
@@ -173,11 +202,16 @@ export async function notify(
     if (!result.success && result.error) {
       failures.push(result.error)
     }
+    if (result.warning) warnings.push(result.warning)
   }
 
-  // 3. 记录通道通知失败信息到执行记录
-  if (failures.length > 0) {
-    const failureMsg = `通道通知失败: ${failures.join('; ')}`
+  // 3. 记录通道通知失败与附件警告到执行记录
+  const problems = [
+    ...failures.length > 0 ? [`通道通知失败: ${failures.join('; ')}`] : [],
+    ...warnings,
+  ]
+  if (problems.length > 0) {
+    const failureMsg = problems.join(' | ')
     try {
       store.updateTaskExecution(payload.executionId, {
         error_message: payload.error

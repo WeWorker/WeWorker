@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "id": "invoice-self-check-helper",
+  "version": "1.0.0",
+  "emoji": "🧾",
+  "name": "发票自查助手",
+  "tagline": "复查历史报销发票，揪出注册异常的销售方与异常发票",
+  "site": { "id": "costplus.weoa.com", "label": "CostPlus" },
+  "introCta": "开始创建，3 分钟交卷",
+  "vars": {
+    "nameTrim": { "from": "name", "trim": true },
+    "qccKey": { "from": "qccApiKey", "trim": true, "stripBearer": true, "max": 512 },
+    "tokenRecipe": { "var": "qccKey", "fallback": "<向主人确认>" },
+    "hasTencent": { "bool": { "allAnswers": ["tencentSecretId", "tencentSecretKey"] } },
+    "hasAliyun": { "bool": { "allAnswers": ["aliyunAccessKeyId", "aliyunAccessKeySecret"] } },
+    "tencentSecretIdTrim": { "from": "tencentSecretId", "trim": true, "max": 128 },
+    "tencentSecretKeyTrim": { "from": "tencentSecretKey", "trim": true, "max": 256 },
+    "aliyunAkIdTrim": { "from": "aliyunAccessKeyId", "trim": true, "max": 128 },
+    "aliyunAkSecretTrim": { "from": "aliyunAccessKeySecret", "trim": true, "max": 256 },
+    "tencentIdLiteral": { "var": "tencentSecretIdTrim", "fallback": "<向主人确认>", "json": true },
+    "tencentKeyLiteral": { "var": "tencentSecretKeyTrim", "fallback": "<向主人确认>", "json": true },
+    "aliyunIdLiteral": { "var": "aliyunAkIdTrim", "fallback": "<向主人确认>", "json": true },
+    "aliyunSecretLiteral": { "var": "aliyunAkSecretTrim", "fallback": "<向主人确认>", "json": true },
+    "tokenNote": {
+      "if": { "var": "qccKey" },
+      "then": "Authorization Bearer Token（即 API Key）已由主人在创建时提供并写在下方配方中；仍属敏感信息，不要在任何输出、日志或回复里展示",
+      "else": "Authorization Bearer Token（即 API Key）为敏感信息，使用时向主人确认（不要写入任何输出），获取方式：登录 https://agent.qcc.com/profile/api-key（新用户注册即送 600 积分）"
+    },
+    "tencentNote": {
+      "if": { "var": "hasTencent" },
+      "then": "SecretId 与 SecretKey 已由主人在创建时提供并写在下方配方中；仍属敏感信息，不要在任何输出、日志或回复里展示",
+      "else": "SecretId 与 SecretKey 当前未配置；如需启用腾讯云核验，请向主人获取（前往 https://console.cloud.tencent.com/cam/capi 获取，需开通文字识别 OCR 服务），不要写入任何输出"
+    },
+    "aliyunNote": {
+      "if": { "var": "hasAliyun" },
+      "then": "AccessKey ID 与 AccessKey Secret 已由主人在创建时提供并写在下方配方中；仍属敏感信息，不要在任何输出、日志或回复里展示",
+      "else": "AccessKey ID 与 AccessKey Secret 当前未配置；如需启用阿里云核验，请向主人获取（前往 https://ram.console.aliyun.com/manage/ak 获取，并开通票证核验服务），不要写入任何输出"
+    },
+    "tencentScriptSuffix": {
+      "if": { "var": "hasTencent" },
+      "then": "SecretId/SecretKey 已内置，直接使用，但不要在输出中展示",
+      "else": "SecretId/SecretKey 向主人确认，不写入输出"
+    },
+    "aliyunScriptSuffix": {
+      "if": { "var": "hasAliyun" },
+      "then": "AK/SK 已内置，直接使用，但不要在输出中展示",
+      "else": "AK/SK 向主人确认，不写入输出"
+    }
+  },
+  "defaultAnswers": {
+    "name": "发票自查助手",
+    "qccApiKey": "",
+    "tencentSecretId": "",
+    "tencentSecretKey": "",
+    "aliyunAccessKeyId": "",
+    "aliyunAccessKeySecret": ""
+  },
+  "questions": [
+    {
+      "id": "name",
+      "type": "text",
+      "emoji": "🤖",
+      "title": "先给它起个名字",
+      "subtitle": "它会用这个名字在 IM 里向你自我介绍。",
+      "placeholder": "发票自查助手",
+      "validate": { "kind": "name" },
+      "summary": [{ "text": "{{nameTrim}}" }]
+    },
+    {
+      "id": "qccApiKey",
+      "type": "text",
+      "maxLength": 512,
+      "emoji": "🔑",
+      "title": "企查查 API Key",
+      "subtitle": "复查时用它查询销售方公司的注册状态，点击 [[https://agent.qcc.com/profile/api-key]] 获取（新用户注册即送 600 积分）。",
+      "placeholder": "粘贴企查查 API Key",
+      "validate": { "kind": "apiKey", "required": true, "max": 512, "requiredMessage": "请先填写企查查 API Key", "maxMessage": "API Key 过长，请核对后重试" },
+      "summary": [
+        { "when": { "answer": "qccApiKey" }, "text": "已提供，将写入专属知识" },
+        { "text": "" }
+      ]
+    },
+    {
+      "id": "tencentAuth",
+      "type": "credentials",
+      "optional": true,
+      "emoji": "☁️",
+      "title": "腾讯云发票核验凭证（可选）",
+      "subtitle": "用于调用腾讯云 VatInvoiceVerifyNew 核验数电票状态（作废/红冲/真伪）。前往 [[https://console.cloud.tencent.com/cam/capi]] 获取 SecretId / SecretKey；暂不需要可直接跳过，仅复查销售方注册状态。",
+      "note": "🔒 SecretId / SecretKey 仅保存在客户端本地，不会上传到任何服务端。",
+      "fields": [
+        { "answerKey": "tencentSecretId", "label": "SecretId", "placeholder": "粘贴腾讯云 SecretId", "maxLength": 128 },
+        { "answerKey": "tencentSecretKey", "label": "SecretKey", "placeholder": "粘贴腾讯云 SecretKey", "maxLength": 256, "secret": true }
+      ],
+      "validate": { "kind": "credentialPair", "idField": "tencentSecretId", "keyField": "tencentSecretKey", "idLabel": "腾讯云 SecretId", "keyLabel": "腾讯云 SecretKey", "idMax": 128, "keyMax": 256 },
+      "summary": [
+        { "when": { "var": "hasTencent" }, "text": "已提供，将写入专属知识" },
+        { "text": "未配置，已跳过" }
+      ]
+    },
+    {
+      "id": "tencentServiceEnable",
+      "type": "guide",
+      "emoji": "✅",
+      "title": "开通腾讯云发票核验服务",
+      "subtitle": "调用发票核验接口前，需要先在腾讯云开通「增值税发票核验」服务，开通后您可享 50 次免费额度（已开通可直接继续）。",
+      "warning": "⚠️ 注意：超出 50 次免费额度后会产生费用，账号里千万不要有余额。",
+      "actionLabel": "前往开通发票核验服务 ↗",
+      "actionUrl": "https://cloud.tencent.com/product/vtiv",
+      "confirmLabel": "我已开通，继续",
+      "when": { "allAnswers": ["tencentSecretId", "tencentSecretKey"] },
+      "summary": [{ "text": "已确认开通发票核验服务" }]
+    },
+    {
+      "id": "aliyunAuth",
+      "type": "credentials",
+      "optional": true,
+      "emoji": "🧾",
+      "title": "阿里云发票核验凭证（可选）",
+      "subtitle": "用于调用阿里云 VerifyVATInvoice 核验发票状态（作废/红冲/真伪）。前往 [[https://ram.console.aliyun.com/manage/ak]] 获取 AccessKey；暂不需要可直接跳过，仅复查销售方注册状态。",
+      "note": "🔒 AccessKey ID / Secret 仅保存在客户端本地，不会上传到任何服务端。",
+      "fields": [
+        { "answerKey": "aliyunAccessKeyId", "label": "AccessKey ID", "placeholder": "粘贴阿里云 AccessKey ID", "maxLength": 128 },
+        { "answerKey": "aliyunAccessKeySecret", "label": "AccessKey Secret", "placeholder": "粘贴阿里云 AccessKey Secret", "maxLength": 256, "secret": true }
+      ],
+      "validate": { "kind": "credentialPair", "idField": "aliyunAccessKeyId", "keyField": "aliyunAccessKeySecret", "idLabel": "阿里云 AccessKey ID", "keyLabel": "阿里云 AccessKey Secret", "idMax": 128, "keyMax": 256 },
+      "summary": [
+        { "when": { "var": "hasAliyun" }, "text": "已提供，将写入专属知识" },
+        { "when": { "var": "hasTencent" }, "text": "未配置，已跳过" },
+        { "text": "未配置，仅复查销售方状态" }
+      ]
+    },
+    {
+      "id": "aliyunServiceEnable",
+      "type": "guide",
+      "emoji": "✅",
+      "title": "开通阿里云票证核验服务",
+      "subtitle": "调用发票核验接口前，需要先在阿里云开通「票证核验」服务，开通后您可享 50 次免费额度（已开通可直接进入下一步）。",
+      "warning": "⚠️ 注意：超出 50 次免费额度后会产生费用，账号里千万不要有余额。",
+      "actionLabel": "前往开通票证核验服务 ↗",
+      "actionUrl": "https://common-buy.aliyun.com/?spm=5176.28059030.0.0.68c21287dXK0hR&commodityCode=ocr_cardverification_public_cn",
+      "confirmLabel": "我已开通，下一步",
+      "when": { "allAnswers": ["aliyunAccessKeyId", "aliyunAccessKeySecret"] },
+      "summary": [{ "text": "已确认开通票证核验服务" }]
+    }
+  ],
+  "tasks": [],
+  "description": [
+    { "when": { "or": [{ "var": "hasTencent" }, { "var": "hasAliyun" }] }, "lines": [
+      "复查 CostPlus 费控系统 2024 年至今（含2026年）的历史报销发票，输出注册状态异常的销售方及状态异常的发票清单。"
+    ] },
+    { "when": { "and": [{ "not": { "var": "hasTencent" } }, { "not": { "var": "hasAliyun" } }] }, "lines": [
+      "复查 CostPlus 费控系统 2024 年至今（含2026年）的历史报销发票，输出注册状态异常的销售方清单。"
+    ] }
+  ],
+  "examples": [
+    "帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？不要查发票是否作废/红冲",
+    "帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？同时查发票是否作废/红冲， 每个api供应商只查询50次免费额度即可"
+  ]
+}

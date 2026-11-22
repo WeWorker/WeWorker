@@ -296,6 +296,7 @@ export default function SkillComposer({ draft, onChange, site, sites }) {
               <span style={labelStyle} id="agent-existing-skill-label">{requiredMark}选择 Skill</span>
               <div style={{ maxWidth: 520 }}>
                 <AppDropdownSelect
+                  className="app-dropdown-select--wide"
                   value={draft.existingSkill || ''}
                   onChange={(value) => onChange({ existingSkill: value })}
                   ariaLabel="选择 Skill"

@@ -33,6 +33,34 @@ describe('extension host QR command execution', () => {
     expect(source).toContain('heuristic.commandReason = commandNotes.commandReason')
   })
 
+  it('generic discovery redraws remote-src QR images and reports a crop rect', () => {
+    const source = readFileSync(resolve(EXTENSION_DIR, 'background', 'service-worker.js'), 'utf8')
+
+    const heuristic = source.match(/async function prepareSiteQrLogin[\s\S]*?const heuristic = result/)
+    expect(heuristic).toBeTruthy()
+    // Data-URL images and canvases keep their direct passthrough.
+    expect(heuristic[0]).toContain('/^data:image\\/(?:png|jpeg|jpg|webp);base64,/i.test(src)')
+    expect(heuristic[0]).toContain("element.toDataURL('image/png')")
+    // A remote-src QR img (verified live on the SSO CorpApp login: the QR is a
+    // server-src img, not a data URL) is redrawn through an offscreen canvas,
+    // but only once its pixels are actually loaded.
+    expect(heuristic[0]).toContain('/^https?:/i.test(src)')
+    expect(heuristic[0]).toContain('element.complete && element.naturalWidth > 0')
+    expect(heuristic[0]).toContain('canvas.getContext(\'2d\').drawImage(element, 0, 0)')
+    // The payload stays bounded like every other QR path.
+    expect(heuristic[0]).toContain('2_800_000')
+    // Tainted (cross-origin) canvases throw: the sighting still carries a
+    // scroll-adjusted, validated page rect for the host's screenshot crop.
+    expect(heuristic[0]).toContain('rect.left + window.scrollX')
+    expect(heuristic[0]).toContain('rect.top + window.scrollY')
+    expect(heuristic[0]).toContain('out.width >= 20 && out.height >= 20 && out.width <= 8000 && out.height <= 8000')
+    // Waiting prefers a sighting with pixels but never drops a rect-only one,
+    // and the unique-switch click delegates to that same wait.
+    expect(heuristic[0]).toContain('best = state')
+    expect(heuristic[0]).toContain('return best ? { ...best, clicked } : { available: false, clicked }')
+    expect(heuristic[0]).toMatch(/candidates\[0\]\.element\.click\(\);\s*\n\s*return waitForQr\(true\)/)
+  })
+
   it('executes the command in the login tab behind the explicit login-page opt-in', () => {
     const source = readFileSync(resolve(EXTENSION_DIR, 'background', 'service-worker.js'), 'utf8')
 

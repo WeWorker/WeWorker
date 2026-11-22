@@ -1,16 +1,23 @@
+// BotHub 蓝图测试：从仓库根 bothub/ 磁盘加载蓝图（与运行时 Vite glob 同源），
+// 经 blueprint-engine 渲染后对照断言与基线快照（fixtures/bothub-parity，重构前旧实现产物）。
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
-  BUILT_IN_TEMPLATES,
   buildDailyCron,
   buildMonitoringCron,
   buildTemplateDescription,
   buildTemplateExamples,
+  buildTemplateSiteIds,
   buildTemplateTasks,
+  compileSkillMarkdown,
   describeCron,
-  findTemplate,
+  findTemplateIn,
   isQuestionEmpty,
   normalizeAliyunCredential,
+  normalizeBlueprint,
   normalizeQccKey,
   normalizeTencentCredential,
   parseMembers,
@@ -20,13 +27,37 @@ import {
   validateTemplateAnswers,
   validateTemplateQuestion,
   visibleTemplateQuestions,
-} from '../components/dedicated-agents/quick-create/templates.js'
+} from '../components/dedicated-agents/quick-create/blueprint-engine.js'
+
+const REPO_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
+const BOTHUB_DIR = path.join(REPO_ROOT, 'bothub')
+const FIXTURES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'bothub-parity')
+
+/** 与运行时加载器（templates.js）同构：blueprint.json + skill.md + intro.md 组装成蓝图。 */
+function loadPackage(id) {
+  const read = (file) => fs.readFileSync(path.join(BOTHUB_DIR, id, file), 'utf8')
+  const blueprint = JSON.parse(read('blueprint.json'))
+  return normalizeBlueprint({
+    ...blueprint,
+    skill: compileSkillMarkdown(read('skill.md')),
+    introMarkdown: fs.existsSync(path.join(BOTHUB_DIR, id, 'intro.md')) ? read('intro.md') : '',
+  })
+}
+
+const index = JSON.parse(fs.readFileSync(path.join(BOTHUB_DIR, 'index.json'), 'utf8'))
+const BUILT_IN_TEMPLATES = index.order.map((id) => loadPackage(id))
+const findTemplate = (id) => findTemplateIn(BUILT_IN_TEMPLATES, id)
 
 const template = findTemplate('apikey-usage-helper')
 const baseAnswers = { ...template.defaultAnswers, members: 'alice, bob\ncarol', name: '团队 Key 管家' }
 
-test('the built-in apikey template is registered against the aiep site', () => {
-  assert.equal(BUILT_IN_TEMPLATES.length, 2)
+test('bothub folder registers the three built-in blueprints in index order', () => {
+  assert.equal(BUILT_IN_TEMPLATES.length, 3)
+  assert.deepEqual(BUILT_IN_TEMPLATES.map((entry) => entry.id), [
+    'fannisi-reimburse-helper',
+    'invoice-self-check-helper',
+    'apikey-usage-helper',
+  ])
   assert.equal(template.siteId, 'aiep.weoa.com')
   assert.match(template.skillName, /^[A-Za-z0-9][A-Za-z0-9._-]*$/)
   assert.equal(template.defaultAnswers.dailyHour, 9)
@@ -127,11 +158,11 @@ test('validateTemplateQuestion checks one question at a time', () => {
 })
 
 test('questionAnswerText renders answer summary rows', () => {
-  assert.equal(questionAnswerText('name', baseAnswers), '团队 Key 管家')
-  assert.equal(questionAnswerText('members', baseAnswers), 'alice、bob、carol')
-  assert.equal(questionAnswerText('dailyHour', baseAnswers), '每天 09:00')
-  assert.equal(questionAnswerText('monitor', baseAnswers), '开！每天 09:00–21:00 每 2 小时查一次')
-  assert.equal(questionAnswerText('monitor', { ...baseAnswers, monitorEnabled: false }), '不用了，先不开')
+  assert.equal(questionAnswerText(template, 'name', baseAnswers), '团队 Key 管家')
+  assert.equal(questionAnswerText(template, 'members', baseAnswers), 'alice、bob、carol')
+  assert.equal(questionAnswerText(template, 'dailyHour', baseAnswers), '每天 09:00')
+  assert.equal(questionAnswerText(template, 'monitor', baseAnswers), '开！每天 09:00–21:00 每 2 小时查一次')
+  assert.equal(questionAnswerText(template, 'monitor', { ...baseAnswers, monitorEnabled: false }), '不用了，先不开')
 })
 
 test('the costplus template is registered with its own questions and no scheduled tasks', () => {
@@ -191,8 +222,8 @@ test('the costplus template is registered with its own questions and no schedule
     }).map((q) => q.id),
     ['name', 'qccApiKey', 'tencentAuth', 'aliyunAuth', 'aliyunServiceEnable'],
   )
-  assert.equal(questionAnswerText('tencentServiceEnable', costplus.defaultAnswers), '已确认开通发票核验服务')
-  assert.equal(questionAnswerText('aliyunServiceEnable', costplus.defaultAnswers), '已确认开通票证核验服务')
+  assert.equal(questionAnswerText(costplus, 'tencentServiceEnable', costplus.defaultAnswers), '已确认开通发票核验服务')
+  assert.equal(questionAnswerText(costplus, 'aliyunServiceEnable', costplus.defaultAnswers), '已确认开通票证核验服务')
   assert.deepEqual(buildTemplateTasks(costplus, costplus.defaultAnswers), [])
 })
 
@@ -205,13 +236,13 @@ test('costplus validation requires a name and qcc key, and validates optional al
   assert.match(validateTemplateAnswers(costplus, { ...costplus.defaultAnswers }), /API Key/)
   assert.match(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: '' }), /请先填写/)
   assert.match(validateTemplateQuestion(costplus, 'qccApiKey', { qccApiKey: 'x'.repeat(600) }), /过长/)
-  assert.equal(questionAnswerText('qccApiKey', answers), '已提供，将写入专属知识')
+  assert.equal(questionAnswerText(costplus, 'qccApiKey', answers), '已提供，将写入专属知识')
 
   // 腾讯云凭证：全空允许跳过，半填报错，成对填写通过，摘要不回显原文。
   const tencentQuestion = templateQuestions(costplus).find((q) => q.id === 'tencentAuth')
   assert.equal(isQuestionEmpty(tencentQuestion, answers), true)
   assert.equal(validateTemplateQuestion(costplus, 'tencentAuth', answers), '')
-  assert.equal(questionAnswerText('tencentAuth', answers), '未配置，已跳过')
+  assert.equal(questionAnswerText(costplus, 'tencentAuth', answers), '未配置，已跳过')
 
   const onlyTencentId = { ...answers, tencentSecretId: 'TEST_TC_ID_PLACEHOLDER' }
   assert.equal(isQuestionEmpty(tencentQuestion, onlyTencentId), false)
@@ -228,13 +259,13 @@ test('costplus validation requires a name and qcc key, and validates optional al
   }
   assert.equal(normalizeTencentCredential('  TEST_TC_ID_PLACEHOLDER  '), 'TEST_TC_ID_PLACEHOLDER')
   assert.equal(validateTemplateAnswers(costplus, withTencent), '')
-  assert.equal(questionAnswerText('tencentAuth', withTencent), '已提供，将写入专属知识')
-  assert.ok(!questionAnswerText('tencentAuth', withTencent).includes('TEST_TC_KEY_PLACEHOLDER'))
+  assert.equal(questionAnswerText(costplus, 'tencentAuth', withTencent), '已提供，将写入专属知识')
+  assert.ok(!questionAnswerText(costplus, 'tencentAuth', withTencent).includes('TEST_TC_KEY_PLACEHOLDER'))
 
   // 阿里云凭证：全空允许跳过，半填报错，成对填写通过，摘要不回显原文。
   assert.equal(isQuestionEmpty(aliyunQuestion, answers), true)
   assert.equal(validateTemplateQuestion(costplus, 'aliyunAuth', answers), '')
-  assert.equal(questionAnswerText('aliyunAuth', answers), '未配置，仅复查销售方状态')
+  assert.equal(questionAnswerText(costplus, 'aliyunAuth', answers), '未配置，仅复查销售方状态')
 
   const onlyId = { ...answers, aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER' }
   assert.equal(isQuestionEmpty(aliyunQuestion, onlyId), false)
@@ -268,8 +299,8 @@ test('costplus validation requires a name and qcc key, and validates optional al
   }
   assert.equal(normalizeAliyunCredential('  TEST_AK_ID_PLACEHOLDER  '), 'TEST_AK_ID_PLACEHOLDER')
   assert.equal(validateTemplateAnswers(costplus, withAliyun), '')
-  assert.equal(questionAnswerText('aliyunAuth', withAliyun), '已提供，将写入专属知识')
-  assert.ok(!questionAnswerText('aliyunAuth', withAliyun).includes('TEST_AK_SECRET_PLACEHOLDER'))
+  assert.equal(questionAnswerText(costplus, 'aliyunAuth', withAliyun), '已提供，将写入专属知识')
+  assert.ok(!questionAnswerText(costplus, 'aliyunAuth', withAliyun).includes('TEST_AK_SECRET_PLACEHOLDER'))
 })
 
 test('costplus skill renders the fixed review window, data chain and safety rules', () => {
@@ -314,7 +345,6 @@ test('costplus skill renders the fixed review window, data chain and safety rule
 test('costplus skill renders the tab-separated problem list format with the paste hint', () => {
   const costplus = findTemplate('invoice-self-check-helper')
   const markdown = renderTemplateSkill(costplus, costplus.defaultAnswers)
-  // 问题清单：围栏代码块 + Tab 分隔的固定 30 列表头 + 占位示例行。
   const headerLine = markdown.split('\n').find((line) => line.startsWith('发票号码\t'))
   assert.ok(headerLine, 'tab-separated header row present')
   assert.equal(headerLine.split('\t').length, 31, 'the header has exactly 31 columns')
@@ -430,6 +460,79 @@ test('costplus skill embeds aliyun VerifyVATInvoice Node.js recipe and handles o
   assert.ok(withBoth.includes('双通道'), 'both Tencent and Aliyun enabled describes dual-channel fallback')
 })
 
+test('fannisi template registers with the weoa site and toggles the 163 mailbox capability', () => {
+  const fannisi = findTemplate('fannisi-reimburse-helper')
+  assert.ok(fannisi, 'fannisi template is registered')
+  assert.equal(fannisi.name, '范妮思助手')
+  assert.equal(fannisi.defaultAnswers.name, '范妮思助手')
+  assert.equal(fannisi.siteId, 'weoa.webank.com')
+  assert.match(fannisi.skillName, /^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+  assert.deepEqual(
+    templateQuestions(fannisi).map((question) => question.id),
+    ['name', 'use163'],
+  )
+  const use163Question = templateQuestions(fannisi)[1]
+  assert.equal(use163Question.type, 'choice')
+  assert.deepEqual(use163Question.options.map((option) => option.value), [true, false])
+  assert.equal(fannisi.defaultAnswers.use163, true)
+
+  // 介绍页：三个内置模板都带 intro.md（markdown 形态）。
+  assert.ok(fannisi.introMarkdown, 'fannisi carries an intro.md')
+  assert.ok(fannisi.introMarkdown.includes('# 报销发票，随手丢给它'))
+  assert.ok(fannisi.introMarkdown.includes('|'))
+  assert.ok(fannisi.introCta)
+  const costplus = findTemplate('invoice-self-check-helper')
+  assert.ok(costplus.introMarkdown, 'costplus carries an intro.md')
+  assert.ok(costplus.introMarkdown.includes('开票机构异常经营'), 'the notice focus item is listed')
+  assert.ok(costplus.introMarkdown.includes('作废/红冲'), 'voided/red-flush item is listed')
+  assert.ok(costplus.introMarkdown.includes('6 类情形') && costplus.introMarkdown.includes('2024'), 'notice scope stated')
+  const apikey = findTemplate('apikey-usage-helper')
+  assert.ok(apikey.introMarkdown, 'apikey carries an intro.md')
+  assert.ok(apikey.introMarkdown.includes('60 / 70 / 80 / 90%'), 'alert thresholds stated')
+  assert.ok(apikey.introMarkdown.includes('关注人'), 'the follower prerequisite is disclosed up front')
+  for (const entry of BUILT_IN_TEMPLATES) assert.ok(entry.introMarkdown, `${entry.id} has an intro.md`)
+
+  // 校验走通用 choice 分支：默认答案有效，非法值报「请选择」。
+  const answers = { ...fannisi.defaultAnswers }
+  assert.equal(validateTemplateAnswers(fannisi, answers), '')
+  assert.match(validateTemplateQuestion(fannisi, 'use163', { ...answers, use163: '也许' }), /请选择/)
+  assert.equal(questionAnswerText(fannisi, 'use163', answers), '163 邮箱，自动搜索下载')
+  assert.equal(questionAnswerText(fannisi, 'use163', { ...answers, use163: false }), '不用 163，直接提供发票文件')
+
+  // 163 开关驱动站点绑定：开=范妮思+163 邮箱，关=仅范妮思；其他模板保持单站点。
+  assert.deepEqual(buildTemplateSiteIds(fannisi, answers), ['weoa.webank.com', 'mail.163.com'])
+  assert.deepEqual(buildTemplateSiteIds(fannisi, { ...answers, use163: false }), ['weoa.webank.com'])
+  assert.deepEqual(buildTemplateSiteIds(findTemplate('apikey-usage-helper'), answers), ['aiep.weoa.com'])
+  assert.deepEqual(buildTemplateSiteIds(null, answers), [])
+
+  // Skill 正文原文嵌入（frontmatter name 换成模板技能名），按答案追加能力状态。
+  const enabled = renderTemplateSkill(fannisi, answers)
+  assert.match(enabled, /^---\nname: fannisi-reimburse-helper\n/)
+  assert.ok(enabled.includes('# 范妮思月度报销助手'))
+  assert.ok(enabled.includes('upload-allowance-invoices'), 'skill body embedded')
+  assert.ok(enabled.includes('webcli call weoa.webank.com.submit'), 'submit recipe embedded')
+  assert.ok(enabled.includes('餐饮：680 元'), 'allowance amounts embedded')
+  assert.ok(enabled.includes('当天开具的发票次日起才能查验'), 'same-day invoice check rule documented')
+  assert.ok(enabled.includes('## 163 邮箱能力状态'))
+  assert.ok(enabled.includes('已启用：发票可从主人的 163 邮箱'))
+  const disabled = renderTemplateSkill(fannisi, { ...answers, use163: false })
+  assert.ok(disabled.includes('未启用：主人不使用 163 邮箱'))
+  assert.ok(disabled.includes('不要尝试从邮箱搜索或下载发票'))
+  assert.ok(!disabled.includes('已启用：'))
+  assert.ok(disabled.includes('# 范妮思月度报销助手'), 'skill body unchanged by the toggle')
+
+  // 无定时任务；描述与示例问题反映 163 开关。
+  assert.deepEqual(buildTemplateTasks(fannisi, answers), [])
+  assert.equal(
+    buildTemplateDescription(fannisi, answers),
+    '处理范妮思月度补贴报销：从163邮箱自动搜索下载发票、上传卡包核验、绑定月度补贴并提交报销。',
+  )
+  assert.ok(buildTemplateDescription(fannisi, { ...answers, use163: false }).includes('发票由主人直接提供'))
+  const examples = buildTemplateExamples(fannisi, answers)
+  assert.ok(examples.some((example) => example.includes('163邮箱')))
+  assert.ok(buildTemplateExamples(fannisi, { ...answers, use163: false }).every((example) => !example.includes('163邮箱')))
+})
+
 test('costplus description and examples use the fixed review window', () => {
   const costplus = findTemplate('invoice-self-check-helper')
   assert.equal(
@@ -469,4 +572,130 @@ test('costplus description and examples use the fixed review window', () => {
     }),
     expectedExamples,
   )
+})
+
+/* ── 引擎 DSL 单元测试 ────────────────────────────────────── */
+
+test('engine evaluates conditions, vars and conditional lines', async () => {
+  const { evalCondition, renderLines, normalizeBlueprint } = await import('../components/dedicated-agents/quick-create/blueprint-engine.js')
+  const blueprint = normalizeBlueprint({
+    schema_version: 1,
+    id: 'dsl-check', version: '0.0.1', emoji: '🧪', name: 'DSL', tagline: 't',
+    site: { id: 'example.com', label: 'Example' }, skillName: 'dsl-check', defaultName: 'DSL',
+    defaultAnswers: { use: true, key: ' Bearer abc ' },
+    vars: {
+      cleanKey: { 'from': 'key', 'trim': true, 'stripBearer': true, 'max': 2 },
+      recipe: { 'var': 'cleanKey', 'fallback': '<待确认>' },
+      flag: { 'bool': { 'allAnswers': ['use'] } },
+      note: { 'if': { 'var': 'flag' }, 'then': 'on {{recipe}}', 'else': 'off' },
+    },
+    skill: ['{{skillName}}|{{recipe}}|{{note}}', { 'when': { 'answer': 'use', 'is': false }, 'lines': ['hidden'] }, { 'lines': ['always'] }],
+  })
+  const ctx = { template: blueprint, answers: { ...blueprint.defaultAnswers }, vars: { skillName: blueprint.skillName } }
+  assert.ok(evalCondition({ allAnswers: ['use'] }, ctx))
+  assert.ok(!evalCondition({ not: { allAnswers: ['use'] } }, ctx))
+  assert.ok(evalCondition({ and: [{ answer: 'use', is: true }, { or: [{ answer: 'nope' }] }] }, { ...ctx, answers: { ...ctx.answers, nope: 1 } }))
+  const lines = renderLines(blueprint.skill, ctx)
+  assert.deepEqual(lines, ['dsl-check|ab|on ab', 'always'])
+  // max 截断 + fallback：key 清洗后为 abc，截到 2 位 = ab；空 key 时 fallback。
+  const ctxEmpty = { template: blueprint, answers: { ...blueprint.defaultAnswers, key: '' }, vars: { skillName: blueprint.skillName } }
+  assert.deepEqual(renderLines(blueprint.skill, ctxEmpty), ['dsl-check|<待确认>|on <待确认>', 'always'])
+})
+
+test('blueprint loader rejects invalid blueprints and keeps valid ones', async () => {
+  const { loadBlueprints } = await import('../components/dedicated-agents/quick-create/blueprint-engine.js')
+  const good = {
+    schema_version: 1, id: 'good-bot', version: '1.0.0', emoji: '🤖', name: 'Good', tagline: 't',
+    site: { id: 'example.com' }, questions: [],
+  }
+  const bad = { schema_version: 1, id: 'bad bot!', version: '1.0', questions: [] }
+  const { templates, errors } = loadBlueprints([good, bad])
+  assert.equal(templates.length, 1)
+  assert.equal(templates[0].id, 'good-bot')
+  assert.equal(templates[0].skillName, 'good-bot', 'skillName derives from id')
+  assert.equal(templates[0].defaultName, 'Good', 'defaultName derives from name')
+  assert.equal(errors.length, 1)
+  assert.match(errors[0], /bad bot!/)
+})
+
+test('compileSkillMarkdown turns if/elif/else directives into mutually exclusive blocks', async () => {
+  const { parseConditionExpression, evalCondition } = await import('../components/dedicated-agents/quick-create/blueprint-engine.js')
+  const ctx = (vars) => ({ template: {}, answers: {}, vars })
+  // 表达式解析：! && || 与括号。
+  assert.deepEqual(parseConditionExpression('a && !b'), { and: [{ var: 'a' }, { not: { var: 'b' } }] })
+  assert.ok(evalCondition(parseConditionExpression('a && (b || !c)'), ctx({ a: true, b: false, c: false })))
+  assert.throws(() => parseConditionExpression('a &&'), /无法解析|多余/)
+
+  const compiled = compileSkillMarkdown([
+    'static {{var}}',
+    '<!-- if: tencent && aliyun -->',
+    'both',
+    '<!-- elif: tencent -->',
+    'tencent',
+    '<!-- else -->',
+    'none',
+    '<!-- endif -->',
+    '<!-- if: nested -->',
+    'outer',
+    '<!-- if: inner -->',
+    'inner',
+    '<!-- endif -->',
+    '<!-- endif -->',
+  ].join('\n'))
+  assert.equal(compiled[0], 'static {{var}}')
+  // 四选一块：互斥条件自动生成。
+  assert.deepEqual(compiled[1].when, { and: [{ var: 'tencent' }, { var: 'aliyun' }] })
+  assert.deepEqual(
+    compiled[2].when,
+    { and: [{ not: { and: [{ var: 'tencent' }, { var: 'aliyun' }] } }, { var: 'tencent' }] },
+    'elif negates earlier branches',
+  )
+  assert.deepEqual(
+    compiled[3].when,
+    { and: [{ not: { and: [{ var: 'tencent' }, { var: 'aliyun' }] } }, { not: { var: 'tencent' } }] },
+    'else negates the whole if/elif chain',
+  )
+  // 嵌套块。
+  assert.deepEqual(compiled[4].when, { var: 'nested' })
+  assert.deepEqual(compiled[4].lines[1].when, { var: 'inner' })
+  // 未闭合 if 报错。
+  assert.throws(() => compileSkillMarkdown('<!-- if: a -->\nx'), /未闭合/)
+})
+
+/* ── 与旧实现的产物基线全量对比（fixtures/bothub-parity） ──── */
+
+test('blueprint rendering matches the pre-refactor baseline for every fixture combo', () => {
+  const combos = {
+    'fannisi-default': ['fannisi-reimburse-helper', (tpl) => tpl.defaultAnswers],
+    'fannisi-no163': ['fannisi-reimburse-helper', (tpl) => ({ ...tpl.defaultAnswers, use163: false })],
+    'costplus-default': ['invoice-self-check-helper', (tpl) => tpl.defaultAnswers],
+    'costplus-qcc': ['invoice-self-check-helper', (tpl) => ({ ...tpl.defaultAnswers, qccApiKey: 'qcc-test-key-123' })],
+    'costplus-qcc-tencent': ['invoice-self-check-helper', (tpl) => ({ ...tpl.defaultAnswers, qccApiKey: 'Bearer qcc-test-key-123', tencentSecretId: '  TC_ID  ', tencentSecretKey: 'TC_KEY' })],
+    'costplus-qcc-aliyun': ['invoice-self-check-helper', (tpl) => ({ ...tpl.defaultAnswers, qccApiKey: 'qcc-test-key-123', aliyunAccessKeyId: 'AK_ID', aliyunAccessKeySecret: ' AK_SECRET ' })],
+    'costplus-both': ['invoice-self-check-helper', (tpl) => ({ ...tpl.defaultAnswers, qccApiKey: 'qcc-test-key-123', tencentSecretId: 'TC_ID', tencentSecretKey: 'TC_KEY', aliyunAccessKeyId: 'AK_ID', aliyunAccessKeySecret: 'AK_SECRET' })],
+    'apikey-default': ['apikey-usage-helper', (tpl) => ({ ...tpl.defaultAnswers, members: 'alice, bob\ncarol', name: '团队 Key 管家' })],
+    'apikey-nomonitor': ['apikey-usage-helper', (tpl) => ({ ...tpl.defaultAnswers, members: '张三', monitorEnabled: false, dailyHour: 8 })],
+  }
+  for (const [name, [id, buildAnswers]] of Object.entries(combos)) {
+    const template = findTemplate(id)
+    assert.ok(template, `${name}: blueprint ${id} registered`)
+    const fixture = JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, `${name}.json`), 'utf8'))
+    const answers = buildAnswers(template)
+    const actual = {
+      skill: renderTemplateSkill(template, answers),
+      description: buildTemplateDescription(template, answers),
+      examples: buildTemplateExamples(template, answers),
+      tasks: buildTemplateTasks(template, answers),
+      siteIds: buildTemplateSiteIds(template, answers),
+      summaries: Object.fromEntries(template.questions.map((q) => [q.id, questionAnswerText(template, q.id, answers)])),
+      visibleQuestions: visibleTemplateQuestions(template, answers).map((q) => q.id),
+    }
+    for (const field of Object.keys(fixture)) {
+      assert.deepEqual(
+        actual[field],
+        fixture[field],
+        `${name}.${field} 与重构前基线不一致`,
+      )
+    }
+  }
 })

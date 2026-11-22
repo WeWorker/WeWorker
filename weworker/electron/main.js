@@ -349,6 +349,18 @@ async function browserAction(action, extra = {}) {
 }
 
 ipcMain.handle('app-settings:get', () => getAppSettings())
+
+// 后端不可用时设置-日志的兜底：直接读主进程日志文件，保证故障现场也能看日志。
+ipcMain.handle('read-main-log', (_event, requestedLines = 500) => {
+  const maxLines = Math.min(Math.max(Number(requestedLines) || 500, 1), 5000)
+  try {
+    if (!fs.existsSync(logFile)) return { lines: [], path: logFile, total: 0 }
+    const allLines = fs.readFileSync(logFile, 'utf8').split('\n').filter((line) => line.trim())
+    return { lines: allLines.slice(-maxLines), path: logFile, total: allLines.length }
+  } catch (error) {
+    return { lines: [], path: logFile, total: 0, error: error instanceof Error ? error.message : String(error) }
+  }
+})
 ipcMain.handle('app-settings:set', async (_event, patch = {}) => {
   const next = {}
   if (typeof patch.closeToTray === 'boolean') next.closeToTray = patch.closeToTray
@@ -445,6 +457,14 @@ async function createWindow({ show = true } = {}) {
     mainWindow.on('maximize', syncMaximizedState)
     mainWindow.on('unmaximize', syncMaximizedState)
   }
+
+  // 把 renderer 的控制台错误转进 main.log（设置-日志可见），否则「后端连接失败 net-error」这类
+  // 卡点错误只留在 DevTools 里，用户侧无从排查。只转发 error 级别，避免刷屏。
+  mainWindow.webContents.on('console-message', (_event, level, message) => {
+    try {
+      if (level === 3 || level === 'error') log(String(message).slice(0, 2000))
+    } catch { /* 日志失败不影响页面 */ }
+  })
 
   // Closing the window keeps WeWorker running in the background (see background-mode.js).
   mainWindow.on('close', (event) => {

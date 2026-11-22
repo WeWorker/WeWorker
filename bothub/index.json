@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "order": [
+    "fannisi-reimburse-helper",
+    "invoice-self-check-helper",
+    "apikey-usage-helper"
+  ]
+}

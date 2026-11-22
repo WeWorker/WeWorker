@@ -28,7 +28,7 @@ export default function QuickCreateHome({ draftKey }) {
       templateId: template.id,
       templateAnswers: undefined,
       templateSkill: undefined,
-      quickStep: 'questions',
+      quickStep: template.introMarkdown ? 'intro' : 'questions',
       quickQuestionIndex: 0,
     }, draftKey)
   }

@@ -54,6 +54,8 @@ interface NotificationPayload {
   error?: string
   executionId: string
   workId: string
+  /** 本轮 send_file_to_user 产出的附件，随推送一起发送（见 notifier.collectExecutionFiles）。 */
+  files?: Array<{ path: string; name: string }>
 }
 
 function enforceTaskHistoryLimit(projectId: string): void {
@@ -502,7 +504,11 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
 
       // Prune before notifying: the renderer refreshes its list on this event.
       enforceTaskHistoryLimit(taskProject.id)
-      // 11. Send notification (notifier will be created in task 5.1)
+      // 11. Send notification (notifier will be created in task 5.1).
+      // 成功的执行把本轮生成的文件随推送一起发给通知目标（WeWorker Bot 任务
+      // notify_channels 为空、走 send_agent_message 自带附件，不会经过这里）。
+      const { collectExecutionFiles } = await import(/* webpackIgnore: true */ './notifier.js')
+      const files = collectExecutionFiles(assistantContent)
       await safeNotify(
         {
           taskId: task.id,
@@ -512,6 +518,7 @@ export async function executeTask(task: ScheduledTask): Promise<ExecutionResult>
           fullText: fullText || undefined,
           executionId: execution.id,
           workId: work.id,
+          ...(files.length > 0 ? { files } : {}),
         },
         task.notify_channels,
       )

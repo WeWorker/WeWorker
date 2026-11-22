@@ -27,6 +27,14 @@ export interface ChannelImage {
   mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
 }
 
+/** A file attached to a push notification; read from disk at send time. */
+export interface ChannelNotificationFile {
+  /** Absolute path inside the user directory. */
+  path: string
+  /** Human-readable name used in error messages. */
+  name: string
+}
+
 export interface Channel {
   start(): Promise<void>
   stop(): Promise<void>
@@ -37,6 +45,13 @@ export interface Channel {
   sendNotificationToTarget?(target: ChannelNotificationTarget, text: string): Promise<void>
   /** Send a validated in-memory image to an explicit target. */
   sendImageToTarget?(target: ChannelNotificationTarget, image: ChannelImage): Promise<void>
+  /**
+   * Push file attachments after sendNotification to the channel's remembered
+   * target. Optional: text-only channels simply omit it and the caller skips files.
+   */
+  sendNotificationFiles?(files: ChannelNotificationFile[]): Promise<void>
+  /** Send files to an explicitly authorized target (same target shape as text). */
+  sendFilesToTarget?(target: ChannelNotificationTarget, files: ChannelNotificationFile[]): Promise<void>
 }
 
 export class ChannelManager {

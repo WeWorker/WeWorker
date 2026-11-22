@@ -14,6 +14,7 @@ import {
 import {
   buildTemplateDescription,
   buildTemplateExamples,
+  buildTemplateSiteIds,
   buildTemplateTasks,
   describeCron,
   findTemplate,
@@ -26,6 +27,7 @@ import {
 } from './templates.js'
 import { createAgentTask, fetchAgentNotificationTargets, fetchAgentTasks } from './api.js'
 import { createTemplateSkill } from './skill-retry.js'
+import TemplateIntro from './TemplateIntro.jsx'
 import { handleChatLinkClick } from '../../../utils/chat-links.js'
 import { codeBadgeStyle, hintStyle, labelStyle, markdownEditorStyle, sectionStyle, titleStyle } from '../styles.js'
 import './quick-create.css'
@@ -55,7 +57,8 @@ function QuestionSubtitle({ text }) {
 
 const PAIR_POLL_MS = 2500
 const FLOW_STEPS = ['回答问题', '预览知识', '绑定机器人', '完成配对']
-const FLOW_STEP_KEYS = { questions: 0, preview: 1, bind: 2, pair: 3, done: 3 }
+/** intro 为封面介绍页：不占步骤条（-1），从它进入 questions 才开始计步。 */
+const FLOW_STEP_KEYS = { intro: -1, questions: 0, preview: 1, bind: 2, pair: 3, done: 3 }
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({ value: hour, label: `${String(hour).padStart(2, '0')}:00` }))
 
@@ -233,7 +236,8 @@ export default function QuickCreateFlow({ draftKey }) {
   const [step, setStep] = useState(() => {
     if (backendCreated) return 'pair'
     const saved = existingDraft?.quickStep
-    return saved && saved in FLOW_STEP_KEYS ? saved : 'questions'
+    if (saved && saved in FLOW_STEP_KEYS) return saved
+    return template?.intro ? 'intro' : 'questions'
   })
   const [answers, setAnswers] = useState(() => ({ ...(template?.defaultAnswers || {}), ...(existingDraft?.templateAnswers || {}) }))
   const [skillMarkdown, setSkillMarkdown] = useState(() => existingDraft?.templateSkill
@@ -333,7 +337,7 @@ export default function QuickCreateFlow({ draftKey }) {
     const result = await createAgent({
       name: String(answers.name || '').trim(),
       description: buildTemplateDescription(template, answers),
-      site_ids: [template.siteId],
+      site_ids: buildTemplateSiteIds(template, answers),
       work_dir: '',
       skill_names: [saved.name],
       examples: buildTemplateExamples(template, answers),
@@ -384,17 +388,28 @@ export default function QuickCreateFlow({ draftKey }) {
           <Button data-app-button="action" onClick={() => update({ createMode: 'home' })}>‹ 选择创建方式</Button>
         )}
       </div>
-      <div style={{ ...hintStyle, marginBottom: 14 }}>{template.tagline}</div>
-      <div className="quick-create__steps">
-        {FLOW_STEPS.map((title, index) => (
-          <span key={title} className={`quick-create__step${index === stepIndex ? ' is-current' : ''}${index < stepIndex ? ' is-done' : ''}`}>
-            <span className="quick-create__step-dot">{index < stepIndex ? '✓' : index + 1}</span>
-            {title}
-          </span>
-        ))}
-      </div>
+      {step !== 'intro' && <div style={{ ...hintStyle, marginBottom: 14 }}>{template.tagline}</div>}
+      {stepIndex >= 0 && (
+        <div className="quick-create__steps">
+          {FLOW_STEPS.map((title, index) => (
+            <span key={title} className={`quick-create__step${index === stepIndex ? ' is-current' : ''}${index < stepIndex ? ' is-done' : ''}`}>
+              <span className="quick-create__step-dot">{index < stepIndex ? '✓' : index + 1}</span>
+              {title}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="agent-create-wizard__section" style={sectionStyle}>
+        {step === 'intro' && (
+          <TemplateIntro
+            introMarkdown={template.introMarkdown}
+            name={template.name}
+            cta={template.introCta}
+            onStart={() => setStepPersisted('questions')}
+          />
+        )}
+
         {step === 'questions' && (() => {
           const question = questions[safeQIndex]
           if (!question) return null
@@ -703,7 +718,7 @@ export default function QuickCreateFlow({ draftKey }) {
         )}
       </div>
 
-      {step !== 'pair' && (
+      {step !== 'pair' && step !== 'intro' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {error && step !== 'questions' && <span style={{ ...hintStyle, color: 'var(--error, #ef4444)', flex: 1 }}>{error}</span>}
           <Space style={{ marginLeft: 'auto' }}>

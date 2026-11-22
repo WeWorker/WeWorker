@@ -577,3 +577,148 @@
     animation: none;
   }
 }
+
+/* ── 介绍页：渲染蓝图包 intro.md（markdown），CTA 由引擎固定渲染 ── */
+
+.tintro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 0 10px;
+  animation: tintro-in 0.35s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.tintro__md {
+  width: min(600px, 100%);
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+  line-height: 1.75;
+}
+
+.tintro__md > :first-child {
+  margin-top: 0;
+}
+
+.tintro__md h1 {
+  margin: 4px 0 10px;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  line-height: 1.4;
+  text-align: center;
+  background: linear-gradient(
+    100deg,
+    var(--text-primary) 0%,
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 60%, var(--text-primary)) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.tintro__md h2 {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.tintro__md h1 + p {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  max-width: 470px;
+  margin: 0 auto 6px;
+}
+
+.tintro__md strong {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: var(--font-size-caption);
+  color: var(--text-muted);
+  font-weight: 650;
+}
+
+.tintro__md table {
+  width: 100%;
+  margin: 14px 0 4px;
+  border-collapse: collapse;
+  font-size: var(--font-size-caption);
+}
+
+.tintro__md th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tintro__md td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.tintro__md td:first-child {
+  color: var(--text-secondary);
+}
+
+.tintro__md td:last-child {
+  color: var(--text-primary);
+  font-weight: 550;
+}
+
+.tintro__md ul {
+  margin: 6px 0;
+  padding-left: 1.4em;
+  color: var(--text-primary);
+}
+
+.tintro__md li {
+  margin: 3px 0;
+}
+
+.tintro__md blockquote {
+  margin: 14px 0 4px;
+  padding: 8px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  line-height: 1.7;
+}
+
+.tintro__md a {
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.tintro__cta {
+  margin-top: 22px;
+}
+
+.tintro__cta-btn {
+  min-width: 260px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+@keyframes tintro-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tintro {
+    animation: none;
+  }
+}

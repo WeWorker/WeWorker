@@ -139,7 +139,10 @@ describe('dedicated agent runtime and skill library', () => {
     expect(options.extraToolGuard?.('PowerShell', { command: 'Get-ChildItem -Recurse' })).toEqual({ behavior: 'allow' })
     expect(options.extraToolGuard?.('Bash', { command: 'webcli call example.org.search' }).behavior).toBe('deny')
     expect(options.extraToolGuard?.('Bash', { command: 'git pull && webcli call example.com.search' })).toEqual({ behavior: 'allow' })
-    expect(options.mcpServerOverride).toBeTruthy()
+    // Agent 身份以数据形式随回合传递；回合的工具服务器（带 userMedia 出口）
+    // 由 streamChat 统一构建，Bot 对话里的 send_file_to_user 不再拿不到出口。
+    expect(options.dedicatedAgent).toMatchObject({ agentId: 'agent0001', ownerUserId: 'owner-user' })
+    expect(options.mcpServerOverride).toBeUndefined()
   })
 
   it('leaves agentCwd unset for directory-less agents', () => {
