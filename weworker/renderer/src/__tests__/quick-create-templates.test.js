@@ -427,7 +427,12 @@ test('costplus skill embeds aliyun VerifyVATInvoice Node.js recipe and handles o
     aliyunAccessKeyId: 'TEST_AK_ID_PLACEHOLDER',
     aliyunAccessKeySecret: 'TEST_AK_SECRET_PLACEHOLDER',
   })
-  assert.ok(withBoth.includes('双通道'), 'both Tencent and Aliyun enabled describes dual-channel fallback')
+  assert.ok(withBoth.includes('双通道'), 'both Tencent and Aliyun enabled describes dual-channel usage')
+  assert.ok(withBoth.includes('无优先级之分'), 'dual-channel mode does not prioritize Tencent over Aliyun')
+  assert.ok(!withBoth.includes('优先直连腾讯云') && !withBoth.includes('优先使用下方腾讯云'), 'no Tencent-first wording left')
+  assert.ok(withBoth.includes('切到另一通道继续'), 'switches to the other channel when one channel hits quota or runs out')
+  assert.ok(withBoth.includes('严禁超额'), 'strictly caps per-channel calls to stay within free quota')
+  assert.ok(withBoth.includes('不影响内部库与企查查的销售方全量核查'), 'free-quota cap only applies to invoice verification channels')
 })
 
 test('costplus description and examples use the fixed review window', () => {
@@ -452,7 +457,7 @@ test('costplus description and examples use the fixed review window', () => {
   )
   const expectedExamples = [
     '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？不要查发票是否作废/红冲',
-    '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？同时查发票是否作废/红冲， 每个api供应商只查询50次免费额度即可',
+    '帮我把 2024 年以来的报销发票查一遍：销售方注册状态全量核查是否异常；同时核验发票是否作废/红冲，但发票核验每个通道最多查 50 次免费额度，用完即停。',
   ]
   assert.deepEqual(buildTemplateExamples(costplus, {}), expectedExamples)
   assert.deepEqual(
