@@ -506,18 +506,18 @@ function renderCostplusSkill(template, answers) {
   const aliyunIdLiteral = JSON.stringify(aliyunAkId || '<向主人确认>')
   const aliyunSecretLiteral = JSON.stringify(aliyunAkSecret || '<向主人确认>')
   const invoiceBoundaryLine = hasTencent && hasAliyun
-    ? '- 对每张去重后的数电票（20 位 `invoiceNumber`）：已配置腾讯云 + 阿里云双通道，优先直连腾讯云 OCR `VatInvoiceVerifyNew` 核验发票状态（作废/红冲/真伪等），遇到上游省局通道超时或故障时自动改用阿里云 `VerifyVATInvoice` 兜底补查；每张发票查到明确状态即止，非 20 位传统发票直接跳过。'
+    ? '- 对去重后的数电票（20 位 `invoiceNumber`）：已配置腾讯云（`VatInvoiceVerifyNew`）与阿里云（`VerifyVATInvoice`）双通道，两者无优先级之分，配合分摊/接力使用以充分利用各通道免费额度；任一通道达到上限、资源包耗尽或遇到上游省局超时/故障时，自动切换另一通道继续核验；每张发票查到明确状态即止，非 20 位传统发票直接跳过。'
     : hasTencent
-      ? '- 对每张去重后的数电票（20 位 `invoiceNumber`）：直连腾讯云 OCR 发票核验接口（`VatInvoiceVerifyNew`）查询发票状态（作废/红冲/真伪等），每张发票仅查一次；非 20 位传统发票直接跳过。'
+      ? '- 对去重后的数电票（20 位 `invoiceNumber`）：直连腾讯云 OCR 发票核验接口（`VatInvoiceVerifyNew`）查询发票状态（作废/红冲/真伪等），每张发票仅查一次；若主人指定了核验次数上限（如 50 次免费额度），达到上限即停；非 20 位传统发票直接跳过。'
       : hasAliyun
-        ? '- 对每张去重后的数电票（20 位 `invoiceNumber`）：直连阿里云 OCR 发票核验接口（`VerifyVATInvoice`）查询发票状态（作废/红冲/真伪等），每张发票仅查一次；非 20 位传统发票直接跳过。'
+        ? '- 对去重后的数电票（20 位 `invoiceNumber`）：直连阿里云 OCR 发票核验接口（`VerifyVATInvoice`）查询发票状态（作废/红冲/真伪等），每张发票仅查一次；若主人指定了核验次数上限（如 50 次免费额度），达到上限即停；非 20 位传统发票直接跳过。'
         : '- 发票状态核验（腾讯云 `VatInvoiceVerifyNew` / 阿里云 `VerifyVATInvoice`，仅核验 20 位数电票）：当前均未配置凭证，默认跳过、仅复查销售方注册状态；若主人明确要求核验发票状态并提供腾讯云或阿里云凭证，可按下方配方直连查验。'
   const invoiceStepLine = hasTencent && hasAliyun
-    ? '7. 对去重后的数电票（按 20 位 `invoiceNumber` 过滤并去重，非 20 位传统发票直接跳过），优先使用下方腾讯云 `VatInvoiceVerifyNew` Node.js 配方直连核验（每批 ≤20 张）；若单张遇到上游省局超时/通道异常，改用阿里云 `VerifyVATInvoice` 配方兜底补查，每批结束向主人汇报进度，将正常、状态异常与查询失败分开记录。'
+    ? '7. 对去重后的数电票（按 20 位 `invoiceNumber` 过滤并去重，非 20 位传统发票直接跳过），使用下方腾讯云 `VatInvoiceVerifyNew` 与阿里云 `VerifyVATInvoice` 两个 Node.js 配方直连核验（两者无优先级之分，可分摊或依次接力使用，每批 ≤20 张）；若主人指定了单通道次数上限（如每个通道最多 50 次免费额度），按通道严格计数并在发批前截断至剩余额度内，严禁超额；任一通道达到上限、资源包耗尽或单张遇到上游省局超时/通道异常时，自动切到另一通道继续；已配置通道均达上限即停，每批结束向主人汇报进度，将正常、状态异常、查询失败及因额度上限未核验的数量分开记录。'
     : hasTencent
-      ? '7. 对去重后的数电票（按 20 位 `invoiceNumber` 过滤并去重，非 20 位传统发票直接跳过），使用下方腾讯云 Node.js 配方直连 `VatInvoiceVerifyNew`（传 `InvoiceNo`、`InvoiceDate`、`Amount`）核验发票状态；按每批 ≤20 张批量执行，每批结束向主人汇报进度，将正常、状态异常与查询失败分开记录。'
+      ? '7. 对去重后的数电票（按 20 位 `invoiceNumber` 过滤并去重，非 20 位传统发票直接跳过），使用下方腾讯云 Node.js 配方直连 `VatInvoiceVerifyNew`（传 `InvoiceNo`、`InvoiceDate`、`Amount`）核验发票状态；按每批 ≤20 张批量执行（若主人指定了次数上限如 50 次免费额度，严格计数并在发批前截断至剩余额度内、用完即停，严禁超额），每批结束向主人汇报进度，将正常、状态异常、查询失败及因额度上限未核验的数量分开记录。'
       : hasAliyun
-        ? '7. 对去重后的数电票（按 20 位 `invoiceNumber` 过滤并去重，非 20 位传统发票直接跳过），使用下方阿里云 Node.js 配方直连 `VerifyVATInvoice`（传 `InvoiceNo`、`InvoiceDate`、`InvoiceSum`）核验发票状态；按每批 ≤20 张批量执行，每批结束向主人汇报进度，将正常、状态异常与查询失败分开记录。'
+        ? '7. 对去重后的数电票（按 20 位 `invoiceNumber` 过滤并去重，非 20 位传统发票直接跳过），使用下方阿里云 Node.js 配方直连 `VerifyVATInvoice`（传 `InvoiceNo`、`InvoiceDate`、`InvoiceSum`）核验发票状态；按每批 ≤20 张批量执行（若主人指定了次数上限如 50 次免费额度，严格计数并在发批前截断至剩余额度内、用完即停，严禁超额），每批结束向主人汇报进度，将正常、状态异常、查询失败及因额度上限未核验的数量分开记录。'
         : '7. （可选）当前未配置腾讯云或阿里云发票核验凭证，默认跳过本步；若主人后续提供了任一云商凭证，再按下方对应 Node.js 配方对去重后的 20 位数电票分批（每批 ≤20 张）直连核验状态。'
   const confirmItems = [
     ...(qccKey ? [] : ['- 企查查外部查询的 Bearer Token（API Key）。']),
@@ -578,11 +578,11 @@ function renderCostplusSkill(template, answers) {
     '- 回写接口：`POST http://weworker.weoa.com/cost/upsert`，body 为 JSON：`{"companyName":..., "registrationStatus":...}`。`registrationStatus` 传打包串 `状态|统一社会信用代码|核准日期|查询日期`（服务端原样存储、check 原样返回；取不到的段留空但不能省略竖线，如 `注销||2025-08-01|2026-11-20`）。',
     '- 「注册状态异常」定义：内部库或外部接口返回 未注册 / Company Not Found / 吊销 / 注销 / 除名 / 已停业等非「存续（在营、开业、在册）」状态。',
     `- 外部发票状态核验接口（腾讯云）：腾讯云 OCR \`VatInvoiceVerifyNew\`（\`POST https://ocr.tencentcloudapi.com/\`，\`X-TC-Action: VatInvoiceVerifyNew\`，\`X-TC-Version: 2018-11-19\`，\`X-TC-Region: ap-guangzhou\`，API 3.0 签名 \`TC3-HMAC-SHA256\`），${tencentNote}。仅核验 **20 位数字的数电票**，字段映射为 \`invoiceNumber\` → \`InvoiceNo\`、\`billingDate\` → \`InvoiceDate\`（**必须为 \`YYYY-MM-DD\`**）、\`amount\`（价税合计）→ \`Amount\`（注意：接口没有 \`Additional\` 参数，传了会报 \`UnknownParameter\`）；返回 \`Response.Invoice.StateCode\` 中 \`0\`＝正常、\`1\`＝未更新、\`2\`＝作废、\`3\`＝已红冲（非 \`0\` 或验真报错视为发票状态异常）。`,
-    `- 腾讯云错误码判别与换 Key 路径：\`AuthFailure.SecretIdNotFound\` / \`AuthFailure.SignatureFailure\`＝SecretId/SecretKey 无效或填错，立即停止批量重试，提醒主人到 https://console.cloud.tencent.com/cam/capi 核对或重新生成；\`FailedOperation.UnOpenError\` / \`FailedOperation.ArrearsError\` / \`ResourceInsufficient\` / \`ResourcePackageRunOut\`＝未开通增值税发票核验服务、欠费或资源包耗尽，立即停止批量重试并提醒主人前往 ${TENCENT_OCR_ENABLE_URL} 开通/续费（资源包耗尽属账号侧问题，换代码或重试无效）；\`FailedOperation.DownStreamError\` / \`RequestLimitExceeded\` / \`LimitExceeded\`＝上游税局通道异常或限流，最多重试 1 次，仍失败时若已配置阿里云则切换阿里云补查，否则记入待处理。主人提供新 SecretId/SecretKey 后，用 \`update_agent_skill\` 只替换腾讯云配方中的 \`secretId\` / \`secretKey\` 值，change_summary 注明「更换腾讯云 Key」。`,
+    `- 腾讯云错误码判别与换 Key 路径：\`AuthFailure.SecretIdNotFound\` / \`AuthFailure.SignatureFailure\`＝SecretId/SecretKey 无效或填错，立即停止该通道批量重试，提醒主人到 https://console.cloud.tencent.com/cam/capi 核对或重新生成；\`FailedOperation.UnOpenError\` / \`FailedOperation.ArrearsError\` / \`ResourceInsufficient\` / \`ResourcePackageRunOut\`＝未开通增值税发票核验服务、欠费或资源包耗尽，立即停止该通道批量重试（资源包耗尽属账号侧问题，换代码或重试无效），若已配置阿里云且仍有额度则切到阿里云继续，否则提醒主人前往 ${TENCENT_OCR_ENABLE_URL} 开通/续费；\`FailedOperation.DownStreamError\` / \`RequestLimitExceeded\` / \`LimitExceeded\`＝上游税局通道异常或限流，最多重试 1 次，仍失败时若已配置阿里云则切换阿里云补查，否则记入待处理。主人提供新 SecretId/SecretKey 后，用 \`update_agent_skill\` 只替换腾讯云配方中的 \`secretId\` / \`secretKey\` 值，change_summary 注明「更换腾讯云 Key」。`,
     `- 外部发票状态核验接口（阿里云）：阿里云 OCR \`VerifyVATInvoice\`（\`POST https://ocr-api.cn-hangzhou.aliyuncs.com/\`，\`x-acs-action: VerifyVATInvoice\`，\`x-acs-version: 2021-07-07\`，OpenAPI V3 签名 \`ACS3-HMAC-SHA256\`），${aliyunNote}。每张发票号码唯一，直连核验、不走内部库缓存。`,
     '- `VerifyVATInvoice` 数电票入参映射：仅核验 **20 位数字的数电票**（非 20 位传统发票直接跳过，避免无效外呼）；字段映射为 `invoiceNumber` → `InvoiceNo`、`billingDate` → `InvoiceDate`（去掉横杠归一化为 `YYYYMMDD`）、`amount`（价税合计）→ `InvoiceSum`，数电票无需传 `InvoiceCode` 和 `VerifyCode`。',
     '- 「发票状态异常」定义：阿里云返回外层 `Data` 字段为 JSON 字符串，需二次 `JSON.parse`，`invalidMark === "N"` 且查验一致视为正常，`invalidMark !== "N"`（如作废、全额/部分红冲、失控、异常）视为异常；腾讯云返回 `StateCode === "0"` 视为正常，`2`（作废）/ `3`（已红冲）/ 查无此票 / 验真不通过视为异常。若因缺少字段返回「查询发票不规范」类提示，归类为「缺少核验字段」记入待处理，不要误判为假票或作废票。',
-    `- 阿里云错误码判别与换 Key 路径：\`InvalidAccessKeyId.NotFound\` 或 \`SignatureDoesNotMatch\`＝AK/SK 无效或填错，立即停止批量重试，提醒主人到 https://ram.console.aliyun.com/manage/ak 核对或重新生成；\`ocrServiceNotOpen\` / \`OcrServiceExpired\`（401）＝未开通票证核验服务或资源包过期/欠费，立即停止并提醒主人前往 ${ALIYUN_OCR_ENABLE_URL} 开通/续费；\`503\` / \`AlgorithmTimeout\` / \`ServiceUnavailable\` / 限流＝对应省份税务局查验通道临时超时或拥堵，最多重试 1 次（间隔数秒），仍失败时若已配置腾讯云可切换腾讯云补查，否则直接记入待处理（标注省码与超时原因，建议稍后/次日复查，不要反复死磕）。主人提供新 AK/SK 后，用 \`update_agent_skill\` 只替换配方中的 \`akId\` / \`akSecret\` 值，change_summary 注明「更换阿里云 Key」。`,
+    `- 阿里云错误码判别与换 Key 路径：\`InvalidAccessKeyId.NotFound\` 或 \`SignatureDoesNotMatch\`＝AK/SK 无效或填错，立即停止该通道批量重试，提醒主人到 https://ram.console.aliyun.com/manage/ak 核对或重新生成；\`ocrServiceNotOpen\` / \`OcrServiceExpired\`（401）＝未开通票证核验服务或资源包过期/欠费，立即停止该通道批量重试，若已配置腾讯云且仍有额度则切到腾讯云继续，否则提醒主人前往 ${ALIYUN_OCR_ENABLE_URL} 开通/续费；\`503\` / \`AlgorithmTimeout\` / \`ServiceUnavailable\` / 限流＝对应省份税务局查验通道临时超时或拥堵，最多重试 1 次（间隔数秒），仍失败时若已配置腾讯云可切换腾讯云补查，否则直接记入待处理（标注省码与超时原因，建议稍后/次日复查，不要反复死磕）。主人提供新 AK/SK 后，用 \`update_agent_skill\` 只替换配方中的 \`akId\` / \`akSecret\` 值，change_summary 注明「更换阿里云 Key」。`,
     '',
     '## 执行步骤',
     '',
@@ -745,7 +745,8 @@ function renderCostplusSkill(template, answers) {
     '- 腾讯云 SecretId / SecretKey 不写入任何输出；' + (hasTencent ? 'SecretId/SecretKey 已由主人在创建时提供，直接使用配方中的值即可。' : '当前未配置，仅在主人主动提供后使用。'),
     '- 阿里云 AccessKey ID / Secret 不写入任何输出；' + (hasAliyun ? 'AK/SK 已由主人在创建时提供，直接使用配方中的值即可。' : '当前未配置，仅在主人主动提供后使用。'),
     '- 连续 401 时先读响应体的 error_description 再定策略：Invalid or expired token 立即停止重试、提醒主人换 Key；Missing Authorization header 检查请求头写法；限流类提示才放慢节奏重试，不要把鉴权失败当风控硬等。',
-    '- 腾讯云 / 阿里云调用报错时先按错误码分流：鉴权错误（AuthFailure.* / InvalidAccessKeyId.NotFound / SignatureDoesNotMatch）立即停止重试并提醒换 Key；未开通或欠费（UnOpenError / ArrearsError / ocrServiceNotOpen / OcrServiceExpired）立即停止并提醒开通/续费；上游省局通道超时（AlgorithmTimeout / DownStreamError / 503 / 限流）最多重试 1 次，双通道时可切换另一通道补查，否则记入待处理。',
+    '- 腾讯云 / 阿里云调用报错时先按错误码分流：鉴权错误（AuthFailure.* / InvalidAccessKeyId.NotFound / SignatureDoesNotMatch）立即停止该通道重试并提醒换 Key；未开通、欠费或资源包耗尽（UnOpenError / ArrearsError / ResourceInsufficient / ResourcePackageRunOut / ocrServiceNotOpen / OcrServiceExpired）立即停止该通道重试，双通道且另一通道仍有额度时切换另一通道继续，否则提醒开通/续费；上游省局通道超时（AlgorithmTimeout / DownStreamError / 503 / 限流）最多重试 1 次，双通道时可切换另一通道补查，否则记入待处理。',
+    '- 发票核验免费额度上限控制：若主人限定了单通道核验次数上限（如每个通道最多 50 次免费额度），仅约束腾讯云/阿里云发票核验接口（不影响内部库与企查查的销售方全量核查）；双通道地位平等、无优先级之分，按通道严格计数并在发批前截断至剩余额度内，严禁超额；因额度上限未核验的数电票不计入异常清单，在代码块外汇总说明剩余数量。',
     '- upsert 属于写操作：仅对本次外部查询成功获得状态的公司执行，且每公司一次；查询失败/超时的不回写，记入待处理。',
     '- 外部接口调用有成本，同一公司只查一次、同一发票号码只查一次；销售方先查内部库（已有「存续」等明确状态的不再外呼），发票状态直连核验。内部库存量纯状态数据（没有识别号）的正常销售方，不要为补识别号再外呼企查查，识别号直接填「待补充」。',
     '- 分页查询注意 `page` 递增直到返回条数 < limit。',
@@ -852,7 +853,7 @@ export function buildTemplateExamples(template, answers) {
   if (template?.id === COSTPLUS_TEMPLATE_ID) {
     return [
       '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？不要查发票是否作废/红冲',
-      '帮我把 2024 年以来的报销发票查一遍，有哪些销售方公司注册状态异常？同时查发票是否作废/红冲， 每个api供应商只查询50次免费额度即可',
+      '帮我把 2024 年以来的报销发票查一遍：销售方注册状态全量核查是否异常；同时核验发票是否作废/红冲，但发票核验每个通道最多查 50 次免费额度，用完即停。',
     ]
   }
   const members = parseMembers(answers?.members)
