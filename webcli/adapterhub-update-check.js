@@ -8,8 +8,8 @@ import { homedir } from "node:os";
 
 export const CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** 后台刷新短时限:adapterhub-client 链路超时 30s + curl 回退再 30s,不设限会拖住当前命令进程(仿 version-check 的 AbortSignal.timeout)。 */
-const REFRESH_TIMEOUT_MS = 5000;
+/** 后台刷新短时限:adapterhub-client 链路自身超时 30s,不设限会拖住当前命令进程(仿 version-check 的 AbortSignal.timeout)。 */
+export const REFRESH_TIMEOUT_MS = 5000;
 
 function cacheFile(home = homedir()) {
   return path.join(home, ".webcli", "adapterhub-check.json");
@@ -47,9 +47,9 @@ export function formatUpdateNotice(updates, cli = "webgo") {
  * 归一化为 {adapter, local, hub, action:"upgrade"|"install"}(与 cmdCheck 提示一致:
  * builtin 源 → install,自装 → upgrade);仅保留可更新行。
  */
-async function defaultCompare() {
+async function defaultCompare({ signal } = {}) {
   const { collectLocalAdapters, compareLocalWithHub } = await import("./adapterhub-cli.js");
-  const rows = await compareLocalWithHub(collectLocalAdapters());
+  const rows = await compareLocalWithHub(collectLocalAdapters(), { signal });
   return (rows || [])
     .filter((r) => r.action === "update-available")
     .map((r) => ({
@@ -61,12 +61,15 @@ async function defaultCompare() {
 }
 
 async function refreshUpdates({ compareImpl, file, now }) {
+  // AbortController 贯穿链路真取消 socket:race 只能赢下 Promise,赢不了 ref'd 的
+  // pending I/O(fetch socket 会钉住事件循环直到 client 自身 30s 超时,命令仍被拖住)。
+  // 5s timer unref 后 abort → fetch 立即拒绝(client 对 AbortError 不走 curl 回退);
+  // 超时走 catch 静默不落缓存,下条命令再试。
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REFRESH_TIMEOUT_MS);
+  if (timer.unref) timer.unref();
   try {
-    const results = await Promise.race([
-      Promise.resolve(compareImpl()),
-      // timer unref:超时不阻止进程退出(纯本地命令如 help 不被悬挂的刷新拖住)
-      new Promise((_, reject) => { const t = setTimeout(() => reject(new Error("timeout")), REFRESH_TIMEOUT_MS); if (t.unref) t.unref(); }),
-    ]);
+    const results = await compareImpl({ signal: controller.signal });
     const updates = (results || [])
       .filter((r) => r.action === "upgrade" || r.action === "install")
       .map((r) => ({ adapter: r.adapter, local: r.local ?? null, hub: r.hub, action: r.action }));
