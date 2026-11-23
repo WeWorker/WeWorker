@@ -621,7 +621,7 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
 }
 
 /** 本地 Adapter 集合（内置 ∪ 自装，重名自装优先），供 check/upgrade 比对。 */
-function collectLocalAdapters() {
+export function collectLocalAdapters() {
   const installedIds = localAdapterIds();
   return [
     ...builtinAdapterIds()
@@ -636,7 +636,7 @@ function collectLocalAdapters() {
  * 一次拉全量列表（本地包名不进任何 URL），逐条分类：
  * update-available / up-to-date / local-newer / delisted / placeholder / unknown。
  */
-async function compareLocalWithHub(local) {
+export async function compareLocalWithHub(local) {
   const { items: hubItems } = await listAllAdapters();
   const hubByName = new Map(hubItems.map((item) => [String(item.name || "").toLowerCase(), item]));
   return local.map((entry) => {

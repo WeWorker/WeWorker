@@ -1676,6 +1676,16 @@ async function main() {
     } catch { /* 版本检查绝不影响命令 */ }
   }
 
+  // ── adapterhub 更新静默感知(只提示不自动装;24h TTL 后台刷新) ───────────
+  if (!VERSION_CHECK_EXEMPT.has(process.argv[2])) {
+    try {
+      const { checkAdapterUpdates, formatUpdateNotice } = await import("./adapterhub-update-check.js");
+      const updates = await checkAdapterUpdates({});
+      const notice = formatUpdateNotice(updates, cliName());
+      if (notice) process.stderr.write(notice + "\n");
+    } catch { /* 更新感知绝不影响命令 */ }
+  }
+
   if (hasHostConfiguration() && !['call', '--version', '-v', '--help', '-h'].includes(process.argv[2])) {
     throw new Error('Host mode only supports webcli call; service and browser lifecycle belong to the embedding host.');
   }
