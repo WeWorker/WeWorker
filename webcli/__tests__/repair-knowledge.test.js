@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync, writeFileSync } from 'node:fs'
-import { loadKnowledge, recordExperience, searchExperience, injectContext, KNOWLEDGE_LIMIT } from '../repair/knowledge.js'
+import { loadKnowledge, recordExperience, searchExperience, injectContext, entryKey, KNOWLEDGE_LIMIT } from '../repair/knowledge.js'
 
 // mkdtemp 临时根统一登记,afterAll 一次性清理(与 repair-verify.test.js 同惯例)
 const roots = []
@@ -26,10 +26,30 @@ describe('recordExperience', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].hits).toBe(2)
   })
-  it('超限淘汰最旧(保留 LIMIT 条)', async () => {
+  it('超限淘汰 LRU(date 主键):新条目不被裁,裁的是 date 最旧', async () => {
     const f = await tmpFile()
-    for (let i = 0; i < KNOWLEDGE_LIMIT + 5; i++) recordExperience(f, { ...ENTRY, symptom: `symptom-${i}` })
-    expect(loadKnowledge(f).entries.length).toBe(KNOWLEDGE_LIMIT)
+    for (let i = 0; i < KNOWLEDGE_LIMIT; i++) recordExperience(f, { ...ENTRY, symptom: `old-${i}` }, new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString())
+    recordExperience(f, { ...ENTRY, symptom: 'fresh-latest' }, '2026-12-01T00:00:00Z') // 新经验 hits=1,date 最新
+    const { entries } = loadKnowledge(f)
+    expect(entries.length).toBe(KNOWLEDGE_LIMIT)
+    expect(entries.some((e) => e.symptom === 'fresh-latest')).toBe(true)
+    expect(entries.some((e) => e.symptom === 'old-00')).toBe(false)
+  })
+  it('failed 合并不抹已知修法(保留 fixStrategy/rootCause/outcome,记 lastOutcome)', async () => {
+    const f = await tmpFile()
+    recordExperience(f, ENTRY, '2026-11-23T00:00:00Z')
+    recordExperience(f, { ...ENTRY, outcome: 'failed', rootCause: '', fixStrategy: '' }, '2026-11-24T00:00:00Z')
+    const { entries } = loadKnowledge(f)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].fixStrategy).toBe(ENTRY.fixStrategy)
+    expect(entries[0].rootCause).toBe(ENTRY.rootCause)
+    expect(entries[0].outcome).toBe('fixed')
+    expect(entries[0].lastOutcome).toBe('failed')
+    expect(entries[0].hits).toBe(2)
+  })
+  it('entryKey 吃截断后字段:同前缀不同后缀 → 同 key', () => {
+    const long = 'x'.repeat(500)
+    expect(entryKey({ site: 'a', runtime: 'b', symptom: long + 'tail' })).toBe(entryKey({ site: 'a', runtime: 'b', symptom: long }))
   })
   it('损坏文件备份重建,不抛错', async () => {
     const f = await tmpFile()
@@ -55,5 +75,6 @@ describe('injectContext', () => {
     const text = injectContext([{ site: 'wekm', runtime: 'wewright', symptom: 's', rootCause: 'r', fixStrategy: 'f', outcome: 'fixed', hits: 2 }])
     expect(text).toContain('[wekm/wewright]')
     expect(text).toContain('策略: f')
+    expect(text).toContain('出现 2 次')
   })
 })

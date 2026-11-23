@@ -1,6 +1,7 @@
 /**
  * 本地跨 adapter 经验库(~/.webcli/repair-knowledge.json)。
  * 修复结束自动沉淀;修复/探索前按 site+runtime+错误签名检索 Top-K 注入。
+ * 淘汰策略 LRU(主键 date 新→旧,hits 仅平局裁决);failed 合并不抹已知修法。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,13 +26,14 @@ export function loadKnowledge(file = knowledgePath()) {
   }
 }
 
+// 去重键:吃清洗截断后的字段,避免"同前缀不同后缀"假去重失效
 export function entryKey(entry) {
-  return createHash("sha1").update(`${entry.site}|${entry.runtime}|${entry.symptom}`).digest("hex").slice(0, 12);
+  const key = `${String(entry.site || "")}|${String(entry.runtime || "")}|${String(entry.symptom || "").slice(0, 500)}`;
+  return createHash("sha1").update(key).digest("hex").slice(0, 12);
 }
 
 export function recordExperience(file, entry, now = new Date().toISOString()) {
   const clean = {
-    id: entryKey(entry),
     site: String(entry.site || ""), runtime: String(entry.runtime || ""),
     symptom: String(entry.symptom || "").slice(0, 500),
     rootCause: String(entry.rootCause || "").slice(0, 500),
@@ -39,14 +41,28 @@ export function recordExperience(file, entry, now = new Date().toISOString()) {
     outcome: entry.outcome === "failed" ? "failed" : "fixed",
     evidenceRef: String(entry.evidenceRef || "").slice(0, 200), date: now,
   };
+  clean.id = entryKey(clean);
   const data = loadKnowledge(file);
   const idx = data.entries.findIndex((e) => e.id === clean.id);
-  if (idx >= 0) data.entries[idx] = { ...data.entries[idx], ...clean, hits: (data.entries[idx].hits || 0) + 1 };
-  else data.entries.push({ ...clean, hits: 1 });
-  data.entries.sort((a, b) => (b.hits || 0) - (a.hits || 0) || String(b.date).localeCompare(String(a.date)));
+  if (idx >= 0) {
+    const prev = data.entries[idx];
+    if (clean.outcome === "failed") {
+      // failed 合并不抹已知修法:保留旧 rootCause/fixStrategy/outcome/evidenceRef,只刷新 hits/date
+      data.entries[idx] = { ...prev, hits: (prev.hits || 0) + 1, date: clean.date, lastOutcome: "failed" };
+    } else {
+      data.entries[idx] = { ...prev, ...clean, hits: (prev.hits || 0) + 1, lastOutcome: "fixed" };
+    }
+  } else {
+    data.entries.push({ ...clean, hits: 1, lastOutcome: clean.outcome });
+  }
+  // LRU:主键 date 降序(新→旧),hits 降序仅平局裁决;超限裁尾,刚沉淀的经验永不被裁
+  data.entries.sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.hits || 0) - (a.hits || 0));
   if (data.entries.length > KNOWLEDGE_LIMIT) data.entries = data.entries.slice(0, KNOWLEDGE_LIMIT);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  // 原子写:先落 tmp 再 rename,避免写一半损坏
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n");
+  fs.renameSync(tmp, file);
   return clean;
 }
 
@@ -67,6 +83,6 @@ export function searchExperience(file = knowledgePath(), { site = "", runtime = 
 export function injectContext(entries) {
   if (!entries.length) return "经验库暂无相关条目。";
   return "相关修复经验:\n" + entries.map((e) =>
-    `- [${e.site}/${e.runtime}] 症状: ${e.symptom}\n  根因: ${e.rootCause}\n  策略: ${e.fixStrategy}(${e.outcome},命中 ${e.hits || 1} 次)`,
+    `- [${e.site}/${e.runtime}] 症状: ${e.symptom}\n  根因: ${e.rootCause}\n  策略: ${e.fixStrategy}(${e.outcome},出现 ${e.hits || 1} 次)`,
   ).join("\n");
 }
