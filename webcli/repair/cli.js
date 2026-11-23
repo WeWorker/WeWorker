@@ -30,8 +30,19 @@ export async function runRepairCli(args, { outputFormat } = {}) {
       const { runRepairLoop } = await import("./executor.js");
       const task = loadTask(rest[0]);
       if (["published", "archived"].includes(task.status)) return fail(`任务 ${task.id} 已终态(${task.status}),不可执行`);
-      const { task: done, outcome } = await runRepairLoop({ task, llm: await resolveLlm(), log: (m) => console.error(m) });
-      return emit(`修复循环结束: ${done.id} → ${outcome}`);
+      const { task: done, outcome, draft, verification, error, reasoning } = await runRepairLoop({ task, llm: await resolveLlm(), log: (m) => console.error(m) });
+      if (outcome === "draft-ready" && draft) {
+        // 人工发布通知:草稿位置/版本/验证结果/下一步(spec 十一)
+        const passed = verification.checks.filter((c) => c.passed).length;
+        return emit([
+          `修复循环结束: ${done.id} → draft-ready`,
+          `草稿: ${draft.draftDir}(版本 ${draft.version})`,
+          `验证: ${passed}/${verification.checks.length} checks`,
+          "下一步: 人工审阅 diff 后发布(adapterhub publish)",
+        ].join("\n"));
+      }
+      const extra = error ? `(${error})` : reasoning ? `(${reasoning})` : "";
+      return emit(`修复循环结束: ${done.id} → ${outcome}${extra}`);
     }
     if (sub === "list") return emit(listTasks().map((t) => `${t.id} [${t.status}] ${t.source} 失败:${t.failures.reduce((s, f) => s + f.count, 0)}`).join("\n") || "(无任务)");
     if (sub === "show" && rest[0]) return emit(JSON.stringify(loadTask(rest[0]), null, 2));

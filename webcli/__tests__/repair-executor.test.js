@@ -30,6 +30,7 @@ describe('runRepairLoop', () => {
     expect(outcome).toBe('draft-ready')
     expect(task.status).toBe('draft-ready')
     expect(draft.version).toBe('1.0.1')
+    expect(draft.draftDir).toBeTruthy()
   })
   it('needs-regeneration 提前终止', async () => {
     const llm = { async diagnose() { return { rootCause: 'needs-regeneration', reasoning: '站点改版' } } }
