@@ -37,7 +37,8 @@ export async function runRepairCli(args, { outputFormat } = {}) {
     if (sub === "show" && rest[0]) return emit(JSON.stringify(loadTask(rest[0]), null, 2));
     throw new Error("用法: webgo repair task --from errors [--since 7d] [--min-calls 3] | repair run <taskId> | repair list | repair show <taskId>");
   } catch (e) {
-    return fail(e.message);
+    // 退出码约定(见头注释):用法/参数错误 2(先例 adapterhub-cli.js UsageError → 2),运行错误 1
+    return fail(e.message, String(e.message).startsWith("用法:") ? 2 : 1);
   }
 
   async function resolveLlm() {
