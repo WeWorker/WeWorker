@@ -2,7 +2,7 @@
   "schema_version": 2,
   "name": "demo-fixture",
   "version": "1.0.0",
-  "description": "合成故障 adapter(自进化回归用):broken 版缺登录/参数分支直接抛 TypeError",
+  "description": "合成故障 adapter(自进化回归用):broken 版参数缺失分支直接抛 TypeError",
   "runtime_allowed_hosts": ["example.com"],
   "commands": [
     { "id": "get-article", "runtime": "wewright", "module": "wewright/commands/get-article.py", "description": "get article", "schema": { "type": "object", "properties": { "keyword": { "type": "string" } } } }

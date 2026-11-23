@@ -11,6 +11,7 @@ sys.dont_write_bytecode = True
 
 # 修复版参考答案(修复草稿回放用):参数缺失返回结构化错误,正常路径返回文章。
 # 模块形态与故障版一致(adapter_v2 生成命令合同),仅 get_article 逻辑不同。
+# 最小范本:省略了生成模板的 normalize()/类型强转/enum 校验,勿直接抄作真实 adapter。
 
 async def get_article(ctx, keyword=None):
     """修复版:参数缺失返回结构化错误,正常路径返回文章。"""

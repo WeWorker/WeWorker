@@ -13,6 +13,7 @@ sys.dont_write_bytecode = True
 # (server/adapter_v2.py _command_source):`--internal-script` 以 __main__ 执行
 # 本文件,必须自带 RUNNER 接线,stdin 收 JSON 参数、stdout 出结构化 JSON。
 # 浏览器会话是 runner 合同的一部分(execute_tool 先 open session 再调函数)。
+# 最小范本:省略了生成模板的 normalize()/类型强转/enum 校验,勿直接抄作真实 adapter。
 
 async def get_article(ctx, keyword=None):
     """故障版:keyword 缺失直接抛 TypeError(模拟上游校验缺失)。"""

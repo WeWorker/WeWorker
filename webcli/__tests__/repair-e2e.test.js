@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildTask } from '../repair/task.js'
 import { runRepairLoop } from '../repair/executor.js'
+import { verifyRepair } from '../repair/verify.js'
 import { resolveToolkitRuntime } from '../toolkit-runner.js'
 
 // mkdtemp 临时根统一登记,afterAll 一次性清理(与 repair-verify.test.js 同惯例)
@@ -14,7 +15,7 @@ afterAll(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: t
 let runtimePath = null
 try { runtimePath = resolveToolkitRuntime(); } catch { /* 无运行时环境:跳过 */ }
 
-describe.runIf(runtimePath)('repair 端到端(Webwright 实跑)', () => {
+describe.runIf(runtimePath)('repair 端到端(Webwright 实跑,需外网可达 example.com)', () => {
   let env, home
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'repair-e2e-'))
@@ -37,7 +38,19 @@ describe.runIf(runtimePath)('repair 端到端(Webwright 实跑)', () => {
       failures: [{ tool: 'demo-fixture.get-article', count: 3, lastErr: 'TypeError' }],
       repro: { sample: { keyword: 'hello' } },
     })
-    const { outcome, verification } = await runRepairLoop({ task, llm, env, home, runtimePath, fixtures, log: (m) => console.error(m) })
+    // 真实验证层外包一层失败详情输出:环境类故障(spawn EPERM / 网络不通 / page_recovery)
+    // 的根因在 checks[].error/stderrTail,后续轮次 outcome(llm-error/archived)不携带
+    // verification,须在失败当场打印,否则只剩断言差值无从定位。
+    const verifyImpl = async (args) => {
+      const v = await verifyRepair(args)
+      for (const c of v.checks) {
+        if (!c.passed && (c.error || c.stderrTail)) console.error(`[e2e] check ${c.name} 失败: ${c.error || ''} ${c.stderrTail || ''}`.trim())
+      }
+      return v
+    }
+    const { outcome, verification, error } = await runRepairLoop({ task, llm, env, home, runtimePath, fixtures, verifyImpl, log: (m) => console.error(m) })
+    // 终态未达 draft-ready(llm-error / base-changed / archived)时整包输出,补齐根因上下文。
+    if (outcome !== 'draft-ready') console.error('[e2e] 未达 draft-ready:', JSON.stringify({ outcome, error: error || null, verification }, null, 2))
     expect(outcome).toBe('draft-ready')
     expect(verification.passed).toBe(true)
     expect(verification.checks.find((c) => c.name === 'replay:get-article').passed).toBe(true)
