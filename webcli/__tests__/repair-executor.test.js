@@ -60,12 +60,16 @@ describe('runRepairLoop', () => {
   it('LLM 异常 → llm-error 回写 open(不烧轮次),同一任务重入可恢复', async () => {
     const bad = { async diagnose() { throw new Error('LLM 服务中断') } }
     const verifyOk = async () => ({ passed: true, checks: [] })
-    const first = await runRepairLoop({ task: TASK(), llm: bad, env, home, verifyImpl: verifyOk, log: () => {} })
+    // 各用例共享 home,草稿秒级 stamp 会挤进同几秒;显式错开 now 完全脱离墙钟撞车
+    const first = await runRepairLoop({ task: TASK(), llm: bad, env, home, verifyImpl: verifyOk, log: () => {}, now: Date.now() + 60_000 })
     expect(first.outcome).toBe('llm-error')
     expect(first.task.status).toBe('open')
     expect(first.error).toContain('LLM')
-    const good = { async diagnose() { return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } } } }
-    const second = await runRepairLoop({ task: first.task, llm: good, env, home, verifyImpl: verifyOk, log: () => {} })
+    const good = {
+      async diagnose() { return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } } },
+      async revise() { return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } } },
+    }
+    const second = await runRepairLoop({ task: first.task, llm: good, env, home, verifyImpl: verifyOk, log: () => {}, now: Date.now() + 120_000 })
     expect(second.outcome).toBe('draft-ready')
     expect(second.task.status).toBe('draft-ready')
   })
