@@ -12,9 +12,9 @@ const MANIFEST = {
 }
 const BROKEN_PY = "import json\nraise TypeError('title digit check missing')\n"
 
-let env, adapterRoot
+let env, adapterRoot, home
 beforeAll(async () => {
-  const home = await mkdtemp(join(tmpdir(), 'repair-draft-home-'))
+  home = await mkdtemp(join(tmpdir(), 'repair-draft-home-'))
   adapterRoot = join(home, 'adapters', 'demo-fixture')
   await mkdir(join(adapterRoot, 'wewright', 'commands'), { recursive: true })
   await writeFile(join(adapterRoot, 'manifest.json'), JSON.stringify(MANIFEST, null, 2))
@@ -49,7 +49,8 @@ describe('writeRepairDraftWewright', () => {
     const draft = writeRepairDraftWewright({
       adapterId: 'demo-fixture', expectedDigest: pkg.digest,
       patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY },
-      env, now: Date.parse('2026-11-23T00:00:00Z'),
+      // 草稿落临时目录,避免污染真实 ~/.webcli;stamp 固定时 wx 排他写要求目录可弃置
+      env, draftsRoot: join(home, 'drafts'), now: Date.parse('2026-11-23T00:00:00Z'),
     })
     expect(draft.version).toBe('1.0.1')
     expect(draft.digest).not.toBe(pkg.digest)
