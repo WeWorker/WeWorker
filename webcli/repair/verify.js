@@ -50,14 +50,28 @@ export async function replayCommand({ pkg, commandId, args = {}, runtimePath, en
     adapter: { root: pkg.root, entryPath: path.join(pkg.root, command.module) },
     tool: { id: command.id, name: `${pkg.manifest.name}.${command.id}` },
   };
-  return runToolkitTool(match, args, { runtimePath, env });
+  // 验证重放流量不计入业务 errdetail 统计:endpoint null 时 reportMetric 静默,
+  // 避免修复循环的失败重放推高同一错误签名、重复触发任务(metrics 自激)。
+  return runToolkitTool(match, args, { runtimePath, env, metricsConfig: { endpoint: null } });
 }
 
+/**
+ * 修复分层验证主入口:静态 → 复现重放 → fixture 断言 → 回归冒烟。
+ * 契约:本函数对包非法/断言非法不抛错,一律转失败 check;调用方仍应对意外异常兜底。
+ */
 export async function verifyRepair({ task, draftDir, baseVersion, fixtures = [], smoke = true, runtimePath, env, log = () => {}, replayImpl = replayCommand }) {
   const checks = [];
-  const stat = verifyStatically(draftDir, { baseVersion });
-  checks.push(...stat.checks);
-  const pkg = stat.pkg;
+  let pkg;
+  try {
+    const stat = verifyStatically(draftDir, { baseVersion });
+    pkg = stat.pkg;
+    checks.push(...stat.checks);
+  } catch (e) {
+    // 包非法(缺 manifest/校验不过)时 pkg 不可用无法继续,记失败 check 并提前返回。
+    checks.push({ name: "static:package-invalid", passed: false, error: e.message });
+    log(`[verify] ${checks.map((c) => `${c.passed ? "✓" : "✗"}${c.name}`).join(" ")}`);
+    return { passed: false, checks };
+  }
   const primary = task.failures?.[0]?.tool?.split(".").pop();
   let replayOk = false;
   let replayResult = null;
@@ -73,7 +87,13 @@ export async function verifyRepair({ task, draftDir, baseVersion, fixtures = [],
   }
   if (replayOk) {
     for (const fixture of fixtures.filter((f) => f.commandId === primary)) {
-      const errors = assertExpect(replayResult, fixture.expect);
+      let errors;
+      try {
+        errors = assertExpect(replayResult, fixture.expect);
+      } catch (e) {
+        // 断言本身非法(如非法正则 SyntaxError)同样转失败 check,不外抛。
+        errors = [e.message];
+      }
       checks.push({ name: `fixture:${fixture.id}`, passed: !errors.length, errors });
     }
     if (smoke) {
