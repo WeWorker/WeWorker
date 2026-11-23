@@ -8,6 +8,9 @@ import { homedir } from "node:os";
 
 export const CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** 后台刷新短时限:adapterhub-client 链路超时 30s + curl 回退再 30s,不设限会拖住当前命令进程(仿 version-check 的 AbortSignal.timeout)。 */
+const REFRESH_TIMEOUT_MS = 5000;
+
 function cacheFile(home = homedir()) {
   return path.join(home, ".webcli", "adapterhub-check.json");
 }
@@ -22,7 +25,10 @@ export function readUpdateCache(file = cacheFile()) {
 function writeUpdateCache(value, file = cacheFile()) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(value));
+    // 原子写:先落 tmp 再 rename(同 repair/knowledge.js),防并发/中断撕裂
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(value));
+    fs.renameSync(tmp, file);
   } catch { /* 静默 */ }
 }
 
@@ -56,7 +62,11 @@ async function defaultCompare() {
 
 async function refreshUpdates({ compareImpl, file, now }) {
   try {
-    const results = await compareImpl();
+    const results = await Promise.race([
+      Promise.resolve(compareImpl()),
+      // timer unref:超时不阻止进程退出(纯本地命令如 help 不被悬挂的刷新拖住)
+      new Promise((_, reject) => { const t = setTimeout(() => reject(new Error("timeout")), REFRESH_TIMEOUT_MS); if (t.unref) t.unref(); }),
+    ]);
     const updates = (results || [])
       .filter((r) => r.action === "upgrade" || r.action === "install")
       .map((r) => ({ adapter: r.adapter, local: r.local ?? null, hub: r.hub, action: r.action }));

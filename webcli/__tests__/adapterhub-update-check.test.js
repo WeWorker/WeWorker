@@ -45,4 +45,15 @@ describe('checkAdapterUpdates', () => {
     await new Promise((r) => setTimeout(r, 30))
     expect(readUpdateCache(file).updates).toEqual(ROWS)
   })
+  it('刷新挂起 → 后台刷新被短时限约束,不落盘不拖住进程', async () => {
+    const file = join(await mkdtemp(join(tmpdir(), 'ahc-')), 'c.json')
+    const now = Date.now()
+    writeFileSync(file, JSON.stringify({ checkedAt: now - CHECK_TTL_MS - 1, updates: ROWS }))
+    // compareImpl 永不 resolve:用例能在 30ms 内走完即证明刷新未被 await(不阻塞命令);
+    // 5s 超时 timer unref 后不持有事件循环,vitest 正常退出;超时不落盘,缓存仍是旧值。
+    const updates = await checkAdapterUpdates({ compareImpl: () => new Promise(() => {}), file, now })
+    expect(updates).toEqual(ROWS)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(readUpdateCache(file).updates).toEqual(ROWS)
+  })
 })
