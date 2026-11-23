@@ -4,7 +4,7 @@ import { adapterIdOfTool, tasksFromErrDetail, fetchErrDetail } from '../repair/t
 const ERRDETAIL = {
   rows: [
     { err: 'Toolkit Adapter exited with code 1', tools: [
-      { tool: 'wekm.get-article', calls: 27 }, { tool: 'wekm.list-articles', calls: 19 }, { tool: 'wekm.probe-charset', calls: 3 } ] },
+      { tool: 'wekm.list-articles', calls: 19 }, { tool: 'wekm.get-article', calls: 27 }, { tool: 'wekm.probe-charset', calls: 3 } ] },
     { err: 'Toolkit Adapter exited with code 1', tools: [ { tool: 'lowpkg.one', calls: 2 } ] },
   ],
 }
@@ -27,18 +27,25 @@ describe('tasksFromErrDetail', () => {
     expect(tasks[0].failures[0].count).toBe(27)
     expect(tasks[0].failures[0].lastErr).toContain('exited with code 1')
   })
+
+  it('入参异常/rows 为空时返回空数组', () => {
+    expect(tasksFromErrDetail(null)).toEqual([])
+    expect(tasksFromErrDetail({})).toEqual([])
+    expect(tasksFromErrDetail({ rows: [] })).toEqual([])
+  })
 })
 
 describe('fetchErrDetail', () => {
-  it('缺 token 抛错;带 Bearer 请求正确 URL 并返回 JSON', async () => {
-    await expect(fetchErrDetail({ token: null })).rejects.toThrow(/METRICS_STATS_TOKEN/)
+  it('缺 endpoint 抛错;缺 token 抛错;带 Bearer 请求正确 URL 并返回 JSON', async () => {
+    await expect(fetchErrDetail({ registry: null, token: 't' })).rejects.toThrow(/METRICS_STATS_ENDPOINT/)
+    await expect(fetchErrDetail({ token: null, registry: 'http://example.test' })).rejects.toThrow(/METRICS_STATS_TOKEN/)
     let called = null
     const fetchImpl = async (url, opts) => {
       called = { url, opts }
       return { ok: true, json: async () => ({ rows: [] }) }
     }
-    const data = await fetchErrDetail({ token: 't', since: '7d', fetchImpl })
-    expect(called.url).toBe('http://weworker.weoa.com/v1/stats?by=errdetail&kind=adapter&since=7d')
+    const data = await fetchErrDetail({ token: 't', since: '7d', registry: 'http://example.test', fetchImpl })
+    expect(called.url).toBe('http://example.test/v1/stats?by=errdetail&kind=adapter&since=7d')
     expect(called.opts.headers.authorization).toBe('Bearer t')
     expect(data).toEqual({ rows: [] })
   })

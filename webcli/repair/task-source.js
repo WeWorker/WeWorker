@@ -7,8 +7,9 @@ export function adapterIdOfTool(tool) {
 }
 
 export function tasksFromErrDetail(errdetail, { minCalls = 3, now = Date.now() } = {}) {
+  const rows = errdetail?.rows || [];
   const byAdapter = new Map();
-  for (const row of errdetail.rows || []) {
+  for (const row of rows) {
     for (const t of row.tools || []) {
       const adapterId = adapterIdOfTool(t.tool);
       if (!adapterId) continue;
@@ -23,10 +24,13 @@ export function tasksFromErrDetail(errdetail, { minCalls = 3, now = Date.now() }
     failures.sort((a, b) => b.count - a.count);
     tasks.push(buildTask({ source: "errdetail", adapterId, failures, now }));
   }
+  const totalOf = (t) => t.failures.reduce((s, f) => s + f.count, 0);
+  tasks.sort((a, b) => totalOf(b) - totalOf(a));
   return tasks;
 }
 
-export async function fetchErrDetail({ registry = process.env.METRICS_STATS_ENDPOINT || "http://weworker.weoa.com", token = process.env.METRICS_STATS_TOKEN, since = "7d", fetchImpl = fetch } = {}) {
+export async function fetchErrDetail({ registry = process.env.METRICS_STATS_ENDPOINT, token = process.env.METRICS_STATS_TOKEN, since = "7d", fetchImpl = fetch } = {}) {
+  if (!registry) throw new Error("缺少 METRICS_STATS_ENDPOINT 环境变量(metrics-server 查询地址)");
   if (!token) throw new Error("缺少 METRICS_STATS_TOKEN 环境变量(工作台机器配置 errdetail 查询令牌)");
   const url = `${String(registry).replace(/\/$/, "")}/v1/stats?by=errdetail&kind=adapter&since=${encodeURIComponent(since)}`;
   const res = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) });
