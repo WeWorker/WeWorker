@@ -3,9 +3,16 @@ import { adapterIdOfTool, tasksFromErrDetail, fetchErrDetail } from '../repair/t
 
 const ERRDETAIL = {
   rows: [
+    { err: 'lowpkg boom', tools: [ { tool: 'lowpkg.two', calls: 5 } ] },
     { err: 'Toolkit Adapter exited with code 1', tools: [
       { tool: 'wekm.list-articles', calls: 19 }, { tool: 'wekm.get-article', calls: 27 }, { tool: 'wekm.probe-charset', calls: 3 } ] },
     { err: 'Toolkit Adapter exited with code 1', tools: [ { tool: 'lowpkg.one', calls: 2 } ] },
+  ],
+}
+// minCalls 边界:lowpkg 总失败数恰好等于阈值
+const ERRDETAIL2 = {
+  rows: [
+    { err: 'lowpkg boom', tools: [ { tool: 'lowpkg.two', calls: 5 } ] },
   ],
 }
 
@@ -20,12 +27,20 @@ describe('adapterIdOfTool', () => {
 describe('tasksFromErrDetail', () => {
   it('按 adapter 聚合、阈值过滤(minCalls=3)、failures 降序', () => {
     const tasks = tasksFromErrDetail(ERRDETAIL, { minCalls: 3, now: Date.parse('2026-11-23T00:00:00Z') })
-    expect(tasks).toHaveLength(1)
+    // lowpkg 行在 rows 中排最前,tasks[0] 仍是 wekm:鉴别「总失败数降序」排序确实生效
+    expect(tasks).toHaveLength(2)
     expect(tasks[0].adapterId).toBe('wekm')
     expect(tasks[0].source).toBe('errdetail')
     expect(tasks[0].failures.map((f) => f.tool)).toEqual(['wekm.get-article', 'wekm.list-articles', 'wekm.probe-charset'])
     expect(tasks[0].failures[0].count).toBe(27)
     expect(tasks[0].failures[0].lastErr).toContain('exited with code 1')
+    expect(tasks[1].adapterId).toBe('lowpkg')
+  })
+
+  it('minCalls 边界:总失败数恰好等于阈值时通过', () => {
+    const tasks = tasksFromErrDetail(ERRDETAIL2, { minCalls: 5, now: Date.parse('2026-11-23T00:00:00Z') })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].adapterId).toBe('lowpkg')
   })
 
   it('入参异常/rows 为空时返回空数组', () => {

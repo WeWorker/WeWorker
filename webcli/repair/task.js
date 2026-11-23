@@ -1,7 +1,7 @@
 /**
  * 修复任务结构与状态机(纯逻辑 + 持久化)。
- * 状态机:open → diagnosing → draft-ready → published;diagnosing/draft-ready 可转
- * needs-login / needs-regeneration / archived;needs-login 可重开;published/archived 受限。
+ * 状态机:open → diagnosing → draft-ready → published;diagnosing 可转
+ * needs-login / needs-regeneration / archived(可回退 open);draft-ready 仅可发布或归档。
  */
 import fs from "node:fs";
 import path from "node:path";

@@ -159,6 +159,7 @@ AdapterHub（参数详情: webcli adapterhub <命令> --help）:
   adapterhub init [PAT]                              安全保存发布 PAT（Windows DPAPI）
   adapterhub status                                  查看 PAT 是否已配置
   adapterhub publish <dir> | <file.adapt> [--yes]    发布/更新 Adapter（需 PAT）
+  repair <task|run|list|show>              修复任务:报错生成 / 执行修复循环 / 查看
 
 Tools:
   skills list | skills read <skill[/path]>  列出或读取随包 Skill（不安装、不执行）
@@ -1384,7 +1385,7 @@ const BUILTIN_COMMANDS = new Set([
   "upgrade",
 ]);
 // 渐进式 help 不拦截的顶层命令（其 <sub> help 属于自身命令域）
-const BUILTIN_HELP_EXEMPT = new Set(["adapterhub", "stats"]);
+const BUILTIN_HELP_EXEMPT = new Set(["adapterhub", "stats", "repair"]);
 
 function parseArgsJson(argsStr) {
   if (!argsStr) return {};
@@ -1874,6 +1875,13 @@ async function main() {
   if (cmd === "adapterhub") {
     const { runAdapterHubCli } = await import("./adapterhub-cli.js");
     await runAdapterHubCli(args.slice(1), { outputFormat });
+    return;
+  }
+
+  // repair <...>
+  if (cmd === "repair") {
+    const { runRepairCli } = await import("./repair/cli.js");
+    await runRepairCli(args.slice(1), { outputFormat });
     return;
   }
 

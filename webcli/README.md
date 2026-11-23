@@ -241,6 +241,14 @@ Skill 发布只包含 `skills/webcli/SKILL.md`。Extension、运行时和 Adapte
 
 服务端部署见 [`../metrics-server/README.md`](../metrics-server/README.md)。
 
+### 修复管线（工作台机器）
+
+| 变量 | 说明 |
+|---|---|
+| `METRICS_STATS_ENDPOINT` | metrics-server 查询地址（errdetail 拉取） |
+| `METRICS_STATS_TOKEN` | errdetail 查询 Bearer token（与客户端上报的 `WEBCLI_METRICS_TOKEN` 是不同凭据） |
+| `WEBCLI_REPAIR_LLM_CMD` | 修复循环 LLM 命令（stdin JSON 上下文，stdout JSON 提案）；聊天 agent 场景可不配 |
+
 ## 相关文档
 
 - [extension/README.md](../extension/README.md) — 浏览器扩展的工作原理、适配器注册流程、适配器开发指南
