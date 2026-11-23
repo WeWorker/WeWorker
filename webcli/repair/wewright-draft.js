@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 import { readPackageDirectory, writePackageDirectory } from "../adapter-package-files.js";
+import { assertAdapterIdentity } from "../adapter-catalog.js";
 import { resolveUserAdaptersDir } from "../paths.js";
 
 // readPackageDirectory 产裸 hex digest;本模块对外统一 sha256: 前缀(与 adapterhub/registry 约定一致)。
@@ -18,6 +19,8 @@ function shortDigest(digest) {
 }
 
 export function readWewrightTarget(adapterId, { env = process.env, home = homedir() } = {}) {
+  // adapterId 来自远端数据(tool 前缀),拼路径前先校验身份合法性
+  assertAdapterIdentity(adapterId);
   const root = path.join(resolveUserAdaptersDir({ env, home }), adapterId);
   if (!fs.existsSync(root)) throw new Error(`未找到已装 adapter: ${adapterId}(路径 ${root})`);
   const pkg = readPackageDirectory(root);
@@ -33,7 +36,7 @@ export function patchVersion(version) {
   return [parts[0] || "0", parts[1] || "0", String(patch)].join(".");
 }
 
-export function writeRepairDraftWewright({ adapterId, expectedDigest, patchedFiles, env = process.env, home = homedir(), draftsRoot = path.join(homedir(), ".webcli", "repair-drafts"), now = Date.now() }) {
+export function writeRepairDraftWewright({ adapterId, expectedDigest, patchedFiles, env = process.env, home = homedir(), draftsRoot = path.join(home, ".webcli", "repair-drafts"), now = Date.now() }) {
   const { pkg } = readWewrightTarget(adapterId, { env, home });
   if (pkg.digest !== withShaPrefix(expectedDigest)) {
     throw new Error(`ADAPTER_BASE_CHANGED: 包基线已变化(期望 ${shortDigest(expectedDigest)},实际 ${shortDigest(pkg.digest)}),请重新读取取证`);
@@ -51,8 +54,18 @@ export function writeRepairDraftWewright({ adapterId, expectedDigest, patchedFil
   files.set("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2) + "\n", "utf8"));
   // writePackageDirectory 要求 manifest.name 与目录名一致,草稿根不能带后缀;
   // 用时间戳父目录隔离多次修复,叶目录保持原名。
-  const stamp = new Date(now).toISOString().replace(/[-:T]/g, "").slice(0, 14);
-  const draftDir = path.join(draftsRoot, stamp, adapterId);
+  // executor 多轮循环透传同一 now 时秒级 stamp 会撞 wx 排他写:递增秒重试,封顶 5 次。
+  const baseMs = new Date(now).getTime();
+  let draftDir = null;
+  for (let offset = 0; offset < 5; offset++) {
+    const stamp = new Date(baseMs + offset * 1000).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    const candidate = path.join(draftsRoot, stamp, adapterId);
+    if (!fs.existsSync(candidate)) { draftDir = candidate; break; }
+  }
+  if (!draftDir) {
+    const stamp = new Date(baseMs).toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    throw new Error(`草稿目录冲突: ${path.join(draftsRoot, stamp, adapterId)}`);
+  }
   writePackageDirectory(draftDir, files);
   const drafted = readPackageDirectory(draftDir);
   return { draftDir, digest: withShaPrefix(drafted.digest), version: manifest.version, files: [...files.keys()] };
