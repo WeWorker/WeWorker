@@ -30,6 +30,12 @@ describe('transition 状态机', () => {
     expect(() => transition({ status: 'open' }, 'published')).toThrow(/非法状态迁移/)
     expect(() => transition({ status: 'published' }, 'open')).toThrow(/非法状态迁移/)
   })
+  it('幂等:同状态重入不抛错,仅刷新 updatedAt', () => {
+    const t = transition({ status: 'diagnosing', updatedAt: '2020-01-01T00:00:00.000Z' }, 'diagnosing')
+    expect(t.status).toBe('diagnosing')
+    expect(t.updatedAt).not.toBe('2020-01-01T00:00:00.000Z')
+    expect(() => transition({ status: 'archived' }, 'archived')).not.toThrow()
+  })
   it('TASK_STATUSES 覆盖 7 个状态', () => {
     expect(TASK_STATUSES).toEqual(['open', 'diagnosing', 'draft-ready', 'published', 'archived', 'needs-login', 'needs-regeneration'])
   })

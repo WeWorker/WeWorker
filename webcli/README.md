@@ -247,7 +247,7 @@ Skill 发布只包含 `skills/webcli/SKILL.md`。Extension、运行时和 Adapte
 |---|---|
 | `METRICS_STATS_ENDPOINT` | metrics-server 查询地址（errdetail 拉取） |
 | `METRICS_STATS_TOKEN` | errdetail 查询 Bearer token（与客户端上报的 `WEBCLI_METRICS_TOKEN` 是不同凭据） |
-| `WEBCLI_REPAIR_LLM_CMD` | 修复循环 LLM 命令（stdin JSON 上下文，stdout JSON 提案）；聊天 agent 场景可不配 |
+| `WEBCLI_REPAIR_LLM_CMD` | 修复循环 LLM 命令（stdin JSON 上下文；stdout 末行（或首个平衡 JSON 块）必须是提案 JSON 对象）；聊天 agent 场景可不配 |
 
 ## 相关文档
 

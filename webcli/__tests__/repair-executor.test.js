@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, appendFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runRepairLoop } from '../repair/executor.js'
@@ -56,5 +56,31 @@ describe('runRepairLoop', () => {
     const { loadKnowledge } = await import('../repair/knowledge.js')
     const { entries } = loadKnowledge(join(home, '.webcli', 'repair-knowledge.json'))
     expect(entries.some((e) => e.site === 'demo-fixture' && e.outcome === 'fixed')).toBe(true)
+  })
+  it('LLM 异常 → llm-error 回写 open(不烧轮次),同一任务重入可恢复', async () => {
+    const bad = { async diagnose() { throw new Error('LLM 服务中断') } }
+    const verifyOk = async () => ({ passed: true, checks: [] })
+    const first = await runRepairLoop({ task: TASK(), llm: bad, env, home, verifyImpl: verifyOk, log: () => {} })
+    expect(first.outcome).toBe('llm-error')
+    expect(first.task.status).toBe('open')
+    expect(first.error).toContain('LLM')
+    const good = { async diagnose() { return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } } } }
+    const second = await runRepairLoop({ task: first.task, llm: good, env, home, verifyImpl: verifyOk, log: () => {} })
+    expect(second.outcome).toBe('draft-ready')
+    expect(second.task.status).toBe('draft-ready')
+  })
+  it('基线漂移(ADAPTER_BASE_CHANGED)→ base-changed 提前终止回 open', async () => {
+    const llm = {
+      async diagnose() {
+        // 模拟诊断期间外部改动已装包(升级/重装):循环开头取证后、写草稿前基线变化。
+        // 追加内容而非新增文件:wewright/commands/ 下未声明命令的新文件会被包校验拒绝。
+        await appendFile(join(home, 'adapters', 'demo-fixture', 'wewright', 'commands', 'get-article.py'), '\n# externally touched\n')
+        return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } }
+      },
+    }
+    const { task, outcome, error } = await runRepairLoop({ task: TASK(), llm, env, home, verifyImpl: async () => ({ passed: true, checks: [] }), log: () => {} })
+    expect(outcome).toBe('base-changed')
+    expect(task.status).toBe('open')
+    expect(error).toContain('ADAPTER_BASE_CHANGED')
   })
 })

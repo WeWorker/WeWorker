@@ -37,6 +37,8 @@ export function buildTask({ source, adapterId, failures = [], repro = null, now 
 
 export function transition(task, to) {
   if (!TASK_STATUSES.includes(to)) throw new Error(`未知状态: ${to}`);
+  // 幂等:同状态重入不抛错,仅刷新 updatedAt(执行循环重入安全)
+  if (task.status === to) return { ...task, updatedAt: new Date().toISOString() };
   const allowed = TRANSITIONS[task.status] || [];
   if (!allowed.includes(to)) throw new Error(`非法状态迁移: ${task.status} → ${to}(允许: ${allowed.join(", ") || "无"})`);
   return { ...task, status: to, updatedAt: new Date().toISOString() };

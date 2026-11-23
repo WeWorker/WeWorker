@@ -49,8 +49,35 @@ export async function runRepairCli(args, { outputFormat } = {}) {
     const run = promisify(execFile);
     const make = (phase) => async (ctx) => {
       const out = await run(cmd, [], { input: JSON.stringify({ phase, ...ctx }), shell: process.platform === "win32", maxBuffer: 4 * 1024 * 1024 });
-      return JSON.parse(out.stdout.trim().split(/\r?\n/).at(-1));
+      return parseProposal(out.stdout);
     };
     return { diagnose: make("diagnose"), revise: make("revise") };
   }
+}
+
+// 提案解析(stdout 末行优先):LLM 可能附带说明文字,末行不是 JSON 时截取首个平衡 {...} 块再试。
+// 平衡扫描感知字符串字面量,值里出现花括号不会误判配对。
+export function parseProposal(stdout) {
+  const text = String(stdout).trim();
+  const candidates = [text.split(/\r?\n/).at(-1)];
+  const start = text.indexOf("{");
+  if (start >= 0) {
+    let depth = 0, inStr = false, esc = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}" && --depth === 0) { candidates.push(text.slice(start, i + 1)); break; }
+    }
+  }
+  for (const candidate of candidates) {
+    try { return JSON.parse(candidate); } catch { /* 尝试下一候选 */ }
+  }
+  throw new Error("LLM 输出不是合法 JSON(stdout 末行或首个平衡 {...} 块须为提案 JSON 对象)");
 }
