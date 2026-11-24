@@ -10,7 +10,7 @@ export const DOWNLOAD_REPORT_URL = ''
 
 export const DOWNLOAD_SUMMARY_URL = ''
 
-const releaseAssetUrl = (filename) => `${GITHUB_RELEASES}/latest/download/${filename}`
+const releaseAssetUrl = (filename) => `${GITHUB_RELEASES}/download/v${APP_VERSION}/${filename}`
 
 export const DOWNLOADS = [
   {
