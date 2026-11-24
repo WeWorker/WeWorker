@@ -1,6 +1,14 @@
 import { defineConfig, configDefaults } from 'vitest/config'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
+  resolve: {
+    // Host publishing helpers import pinned upstream draft utilities. Match the
+    // production bundler's error binding without installing the upstream CLI.
+    alias: {
+      '@jackwener/opencli/errors': fileURLToPath(new URL('./scripts/opencli-xiaohongshu/errors.js', import.meta.url)),
+    },
+  },
   plugins: [{
     name: 'cli-test-import',
     transform(code, id, options) {

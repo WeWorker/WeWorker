@@ -1407,7 +1407,13 @@
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "仅回查指定笔记在最近一页创作者列表中的发布及审核状态；未找到不代表删除，不提供自动重试发布操作。"
+        }
+      ]
     },
     {
       "id": "search-notes",
@@ -1893,7 +1899,13 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回收藏专辑列表及读取完整性；当前未声明专辑对象的自动操作绑定，读取笔记需显式调用 album-notes。"
+        }
+      ]
     },
     {
       "id": "album-notes",
@@ -1918,7 +1930,13 @@
         "required": [
           "album-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回专辑笔记及分页完整性；当前未声明这些笔记的自动操作绑定，不能将分页信息映射为笔记操作。"
+        }
+      ]
     },
     {
       "id": "video-media",
@@ -1938,7 +1956,13 @@
         "required": [
           "url"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回指定笔记的媒体地址，供显式本地下载使用；媒体地址不是可修改的笔记对象，不提供自动发布或删除操作。"
+        }
+      ]
     }
   ],
   "homepage_url": "https://www.xiaohongshu.com",

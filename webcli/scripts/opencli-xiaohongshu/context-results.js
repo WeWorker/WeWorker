@@ -22,6 +22,10 @@ const draftActions = [
 const ownDelete = action('delete', '删除作品', 'delete-note', { 'note-id': from('context_note_id'), execute: value(true) });
 const noActions = reason => [{ actions: [], reason }];
 export const resultMetadata = {
+  'publish-status': noActions('仅回查指定笔记在最近一页创作者列表中的发布及审核状态；未找到不代表删除，不提供自动重试发布操作。'),
+  albums: noActions('返回收藏专辑列表及读取完整性；当前未声明专辑对象的自动操作绑定，读取笔记需显式调用 album-notes。'),
+  'album-notes': noActions('返回专辑笔记及分页完整性；当前未声明这些笔记的自动操作绑定，不能将分页信息映射为笔记操作。'),
+  'video-media': noActions('返回指定笔记的媒体地址，供显式本地下载使用；媒体地址不是可修改的笔记对象，不提供自动发布或删除操作。'),
   ...Object.fromEntries(['feed', 'search', 'search-notes', 'liked', 'saved', 'user'].map(name => [name, rule(noteActions)])),
   ...Object.fromEntries(['note', 'open-note'].map(name => [name, rule([
     ...noteActions.filter(a => a.id !== 'detail').map(a => variants(a, { field: 'title' })),
