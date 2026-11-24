@@ -1,4 +1,3 @@
-import { runModelSaveChecks } from '../../utils/model-save-checks.js'
 import { withModelSettingsNotice } from '../../utils/model-settings-notice.js'
 import ModelConfigurationName from './ModelConfigurationName.jsx'
 import AppSwitch from '../common/AppSwitch.jsx'
@@ -115,7 +114,7 @@ function hasInvalidBlacklistEntries(entries) {
 
 const SETTINGS_GROUPS = [
   { label: '常用设置', items: [['model', '模型'], ['config', '应用偏好'], ['memory', '记忆']] },
-  { label: '高级设置', items: [['channels', '通道'], ['permissions', '权限与安全'], ['browser', '浏览器'], ['logs', '运行日志']] },
+  { label: '高级设置', items: [['channels', '通道'], ['permissions', '权限与安全'], ['browser', '浏览器'], ['network', '网络'], ['logs', '运行日志']] },
   { label: '扩展', items: [['model-discovery', '模型识别'], ['webcli-route', 'WebCLI 路由'], ['fast-routes', '快捷路由']] },
   { label: '应用信息', items: [['about', '关于']] },
 ]
@@ -126,6 +125,7 @@ const SETTINGS_DESCRIPTIONS = {
   channels: '配置外部消息通道与连接方式。',
   permissions: '管理网站访问与操作权限。',
   browser: '管理网站操作浏览器与连接设置。',
+  network: '管理模型连通性检查的超时设置。',
   logs: '查看运行记录，帮助排查问题。',
   'webcli-route': '默认关闭。开启后，在直接路由未命中时为 Agent 提供命令推荐。',
   'model-discovery': '管理启动时的本地模型配置识别。',
@@ -247,6 +247,7 @@ export default function SettingsPage({ onClose }) {
             {tab === 'channels' && <ChannelsTab />}
             {tab === 'permissions' && <PermissionsTab />}
             {tab === 'browser' && <BrowserTab />}
+            {tab === 'network' && <NetworkTab />}
             {tab === 'webcli-route' && <WebcliRouteTab />}
             {tab === 'model-discovery' && <ModelDiscoveryTab />}
             {tab === 'fast-routes' && <FastRoutesTab />}
@@ -492,6 +493,85 @@ function BrowserTab() {
     <div className="settings-stack">
       <BrowserSettingsGroup />
       <SiteLoginSettings />
+    </div>
+  )
+}
+
+const MODEL_PROBE_TARGETS = [
+  ['weworker', 'WeWorker 对话接口超时（秒）'],
+  ['webwright', 'Adapter 工坊探索接口超时（秒）'],
+]
+
+function readProbeTimeout(target) {
+  const seconds = Number(localStorage.getItem(`model_probe_timeout_${target}`))
+  return Number.isInteger(seconds) && seconds >= 1 && seconds <= 120 ? seconds : 30
+}
+
+async function readProbeResponse(response, onAttempt) {
+  if (!response.headers.get('content-type')?.includes('application/x-ndjson')) return response.json()
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let pending = ''
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) throw new Error('检测连接已中断')
+      pending += value
+      const lines = pending.split('\n')
+      pending = lines.pop()
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line)
+        if (event.type === 'attempt') onAttempt(event.retry_count)
+        if (event.type === 'result') return event.result
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+}
+
+function ProbeTiming({ timeout, started, retryCount, elapsed }) {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    if (elapsed !== undefined) return
+    const id = setInterval(() => setNow(performance.now()), 250)
+    return () => clearInterval(id)
+  }, [elapsed, started])
+  const seconds = Math.min(timeout, Math.floor(Math.max(0, elapsed ?? now - started) / 1000))
+  return <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>（{seconds}/{timeout}s，重试{retryCount}次）</span>
+}
+
+function NetworkTab() {
+  const [timeouts, setTimeouts] = useState(() => Object.fromEntries(
+    MODEL_PROBE_TARGETS.map(([target]) => [target, String(readProbeTimeout(target))])
+  ))
+  return (
+    <div className="settings-group">
+      <SettingRow title="连通性检查设置" description="两个接口独立计时，每次默认 30 秒，超时后最多重试 3 次。" stacked>
+        <div className="model-settings-grid">
+          {MODEL_PROBE_TARGETS.map(([target, label]) => (
+            <Field key={target} label={label} hint="可设为 1–120 秒，修改后自动保存">
+              <input
+                aria-label={label}
+                className="settings-input"
+                type="number"
+                min="1"
+                max="120"
+                step="1"
+                required
+                value={timeouts[target]}
+                onChange={event => {
+                  const { value, validity } = event.target
+                  if (validity.valid) localStorage.setItem(`model_probe_timeout_${target}`, value)
+                  setTimeouts(current => ({ ...current, [target]: value }))
+                }}
+                onBlur={() => setTimeouts(current => ({ ...current, [target]: String(readProbeTimeout(target)) }))}
+              />
+            </Field>
+          ))}
+        </div>
+      </SettingRow>
     </div>
   )
 }
@@ -1858,8 +1938,15 @@ function ModelTab() {
       if (f.openai_model) updates.openai_model = f.openai_model
     }
     try {
-      await withModelSettingsNotice(() => runCheckedAction(pid, () => saveProvider(pid, updates, { activate: true })), {
-        pending: '正在检测模型并保存…', success: '检测通过，配置已保存并激活', failure: '保存失败',
+      const noticeId = showNotification('正在检查模型连通性…', { type: 'loading', duration: 0 })
+      const checks = await handleTest(pid, { forSave: true }).catch(() => null)
+      useNotificationsStore.getState().dismiss(noticeId)
+      if (!checks || checks.some(check => check.ok !== true)) {
+        const confirmed = await showConfirm('有接口未通过或未完成连通性检查，切换后相关功能可能无法使用。是否仍要保存并切换到此模型？', '连通性检查未通过')
+        if (!confirmed) return
+      }
+      await withModelSettingsNotice(() => saveProvider(pid, updates, { activate: true }), {
+        pending: '正在保存模型…', success: '配置已保存并激活', failure: '保存失败',
       })
       // Reload saved fields, including any automatically verified workshop endpoint.
       formNameTouched.current[pid] = false
@@ -1871,7 +1958,7 @@ function ModelTab() {
       setSaved(pid)
       setTimeout(() => setSaved(null), 2000)
     } catch {
-      // The floating notice already reports the failed check; keep the form for retry.
+      // Keep the form so a failed save can be retried.
     } finally {
       setSaving(null)
     }
@@ -1880,8 +1967,8 @@ function ModelTab() {
   const handleActivate = async (pid) => {
     setActivating(pid)
     try {
-      await withModelSettingsNotice(() => runCheckedAction(pid, () => activateProvider(pid)), {
-        pending: '正在检测并切换模型…', success: '检测通过，模型已切换', failure: '切换失败',
+      await withModelSettingsNotice(() => activateProvider(pid), {
+        pending: '正在切换模型…', success: '模型已切换', failure: '切换失败',
       })
     } catch {
       // Activation failed; the existing model remains active.
@@ -1928,7 +2015,7 @@ function ModelTab() {
           <span>
             <strong>连通性检查</strong>
             <span className={`model-probe-checklist__summary${allPassed ? ' is-success' : hasFailure ? ' is-error' : ''}`}>
-              {testing[pid] ? '正在检查…' : allPassed ? '全部通过' : hasFailure ? '检查未通过' : '检查完成'}
+              {testing[pid] ? '正在检查…' : allPassed ? '全部通过' : hasFailure ? '检查未通过（仍可切换）' : '检查完成'}
             </span>
           </span>
           <span>{expanded ? '收起' : '展开'}</span>
@@ -1941,7 +2028,9 @@ function ModelTab() {
                   {check.status === 'running' ? <LoadingOutlined spin /> : check.status === 'success' ? <CheckOutlined /> : check.status === 'failure' ? <CloseOutlined /> : '—'}
                 </span>
                 <span className="model-probe-checklist__content">
-                  <span className="model-probe-checklist__label">{check.label}</span>
+                  <span className="model-probe-checklist__label">
+                    {check.label}{check.timing && (check.timing.showTiming || logsVisible) && <ProbeTiming {...check.timing} />}
+                  </span>
                   {check.message && (
                     <span
                       className={`model-probe-checklist__message${logsVisible ? ' is-expanded' : ''}`}
@@ -1986,63 +2075,50 @@ function ModelTab() {
     )
   }
 
-  const runCheckedAction = async (pid, action) => {
-    if (testingProviders.current.has(pid)) throw new Error('模型正在检测，请稍候')
-    testingProviders.current.add(pid)
-    const requestId = (probeRequestIds.current[pid] || 0) + 1
-    probeRequestIds.current[pid] = requestId
-    setTesting(current => ({ ...current, [pid]: true }))
-    setProbeExpanded(current => ({ ...current, [pid]: true }))
-    setProbeResults(current => ({ ...current, [pid]: null }))
-    const protocol = providerType(pid) === 'custom' ? getForm(pid).weworker_protocol : providerDefinition(pid)?.weworker?.protocol
-    const checks = [
-      { target: 'weworker', label: 'WeWorker 对话接口（' + (protocol === 'openai_responses' ? 'OpenAI Responses API' : protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages') + '）' },
-      { target: 'webwright', label: 'Adapter工坊·探索接口（OpenAI）' },
-    ]
-    try {
-      return await runModelSaveChecks(action, checks, next => {
-        if (probeRequestIds.current[pid] === requestId) setProbeChecks(current => ({ ...current, [pid]: next }))
-      })
-    } finally {
-      if (probeRequestIds.current[pid] === requestId) {
-        testingProviders.current.delete(pid)
-        setTesting(current => ({ ...current, [pid]: false }))
-      }
-    }
-  }
-
-  const handleTest = async (pid) => {
-    if (testingProviders.current.has(pid)) return
+  const handleTest = async (pid, { forSave = false } = {}) => {
+    if (!forSave && (saving === pid || testingProviders.current.has(pid))) return
     testingProviders.current.add(pid)
     const requestId = (probeRequestIds.current[pid] || 0) + 1
     probeRequestIds.current[pid] = requestId
     setTesting((current) => ({ ...current, [pid]: true }))
     setProbeResults((results) => ({ ...results, [pid]: null }))
     setProbeExpanded((current) => ({ ...current, [pid]: true }))
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 30000)
     try {
       const provider = providerDefinition(pid)
-      const probe = async (target) => {
+      const requestBody = providerRequestBody(pid)
+      const updateCheck = (target, update) => {
+        if (probeRequestIds.current[pid] !== requestId) return
+        setProbeChecks(current => ({
+          ...current,
+          [pid]: (current[pid] || []).map(check => check.target === target ? update(check) : check),
+        }))
+      }
+      const probe = async ({ target, timing }) => {
+        const { timeout } = timing
         const fallbackProtocol = target === 'weworker'
           ? getForm(pid).weworker_protocol || 'anthropic_messages'
           : provider?.webwright?.protocol || (providerType(pid) === 'anthropic' ? 'anthropic_messages' : 'openai_chat_completions')
         try {
           const res = await backendFetch(`${API}/settings/provider/probe`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...providerRequestBody(pid), target }),
-            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson' },
+            body: JSON.stringify({ ...requestBody, target, probe_timeout_seconds: timeout }),
           })
-          const data = await res.json()
-          return res.ok && data.ok
-            ? { ok: true, protocol: data.protocol || fallbackProtocol, message: `连接成功 · ${data.model}` }
-            : { ok: false, protocol: data.protocol || fallbackProtocol, message: data.detail || '连接失败' }
+          const data = await readProbeResponse(res, (retryCount) => {
+            const started = performance.now()
+            updateCheck(target, check => ({ ...check, timing: { ...check.timing, retryCount, started, showTiming: retryCount > 0 } }))
+          })
+          const ok = res.ok && data.ok === true
+          return {
+            ok, protocol: data.protocol || fallbackProtocol,
+            message: ok ? `连接成功 · ${data.model}` : data.detail || '连接失败',
+            retryCount: data.retry_count, elapsed: data.attempt_elapsed_ms,
+          }
         } catch (error) {
           return {
             ok: false,
             protocol: fallbackProtocol,
-            message: error.name === 'AbortError' ? '连接超时（30s）' : `无法连接：${error.message}`,
+            message: `无法连接：${error.message}`,
           }
         }
       }
@@ -2054,20 +2130,25 @@ function ModelTab() {
           : 'Adapter工坊·探索接口（OpenAI）',
         status: 'running',
         message: '',
+        timing: { timeout: readProbeTimeout(target), started: performance.now(), retryCount: 0 },
       }))
       setProbeChecks((current) => ({ ...current, [pid]: checks }))
-      const results = []
-      for (const target of targets) {
-        const result = await probe(target)
-        results.push(result)
-        if (probeRequestIds.current[pid] !== requestId) return
-        setProbeChecks((current) => ({
+      const results = await Promise.all(checks.map(async check => {
+        const result = await probe(check)
+        const finished = performance.now()
+        updateCheck(check.target, current => ({
           ...current,
-          [pid]: (current[pid] || []).map((check) => check.target === target
-            ? { ...check, status: result.ok ? 'success' : 'failure', message: result.message }
-            : check),
+          status: result.ok ? 'success' : 'failure',
+          message: result.message,
+          timing: {
+            ...current.timing,
+            elapsed: result.elapsed ?? finished - current.timing.started,
+            retryCount: result.retryCount ?? current.timing.retryCount,
+          },
         }))
-      }
+        return result
+      }))
+      if (probeRequestIds.current[pid] !== requestId) return
       if (providerType(pid) === 'custom' && !targets.includes('webwright')) {
         results.push({
           ok: null,
@@ -2081,8 +2162,8 @@ function ModelTab() {
       }
       if (probeRequestIds.current[pid] !== requestId) return
       setProbeResults((current) => ({ ...current, [pid]: buildProbeResultRows(results) }))
+      return results
     } finally {
-      clearTimeout(timer)
       if (probeRequestIds.current[pid] === requestId) {
         testingProviders.current.delete(pid)
         setTesting((current) => ({ ...current, [pid]: false }))
@@ -2272,11 +2353,11 @@ function ModelTab() {
                 {testing[p.id] ? '检测中…' : isBuiltinProvider(p.id) ? '测试连通性' : '测试模型可用性'}
               </button>
               {!singleProvider && !isActive && (
-                <button data-app-button="action" type="button" onClick={() => handleActivate(p.id)} disabled={!!activating || !stored.has_key || !!testing[p.id]} title={!stored.has_key ? '请先保存 API Key' : ''} className="settings-btn settings-btn-provider" style={{ '--provider-color': providerColor }}>
+                <button data-app-button="action" type="button" onClick={() => handleActivate(p.id)} disabled={!!activating || !stored.has_key || saving === p.id} title={!stored.has_key ? '请先保存 API Key' : ''} className="settings-btn settings-btn-provider" style={{ '--provider-color': providerColor }}>
                   {activating === p.id ? '切换中...' : '切换使用'}
                 </button>
               )}
-              <button data-app-button="action" type="button" onClick={() => handleSave(p.id)} disabled={saving === p.id || modelSaving || !!testing[p.id]} className={`settings-btn ${saved === p.id ? 'settings-btn-success' : 'settings-btn-primary'}`}>
+              <button data-app-button="action" type="button" onClick={() => handleSave(p.id)} disabled={saving === p.id || modelSaving || activating === p.id} className={`settings-btn ${saved === p.id ? 'settings-btn-success' : 'settings-btn-primary'}`}>
                 {saving === p.id || modelSaving ? '保存中...' : saved === p.id ? '已保存 ✓' : '保存'}
               </button>
             </div>
