@@ -1,4 +1,4 @@
-import { inspectLocalUpload } from './upload-files.js';
+import { prepareUploadFiles } from './prepare-upload-files.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { browserCommands, browserHelp, isBrowserObserver } from './browser-commands.js';
@@ -110,9 +110,9 @@ export class BrowserService {
     if (command === 'upload') {
       for (const key of ['directory','chooser']) if (args[key] !== undefined && ![true,false,'true','false'].includes(args[key])) throw fail('INVALID_ARGUMENT', key+' must be boolean.');
       const directory = args.directory === true || args.directory === 'true', chooser = args.chooser === true || args.chooser === 'true';
-      const files = inspectLocalUpload(args.paths, directory);
+      const {files,preparation} = await prepareUploadFiles(args.paths, directory);
       const {session:ignored,...params}=args;
-      return{session,tabId:binding.tabId,...await this.send(command,{...params,directory,chooser,_uploadFiles:files},binding.tabId,binding.identity)};
+      return{session,tabId:binding.tabId,preparation,...await this.send(command,{...params,directory,chooser,_uploadFiles:files},binding.tabId,binding.identity)};
     }
     if(command==='screenshot'&&args.path!==undefined){
       if(typeof args.path!=='string'||!path.isAbsolute(args.path))throw fail('INVALID_ARGUMENT','Screenshot path must be absolute.');

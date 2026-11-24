@@ -72,6 +72,7 @@
     "browser-profiles.js",
     "browser-service.js",
     "upload-files.js",
+    "prepare-upload-files.js",
     "browser-follow.js",
     "tab-operation-locks.js",
     "bridge.js",

@@ -86,6 +86,7 @@
           "webcli",
           "webcli.cjs",
           "webcli.cmd",
+          "webcli.ps1",
           "skills/**",
           "wecli-columns/**",
           "wecli-migrated-commands.json",

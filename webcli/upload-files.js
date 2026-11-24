@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const fail = (code, message) => { throw Object.assign(new Error(message), {code}); };
 // Bound the snapshot before any browser action. Never follow directory links.
-export function inspectLocalUpload(paths, directory = false) {
+export function inspectLocalUpload(paths, directory = false, { metadataOnly = false } = {}) {
   if (!Array.isArray(paths) || !paths.length || paths.length > (directory ? 1 : 20)
     || paths.some(file => typeof file !== 'string' || !path.isAbsolute(file))) fail('INVALID_ARGUMENT', 'Provide absolute paths: one directory or 1–20 files.');
   const stat = file => { try { return fs.lstatSync(file, {bigint:true}); } catch { fail('FILE_UNAVAILABLE', 'An upload entry is unavailable.'); } };
@@ -12,6 +12,7 @@ export function inspectLocalUpload(paths, directory = false) {
   // that discrepancy can send different bytes while reporting verified:true.
   // Compare metadata only; never read or copy file contents here.
   const inspectFile = (file, info) => {
+    if (metadataOnly) return;
     let fd;
     try {
       const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);

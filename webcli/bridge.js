@@ -23,6 +23,7 @@ import { GenerationRunStore } from './generation-harness/run-store.js';
 import { createGenerationRunTransportSnapshot } from './generation-transport.js';
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { prepareUploadFiles } from './prepare-upload-files.js';
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -731,6 +732,8 @@ export class WebSocketBridge extends EventEmitter {
                 this._handleExplorationCommand(msg, ws);
               } else if (msg.type === 'browser_command') {
                 this._handleBrowserCommand(msg, ws);
+              } else if (msg.type === 'prepare_upload_files') {
+                this._handlePrepareUploadFiles(msg, ws);
               } else if (msg.type === 'write_adapter_file') {
                 // 来自扩展的文件写入请求
                 this._handleWriteAdapterFile(msg, ws);
@@ -1294,6 +1297,15 @@ export class WebSocketBridge extends EventEmitter {
       ws.send(JSON.stringify({ type: resultType, id, ok: true, result, traceID }));
     } catch (err) {
       ws.send(JSON.stringify({ type: resultType, id, ok: false, error: err.message, traceID }));
+    }
+  }
+
+  async _handlePrepareUploadFiles(msg, ws) {
+    try {
+      const result = await prepareUploadFiles(msg.paths, false);
+      this._reply(ws, {type:'prepare_upload_files_result',id:msg.id,ok:true,result});
+    } catch(error) {
+      this._reply(ws, {type:'prepare_upload_files_result',id:msg.id,ok:false,code:error.code || 'UPLOAD_PREPARATION_FAILED',error:error.message});
     }
   }
 

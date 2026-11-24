@@ -49,6 +49,7 @@ import {
   selectTabForScreenshot,
 } from './screenshot.js';
 import { executeBrowserCommand } from './browser-commands.js';
+import { uploadBrowserFiles } from './browser-upload.js';
 import { browserResponseEvidence } from './browser-network.js';
 import { executePageSource } from './page-source.js';
 import { executeInterceptRead } from './intercept-read.js';
@@ -2741,6 +2742,7 @@ async function handleNativeMessageInternal(msg) {
     || msg.type === "adapter_catalog_result"
     || msg.type === "adapter_bundle_result"
     || msg.type === "write_adapter_file_result"
+    || msg.type === "prepare_upload_files_result"
     || msg.type === "generate_adapter_with_ai_result"
     || msg.type === "generate_adapter_scaffold_result"
     || msg.type === "get_ai_config_result"
@@ -5447,47 +5449,10 @@ async function handleCdpAction(tabId, action) {
     throw new Error('CDP set_file_input requires selector and files');
   }
 
-  let attached = false;
-  try {
-    // Attach debugger to the tab
-    await chrome.debugger.attach({ tabId }, '1.3');
-    attached = true;
-
-    // Get the document root
-    const docResult = await chrome.debugger.sendCommand({ tabId }, 'DOM.getDocument', {});
-    const rootNodeId = docResult.root.nodeId;
-
-    // Find the file input element
-    const queryResult = await chrome.debugger.sendCommand({ tabId }, 'DOM.querySelector', {
-      nodeId: rootNodeId,
-      selector: selector,
-    });
-
-    if (!queryResult.nodeId) {
-      throw new Error(`未找到文件上传元素: ${selector}`);
-    }
-
-    // Set files on the input element (this is the key CDP command)
-    await chrome.debugger.sendCommand({ tabId }, 'DOM.setFileInputFiles', {
-      nodeId: queryResult.nodeId,
-      files: files,
-    });
-
-    console.log(`[WebMCP] CDP set_file_input: ${files.length} file(s) set on "${selector}"`);
-    return { success: true, message: `已通过 CDP 设置 ${files.length} 个文件`, files };
-  } catch (err) {
-    console.error('[WebMCP] CDP action failed:', err.message);
-    throw new Error(`CDP 文件上传失败: ${err.message}`);
-  } finally {
-    // Always detach debugger to minimize the blue bar duration
-    if (attached) {
-      try {
-        await chrome.debugger.detach({ tabId });
-      } catch {
-        // Already detached or tab closed
-      }
-    }
-  }
+  const ready = await requestBridge({type:'prepare_upload_files',paths:files}, 120000, '文件准备超时；未重试上传');
+  if (!ready.ok) throw Object.assign(new Error(ready.error || 'File preparation failed'), {code:ready.code || 'UPLOAD_PREPARATION_FAILED',details:{dispatched:false}});
+  const result = await uploadBrowserFiles(chrome, tabId, {selector, paths:files, _uploadFiles:ready.result.files}, ensureCdpAttached);
+  return {...result, success:true, preparation:ready.result.preparation};
 }
 
 function safeStoredText(value) {
