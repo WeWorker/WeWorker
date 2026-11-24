@@ -41,6 +41,12 @@ export const resultMetadata = {
   ] }]])),
   'creator-profile': noActions('返回完整账号资料及汇总字段，不含可选择的作品或用户ID；作品列表应独立调用creator-notes，不将字段行映射为作品操作。'),
   'creator-stats': noActions('返回所选周期的账号指标及趋势；指标不是笔记对象，当前无按指标下钻或修改指标的命令。'),
+  albums: [{ itemsPath: '$.albums', idField: 'id', titleField: 'name', actions: [
+    action('notes', '查看专辑笔记', 'album-notes', { 'album-id': from('id') }),
+  ] }],
+  'album-notes': [{ itemsPath: '$.notes', idField: 'context_ref', titleField: 'context_title', actions: noteActions }],
+  'video-media': noActions('返回已校验的带音轨 MP4 媒体流地址，供调用方下载；媒体流是终态结果，不对应站内下钻或写操作。'),
+  'publish-status': noActions('返回指定作品的发布状态与核验范围；状态回执不是可选择对象，后续操作应使用独立作品查询命令。'),
   'navigate-to-homepage': noActions('仅导航回首页的回执，不返回候选对象；需要推荐列表时调用feed。'),
 };
 
@@ -58,6 +64,7 @@ function signedNote(raw, expected) {
 }
 export function decorateResults(name, args, result) {
   if (name === 'whoami' && result?.logged_in === true) return { ...result, context_title: compact(result.username) };
+  if (name === 'album-notes' && Array.isArray(result?.notes)) return { ...result, notes: decorateResults('feed', args, result.notes) };
   if (!Array.isArray(result) || !resultMetadata[name]) return result;
   return result.map((row, index) => {
     const detail = name === 'note';

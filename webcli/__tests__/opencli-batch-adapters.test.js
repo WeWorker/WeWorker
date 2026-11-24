@@ -53,9 +53,9 @@ function setup(site, { url, payload = {}, bodyText = '', one = {}, all = {}, pri
 describe('OpenCLI batch v2 contracts', () => {
   it.each(sites)('%s preserves inventoried source arguments, defaults and write classification',site=>{
     const {pkg}=setup(site);
-    for(const command of pkg.commands) {
-      const original=inventory.find(c=>c.package===site&&c.name===command.id);
-      expect(original).toBeDefined();
+    for(const original of inventory.filter(c=>c.package===site&&c.migration_status?.startsWith('implemented_'))) {
+      const command=pkg.commands.find(c=>c.id===original.name);
+      expect(command, original.name).toBeDefined();
       if(original.access==='write')expect(command.safety).toBe('write');
       for(const arg of original.args||[]) {
         const schema=command.schema.properties[arg.name];expect(schema).toBeDefined();
