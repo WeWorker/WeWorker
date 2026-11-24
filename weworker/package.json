@@ -1,6 +1,6 @@
 {
   "name": "weworker",
-  "version": "1.2.1",
+  "version": "1.2.0",
   "description": "WeWorker — AI 操作网站的桌面应用",
   "type": "module",
   "main": "electron/main.js",
