@@ -400,7 +400,18 @@ test('direct authentication response detection covers HTTP, SSO HTML, and applic
 })
 
 test('service worker provides host-scoped privileged runtime helpers', async () => {
-  const { request, cookieCalls, debuggerCalls, executeCalls, downloadCalls } = loadServiceWorker()
+  const { context, request, cookieCalls, debuggerCalls, executeCalls, downloadCalls } = loadServiceWorker()
+  const uploadCalls = []
+  const requestBridge = context.requestBridge
+  context.requestBridge = async (message, ...args) => {
+    if (message.type !== 'prepare_upload_files') return requestBridge(message, ...args)
+    assert.deepEqual(plain(message.paths), ['C:\\tmp\\a.csv'])
+    return { ok: true, result: { files: [{ name: 'a.csv', size: 3 }], preparation: { decrypted: 0 } } }
+  }
+  context.uploadBrowserFiles = async (_chrome, tabId, args) => {
+    uploadCalls.push({ tabId, args })
+    return { completed: true, verified: true, count: 1 }
+  }
 
   assert.equal((await request('cookies_get', { url: 'https://itsm.example.com/api' })).ok, true)
   assert.equal(cookieCalls.length, 1)
@@ -426,11 +437,12 @@ test('service worker provides host-scoped privileged runtime helpers', async () 
     files: ['C:\\tmp\\a.csv'],
   })), {
     ok: true,
-    result: { success: true, message: '已通过 CDP 设置 1 个文件', files: ['C:\\tmp\\a.csv'] },
+    result: { success: true, completed: true, verified: true, count: 1, preparation: { decrypted: 0 } },
   })
-  const fileCall = debuggerCalls.find((call) => call.command === 'DOM.setFileInputFiles')
-  assert.equal(fileCall.target.tabId, 7)
-  assert.deepEqual(fileCall.params.files, ['C:\\tmp\\a.csv'])
+  assert.deepEqual(plain(uploadCalls), [{ tabId: 7, args: {
+    selector: 'input[type=file]', paths: ['C:\\tmp\\a.csv'], _uploadFiles: [{ name: 'a.csv', size: 3 }],
+  } }])
+  assert.equal(debuggerCalls.some(call => call.command === 'DOM.setFileInputFiles'), false)
 
   const rejected = await request('download', { url: 'https://evil.example/file' })
   assert.equal(rejected.ok, false)
