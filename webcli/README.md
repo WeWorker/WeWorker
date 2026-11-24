@@ -4,6 +4,8 @@
 
 静态验证与历史证据使用 `adapter verify`；legacy/Toolkit 用 `--runtime` 明确选择，固定 Git 子包用 `adapter source` 审阅后显式安装。普通验证不执行工具、不产生真实写，完整契约见 [U01 验证与诊断](../docs/opencli_u01_verification.md)。
 
+上传前加密检测、解密复查及 PowerShell URL 参数传递见 [上传准备说明](../docs/upload-preparation.md)。
+
 日期／选项与目录／chooser 上传见 [B02 契约与证据](../docs/opencli_b02_controls.md)。
 
 声明式写控件、frame 表单、有限写序列和实际结果回查见 [W01–W04 写工作流](../docs/opencli_write_workflows.md)。

@@ -53,9 +53,13 @@ function setup(site, { url, payload = {}, bodyText = '', one = {}, all = {}, pri
 describe('OpenCLI batch v2 contracts', () => {
   it.each(sites)('%s preserves inventoried source arguments, defaults and write classification',site=>{
     const {pkg}=setup(site);
-    for(const command of pkg.commands) {
-      const original=inventory.find(c=>c.package===site&&c.name===command.id);
-      expect(original).toBeDefined();
+    // The pinned inventory covers migrated commands, not later local features.
+    // Iterate it so deleting an original command still fails this contract.
+    for(const original of inventory.filter(c=>c.package===site)) {
+      // Explicitly unported upload workflows, documented in Douyin guidance.
+      if(site==='douyin.com' && ['draft','publish'].includes(original.name)) continue;
+      const command=pkg.commands.find(c=>c.id===original.name);
+      expect(command, original.name).toBeDefined();
       if(original.access==='write')expect(command.safety).toBe('write');
       for(const arg of original.args||[]) {
         const schema=command.schema.properties[arg.name];expect(schema).toBeDefined();

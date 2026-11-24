@@ -137,6 +137,9 @@ fs.writeFileSync(cmdWrapperPath, cmdWrapperContent, 'utf-8')
 
 console.log('WebCLI cmd wrapper created: build/webcli-dist/webcli.cmd')
 
+// PowerShell prefers .ps1 over .cmd and must not reparse URL metacharacters.
+fs.copyFileSync(path.join(__dirname, 'webcli-launcher.ps1'), path.join(outDir, 'webcli.ps1'))
+
 // 4. Development bundles use the same selected resources as the desktop.
 // Packaged builds resolve the sibling resources/adapters and resources/extension.
 const adaptersSrcDir = path.resolve(projectRoot, 'weworker/build/extension-dist/adapters')

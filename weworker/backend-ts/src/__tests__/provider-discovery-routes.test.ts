@@ -151,6 +151,7 @@ describe('provider discovery API and startup', () => {
       return recovery === 'recovered' ? { failed: 3, pruned: 3 } : { failed: 0, pruned: 0 }
     })
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const server = { on: vi.fn() }
     const context = vm.createContext({
       initSettings: async () => order.push('init'),
       detectLocalProviders: async () => { order.push('detect'); throw new Error('fixture failure') },
@@ -160,7 +161,7 @@ describe('provider discovery API and startup', () => {
       },
       getSettings: () => ({ model_discovery_enabled: enabled, scheduled_task_history_limit: 50 }),
       startConfiguredChannels: async () => order.push('channels'),
-      app: { listen: (_port: unknown, _host: unknown, callback: () => void) => { order.push('listen'); callback() } },
+      app: { listen: (_port: unknown, _host: unknown, callback: () => void) => { order.push('listen'); callback(); return server } },
       PORT: 0, log, scheduler: { start: () => order.push('scheduler') },
     })
     const from = source.indexOf('async function bootstrap():')
@@ -169,6 +170,7 @@ describe('provider discovery API and startup', () => {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
     }).outputText, context)
     await context.bootstrap()
+    expect(server.on).toHaveBeenCalledExactlyOnceWith('error', expect.any(Function))
     expect(order).toEqual([
       'init', ...(enabled === false ? [] : ['detect']),
       'recover', 'history', 'channels', 'listen', 'scheduler',
