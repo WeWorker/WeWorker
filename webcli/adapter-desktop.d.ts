@@ -27,6 +27,7 @@ export interface DesktopAdapterCatalog {
   profile: string
   revision: number
   effective: Array<{ name: string; digest: string; version: string; source: string }>
+  candidates: Array<{ name: string; digest: string; version: string; source: string }>
   diagnostics: Array<{ name?: string; names?: string[]; source?: string; code: string }>
 }
 export interface DesktopAdapterPaths {
@@ -38,7 +39,7 @@ export interface DesktopAdapterPaths {
 }
 export interface DesktopAdapterState {
   revision: number
-  installations: Record<string, { name?: string; digest?: string; profile?: string } | undefined>
+  installations: Record<string, { name?: string; digest?: string; profile?: string; version?: string; origin?: { kind: string; service?: string } } | undefined>
   selections: Record<string, unknown>
   development: Record<string, { root?: string } | undefined>
 }

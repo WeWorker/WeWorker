@@ -471,12 +471,12 @@ Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业
           ? '完全权限不受白名单、黑名单或工作区目录限制。'
           : 'WeWorker Shell 命令（含 cat、type、python 等）与内置文件工具同样受用户目录边界约束，越界请求会被系统拦截。',
     skill_directory_rule: channelPermissionMode === 'workspace'
-      ? '`CLAUDE_CONFIG_DIR/skills` 下由 Adapter 管理的技能目录不属于当前工作区，不得直接编辑、删除、重命名或上传。新增或编辑 Skill 请使用 WeWorker 的「SKILLS与场景」功能。'
+      ? '`CLAUDE_CONFIG_DIR/skills` 下由 Adapter 管理的技能目录不属于当前工作区，不得直接编辑、删除、重命名或上传。新增或编辑 Skill 请使用 WeWorker 的「Adapter、Skill 与场景」功能。'
       : channelPermissionMode === 'ask'
         ? '技能目录也遵循逐次确认规则；用户明确批准后可以按请求访问或修改。'
         : channelPermissionMode === 'full'
           ? '完全权限模式下可按用户请求访问或修改任意技能目录。'
-          : '`CLAUDE_CONFIG_DIR/skills` 下的技能目录禁止在 WeWorker 会话里直接编辑、删除、重命名或上传。需要管理技能时，引导用户使用左侧「SKILLS与场景」功能。',
+          : '`CLAUDE_CONFIG_DIR/skills` 下的技能目录禁止在 WeWorker 会话里直接编辑、删除、重命名或上传。需要管理技能时，引导用户使用左侧「Adapter、Skill 与场景」功能。',
     file_tools_scope: channelPermissionMode === 'workspace'
       ? '`Read`、`Glob`、`Grep`、`Edit`、`Write`、`NotebookEdit` 和文件类 MCP 工具只能访问当前工作区内文件。'
       : channelPermissionMode === 'ask'

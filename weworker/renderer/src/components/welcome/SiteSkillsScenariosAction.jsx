@@ -1,12 +1,13 @@
 import React, { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ToolPackageIcon } from './WelcomeIcons.jsx'
+import { installedAdapterVersion } from '../../api/adapter-updates-api.js'
 import {
   WORKSPACE_TAB_SKILLS,
   WORKSPACE_TAB_SCENARIOS,
 } from '../../store/tool-package-page.js'
 
-export const SITE_SKILLS_SCENARIOS_TOOLTIP = '打开站点skills与场景'
+export const SITE_SKILLS_SCENARIOS_TOOLTIP = '打开站点 Skills 与场景'
 
 const MENU_MIN_WIDTH = 148
 const MENU_GAP = 8
@@ -82,7 +83,7 @@ export default function SiteSkillsScenariosAction({
     >
       <button
         type="button"
-        aria-label={`打开 ${site.name} 站点 skills 与场景`}
+        aria-label={`打开 ${site.name} 站点 Skills 与场景`}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
         className={buttonClassName || undefined}
@@ -134,8 +135,11 @@ export default function SiteSkillsScenariosAction({
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          <div role="presentation" style={{ padding: '6px 14px', color: 'var(--text-secondary)', fontSize: 12 }}>
+            Adapter 版本 {installedAdapterVersion(site)}
+          </div>
           <MenuItem
-            label="站点skills"
+            label="站点 Skills"
             onClick={() => onSelect(site.id, WORKSPACE_TAB_SKILLS)}
           />
           <MenuItem

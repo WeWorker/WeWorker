@@ -263,7 +263,7 @@ function SkillScopeSwitch({ skill, onChanged }) {
   const isPublic = skill.scope === 'public'
   const others = (skill.used_by || []).length
   const toggle = async (nextPublic) => {
-    if (!nextPublic && !await showConfirm(`关闭后，主对话和「SKILLS与场景」将不再看到「${skill.name}」，只有WeWorker Bot 使用它。继续？`)) return
+    if (!nextPublic && !await showConfirm(`关闭后，主对话和「公共 Skill」将不再看到「${skill.name}」，只有WeWorker Bot 使用它。继续？`)) return
     setBusy(true)
     setError('')
     try {
@@ -284,7 +284,7 @@ function SkillScopeSwitch({ skill, onChanged }) {
       </label>
       <div style={{ ...hintStyle, marginTop: 4 }}>
         {isPublic
-          ? '已共享：WeWorker 主对话也会使用这份知识，并在「SKILLS与场景」中显示。'
+          ? '已共享：WeWorker 主对话也会使用这份知识，并在「公共 Skill」中显示。'
           : '默认仅WeWorker Bot 使用，不影响 WeWorker 主对话。'}
         {others > 1 && ` 共有 ${others} 个WeWorker Bot 使用这个 Skill。`}
       </div>
@@ -345,7 +345,7 @@ function CapabilityCard({ agent, sites, onChanged }) {
             {site.enabled === false && <Tag color="warning" bordered={false} style={{ fontSize: 10, lineHeight: '16px', padding: '0 5px', marginInlineEnd: 0 }}>未启用</Tag>}
             <span style={hintStyle}>{site.id}</span>
           </label>
-        )) : <div style={hintStyle}>还没有可用的网站。先在「SKILLS与场景」中启用对应网站。</div>}
+        )) : <div style={hintStyle}>还没有可用的网站。先在「设置 → 站点」中启用对应网站。</div>}
       </div>
       <Space.Compact style={{ width: '100%' }}>
         <Input

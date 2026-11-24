@@ -1,0 +1,136 @@
+import React, { useEffect, useRef, useState } from 'react'
+import { applyAdapterUpdate, checkAdapterUpdates, fetchAdapterUpdates, installedAdapterVersion } from '../../api/adapter-updates-api.js'
+import { showNotification, updateNotification } from '../../store/notifications.js'
+import { useSitesStore } from '../../store/sites.js'
+import AppSwitch from '../common/AppSwitch.jsx'
+import SiteIcon from '../icons/SiteIcon.jsx'
+import './adapter-management.css'
+
+const statusLabels = {
+  available: '有可用更新',
+  current: '已是最新版本',
+  'local-newer': '本地版本较新',
+  unlisted: '更新目录未收录',
+  unsupported: '不支持在线更新',
+}
+
+export default function AdapterManagement() {
+  const sites = useSitesStore(state => state.sites)
+  const refreshSites = useSitesStore(state => state.refreshSites)
+  const toggle = useSitesStore(state => state.toggle)
+  const togglingIds = useSitesStore(state => state.togglingIds)
+  const toggleError = useSitesStore(state => state.toggleError)
+  const [snapshot, setSnapshot] = useState(null)
+  const [operation, setOperation] = useState(null)
+  const runningOperation = useRef(false)
+  const reportedToggleError = useRef(null)
+
+  useEffect(() => {
+    if (operation || (snapshot && snapshot.status !== 'checking')) return undefined
+    const controller = new AbortController()
+    const readStatus = async () => {
+      try {
+        const next = await fetchAdapterUpdates(controller.signal)
+        if (!controller.signal.aborted) setSnapshot(next)
+      } catch {
+        if (!controller.signal.aborted) setSnapshot({ status: 'error', items: {} })
+      }
+    }
+    const timer = snapshot ? setTimeout(readStatus, 1200) : undefined
+    if (!snapshot) void readStatus()
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [snapshot, operation])
+
+  const run = async (action, id, version) => {
+    if (runningOperation.current || !snapshot || snapshot.status === 'checking') return
+    runningOperation.current = true
+    setOperation({ action, id })
+    const name = sites.find(site => site.id === id)?.name || id
+    const notice = showNotification(
+      action === 'check' ? '正在检测 Adapter 版本…' : `正在更新 ${name}…`,
+      { type: 'loading', duration: 0 },
+    )
+    try {
+      if (action === 'check') {
+        const next = await checkAdapterUpdates()
+        setSnapshot(next)
+        if (next.status === 'error') throw new Error('检测失败，请稍后重试。')
+        updateNotification(notice, '已检测最新版本', { type: 'success' })
+      } else {
+        setSnapshot(await applyAdapterUpdate(id, version))
+        await refreshSites()
+        updateNotification(notice, `已将 ${name} 更新至 ${version}`, { type: 'success' })
+      }
+    } catch (cause) {
+      updateNotification(notice, cause.message || '操作失败，请稍后重试。', { type: 'error', duration: 8000 })
+    } finally {
+      runningOperation.current = false
+      setOperation(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!toggleError || toggleError === reportedToggleError.current) return
+    reportedToggleError.current = toggleError
+    showNotification(toggleError.message || '操作 Adapter 失败，请稍后重试。', { type: 'error', duration: 8000 })
+  }, [toggleError])
+
+  const items = snapshot?.items || {}
+  const siteById = new Map(sites.map(site => [site.id, site]))
+  const ids = new Set([...siteById.keys(), ...Object.keys(items)])
+  const checking = operation?.action === 'check' || snapshot?.status === 'checking'
+  const unavailable = !snapshot || checking || Boolean(operation)
+
+  return (
+    <section className="tool-package-list-page adapter-management" aria-label="Adapter 管理">
+      {ids.size > 0 ? (
+        <div className="tool-package-card-grid" role="list" aria-label="已安装的 Adapter">
+          {[...ids].map(id => {
+            const site = siteById.get(id)
+            const name = site?.name || id
+            const item = Object.hasOwn(items, id) ? items[id] : null
+            const available = snapshot?.status === 'ready' && item?.status === 'available' && item.latestVersion
+            return (
+              <article key={id} role="listitem" className="tool-package-entry tool-package-entry--adapter">
+                <span className="tool-package-entry__icon" aria-hidden="true"><SiteIcon site={site || { id, name }} size={34} /></span>
+                <div className="tool-package-entry__body">
+                  <h2 className="tool-package-entry__title" title={name}>{name}</h2>
+                  <span className="tool-package-entry__description">{site?.description || id}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`tool-package-card-action${available ? ' is-update' : ''}`}
+                  disabled={unavailable || (available && togglingIds.includes(id))}
+                  aria-label={available ? `更新 ${name} 至 ${item.latestVersion}` : `检测 ${name} 最新版本`}
+                  onClick={() => available ? run('apply', id, item.latestVersion) : run('check', id)}
+                >
+                  {operation?.id === id ? (operation.action === 'apply' ? '更新中…' : '检测中…') : available ? '更新' : '检测'}
+                </button>
+                <div className="tool-package-entry__footer">
+                  <div className="adapter-management__versions">
+                    <span>当前 {item?.currentVersion || installedAdapterVersion(site)}</span>
+                    <span>最新 {item?.latestVersion || '—'}</span>
+                    {item?.status && <span className={available ? 'adapter-management__available' : undefined}>{statusLabels[item.status]}</span>}
+                  </div>
+                  {site && <label className="adapter-management__switch">
+                    <span>{site.enabled === false ? '已停用' : '已启用'}</span>
+                    <AppSwitch
+                      aria-label={`启用 ${name}`}
+                      checked={site.enabled !== false}
+                      disabled={togglingIds.includes(id) || (operation?.action === 'apply' && operation.id === id)
+                        || (site.managed && !site.enabled && !site.managed.canEnable)}
+                      onChange={() => toggle(id)}
+                    />
+                  </label>}
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      ) : snapshot && <p>暂无已安装的 Adapter。</p>}
+    </section>
+  )
+}

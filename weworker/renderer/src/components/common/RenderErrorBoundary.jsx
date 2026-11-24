@@ -25,7 +25,7 @@ export default class RenderErrorBoundary extends React.Component {
 
     return (
       <div style={shellStyle}>
-        <h3 style={titleStyle}>工具包界面渲染出错</h3>
+        <h3 style={titleStyle}>Adapter、Skill 与场景工作区无法显示</h3>
         <p style={messageStyle}>{error?.message || String(error)}</p>
         <p style={hintStyle}>
           若从桌面快捷方式打开，可能是旧安装版。请改用项目目录运行 <code style={codeStyle}>npm run dev</code>。
@@ -33,7 +33,7 @@ export default class RenderErrorBoundary extends React.Component {
         <div style={actionsStyle}>
           <button data-app-button="action" type="button" style={buttonStyle} onClick={this.handleRetry}>重试</button>
           {this.props.onClose && (
-            <button data-app-button="action" type="button" style={secondaryButtonStyle} onClick={this.props.onClose}>关闭工具包</button>
+            <button data-app-button="action" type="button" style={secondaryButtonStyle} onClick={this.props.onClose}>关闭工作区</button>
           )}
         </div>
       </div>

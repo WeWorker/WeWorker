@@ -99,6 +99,8 @@ import { normalizeOwnerPermissionLevel, validateOwnerUserId } from './channels/c
 import { clearAdapterCache, getRegistryDefaultIcon, getRegistryIconById, parseAllAdapters } from './adapter-parser.js'
 import type { StaticToolDef } from './adapter-parser.js'
 import { refreshDesktopAdapterSkills, toggleDesktopAdapter } from '../../../webcli/adapter-desktop.js'
+import { getDesktopAdapterCatalog } from './adapter-catalog-cache.js'
+import { adapterUpdateErrorMessage, createAdapterUpdates } from './adapter-updates.js'
 import { findAdaptersDirectory, resolveToolsForAdapter } from './adapter-tool-list.js'
 import { getOfficialScenarioDefs, resolveSiteScenarios } from './site-scenarios.js'
 import { createUserScenario, deleteUserScenario, getCustomScenariosForSite, hasOfficialScenario, resetUserScenario, saveUserScenario } from './user-scenarios.js'
@@ -305,6 +307,10 @@ const handleAdapterStateRefresh = createAdapterStateRefreshHandler({
 })
 
 bridgeStatus.onAdapterStateChanged(handleAdapterStateRefresh)
+const adapterUpdates = createAdapterUpdates({
+  getCatalog: () => getDesktopAdapterCatalog(),
+  onInstalled: ({ name, ...event }) => handleAdapterStateRefresh({ ...event, adapters: [name] }),
+})
 
 const app = express()
 const HTTP_AUTH_TOKEN = process.env.WEWORKER_HTTP_TOKEN || ''
@@ -1653,6 +1659,7 @@ app.get('/sites', (_req, res) => {
     visible: enabled && visible,
     hidden: a.hidden,
     managed: a.managed,
+    version: a.managed?.version ?? null,
     testPrompts: customTP[a.id] != null ? customTP[a.id] : a.testPrompts,
     customSkills,
     scenarios: scenarios.map((sc) => ({
@@ -1776,6 +1783,24 @@ app.delete('/router/fast-routes/local/:id', (req, res) => {
     res.json({ ok: true })
   } catch (error) {
     res.status(error instanceof LocalRouteError && error.reason === 'unavailable' ? 404 : 409).json({ detail: '本地路由不存在或状态已变化' })
+  }
+})
+
+app.get('/adapter-updates', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json(adapterUpdates.snapshot())
+})
+
+app.post('/adapter-updates/check', async (_req, res) => {
+  await adapterUpdates.startCheck()
+  res.json(adapterUpdates.snapshot())
+})
+
+app.post('/adapter-updates/:id/apply', async (req, res) => {
+  try {
+    res.json(await adapterUpdates.apply(req.params.id, req.body?.version))
+  } catch (error) {
+    res.status(409).json({ detail: adapterUpdateErrorMessage(error) })
   }
 })
 
@@ -4309,6 +4334,7 @@ async function bootstrap(): Promise<void> {
   const server = app.listen(PORT, '127.0.0.1', () => {
     log.info(`WeWorker backend running on http://127.0.0.1:${PORT}`)
     scheduler.start()
+    void adapterUpdates.startCheck()
   })
   // 端口被占用（常见：上次异常退出遗留的旧后端进程）时给出可搜索的中文结论，而不是只留裸堆栈。
   // 设置-日志搜「端口监听失败」或「port-bind-failed」即可定位。

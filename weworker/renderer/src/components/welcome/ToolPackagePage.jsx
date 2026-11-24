@@ -1,16 +1,13 @@
 import React, { useMemo } from 'react'
 import { useSitesStore } from '../../store/sites.js'
-import {
-  SKILL_SCOPE_PUBLIC,
-  SKILL_SCOPE_SITE,
-  useToolPackagePageStore,
-} from '../../store/tool-package-page.js'
+import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { normalizeSiteScenarios } from '../../utils/site-scenarios.js'
 import RenderErrorBoundary from '../common/RenderErrorBoundary.jsx'
 import ToolPackageEditor from './ToolPackageEditor.jsx'
 import { showConfirm } from '../../store/dialog.js'
 
 const UNSAVED_SCENARIO_MESSAGE = '当前场景有未保存修改，切换后将丢失，是否继续？'
+const EMPTY_SITE = { id: '', name: '', tools: [], scenarios: [] }
 
 function mergeScenariosForSites(selectedSites) {
   const items = []
@@ -32,11 +29,8 @@ export default function ToolPackagePage({ onClose }) {
   const loadSites = useSitesStore((s) => s.load)
   const selectedSiteIds = useToolPackagePageStore((s) => s.selectedSiteIds)
   const setSelectedSiteIds = useToolPackagePageStore((s) => s.setSelectedSiteIds)
-  const toggleSelectedSiteId = useToolPackagePageStore((s) => s.toggleSelectedSiteId)
   const scenarioSiteIds = useToolPackagePageStore((s) => s.scenarioSiteIds)
   const setScenarioSiteIds = useToolPackagePageStore((s) => s.setScenarioSiteIds)
-  const skillScope = useToolPackagePageStore((s) => s.skillScope)
-  const setSkillScope = useToolPackagePageStore((s) => s.setSkillScope)
   const [editorDirty, setEditorDirty] = React.useState(false)
 
   React.useEffect(() => {
@@ -82,7 +76,7 @@ export default function ToolPackagePage({ onClose }) {
     return editableSites.filter((site) => idSet.has(site.id))
   }, [editableSites, scenarioSiteIds])
 
-  const primarySite = skillSites[0] || editableSites[0] || { id: '', name: '公共 Skills', tools: [], scenarios: [] }
+  const primarySite = skillSites[0] || editableSites[0] || EMPTY_SITE
   const scenarios = useMemo(
     () => mergeScenariosForSites(scenarioSites.length > 0 ? scenarioSites : (editableSites[0] ? [editableSites[0]] : [])),
     [scenarioSites, editableSites],
@@ -90,31 +84,10 @@ export default function ToolPackagePage({ onClose }) {
 
   const confirmDiscardChanges = async () => !editorDirty || await showConfirm(UNSAVED_SCENARIO_MESSAGE, '未保存的修改')
 
-  const handleToggleSkillSite = (siteId) => {
-    toggleSelectedSiteId(siteId)
-  }
-
   const handleToggleScenarioSite = async (siteId) => {
     if (!await confirmDiscardChanges()) return
     setEditorDirty(false)
     setScenarioSiteIds(siteId ? [siteId] : [])
-  }
-
-  const handleSkillScopeChange = async (nextScope) => {
-    const scope = nextScope === SKILL_SCOPE_PUBLIC ? SKILL_SCOPE_PUBLIC : SKILL_SCOPE_SITE
-    if (scope === skillScope) return
-    if (!await confirmDiscardChanges()) return
-    setEditorDirty(false)
-    setSkillScope(scope)
-  }
-
-  if (!primarySite) {
-    return (
-      <div style={emptyPageStyle}>
-        <h2 style={{ margin: 0 }}>SKILLS</h2>
-        <p style={{ margin: 0, color: 'var(--text-secondary)' }}>暂无可用站点，请先在设置中启用站点。</p>
-      </div>
-    )
   }
 
   return (
@@ -126,12 +99,8 @@ export default function ToolPackagePage({ onClose }) {
           sites={skillSites}
           allSites={editableSites}
           editableSites={editableSites}
-          selectedSiteIds={selectedSiteIds}
-          onToggleSiteId={handleToggleSkillSite}
           scenarioSiteIds={scenarioSiteIds}
           onToggleScenarioSiteId={handleToggleScenarioSite}
-          onSkillScopeChange={handleSkillScopeChange}
-          skillScope={skillScope}
           scenarios={scenarios}
           onReloadSites={loadSites}
           onDirtyChange={setEditorDirty}
@@ -163,13 +132,4 @@ const pageStyle = {
   background: 'var(--bg-secondary)',
   display: 'flex',
   flexDirection: 'column',
-}
-
-const emptyPageStyle = {
-  flex: 1,
-  display: 'grid',
-  placeContent: 'center',
-  gap: 10,
-  textAlign: 'center',
-  padding: 24,
 }

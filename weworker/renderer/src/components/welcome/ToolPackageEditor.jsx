@@ -40,7 +40,17 @@ import {
   TOOL_PACKAGE_EDITOR_PAGE,
   toolPackageNavigationReducer,
 } from '../../utils/tool-package-navigation.js'
-import { SKILL_SCOPE_PUBLIC, SKILL_SCOPE_SITE, useToolPackagePageStore } from '../../store/tool-package-page.js'
+import {
+  ADAPTER_WORKSPACE_TITLE,
+  WORKSPACE_TAB_ADAPTERS,
+  WORKSPACE_TAB_SCENARIOS,
+  WORKSPACE_TAB_SKILLS,
+  WORKSPACE_TABS,
+  useToolPackagePageStore,
+} from '../../store/tool-package-page.js'
+import AdapterManagement from './AdapterManagement.jsx'
+import AdapterHub from './AdapterHub.jsx'
+import { installedAdapterVersion } from '../../api/adapter-updates-api.js'
 import { useSitesStore } from '../../store/sites.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { resolveSkillDirectoryPath } from '../../utils/skill-directory-path.js'
@@ -62,8 +72,6 @@ const PUBLIC_BUILTIN_DEFAULT_DESCRIPTIONS = {
 const STORAGE_PREFIX = 'weworker:custom-skills:'
 const SEARCH_FIELD_BACKGROUND = 'var(--bg-secondary)'
 const EMPTY_PARAM = { name: '', type: 'string', description: '', required: false }
-const WORKSPACE_TAB_SKILLS = 'skills'
-const WORKSPACE_TAB_SCENARIOS = 'scenarios'
 const TOOLKIT_KIND_SCENE = 'scene'
 const TOOLKIT_KIND_BUILTIN = 'builtin'
 const UNSAVED_SCENARIO_MESSAGE = '当前场景有未保存修改，切换后将丢失，是否继续？'
@@ -838,10 +846,6 @@ function buildToolSiteMetaPrefix(tool) {
   return tool.siteName ? `${tool.siteName} · ` : ''
 }
 
-function buildScenarioSiteMetaPrefix(scenario) {
-  return scenario._toolPackageSiteName ? `${scenario._toolPackageSiteName} · ` : ''
-}
-
 async function fetchPublicSkillsFromApi() {
   const res = await backendFetch(`${SKILLS_API}/skills`)
   if (!res.ok) throw new Error('读取 Skill 列表失败，请重试')
@@ -879,17 +883,12 @@ export default function ToolPackageEditor({
   sites = [site],
   allSites = [],
   editableSites = [],
-  selectedSiteIds = [],
-  onToggleSiteId,
   scenarioSiteIds = [],
   onToggleScenarioSiteId,
-  onSkillScopeChange,
-  skillScope = SKILL_SCOPE_SITE,
   scenarios,
   onReloadSites,
   onDirtyChange,
 }) {
-  const isPublicScope = skillScope === SKILL_SCOPE_PUBLIC
   const siteList = useMemo(
     () => (allSites?.length ? allSites : sites?.length ? sites : [site]).filter(item => item?.id),
     [allSites, site, sites],
@@ -906,23 +905,27 @@ export default function ToolPackageEditor({
   const [customSkillSaveTick, setCustomSkillSaveTick] = useState(0)
   const [selectedScenarioId, setSelectedScenarioId] = useState(scenarioKey(scenarioList[0]))
   const [skillEditorTab, setSkillEditorTab] = useState('skill')
+  const openSessionId = useToolPackagePageStore((s) => s.openSessionId)
+  const requestedWorkspaceTab = useToolPackagePageStore((s) => s.workspaceTab)
+  const requestedPublicSkill = useToolPackagePageStore((s) => s.selectedPublicSkillName)
   const [navigation, dispatchNavigation] = useReducer(
     toolPackageNavigationReducer,
-    WORKSPACE_TAB_SKILLS,
+    requestedWorkspaceTab,
     createToolPackageNavigationState,
   )
   const { workspaceTab, page } = navigation
   const isEditorPage = page === TOOL_PACKAGE_EDITOR_PAGE
-  const openSessionId = useToolPackagePageStore((s) => s.openSessionId)
-  const requestedWorkspaceTab = useToolPackagePageStore((s) => s.workspaceTab)
-  const requestedPublicSkill = useToolPackagePageStore((s) => s.selectedPublicSkillName)
+  const isAdapterWorkspace = workspaceTab === WORKSPACE_TAB_ADAPTERS
+  const [adapterView, setAdapterView] = useState('manage')
   const [selectedToolKey, setSelectedToolKey] = useState('')
 
   React.useEffect(() => {
-    if (requestedWorkspaceTab === WORKSPACE_TAB_SCENARIOS || requestedWorkspaceTab === WORKSPACE_TAB_SKILLS) {
-      dispatchNavigation({ type: 'switch-tab', workspaceTab: requestedWorkspaceTab })
-    }
+    dispatchNavigation({ type: 'switch-tab', workspaceTab: requestedWorkspaceTab })
   }, [openSessionId, requestedWorkspaceTab])
+
+  React.useEffect(() => {
+    setAdapterView('manage')
+  }, [openSessionId])
 
   const [scenarioSearchQuery, setScenarioSearchQuery] = useState('')
   const [toolSearchQuery, setToolSearchQuery] = useState('')
@@ -1053,6 +1056,7 @@ export default function ToolPackageEditor({
     catch { void showAlert('标签保存失败，请重试'); return false }
   }
   const visibleSkills = selectCatalogSkills(allSkills, { filter: skillFilter, sort: skillSort, query: toolSearchQuery, getTags })
+  const adapterVersionsBySite = new Map(siteList.map((item) => [item.id, installedAdapterVersion(item)]))
   const filterToolkitToolsBySearch = (tools) => {
     const query = toolkitSearchQuery.trim().toLowerCase()
     if (!query) return tools
@@ -1071,8 +1075,8 @@ export default function ToolPackageEditor({
     [systemTools],
   )
   const toolkitKindOptions = useMemo(() => ([
-    { value: TOOLKIT_KIND_SCENE, label: '场景工具包' },
-    { value: TOOLKIT_KIND_BUILTIN, label: '内置工具包' },
+    { value: TOOLKIT_KIND_SCENE, label: '站点 Adapter 工具' },
+    { value: TOOLKIT_KIND_BUILTIN, label: '内置工具' },
   ]), [])
   const selectedTool = findSelectedSkill(allSkills, selectedToolKey)
   const visibleToolkitTools = useMemo(() => {
@@ -1126,7 +1130,7 @@ export default function ToolPackageEditor({
       if (!customSkillsSaveTimerRef.current) refreshSites?.()
     }, 2000)
     return () => clearInterval(timer)
-  }, [isPublicScope, refreshSites])
+  }, [refreshSites])
 
   useEffect(() => {
     setCustomSkillsBySite((current) => ({
@@ -1240,7 +1244,7 @@ export default function ToolPackageEditor({
       }
     }, 700)
     return () => clearTimeout(timer)
-  }, [isPublicScope, publicCustomSaveName, publicCustomSaveTick, reloadPublicSkills, publicDuplicateCheckSkills])
+  }, [publicCustomSaveName, publicCustomSaveTick, reloadPublicSkills, publicDuplicateCheckSkills])
 
   useEffect(() => {
     onDirtyChange?.(scenarioDirty)
@@ -1287,18 +1291,15 @@ export default function ToolPackageEditor({
 
   useEffect(() => {
     setSelectedToolKey('')
-  }, [skillScope])
+  }, [workspaceTab, openSessionId])
 
   useEffect(() => {
     if (selectedToolKey) return
-    const preferred = isPublicScope
-      ? (catalogPublicCustomSkills.find((skill) => skill.id === requestedPublicSkill || skill.name === requestedPublicSkill) || catalogPublicCustomSkills[0] || catalogPublicBuiltinSkills[0])
-      : (catalogCustomSkills.find((tool) => tool.siteId === site.id)
-        || catalogOfficialSkills.find((tool) => tool.siteId === site.id)
-        || catalogCustomSkills[0]
-        || catalogOfficialSkills[0])
+    const requested = requestedPublicSkill && allSkills.find((skill) =>
+      !skill.siteId && (skill.id === requestedPublicSkill || skill.name === requestedPublicSkill))
+    const preferred = requested || allSkills.find((tool) => tool.siteId === site.id) || allSkills[0]
     if (preferred) setSelectedToolKey(skillSelectionKey(preferred))
-  }, [catalogCustomSkills, catalogOfficialSkills, catalogPublicBuiltinSkills, catalogPublicCustomSkills, isPublicScope, selectedToolKey, site.id, requestedPublicSkill])
+  }, [allSkills, selectedToolKey, site.id, requestedPublicSkill])
 
   useEffect(() => {
     if (!selectedToolKey) return
@@ -1308,11 +1309,8 @@ export default function ToolPackageEditor({
       if (stableKey !== selectedToolKey) setSelectedToolKey(stableKey)
       return
     }
-    const fallback = isPublicScope
-      ? (catalogPublicCustomSkills[0] || catalogPublicBuiltinSkills[0])
-      : (catalogCustomSkills[0] || catalogOfficialSkills[0])
-    setSelectedToolKey(fallback ? skillSelectionKey(fallback) : '')
-  }, [allSkills, selectedToolKey, catalogCustomSkills, catalogOfficialSkills, catalogPublicBuiltinSkills, catalogPublicCustomSkills, isPublicScope])
+    setSelectedToolKey('')
+  }, [allSkills, selectedToolKey])
 
   const confirmDiscardScenarioChanges = async () => !scenarioDirty || await showConfirm(UNSAVED_SCENARIO_MESSAGE, '未保存的修改')
 
@@ -1341,7 +1339,7 @@ export default function ToolPackageEditor({
       await onReloadSites?.()
     } catch (error) {
       console.error('[tool-package] refresh skills failed:', error)
-      showAlert(error instanceof Error ? error.message : '刷新 skills 失败')
+      showAlert(error instanceof Error ? error.message : '刷新 Skill 失败')
     } finally {
       setRefreshingSkills(false)
     }
@@ -1353,7 +1351,7 @@ export default function ToolPackageEditor({
     markScenarioCleanAfterLeave()
     setSelectedToolKey(nextKey)
     setSkillEditorTab('skill')
-    dispatchNavigation({ type: 'open-editor', workspaceTab: WORKSPACE_TAB_SKILLS })
+    dispatchNavigation({ type: 'open-editor', workspaceTab })
   }
 
   const selectScenario = async (scenario) => {
@@ -1366,7 +1364,7 @@ export default function ToolPackageEditor({
 
   const switchWorkspaceTab = async (nextTab) => {
     if (nextTab === workspaceTab) return
-    if (workspaceTab === WORKSPACE_TAB_SCENARIOS && nextTab === WORKSPACE_TAB_SKILLS) {
+    if (workspaceTab === WORKSPACE_TAB_SCENARIOS) {
       if (!await confirmDiscardScenarioChanges()) return
       markScenarioCleanAfterLeave()
     }
@@ -1554,7 +1552,7 @@ export default function ToolPackageEditor({
     setPublicCustomSkills((current) => [next, ...current])
     setSelectedToolKey(skillSelectionKey(next))
     setSkillEditorTab('skill')
-    dispatchNavigation({ type: 'open-editor', workspaceTab: WORKSPACE_TAB_SKILLS })
+    dispatchNavigation({ type: 'open-editor', workspaceTab })
     try {
       const saved = await persistPublicCustomSkill(next)
       await reloadPublicSkills()
@@ -1576,7 +1574,7 @@ export default function ToolPackageEditor({
     setToolSearchQuery('')
     setSelectedToolKey(skillSelectionKey(next))
     setSkillEditorTab('skill')
-    dispatchNavigation({ type: 'open-editor', workspaceTab: WORKSPACE_TAB_SKILLS })
+    dispatchNavigation({ type: 'open-editor', workspaceTab })
   }
 
   const toggleSkill = async (tool, enabled) => {
@@ -1634,14 +1632,14 @@ export default function ToolPackageEditor({
       } catch (e) {
         console.error('[tool-package] delete public custom skill failed:', e)
       }
-      dispatchNavigation({ type: 'switch-tab', workspaceTab: WORKSPACE_TAB_SKILLS })
+      dispatchNavigation({ type: 'switch-tab', workspaceTab })
       return
     }
     const ownerSiteId = selectedTool.siteId || site.id
     mutateCustomSkillsForSite(ownerSiteId, (current) => current.filter((skill) => skill.id !== selectedTool.id))
     const fallbackOfficial = catalogOfficialSkills.find((tool) => tool.siteId === site.id) || catalogOfficialSkills[0]
     if (fallbackOfficial) setSelectedToolKey(skillSelectionKey(fallbackOfficial))
-    dispatchNavigation({ type: 'switch-tab', workspaceTab: WORKSPACE_TAB_SKILLS })
+    dispatchNavigation({ type: 'switch-tab', workspaceTab })
   }
 
   const handleToolDrop = (event) => {
@@ -1653,7 +1651,7 @@ export default function ToolPackageEditor({
   }
 
   return (
-    <div className="tool-package-shell" style={shellStyle}>
+    <section className="tool-package-shell" aria-label={ADAPTER_WORKSPACE_TITLE} style={shellStyle}>
       <div className="tool-package-frame">
         <header className="tool-package-header-bar" style={headerShellStyle}>
           {isEditorPage ? (
@@ -1665,7 +1663,7 @@ export default function ToolPackageEditor({
               {!showScenarioWorkspace && (
                 <div className="tool-package-detail-tabs" role="tablist" aria-label="Skill 编辑视图">
                   <button type="button" role="tab" aria-selected={skillEditorTab === 'skill'} onClick={() => setSkillEditorTab('skill')}>Skill 配置</button>
-                  <button type="button" role="tab" aria-selected={skillEditorTab === 'toolkit'} onClick={() => setSkillEditorTab('toolkit')}>工具包</button>
+                  <button type="button" role="tab" aria-selected={skillEditorTab === 'toolkit'} onClick={() => setSkillEditorTab('toolkit')}>工具列表</button>
                 </div>
               )}
             </div>
@@ -1675,7 +1673,7 @@ export default function ToolPackageEditor({
               <div className="workspace-toolbar__actions">
                 {workspaceTab === WORKSPACE_TAB_SKILLS && (
                   <IconButton
-                    label="刷新 skills"
+                    label="刷新 Skill"
                     onClick={handleRefreshSkills}
                     disabled={refreshingSkills}
                     toolbar
@@ -1710,7 +1708,7 @@ export default function ToolPackageEditor({
                         value={toolkitKind}
                         onChange={setToolkitKind}
                         options={toolkitKindOptions}
-                        ariaLabel="工具包类型"
+                        ariaLabel="工具类型"
                         compact
                         minMenuWidth={152}
                       />
@@ -1729,14 +1727,14 @@ export default function ToolPackageEditor({
                     </div>
                     <div style={rightPanelMetaStyle}>
                       {showSceneToolkitUnavailable
-                        ? '公共 skill 不可用'
+                        ? '公共 Skill 独立于站点 Adapter'
                         : toolkitKind === TOOLKIT_KIND_BUILTIN
                           ? `内置工具 ${visibleToolkitTools.length} 个 · 与站点无关`
                           : `场景工具 ${visibleToolkitTools.length} 个 · 与当前站点相关`}
                     </div>
                   </div>
                   {showSceneToolkitUnavailable ? (
-                    <div style={emptyEditorStyle}>公共 skill 不关联场景工具包，可切换到内置工具包查看系统工具。</div>
+                    <div style={emptyEditorStyle}>切换到内置工具可查看系统工具。</div>
                   ) : (
                     <ToolkitToolList tools={visibleToolkitTools} searchQuery={toolkitSearchQuery} />
                   )}
@@ -1760,8 +1758,30 @@ export default function ToolPackageEditor({
                   onDeleteParam={(index) => updateSelectedSkill({ parameters: selectedTool.parameters.filter((_, i) => i !== index) })}
                   onDelete={deleteCustomSkill}
                 />
-              ) : <div style={emptyEditorStyle}>{isPublicScope ? '请选择一个公共 skill。' : '请选择一个工具，或点击新增 skill。'}</div>}
+              ) : <div style={emptyEditorStyle}>请选择一个 Skill，或点击新增 Skill。</div>}
             </main>
+          ) : isAdapterWorkspace ? (
+            <div className="adapter-workspace">
+              <div className="adapter-view-tabs" role="tablist" aria-label="Adapter 视图">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={adapterView === 'manage'}
+                  onClick={() => setAdapterView('manage')}
+                >
+                  Adapter 管理
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={adapterView === 'hub'}
+                  onClick={() => setAdapterView('hub')}
+                >
+                  AdapterHub
+                </button>
+              </div>
+              {adapterView === 'manage' ? <AdapterManagement /> : <AdapterHub />}
+            </div>
           ) : (
             <section
               className={`tool-package-list-page${dragOverEditor ? ' is-drag-over' : ''}`}
@@ -1773,7 +1793,10 @@ export default function ToolPackageEditor({
                 <>
                   <div className="tool-package-list-page__intro tool-package-list-page__intro--skills">
                     <div className="tool-package-list-page__title-row">
-                      <h1>场景</h1>
+                      <div>
+                        <h1>场景</h1>
+                        {selectedScenarioSiteId && <p>Adapter 版本 {installedAdapterVersion(editableSites.find(item => item.id === selectedScenarioSiteId))}</p>}
+                      </div>
                       <button
                         type="button"
                         className="tool-package-list-page__primary"
@@ -1825,7 +1848,7 @@ export default function ToolPackageEditor({
                         className="tool-package-list-page__primary"
                       />
                     </div>
-                    <p>安装、启用和配置 Skills</p>
+                    <p>浏览与配置站点 Skill，也可管理公共 Skill</p>
                   </div>
                   <div className="skill-catalog-toolbar">
                     <AppDropdownSelect
@@ -1849,7 +1872,7 @@ export default function ToolPackageEditor({
                     />
                   </div>
                   {skillsLoadError && <div role="alert">{skillsLoadError}<button data-app-button="action" type="button" onClick={() => reloadPublicSkills().catch(error => setSkillsLoadError(error.message))}>重试</button></div>}
-                  <ToolList tools={visibleSkills} onSelect={selectTool} getTags={getTags} onToggle={toggleSkill} togglingSkills={togglingSkills} />
+                  <ToolList tools={visibleSkills} adapterVersionsBySite={adapterVersionsBySite} onSelect={selectTool} getTags={getTags} onToggle={toggleSkill} togglingSkills={togglingSkills} />
                   {!visibleSkills.length && <div style={emptyEditorStyle}>没有匹配的 skill。</div>}
                 </>
               )}
@@ -1857,7 +1880,7 @@ export default function ToolPackageEditor({
           )}
         </div>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -1940,7 +1963,7 @@ function WorkspaceTabBar({ value, onChange }) {
   const [indicator, setIndicator] = useState({ left: 0, width: 0, ready: false })
 
   const syncIndicator = () => {
-    const index = value === WORKSPACE_TAB_SKILLS ? 0 : 1
+    const index = WORKSPACE_TABS.findIndex(tab => tab.id === value)
     const tab = tabRefs.current[index]
     const bar = barRef.current
     if (!tab || !bar) return
@@ -1959,7 +1982,7 @@ function WorkspaceTabBar({ value, onChange }) {
 
   useEffect(() => {
     const bar = barRef.current
-    if (!bar) return undefined
+    if (!bar || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(() => syncIndicator())
     observer.observe(bar)
     tabRefs.current.forEach((tab) => {
@@ -1978,26 +2001,19 @@ function WorkspaceTabBar({ value, onChange }) {
         }}
         aria-hidden="true"
       />
-      <button
-        type="button"
-        role="tab"
-        ref={(node) => { tabRefs.current[0] = node }}
-        aria-selected={value === WORKSPACE_TAB_SKILLS}
-        className={`workspace-tab${value === WORKSPACE_TAB_SKILLS ? ' workspace-tab--active' : ''}`}
-        onClick={() => onChange(WORKSPACE_TAB_SKILLS)}
-      >
-        SKILLS
-      </button>
-      <button
-        type="button"
-        role="tab"
-        ref={(node) => { tabRefs.current[1] = node }}
-        aria-selected={value === WORKSPACE_TAB_SCENARIOS}
-        className={`workspace-tab${value === WORKSPACE_TAB_SCENARIOS ? ' workspace-tab--active' : ''}`}
-        onClick={() => onChange(WORKSPACE_TAB_SCENARIOS)}
-      >
-        场景
-      </button>
+      {WORKSPACE_TABS.map((tab, index) => (
+        <button
+          key={tab.id}
+          type="button"
+          role="tab"
+          ref={(node) => { tabRefs.current[index] = node }}
+          aria-selected={value === tab.id}
+          className={`workspace-tab${value === tab.id ? ' workspace-tab--active' : ''}`}
+          onClick={() => onChange(tab.id)}
+        >
+          {tab.label}
+        </button>
+      ))}
     </div>
   )
 }
@@ -2138,7 +2154,7 @@ function ScenarioSiteSelect({ sites, selectedId, onChange }) {
 
 function ScenarioSidebarList({ scenarios, onSelect, searchQuery = '' }) {
   return (
-    <div className="scenario-list tool-package-entry-list">
+    <div className="tool-package-card-grid" aria-label="场景列表">
       {scenarios.map((scenario) => {
         const key = scenarioKey(scenario)
         return (
@@ -2151,15 +2167,18 @@ function ScenarioSidebarList({ scenarios, onSelect, searchQuery = '' }) {
           >
             <span className="tool-package-entry__icon" aria-hidden="true"><FolderOutlined /></span>
             <span className="tool-package-entry__body">
-              <span className="tool-package-entry__title">{buildScenarioSiteMetaPrefix(scenario)}{scenario.title || '未命名场景'}</span>
+              <span className="tool-package-entry__title">{scenario.title || '未命名场景'}</span>
               <span className="tool-package-entry__description">{scenario.summary || '暂无说明'}</span>
             </span>
             <RightOutlined className="tool-package-entry__chevron" aria-hidden="true" />
+            <span className="tool-package-entry__footer tool-package-entry__meta">
+              {[scenario._toolPackageSiteName, isUserScenario(scenario) ? '自定义' : '官方'].filter(Boolean).join(' · ')}
+            </span>
           </button>
         )
       })}
       {scenarios.length === 0 && (
-        <div style={emptyEditorStyle}>
+        <div className="tool-package-card-empty" style={emptyEditorStyle}>
           {searchQuery.trim() ? '没有匹配的场景。' : '暂无可用场景。'}
         </div>
       )}
@@ -2167,12 +2186,14 @@ function ScenarioSidebarList({ scenarios, onSelect, searchQuery = '' }) {
   )
 }
 
-function ToolList({ tools, onSelect, getTags, onToggle, togglingSkills }) {
+function ToolList({ tools, adapterVersionsBySite, onSelect, getTags, onToggle, togglingSkills }) {
   return (
-    <div className="skill-catalog-grid tool-package-entry-list">
+    <div className="tool-package-card-grid" aria-label="Skills 列表">
       {tools.map((tool) => {
         const key = skillSelectionKey(tool)
         const createdAtLabel = formatSkillCreatedAt(tool)
+        const metadata = getTags(tool)
+        const adapterVersion = adapterVersionsBySite.get(tool.siteId)
         return (
           <div
             key={key}
@@ -2198,10 +2219,13 @@ function ToolList({ tools, onSelect, getTags, onToggle, togglingSkills }) {
             <span className="tool-package-entry__body">
               <span className="tool-package-entry__title-row">
                 <span className="tool-package-entry__title">{tool.name || '未命名 Skill'}</span>
-                {createdAtLabel && <time className="tool-package-entry__date" dateTime={new Date(tool.createdAt).toISOString()}>{createdAtLabel}</time>}
               </span>
               <span className="tool-package-entry__description">{tool.draft ? '空白文件夹 · 待编写 SKILL.md' : tool.description || summarizeParams(tool.parameters)}</span>
-              {!!getTags(tool).length && <span className="tool-package-entry__meta">{getTags(tool).join(' · ')}</span>}
+            </span>
+            <span className="tool-package-entry__footer">
+              <span className="tool-package-entry__meta" title={metadata.join(' · ')}>{metadata.join(' · ')}</span>
+              {adapterVersion && <span>Adapter 版本 {adapterVersion}</span>}
+              {createdAtLabel && <time className="tool-package-entry__date" dateTime={new Date(tool.createdAt).toISOString()}>{createdAtLabel}</time>}
             </span>
             <span className="skill-card-switch tool-package-entry__toggle" title={tool.draft ? '请先编写 SKILL.md，再启用' : !tool.installed ? 'Skill 尚未安装，请刷新后重试' : tool.enabled ? '已启用，下次对话可加载' : '已关闭，下次对话不再加载'} onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
               <AppSwitch aria-label={`启用 ${tool.name}`} checked={tool.enabled} disabled={!tool.installed || tool.draft || togglingSkills.has(skillDirectoryName(tool))} onChange={event => onToggle(tool, event.target.checked)} />

@@ -7,6 +7,7 @@ import { buildPromptFromTemplate } from '../../utils/prompt-template.js'
 import { ClosePanelIcon, RobotIcon } from './WelcomeIcons.jsx'
 import { assistantText, userPromptTemplate } from './welcome-utils.js'
 import { shortToolName } from '../../utils/tool-name.js'
+import { installedAdapterVersion } from '../../api/adapter-updates-api.js'
 
 const DETAIL_HERO_MIN_WIDTH = 680
 const fallbackDetailDescription = (siteName) => `${siteName} 可以让 WeWorker 根据你的自然语言指令执行网页任务，例如打开页面、读取内容、搜索信息、点击按钮、下载文件或整理结果。执行过程中如果遇到登录、确认、支付等敏感步骤，会停下来等你确认。`
@@ -152,7 +153,7 @@ export default function SiteDetailModal({ site, scenarios, onClose, onUseScenari
         </section>
 
         <section style={detailSectionStyle}>
-          <h3 style={detailSectionTitleStyle}>工具包</h3>
+          <h3 style={detailSectionTitleStyle}>Adapter 工具</h3>
           <div style={detailToolGridStyle}>
             {toolItems.map((tool) => (
               <div key={tool.name} style={detailToolCardStyle}>
@@ -169,6 +170,7 @@ export default function SiteDetailModal({ site, scenarios, onClose, onUseScenari
             <div style={detailInfoRowStyle}><span>场景</span><strong>{site.scenarioCount ?? scenarios.length}</strong></div>
             <div style={detailInfoRowStyle}><span>工具</span><strong>{site.toolCount ?? toolNames.length}</strong></div>
             <div style={detailInfoRowStyle}><span>状态</span><strong>{site.enabled ? '已启用' : '未启用'}</strong></div>
+            <div style={detailInfoRowStyle}><span>Adapter 版本</span><strong>{installedAdapterVersion(site)}</strong></div>
             <div style={detailInfoRowStyle}><span>站点 ID</span><strong>{site.id}</strong></div>
           </div>
         </section>

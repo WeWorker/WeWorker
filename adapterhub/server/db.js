@@ -650,12 +650,14 @@ export function listAdapterReleases(db, name) {
 }
 
 /** 客户端联动版本索引：全部已列出 Adapter 的 name/version/sha256 轻量清单（无元数据）。 */
-export function adapterVersionIndex(db) {
-  return db.prepare(`SELECT a.name, ar.version, ar.artifact_sha256
+export function adapterVersionIndex(db, { desktop = false } = {}) {
+  return db.prepare(`SELECT a.name, a.origin, ar.version, ar.artifact_sha256, ar.publisher_role
     FROM adapters a JOIN adapter_releases ar ON ar.id=a.current_release_id
     WHERE a.listed=1 AND ar.artifact_sha256 != 'placeholder-no-artifact'
     ORDER BY a.name`).all()
-    .map((r) => ({ name: r.name, version: r.version, sha256: r.artifact_sha256 }))
+    .map((r) => ({ name: r.name, version: r.version, sha256: r.artifact_sha256,
+      ...(desktop ? { official: r.origin === 'official' && r.publisher_role === 'admin' } : {}),
+    }))
 }
 
 /** 指定版本的 artifact（下载 name@version 用；占位/不存在返回 null）。 */
