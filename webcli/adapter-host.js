@@ -2,7 +2,7 @@ import { buildAdapterCatalog, assertAdapterIdentity } from './adapter-catalog.js
 import { readPackageDirectory, adapterError } from './adapter-package-files.js';
 
 export function resolveAdapterCall(toolName, options = {}) {
-  const catalog = buildAdapterCatalog(options);
+  const catalog = options.catalog ?? buildAdapterCatalog(options);
   if (catalog.diagnostics.some((entry) => !entry.name && !entry.names)) {
     throw adapterError('ADAPTER_CATALOG_UNAVAILABLE', 'Adapter catalog requires inspection before execution.');
   }

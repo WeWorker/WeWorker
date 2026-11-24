@@ -3,9 +3,10 @@ import { redeemReadQueryReceipt, bindReadQueryReceipt } from '../read-query-rece
 
 const mocks = vi.hoisted(() => ({
   run: vi.fn(),
+  runEx: vi.fn(),
   catalog: vi.fn(),
 }))
-vi.mock('../webcli-runner.js', () => ({ runWebcliCall: mocks.run }))
+vi.mock('../webcli-runner.js', () => ({ runWebcliCall: mocks.run, runWebcliCallEx: mocks.runEx }))
 vi.mock('../api-query-router/tool-catalog.js', () => ({ getCatalog: mocks.catalog }))
 vi.mock('../logger.js', () => ({ createLogger: () => ({ info() {}, warn() {}, error() {}, debug() {} }) }))
 vi.mock('../works-store.js', () => ({ createScheduledTask: vi.fn(), listScheduledTasks: vi.fn(() => []) }))
@@ -15,9 +16,10 @@ vi.mock('../channels/channel-manager.js', () => ({ channelManager: {} }))
 const toolDef = { name: 'example.com.list', adapterId: 'example.com', direct: true, safety: 'read', requiresConfirmation: false,
   parameters: { type: 'object', properties: { page: { type: 'integer' }, query: { type: 'string' } }, additionalProperties: false } }
 const result = (value: { content: Array<{ text: string }> }) => JSON.parse(value.content[0].text) as Record<string, unknown>
-async function handler(scope: { workId: string | null; turnId: string | null } = { workId: 'work', turnId: 'turn' }) {
+async function handler(scope: { workId: string | null; turnId: string | null } = { workId: 'work', turnId: 'turn' }, desktopWebcliContext?: { contextId: () => string | null; onReceipt: (receipt: unknown) => void }) {
   const { buildMcpServer } = await import('../tools.js')
-  const server = buildMcpServer({ channelPermissionMode: 'full', workId: 'work', readQueryScope: () => scope })
+  const server = buildMcpServer({ channelPermissionMode: 'full', workId: 'work', readQueryScope: () => scope,
+    ...(desktopWebcliContext ? { desktopWebcliContext } : {}) })
   return (server.instance as unknown as { _registeredTools: Record<string, { handler: (input: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }> }> })
     ._registeredTools.weworker_read_query.handler
 }
@@ -25,6 +27,7 @@ async function handler(scope: { workId: string | null; turnId: string | null } =
 describe('guarded structured WebCLI read query', () => {
   beforeEach(() => {
     mocks.run.mockReset().mockResolvedValue('{"ok":true,"data":{"items":[{"id":1}]}}')
+    mocks.runEx.mockReset().mockResolvedValue('{"ok":true,"data":{"items":[{"id":1}]}}')
     mocks.catalog.mockReset().mockReturnValue({ byName: new Map([[toolDef.name, toolDef]]), adapterIds: new Set(['example.com']) })
   })
   it('runs real WebCLI, issues only a bound one-use attestation for exact safe args', async () => {
@@ -59,5 +62,18 @@ describe('guarded structured WebCLI read query', () => {
     expect(result(await call({ name: toolDef.name, args: {} })).error).toBeTruthy()
     const stale = await handler({ workId: 'work', turnId: null })
     expect(result(await stale({ name: toolDef.name, args: {} })).error).toBeTruthy()
+  })
+  it('associates the desktop WebCLI context and bypasses receipts when enabled', async () => {
+    const onReceipt = vi.fn()
+    mocks.runEx.mockResolvedValue('{"ok":true,"data":{"items":[{"id":1}]}}')
+    const call = await handler({ workId: 'work', turnId: 'turn' }, { contextId: () => null, onReceipt })
+    const output = result(await call({ name: toolDef.name, args: { page: 2 } }))
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(mocks.runEx).toHaveBeenCalledWith(toolDef.name, '{"page":2}', 'work', expect.objectContaining({ timeoutMs: 30_000, context: { newContext: true } }))
+    expect(output.weworkerReadQueryReceipt).toEqual(expect.any(String))
+    mocks.runEx.mockReset().mockResolvedValue('{"ok":true,"data":{"items":[{"id":9}]}}')
+    const existing = await handler({ workId: 'work', turnId: 'turn' }, { contextId: () => 'ctx-1', onReceipt })
+    await existing({ name: toolDef.name, args: { page: 3 } })
+    expect(mocks.runEx).toHaveBeenLastCalledWith(toolDef.name, '{"page":3}', 'work', expect.objectContaining({ context: { contextId: 'ctx-1' } }))
   })
 })

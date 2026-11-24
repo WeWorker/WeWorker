@@ -2,8 +2,11 @@ import * as fs from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { contextKey, ContextError, fail, LIMITS, newState, validateState, expired } from './context-model.js';
 
 const exec = promisify(execFile);
@@ -15,10 +18,10 @@ const aclScript = `
 $ErrorActionPreference='Stop'
 $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $allowed=@($sid.Value,'S-1-5-18','S-1-5-32-544')
-$encodedPaths=$env:WEBCLI_CONTEXT_PERMISSION_PATHS_BASE64
+function Verify-ContextPaths($encodedPaths, $create) {
 $paths=@($encodedPaths.Split([char]10) | ForEach-Object { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })
 foreach($p in $paths) {
-  if($env:WEBCLI_CONTEXT_PERMISSION_CREATE -eq '1') {
+  if($create -eq '1') {
     $item=Get-Item -LiteralPath $p -Force
     if($item.PSIsContainer) { $acl=New-Object System.Security.AccessControl.DirectorySecurity }
     else { $acl=New-Object System.Security.AccessControl.FileSecurity }
@@ -31,7 +34,8 @@ foreach($p in $paths) {
     }
     Set-Acl -LiteralPath $p -AclObject $acl
   }
-  $acl=Get-Acl -LiteralPath $p
+  if([System.IO.Directory]::Exists($p)) { $acl=[System.IO.Directory]::GetAccessControl($p) }
+  else { $acl=[System.IO.File]::GetAccessControl($p) }
   if($acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'owner' }
   $rules=@($acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))
   if($rules.Count -eq 0) { throw 'empty_acl' }
@@ -39,7 +43,52 @@ foreach($p in $paths) {
     if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $rule.IdentityReference.Value) { throw 'public_acl' }
   }
 }
+}
 `;
+const aclCommand = aclScript + `
+if ($env:WEBCLI_CONTEXT_PERMISSION_PATHS_BASE64) {
+  Verify-ContextPaths $env:WEBCLI_CONTEXT_PERMISSION_PATHS_BASE64 $env:WEBCLI_CONTEXT_PERMISSION_CREATE
+} else {
+  while ($null -ne ($line=[Console]::ReadLine())) {
+    try { Verify-ContextPaths ($line.Substring(1).Replace([char]44, [char]10)) ($line.Substring(0,1)); [Console]::WriteLine('ok') }
+    catch { [Console]::WriteLine('rejected') }
+  }
+}
+`;
+const powershellArgs = ['-NoProfile', '-NonInteractive', '-Command', aclCommand];
+const nativeVerifier = fileURLToPath(new URL('./context-acl-windows.exe', import.meta.url));
+const hasNativeVerifier = process.platform === 'win32' && existsSync(nativeVerifier);
+const windowsRoot = process.env.SystemRoot || 'C:\\Windows';
+const powershellPath = join(windowsRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+function aclEnv() {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(psmodulepath|webcli_context_permission_)/i.test(key)));
+  env.PSModulePath = join(dirname(powershellPath), 'Modules');
+  return env;
+}
+
+// Reuse the verifier only during one transaction. Every path is still checked at the original boundary.
+function openAclVerifier() {
+  const child = spawn(hasNativeVerifier ? nativeVerifier : powershellPath, hasNativeVerifier ? ['--stdin'] : powershellArgs,
+    { env: aclEnv(), windowsHide: true, stdio: ['pipe','pipe','ignore'] });
+  const lines = createInterface({ input: child.stdout });
+  let pending, failure;
+  const failVerifier = error => { failure = error; pending?.(error); };
+  child.on('error', failVerifier);
+  child.stdin.on('error', failVerifier);
+  lines.on('close', () => failVerifier(new Error('acl_check_failed')));
+  lines.on('line', line => line === 'ok' ? pending?.() : failVerifier(new Error('acl_check_failed')));
+  return {
+    check(paths, create) {
+      return new Promise((resolve, reject) => {
+        if (failure || pending) { reject(failure || new Error('acl_check_busy')); return; }
+        const timer = setTimeout(() => { failVerifier(new Error('acl_check_timeout')); child.kill(); }, 10000);
+        pending = error => { clearTimeout(timer); pending = undefined; error ? reject(error) : resolve(); };
+        child.stdin.write(`${hasNativeVerifier ? '' : create ? 1 : 0}${paths.join(',')}\n`);
+      });
+    },
+    close() { child.stdin.end(); },
+  };
+}
 
 // The alternate root/clock/limits are trusted in-process test seams, never CLI flags or environment overrides.
 export class ContextStore {
@@ -61,10 +110,14 @@ export class ContextStore {
   async private(paths, create = false) {
     if (process.platform === 'win32') {
       try {
-        await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', aclScript], {
-          env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'psmodulepath')),
-            PSModulePath: join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'),
-            WEBCLI_CONTEXT_PERMISSION_PATHS_BASE64: paths.map(path => Buffer.from(path, 'utf8').toString('base64')).join('\n'), WEBCLI_CONTEXT_PERMISSION_CREATE: create ? '1' : '0' },
+        const encoded = paths.map(path => Buffer.from(path, 'utf8').toString('base64'));
+        if (this.aclVerifier && (!create || !hasNativeVerifier)) { await this.aclVerifier.check(encoded, create); return; }
+        if (!create && hasNativeVerifier) {
+          await exec(nativeVerifier, encoded, { windowsHide: true, timeout: 10000, maxBuffer: 4096 });
+          return;
+        }
+        await exec(powershellPath, powershellArgs, {
+          env: { ...aclEnv(), WEBCLI_CONTEXT_PERMISSION_PATHS_BASE64: encoded.join('\n'), WEBCLI_CONTEXT_PERMISSION_CREATE: create ? '1' : '0' },
           windowsHide: true, timeout: 10000, maxBuffer: 4096,
         });
       } catch (e) {
@@ -83,7 +136,7 @@ export class ContextStore {
     }
   }
   async init() {
-    const chain = [];
+    const chain = []; const createdPaths = [];
     for (let p = this.root; p !== dirname(p); p = dirname(p)) chain.unshift(p);
     for (const p of chain) {
       let created = false;
@@ -94,9 +147,10 @@ export class ContextStore {
         catch (error) { if (error.code !== 'EEXIST') throw error; }
         await this.safe(p, true);
       }
-      if (created) await this.private([p], true);
+      if (created) createdPaths.push(p);
     }
-    await this.private([this.root]);
+    if (createdPaths.length) await this.private(createdPaths, true);
+    if (!createdPaths.includes(this.root)) await this.private([this.root]);
   }
   async readJSON(path, limit, { ownerCreated = false } = {}) {
     const stat = await this.safe(path);
@@ -138,7 +192,7 @@ export class ContextStore {
   }
   async read(key) {
     try { return validateState(await this.readJSON(this.path(`${key}.json`), this.limits.file)); }
-    catch (e) { if (e.code === 'ENOENT') return null; throw e; }
+    catch (e) { if (e.code !== 'ENOENT') throw e; return null; }
   }
   async usage() {
     let files = 0, mainBytes = 0, rootBytes = 0;
@@ -191,7 +245,14 @@ export class ContextStore {
       if (maintenance) await this.unlock(maintenance);
     }
   }
-  async transaction(id, update, { create = true, epoch, revision, collect = true } = {}) {
+  async transaction(id, update, options) {
+    if (process.platform !== 'win32') return this.runTransaction(id, update, options);
+    const scoped = Object.create(this);
+    scoped.aclVerifier = openAclVerifier();
+    try { return await scoped.runTransaction(id, update, options); }
+    finally { scoped.aclVerifier.close(); }
+  }
+  async runTransaction(id, update, { create = true, epoch, revision, collect = true } = {}) {
     const key = contextKey(id);
     await this.init();
     const lock = await this.lock(`${key}.lock`);
@@ -205,7 +266,12 @@ export class ContextStore {
       result = await update(state, { created, persist: () => this.atomic(key, state) });
       await this.atomic(key, state);
     } finally { await this.unlock(lock); }
-    if (collect) await this.collect().catch(() => {});
+    if (collect) {
+      // Metadata timestamps only skip opportunistic maintenance, never authorize reads or deletion.
+      const cursor = await fs.lstat(this.path('gc-state.json')).catch(() => null);
+      const age = this.now() - (cursor?.mtimeMs ?? Infinity);
+      if (!cursor?.isFile() || age < 0 || age >= 900000) await this.collect().catch(() => {});
+    }
     return result;
   }
   async status(id) {

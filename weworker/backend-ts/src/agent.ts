@@ -1246,10 +1246,13 @@ async function* streamChatWithRuntime(...args: Parameters<typeof streamChatWithB
       enabled,
       signal: args[2]?.signal,
       skipReason,
+      ...(opts.precomputedWebcliRoute ? { precomputed: opts.precomputedWebcliRoute } : {}),
+      ...(opts.quickReply && !opts.precomputedWebcliRoute ? { skipReason: 'contextual_route_attempted' } : {}),
       enabledAdapterIds: enabled && !skipReason ? (opts.enabledAdapterIds ?? new Set(
         [...parseAllAdapters()].filter(([id, a]) => getSiteEnabled(id, a.defaultEnabled, a.managed?.enabled)).map(([id]) => id),
       )) : undefined,
     })
+    if (opts.quickReply || opts.desktopWebcliContext) routingContext = { ...routingContext, quickReply: opts.quickReply, desktopContextEnabled: !!opts.desktopWebcliContext }
     log.info('agent_pre_routing', { direct: routingContext.direct.status, webcli: routingContext.webcli.status,
       ...('reason' in routingContext.webcli ? { reason: routingContext.webcli.reason } : {}) })
     if (args[2]?.signal.aborted || routingContext.webcli.status === 'cancelled') return
@@ -1358,6 +1361,12 @@ async function* streamChatWithBaseUrl(
     channelPermissionMode?: ChannelPermissionMode;
     permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions';
     allowDangerouslySkipPermissions?: boolean;
+    /** 多轮快捷层已算出的单轮推荐（unrelated 复用）；避免同一回合重复 route 子进程。 */
+    precomputedWebcliRoute?: import('./webcli-route.js').WebcliRouteOutcome;
+    /** 多轮快捷层未接管时的参考结果；只进 <turn_routing> 参考，不是指令。 */
+    quickReply?: import('./webcli-route.js').QuickReplyForAgent;
+    /** 仅普通桌面聊天：结构化只读查询的 WebCLI 多轮关联（状态在 server 进程注册表）。 */
+    desktopWebcliContext?: { contextId: () => string | null; onReceipt: (receipt: import('./webcli-runner.js').WebcliContextReceipt) => void } | null;
     onAskUser?: (event: { type: string; id: string; question: string; options: Array<{ label: string; description?: string }> }) => void;
     channelAskUserHandler?: (question: string, options: Array<{ label: string; description?: string }>) => Promise<string>;
     /** Where send_image_to_user / send_file_to_user deliver for this turn; absent = cannot deliver. */
@@ -1439,6 +1448,7 @@ async function* streamChatWithBaseUrl(
     onAskUser: opts.onAskUser ?? null,
     userMedia: opts.userMedia ?? null,
     extraToolGuard: opts.extraToolGuard,
+    desktopWebcliContext: opts.desktopWebcliContext,
     memory: { userPromptInjections: 0, postToolBatchInjections: 0 },
   }
 
@@ -1453,6 +1463,7 @@ async function* streamChatWithBaseUrl(
     userMedia: () => turnBindings.userMedia ?? null,
     fileChangeReadGuard: async file => turnBindings.extraToolGuard?.('Read', { file_path: file }).behavior !== 'deny',
     readQueryScope: () => ({ workId: opts.workId ?? null, turnId: readQueryScope.current }),
+    ...(opts.desktopWebcliContext ? { desktopWebcliContext: opts.desktopWebcliContext } : {}),
   })
   const activeMcpServer = opts.mcpServerOverride || mcpServer
   const claudeSetup: { pathToClaudeCodeExecutable?: string; executable?: string; extraEnv?: Record<string, string> } = process.env.WEWORKER_PACKAGED
@@ -2057,6 +2068,7 @@ async function* streamChatWithBaseUrl(
         userMedia: () => bindings.userMedia ?? null,
         fileChangeReadGuard: async file => bindings.extraToolGuard?.('Read', { file_path: file }).behavior !== 'deny',
         readQueryScope: () => ({ workId: bindings.workIdRef.current, turnId: (bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId ?? null }),
+        desktopWebcliContext: () => bindings.desktopWebcliContext,
       })
       const releaseRuntime = internal.adoptModelRuntime()
       return new ChatSession({
@@ -2100,6 +2112,7 @@ async function* streamChatWithBaseUrl(
       sessionState = prewarmed ? 'prewarmed' : 'reused'
       reusable.bindings.workIdRef.current = turnWorkId
       reusable.bindings.fileChangeTurnId = turnBindings.fileChangeTurnId
+      reusable.bindings.desktopWebcliContext = opts.desktopWebcliContext
       ;(reusable.bindings as ChatTurnBindings & { readQueryTurnId?: string | null }).readQueryTurnId = readQueryScope.current
       reusable.bindings.onAskUser = turnBindings.onAskUser
       reusable.bindings.userMedia = turnBindings.userMedia

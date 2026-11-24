@@ -51,6 +51,8 @@ export interface ChatTurnBindings {
   /** Delivery of send_image_to_user / send_file_to_user to the current turn's conversation. */
   userMedia?: UserMediaSink | null
   extraToolGuard?: ToolGuard
+  /** 桌面多轮关联（server.ts 仅在普通桌面聊天时传入）；可复用会话每回合重绑。 */
+  desktopWebcliContext?: { contextId: () => string | null; onReceipt: (receipt: import('./webcli-runner.js').WebcliContextReceipt) => void } | null
   memory: { userPromptInjections: number; postToolBatchInjections: number }
 }
 

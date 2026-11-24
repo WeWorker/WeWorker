@@ -138,6 +138,8 @@ import { getRouteEngine, planRouteDecision } from './api-query-router/index.js'
 import { loadScenarioRoutes } from './api-query-router/scenario-routes.js'
 import { isFollowUpMessage } from './api-query-router/gates.js'
 import { tryRoutedTurn } from './routed-turn.js'
+import { tryContextualQuickReply } from './contextual-quick-reply.js'
+import { beginDesktopTurn, clearDesktopDisplay, commitDeliveredDisplay, createDesktopTrackedDispatch, currentDesktopContextId, currentDesktopDisplay, discardDesktopTurn, forgetDesktopContext, recordWebcliReceipt } from './desktop-webcli-context.js'
 import type { DirectRouteOutcome } from './webcli-route.js'
 import { prepareModelRuntime } from './anthropic-endpoint-relay.js'
 import { ensureRuntimeSkillsDir } from './runtime-skills-dir.js'
@@ -2518,6 +2520,7 @@ app.patch('/works/:id', (req, res) => {
 app.delete('/works/:id', (req, res) => {
   const previous = store.getWork(req.params.id)
   store.deleteWork(req.params.id)
+  forgetDesktopContext(req.params.id)
   if (previous?.project_id && !listAgentProjectIds().has(previous.project_id)) {
     store.cleanupProjectIfNoVisibleWorks(previous.project_id)
   }
@@ -3509,6 +3512,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   // the model rather than replay the same routed answer.
   // `persist: true` keeps the router's own `store.appendMessage`, so desktop
   // persistence is byte-identical to the pre-shared-entry behaviour.
+  const contextualEnabled = settings.webcli_route_enabled === true && !dedicatedAgent && !retryCompaction
+    && ['full', 'workspace'].includes(desktopPermission.channelPermissionMode)
+  if (contextualEnabled) beginDesktopTurn(workId, turnId)
+  else forgetDesktopContext(workId)
   let directRoute: DirectRouteOutcome = { status: 'skipped', reason: dedicatedAgent ? 'dedicated_agent'
     : retryCompaction === true ? 'retry_compaction'
     : desktopPermission.channelPermissionMode === 'ask' ? 'ask_permission' : 'no_text' }
@@ -3527,9 +3534,15 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       // Messages *before* the current turn: the follow-up gate needs them to
       // tell "那第二个呢" apart from a fresh query.
       history: workWithMessages.messages.filter((msg) => msg.id !== savedUserMessage?.id),
+      // 桌面多轮关联：仅普通桌面聊天采集快照回执；渠道/定时任务不传，行为不变。
+      // 外层条件已排除 ask 权限，无需重复检查。
+      ...(contextualEnabled
+        ? { webcliContext: { enabled: true, signal: abortController.signal } }
+        : {}),
     })
     directRoute = routed.directRoute ?? { status: 'miss' }
     if (routed.handled) {
+      discardDesktopTurn(workId, turnId)
       finished = true
       res.off('close', onClose)
       broadcastSSE({ type: 'works_changed', workId })
@@ -3557,7 +3570,10 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     const match = localFastRoutes.lookup(message, workspaceId, { isReserved: fastRouteReserved })
     if (match.route) {
       const began = Date.now()
-      const answer = await localFastRoutes.execute(match.route, { workId, isReserved: fastRouteReserved })
+      const answer = await localFastRoutes.execute(match.route, {
+        workId, isReserved: fastRouteReserved,
+        ...(contextualEnabled ? { dispatch: createDesktopTrackedDispatch(workId, turnId, abortController.signal) } : {}),
+      })
       if (answer && !abortController.signal.aborted) {
         const totalMs = Date.now() - chatStartTime
         const timing = { totalMs, llmMs: 0, execMs: Date.now() - began, steps: 1,
@@ -3570,6 +3586,8 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
         appendWorkLog(workId, 'route_diagnostic', { phase: 'render_succeeded', source: 'local-approved', tool: match.route.tool }, turnId)
         appendWorkLog(workId, 'route_diagnostic', { phase: 'route_finished', handled: true, fallback: 'none' }, turnId)
         send({ type: 'turn_end', turnId, workId, ...timing })
+        if (contextualEnabled && !await commitDeliveredDisplay(workId, turnId, answer, { signal: abortController.signal })) clearDesktopDisplay(workId)
+        discardDesktopTurn(workId, turnId)
         finished = true
         res.off('close', onClose)
         broadcastSSE({ type: 'works_changed', workId })
@@ -3595,8 +3613,13 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     if (event.workId !== workId) return
     send({ type: 'terminal_event', data: event })
   })
+  // 桌面多轮：Agent 结构化只读查询的回执旁路；取消后到达的回执不得开启任何能力。
+  const recordDesktopReceiptForTurn = (wid: string, tid: string, receipt: import('./webcli-runner.js').WebcliContextReceipt): void => {
+    if (!abortController.signal.aborted) recordWebcliReceipt(wid, tid, receipt)
+  }
 
   let turnSucceeded = false
+  let contextualFinished = false
   let streamFailed = false
   // Each assistant response owns an independent memory decision. Keep every
   // decision; a later response must not overwrite an earlier one.
@@ -3647,6 +3670,48 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           (siteToolkit ? ` tools=${siteToolkit.toolCount}/${siteToolkit.total}` : ''),
       )
     }
+    // 桌面多轮快捷直答：现有确定性层（含本地批准路由）都没答出后、文本 Agent 之前。
+    // 只在进程内仍有可信展示登记时尝试；不能直答时把参考结果带给 Agent。
+    let quickReplyOutcome: import('./webcli-route.js').QuickReplyForAgent | undefined
+    let precomputedWebcliRoute: import('./webcli-route.js').WebcliRouteOutcome | undefined
+    if (!abortController.signal.aborted && contextualEnabled && importedAttachments.length === 0
+      && !/^\s*!/.test(message)
+      && !siteGate.adapterId
+      && modelInputMessage === message && !scenario && !!message.trim()
+      && currentDesktopDisplay(workId)) {
+      const quick = await tryContextualQuickReply({
+        message,
+        workId,
+        turnId,
+        chatStartTime,
+        send: event => { if ((event as { type?: string }).type !== 'turn_start') send(event) },
+        signal: abortController.signal,
+        enabledAdapterIds,
+        persistAssistantMessage: (wid, text, timing) => {
+          store.appendMessage(wid, 'assistant', [{ type: 'text', text }, { type: 'timing', ...timing } as store.ContentBlock])
+        },
+      })
+      if (quick.handled || abortController.signal.aborted) {
+        contextualFinished = true
+        discardDesktopTurn(workId, turnId)
+        finished = true
+        res.off('close', onClose)
+        broadcastSSE({ type: 'works_changed', workId })
+        res.end()
+        return
+      }
+      quickReplyOutcome = quick.forAgent
+      if (quick.forAgent?.kind === 'needs_input') {
+        // Do not let a later route implicitly resume CLI-owned clarification.
+        forgetDesktopContext(workId)
+        beginDesktopTurn(workId, turnId)
+      }
+      precomputedWebcliRoute = quick.precomputedRecommendation
+      if (quickReplyOutcome) {
+        appendWorkLog(workId, 'route_diagnostic', { phase: 'contextual_fallback_llm', kind: quickReplyOutcome.kind,
+          ...(quickReplyOutcome.reasonCode ? { reason: quickReplyOutcome.reasonCode } : {}) }, turnId)
+      }
+    }
     // 第4层即时执行（第15行）：显式探索指令（`网站 <URL> 直接查询：<问题>` 或 `!explore ...`）
     // + 站点未被 adapter/toolkit 覆盖 + 网站探索agent健康 + 建任务成功 → 该轮转交网站探索agent，
     // 事件源换成第4层流；任一条件不过 → 第3层 streamChat（今天的行为，漏判免费）。
@@ -3692,6 +3757,14 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     for await (const ev of tier4Source ?? streamChat(modelMessages, settings, abortController, {
       directRoute,
       enabledAdapterIds,
+      ...(precomputedWebcliRoute ? { precomputedWebcliRoute } : {}),
+      ...(quickReplyOutcome ? { quickReply: quickReplyOutcome } : {}),
+      desktopWebcliContext: contextualEnabled
+        ? {
+            contextId: () => currentDesktopContextId(workId),
+            onReceipt: receipt => recordDesktopReceiptForTurn(workId, turnId, receipt),
+          }
+        : null,
       workId,
       styleId,
       thinkingEffort: resolveThinkingEffort(settings.active_provider, settings.model, thinkingEffort),
@@ -3850,36 +3923,49 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     }
   } finally {
     unsubscribeTerminalEvents()
-    // Close the turn: trailing LLM text generation is whatever is left after
-    // every tool interval; tools without a result event are settled here so
-    // their time is never charged to llmMs.
-    turnTimingResult = turnTiming.finish()
-    // Sync credited (non-overlapping) tool durations, including unfinished tools.
-    for (let index = 0; index < assistantContent.length; index++) {
-      const block = assistantContent[index]
-      if (block.type !== 'tool_use') continue
-      const execMs = turnTiming.toolExecutionMs(block.id)
-      if (execMs === undefined) continue
-      if (block.execMs !== execMs || block.status === 'running') {
-        assistantContent[index] = { ...block, execMs, status: block.status === 'running' ? (turnSucceeded ? 'done' : 'cancelled') : block.status }
-        segments.refresh(index)
-        send({ type: 'tool_timing_final', id: block.id, execMs })
+    if (!contextualFinished && !res.writableEnded) {
+      // Close the turn: trailing LLM text generation is whatever is left after
+      // every tool interval; tools without a result event are settled here so
+      // their time is never charged to llmMs.
+      turnTimingResult = turnTiming.finish()
+      // Sync credited (non-overlapping) tool durations, including unfinished tools.
+      for (let index = 0; index < assistantContent.length; index++) {
+        const block = assistantContent[index]
+        if (block.type !== 'tool_use') continue
+        const execMs = turnTiming.toolExecutionMs(block.id)
+        if (execMs === undefined) continue
+        if (block.execMs !== execMs || block.status === 'running') {
+          assistantContent[index] = { ...block, execMs, status: block.status === 'running' ? (turnSucceeded ? 'done' : 'cancelled') : block.status }
+          segments.refresh(index)
+          send({ type: 'tool_timing_final', id: block.id, execMs })
+        }
       }
+      // Mark as finished so that the subsequent res.end() → close event
+      // does not trigger abort on the already-completed query.
+      chatLog.info(
+        `${tag} ◼ turn end — total=${(turnTimingResult.totalMs / 1000).toFixed(2)}s` +
+          `, llm=${(turnTimingResult.llmMs / 1000).toFixed(2)}s` +
+          `, exec=${(turnTimingResult.execMs / 1000).toFixed(2)}s, steps=${stepIndex}`,
+      )
+      send({ type: 'turn_end', turnId, workId, totalMs: turnTimingResult.totalMs, llmMs: turnTimingResult.llmMs, execMs: turnTimingResult.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
+      finished = true
+      res.off('close', onClose)
     }
-    // Mark as finished so that the subsequent res.end() → close event
-    // does not trigger abort on the already-completed query.
-    chatLog.info(
-      `${tag} ◼ turn end — total=${(turnTimingResult.totalMs / 1000).toFixed(2)}s` +
-        `, llm=${(turnTimingResult.llmMs / 1000).toFixed(2)}s` +
-        `, exec=${(turnTimingResult.execMs / 1000).toFixed(2)}s, steps=${stepIndex}`,
-    )
-    send({ type: 'turn_end', turnId, workId, totalMs: turnTimingResult.totalMs, llmMs: turnTimingResult.llmMs, execMs: turnTimingResult.execMs, remainingModelMs: turnTiming.remainingModelMs(), steps: stepIndex })
-    finished = true
-    res.off('close', onClose)
   }
 
   // Finalize text
   flushText()
+  // 桌面多轮：用最终可见正文核对结构化查询回执并登记展示；失败/取消回合一律不登记。
+  const deliveredAssistantText = assistantContent
+    .filter((block): block is Extract<store.ContentBlock, { type: 'text' }> => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+  if (turnSucceeded && deliveredAssistantText.trim() && contextualEnabled && !res.destroyed) {
+    await commitDeliveredDisplay(workId, turnId, deliveredAssistantText, { signal: abortController.signal }).catch(() => {})
+  } else {
+    clearDesktopDisplay(workId)
+  }
+  discardDesktopTurn(workId, turnId)
   // Stop/error must also settle tools in segments saved before a steering message.
   for (let index = 0; index < assistantContent.length; index++) {
     const block = assistantContent[index]

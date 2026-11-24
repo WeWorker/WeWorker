@@ -24,6 +24,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { tryIntelligentQueryRoute } from './api-query-router/index.js'
+import { clearDesktopDisplay, commitDeliveredDisplay, createDesktopTrackedDispatch, numberDesktopResult } from './desktop-webcli-context.js'
 import type { ChannelPermissionMode } from './channels/channel-permissions.js'
 import type { ContentBlock, Message } from './works-store.js'
 import { appendWorkLog } from './work-log-file.js'
@@ -83,6 +84,11 @@ export interface RoutedTurnInput {
    * 避免访客拿到一条模型自身没有的工具通道。
    */
   channelPermissionMode?: ChannelPermissionMode
+  /**
+   * 仅普通桌面聊天传入：把本回合的确定性直调接入 WebCLI 多轮关联（采集快照供后续追问）。
+   * 渠道、定时任务不传，行为与之前逐字一致。
+   */
+  webcliContext?: { enabled: boolean; signal?: AbortSignal }
 }
 
 function isQaOnly(mode: ChannelPermissionMode | undefined): boolean {
@@ -146,6 +152,10 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
 
   let handled = false
   try {
+    // 桌面多轮关联：派发仍走同一 Runner，只是附带 --new-context/--context 并旁路接收回执。
+    const trackedDispatch = input.webcliContext?.enabled
+      ? createDesktopTrackedDispatch(input.workId, turnId, input.webcliContext.signal)
+      : undefined
     handled = await tryIntelligentQueryRoute(
       {
         message: input.message,
@@ -158,9 +168,12 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
         history: input.history,
         onFallback: outcome => { miss.directRoute = outcome },
       },
-      // 非持久化调用方：给一个空实现顶掉默认落库，由调用方写自己那份（带各自的
-      // timing 口径与 external-write 标记），否则同一条回复会被写两次。
-      input.persist ? {} : { persistAssistantMessage: () => {} },
+      {
+        // 非持久化调用方：给一个空实现顶掉默认落库，由调用方写自己那份（带各自的
+        // timing 口径与 external-write 标记），否则同一条回复会被写两次。
+        ...(input.persist ? {} : { persistAssistantMessage: () => {} }),
+        ...(trackedDispatch ? { desktopResultDispatch: trackedDispatch, desktopResultFormat: text => numberDesktopResult(input.workId, turnId, text) } : {}),
+      },
     )
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
@@ -169,6 +182,7 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
     // 会让用户看到两条答案。这里保留已产出的正文，由调用方照常收尾。
     if (visible) {
       input.log?.(`routed turn failed after output: ${reason} → keep routed answer, no LLM fallback`)
+      if (input.webcliContext?.enabled) clearDesktopDisplay(input.workId)
       complete('partial_visible', 'direct_route_error', true)
       return { handled: true, text, timing }
     }
@@ -186,6 +200,11 @@ export async function tryRoutedTurn(input: RoutedTurnInput): Promise<RoutedTurnR
   }
   appendWorkLog(input.workId, 'route_end', { handled: true }, turnId)
   complete('handled', 'route_answered', visible)
+  // 桌面多轮：已交付的正文与回执核对后登记展示，供后续追问直答（失败仅少命中，不报错）。
+  if (input.webcliContext?.enabled && text.trim()) {
+    const registered = await commitDeliveredDisplay(input.workId, turnId, text, { signal: input.webcliContext.signal }).catch(() => false)
+    if (!registered) clearDesktopDisplay(input.workId)
+  }
   return { handled: true, text, timing }
 }
 

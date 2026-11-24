@@ -200,6 +200,9 @@ describe('private context file transactions', () => {
     } else {
       await promisify(execFile)('icacls.exe', [s.path(`${contextKey('private')}.json`), '/grant', '*S-1-1-0:(R)'], { windowsHide: true });
       await expect(s.status('private')).rejects.toMatchObject({ code: 'context_private_permissions_unverified' });
+      let entered = false;
+      await expect(tx(s, 'private', () => { entered = true; })).rejects.toMatchObject({ code: 'context_private_permissions_unverified' });
+      expect(entered).toBe(false);
     }
   }, 90000);
 });

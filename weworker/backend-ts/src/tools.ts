@@ -33,7 +33,7 @@ import { runWeWorkerPowerShell } from './powershell-runner.js'
 import { getCatalog } from './api-query-router/tool-catalog.js'
 import { approvedRows } from './api-query-router/local-approved-routes.js'
 import { classifyDispatchPayload } from './api-query-router/route-dispatch.js'
-import { runWebcliCall } from './webcli-runner.js'
+import { runWebcliCall, runWebcliCallEx } from './webcli-runner.js'
 import { issueReadQueryReceipt, READ_QUERY_RECEIPT_FIELD, type ReadQueryScope } from './read-query-receipts.js'
 
 const log = createLogger('tools')
@@ -245,6 +245,11 @@ interface McpServerContext {
   dedicatedAgent?: { agentId: string; ownerUserId: string; actorUserId?: string; taskId?: string; desktop?: boolean }
   /** Trusted per-turn binding; never populated from model-supplied arguments. */
   readQueryScope?: () => ReadQueryScope | null
+  /**
+   * 仅普通桌面聊天传入：结构化只读查询附带 WebCLI 多轮关联并旁路接收回执。
+   * 关联状态由后端进程持有；不传即行为与之前逐字一致。
+   */
+  desktopWebcliContext?: import('./chat-session.js').ChatTurnBindings['desktopWebcliContext'] | (() => import('./chat-session.js').ChatTurnBindings['desktopWebcliContext'])
   fileChangeReadGuard?: (file: string) => Promise<boolean>
 }
 
@@ -400,7 +405,21 @@ export function buildMcpServer(opts?: McpServerContext) {
           fixedArgs[key] = value as number | boolean
         }
         try {
-          const raw = await runWebcliCall(name, JSON.stringify(args), scope.workId, { timeoutMs: 30_000 })
+          const desktopContext = typeof opts?.desktopWebcliContext === 'function' ? opts.desktopWebcliContext() : opts?.desktopWebcliContext
+          const contextControl = desktopContext
+            ? (() => {
+                const contextId = desktopContext.contextId() ?? null
+                return {
+                  context: contextId ? { contextId } : { newContext: true as const },
+                  onReceipt: (receipt: import('./webcli-runner.js').WebcliContextReceipt) => {
+                    if (!abortSignal?.aborted && opts?.readQueryScope?.()?.turnId === scope.turnId && currentWorkId() === scope.workId) desktopContext.onReceipt(receipt)
+                  },
+                }
+              })()
+            : null
+          const raw = contextControl
+            ? await runWebcliCallEx(name, JSON.stringify(args), scope.workId, { timeoutMs: 30_000, ...contextControl })
+            : await runWebcliCall(name, JSON.stringify(args), scope.workId, { timeoutMs: 30_000 })
           if (abortSignal?.aborted || opts.readQueryScope?.()?.turnId !== scope.turnId || currentWorkId() !== scope.workId) {
             return toolText({ error: 'Read query turn expired' })
           }

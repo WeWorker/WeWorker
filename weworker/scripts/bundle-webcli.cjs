@@ -65,6 +65,13 @@ await esbuild.build({
   },
 })
 
+if (process.platform === 'win32') {
+  const windows = process.env.SystemRoot || 'C:\\Windows'
+  const compiler = ['Framework64', 'Framework'].map(dir => path.join(windows, 'Microsoft.NET', dir, 'v4.0.30319', 'csc.exe')).find(file => fs.existsSync(file))
+  if (!compiler) throw new Error('Windows .NET Framework compiler is required to build the WebCLI context ACL verifier')
+  require('node:child_process').execFileSync(compiler, ['/nologo', '/target:exe', '/optimize+', `/out:${path.join(outDir, 'context-acl-windows.exe')}`, path.join(__dirname, 'context-acl-windows.cs')], { stdio: 'inherit' })
+}
+
 console.log('WebCLI bundle created: build/webcli-dist/webcli.cjs')
 require('./host-keychain-deps.cjs').copyHostKeychainDeps(outDir)
 

@@ -19,7 +19,7 @@ export async function loadContextCatalog(options = {}) {
       // Ordinary v2 calls may default to read; a contextual action needs an explicit declaration.
       safety: adapter.manifest.commands.find(item => item.id === command.id)?.safety };
   }));
-  return { entries, aliases, routeAdapters: buildRouteCatalog({ catalog }), tools: {}, profile: null, resultBindings: compileResultBindings(entries) };
+  return { entries, aliases, adapterCatalog: catalog, routeAdapters: buildRouteCatalog({ catalog }), tools: {}, profile: null, resultBindings: compileResultBindings(entries) };
 }
 
 export const canonicalTool = (name, catalog) => catalog?.aliases?.get(name) || catalog?.aliases?.get(name.toLowerCase()) || name;

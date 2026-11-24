@@ -1076,7 +1076,7 @@ async function cmdCall(toolName, argsStr, options = {}) {
 
   const { resolveToolkitTool } = await import("./adapter-registry.js");
   const { resolveAdapterCall } = await import("./adapter-host.js");
-  const v2Match = resolveAdapterCall(toolName);
+  const v2Match = resolveAdapterCall(toolName, { catalog: options.adapterCatalog });
   if (options.executionSnapshot && (!v2Match || ['name', 'digest', 'profile'].some(key => v2Match.snapshot?.[key] !== options.executionSnapshot[key]))) {
     throw new Error('context_tool_profile_unavailable');
   }
@@ -1716,7 +1716,7 @@ async function main() {
         const completed = await runContextCall({ id: controls.context, tool: invocation.toolName, args: businessArgs,
           decision: controls.decision, step: controls.step, deliver,
           invoke: (tool, params, binding) => cmdCall(tool, JSON.stringify(params), { verbose, profile, loginWaitSeconds,
-            executionSnapshot: binding?.executionSnapshot, returnResult: true, outputFormat: 'json' }) });
+            executionSnapshot: binding?.executionSnapshot, adapterCatalog: binding?.adapterCatalog, returnResult: true, outputFormat: 'json' }) });
         if (!delivered) console.log(render(completed));
         process.stderr.write('WEBCLI_CONTEXT ' + JSON.stringify(completed.receipt) + '\n');
         process.exitCode = completed.contextExitCode || completed.exitCode;

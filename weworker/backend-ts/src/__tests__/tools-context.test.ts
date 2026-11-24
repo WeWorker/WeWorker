@@ -22,6 +22,7 @@ vi.mock('../powershell-runner.js', () => ({
 
 vi.mock('../webcli-runner.js', () => ({
   runWebcliCall: vi.fn(),
+  runWebcliCallEx: vi.fn(),
 }))
 
 describe('MCP tool context', () => {

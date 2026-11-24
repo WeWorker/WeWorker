@@ -25,10 +25,13 @@ function validateReadBinding(s, catalog, now) {
 }
 
 export async function runContextRoute(tokens, controls, { store = new ContextStore(), catalog, provider, singleTurn = routeRequest } = {}) {
-  catalog ??= await loadContextCatalog();
   provider ??= choose;
-  const text = requestText(tokens, catalog);
+  // Start asynchronous filesystem/ACL checks before scanning the catalog. Never route until both succeed.
+  const ready = Promise.resolve().then(() => catalog ?? loadContextCatalog());
+  void ready.catch(() => {}); // The store can reject before invoking its callback.
   return store.transaction(controls.context, async (s, { created }) => {
+    const catalog = await ready;
+    const text = requestText(tokens, catalog);
     const result = await routeContext(s, text, { now: store.now(), catalog, replyTo: controls['reply-to'], provider });
     if (result.kind === 'unrelated') {
       const knownSite = catalog.routeAdapters?.find(adapter => adapter.id === tokens[0])?.id;
@@ -47,8 +50,12 @@ export async function runContextCall({ id, tool, args, decision, step, invoke, d
   catalog ??= await loadContextCatalog();
   args = businessArgs(args);
   tool = canonicalTool(tool, catalog);
-  const executionSnapshot = catalog.entries?.find(entry => entry.name === tool)?.executionSnapshot;
-  const execute = () => executionSnapshot ? invoke(tool, args, { executionSnapshot }) : invoke(tool, args);
+  const entry = catalog.entries?.find(entry => entry.name === tool);
+  const executionSnapshot = entry?.executionSnapshot;
+  // Bridge revalidates the package snapshot before running Extension commands.
+  // Keep the fresh local catalog check for writes and local runners.
+  const adapterCatalog = entry?.runtime === 'extension' && entry.safety === 'read' ? catalog.adapterCatalog : undefined;
+  const execute = () => executionSnapshot ? invoke(tool, args, { executionSnapshot, ...(adapterCatalog ? { adapterCatalog } : {}) }) : invoke(tool, args);
   const role = callRole(tool, args, catalog);
   const untracked = role === 'unsupported' && !decision && !step;
 
@@ -68,8 +75,9 @@ export async function runContextCall({ id, tool, args, decision, step, invoke, d
       const guard = write ? recordDispatch(s, { tool, args, roundId, decisionId: matched ? s.preparedDecision.decisionId : null,
         stepId: matched?.stepId, now: store.now(), profile: executionSnapshot?.digest || catalog.profile }) : null;
       if (!matched || role === 'list') { s.currentSnapshotId = null; s.focus = null; }
-      // Persist the invalidated old display before I/O, including a failed refresh or process crash.
-      await persist();
+      // A matched detail read changes no state before I/O. Writes and refreshes
+      // still commit their guard or invalidation before dispatch.
+      if (write || !matched || role === 'list') await persist();
       durableRevision = s.revision;
       if (matched) {
         try { validateReadBinding(s, catalog, store.now()); }

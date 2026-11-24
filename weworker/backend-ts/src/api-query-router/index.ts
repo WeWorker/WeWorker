@@ -356,6 +356,9 @@ export type RouteExecutionContext = {
 
 export type RouteExecutionDeps = {
   dispatch?: (tool: string, argsJson: string, workId: string) => Promise<string>
+  /** Only the single-tool business call, never navigation preparation or plan intermediates. */
+  desktopResultDispatch?: RouteExecutionDeps['dispatch']
+  desktopResultFormat?: (text: string) => string
   persistAssistantMessage?: (workId: string, text: string, timing: Record<string, unknown>) => void
   askUser?: AskUserFn
   now?: () => number
@@ -451,7 +454,7 @@ async function dispatchAndRender(args: {
   // 一律落回 LLM，绝不把 `⚠️ 查询失败` 渲染成这一轮的答案（见 route-dispatch.ts 模块头）。
   let raw = ''
   try {
-    raw = await guardDispatch(deps)(tool, JSON.stringify(args.args ?? {}), ctx.workId)
+    raw = await guardDispatch({ ...deps, dispatch: deps.desktopResultDispatch ?? deps.dispatch })(tool, JSON.stringify(args.args ?? {}), ctx.workId)
   } catch (error) {
     if (error instanceof RouteDispatchError) {
       routeDiagnostic(ctx, 'dispatch_failed', { tool, category: error.kind, fallback: 'llm' })
@@ -521,7 +524,7 @@ async function dispatchAndRender(args: {
     return 'fallback'
   }
   routeDiagnostic(ctx, 'render_succeeded', { tool, source, responseChars: text.length })
-  emitRoutedAnswer(ctx, deps, { tool, args: args.args, text, source, execMs, renderMs: 0 })
+  emitRoutedAnswer(ctx, deps, { tool, args: args.args, text: deps.desktopResultFormat?.(text) ?? text, source, execMs, renderMs: 0 })
   ctx.log?.(`route hit [${source}]: ${tool} ${args.label} (exec ${execMs}ms, payload ${briefPayload(raw, 120).length}B)`)
   return 'handled'
 }

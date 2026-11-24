@@ -63,6 +63,129 @@ export type WebcliCallOptions = {
   timeoutMs?: number
 }
 
+/** stderr 上 `WEBCLI_CONTEXT` 回执的可信子集字段；未知字段原样保留，不做语义承诺。 */
+export interface WebcliContextReceipt {
+  contextProtocolVersion?: unknown
+  contextId: string
+  contextState?: string
+  historyAvailable?: boolean
+  epoch?: string
+  revision?: number
+  roundId?: string | null
+  decisionId?: string | null
+  stepId?: string | null
+  snapshotId?: string | null
+  operationId?: string | null
+  displayManifest?: {
+    orderedEntityRefs?: string[]
+    completeness?: string
+    capturedCount?: number
+    resultCount?: number
+    markdown?: string
+  } | null
+  displayState?: string
+  toolOutcome?: string
+  contextPersistence?: string
+  retryDisposition?: string
+  reasonCode?: string
+  [key: string]: unknown
+}
+
+/** 桌面多轮关联控制：要么 --new-context，要么 --context [＋decision/step 关联]。 */
+export interface WebcliCallContextControl {
+  newContext?: boolean
+  contextId?: string
+  decisionId?: string
+  stepId?: string
+}
+
+export type WebcliCallExOptions = WebcliCallOptions & {
+  context?: WebcliCallContextControl
+  onReceipt?: (receipt: WebcliContextReceipt) => void
+  signal?: AbortSignal
+}
+
+function contextControlFlags(context: WebcliCallContextControl | undefined): string[] {
+  if (!context) return []
+  if (context.newContext) return ['--new-context']
+  if (!context.contextId) return []
+  const flags = ['--context', context.contextId]
+  if (context.decisionId && context.stepId) flags.push('--context-decision', context.decisionId, '--context-step', context.stepId)
+  return flags
+}
+
+/** 只认最后一行 `WEBCLI_CONTEXT ` 回执；解析失败视为无回执，绝不把 stderr 当业务结果。 */
+export function parseWebcliContextReceipt(stderr: string): WebcliContextReceipt | null {
+  const line = stderr.split(/\r?\n/).reverse().find(candidate => candidate.startsWith('WEBCLI_CONTEXT '))
+  if (!line) return null
+  try {
+    const parsed = JSON.parse(line.slice('WEBCLI_CONTEXT '.length)) as WebcliContextReceipt
+    return parsed && typeof parsed === 'object' && typeof parsed.contextId === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function spawnWebcli(cliArgs: string[], timeoutMs?: number, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+  const isPackaged = !!process.env.WEWORKER_PACKAGED
+  const nodeBin = isPackaged ? (process.env.WEWORKER_EXEC_PATH || process.execPath) : 'node'
+  const { stdout, stderr } = await execFileAsync(nodeBin, [resolveWebcliEntry(), ...cliArgs], {
+    env: {
+      ...process.env,
+      ...(isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
+      WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
+      WEBCLI_EMBEDDED: '1', // 桌面端内嵌 webcli:关闭版本自检与 npm 升级(随应用更新)
+      WEBCLI_CLI_NAME: 'webgo', // 桌面端内嵌统一品牌:运行时输出/help 显示 webgo(WebGo)
+    },
+    maxBuffer: 10 * 1024 * 1024,
+    windowsHide: true,
+    ...(timeoutMs ? { timeout: timeoutMs, killSignal: 'SIGTERM' as const } : {}),
+    ...(signal ? { signal } : {}),
+  })
+  return { stdout, stderr }
+}
+
+function throwIfTimeout(toolName: string, timeoutMs: number | undefined, error: unknown): void {
+  const e = error as { killed?: boolean; signal?: string }
+  if (timeoutMs && (e?.killed === true || e?.signal === 'SIGTERM')) throw new WebcliTimeoutError(toolName, timeoutMs)
+}
+
+/**
+ * 带多轮关联的 `webcli call`：业务 stdout 与 `WEBCLI_CONTEXT` 回执分流。
+ * 业务输出合同与 `runWebcliCall` 一致（含大结果落盘指针）；回执只经 `onReceipt` 旁路交付，
+ * 绝不混入业务结果。没有 context 控制时标志位为空，行为等价 runWebcliCall（除回执旁路）。
+ */
+export async function runWebcliCallEx(
+  toolName: string,
+  argsJson: string | undefined,
+  workId: string | null | undefined,
+  options: WebcliCallExOptions = {},
+): Promise<string> {
+  const cliArgs = ['call', toolName, '--output-format=json', ...contextControlFlags(options.context)]
+  if (argsJson !== undefined && argsJson !== '') cliArgs.push('--args', argsJson)
+  let result: { stdout: string; stderr: string }
+  try {
+    result = await spawnWebcli(cliArgs, options.timeoutMs, options.signal)
+  } catch (error) {
+    throwIfTimeout(toolName, options.timeoutMs, error)
+    // 业务失败（exitCode 1 等）仍会带完整 stdout/stderr；缓冲溢出与信号终止才是真不可信。
+    const e = error as { code?: string; stdout?: unknown; stderr?: unknown; signal?: unknown }
+    if (options.signal?.aborted || e?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' || e?.signal) throw error
+    result = {
+      stdout: typeof e?.stdout === 'string' ? e.stdout : '',
+      stderr: typeof e?.stderr === 'string' ? e.stderr : '',
+    }
+    if (!result.stdout && !result.stderr) throw error
+  }
+  const receipt = parseWebcliContextReceipt(result.stderr)
+  if (receipt) options.onReceipt?.(receipt)
+  const output = (result.stdout || '').trim()
+  if (!output) {
+    throw new Error(`webcli call produced no output: ${toolName}`)
+  }
+  return offloadIfLarge(toolName, output, workId) ?? output
+}
+
 /** 超时专用错误：调用方（智能路由）据此判成「超时 → 落回 LLM」而不是当成工具结果。 */
 export class WebcliTimeoutError extends Error {
   constructor(
@@ -80,28 +203,12 @@ export async function runWebcliCall(
   workId?: string | null,
   options: WebcliCallOptions = {},
 ): Promise<string> {
-  const isPackaged = !!process.env.WEWORKER_PACKAGED
-  const nodeBin = isPackaged
-    ? (process.env.WEWORKER_EXEC_PATH || process.execPath)
-    : 'node'
-  const webcliEntry = resolveWebcliEntry()
   const cliArgs = buildCliCallArgs(toolName, argsJson)
   const timeoutMs = options.timeoutMs && options.timeoutMs > 0 ? Math.floor(options.timeoutMs) : undefined
 
-  const env = {
-    ...process.env,
-    ...(isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
-    WEWORKER_ALLOWED_OPEN_BROWSER_ORIGINS: getOpenBrowserAllowedOrigins().join(','),
-    WEBCLI_EMBEDDED: '1', // 桌面端内嵌 webcli:关闭版本自检与 npm 升级(随应用更新)
-    WEBCLI_CLI_NAME: 'webgo', // 桌面端内嵌统一品牌:运行时输出/help 显示 webgo(WebGo)
-  }
   let output: string
   try {
-    const { stdout, stderr } = await execFileAsync(nodeBin, [webcliEntry, ...cliArgs], {
-      env,
-      maxBuffer: 10 * 1024 * 1024,
-      ...(timeoutMs ? { timeout: timeoutMs, killSignal: 'SIGTERM' as const } : {}),
-    })
+    const { stdout, stderr } = await spawnWebcli(cliArgs, timeoutMs)
     output = (stdout || stderr || '').trim()
   } catch (e: any) {
     // 超时被 SIGTERM 杀掉：半截 stdout 不可信，直接抛超时，别把残缺输出当结果缓存/渲染。

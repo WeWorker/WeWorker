@@ -86,6 +86,7 @@
           "webcli",
           "webcli.cjs",
           "webcli.cmd",
+          "context-acl-windows.exe",
           "skills/**",
           "wecli-columns/**",
           "wecli-migrated-commands.json",
