@@ -160,7 +160,9 @@ describe('provider discovery API and startup', () => {
       },
       getSettings: () => ({ model_discovery_enabled: enabled, scheduled_task_history_limit: 50 }),
       startConfiguredChannels: async () => order.push('channels'),
-      app: { listen: (_port: unknown, _host: unknown, callback: () => void) => { order.push('listen'); callback() } },
+      app: { listen: (_port: unknown, _host: unknown, callback: () => void) => {
+        order.push('listen'); callback(); return { on: vi.fn() }
+      } },
       PORT: 0, log, scheduler: { start: () => order.push('scheduler') },
     })
     const from = source.indexOf('async function bootstrap():')

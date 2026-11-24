@@ -1407,7 +1407,13 @@
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回指定作品的发布状态与核验范围；状态回执不是可选择对象，后续操作应使用独立作品查询命令。"
+        }
+      ]
     },
     {
       "id": "search-notes",
@@ -1893,7 +1899,26 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$.albums",
+          "idField": "id",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "notes",
+              "label": "查看专辑笔记",
+              "command": "album-notes",
+              "args": {
+                "album-id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "album-notes",
@@ -1918,7 +1943,78 @@
         "required": [
           "album-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "$.notes",
+          "idField": "context_ref",
+          "titleField": "context_title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "comments",
+              "label": "查看评论",
+              "command": "comments",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "download",
+              "label": "下载媒体",
+              "command": "download",
+              "args": {
+                "note-id": {
+                  "from": "item.context_note_url"
+                }
+              }
+            },
+            {
+              "id": "like",
+              "label": "点赞",
+              "command": "like-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            },
+            {
+              "id": "favorite",
+              "label": "收藏",
+              "command": "favorite-note",
+              "args": {
+                "id": {
+                  "from": "item.context_note_id"
+                },
+                "url": {
+                  "from": "item.context_note_url"
+                },
+                "confirm": {
+                  "value": true
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "video-media",
@@ -1938,7 +2034,13 @@
         "required": [
           "url"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回已校验的带音轨 MP4 媒体流地址，供调用方下载；媒体流是终态结果，不对应站内下钻或写操作。"
+        }
+      ]
     }
   ],
   "homepage_url": "https://www.xiaohongshu.com",

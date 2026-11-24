@@ -131,6 +131,13 @@ it('every read command is explicitly classified and terminal results explain the
     for (const r of c.results) if (!r.actions.length) expect(r.reason.length).toBeGreaterThan(20);
   }
 });
+it('routes albums to their notes and preserves signed note actions in nested results', () => {
+  const s = setup(), albumId = 'dddddddddddddddddddddddd';
+  const album = bound(s, 'albums', {}, { albums: [{ id: albumId, name: 'Example album' }] }).entities[0];
+  expect(album.bindings.notes).toMatchObject({ ready: true, args: { 'album-id': albumId } });
+  const raw = decorateResults('album-notes', {}, { notes: [{ id: ids[0], title: 'Example note', url: noteUrl(ids[0]) }] });
+  expect(bound(s, 'album-notes', {}, raw).entities[0].bindings.detail).toMatchObject({ ready: true, args: { 'note-id': noteUrl(ids[0]) } });
+});
 it.each(['creator-notes', 'creator-notes-summary', 'creator-note-detail'])('%s executes its signed-capture parser before binding owned actions', async name => {
   const capture = { '/api/galaxy/creator/datacenter/note/analyze/list': { ok: true, status: 200,
     body: JSON.stringify({ data: { total_count: 2, note_infos: ids.map((id, i) => ({ id, title: 'Owned ' + i, read_count: 3 })) } }) } };

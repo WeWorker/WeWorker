@@ -2903,6 +2903,12 @@ var __xhsOpenCLI = (() => {
     ] }]])),
     "creator-profile": noActions("\u8FD4\u56DE\u5B8C\u6574\u8D26\u53F7\u8D44\u6599\u53CA\u6C47\u603B\u5B57\u6BB5\uFF0C\u4E0D\u542B\u53EF\u9009\u62E9\u7684\u4F5C\u54C1\u6216\u7528\u6237ID\uFF1B\u4F5C\u54C1\u5217\u8868\u5E94\u72EC\u7ACB\u8C03\u7528creator-notes\uFF0C\u4E0D\u5C06\u5B57\u6BB5\u884C\u6620\u5C04\u4E3A\u4F5C\u54C1\u64CD\u4F5C\u3002"),
     "creator-stats": noActions("\u8FD4\u56DE\u6240\u9009\u5468\u671F\u7684\u8D26\u53F7\u6307\u6807\u53CA\u8D8B\u52BF\uFF1B\u6307\u6807\u4E0D\u662F\u7B14\u8BB0\u5BF9\u8C61\uFF0C\u5F53\u524D\u65E0\u6309\u6307\u6807\u4E0B\u94BB\u6216\u4FEE\u6539\u6307\u6807\u7684\u547D\u4EE4\u3002"),
+    albums: [{ itemsPath: "$.albums", idField: "id", titleField: "name", actions: [
+      action("notes", "\u67E5\u770B\u4E13\u8F91\u7B14\u8BB0", "album-notes", { "album-id": from("id") })
+    ] }],
+    "album-notes": [{ itemsPath: "$.notes", idField: "context_ref", titleField: "context_title", actions: noteActions }],
+    "video-media": noActions("\u8FD4\u56DE\u5DF2\u6821\u9A8C\u7684\u5E26\u97F3\u8F68 MP4 \u5A92\u4F53\u6D41\u5730\u5740\uFF0C\u4F9B\u8C03\u7528\u65B9\u4E0B\u8F7D\uFF1B\u5A92\u4F53\u6D41\u662F\u7EC8\u6001\u7ED3\u679C\uFF0C\u4E0D\u5BF9\u5E94\u7AD9\u5185\u4E0B\u94BB\u6216\u5199\u64CD\u4F5C\u3002"),
+    "publish-status": noActions("\u8FD4\u56DE\u6307\u5B9A\u4F5C\u54C1\u7684\u53D1\u5E03\u72B6\u6001\u4E0E\u6838\u9A8C\u8303\u56F4\uFF1B\u72B6\u6001\u56DE\u6267\u4E0D\u662F\u53EF\u9009\u62E9\u5BF9\u8C61\uFF0C\u540E\u7EED\u64CD\u4F5C\u5E94\u4F7F\u7528\u72EC\u7ACB\u4F5C\u54C1\u67E5\u8BE2\u547D\u4EE4\u3002"),
     "navigate-to-homepage": noActions("\u4EC5\u5BFC\u822A\u56DE\u9996\u9875\u7684\u56DE\u6267\uFF0C\u4E0D\u8FD4\u56DE\u5019\u9009\u5BF9\u8C61\uFF1B\u9700\u8981\u63A8\u8350\u5217\u8868\u65F6\u8C03\u7528feed\u3002")
   };
   var compact = (text) => Array.from(String(text ?? "").replace(/\s+/g, " ").trim()).slice(0, 60).join("");
@@ -2918,6 +2924,7 @@ var __xhsOpenCLI = (() => {
   }
   function decorateResults(name, args, result) {
     if (name === "whoami" && result?.logged_in === true) return { ...result, context_title: compact(result.username) };
+    if (name === "album-notes" && Array.isArray(result?.notes)) return { ...result, notes: decorateResults("feed", args, result.notes) };
     if (!Array.isArray(result) || !resultMetadata[name]) return result;
     return result.map((row, index) => {
       const detail = name === "note";
