@@ -27,6 +27,7 @@ import { createTrayManager } from './tray-manager.js'
 import { BrowserControlClient, normalizeBrowserMode } from './dedicated-browser.js'
 import { sanitizeSiteAuthRequest, siteAuthNotification } from './site-auth-ipc.js'
 import { packagedMetricsEnvironment } from './metrics-environment.js'
+import { TemplateSkillWriteError, writeTemplateSkillLocally } from './template-skill-writer.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
@@ -349,6 +350,44 @@ async function browserAction(action, extra = {}) {
 }
 
 ipcMain.handle('app-settings:get', () => getAppSettings())
+
+/**
+ * 临时本地通道：仅用于内置模板快速创建专属 Bot。
+ *
+ * 个别受管 Windows 环境会拒绝 WeWorker/Electron 发往 loopback 的大请求体，
+ * 因此这里绕过 HTTP，将 private Skill 原子写入固定的本地 Skill library。
+ * Renderer 不能传目标路径或 scope，其他 Skill 创建与编辑流程不得使用此入口。
+ * TODO: 后续由统一的 Backend IPC 替代。
+ */
+ipcMain.handle('dedicated-agents:create-template-skill-local', (event, payload) => {
+  const trustedMainFrame = mainWindow
+    && !mainWindow.isDestroyed()
+    && event.sender === mainWindow.webContents
+    && event.senderFrame === event.sender.mainFrame
+  if (!trustedMainFrame) return { ok: false, code: 'FORBIDDEN', detail: '不允许的 Skill 创建来源' }
+  try {
+    const result = writeTemplateSkillLocally(payload)
+    log(`[template-skill-local] created name=${result.name} scope=${result.scope} bytes=${Buffer.byteLength(result.markdown, 'utf8')}`)
+    return { ok: true, name: result.name, scope: result.scope }
+  } catch (error) {
+    const code = error instanceof TemplateSkillWriteError ? error.code : 'WRITE_FAILED'
+    const detail = error instanceof Error ? error.message : String(error)
+    log(`[template-skill-local] failed code=${code} detail=${detail}`)
+    return { ok: false, code, detail }
+  }
+})
+
+// 后端不可用时设置-日志的兜底：直接读主进程日志文件，保证故障现场也能看日志。
+ipcMain.handle('read-main-log', (_event, requestedLines = 500) => {
+  const maxLines = Math.min(Math.max(Number(requestedLines) || 500, 1), 5000)
+  try {
+    if (!fs.existsSync(logFile)) return { lines: [], path: logFile, total: 0 }
+    const allLines = fs.readFileSync(logFile, 'utf8').split('\n').filter((line) => line.trim())
+    return { lines: allLines.slice(-maxLines), path: logFile, total: allLines.length }
+  } catch (error) {
+    return { lines: [], path: logFile, total: 0, error: error instanceof Error ? error.message : String(error) }
+  }
+})
 ipcMain.handle('app-settings:set', async (_event, patch = {}) => {
   const next = {}
   if (typeof patch.closeToTray === 'boolean') next.closeToTray = patch.closeToTray
@@ -445,6 +484,14 @@ async function createWindow({ show = true } = {}) {
     mainWindow.on('maximize', syncMaximizedState)
     mainWindow.on('unmaximize', syncMaximizedState)
   }
+
+  // 把 renderer 的控制台错误转进 main.log（设置-日志可见），否则「后端连接失败 net-error」这类
+  // 卡点错误只留在 DevTools 里，用户侧无从排查。只转发 error 级别，避免刷屏。
+  mainWindow.webContents.on('console-message', (_event, level, message) => {
+    try {
+      if (level === 3 || level === 'error') log(String(message).slice(0, 2000))
+    } catch { /* 日志失败不影响页面 */ }
+  })
 
   // Closing the window keeps WeWorker running in the background (see background-mode.js).
   mainWindow.on('close', (event) => {

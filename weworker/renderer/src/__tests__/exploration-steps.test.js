@@ -5,11 +5,11 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
 
-let server, Step, Status, ToolExecutionGroup, ToolExecutionDetail, ToolExecutionText
+let server, Step, Status, LiveActivity, formatElapsedDuration, ToolExecutionGroup, ToolExecutionDetail, ToolExecutionText
 before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL('../../', import.meta.url)), server: { middlewareMode: true, hmr: false, ws: false, watch: null }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   const module = await server.ssrLoadModule('/src/components/website-exploration/ExplorationStep.jsx')
-  Step = module.default; Status = module.ExplorationStatus
+  Step = module.default; Status = module.ExplorationStatus; LiveActivity = module.ExplorationLiveActivity; formatElapsedDuration = module.formatElapsedDuration
   ToolExecutionGroup = (await server.ssrLoadModule('/src/components/chat/ToolExecutionGroup.jsx')).default
   const detail = await server.ssrLoadModule('/src/components/chat/ToolExecutionDetail.jsx')
   ToolExecutionDetail = detail.default; ToolExecutionText = detail.ToolExecutionText
@@ -69,4 +69,96 @@ test('empty observations add no placeholder rows and failure details remain visi
   assert.match(html, /执行失败/)
   assert.match(html, /role="alert"/)
   assert.match(html, /Example action failed/)
+})
+
+test('live activity stays hidden for finished or waiting explorations', () => {
+  for (const status of ['succeeded', 'failed', 'cancelled', 'paused', 'waiting_for_user']) {
+    const html = renderToStaticMarkup(React.createElement(LiveActivity, {
+      status,
+      activity: { phase: 'thinking', step: 2, updated_at_ms: 1000 },
+      now: 15000,
+    }))
+    assert.equal(html, '')
+  }
+})
+
+test('live activity explains recovery after step failure, compaction, and slow model wait', () => {
+  const recovery = renderToStaticMarkup(React.createElement(LiveActivity, {
+    status: 'running',
+    activity: { phase: 'thinking', step: 2, reason: 'recovering_from_error', updated_at_ms: 10_000 },
+    timeline: [{ type: 'agent_step', step: 1, status: 'error' }],
+    now: 24_000,
+  }))
+  assert.match(recovery, /tool-running-indicator__spin/)
+  assert.match(recovery, /上一步执行失败，正在分析原因并调整方案…/)
+  assert.match(recovery, /已耗时 14s/)
+  assert.doesNotMatch(recovery, /模型响应较慢/)
+
+  const slow = renderToStaticMarkup(React.createElement(LiveActivity, {
+    status: 'running',
+    activity: { phase: 'thinking', step: 2, reason: 'recovering_from_error', updated_at_ms: 10_000 },
+    now: 45_000,
+  }))
+  assert.match(slow, /已耗时 35s/)
+  assert.match(slow, /模型响应较慢，仍在等待返回；如长时间无变化可点击停止探索。/)
+
+  const compacting = renderToStaticMarkup(React.createElement(LiveActivity, {
+    status: 'running',
+    activity: { phase: 'compacting', step: 5, updated_at_ms: 10_000 },
+    now: 75_000,
+  }))
+  assert.match(compacting, /历史记录较长，正在整理上下文…/)
+  assert.match(compacting, /已耗时 1m 5s/)
+  assert.match(compacting, /模型响应较慢/)
+
+  const fallbackRecovery = renderToStaticMarkup(React.createElement(LiveActivity, {
+    status: 'running',
+    activity: null,
+    timeline: [{ type: 'agent_step', step: 1, status: 'error' }],
+    now: 10_000,
+  }))
+  assert.match(fallbackRecovery, /上一步执行失败，正在分析原因并调整方案…/)
+})
+
+test('live activity renders an in-progress step card before timeline persistence and deduplicates afterwards', () => {
+  const liveCard = renderToStaticMarkup(React.createElement(LiveActivity, {
+    status: 'running',
+    activity: {
+      phase: 'action_running',
+      step: 2,
+      thought: 'Open the search panel',
+      code: 'await page.click("#search")',
+      updated_at_ms: 10_000,
+    },
+    timeline: [{ type: 'agent_step', step: 1, status: 'error' }],
+    now: 38_000,
+  }))
+  assert.match(liveCard, /步骤 2/)
+  assert.match(liveCard, /执行中/)
+  assert.match(liveCard, /Open the search panel/)
+  assert.match(liveCard, /执行动作/)
+  assert.match(liveCard, /已耗时 28s/)
+  assert.match(liveCard, /页面操作耗时较长，仍在等待浏览器响应…/)
+
+  const deduped = renderToStaticMarkup(React.createElement(LiveActivity, {
+    status: 'running',
+    activity: {
+      phase: 'action_running',
+      step: 2,
+      thought: 'Open the search panel',
+      code: 'await page.click("#search")',
+      updated_at_ms: 10_000,
+    },
+    timeline: [
+      { type: 'agent_step', step: 1, status: 'error' },
+      { type: 'agent_step', step: 2, status: 'running', thought: 'Open the search panel' },
+    ],
+    now: 15_000,
+  }))
+  assert.doesNotMatch(deduped, /<h3>步骤 2<\/h3>/)
+  assert.match(deduped, /正在浏览器中执行第 2 步…/)
+  assert.match(deduped, /已耗时 5s/)
+  assert.equal(formatElapsedDuration(0), '0s')
+  assert.equal(formatElapsedDuration(60), '1m')
+  assert.equal(formatElapsedDuration(65), '1m 5s')
 })

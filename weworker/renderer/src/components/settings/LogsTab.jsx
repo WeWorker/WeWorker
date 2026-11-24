@@ -99,10 +99,13 @@ export default function LogsTab() {
   const [copied, setCopied] = useState(false)
   const [filter, setFilter] = useState('')
   const [expanded, setExpanded] = useState(false)
+  // 后端不可用时经 IPC 直接读主进程日志文件兜底——故障现场更需要看日志。
+  const [backendDown, setBackendDown] = useState(false)
   const containerRef = useRef(null)
 
   const loadLogs = async () => {
     setLoading(true)
+    setBackendDown(false)
     try {
       const res = await backendFetch('/logs?lines=500')
       const data = await res.json()
@@ -110,6 +113,17 @@ export default function LogsTab() {
       setLogPath(data.path || '')
       setTotal(data.total || 0)
     } catch (e) {
+      try {
+        const fallback = await window.electronAPI?.readMainLog?.(500)
+        if (fallback?.lines?.length) {
+          setLines(fallback.lines)
+          setLogPath(fallback.path || '')
+          setTotal(fallback.total || 0)
+          setBackendDown(true)
+          setLoading(false)
+          return
+        }
+      } catch { /* 旧版本 preload 没有该能力时保持原行为 */ }
       setLines([`Failed to load logs: ${e.message}`])
     }
     setLoading(false)
@@ -181,6 +195,12 @@ export default function LogsTab() {
           )}
         </button>
       </div>
+
+      {backendDown && (
+        <div style={{ fontSize: 12, color: 'var(--error, #ef4444)', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '6px 10px' }}>
+          后端服务不可用，正在显示主进程日志文件（含后端启动失败的原因）。可搜索「端口监听失败」「后端连接失败」定位问题；后端恢复后点「刷新」可查看完整日志。
+        </div>
+      )}
 
       <div style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', gap: 12 }}>
         <span>共 {total} 行，显示 {filtered.length} 行</span>

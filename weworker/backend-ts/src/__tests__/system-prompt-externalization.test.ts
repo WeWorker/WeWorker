@@ -196,14 +196,10 @@ describe('System Prompt - complete output contract before externalization', () =
 
       ## 文件加密处理规则
 
-      在使用任何文件之前（读取内容、上传附件、发送给用户、作为其他工具参数等），必须先调用 \`check_file_encryption\` 工具检查该文件是否被公司 DLP 加密。
-
-      按以下步骤处理：
-      1. 调用 \`check_file_encryption\`，传入 \`file_path\`。
-      2. 查看返回 JSON 中的 \`encrypted\` 或 \`encryption_status\` 字段。
-      3. 如果是 encrypted，必须先调用 \`decrypt_file\` 对同一路径解密，确认 success: true 后再继续。
-      4. 如果未加密，直接继续原定操作。
-      5. 如果加密检查失败或解密失败（包含未找到 sd_decrypt.exe），当前环境可能为非 OA 环境；直接按原定操作继续，不要阻塞或等待用户确认；在回复中简要说明已跳过加密检查。
+      默认直接读取文件，无需预先检查加密。读取失败且怀疑文件被加密时：
+      1. 调用 \`check_file_encryption\`，传入 \`file_path\`，查看 \`encrypted\` 或 \`encryption_status\` 字段。
+      2. 确认已加密后，调用 \`decrypt_file\` 对同一路径解密。
+      3. 确认 \`success: true\` 后，重试原读取操作；如果仍然失败，不要反复重试或声称文件已成功读取。
 
 
       ## 文件读取编码规则
@@ -366,14 +362,10 @@ describe('System Prompt - complete output contract before externalization', () =
 
       ## 文件加密处理规则
 
-      在使用任何文件之前（读取内容、上传附件、发送给用户、作为其他工具参数等），必须先调用 \`check_file_encryption\` 工具检查该文件是否被公司 DLP 加密。
-
-      按以下步骤处理：
-      1. 调用 \`check_file_encryption\`，传入 \`file_path\`。
-      2. 查看返回 JSON 中的 \`encrypted\` 或 \`encryption_status\` 字段。
-      3. 如果是 encrypted，必须先调用 \`decrypt_file\` 对同一路径解密，确认 success: true 后再继续。
-      4. 如果未加密，直接继续原定操作。
-      5. 如果加密检查失败或解密失败（包含未找到 sd_decrypt.exe），当前环境可能为非 OA 环境；直接按原定操作继续，不要阻塞或等待用户确认；在回复中简要说明已跳过加密检查。
+      默认直接读取文件，无需预先检查加密。读取失败且怀疑文件被加密时：
+      1. 调用 \`check_file_encryption\`，传入 \`file_path\`，查看 \`encrypted\` 或 \`encryption_status\` 字段。
+      2. 确认已加密后，调用 \`decrypt_file\` 对同一路径解密。
+      3. 确认 \`success: true\` 后，重试原读取操作；如果仍然失败，不要反复重试或声称文件已成功读取。
 
 
       ## 文件读取编码规则

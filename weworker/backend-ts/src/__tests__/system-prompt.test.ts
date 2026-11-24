@@ -412,12 +412,11 @@ describe('System Prompt - file encryption rules', () => {
     expect(prompt).toContain('## 文件加密处理规则')
     expect(prompt).toContain('check_file_encryption')
     expect(prompt).toContain('decrypt_file')
-    expect(prompt).toMatch(/必须先调用.*check_file_encryption/)
+    expect(prompt).toContain('默认直接读取文件，无需预先检查加密。读取失败且怀疑文件被加密时：')
     expect(prompt).toMatch(/encrypted.*decrypt_file/s)
-    expect(prompt).toMatch(/加密检查失败/)
-    expect(prompt).toMatch(/sd_decrypt\.exe/)
-    expect(prompt).toMatch(/非 OA 环境/)
-    expect(prompt).toMatch(/不要阻塞或等待用户确认/)
+    expect(prompt).toContain('确认已加密后，调用 `decrypt_file` 对同一路径解密。')
+    expect(prompt).toContain('确认 `success: true` 后，重试原读取操作；如果仍然失败，不要反复重试或声称文件已成功读取。')
+    expect(prompt).not.toContain('必须先调用 `check_file_encryption`')
   })
 
   it('omits file encryption workflow on non-Windows platforms', async () => {

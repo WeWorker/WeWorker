@@ -4306,9 +4306,16 @@ async function bootstrap(): Promise<void> {
     })
   }
   await startConfiguredChannels()
-  app.listen(PORT, '127.0.0.1', () => {
+  const server = app.listen(PORT, '127.0.0.1', () => {
     log.info(`WeWorker backend running on http://127.0.0.1:${PORT}`)
     scheduler.start()
+  })
+  // 端口被占用（常见：上次异常退出遗留的旧后端进程）时给出可搜索的中文结论，而不是只留裸堆栈。
+  // 设置-日志搜「端口监听失败」或「port-bind-failed」即可定位。
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    const detail = error instanceof Error ? error.message : String(error)
+    log.error(`端口监听失败 port-bind-failed：127.0.0.1:${PORT} 无法监听（${detail}）。常见原因：端口被上次遗留的旧后端进程或其他程序占用。Windows 用 netstat -ano | findstr :${PORT} 查占用，占用的若是 WeWorker 旧进程可在任务管理器结束后重启应用`)
+    process.exit(1)
   })
 }
 

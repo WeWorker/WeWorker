@@ -490,3 +490,268 @@ def test_independent_source_is_reusable_without_reparenting(tmp_path):
     task_store.update_task("exp_site", toolkit_id="blog_admin", tool_id="read_blog")
     with pytest.raises(ValueError, match="does not belong"):
         build("search_blog")
+
+
+def test_exploration_live_activity_reports_phases_and_clears_when_finished(tmp_path: Path) -> None:
+    from webwright.server.records import atomic_write_json
+
+    task_store, toolkit_store = _stores(tmp_path)
+    manager = FakeExplorationManager(task_store)
+    app = create_app(
+        paths=WebwrightPaths.resolve(home=tmp_path),
+        store=task_store,
+        toolkit_store=toolkit_store,
+        process_manager=manager,
+    )
+    client = app.test_client()
+    exploration_id = client.post(
+        "/api/toolkits/blog_admin/tools/search_blog/explorations", json={}
+    ).get_json()["exploration_id"]
+    checkpoint_path = task_store.server_dir(exploration_id) / "checkpoint.json"
+
+    # Before first checkpoint, running exploration still reports starting live_activity.
+    initial = client.get(f"/api/explorations/{exploration_id}").get_json()
+    assert initial["live_activity"]["phase"] == "starting"
+
+    # Stale checkpoint from an older run_id must be ignored.
+    atomic_write_json(checkpoint_path, {
+        "run_id": "old-run",
+        "phase": "thinking",
+        "step": 9,
+        "reason": "recovering_from_error",
+        "updated_at_ms": 1_700_000_000_000,
+    })
+    stale = client.get(f"/api/explorations/{exploration_id}").get_json()
+    assert stale["live_activity"]["phase"] == "starting"
+
+    # Current run_id thinking after error.
+    atomic_write_json(checkpoint_path, {
+        "run_id": "run-1",
+        "phase": "thinking",
+        "step": 2,
+        "reason": "recovering_from_error",
+        "updated_at_ms": 1_700_000_001_000,
+        "deadline_at_ms": 0,
+    })
+    thinking = client.get(f"/api/explorations/{exploration_id}").get_json()
+    assert thinking["live_activity"] == {
+        "phase": "thinking",
+        "step": 2,
+        "reason": "recovering_from_error",
+        "updated_at_ms": 1_700_000_001_000,
+        "deadline_at_ms": 0,
+        "thought": "",
+        "code": "",
+    }
+
+    # Action running exposes thought and code for the live step card.
+    atomic_write_json(checkpoint_path, {
+        "run_id": "run-1",
+        "phase": "action_running",
+        "step": 2,
+        "reason": "",
+        "updated_at_ms": 1_700_000_002_000,
+        "deadline_at_ms": 1_700_000_047_000,
+        "thought": "Retry clicking the search button",
+        "python_code": "await page.click('#search')",
+    })
+    running = client.get(f"/api/explorations/{exploration_id}").get_json()
+    assert running["live_activity"]["phase"] == "action_running"
+    assert running["live_activity"]["step"] == 2
+    assert running["live_activity"]["thought"] == "Retry clicking the search button"
+    assert running["live_activity"]["code"] == "await page.click('#search')"
+
+    # Completed checkpoint during an active run transitions smoothly to thinking next step.
+    atomic_write_json(checkpoint_path, {
+        "run_id": "run-1",
+        "phase": "completed",
+        "step": 2,
+        "reason": "recovering_from_error",
+        "updated_at_ms": 1_700_000_003_000,
+    })
+    transition = client.get(f"/api/explorations/{exploration_id}").get_json()
+    assert transition["live_activity"]["phase"] == "thinking"
+    assert transition["live_activity"]["step"] == 3
+    assert transition["live_activity"]["reason"] == "recovering_from_error"
+
+    # Terminal and waiting statuses clear live_activity.
+    for final_status in (
+        TaskStatus.WAITING_FOR_USER.value,
+        TaskStatus.SUCCEEDED.value,
+        TaskStatus.FAILED.value,
+        TaskStatus.CANCELLED.value,
+    ):
+        task_store.update_task(exploration_id, status=final_status)
+        detail = client.get(f"/api/explorations/{exploration_id}").get_json()
+        assert detail["live_activity"] is None
+
+
+def test_exploration_timeline_marks_in_flight_step_running_only_while_active(tmp_path: Path) -> None:
+    from webwright.server.records import atomic_write_json
+
+    task_store, toolkit_store = _stores(tmp_path)
+    manager = FakeExplorationManager(task_store)
+    app = create_app(
+        paths=WebwrightPaths.resolve(home=tmp_path),
+        store=task_store,
+        toolkit_store=toolkit_store,
+        process_manager=manager,
+    )
+    client = app.test_client()
+    exploration_id = client.post(
+        "/api/toolkits/blog_admin/tools/search_blog/explorations", json={}
+    ).get_json()["exploration_id"]
+    output_dir = Path(task_store.read_task(exploration_id)["output_dir"])
+    steps_dir = output_dir / "steps"
+    steps_dir.mkdir(parents=True)
+    (steps_dir / "step_0001.py").write_text("await page.click('#go')\n", encoding="utf-8")
+    atomic_write_json(task_store.server_dir(exploration_id) / "checkpoint.json", {
+        "run_id": "run-1",
+        "phase": "action_running",
+        "step": 1,
+        "thought": "Click the search button",
+        "python_code": "await page.click('#go')",
+        "updated_at_ms": 1_700_000_005_000,
+    })
+
+    active_items = client.get(f"/api/explorations/{exploration_id}/timeline").get_json()["items"]
+    assert active_items[0]["type"] == "agent_step"
+    assert active_items[0]["status"] == "running"
+    assert active_items[0]["thought"] == "Click the search button"
+
+    task_store.update_task(exploration_id, status=TaskStatus.CANCELLED.value)
+    cancelled_items = client.get(f"/api/explorations/{exploration_id}/timeline").get_json()["items"]
+    assert cancelled_items[0]["status"] == "unknown"
+
+
+def test_exploration_events_emits_step_transition_and_activity_updates(tmp_path: Path, monkeypatch) -> None:
+    from webwright.server.records import atomic_write_json
+
+    task_store, toolkit_store = _stores(tmp_path)
+    manager = FakeExplorationManager(task_store)
+    app = create_app(
+        paths=WebwrightPaths.resolve(home=tmp_path),
+        store=task_store,
+        toolkit_store=toolkit_store,
+        process_manager=manager,
+    )
+    client = app.test_client()
+    exploration_id = client.post(
+        "/api/toolkits/blog_admin/tools/search_blog/explorations", json={}
+    ).get_json()["exploration_id"]
+    output_dir = Path(task_store.read_task(exploration_id)["output_dir"])
+    (output_dir / "steps").mkdir(parents=True)
+    (output_dir / "debug" / "steps").mkdir(parents=True)
+    (output_dir / "steps" / "step_0001.py").write_text("await page.click('#missing')\n", encoding="utf-8")
+    checkpoint_path = task_store.server_dir(exploration_id) / "checkpoint.json"
+    atomic_write_json(checkpoint_path, {
+        "run_id": "run-1",
+        "phase": "action_running",
+        "step": 1,
+        "updated_at_ms": 1_700_000_010_000,
+    })
+
+    ticks = 0
+
+    def advance_state(_seconds: float) -> None:
+        nonlocal ticks
+        ticks += 1
+        if ticks == 1:
+            (output_dir / "debug" / "steps" / "step_0001.json").write_text(
+                json.dumps({
+                    "thought": "Try missing button",
+                    "python_code": "await page.click('#missing')",
+                    "done": False,
+                    "outputs": [{"returncode": 1, "exception_info": "Timeout", "observation": {"success": False}}],
+                }),
+                encoding="utf-8",
+            )
+            atomic_write_json(checkpoint_path, {
+                "run_id": "run-1",
+                "phase": "thinking",
+                "step": 2,
+                "reason": "recovering_from_error",
+                "updated_at_ms": 1_700_000_012_000,
+            })
+        else:
+            task_store.update_task(exploration_id, status=TaskStatus.SUCCEEDED.value)
+
+    monkeypatch.setattr("webwright.server.app.time.sleep", advance_state)
+
+    body = client.get(f"/api/explorations/{exploration_id}/events").get_data(as_text=True)
+
+    assert '"step": 1, "status": "running"' in body
+    assert '"step": 1, "status": "error"' in body
+    assert "event: activity_updated" in body
+    assert '"phase": "thinking"' in body
+    assert '"reason": "recovering_from_error"' in body
+    assert "event: exploration_succeeded" in body
+
+
+def test_default_agent_records_thinking_and_error_recovery_checkpoints(tmp_path: Path) -> None:
+    from webwright.agents.default import DefaultAgent
+
+    checkpoint_path = tmp_path / "checkpoint.json"
+    recorded_checkpoints: list[dict] = []
+
+    class StubModel:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def format_message(self, **kwargs):
+            return {"role": kwargs.get("role", "user"), "content": kwargs.get("content", ""), "extra": kwargs.get("extra", {})}
+
+        def format_observation_messages(self, message, outputs, template_vars):
+            return [self.format_message(role="user", content="observation")]
+
+        def get_template_vars(self):
+            return {}
+
+        def serialize(self):
+            return {}
+
+        def query(self, messages):
+            self.calls += 1
+            if checkpoint_path.is_file():
+                recorded_checkpoints.append(json.loads(checkpoint_path.read_text(encoding="utf-8")))
+            if self.calls == 1:
+                return {
+                    "role": "assistant",
+                    "content": "Attempt click",
+                    "extra": {"actions": [{"python_code": "await page.click('#missing')"}]},
+                }
+            return {
+                "role": "assistant",
+                "content": "Recovered and finished",
+                "extra": {"done": True, "final_response": "All done"},
+            }
+
+    class StubEnv:
+        def execute(self, action):
+            return {"returncode": 1, "output": "", "exception_info": "Element not found", "observation": {"success": False}}
+
+        def get_template_vars(self):
+            return {}
+
+        def serialize(self):
+            return {}
+
+    agent = DefaultAgent(
+        StubModel(),
+        StubEnv(),
+        system_template="sys",
+        instance_template="inst",
+        checkpoint_path=checkpoint_path,
+        checkpoint_run_id="run-test",
+    )
+    agent.run(task="example")
+
+    assert len(recorded_checkpoints) == 2
+    assert recorded_checkpoints[0]["phase"] == "thinking"
+    assert recorded_checkpoints[0]["step"] == 1
+    assert recorded_checkpoints[0]["reason"] == ""
+    assert recorded_checkpoints[0]["deadline_at_ms"] == 0
+    assert recorded_checkpoints[1]["phase"] == "thinking"
+    assert recorded_checkpoints[1]["step"] == 2
+    assert recorded_checkpoints[1]["reason"] == "recovering_from_error"
+    assert recorded_checkpoints[1]["deadline_at_ms"] == 0
