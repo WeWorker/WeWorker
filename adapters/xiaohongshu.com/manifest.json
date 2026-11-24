@@ -1407,7 +1407,12 @@
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [{
+        "itemPath": "$",
+        "actions": [],
+        "reason": "仅核验指定笔记的发布状态，不返回可供后续操作的候选列表。"
+      }]
     },
     {
       "id": "search-notes",
@@ -1893,7 +1898,12 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [{
+        "itemsPath": "$.albums",
+        "actions": [],
+        "reason": "返回收藏专辑列表；此处不声明按序号继续查询专辑的绑定。"
+      }]
     },
     {
       "id": "album-notes",
@@ -1918,7 +1928,12 @@
         "required": [
           "album-id"
         ]
-      }
+      },
+      "results": [{
+        "itemsPath": "$.notes",
+        "actions": [],
+        "reason": "返回收藏专辑中的笔记与分页状态；此处不声明按序号操作笔记的绑定。"
+      }]
     },
     {
       "id": "video-media",
@@ -1938,7 +1953,12 @@
         "required": [
           "url"
         ]
-      }
+      },
+      "results": [{
+        "itemPath": "$",
+        "actions": [],
+        "reason": "返回指定笔记的媒体地址，不返回可继续操作的候选列表。"
+      }]
     }
   ],
   "homepage_url": "https://www.xiaohongshu.com",

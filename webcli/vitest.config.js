@@ -1,6 +1,10 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig, configDefaults } from 'vitest/config'
 
 export default defineConfig({
+  resolve: { alias: {
+    '@jackwener/opencli/errors': fileURLToPath(new URL('./scripts/opencli-xiaohongshu/errors.js', import.meta.url)),
+  } },
   plugins: [{
     name: 'cli-test-import',
     transform(code, id, options) {

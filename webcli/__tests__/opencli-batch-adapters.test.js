@@ -55,7 +55,12 @@ describe('OpenCLI batch v2 contracts', () => {
     const {pkg}=setup(site);
     for(const command of pkg.commands) {
       const original=inventory.find(c=>c.package===site&&c.name===command.id);
-      expect(original).toBeDefined();
+      const nativeZhihuSafety = { 'prepare-article': 'write', 'publish-article': 'write', 'article-status': 'read' };
+      if (!original && site === 'zhihu.com' && Object.hasOwn(nativeZhihuSafety, command.id)) {
+        expect(command.safety, command.id).toBe(nativeZhihuSafety[command.id]);
+        continue;
+      }
+      expect(original, `${site}.${command.id}`).toBeDefined();
       if(original.access==='write')expect(command.safety).toBe('write');
       for(const arg of original.args||[]) {
         const schema=command.schema.properties[arg.name];expect(schema).toBeDefined();
