@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Router } from 'express'
+import { callExploration } from '../../../webcli/exploration-client.js'
 import { buildAdapterCatalog } from '../../../webcli/adapter-catalog.js'
 import { readPackageDirectory, validatePackageFiles } from '../../../webcli/adapter-package-files.js'
 import { installAdapter, removeInstalledAdapter } from '../../../webcli/adapter-install-store.js'
@@ -9,29 +10,37 @@ const AGENT = process.env.WEWORKER_WEBWRIGHT_URL || 'http://127.0.0.1:8766'
 const id = /^[A-Za-z0-9_-]+$/
 const namePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
-type AgentPackage = { operation_id: string; install_baseline_digest?: string | null; profile?: string; changed_tools?: string[]; name: string; digest: string; files: Record<string, string>; base?: { name: string; profile: string; digest: string; files: Record<string, string> } | null }
+type AgentPackage = { operation_id: string; install_baseline_digest?: string | null; profile?: string; changed_tools?: string[]; name: string; digest: string; files: Record<string, string>; base?: { name: string; profile: string; digest: string; files: Record<string, string> } | null; api_composition?: { task_id: string; digest: string; profile?: string }; composition_debug_verified?: boolean }
 
 function decodePackage(files: Record<string, string>) {
   if (!files || typeof files !== 'object' || Array.isArray(files)) throw new Error('Adapter package is missing.')
   return validatePackageFiles(new Map(Object.entries(files).map(([name, value]) => [name, Buffer.from(value, 'base64')])))
 }
 
-function retainedFilesUnchanged(base: ReturnType<typeof decodePackage>, updated: ReturnType<typeof decodePackage>) {
+function retainedFilesUnchanged(base: ReturnType<typeof decodePackage>, updated: ReturnType<typeof decodePackage>, toolkitIds: string[] = []) {
   if (base.name !== updated.name) throw new Error('Adapter identity changed.')
+  const editable = new Set(toolkitIds)
+  const modules = new Set<string>()
+  for (const command of base.manifest.commands) if (editable.has(command.id)) {
+    const next = updated.manifest.commands.find((item: { id: string }) => item.id === command.id)
+    if (command.runtime !== 'wewright' || next?.runtime !== 'wewright' || command.module !== next.module) throw new Error('Toolkit composition cannot change an API command.')
+    modules.add(command.module)
+  }
   for (const [name, content] of base.files) {
-    if (name !== 'manifest.json' && !updated.files.get(name)?.equals(content)) throw new Error('An existing Adapter file changed.')
+    if (name !== 'manifest.json' && !modules.has(name) && !updated.files.get(name)?.equals(content)) throw new Error('An existing Adapter file changed.')
   }
   for (const command of base.manifest.commands) {
     const retained = updated.manifest.commands.find((item: { id: string }) => item.id === command.id)
-    if (JSON.stringify(retained) !== JSON.stringify(command)) throw new Error('An existing Adapter command changed.')
+    if (!editable.has(command.id) && JSON.stringify(retained) !== JSON.stringify(command)) throw new Error('An existing Adapter command changed.')
   }
   for (const [key, value] of Object.entries(base.manifest)) {
-    if (['version', 'commands', 'runtime_allowed_hosts'].includes(key)) continue
+    if (['version', 'commands', 'runtime_allowed_hosts', 'match'].includes(key)) continue
     if (JSON.stringify(updated.manifest[key]) !== JSON.stringify(value)) throw new Error('Existing Adapter metadata changed.')
   }
   for (const host of base.manifest.runtime_allowed_hosts || []) {
     if (!updated.manifest.runtime_allowed_hosts?.includes(host)) throw new Error('An existing Adapter permission was removed.')
   }
+  for (const host of base.manifest.match || []) if (!updated.manifest.match?.includes(host)) throw new Error('An existing Adapter match was removed.')
 }
 
 export function createWebsiteExplorationAdapterRouter({
@@ -40,9 +49,11 @@ export function createWebsiteExplorationAdapterRouter({
   onInstalled = () => {},
   onDevelopmentHandoff,
   onListDevelopmentChats,
+  readExploration = callExploration,
 }: {
   instanceId?: string
   fetchAgent?: typeof fetch
+  readExploration?: typeof callExploration
   onListDevelopmentChats?: () => unknown | Promise<unknown>
   onDevelopmentHandoff?: (input: unknown) => unknown | Promise<unknown>
   onInstalled?: (event: { name: string; revision: number; profile: string }) => void | Promise<void>
@@ -285,9 +296,25 @@ export function createWebsiteExplorationAdapterRouter({
       if (payload.base.profile !== buildAdapterCatalog().profile) throw new Error('Adapter workspace belongs to another build profile.')
       const base = decodePackage(payload.base.files)
       if (base.name !== payload.base.name || base.digest !== payload.base.digest) throw new Error('Adapter baseline changed.')
-      retainedFilesUnchanged(base, pkg)
+      // Composed API edits are checked against the Bridge's validated snapshot
+      // below; its repair scope owns any changes to the installed API baseline.
+      if (!payload.api_composition) retainedFilesUnchanged(base, pkg)
     }
     if (payload.profile && payload.profile !== buildAdapterCatalog().profile) throw new Error('Adapter workspace belongs to another build profile.')
+    const alreadyInstalled = buildAdapterCatalog().effective.some(item => item.name === pkg.name && item.digest === pkg.digest)
+    if (payload.api_composition && !alreadyInstalled) {
+      const source = payload.api_composition
+      const result = await readExploration('package-read', { taskId: source.task_id, expectedDigest: source.digest }, { profile: source.profile })
+      if (!result.ok || result.data?.digest !== source.digest) throw new Error('API 草稿验证已失效，请重新验证并合并。')
+      const api = decodePackage(result.data.files)
+      if (api.digest !== source.digest) throw new Error('API 草稿内容已变化。')
+      const toolkitIds = (payload as AgentPackage & { composition_tool_ids?: string[] }).composition_tool_ids || []
+      retainedFilesUnchanged(api, pkg, toolkitIds)
+      const apiIds = new Set(api.manifest.commands.map((command: { id: string }) => command.id))
+      if (pkg.manifest.commands.some((command: { id: string; runtime: string }) => !apiIds.has(command.id) && (command.runtime !== 'wewright' || !toolkitIds.includes(command.id)))) throw new Error('混合草稿包含未验证的 API 命令。')
+      for (const file of pkg.files.keys()) if (!api.files.has(file) && !file.startsWith('wewright/commands/')) throw new Error('混合草稿包含未验证的 API 文件。')
+      if (payload.composition_debug_verified !== true) throw new Error('请先对合并后的完整候选包调试全部 Toolkit 命令。')
+    }
     return { pkg, base: payload.base, baselineDigest: payload.install_baseline_digest, changedTools: payload.changed_tools || [], operationId: payload.operation_id }
   }
   const describe = async (toolkitId: string) => {
@@ -307,6 +334,21 @@ export function createWebsiteExplorationAdapterRouter({
     return { pkg: candidate.pkg, review, baseDigest: candidate.baselineDigest ?? candidate.base?.digest ?? null,
       changedTools: candidate.changedTools, operationId: candidate.operationId }
   }
+
+  router.post('/toolkits/:id/compose', handle(async req => {
+    if (!id.test(req.params.id) || !/^[a-f0-9]{64}$/.test(req.body?.expectedDigest || '')
+        || !/^[a-f0-9]{64}$/.test(req.body?.apiDigest || '') || !/^(?:http-)?[a-f0-9-]{36}$/.test(req.body?.taskId || '')
+        || (req.body.profile !== undefined && (typeof req.body.profile !== 'string' || !req.body.profile.trim()))) throw new Error('混合开发参数无效。')
+    const result = await readExploration('package-read', { taskId: req.body.taskId, expectedDigest: req.body.apiDigest }, { profile: req.body.profile })
+    if (!result.ok) throw new Error('API 草稿尚未通过验证或已变化。')
+    const api = decodePackage(result.data.files)
+    const catalog = buildAdapterCatalog()
+    if (api.digest !== req.body.apiDigest || result.data.profile !== catalog.profile) throw new Error('API 草稿摘要或构建配置不匹配。')
+    const active = catalog.effective.find(item => item.name === api.name)
+    if ((active?.digest || null) !== result.data.baselineDigest) throw new Error('已安装 Adapter 已变化，请重新准备草稿。')
+    return agent(`/api/toolkits/${req.params.id}/compose-api`, { expected_digest: req.body.expectedDigest,
+      package: result.data, source: { task_id: req.body.taskId, profile: result.data.contextId || req.body.profile } })
+  }))
 
   router.get('/toolkits/:id/install-review', handle(async req => {
     const { review, baseDigest, changedTools } = await describe(req.params.id)

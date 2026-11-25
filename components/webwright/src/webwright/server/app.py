@@ -1256,6 +1256,18 @@ def create_app(
 
     if app.config["WEBWRIGHT_WEWORKER_USER_FILES_DIR"] is not None:
 
+        @app.post("/api/toolkits/<toolkit_id>/compose-api")
+        def compose_api(toolkit_id: str):
+            from webwright.server.adapter_v2 import compose_api_package
+            expected = app.config["WEWORKER_EXPLORATION_INSTANCE_ID"]
+            if not expected or request.headers.get("X-WeWorker-Exploration-Instance") != expected:
+                return _error("forbidden", "Expected host instance identity is required.", 403)
+            payload = _request_json()
+            with manager.lock:
+                manager._ensure_not_busy_locked()
+                return jsonify(compose_api_package(toolkits, toolkit_id, expected_digest=payload.get("expected_digest"),
+                                                    package=payload.get("package"), source=payload.get("source")))
+
         @app.post("/api/toolkits/<toolkit_id>/bind-adapter")
         def bind_existing_adapter(toolkit_id: str):
             payload = _request_json()
@@ -1290,6 +1302,10 @@ def create_app(
                 "profile": state.get("profile"),
                 "changed_tools": sorted(set(state["drafts"]) | set(state["removed_tools"])),
                 "operation_id": state["operation_id"],
+                "api_composition": state.get("api_composition"),
+                "composition_tool_ids": [tool_id.replace("_", "-") for tool_id in state["contexts"]],
+                "composition_debug_verified": not state.get("api_composition") or all(
+                    item["verified"] for item in status["tools"] if item["tool_id"] in state["contexts"]),
             })
 
         @app.post("/api/toolkits/<toolkit_id>/installation-ack")

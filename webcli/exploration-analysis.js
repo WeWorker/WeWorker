@@ -3,6 +3,7 @@ import { requiresWorkflowFrameCapability } from './page-workflow-frames.js';
 import { usesWorkflowControl } from './page-workflow-control.js';
 import { explorationError as fail, textArg } from './exploration-commands.js';
 import { usesNavigationQuery, usesNavigationHash } from './page-navigation-parameters.js';
+import { bodyOmissionMetadata } from './generation-harness/source-evidence.js';
 
 /** Inspect structural evidence only. A successful response is not proof of a stable API. */
 export function analyzeApiCandidate(candidate, index) {
@@ -24,7 +25,11 @@ export function analyzeApiCandidate(candidate, index) {
   else if ([401, 403].includes(candidate.status)) { verdict = 'blocked'; reasons.push('authentication_or_access_denied'); }
   else if (noise) { verdict = 'noise'; reasons.push('telemetry_endpoint'); }
   else if (!(candidate.status >= 200 && candidate.status < 300)) { verdict = 'unavailable'; reasons.push('no_successful_response'); }
-  else if (!json) { verdict = 'not_json'; reasons.push('no_json_structure'); }
+  else if (!json) {
+    verdict = 'not_json'; reasons.push('no_json_structure');
+    const omission = bodyOmissionMetadata(candidate.responseEvidence).bodyOmissionReason;
+    if (omission) reasons.push(`response_body_${omission}`);
+  }
   else {
     verdict = business ? 'likely_data' : 'maybe_data';
     reasons.push('json_structure', ...(business ? ['business_field_names'] : ['target_data_not_established']));

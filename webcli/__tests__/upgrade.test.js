@@ -9,9 +9,9 @@ describe('fetchLatestVersion', () => {
 })
 
 describe('buildInstallCommand', () => {
-  it('npm -g 安装带 registry', () => {
+  it('npm -g 安装带 registry 与 --prefer-online(强制重验元数据,防 max-age 缓存 ETARGET)', () => {
     expect(buildInstallCommand('@webank/webcli', '1.1.11', 'https://registry.example.com'))
-      .toBe('npm install -g @webank/webcli@1.1.11 --registry=https://registry.example.com')
+      .toBe('npm install -g @webank/webcli@1.1.11 --registry=https://registry.example.com --prefer-online')
   })
 })
 

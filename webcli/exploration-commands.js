@@ -1,5 +1,7 @@
 /** Public, model-independent API exploration contract. */
 export const explorationCommands = {
+  import: { description: 'Import structural API evidence from Adapter workshop input.json into a freshly bound explicit browser tab. Does not reload, replay, trust historical verification, or grant additional origins. Pass input as an object through --args-file.', params: ['input', 'tabId', 'requestId'] },
+  'package-read': { description: 'Read the exact validated draft package for composition in a development workspace. Does not install or transfer write authorization.', params: ['taskId', 'expectedDigest'] },
   analyze: { description: 'Assess structural API/page evidence, source contracts, failures and next actions without executing or silently substituting a strategy.', params: ['taskId'] },
   replan: { description: 'Preserve the current unpublished draft, cases and failures as a read-only revision, then allow new evidence and a fresh plan. Nothing is installed or deleted.', params: ['taskId', 'expectedDraftHash', 'reason'] },
   revisions: { description: 'List preserved strategy attempts and their validation summaries.', params: ['taskId'] },

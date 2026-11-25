@@ -131,6 +131,17 @@ it('every read command is explicitly classified and terminal results explain the
     for (const r of c.results) if (!r.actions.length) expect(r.reason.length).toBeGreaterThan(20);
   }
 });
+it('binds local album and note results while keeping status and media receipts terminal', () => {
+  const s = setup();
+  const albums = bound(s, 'albums', {}, { albums: [{ id: ids[0], name: 'Example album' }], complete: false });
+  expect(albums.entities[0].bindings.detail).toMatchObject({ ready: true, args: { 'album-id': ids[0] } });
+  const notes = bound(s, 'album-notes', { 'album-id': ids[0] }, {
+    notes: [{ id: ids[1], title: 'Example note', url: noteUrl(ids[1]) }], complete: false,
+  });
+  expect(notes.entities[0].bindings.detail).toMatchObject({ ready: true, args: { 'note-id': noteUrl(ids[1]) } });
+  expect(bound(s, 'publish-status', { 'note-id': ids[0] }, { note_id: ids[0], status: 'not_in_recent_page', verified: false })).toBeNull();
+  expect(bound(s, 'video-media', { url: noteUrl(ids[0]) }, { id: ids[0], streams: [] })).toBeNull();
+});
 it.each(['creator-notes', 'creator-notes-summary', 'creator-note-detail'])('%s executes its signed-capture parser before binding owned actions', async name => {
   const capture = { '/api/galaxy/creator/datacenter/note/analyze/list': { ok: true, status: 200,
     body: JSON.stringify({ data: { total_count: 2, note_infos: ids.map((id, i) => ({ id, title: 'Owned ' + i, read_count: 3 })) } }) } };

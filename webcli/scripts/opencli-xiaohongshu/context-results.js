@@ -41,6 +41,7 @@ export const resultMetadata = {
   ] }]])),
   'creator-profile': noActions('返回完整账号资料及汇总字段，不含可选择的作品或用户ID；作品列表应独立调用creator-notes，不将字段行映射为作品操作。'),
   'creator-stats': noActions('返回所选周期的账号指标及趋势；指标不是笔记对象，当前无按指标下钻或修改指标的命令。'),
+  'publish-status': noActions('仅返回指定笔记在近期作品页中的发布状态回执；未找到不代表发布失败，不提供自动重发或删除操作。'),
   'navigate-to-homepage': noActions('仅导航回首页的回执，不返回候选对象；需要推荐列表时调用feed。'),
 };
 

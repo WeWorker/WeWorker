@@ -4,6 +4,20 @@ const WRITE_API_SIGNAL_RE = /approve|reject|delete|remove|update|edit|submit|cre
 const READ_API_SIGNAL_RE = /(?:^|[^a-z])(get|list|search|query|fetch|check|find|read|status|detail|summary|page)(?:$|[^a-z])|查询|列表|搜索|获取|读取|查看|详情|状态|分页|待办/i;
 const SYSTEM_API_SIGNAL_RE = /analytics|telemetry|tracking|track|heartbeat|beacon|report|refresh.?token|session|mark.?read|埋点|心跳|上报|刷新令牌|标记已读/i;
 const TRUNCATION_MARKER_RE = /(?:\.{0,3}\[truncated\]|…\s*\[truncated\])\s*$/i;
+const BODY_OMISSION_REASONS = new Set(['not_captured', 'too_large', 'non_json', 'empty', 'read_timeout', 'invalid_encoding', 'read_failed']);
+
+export function bodyOmissionMetadata(evidence) {
+  return (evidence?.bodyOmitted || evidence?.bodyTruncated) && BODY_OMISSION_REASONS.has(evidence.bodyOmissionReason)
+    ? { bodyOmissionReason: evidence.bodyOmissionReason } : {};
+}
+
+export function bodyCaptureMetadata(evidence) {
+  const result = bodyOmissionMetadata(evidence);
+  for (const key of ['bodyReadLimit', 'bodyTransferSize']) {
+    if (Number.isSafeInteger(evidence?.[key]) && evidence[key] >= (key === 'bodyReadLimit' ? 1 : 0)) result[key] = evidence[key];
+  }
+  return result;
+}
 
 function shapeOf(value, depth = 0) {
   if (depth >= 8) return { type: 'unknown' };
@@ -83,6 +97,7 @@ export function normalizeRequestBodyEvidence(candidate = {}) {
       bodyFullSize: Number.isFinite(Number(supplied.bodyFullSize)) ? Number(supplied.bodyFullSize) : 0,
       bodyTruncated,
       bodyOmitted,
+      ...bodyCaptureMetadata(supplied),
     };
   }
 
@@ -192,6 +207,7 @@ export function normalizeResponseBodyEvidence(candidate = {}) {
       bodyFullSize: Number.isFinite(Number(supplied.bodyFullSize)) ? Number(supplied.bodyFullSize) : 0,
       bodyTruncated,
       bodyOmitted,
+      ...bodyCaptureMetadata(supplied),
     };
   }
 

@@ -5,6 +5,12 @@ description: 通过 WebCLI 探索公开/鉴权 HTTP API，或通过浏览器插�
 
 # API 探索与 Adapter 生成
 
+来自 Adapter工坊的 input.json 若含 source_exploration.api_evidence，先按 adapter-development Skill 使用 exploration.import 导入，并明确选择当前 profile/tabId；不再运行 exploration.start 刷新捕获。导入只保留结构，不继承验证或写授权。混合 Toolkit/Extension 开发时，完成本流程的 validate 后将 validatedDigest 交给 development.compose，再调试最终 Toolkit 候选，一次 development.review/apply 安装。不要先安装 API 中间包。独立 CLI 的 start/discover/request 入口仍可使用。
+
+统一开发时，通过 `webcli skills read adapter-development` 读取主流程，沿用其中的统一操作清单；先核查清单中的相关 API 候选，再处理拟采用 API 的操作。generate/repair 前按业务契约核对已安装命令、当前 API 草稿和 Toolkit 工作区；已有能力满足需求则复用，不另写同义命令，不用 -api/-ui 后缀制造双实现。新增证据需调整实现方式时先更新共同清单，再按需 replan；不能为已分配给 Toolkit 的操作自行增加 API 版本。validate 通过后交回主流程完成选型和语义去重；仅在存在两类互补操作时 compose，下文独立 CLI 的安装步骤不适用于混合开发中的 API 中间包。
+
+来自工坊的结构证据即使尚未回放，也应按主流程 import → analyze/evidence，核查参数、鉴权和项目上下文，并在授权范围内编写草稿/cases、validate。验证是当前开发任务的一部分，不能将“尚未验证”解释为不走 API；“页面已跑通”也不证明后台不可行。将实际核查结果或具体阻塞交回操作清单，区分未尝试、验证失败和证据已证明不适用。后台能力使用本 Skill 的后台 Runner 验证规则；缺权限、登录或关键证据时说明条件，不猜凭据、不扩大账号范围、不自动重放写操作。
+
 ## B02 日期与弹层选项
 
 UI v2 的 kind=date 声明原生 input[type=date]，要求精确 ISO 值和有效 min/max/step。kind=choice 须声明 popup 和 option selectors：控件是 type=button、role=combobox、data-field 匹配 name、无提交 name；当前值为 data-value。点击后 popup 唯一可见且 role=listbox/grid，id 与 aria-controls 对应，aria-expanded=true；在 popup 内精确匹配一个可用 option/gridcell 的 data-value，再点击一次。日历可用 ISO 日期 data-value，不自动翻月。要求 native-input-change 和选定 profile 的 ui_write_choices_v1。页面负责 choice 事件，不另发重复 input/change；任一替换/歧义/禁用/值回退停止。沿用独立效果验证、安装门禁和单工具普通调用。普通 browser 层复用 find/click/get；目录与 chooser 上传见 webcli-browser，不能把路径写入生成包。
