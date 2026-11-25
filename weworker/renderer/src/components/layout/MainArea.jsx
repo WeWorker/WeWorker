@@ -15,7 +15,6 @@ import { useChatInputFillStore } from '../../store/chat-input-fill.js'
 import { useChatDraft, useChatDraftStore } from '../../store/chat-drafts.js'
 import { useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
-import ExplorationPage from '../exploration/ExplorationPage.jsx'
 import WebsiteExplorationPage from '../website-exploration/WebsiteExplorationPage.jsx'
 import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 import DedicatedAgentsPage from '../dedicated-agents/DedicatedAgentsPage.jsx'
@@ -43,7 +42,6 @@ export default function MainArea({ sidebarWidth, sidebarCollapsed = false, onSid
   React.useEffect(() => { if (!dedicatedAgentsLoaded) loadDedicatedAgents() }, [dedicatedAgentsLoaded, loadDedicatedAgents])
   const isAgentConversation = !!activeWorkId
     && dedicatedAgents.some((agent) => !agent.draft && (agent.work_ids ?? []).includes(activeWorkId))
-  const closeExplorationPage = useExplorationPageStore((s) => s.closePage)
   const closeToolPackagePage = useToolPackagePageStore((s) => s.closePage)
   const draftProjectId = useWorksStore(s => s.draftProjectId)
   const projects = useWorksStore(s => s.projects)
@@ -209,7 +207,7 @@ export default function MainArea({ sidebarWidth, sidebarCollapsed = false, onSid
   if (explorationOpen) {
     return (
       <MainWorkspaceShell>
-        <ExplorationPage onClose={closeExplorationPage} />
+        <WebsiteExplorationPage sidebarWidth={sidebarWidth} sidebarCollapsed={sidebarCollapsed} onSidebarResizeStart={onSidebarResizeStart} toolbar={workspaceToolbar} />
       </MainWorkspaceShell>
     )
   }

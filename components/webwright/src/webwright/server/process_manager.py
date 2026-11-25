@@ -44,6 +44,7 @@ from webwright.server.status import (
     TaskStatus,
 )
 from webwright.server.toolkit_store import DevelopmentSlotConflictError, ToolkitStore
+from webwright.server.win_job import WindowsJobObject
 from webwright.runtime_launcher import RuntimeLauncher
 from webwright.runtime_identity import RuntimeIdentity
 from webwright.utils.local_cdp import normalize_page_url, page_in_allowed_domains
@@ -293,6 +294,7 @@ class ProcessManager:
         return self.active_process is not None and self.active_process.poll() is None
 
     def _clear_active_locked(self, *, process: subprocess.Popen) -> None:
+        self._release_process_tree(process)
         if self.active_process is process:
             self.active_process = None
             self.active_kind = None
@@ -347,6 +349,10 @@ class ProcessManager:
                 env=env,
                 **process_options,
             )
+            if process_group and os.name == "nt":
+                job = WindowsJobObject.attach(process)
+                if job is not None:
+                    setattr(process, "_win_job", job)
             append_process_log(
                 log_path,
                 source="lifecycle",
@@ -366,6 +372,15 @@ class ProcessManager:
             log_handle.close()
 
     @staticmethod
+    def _release_process_tree(process: subprocess.Popen, *, terminate: bool = False) -> None:
+        job = getattr(process, "_win_job", None)
+        if job is not None:
+            if terminate:
+                job.terminate()
+            job.close()
+            setattr(process, "_win_job", None)
+
+    @staticmethod
     def _terminate_process_tree(process: subprocess.Popen, *, force: bool = False) -> None:
         if os.name == "nt":
             if not force:
@@ -377,6 +392,13 @@ class ProcessManager:
                     except OSError:
                         pass
             else:
+                job = getattr(process, "_win_job", None)
+                if job is not None:
+                    terminated = job.terminate()
+                    job.close()
+                    setattr(process, "_win_job", None)
+                    if terminated:
+                        return
                 completed = subprocess.run(
                     ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                     stdout=subprocess.DEVNULL,
@@ -1545,6 +1567,10 @@ class ProcessManager:
             except subprocess.TimeoutExpired:
                 self._terminate_process_tree(process, force=True)
                 returncode = process.wait()
+            else:
+                # Even if the top-level worker exited after CTRL_BREAK/SIGTERM,
+                # force-clean any surviving descendants (webcli / browser-control).
+                self._terminate_process_tree(process, force=True)
         append_process_log(
             log_path,
             source="lifecycle",
@@ -1587,6 +1613,10 @@ class ProcessManager:
             except subprocess.TimeoutExpired:
                 self._terminate_process_tree(process, force=True)
                 returncode = process.wait()
+            else:
+                # Even if the top-level worker exited after CTRL_BREAK/SIGTERM,
+                # force-clean any surviving descendants (webcli / browser-control).
+                self._terminate_process_tree(process, force=True)
         append_process_log(
             log_path,
             source="lifecycle",

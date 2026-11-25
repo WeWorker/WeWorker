@@ -82,7 +82,55 @@ def bind_base(store: ToolkitStore, toolkit_id: str, *, profile: str, digest: str
 
 
 def adapter_name(store: ToolkitStore, toolkit_id: str) -> str:
+    from webwright.server.package_workspace import read_state
+    composed_name = (read_state(store, toolkit_id).get("api_composition") or {}).get("name")
+    if composed_name:
+        return composed_name
     return str(store.get_toolkit(toolkit_id).get("adapter_name") or toolkit_id.replace("_", "-"))
+
+
+def compose_api_package(store, toolkit_id, *, expected_digest, package, source):
+    """Host-validated API snapshot + editable Toolkit slots; never install here."""
+    from webwright.server.package_workspace import read_state, save_state, write_package, candidate_slots, build_candidate
+    with store._slot_lock:
+        state = read_state(store, toolkit_id)
+        if state.get("candidate_digest") != expected_digest:
+            raise ValueError("Candidate changed; build again before composing.")
+        if not isinstance(package, dict) or not isinstance(source, dict):
+            raise ValueError("A host-validated API package is required.")
+        encoded = package.get("files")
+        if not isinstance(encoded, dict) or not 1 <= len(encoded) <= 512 or any(not _safe_package_path(name) or not isinstance(value, str) for name, value in encoded.items()):
+            raise ValueError("Invalid API package files.")
+        files = {name: base64.b64decode(value, validate=True) for name, value in encoded.items()}
+        if sum(map(len, files.values())) > 32 * 1024 * 1024:
+            raise ValueError("API package is too large.")
+        manifest = json.loads(files["manifest.json"])
+        _check_package_identity(manifest.get("name"), package.get("digest"))
+        if manifest.get("schema_version") != 2 or package_digest(files) != package["digest"]:
+            raise ValueError("API package digest changed.")
+        baseline = state.get("install_baseline_digest") or state.get("last_applied_digest")
+        if baseline != package.get("baselineDigest"):
+            raise ValueError("Toolkit and API drafts must share the same installed baseline.")
+        if baseline and adapter_name(store, toolkit_id) != manifest["name"]:
+            raise ValueError("Installed Adapter identity cannot change.")
+        if state.get("profile") and state["profile"] != package.get("profile"):
+            raise ValueError("Build profile changed.")
+        toolkit = store.get_toolkit(toolkit_id)
+        grants = set(manifest.get("match", [])) | set(manifest.get("runtime_allowed_hosts", []))
+        if not set(toolkit["allowed_domains"]).issubset(grants):
+            raise ValueError("API and Toolkit site scopes differ.")
+        slots = candidate_slots(store, toolkit_id, state)
+        commands = {command["id"]: command for command in manifest["commands"]}
+        for tool_id in slots:
+            command = commands.get(tool_id.replace("_", "-"))
+            if command and (command.get("runtime") != "wewright" or command.get("module") != state["contexts"][tool_id]["module"]):
+                raise ValueError("Toolkit and API command names conflict; preserve the original command.")
+        write_package(store, toolkit_id, files)
+        state["api_composition"] = {"name": manifest["name"], "digest": package["digest"], "task_id": source["task_id"], "profile": source.get("profile")}
+        state["profile"] = package["profile"]
+        build_candidate(store, toolkit_id, state, slots)
+        save_state(store, toolkit_id, state)
+        return {"toolkit_id": toolkit_id, "digest": state["candidate_digest"], "revision": state["revision"], "installed": False, "runtime_verified": False}
 
 
 def _command_source(

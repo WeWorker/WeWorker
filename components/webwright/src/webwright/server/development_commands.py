@@ -107,12 +107,13 @@ class DevelopmentCommands:
         for toolkit in self.store.list_toolkits():
             toolkit_id = toolkit["toolkit_id"]
             state = read_state(self.store, toolkit_id)
-            base = state.get("retained_base")
+            base = state.get("api_composition") or state.get("retained_base")
             retained = []
             if base:
                 files, _ = read_package(self.store, toolkit_id, base["digest"])
+                editable = {tool_id.replace("_", "-") for tool_id in state["contexts"]}
                 retained = [{"id": command["id"], "runtime": command["runtime"]}
-                            for command in json.loads(files["manifest.json"])["commands"]]
+                            for command in json.loads(files["manifest.json"])["commands"] if command["id"] not in editable]
             tools = [{**{key: tool.get(key) for key in ("tool_id", "name", "goal", "start_url", "expected_effect", "has_formal", "has_development")},
                       "command_id": tool["tool_id"].replace("_", "-"), "runtime": "wewright"}
                      for tool in self.store.list_tools(toolkit_id)]
@@ -152,7 +153,7 @@ class DevelopmentCommands:
         # Imported commands are retained, not editable Toolkit slots. Reject the
         # collision before creating metadata, not only during package generation.
         state = read_state(self.store, toolkit_id)
-        base = state.get("retained_base")
+        base = state.get("api_composition") or state.get("retained_base")
         if base:
             from webwright.server.package_workspace import read_package
             files, _ = read_package(self.store, toolkit_id, base["digest"])

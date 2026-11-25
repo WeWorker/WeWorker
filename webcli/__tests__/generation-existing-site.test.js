@@ -22,7 +22,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
-function setup() {
+function setup(mixed = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'existing-site-generation-'));
   roots.push(root);
   for (const [key, value] of Object.entries({ WEWORKER_USER_ADAPTERS_DIR: 'user', WEBCLI_ADAPTERS_DIR: 'user', WEWORKER_ADAPTER_DATA_DIR: 'data', WEWORKER_BUILTIN_ADAPTERS_DIR: 'builtin' })) vi.stubEnv(key, path.join(root, value));
@@ -31,6 +31,11 @@ function setup() {
   // A pre-existing mutation must be retained, and must never be exercised by this read-only exploration.
   const manifest = JSON.parse(fs.readFileSync(base.files.manifest, 'utf8'));
   manifest.commands.push({ id: 'submit-item', runtime: 'extension', module: 'extension/commands/submit-item.js', safety: 'write', schema: { type: 'object', properties: {} }, description: 'Existing mutation' });
+  if (mixed) {
+    manifest.commands.push({ id: 'read-title', runtime: 'wewright', module: 'wewright/commands/read-title.py', safety: 'read', schema: { type: 'object', properties: {} }, description: 'Existing Toolkit command' });
+    fs.mkdirSync(path.join(base.adapterDir, 'wewright/commands'), { recursive: true });
+    fs.writeFileSync(path.join(base.adapterDir, 'wewright/commands/read-title.py'), 'print("fixture")\n');
+  }
   fs.writeFileSync(base.files.manifest, JSON.stringify(manifest));
   fs.writeFileSync(path.join(base.adapterDir, 'extension/commands/submit-item.js'), "__webcliRegisterCommand('submit-item', () => { throw new Error('MUST_NOT_EXECUTE_EXISTING_MUTATION'); });");
   const memory = { siteKey: 'search.example.com', siteHost: 'search.example.com', siteOrigin: 'https://search.example.com', listApiCandidates: [{ url: 'https://search.example.com/api/search?keyword=fixture', method: 'GET', responsePreview: '{"data":[{"id":"fixture"}]}' }] };
@@ -42,6 +47,13 @@ function setup() {
   run.snapshot.artifacts = { draft, staticValidation: validation };
   return { root, base, memory, run, prepared, plan, draft, validation };
 }
+
+it('retains existing Toolkit commands in API generation and rejects changes to their bytes', () => {
+  const { draft, validation } = setup(true);
+  expect(validation.passed, JSON.stringify(validation)).toBe(true);
+  fs.writeFileSync(path.join(draft.adapterDir, 'wewright/commands/read-title.py'), 'print("changed")\n');
+  expect(validateAdapterDraft({ adapterDir: draft.adapterDir }).passed).toBe(false);
+});
 
 it('targets the unique existing owner and adds commands without changing any previous command or file', async () => {
   const { base, run, prepared, draft, plan, validation } = setup();
@@ -67,7 +79,7 @@ it('targets the unique existing owner and adds commands without changing any pre
 });
 
 it('registers the complete package but executes only the newly explored commands', async () => {
-  const { run, draft, plan, prepared, validation } = setup();
+  const { run, draft, plan, prepared, validation } = setup(true);
   const requestExtension = vi.fn(async message => {
     expect(message.siteKey).toBe('search.example.com');
     const pkg = readPackageDirectory(draft.adapterDir);

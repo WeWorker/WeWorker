@@ -8,8 +8,23 @@ import { fileURLToPath } from 'node:url'
 import { consumeSSE } from '../api/website-exploration-events.js'
 import { resourcePath, deleteTool, deleteInstalledCommand, matchBrowser } from '../api/website-exploration-api.js'
 import { useWebsiteExplorationStore as store, leaveWebsiteExploration, changeWebsiteContext } from '../store/website-exploration.js'
+import { useExplorationPageStore } from '../store/exploration-page.js'
 
 const pageSource = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../components/website-exploration/WebsiteExplorationPage.jsx'), 'utf8')
+
+test('legacy API entry opens the unified workshop and respects pending edits', async () => {
+  store.setState({ open: false, codeDraft: null, leaveRequest: null })
+  await useExplorationPageStore.getState().openPage()
+  assert.equal(store.getState().open, true)
+  assert.equal(store.getState().workspace, 'explore')
+  assert.equal(useExplorationPageStore.getState().open, false)
+  store.setState({ open: false, codeDraft: { code: 'unsaved' } })
+  const opening = useExplorationPageStore.getState().openPage()
+  store.getState().resolveLeave(false)
+  await opening
+  assert.equal(store.getState().open, false)
+  store.setState({ codeDraft: null, leaveRequest: null })
+})
 
 test('SSE handles named events, CRLF, UTF-8 split bytes and multiline JSON', async () => {
   const bytes = new TextEncoder().encode(': heartbeat\r\nevent: step_finished\r\ndata: {"step":1,\r\ndata: "title":"页面"}\r\n\r\nevent: exploration_succeeded\ndata: {}\n\n')

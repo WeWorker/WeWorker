@@ -1,5 +1,6 @@
 /** Model-independent development commands; use the shared WebCLI argument parser. */
 export const developmentCommands = {
+  compose: { required: ['toolkit_id', 'expected_digest', 'task_id', 'api_digest'], optional: ['profile'], description: 'Merge an exact validated exploration draft into the Toolkit workspace without installing. Keeps independent runners, rejects conflicts and stale baselines; debug the resulting mixed candidate before one final review/apply. profile selects the source browser profile explicitly.' },
   list: { required: [], description: 'List current development workspaces, Adapter identities, editable Tool metadata, retained commands and baseline digests. Read-only; no installed catalog snapshot.' },
   prepare: { required: ['adapter_id', 'expected_digest'], optional: ['toolkit_id'], description: 'Prepare an installed Adapter workspace at the exact catalog digest. Reuse matching workspace or bind a retained package; never install or overwrite. Multiple matches require toolkit_id. Only returned editable_tools may be modified; retained commands cannot be rewritten by this Toolkit flow.' },
   create: { required: ['toolkit_id', 'tool_id', 'allowed_domains', 'goal', 'start_url'], optional: ['expected_effect'], description: 'Create missing Toolkit/Tool metadata; allowed_domains is a comma-separated string (example.com,api.example.com), never an array. Never overwrite a Tool or widen existing domains.' },
@@ -19,7 +20,7 @@ export function developmentHelp() {
     usage: 'webcli call development.<command> [--key=value ...] [--args-file=./args.json]',
     requirements: ['Running host-managed website exploration service on 127.0.0.1:8766',
       'WEWORKER_EXPLORATION_INSTANCE_ID supplied by the same desktop host; never infer identity from an unknown listener',
-      'prepare/review/apply additionally require the running desktop backend and host-provided WEWORKER_HTTP_TOKEN / WEWORKER_BACKEND_INSTANCE_ID; never pass credentials as command arguments'],
+      'prepare/compose/review/apply additionally require the running desktop backend and host-provided WEWORKER_HTTP_TOKEN / WEWORKER_BACKEND_INSTANCE_ID; never pass credentials as command arguments'],
     contract: { parameters_schema: 'JSON object, never a JSON-encoded string', result_schema: 'JSON object, never a JSON-encoded string',
       allowed_domains: 'create input: comma-separated string, never an array; returned metadata keeps domain arrays',
       safety: ['read', 'write'], revision: 'Read-only workspace metadata returned by commands; never an input parameter',
