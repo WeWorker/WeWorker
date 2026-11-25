@@ -10,6 +10,7 @@ import {
 } from '../generation-harness/index.js';
 
 const tmpDirs = [];
+const workerSessions = new Set();
 const fixtureScript = path.resolve(import.meta.dirname, 'fixtures', 'generation-worker-fixture.js');
 
 function createController(options = {}) {
@@ -18,16 +19,18 @@ function createController(options = {}) {
   tmpDirs.push(rootDir, reportDir);
   const store = new GenerationRunStore({ rootDir });
   const requestExtension = options.requestExtension || vi.fn(async () => ({ passed: true }));
-  return {
+  const controller = new GenerationWorkerController({
     store,
     requestExtension,
-    controller: new GenerationWorkerController({
-      store,
-      requestExtension,
-      workerScript: fixtureScript,
-      reportDir,
-    }),
-  };
+    workerScript: fixtureScript,
+    reportDir,
+  });
+  const setWorker = controller.activeWorkers.set.bind(controller.activeWorkers);
+  vi.spyOn(controller.activeWorkers, 'set').mockImplementation((runId, session) => {
+    workerSessions.add(session);
+    return setWorker(runId, session);
+  });
+  return { store, requestExtension, controller };
 }
 
 async function waitFor(predicate, timeoutMs = 5_000) {
@@ -40,7 +43,19 @@ async function waitFor(predicate, timeoutMs = 5_000) {
   throw new Error('condition timed out');
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all([...workerSessions].map(async (session) => {
+    const timeout = setTimeout(() => {
+      session.cancelRequested = true;
+      session.child.kill();
+    }, 2_000);
+    try {
+      await session.closedSignal.promise;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }));
+  workerSessions.clear();
   while (tmpDirs.length > 0) fs.rmSync(tmpDirs.pop(), { recursive: true, force: true });
 });
 
