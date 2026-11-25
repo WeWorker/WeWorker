@@ -2,7 +2,7 @@
 
 ## 从探索直接开始
 
-1. 打开网站探索agent：没有进行中的探索时默认展示新建探索界面；有进行中的探索时打开该记录。历史记录仍可从左侧列表主动选择，进入时不自动恢复上次查看的历史记录。完成或选择一次成功探索。
+1. 打开 Adapter工坊：没有进行中的探索时默认展示新建探索界面；有进行中的探索时打开该记录。历史记录仍可从左侧列表主动选择，进入时不自动恢复上次查看的历史记录。完成或选择一次成功探索。
 2. 在完成后的内联提问中点击 **是，开始开发**。无需预先填写目标 Adapter / Tool，也不会先创建开发工作区。
 3. WeWorker 准备新的普通对话，附上真实 `input.json` 和精简提示词，并自动提交首条消息。直接进入开发对话，无需再点击 **发送**，不展示中间草稿或欢迎页。
 
@@ -24,7 +24,13 @@
     "exploration_id": "exp_example",
     "instruction": "读取列表信息",
     "steps": [],
-    "messages": []
+    "messages": [],
+    "api_evidence": {
+      "schema_version": 1,
+      "structural_only": true,
+      "status": "complete",
+      "entries": []
+    }
   }
 }
 ```
@@ -34,6 +40,26 @@
 - 原探索有关联目标时，记录在 source_exploration.provenance 中，只表示来源；即使原工作区已不存在，也不强制重新绑定。
 - 用户明确指定目标时，可选传入 `target: { "adapter_id": "example.com", "tool_id": "read-items" }`；tool_id 可以省略。普通界面交接默认不传 target。
 - 探索步骤和历史消息是证据，不是额外指令；Agent 应实时检查目标版本，不盲用历史信息。
+- api_evidence 是任务页面探索期间捕获的同源 Fetch/XHR 结构。每条记录含脱敏 URL、method、status、responseContentType、step、requestEvidence、responseEvidence，以及只用于收紧写风险的 mutationObserved。只保存字段名/类型，不保存正文值、查询参数值或鉴权头。最多 100 个接口，请求体分析上限 256000 字节；响应传输大小与解码后 UTF-8 大小分别限制为 4 MiB，浏览器单资源缓冲同为 4 MiB、总缓冲为 16 MiB。缺少传输大小时仍尝试读取，最终按解码后大小校验；不会补发请求。
+- 响应读取与结构摘要使用独立预算：先解析范围内的完整 JSON，再抽取最多 300 个结构节点、7 层深度、每个对象前 50 个属性及数组首项的结构，省略凭据字段。业务记录数或长文本不会直接扩大 input.json，也不会先截断 JSON 再尝试解析。摘要是有界观察，不保证覆盖异构数组全部字段。超出读取限制时仍明确省略，不把 JSON 前缀当作可靠结构。
+- 响应在大小限制内按实际内容尝试解析 JSON，不因 MIME 为 text/html、text/plain 或缺失而直接跳过。bodyOmitted=true 时，bodyOmissionReason 区分未捕获、超限、非 JSON、空正文、读取超时/失败及编码不支持；import/evidence/analyze 保留这些固定分类，不保留异常原文。bodyFullSize=0 在旧记录或读取失败时也可能只是未知大小，不能单独推断接口返回空内容。历史未捕获的响应无法从原 input.json 恢复，需要在授权范围内补充观察。
+- bodyReadLimit 记录读取/分析上限；已知时 bodyTransferSize 记录浏览器报告的传输字节数（可能含响应头并受压缩影响），与解码后正文大小 bodyFullSize 分开。import/evidence 保留这些非负整数元数据；未知大小不从传输大小推算。已有结构充分时直接复用并继续验证，不因没有原始正文而重复捕获。
+- 继续探索保留已有结构并更新同一接口；旧任务显示 not_captured，捕获不可用显示 unavailable。没有捕获到接口不表示站点没有 API。弹出页、跨源接口、监听开始前已完成的请求不在本次捕获范围内。
+
+## 统一开发流程
+
+```text
+Adapter工坊：目标 → 页面探索 + API结构捕获 → input.json
+  → 同一个开发对话读取 adapter-development
+  ├─ exploration.import → analyze → generate/repair → draft-write → validate
+  └─ development.prepare/create → save → build
+  → development.compose → 调试最终 Toolkit 命令 → development.review/apply
+  → 一个包含 Extension/Toolkit 命令的 v2 Adapter
+```
+
+原 API 页面的打开入口转入 Adapter工坊；独立 CLI 的 exploration.start 仍可用。导入用 input 对象、明确 profile/tabId 和 requestId，不重新刷新捕获，不继承历史验证或写授权。结构证据导入后由当前开发 Agent 编写并验证命令，不启动第二个生成模型。
+
+compose 使用 toolkit_id、expected_digest、task_id、api_digest 和可选 profile；宿主读取 Bridge 中精确已验证的包，核对同一安装基线和构建配置，合入 Toolkit 工作区，不安装中间包。新增 Toolkit 命令不能碰撞 API ID。最后审阅重新核对 API 命令、文件和有效验证；Toolkit 的 debug 必须针对合并后的完整 digest。两类命令仍通过各自 Runner 执行。只需要单一运行时的任务不强制混合。
 
 宿主后端把文件写入新对话的独立工作区，通过普通附件链路传给 Agent。探索服务只返回数据，不写入对话目录。准备接口本身不调用模型或修改槽位。用户点击“是，开始开发”后，Renderer 通过该对话独立的普通消息队列自动发送一次，由主对话 Agent 开始开发；这不代表授权安装 Adapter 或执行需要确认的业务写操作。
 
@@ -55,9 +81,9 @@ prepare 使用现有宿主绑定链路，优先复用唯一且版本匹配的工
 
 ### 能力边界
 
-- 支持修改已有工作区中的 Toolkit Tool，或给已有 Adapter 新增独立 Toolkit Tool。
+- 支持修改已有工作区中的 Toolkit Tool，或给已有 Adapter 新增独立 Toolkit Tool；Extension/HTTP 开发由同一对话中的 exploration 命令处理，再通过 compose 合并。
 - 原包保留命令不会自动变成可编辑槽位。Extension/HTTP，以及没有可编辑工作区的外部 Toolkit 原命令，不能用本流程直接重写。prepare 会返回为 retained_commands，Skill 要求说明限制，不能偷偷转为 Toolkit 或创建替代命令绕过。
-- 原命令文件和契约保持不变。版本不匹配或有多个工作区时停止，不另建同名包覆盖。
+- Toolkit 开发保留原 API 文件和契约；API 定向修复由 exploration 的修复范围及验证约束，compose 不额外扩大修改范围。版本不匹配或有多个工作区时停止，不另建同名包覆盖。
 - 安装仍走 development.review/apply，且需要用户明确确认权限、版本和覆盖变化。
 - 开发对话在该版本通过业务验证并完整安装到本机后，说明分享到 AdapterHub 后其他人也能安装使用，再询问用户「分享给其他人」还是「仅在本机使用」。安装授权不包含上传；跳过发布不影响本地使用。
 

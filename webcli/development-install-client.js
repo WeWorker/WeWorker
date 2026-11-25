@@ -8,7 +8,7 @@ export async function callDevelopmentInstall(command, args, { fetch: fetcher = g
   const host = `http://127.0.0.1:${port}`;
   const envelope = { schemaVersion: 1, command: `development.${command}` };
   const fail = (code, message, data) => ({ ...envelope, ok: false, error: { code, message }, ...(data ? { data } : {}) });
-  if (!['prepare', 'review', 'apply'].includes(command)) return fail('UNKNOWN_COMMAND', 'Unknown installation command.');
+  if (!['prepare', 'compose', 'review', 'apply'].includes(command)) return fail('UNKNOWN_COMMAND', 'Unknown installation command.');
   if (command === 'prepare') {
     if (typeof args.adapter_id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(args.adapter_id)
         || typeof args.expected_digest !== 'string' || !DIGEST.test(args.expected_digest)
@@ -59,6 +59,17 @@ export async function callDevelopmentInstall(command, args, { fetch: fetcher = g
       return { ...envelope, ok: true, data };
     }
     const base = `/api/website-exploration/toolkits/${args.toolkit_id}`;
+    if (command === 'compose') {
+      if (typeof args.task_id !== 'string' || !/^(?:http-)?[a-f0-9-]{36}$/.test(args.task_id)
+          || typeof args.api_digest !== 'string' || !DIGEST.test(args.api_digest)
+          || (args.profile !== undefined && (typeof args.profile !== 'string' || !args.profile.trim()))) return fail('INVALID_ARGUMENT', 'Use the validated exploration task and exact api_digest.');
+      submitted = true;
+      const response = await request(`${base}/compose`, { expectedDigest: args.expected_digest, taskId: args.task_id,
+        apiDigest: args.api_digest, profile: args.profile || env.WEBCLI_PROFILE });
+      const data = await response.json();
+      if (!response.ok) return fail('COMPOSITION_FAILED', typeof data.detail === 'string' ? data.detail : 'Cannot compose the candidate.');
+      return { ...envelope, ok: true, data };
+    }
     const reviewResponse = await request(`${base}/install-review`);
     if (!reviewResponse.ok) {
       const error = await reviewResponse.json();

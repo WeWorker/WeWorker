@@ -42,22 +42,44 @@ export async function connectSharedBrowser({ url = bridgeUrl(resolveBridgeInstan
       });
     },
     close() { socket.close(); },
+    terminate() { fail(); socket.terminate(); },
   };
 }
 
-export async function runBrowserControlStdio({ ensureBridgeRunning, checkRunning }) {
-  const input = createInterface({ input: process.stdin });
+export async function runBrowserControlStdio({
+  ensureBridgeRunning,
+  checkRunning,
+  stdin = process.stdin,
+  stdout = process.stdout,
+  connect = connectSharedBrowser,
+  parentPid = Number(process.env.WEWORKER_TOOLKIT_PARENT_PID),
+  parentPollMs = 1000,
+} = {}) {
+  const input = createInterface({ input: stdin });
   let client;
+  let aborted = false;
   let chain = Promise.resolve();
-  const write = value => process.stdout.write(JSON.stringify(value) + '\n');
-  const parentPid = Number(process.env.WEWORKER_TOOLKIT_PARENT_PID);
+  const write = value => {
+    if (!stdout.destroyed) stdout.write(JSON.stringify(value) + '\n');
+  };
+  const abortNow = () => {
+    if (aborted) return;
+    aborted = true;
+    try { write({ event: 'disconnected' }); } catch {}
+    client?.terminate?.();
+    input.close();
+    if (!stdin.destroyed) stdin.destroy();
+  };
   const parentTimer = Number.isInteger(parentPid) && parentPid > 0 ? setInterval(() => {
     try { process.kill(parentPid, 0); } catch (error) {
-      if (error.code === 'ESRCH') { write({ event: 'disconnected' }); input.close(); process.stdin.destroy(); }
+      if (error.code === 'ESRCH') abortNow();
     }
-  }, 1000) : null;
+  }, parentPollMs) : null;
+  const signals = process.platform === 'win32' ? ['SIGINT', 'SIGTERM', 'SIGBREAK'] : ['SIGINT', 'SIGTERM'];
+  for (const signal of signals) process.on(signal, abortNow);
   input.on('line', line => {
     chain = chain.then(async () => {
+      if (aborted) return;
       let message;
       try {
         message = JSON.parse(line);
@@ -70,15 +92,24 @@ export async function runBrowserControlStdio({ ensureBridgeRunning, checkRunning
           } else {
             await ensureBridgeRunning();
           }
-          client = await connectSharedBrowser();
-          client.onLost(() => { write({ event: 'disconnected' }); input.close(); process.stdin.destroy(); });
+          if (aborted) return;
+          client = await connect();
+          if (aborted) { client.terminate?.(); return; }
+          client.onLost(() => { write({ event: 'disconnected' }); input.close(); if (!stdin.destroyed) stdin.destroy(); });
         }
         write({ id: message.id, ok: true, data: await client.request(message.action, message.params) });
-      } catch (error) { write({ id: message?.id, ok: false, error: { code: error.code || 'BROWSER_CONTROL_FAILED', message: error.message } }); }
+      } catch (error) {
+        if (!aborted) write({ id: message?.id, ok: false, error: { code: error.code || 'BROWSER_CONTROL_FAILED', message: error.message } });
+      }
     });
   });
   await new Promise(resolve => input.once('close', resolve));
   clearInterval(parentTimer);
+  for (const signal of signals) process.off(signal, abortNow);
+  if (aborted) {
+    client?.terminate?.();
+    return;
+  }
   await chain;
   client?.close();
 }

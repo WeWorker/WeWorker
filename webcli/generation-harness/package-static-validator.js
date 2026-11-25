@@ -25,6 +25,10 @@ export function validatePackageDraft({ adapterDir, expectedSiteKey = '', expecte
     const fixtures = readGenerationEvidence(adapterDir, 'write-verification.json', { optional: true });
     for (const command of manifest.commands) {
       if (retained.has(command.id)) continue;
+      if (command.runtime === 'wewright') {
+        fail('TOOLKIT_DEVELOPMENT_REQUIRED', 'New or edited Toolkit commands require development validation and composition.');
+        continue;
+      }
       const source = pkg.files.get(command.module).toString('utf8');
       const origin = evidence.commands?.[command.id];
       if (!origin) fail('MISSING_GENERATION_EVIDENCE', `Missing source binding: ${command.id}`);

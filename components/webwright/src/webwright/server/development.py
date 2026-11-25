@@ -120,6 +120,8 @@ def build_exploration_development_input(*, task_store: TaskStore, exploration_id
         "instruction": record.get("instruction", ""),
         "steps": read_steps(exploration_id, output_dir), "messages": read_messages(output_dir),
     }
+    from webwright.environments.api_evidence import read_api_evidence
+    source["api_evidence"] = read_api_evidence(output_dir)
     if record.get("toolkit_id") or record.get("tool_id"):
         source["provenance"] = {key: record.get(key, "") for key in ("toolkit_id", "tool_id")}
     result = {

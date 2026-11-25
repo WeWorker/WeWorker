@@ -18,7 +18,9 @@ export function readGenerationEvidence(adapterDir, name = 'source.json', { optio
 
 export function packageDraftBundle(adapterDir) {
   const pkg = readPackageDirectory(adapterDir);
-  if (pkg.commands.some(command => !['extension', 'http'].includes(command.runtime))) throw new Error('Generated drafts must use the Extension or HTTP runtime.');
+  // Toolkit commands may be retained from the installed mixed package. The
+  // static validator still requires exact baseline retention for these commands.
+  if (pkg.commands.some(command => !['extension', 'http', 'wewright'].includes(command.runtime))) throw new Error('Unsupported Adapter runtime.');
   const order = v2InjectionFiles(pkg.manifest, [...pkg.files.keys()]);
   return { pkg, manifest: pkg.manifest, scripts: [
     { path: 'bootstrap.js', source: buildV2Bootstrap(pkg.manifest) },
@@ -34,7 +36,7 @@ export function inspectPackageRegistration(adapterDir) {
   for (const script of bundle.scripts) new vm.Script(script.source).runInContext(context, { timeout: 1000 });
   const names = JSON.parse(vm.runInContext('JSON.stringify(window.__registrations)', context, { timeout: 1000 }));
   for (const [name, bytes] of bundle.pkg.files) if (name.startsWith('http/') && name.endsWith('.js')) new vm.Script('(function(module,exports,require){\n' + bytes.toString('utf8') + '\n})');
-  names.push(...bundle.pkg.commands.filter(command => command.runtime === 'http').map(command => command.name));
+  names.push(...bundle.pkg.commands.filter(command => ['http', 'wewright'].includes(command.runtime)).map(command => command.name));
   return { ...bundle, names };
 }
 

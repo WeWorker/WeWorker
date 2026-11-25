@@ -1,6 +1,12 @@
 import { defineConfig, configDefaults } from 'vitest/config'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
+  // Local publishing helpers import pinned upstream code with the same error
+  // binding used by the Adapter build and its dedicated upstream test suite.
+  resolve: { alias: {
+    '@jackwener/opencli/errors': fileURLToPath(new URL('./scripts/opencli-xiaohongshu/errors.js', import.meta.url)),
+  } },
   plugins: [{
     name: 'cli-test-import',
     transform(code, id, options) {

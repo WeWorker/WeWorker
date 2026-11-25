@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { normalizeRequestBodyEvidence, normalizeResponseBodyEvidence, classifyApiCandidateRisk } from './generation-harness/source-evidence.js';
+import { normalizeRequestBodyEvidence, normalizeResponseBodyEvidence, classifyApiCandidateRisk, bodyCaptureMetadata } from './generation-harness/source-evidence.js';
 
 // Only structure crosses the persisted evidence boundary. Neither request headers
 // nor captured scalar values are copied into task state or agent-visible output.
@@ -28,7 +28,8 @@ function cleanBody(evidence) {
   return { version: evidence.version, bodyKind: ['none', 'json', 'form', 'opaque'].includes(evidence.bodyKind) ? evidence.bodyKind : 'opaque',
     bodyShape: evidence.bodyShape ? cleanShape(evidence.bodyShape) : null,
     bodyKeys: evidence.bodyShape ? Object.keys(cleanShape(evidence.bodyShape).properties || {}) : [],
-    bodyFullSize: evidence.bodyFullSize, bodyTruncated: evidence.bodyTruncated, bodyOmitted: evidence.bodyOmitted };
+    bodyFullSize: evidence.bodyFullSize, bodyTruncated: evidence.bodyTruncated, bodyOmitted: evidence.bodyOmitted,
+    ...bodyCaptureMetadata(evidence) };
 }
 
 function listPath(shape, prefix = '', depth = 0) {

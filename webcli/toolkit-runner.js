@@ -109,7 +109,7 @@ export async function runToolkitTool(match, parameters, options = {}) {
     }
   });
 
-  const signals = ["SIGINT", "SIGTERM"];
+  const signals = process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM"];
   const signalHandlers = new Map(signals.map((signal) => [
     signal,
     () => {

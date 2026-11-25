@@ -61,6 +61,13 @@ def resource_key(value: str) -> str:
     return "toolkit:" + hashlib.sha256(value.encode()).hexdigest()
 
 
+def _emit_stage(stage: str, **fields: Any) -> None:
+    if os.environ.get("WEBWRIGHT_STAGE_LOG") != "1":
+        return
+    payload = {"source": "toolkit_runtime", "stage": stage, "ts": datetime.now(timezone.utc).isoformat(), **fields}
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr, flush=True)
+
+
 class ManagedBrowser:
     def __init__(self):
         node = os.environ.get("WEWORKER_WEBCLI_NODE")
@@ -556,9 +563,11 @@ class ToolkitBrowserSession:
 
     async def open(self, tool: dict[str, Any]) -> ToolContext:
         if managed_browser_enabled():
+            _emit_stage("browser.acquiring")
             self.managed_browser = ManagedBrowser()
             resource = resource_key(str(getattr(self.runtime_store, "path", "") or getattr(self.runtime_store, "toolkit_id", "")))
             self.cdp_url = await asyncio.to_thread(self.managed_browser.acquire, resource=resource)
+            _emit_stage("browser.acquired")
             self.managed_browser.watch_current_task()
         if self.playwright_factory is None:
             from playwright.async_api import async_playwright
@@ -567,6 +576,7 @@ class ToolkitBrowserSession:
         else:
             manager = self.playwright_factory()
         self.playwright = await manager.start()
+        _emit_stage("cdp.connecting")
         try:
             self.browser = await self.playwright.chromium.connect_over_cdp(self.cdp_url)
         except Exception as first_error:
@@ -593,6 +603,7 @@ class ToolkitBrowserSession:
                     code="browser_unavailable",
                     message=f"Could not connect to local CDP endpoint after startup: {self.cdp_url}",
                 ) from retry_error
+        _emit_stage("cdp.connected")
         self.context = (
             self.browser.contexts[0]
             if self.browser.contexts
@@ -780,9 +791,11 @@ async def execute_tool(
         function = load_function()
         if not callable(function):
             raise ValueError(f"Tool code must define callable {tool_id}.")
+        _emit_stage("tool.running", tool_id=tool_id)
         result = function(context, **parameters)
         if inspect.isawaitable(result):
             result = await result
+        _emit_stage("tool.finished", tool_id=tool_id)
         json.dumps(result, ensure_ascii=False)
         _validate_result(result_schema, result)
         await _capture_screenshot(context.page, screenshot_path)
