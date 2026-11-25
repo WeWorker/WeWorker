@@ -13,6 +13,16 @@ const apply = { ...args, review_id: reviewId, confirmed: true };
 const receipt = { name: review.name, version: '1.0.0', digest, revision: 1, refreshed: true, acknowledged: true };
 const mock = (value = review) => vi.fn().mockResolvedValueOnce(status()).mockResolvedValueOnce(Response.json(value));
 
+it('composes through the authenticated host with exact source and candidate digests, without installation', async () => {
+  const fetch = mock({ toolkit_id: 'demo', digest: 'c'.repeat(64), installed: false });
+  const task_id = '11111111-1111-4111-8111-111111111111';
+  const result = await callDevelopment('compose', { ...args, task_id, api_digest: 'd'.repeat(64), profile: 'example-profile' }, { fetch, env });
+  expect(result.ok).toBe(true);
+  expect(fetch.mock.calls[1][0]).toMatch(/\/toolkits\/demo\/compose$/);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ expectedDigest: digest, taskId: task_id, apiDigest: 'd'.repeat(64), profile: 'example-profile' });
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
 it('reviews through the authenticated desktop host without installing', async () => {
   const fetch = mock();
   const result = await callDevelopment('review', args, { fetch, env });

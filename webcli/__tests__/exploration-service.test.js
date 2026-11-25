@@ -45,6 +45,23 @@ async function draft(service) {
 
 const backgroundPlan = { tools: [{ name: 'background_list', risk: 'read', strategy: 'EXTENSION_API', sourceApiKind: 'list', sourceApiIndexes: [0],
   readReason: 'Read the observed list', strategyNote: { reason: 'Reuse the browser cookie through the background helper', alternatives: 'No page state is required', limitations: 'Requires valid login cookies' } }] };
+
+it('exports only the exact currently validated API snapshot for mixed development', async () => {
+  const { service } = setup();
+  const taskId = await draft(service);
+  const run = service.runs.get(taskId);
+  expect((await service.execute('package-read', { taskId, expectedDigest: '0'.repeat(64) })).error.code).toBe('VALIDATION_REQUIRED');
+  await service.execute('validate', { taskId });
+  await service.jobs.get(taskId);
+  const digest = run.runtimeDigest;
+  const result = await service.execute('package-read', { taskId, expectedDigest: digest });
+  expect(result).toMatchObject({ ok: true, data: { digest, baselineDigest: null, profile: 'public' } });
+  expect(JSON.parse(Buffer.from(result.data.files['manifest.json'], 'base64').toString()).schema_version).toBe(2);
+  const manifest = path.join(run.draft.adapterDir, 'manifest.json');
+  const changed = JSON.parse(fs.readFileSync(manifest)); changed.description = 'Changed after validation';
+  fs.writeFileSync(manifest, JSON.stringify(changed));
+  expect((await service.execute('package-read', { taskId, expectedDigest: digest })).error.code).toBe('VALIDATION_REQUIRED');
+});
 const backgroundCapabilities = () => ({ connected: true, capabilities: ['passive_exploration_v1', 'strict_output_contract_v1', 'background_preview_v1'] });
 async function authoredBackground(f) {
   const taskId = await start(f.service);

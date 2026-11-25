@@ -36,6 +36,9 @@ export interface ProviderAccessInput {
   weworkerProtocol?: LlmProtocol
   weworkerBaseUrl?: string
   weworkerFullUrl?: boolean
+  timeoutMs?: number
+  timeoutRetries?: number
+  onProbeAttempt?: (retryCount: number) => void
 }
 
 export interface ProviderConnectionInput extends ProviderAccessInput {
@@ -296,12 +299,12 @@ export async function probeProviderProtocol(
   const isThinkingToolChoiceConflict = (status: number, detail: string) => status === 400
     && /tool_choice/i.test(detail) && /thinking/i.test(detail)
 
-  const execute = async (useToolCall: boolean): Promise<ProtocolProbeResult> => {
+  const execute = async (useToolCall: boolean, signal: AbortSignal): Promise<ProtocolProbeResult> => {
     const response = await fetchImpl(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(body(useToolCall)),
-      signal: AbortSignal.timeout(15000),
+      signal,
       redirect: 'error',
     })
     if (response.ok) {
@@ -329,6 +332,7 @@ export async function probeProviderProtocol(
             if (JSON.parse(content).ok !== true) throw new Error()
           }
         } catch {
+          signal.throwIfAborted()
           return {
             ok: false,
             target: input.target,
@@ -342,14 +346,25 @@ export async function probeProviderProtocol(
       return { ok: true, target: input.target, protocol, model }
     }
     const detail = (await readRemoteResponse(response)).detail.split(apiKey).join('[已隐藏]')
+    signal.throwIfAborted()
     if (requiresToolCall && useToolCall && (isThinkingToolChoiceConflict(response.status, detail) || shouldRetryAnthropicTextProbe(input, detail))) {
-      return execute(false)
+      return execute(false, signal)
     }
     return { ok: false, target: input.target, protocol, model, error: classifyProbeFailure(response.status, detail), detail }
   }
 
   try {
-    return await execute(requiresToolCall)
+    const retries = Math.max(0, Math.min(3, input.timeoutRetries ?? 0))
+    for (let attempt = 0; ; attempt += 1) {
+      input.onProbeAttempt?.(attempt)
+      try {
+        return await execute(requiresToolCall, AbortSignal.timeout(input.timeoutMs ?? 15000))
+      } catch (error) {
+        const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+        if (timedOut && attempt < retries) continue
+        throw error
+      }
+    }
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     return {

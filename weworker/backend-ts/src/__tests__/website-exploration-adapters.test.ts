@@ -43,13 +43,13 @@ function fixture() {
   return { root, payload, files }
 }
 
-async function harness(payload: object, override?: typeof fetch, onInstalled: () => void | Promise<void> = () => {}) {
+async function harness(payload: object, override?: typeof fetch, onInstalled: () => void | Promise<void> = () => {}, readExploration?: (command: string, args: Record<string, unknown>, options?: { profile?: string; timeoutMs?: number }) => Promise<any>) {
   const fetchAgent = override || vi.fn(async (url: string) => url.endsWith('/api/health')
     ? Response.json({ ok: true, instance_id: 'owned' })
     : Response.json({ ...payload, ...('digest' in payload ? { operation_id: String(payload.digest) + '-1' } : {}) })) as unknown as typeof fetch
   const app = express()
   app.use(express.json())
-  app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({ instanceId: 'owned', fetchAgent, onInstalled }))
+  app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({ instanceId: 'owned', fetchAgent, onInstalled, readExploration }))
   const server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)) })
   servers.push(server)
   const address = server.address() as { port: number }
@@ -57,6 +57,78 @@ async function harness(payload: object, override?: typeof fetch, onInstalled: ()
     'http://127.0.0.1:' + address.port + '/api/website-exploration' + path, options)
   return { request, fetchAgent }
 }
+
+describe('mixed Adapter composition', () => {
+  function mixedFixture() {
+    const { files } = fixture()
+    const manifest = JSON.parse(files.get('manifest.json')!.toString())
+    const toolkit = manifest.commands[0]
+    const apiCommand = { id: 'list-items', runtime: 'extension', module: 'extension/commands/list-items.js', description: 'List', schema: { type: 'object', properties: {} }, safety: 'read' }
+    const apiFiles = new Map<string, Buffer>([
+      ['manifest.json', Buffer.from(JSON.stringify({ ...manifest, match: ['example.com'], commands: [apiCommand] }))],
+      [apiCommand.module, Buffer.from('window.__webcliRegisterCommand("list-items", async () => ({items: []}));')],
+    ])
+    const api = validatePackageFiles(apiFiles)
+    const mixed = new Map(apiFiles)
+    mixed.set(toolkit.module, files.get(toolkit.module)!)
+    mixed.set('manifest.json', Buffer.from(JSON.stringify({ ...api.manifest, commands: [apiCommand, toolkit] })))
+    const pkg = validatePackageFiles(mixed)
+    const source = { task_id: '11111111-1111-4111-8111-111111111111', digest: api.digest, profile: 'browser-placeholder' }
+    const readExploration = vi.fn(async () => ({ ok: true, data: { name: api.name, digest: api.digest, profile: 'public', contextId: source.profile, baselineDigest: null,
+      files: Object.fromEntries([...api.files].map(([name, value]) => [name, value.toString('base64')])) } }))
+    const payload = { name: pkg.name, digest: pkg.digest, files: Object.fromEntries([...pkg.files].map(([name, value]) => [name, value.toString('base64')])),
+      api_composition: source, composition_tool_ids: [toolkit.id], composition_debug_verified: true }
+    return { payload, api, readExploration, source }
+  }
+
+  it('checks the exact API source and final Toolkit debug before installing one mixed package', async () => {
+    const { payload, readExploration, source } = mixedFixture()
+    const { request } = await harness(payload, undefined, () => {}, readExploration)
+    const response = await request('/toolkits/demo/install-review')
+    expect(response.status).toBe(200)
+    const review = await response.json()
+    expect(review.permissions).toEqual(expect.arrayContaining(['runtime:wewright', 'runtime:extension']))
+    expect(readExploration).toHaveBeenCalledWith('package-read', { taskId: source.task_id, expectedDigest: source.digest }, { profile: source.profile })
+    const installed = await request('/toolkits/demo/install-apply', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewId: review.reviewId, acceptChanges: true }) })
+    expect(installed.status).toBe(200)
+    expect((await installed.json()).digest).toBe(payload.digest)
+    readExploration.mockResolvedValue({ ok: false } as any)
+    // Lost acknowledgement recovery does not re-run APIs or write effects once
+    // the exact complete package is already active.
+    expect((await request('/toolkits/demo/install-review')).status).toBe(200)
+  })
+
+  it('composes only the validated digest and pins the resolved source browser', async () => {
+    const { payload, readExploration, source } = mixedFixture()
+    const fetchAgent = vi.fn(async (url: string) => url.endsWith('/api/health')
+      ? Response.json({ ok: true, instance_id: 'owned' })
+      : Response.json({ toolkit_id: 'demo', digest: payload.digest, installed: false })) as unknown as typeof fetch
+    const { request } = await harness(payload, fetchAgent, () => {}, readExploration)
+    const response = await request('/toolkits/demo/compose', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedDigest: payload.digest, taskId: source.task_id, apiDigest: source.digest, profile: 'alias-placeholder' }) })
+    expect(response.status).toBe(200)
+    const calls = (fetchAgent as any).mock.calls.filter(([url]: [string]) => url.endsWith('/compose-api'))
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(calls[0][1].body).source).toEqual({ task_id: source.task_id, profile: source.profile })
+    expect(calls[0][1].headers['X-WeWorker-Exploration-Instance']).toBe('owned')
+  })
+
+  it.each(['debug', 'api_changed', 'extra_api', 'source_changed'])('rejects invalid mixed validation: %s', async reason => {
+    const { payload, readExploration } = mixedFixture()
+    if (reason === 'debug') payload.composition_debug_verified = false
+    if (reason === 'source_changed') readExploration.mockResolvedValue({ ok: false } as any)
+    if (reason === 'api_changed' || reason === 'extra_api') {
+      const changed = new Map(Object.entries(payload.files).map(([name, value]) => [name, Buffer.from(value, 'base64')]))
+      changed.set(reason === 'api_changed' ? 'extension/commands/list-items.js' : 'extension/internal/extra.js', Buffer.from('/* changed */'))
+      const pkg = validatePackageFiles(changed)
+      payload.digest = pkg.digest
+      payload.files = Object.fromEntries([...pkg.files].map(([name, value]) => [name, value.toString('base64')]))
+    }
+    const { request } = await harness(payload, undefined, () => {}, readExploration)
+    expect((await request('/toolkits/demo/install-review')).status).toBe(409)
+  })
+})
 
 describe('website exploration v2 installation', () => {
   it('shows first-install permissions and applies only the reviewed digest', async () => {

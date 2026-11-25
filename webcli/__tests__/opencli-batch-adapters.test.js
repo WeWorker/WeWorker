@@ -53,9 +53,16 @@ function setup(site, { url, payload = {}, bodyText = '', one = {}, all = {}, pri
 describe('OpenCLI batch v2 contracts', () => {
   it.each(sites)('%s preserves inventoried source arguments, defaults and write classification',site=>{
     const {pkg}=setup(site);
+    // Article publishing is maintained locally, outside the pinned OpenCLI inventory.
+    const localCommands=site==='zhihu.com' ? ['prepare-article','publish-article','article-status'] : [];
+    expect(pkg.commands.map(c=>c.id)).toEqual(expect.arrayContaining(localCommands));
     for(const command of pkg.commands) {
+      if(localCommands.includes(command.id)) {
+        expect(command.safety).toBe(command.id==='article-status'?'read':'write');
+        continue;
+      }
       const original=inventory.find(c=>c.package===site&&c.name===command.id);
-      expect(original).toBeDefined();
+      expect(original, command.id).toBeDefined();
       if(original.access==='write')expect(command.safety).toBe('write');
       for(const arg of original.args||[]) {
         const schema=command.schema.properties[arg.name];expect(schema).toBeDefined();

@@ -97,6 +97,7 @@ async def _run_formal_cli(
         "WEBWRIGHT_PARAMETERS_STDIN": "1",
         "WEBWRIGHT_SCREENSHOT_PATH": str(spec["screenshot_path"]),
         "WEBWRIGHT_RUNTIME_PATH": str(runtime_path),
+        "WEBWRIGHT_STAGE_LOG": "1",
     })
     listing = await asyncio.create_subprocess_exec(
         node, entry, "adapter", "list", "--json",
@@ -117,7 +118,19 @@ async def _run_formal_cli(
         env=env,
         cwd=str(adapter_root),
     )
-    stdout, stderr = await process.communicate()
+    try:
+        stdout, stderr = await process.communicate()
+    except BaseException:
+        if process.returncode is None:
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=2)
+            except Exception:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+        raise
     if stderr:
         print(stderr.decode("utf-8", errors="replace"), end="", file=sys.stderr)
     text = stdout.decode("utf-8").strip()

@@ -983,7 +983,7 @@ export class WebSocketBridge extends EventEmitter {
         return;
       }
       const readCommands = namespace === 'browser' ? ['help', 'sessions', 'doctor']
-        : ['help', 'capabilities', 'list', 'get', 'events', 'evidence', 'trace', 'export', 'analyze', 'revisions', 'revision-read', 'draft-read', 'verification-read', 'write-verification-read', 'knowledge-read', 'repair-info'];
+        : ['help', 'capabilities', 'list', 'get', 'events', 'evidence', 'trace', 'export', 'analyze', 'revisions', 'revision-read', 'draft-read', 'package-read', 'verification-read', 'write-verification-read', 'knowledge-read', 'repair-info'];
       result = await this._runInProfile(msg, ws, async () => {
         const route = this._route.getStore();
         if (route.readOnly && !readCommands.includes(msg.command)) throw profileError('LEGACY_READ_ONLY', 'Pre-profile history is read-only. Start a new task or bind a session in an explicitly selected profile.');

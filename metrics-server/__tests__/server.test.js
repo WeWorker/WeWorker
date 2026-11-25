@@ -280,6 +280,66 @@ test("queryStats by=err：空 user 失败归 (unknown)，与 by=user 口径一�
   assert.equal(rows[0].users, 1); // 空用户归 (unknown) 计 1,不因 whoami 失败漏计
 });
 
+test("queryStats by=errdetail：报错下钻 tool 与 user 明细，口径同 by=err", () => {
+  const db = freshDb();
+  const now = Date.now();
+  insertBatch(db, {
+    clientId: "c1",
+    batch: [
+      rec({ ts: now, traceID: "d1", ok: false, ms: 10, err: "E_LOGIN", tool: "a.com.t1", domain: "a.com" }),
+      rec({ ts: now, traceID: "d2", ok: false, ms: 10, err: "E_LOGIN", tool: "a.com.t1", domain: "a.com" }),
+      rec({ ts: now, traceID: "d3", ok: false, ms: 10, err: "E_LOGIN", tool: "a.com.t2", domain: "a.com" }),
+      rec({ ts: now, traceID: "d4", ok: false, ms: 10, err: "E_LOGIN", tool: "b.com.t3", domain: "b.com" }),
+      rec({ ts: now, traceID: "d5", ok: true, ms: 10, err: null, tool: "a.com.t1", domain: "a.com" }), // 成功不计
+      rec({ ts: now, traceID: "d6", ok: false, ms: 10, err: null, tool: "a.com.t1", domain: "a.com" }), // 空 err 不计
+    ],
+  });
+  insertBatch(db, {
+    clientId: "c2", user: "u9", webcliVersion: "1.1.2",
+    batch: [rec({ ts: now, traceID: "d7", ok: false, ms: 10, err: "E_LOGIN", tool: "a.com.t1", domain: "a.com" })],
+  });
+  const { rows, totalFailed } = queryStats(db, { by: "errdetail", since: "1d" });
+  assert.equal(totalFailed, 5); // d1~d4 + d7,d5 成功 / d6 空 err 均不计
+  assert.equal(rows.length, 1);
+  const g = rows[0];
+  assert.equal(g.err, "E_LOGIN");
+  assert.equal(g.calls, 5);
+  assert.deepEqual(g.tools, [
+    { tool: "a.com.t1", calls: 3 },
+    { tool: "a.com.t2", calls: 1 },
+    { tool: "b.com.t3", calls: 1 },
+  ]);
+  assert.deepEqual(g.users, [
+    { user: "(unknown)", calls: 4 }, // c1 无 user 归 (unknown)
+    { user: "u9", calls: 1 },
+  ]);
+  assert.deepEqual(g.versions, [
+    { version: "(unknown)", calls: 4 }, // c1 无 webcliVersion 归 (unknown)
+    { version: "1.1.2", calls: 1 },
+  ]);
+});
+
+test("queryStats by=errdetail：top 截断与 from/to 生效", () => {
+  const db = freshDb();
+  insertBatch(db, {
+    clientId: "c1", user: "u1",
+    batch: [
+      rec({ ts: Date.parse("2026-01-05T10:00:00Z"), traceID: "x1", ok: false, ms: 10, err: "E_OLD", tool: "a.com.t1", domain: "a.com" }),
+      rec({ ts: Date.parse("2026-01-06T10:00:00Z"), traceID: "x2", ok: false, ms: 10, err: "E_NEW", tool: "a.com.t1", domain: "a.com" }),
+      rec({ ts: Date.parse("2026-01-06T11:00:00Z"), traceID: "x4", ok: false, ms: 10, err: "E_NEW", tool: "a.com.t2", domain: "a.com" }),
+      rec({ ts: Date.parse("2026-01-08T10:00:00Z"), traceID: "x3", ok: false, ms: 10, err: "E_OUT", tool: "a.com.t1", domain: "a.com" }), // to 外
+    ],
+  });
+  const all = queryStats(db, { by: "errdetail", since: "30d", from: "2026-01-05", to: "2026-01-07" });
+  assert.equal(all.totalFailed, 3); // E_NEW(2) + E_OLD(1),E_OUT 在窗外
+  assert.deepEqual(all.rows.map((r) => r.err), ["E_NEW", "E_OLD"]); // 按 calls 倒序
+  const topped = queryStats(db, { by: "errdetail", since: "30d", from: "2026-01-05", to: "2026-01-07", top: 1 });
+  assert.equal(topped.rows.length, 1);
+  assert.equal(topped.rows[0].err, "E_NEW");
+  assert.equal(topped.rows[0].calls, 2);
+  assert.equal(topped.totalFailed, 3); // totalFailed 始终为窗内全量(E_NEW 2 + E_OLD 1)
+});
+
 test("resolveWindow:默认 since 相对窗,无上界", () => {
   const { start, end } = resolveWindow({ since: "7d" });
   const expected = Date.now() - 7 * 86400000;

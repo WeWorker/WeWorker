@@ -1034,6 +1034,7 @@ type ProviderRequestBody = {
   weworker_protocol?: unknown
   target?: ProbeTarget
   auto_auth?: boolean
+  probe_timeout_seconds?: number
 }
 
 function resolveProviderAccess(body: ProviderRequestBody) {
@@ -1143,16 +1144,44 @@ app.post('/settings/provider/models', async (req, res) => {
 app.post('/settings/provider/probe', async (req, res) => {
   try {
     const body = req.body as ProviderRequestBody
+    const timeoutSeconds = body.probe_timeout_seconds === undefined ? 30 : body.probe_timeout_seconds
+    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 120) {
+      res.status(400).json({ detail: 'probe_timeout_seconds must be an integer from 1 to 120' })
+      return
+    }
     if (body.target !== 'weworker' && body.target !== 'webwright') {
       res.status(400).json({ detail: "target must be 'weworker' or 'webwright'" })
       return
     }
     const input = resolveProviderRequest(body)
-    res.json(body.target === 'weworker'
-      ? await probeTimedMainConnection({ ...input, autoAuth: body.auto_auth === true })
-      : await probeProviderProtocol({ ...input, target: body.target, verifyResponse: true }))
+    const stream = req.get('accept') === 'application/x-ndjson'
+    let attemptStarted = performance.now()
+    let retryCount = 0
+    const options = {
+      ...input, timeoutMs: timeoutSeconds * 1000, timeoutRetries: 3,
+      onProbeAttempt: (attempt: number) => {
+        attemptStarted = performance.now()
+        if (attempt > 0) retryCount += 1
+        if (stream && !res.destroyed) res.write(JSON.stringify({ type: 'attempt', retry_count: retryCount }) + '\n')
+      },
+    }
+    if (stream) {
+      res.type('application/x-ndjson')
+      res.set('Cache-Control', 'no-store')
+      res.flushHeaders()
+    }
+    const result = body.target === 'weworker'
+      ? await probeTimedMainConnection({ ...options, autoAuth: body.auto_auth === true })
+      : await probeProviderProtocol({ ...options, target: body.target, verifyResponse: true })
+    if (!stream) res.json(result)
+    else if (!res.destroyed) res.end(JSON.stringify({ type: 'result', result: {
+      ...result, retry_count: retryCount, attempt_elapsed_ms: Math.round(performance.now() - attemptStarted),
+    } }) + '\n')
   } catch (error) {
-    res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
+    const detail = error instanceof Error ? error.message : String(error)
+    if (res.destroyed) return
+    if (res.headersSent) res.end(JSON.stringify({ type: 'result', result: { ok: false, detail } }) + '\n')
+    else res.status(400).json({ detail })
   }
 })
 

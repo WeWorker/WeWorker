@@ -9,6 +9,28 @@ const provider: ProviderEntry = {
 }
 
 describe('custom WeWorker protocol selection', () => {
+  it.each(['weworker', 'webwright'] as const)('retries a timed-out %s probe three times with fresh signals', async target => {
+    const signals = new Set<AbortSignal>()
+    const onProbeAttempt = vi.fn()
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      signals.add(init!.signal!)
+      throw new DOMException('Fixture timeout', 'TimeoutError')
+    })
+    const input = { provider, target, weworkerProtocol: 'openai_chat_completions' as const,
+      apiKey: 'fixture-key', openaiApiKey: 'fixture-key', model: 'fixture-model', openaiModel: 'fixture-model',
+      weworkerBaseUrl: 'https://example.com/v1', openaiBaseUrl: 'https://example.com/v1',
+      verifyResponse: true, timeoutMs: 30000, timeoutRetries: 3, onProbeAttempt }
+    await expect(probeProviderProtocol(input, fetchMock)).resolves.toMatchObject({ ok: false, error: 'timeout' })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(signals.size).toBe(4)
+    expect(onProbeAttempt.mock.calls).toEqual([[0], [1], [2], [3]])
+    onProbeAttempt.mockClear()
+    fetchMock.mockReset().mockRejectedValue(new TypeError('Fixture network failure'))
+    await expect(probeProviderProtocol(input, fetchMock)).resolves.toMatchObject({ ok: false, error: 'network_error' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onProbeAttempt.mock.calls).toEqual([[0]])
+  })
+
   it('lists models through OpenAI when OpenAI is selected for chat', async () => {
     const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe('https://gateway.example/v1/models')

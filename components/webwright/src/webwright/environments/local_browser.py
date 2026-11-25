@@ -125,6 +125,7 @@ class LocalBrowserEnvironment:
         self._start_url_ready = False
         self._last_url = ""
         self._last_title = ""
+        self._api_capture = None
 
     def _screenshots_dir(self) -> Path:
         return artifact_output_dir(self.config.output_dir) / "screenshots"
@@ -536,6 +537,9 @@ class LocalBrowserEnvironment:
         self._context.set_default_timeout(self.config.browser_timeout_ms)
         self._context.set_default_navigation_timeout(self.config.browser_navigation_timeout_ms)
         self._attach_page_listeners(self._page)
+        from webwright.environments.api_evidence import ApiEvidenceCapture
+        self._api_capture = ApiEvidenceCapture(self.config.output_dir, self.config.start_url or self._page.url, lambda: self._step_index, resume=self.config.resume_existing_output)
+        await self._api_capture.start(self._context, self._page)
         should_skip_start_url = (
             self.config.browser_mode == "local_cdp"
             and (
@@ -844,6 +848,13 @@ class LocalBrowserEnvironment:
             self._loop = None
 
     async def _close_async(self) -> None:
+        if self._api_capture:
+            try:
+                await self._api_capture.close()
+            except Exception:
+                pass  # Capture persistence must never prevent owned browser cleanup.
+            finally:
+                self._api_capture = None
 
         context = self._context
         browser = self._browser
