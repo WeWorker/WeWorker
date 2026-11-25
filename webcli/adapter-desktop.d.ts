@@ -41,7 +41,7 @@ export interface DesktopAdapterPaths {
 }
 export interface DesktopAdapterState {
   revision: number
-  installations: Record<string, { name?: string; digest?: string; profile?: string; version?: string; origin?: { kind: string; service?: string } } | undefined>
+  installations: Record<string, { name?: string; digest?: string; profile?: string; version?: string; grants?: string[]; origin?: { kind: string; service?: string } } | undefined>
   selections: Record<string, unknown>
   development: Record<string, { root?: string } | undefined>
 }

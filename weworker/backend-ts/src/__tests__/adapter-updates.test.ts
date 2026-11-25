@@ -32,8 +32,10 @@ function feed(pkg = files('1.1.0'), official = true) {
   zip.end()
   const release = async () => ({ version: '1.1.0', official, uploader: official ? '官方' : 'example-user',
     sha256: 'sha256:' + createHash('sha256').update(await bytes).digest('hex') })
-  return { service, index: vi.fn(async () => new Map([[id, await release()]])),
-    catalog: vi.fn(async () => [{ name: id, version: '1.1.0', official, release: await release() }]),
+  const catalog = vi.fn(async () => [{ name: id, version: '1.1.0', official, release: await release() }])
+  return { service, index: vi.fn(async () => new Map([[id, await release()]])), catalog,
+    catalogPage: vi.fn(async (page: number) => ({ items: await catalog(), page, hasMore: false })),
+    detail: vi.fn(async (name: string) => ({ name, commands: [] })),
     download: vi.fn(async () => bytes) }
 }
 
@@ -99,7 +101,7 @@ it('accepts permission changes from the official channel and keeps a disabled bu
   const expanded = createAdapterUpdates({ source: feed(files('1.1.0', ['example.com', 'example.org'])) })
   await expanded.startCheck()
   expect((await expanded.apply(id, '1.1.0')).items[id].currentVersion).toBe('1.1.0')
-  expect(readDesktopAdapterCatalogInputs().state.installations[id].grants).toContain('host:example.org')
+  expect(readDesktopAdapterCatalogInputs().state.installations[id]?.grants).toContain('host:example.org')
   expect(readDesktopAdapterCatalogInputs().state.selections[id]).toEqual({ source: 'disabled', resumeSource: 'user' })
   const untrustedAfterUpdate = createAdapterUpdates({ source: feed(undefined, false) })
   await untrustedAfterUpdate.startCheck()
@@ -110,7 +112,7 @@ it('accepts permission changes when updating an installed package from Hub', asy
   installAdapter({ files: files('1.0.0'), origin })
   const updater = createAdapterUpdates({ source: feed(files('1.1.0', ['example.com', 'example.org'])) })
   await expect(updater.installFromHub(id, '1.1.0')).resolves.toEqual({ name: id, version: '1.1.0' })
-  expect(readDesktopAdapterCatalogInputs().state.installations[id].grants).toContain('host:example.org')
+  expect(readDesktopAdapterCatalogInputs().state.installations[id]?.grants).toContain('host:example.org')
   expect(describeDesktopAdapters().adapters.find(adapter => adapter.id === id)?.uploader).toBe('官方')
 })
 
