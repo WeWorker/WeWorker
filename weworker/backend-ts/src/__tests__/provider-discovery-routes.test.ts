@@ -163,6 +163,7 @@ describe('provider discovery API and startup', () => {
       startConfiguredChannels: async () => order.push('channels'),
       app: { listen: (_port: unknown, _host: unknown, callback: () => void) => { order.push('listen'); callback(); return server } },
       PORT: 0, log, scheduler: { start: () => order.push('scheduler') },
+      adapterUpdates: { startCheck: async () => order.push('adapter-update-check') },
     })
     const from = source.indexOf('async function bootstrap():')
     const to = source.indexOf('\nbootstrap().catch', from)
@@ -172,7 +173,7 @@ describe('provider discovery API and startup', () => {
     await context.bootstrap()
     expect(order).toEqual([
       'init', ...(enabled === false ? [] : ['detect']),
-      'recover', 'history', 'channels', 'listen', 'scheduler',
+      'recover', 'history', 'channels', 'listen', 'scheduler', 'adapter-update-check',
     ])
     expect(server.on).toHaveBeenCalledWith('error', expect.any(Function))
     expect(recoverInterruptedScheduledTasks).toHaveBeenCalledExactlyOnceWith(50)
