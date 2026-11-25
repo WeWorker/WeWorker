@@ -87,7 +87,7 @@ import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProv
 import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
-import { configuredModel } from './provider-config.js'
+import { configuredModel, desktopAccountKey } from './provider-config.js'
 import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
 import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { assertAllowedWeixinBaseUrl, buildAllowedWeixinBaseUrls } from './channel-egress.js'
@@ -1072,10 +1072,10 @@ function resolveProviderAccess(body: ProviderRequestBody) {
     provider,
     target: body.target,
     weworkerProtocol,
-    ...(weworkerUrl?.trim() ? { weworkerBaseUrl: normalizeLlmUrlInput(weworkerUrl, weworkerFullUrl === true) } : {}),
+    ...(provider.desktopAccount ? { weworkerBaseUrl: provider.weworker.baseUrl } : weworkerUrl?.trim() ? { weworkerBaseUrl: normalizeLlmUrlInput(weworkerUrl, weworkerFullUrl === true) } : {}),
     ...(weworkerFullUrl !== undefined ? { weworkerFullUrl } : {}),
-    apiKey: body.api_key?.trim() || savedApiKey,
-    openaiApiKey: body.openai_api_key?.trim() || savedOpenAiApiKey,
+    apiKey: provider.desktopAccount ? desktopAccountKey(body.api_key || savedApiKey) : body.api_key?.trim() || savedApiKey,
+    openaiApiKey: provider.desktopAccount ? desktopAccountKey(body.openai_api_key || savedOpenAiApiKey) : body.openai_api_key?.trim() || savedOpenAiApiKey,
     anthropicBaseUrl: provider.id === 'custom'
       ? anthropicUrl?.trim() ? normalizeLlmUrlInput(anthropicUrl, anthropicFullUrl) : undefined
       : provider.weworker.baseUrl,

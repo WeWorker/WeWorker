@@ -13,6 +13,7 @@ window.addEventListener('drop', (event) => {
 }, true)
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  modelAccount: action => ipcRenderer.invoke('model-account', action),
   platform: process.platform,
   getStatus: () => ipcRenderer.invoke('get-status'),
   getVersion: () => ipcRenderer.invoke('get-version'),

@@ -375,6 +375,7 @@ export class NodeManager {
         execArgv: ['--experimental-sqlite'],
         env: {
           ...buildWebwrightEnvironment(adapterEnvironment(), this._webwrightHome),
+          ...this.modelAccountEnv,
           WEWORK_PORT: String(this._ports.backend),
           WEWORKER_WEBWRIGHT_URL: `http://127.0.0.1:${this._ports.exploration}`,
           WEBCLI_BRIDGE_PORT: String(this._ports.bridge),
@@ -413,6 +414,7 @@ export class NodeManager {
         cwd: backendDir,
         env: {
           ...buildWebwrightEnvironment(adapterEnvironment(), this._webwrightHome),
+          ...this.modelAccountEnv,
           ELECTRON_RUN_AS_NODE: '1',
           WEWORK_PORT: String(this._ports.backend),
           WEWORKER_WEBWRIGHT_URL: `http://127.0.0.1:${this._ports.exploration}`,

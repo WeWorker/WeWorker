@@ -47,6 +47,7 @@ import { DEFAULT_WELCOME_FEATURED_SITE_LIMIT } from '../welcome/welcome-utils.js
 import weworkerLogo from '../../../../asset/logo.png'
 import './settings-theme.css'
 import './settings-secret-input.css'
+import ModelAccountPanel from './ModelAccountPanel.jsx'
 import { API, backendFetch } from '../../api/http.js'
 import { fetchProviderModels } from '../../api/provider-models.js'
 import { getAnthropicUrlHint, getOpenAiUrlHint } from '../../utils/provider-url.js'
@@ -1799,6 +1800,14 @@ function ModelTab() {
   }
 
   const handleAddProvider = async (pid) => {
+    const existingAccount = providerDefinition(pid)?.desktopAccount
+      && visibleProviders.find(provider => provider.providerId === pid)
+    if (existingAccount) {
+      setAddPickerOpen(false)
+      setProviderSearch('')
+      setSelectedProvider(existingAccount.id)
+      return
+    }
     if (isBuiltinProvider(pid) || providerDefinition(pid)?.allowMultiple === false) {
       setAddPickerOpen(false)
       setProviderSearch('')
@@ -1819,7 +1828,7 @@ function ModelTab() {
   }
 
   useEffect(() => {
-    if (!selectedProvider || isBuiltinProvider(selectedProvider)) return
+    if (!selectedProvider || isBuiltinProvider(selectedProvider) || providerDefinition(selectedProvider)?.desktopAccount) return
     void loadModels(selectedProvider)
     if (providerType(selectedProvider) === 'custom') void loadModels(selectedProvider, false, 'webwright')
   }, [selectedProvider])
@@ -1910,8 +1919,12 @@ function ModelTab() {
     }
   }
 
-  const renderProbeChecklist = (pid) => {
-    const checks = probeChecks[pid]
+  const probeCheckKey = (pid, model = providers[pid]?.model) => providerDefinition(pid)?.desktopAccount
+    ? JSON.stringify([pid, model || ''])
+    : pid
+
+  const renderProbeChecklist = (pid, model) => {
+    const checks = probeChecks[probeCheckKey(pid, model)]
     if (!checks?.length) return null
     const expanded = probeExpanded[pid] === true
     const logsVisible = probeLogsVisible[pid] === true
@@ -1986,7 +1999,8 @@ function ModelTab() {
     )
   }
 
-  const runCheckedAction = async (pid, action) => {
+  const runCheckedAction = async (pid, action, model) => {
+    const checkKey = probeCheckKey(pid, model)
     if (testingProviders.current.has(pid)) throw new Error('模型正在检测，请稍候')
     testingProviders.current.add(pid)
     const requestId = (probeRequestIds.current[pid] || 0) + 1
@@ -2001,7 +2015,7 @@ function ModelTab() {
     ]
     try {
       return await runModelSaveChecks(action, checks, next => {
-        if (probeRequestIds.current[pid] === requestId) setProbeChecks(current => ({ ...current, [pid]: next }))
+        if (probeRequestIds.current[pid] === requestId) setProbeChecks(current => ({ ...current, [checkKey]: next }))
       })
     } finally {
       if (probeRequestIds.current[pid] === requestId) {
@@ -2011,7 +2025,8 @@ function ModelTab() {
     }
   }
 
-  const handleTest = async (pid) => {
+  const handleTest = async (pid, draft = {}) => {
+    const checkKey = probeCheckKey(pid, draft.model ?? getForm(pid).model)
     if (testingProviders.current.has(pid)) return
     testingProviders.current.add(pid)
     const requestId = (probeRequestIds.current[pid] || 0) + 1
@@ -2031,7 +2046,7 @@ function ModelTab() {
           const res = await backendFetch(`${API}/settings/provider/probe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...providerRequestBody(pid), target }),
+            body: JSON.stringify({ ...providerRequestBody(pid), ...draft, target }),
             signal: controller.signal,
           })
           const data = await res.json()
@@ -2046,16 +2061,17 @@ function ModelTab() {
           }
         }
       }
+      const protocol = provider?.desktopAccount ? provider.weworker.protocol : getForm(pid).weworker_protocol
       const targets = buildProviderProbeTargets(providerType(pid), getForm(pid).openai_base_url)
       const checks = targets.map((target) => ({
         target,
         label: target === 'weworker'
-          ? `WeWorker 对话接口（${getForm(pid).weworker_protocol === 'openai_responses' ? 'OpenAI Responses API' : getForm(pid).weworker_protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`
+          ? `WeWorker 对话接口（${protocol === 'openai_responses' ? 'OpenAI Responses API' : protocol === 'openai_chat_completions' ? 'OpenAI Chat Completions' : 'Anthropic Messages'}）`
           : 'Adapter工坊·探索接口（OpenAI）',
         status: 'running',
         message: '',
       }))
-      setProbeChecks((current) => ({ ...current, [pid]: checks }))
+      setProbeChecks((current) => ({ ...current, [checkKey]: checks }))
       const results = []
       for (const target of targets) {
         const result = await probe(target)
@@ -2063,7 +2079,7 @@ function ModelTab() {
         if (probeRequestIds.current[pid] !== requestId) return
         setProbeChecks((current) => ({
           ...current,
-          [pid]: (current[pid] || []).map((check) => check.target === target
+          [checkKey]: (current[checkKey] || []).map((check) => check.target === target
             ? { ...check, status: result.ok ? 'success' : 'failure', message: result.message }
             : check),
         }))
@@ -2076,7 +2092,7 @@ function ModelTab() {
         })
         setProbeChecks((current) => ({
           ...current,
-          [pid]: [...(current[pid] || []), { target: 'webwright', label: 'Adapter工坊·探索接口（OpenAI）', status: 'skipped', message: '未配置地址，跳过检查' }],
+          [checkKey]: [...(current[checkKey] || []), { target: 'webwright', label: 'Adapter工坊·探索接口（OpenAI）', status: 'skipped', message: '未配置地址，跳过检查' }],
         }))
       }
       if (probeRequestIds.current[pid] !== requestId) return
@@ -2139,7 +2155,7 @@ function ModelTab() {
               const stored = providers[provider.id] ?? {}
               const isSelected = selectedProvider === provider.id
               const isActive = activeProvider === provider.id
-              const checks = probeChecks[provider.id] || []
+              const checks = probeChecks[probeCheckKey(provider.id, stored.model)] || []
               const connectivityPassed = checks.length > 0 && checks.every((check) => check.status === 'success')
               const connectivityFailed = checks.some((check) => check.status === 'failure')
               const providerColor = templateId === 'custom' ? 'var(--provider-custom)' : provider.color
@@ -2227,6 +2243,10 @@ function ModelTab() {
         {visibleProviders.filter((provider) => provider.id === selectedProvider).map((p) => {
           const isActive = singleProvider || activeProvider === p.id
           const stored = providers[p.id] ?? {}
+          if (p.desktopAccount) return <ModelAccountPanel key={p.id} stored={stored} active={isActive}
+            testing={Boolean(testing[p.id])} renderChecklist={model => renderProbeChecklist(p.id, model)}
+            onTest={draft => handleTest(p.id, draft)}
+            onSave={updates => runCheckedAction(p.id, () => saveProvider(p.id, updates, { activate: true }), updates.model)} />
           const f = getForm(p.id)
           const templateId = p.providerId || p.id
           const catalog = catalogs[catalogKey(p.id)]

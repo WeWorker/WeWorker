@@ -20,6 +20,7 @@ export interface ProviderEntry {
   allowMultiple?: boolean
   authType?: 'auth_token' | 'api_key'
   apiKeyEnv?: string
+  desktopAccount?: boolean
   baseUrlEnv?: string
   presentation?: { subtitle: string; color: string; bg: string }
   weworker: { protocol: LlmProtocol; baseUrl: string }
