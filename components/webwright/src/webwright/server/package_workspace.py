@@ -111,7 +111,10 @@ def build_candidate(store, toolkit_id, state, slots):
     toolkit = store.get_toolkit(toolkit_id)
     base = state.get("retained_base")
     files = read_package(store, toolkit_id, base["digest"])[0] if base else {}
-    manifest = json.loads(files["manifest.json"]) if base else {
+    composition = state.get("api_composition")
+    if composition:
+        files = read_package(store, toolkit_id, composition["digest"])[0]
+    manifest = json.loads(files["manifest.json"]) if files else {
         "schema_version": 2, "name": adapter_name(store, toolkit_id), "version": "1.0.0",
         "description": toolkit.get("description") or toolkit["name"],
         "runtime_allowed_hosts": toolkit["allowed_domains"], "commands": [],
@@ -122,6 +125,9 @@ def build_candidate(store, toolkit_id, state, slots):
         major, minor, patch = (int(part) for part in version.split("-")[0].split("+")[0].split("."))
         manifest["version"] = f"{major}.{minor}.{patch + 1}"
     manifest["runtime_allowed_hosts"] = list(dict.fromkeys([*(manifest.get("runtime_allowed_hosts") or []), *toolkit["allowed_domains"]]))
+    if composition:
+        owned = {tool_id.replace("_", "-") for tool_id in slots}
+        manifest["commands"] = [command for command in manifest["commands"] if not (command["id"] in owned and command["runtime"] == "wewright")]
     existing = {command["id"] for command in manifest["commands"]}
     contexts = {}
     for tool_id, slot in sorted(slots.items()):

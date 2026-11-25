@@ -93,12 +93,23 @@ export async function runToolkitTool(match, parameters, options = {}) {
     },
   );
   const stdout = [];
+  // stderr 尾部留存:上报 err 只记 exit code 时,traceback 的真实原因(最后一行
+  // 异常消息)全部丢失,看板只见「exited with code 1」不可诊断。留尾部 ~800 字节。
+  const stderrChunks = [];
+  let stderrBytes = 0;
+  const STDERR_TAIL_BYTES = 800;
   child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
   child.stderr.on("data", (chunk) => {
     process.stderr.write(chunk);
+    stderrChunks.push(Buffer.from(chunk));
+    stderrBytes += chunk.length;
+    while (stderrBytes > STDERR_TAIL_BYTES && stderrChunks.length > 1) {
+      stderrBytes -= stderrChunks[0].length;
+      stderrChunks.shift();
+    }
   });
 
-  const signals = ["SIGINT", "SIGTERM"];
+  const signals = process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM"];
   const signalHandlers = new Map(signals.map((signal) => [
     signal,
     () => {
@@ -118,11 +129,17 @@ export async function runToolkitTool(match, parameters, options = {}) {
 
   const stdoutText = Buffer.concat(stdout).toString("utf8");
   const lines = stdoutText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  // 单行化取尾:traceback 最后一行(异常类型与消息)诊断价值最高;
+  // 服务端入库 err 截断至 200 字符,取尾保证异常行存活。
+  const stderrTailRaw = Buffer.concat(stderrChunks).toString("utf8").trim();
+  const stderrTail = stderrTailRaw ? stderrTailRaw.replace(/\s+/g, " ").slice(-200) : "";
   let result;
   try {
     result = JSON.parse(lines.at(-1) || "");
   } catch {
-    throw new Error("Toolkit Adapter 未返回有效的 JSON 结果。");
+    throw new Error(stderrTail
+      ? `Toolkit Adapter 未返回有效的 JSON 结果(stderr 尾部: ${stderrTail.slice(-200)})`
+      : "Toolkit Adapter 未返回有效的 JSON 结果。");
   }
   const exitCode = completed.code ?? exitCodeForSignal(completed.signal);
   const ok = exitCode === 0;
@@ -133,9 +150,9 @@ export async function runToolkitTool(match, parameters, options = {}) {
     ok,
     Date.now() - startedAt,
     traceID,
-    ok ? null : `Toolkit Adapter exited with code ${exitCode}`,
+    ok ? null : `Toolkit Adapter exited with code ${exitCode}${stderrTail ? `: ${stderrTail.slice(-160)}` : ""}`,
   );
-  return { result, exitCode, traceID, signal: completed.signal || null };
+  return { result, exitCode, traceID, signal: completed.signal || null, stderrTail: stderrTail || null };
 }
 
 export { toolkitEnvironment };

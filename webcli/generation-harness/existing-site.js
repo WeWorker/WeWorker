@@ -21,7 +21,7 @@ export function prepareGenerationRun(run, { paths } = {}) {
   if (owners.length > 1) throw adapterError('ADAPTER_DOMAIN_CONFLICT', '多个工具包覆盖目标站点，请先检查域名归属。');
   const base = owners[0];
   if (!base) return memory;
-  if (base.commands.some(command => !['extension', 'http'].includes(command.runtime))) throw adapterError('GENERATION_EXISTING_RUNTIME_UNSUPPORTED', '现有工具包包含其他运行时，请单独检查后再扩展。');
+  if (base.commands.some(command => !['extension', 'http', 'wewright'].includes(command.runtime))) throw adapterError('GENERATION_EXISTING_RUNTIME_UNSUPPORTED', '现有工具包包含其他运行时，请单独检查后再扩展。');
   const original = memory.siteKey;
   const rebindName = value => typeof value === 'string' && value.startsWith(original + '.') ? base.name + value.slice(original.length) : value;
   const prepared = { ...memory, siteKey: base.name,

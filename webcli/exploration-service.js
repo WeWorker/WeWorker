@@ -139,6 +139,7 @@ export class ExplorationService {
       pageSourceCount: run.pageSources?.length || 0,
       draftRevision: (run.revisions?.length || 0) + 1, preservedRevisions: run.revisions?.length || 0,
       toolNames: run.draft?.toolNames || [], validation: run.validation || null, runtimeValidation: run.runtimeSummary || null,
+      validatedDigest: run.runtimeDigest || null,
       diagnostics: (run.runtimeSummary?.errors || []).map(error => {
         const [stage, nextAction] = diagnosticHints[error.code] || ['validation', 'Read the case result and assertion path, then collect new evidence before repairing.'];
         return { stage, nextAction };
@@ -219,7 +220,37 @@ export class ExplorationService {
       const activePackage = buildAdapterCatalog({ paths: this.paths }).effective.find(item => item.name === site);
       return this.knowledge.read(site, { activeDigest: activePackage?.digest || null });
     }
-    if (command === 'start') {
+    if (command === 'start' || command === 'import') {
+      let imported;
+      if (command === 'import') {
+        if (this.mode !== 'browser') throw fail('INVALID_ARGUMENT', 'Workshop import requires an explicit browser tab.');
+        const input = args.input;
+        const source = input?.source_exploration;
+        const evidence = source?.api_evidence;
+        if (input?.schema_version !== 1 || !/^[A-Za-z0-9_-]{1,200}$/.test(source?.exploration_id || '')
+          || evidence?.schema_version !== 1 || evidence.structural_only !== true || !Array.isArray(evidence.entries) || evidence.entries.length > 100
+          || Buffer.byteLength(JSON.stringify(input)) > 2 * 1024 * 1024) throw fail('INVALID_ARGUMENT', 'Use a workshop input.json with bounded structural api_evidence. Older captures require a new exploration.');
+        let url;
+        try { url = new URL(input.site.start_url); } catch { throw fail('INVALID_ARGUMENT', 'Invalid workshop site.'); }
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !Array.isArray(input.site.allowed_domains) || !input.site.allowed_domains.includes(url.hostname)
+            || evidence.entries.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw fail('INVALID_ARGUMENT', 'Invalid workshop site scope or API entries.');
+        // Re-normalize only documented structural fields. Ignore raw bodies, headers,
+        // stored verification and any caller-supplied strategy/authorization.
+        const entries = evidence.entries.map(item => ({ url: item.url, method: item.method, status: item.status,
+          responseContentType: item.responseContentType, requestEvidence: item.requestEvidence, responseEvidence: item.responseEvidence }));
+        imported = { origin: url.origin, source: { explorationId: source.exploration_id, runId: typeof source.run_id === 'string' ? source.run_id.slice(0, 200) : null },
+          candidates: extractExplorationEvidence({ entries }, url.origin) };
+        for (const item of evidence.entries.filter(item => item.mutationObserved === true)) {
+          try {
+            const candidate = imported.candidates.find(candidate => candidate.url === structuralUrl(item.url) && candidate.method === String(item.method || 'GET').toUpperCase());
+            if (candidate) {
+              candidate.risk = { level: 'write', confidence: 0.99, evidence: ['observed_mutation_operation'] };
+              candidate.requestSemantics = { kind: 'rpc', operation: 'mutation' };
+            }
+          } catch { /* malformed/out-of-scope entries remain excluded */ }
+        }
+        args = { tabId: args.tabId, requestId: args.requestId, goal: input.instruction };
+      }
       if (this.mode === 'http') return startHostExploration(this, args);
       if (args.origin !== undefined || args.auth !== undefined) throw fail('INVALID_ARGUMENT', 'origin/auth require mode=http.');
       const requestId = textArg(args.requestId, 'requestId', 100);
@@ -232,7 +263,7 @@ export class ExplorationService {
         catch { throw fail('INVALID_ARGUMENT', 'Each allowedOrigins entry must be an exact HTTP(S) origin without a path or credentials.'); }
       }))].sort();
       // Preserve request signatures for existing same-origin tasks.
-      const signature = hash(JSON.stringify({ goal, tabId, ...(origins.length ? { allowedOrigins: origins } : {}) }));
+      const signature = hash(JSON.stringify({ goal, tabId, ...(origins.length ? { allowedOrigins: origins } : {}), ...(imported ? { imported } : {}) }));
       const previous = [...this.runs.values()].find(run => run.requestId === requestId);
       if (previous) {
         if (previous.signature !== signature) throw fail('REQUEST_CONFLICT', 'requestId was already used with different arguments.');
@@ -243,13 +274,23 @@ export class ExplorationService {
         if (pending.signature !== signature) throw fail('REQUEST_CONFLICT', 'requestId is in use.');
         return pending.promise;
       }
-      const promise = this.start({ requestId, goal, tabId, signature, allowedOrigins: origins });
+      const promise = this.start({ requestId, goal, tabId, signature, allowedOrigins: origins, imported });
       this.starting.set(requestId, { signature, promise });
       try { return await promise; } finally { this.starting.delete(requestId); }
     }
     const taskId = textArg(args.taskId, 'taskId', 100);
     const run = this.runs.get(taskId);
     if (!run) throw fail('TASK_NOT_FOUND', 'Task not found; use exploration.list.');
+    if (command === 'package-read') {
+      if (run.status !== 'review_ready' || !run.runtimeDigest || args.expectedDigest !== run.runtimeDigest) throw fail('VALIDATION_REQUIRED', 'Read the current validated draft digest before composition.');
+      this.assertValidated(run);
+      const pkg = this.assertPlannedDraft(run);
+      if (pkg.digest !== run.runtimeDigest) throw fail('VALIDATION_REQUIRED', 'Draft changed after validation.');
+      if (plannedWrites(run).length && run.preWriteDigest !== writeProofDigest(run)) throw fail('VALIDATION_REQUIRED', 'Write verification changed.');
+      return { taskId, name: pkg.name, digest: pkg.digest, contextId: this.capabilities().contextId || null, profile: buildAdapterCatalog({ paths: this.paths }).profile,
+        baselineDigest: run.draft.managedBaseline?.digest || null,
+        files: Object.fromEntries([...pkg.files].map(([name, bytes]) => [name, bytes.toString('base64')])) };
+    }
     if (command === 'export') return exportTaskDiagnostics(this, run, args);
     if (command === 'get') return this.summary(run);
     if (command === 'analyze') return analyzeExploration(run, this.capabilities().capabilities);
@@ -481,12 +522,13 @@ export class ExplorationService {
     }
   }
 
-  async start({ requestId, goal, tabId, signature, allowedOrigins }) {
+  async start({ requestId, goal, tabId, signature, allowedOrigins, imported }) {
     if (this.runs.size >= 200) throw fail('TASK_LIMIT', 'Exploration task limit reached; archive task data before creating more.');
     const caps = this.capabilities();
     if (!caps.capabilities.includes('passive_exploration_v1')) throw fail('CAPABILITY_UNAVAILABLE', 'Reload the extension to enable passive API exploration.');
     const tab = (await this.tabs()).find(tab => tab.id === tabId);
     if (!tab) throw fail('TAB_CHANGED', 'Select a tab from exploration.tabs.');
+    if (imported && new URL(tab.url).origin !== imported.origin) throw fail('TAB_CHANGED', 'Select a tab at the workshop source origin.');
     this.assertTabAvailable(tabId);
     let browserIdentity;
     if (caps.capabilities.includes('browser_profiles_v1')) {
@@ -498,6 +540,12 @@ export class ExplorationService {
     const run = { schemaVersion: 1, taskId: randomUUID(), requestId, signature, goal, tabId, ...(browserIdentity ? { browserIdentity } : {}), allowedOrigins, origin: new URL(tab.url).origin,
       siteKey: new URL(tab.url).hostname, createdAt: now, updatedAt: now, status: 'created', candidates: [], events: [], sequence: 0 };
     this.runs.set(run.taskId, run);
+    if (imported) {
+      run.candidates = imported.candidates;
+      run.sourceExploration = imported.source;
+      this.update(run, 'evidence_ready', 'Workshop structure imported without capture or replay; author and validate commands against the current runtime.');
+      return this.summary(run);
+    }
     try { return this.collect(run, true); }
     catch (error) { this.runs.delete(run.taskId); throw error; }
   }

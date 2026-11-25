@@ -1407,7 +1407,13 @@
         "required": [
           "note-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "仅返回指定笔记在近期作品页中的发布状态回执；未找到不代表发布失败，不提供自动重发或删除操作。"
+        }
+      ]
     },
     {
       "id": "search-notes",
@@ -1893,7 +1899,26 @@
           }
         },
         "required": []
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "albums",
+          "idField": "id",
+          "titleField": "name",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看专辑笔记",
+              "command": "album-notes",
+              "args": {
+                "album-id": {
+                  "from": "item.id"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "album-notes",
@@ -1918,7 +1943,26 @@
         "required": [
           "album-id"
         ]
-      }
+      },
+      "results": [
+        {
+          "itemsPath": "notes",
+          "idField": "id",
+          "titleField": "title",
+          "actions": [
+            {
+              "id": "detail",
+              "label": "查看笔记",
+              "command": "note",
+              "args": {
+                "note-id": {
+                  "from": "item.url"
+                }
+              }
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "video-media",
@@ -1938,7 +1982,13 @@
         "required": [
           "url"
         ]
-      }
+      },
+      "results": [
+        {
+          "actions": [],
+          "reason": "返回带音轨的媒体流地址及规格，供独立的本地下载步骤使用；媒体流不是笔记对象，不提供笔记修改操作。"
+        }
+      ]
     }
   ],
   "homepage_url": "https://www.xiaohongshu.com",

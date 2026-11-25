@@ -14,7 +14,10 @@ import { fileURLToPath } from "url";
 import { resolveRegistry, compareSemver } from "./version-check.js";
 
 export function buildInstallCommand(pkgName, version, registry) {
-  return `npm install -g ${pkgName}@${version} --registry=${registry}`;
+  // --prefer-online:registry(如 verdaccio)对 packument 下发 max-age=3600,
+  // 刚装过旧版本的机器 npm 会吃本地缓存的旧元数据 → ETARGET "No matching version"。
+  // 升级场景必须强制重验元数据。
+  return `npm install -g ${pkgName}@${version} --registry=${registry} --prefer-online`;
 }
 
 export async function fetchLatestVersion(registry, pkgName, fetchImpl = fetch) {
