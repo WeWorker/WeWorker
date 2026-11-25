@@ -107,7 +107,7 @@ export function buildAdapterCatalog(options = {}) {
         digest: pkg.digest, manifest: pkg.manifest, commands: pkg.commands,
         guidance: pkg.files.get('guidance.md')?.toString('utf8') || '',
         iconUrl: iconBytes ? `data:${validateAdapterIcon(iconFile, iconBytes)};base64,${iconBytes.toString('base64')}` : undefined,
-        permissions, origin: record?.origin || null,
+        permissions, origin: record?.origin || null, uploader: record?.uploader,
       });
     } catch (error) {
       diagnostics.push({ name, source, code: error.code || 'INVALID_ADAPTER_PACKAGE' });

@@ -108,7 +108,8 @@ test('Electron startup guards against duplicate app and backend instances', () =
   const managerSource = fs.readFileSync(new URL('../managers.js', import.meta.url), 'utf8')
   const backendSource = fs.readFileSync(new URL('../../backend-ts/src/server.ts', import.meta.url), 'utf8')
 
-  assert.match(mainSource, /app\.requestSingleInstanceLock\(\)/)
+  assert.match(mainSource, /const instanceLock = acquireDesktopInstance\(app,/)
+  assert.match(mainSource, /await instanceLock/)
   assert.match(managerSource, /resolveBackendAvailability\(/)
   assert.match(managerSource, /external_running/)
   assert.match(managerSource, /WEWORKER_BACKEND_INSTANCE_ID/)

@@ -202,6 +202,8 @@ export function installAdapter(input, options = {}) {
     next.installations[pkg.name] = {
       name: pkg.name, version: pkg.manifest.version, digest: pkg.digest,
       profile: paths.profile, origin, grants,
+      ...(origin.kind === 'hub' && typeof input.uploader === 'string' && input.uploader.trim()
+        ? { uploader: input.uploader.trim().slice(0, 100) } : {}),
     };
     const keepDisabled = input.preserveDisabled && disabled;
     const activeAfterInstall = !keepDisabled && input.activate !== false;

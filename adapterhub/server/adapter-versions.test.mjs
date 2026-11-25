@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  openCatalog, syncOfficialAdapters, importAdapter, getAdapter,
+  openCatalog, syncOfficialAdapters, importAdapter, getAdapter, adapterVersionIndex,
   listAdapterReleases, artifactForAdapterVersion, artifactForAdapter,
 } from './db.js'
 
@@ -36,6 +36,20 @@ test('listAdapterReleases：发布时间倒序、过滤占位、含 size/sha256'
   assert.equal(items[0].size, 1024)
   assert.equal(items[0].sha256, 'sha256:' + 'c'.repeat(64))
   assert.ok(items[0].publishedAt !== undefined)
+})
+
+test('exposes current release domains and uploader metadata', () => {
+  const db = freshDb()
+  importAdapter(db, {
+    name: 'sample.example.com', display: 'Sample', description: '', version: '1.0.0',
+    origin: 'user', publishedBy: 'example-user', publisherRole: 'owner',
+    match: ['example.com'], commands: [], manifest: { domains: ['example.com'], runtime_allowed_hosts: ['api.example.org'] },
+    artifactSha256: 'sha256:' + 'a'.repeat(64), artifactSize: 1024, artifactPath: 'sample.adapt',
+  })
+  const detail = getAdapter(db, 'sample.example.com')
+  assert.deepEqual(detail.domains, ['example.com', 'api.example.org'])
+  assert.equal(detail.publishedBy, 'example-user')
+  assert.equal(adapterVersionIndex(db, { desktop: true }).find(entry => entry.name === detail.name).publishedBy, 'example-user')
 })
 
 test('listAdapterReleases：不存在的 adapter 返回空（路由层由 getAdapter 判 404）', () => {

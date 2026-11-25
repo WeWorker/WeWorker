@@ -303,7 +303,13 @@ bridgeStatus.onAdapterScaffoldGenerated(({ siteKey }) => {
 const handleAdapterStateRefresh = createAdapterStateRefreshHandler({
   clearCache: clearAdapterCache,
   refreshSkills: () => refreshDesktopAdapterSkills(SKILLS_DIR),
-  broadcast: (event) => broadcastSSE(event),
+  broadcast: (event) => {
+    if (!event.hubInstall) {
+      broadcastSSE(event)
+      return
+    }
+    broadcastSSE({ ...event, sites: describeSites(new Set(event.adapters)) })
+  },
 })
 
 bridgeStatus.onAdapterStateChanged(handleAdapterStateRefresh)
@@ -1619,12 +1625,12 @@ function formatAdapterToolsForApi(tools: StaticToolDef[]) {
   })
 }
 
-app.get('/sites', (_req, res) => {
+function describeSites(onlyIds?: Set<string>) {
   const allAdapters = parseAllAdapters()
   const adaptersDir = findAdaptersDirectory()
   const settings = getSettings()
   const customTP = settings.custom_test_prompts || {}
-  const sites = [...allAdapters.values()].map(a => {
+  const sites = [...allAdapters.values()].filter(a => !onlyIds || onlyIds.has(a.id)).map(a => {
     const enabled = getSiteEnabled(a.id, a.defaultEnabled, a.managed?.enabled)
     // Visibility: user setting takes precedence; if no user setting, use registry default
     const userToggle = settings.site_toggles[a.id]
@@ -1659,6 +1665,8 @@ app.get('/sites', (_req, res) => {
     visible: enabled && visible,
     hidden: a.hidden,
     managed: a.managed,
+    uploader: a.uploader,
+    domains: a.displayDomains ?? a.match,
     version: a.managed?.version ?? null,
     testPrompts: customTP[a.id] != null ? customTP[a.id] : a.testPrompts,
     customSkills,
@@ -1678,14 +1686,17 @@ app.get('/sites', (_req, res) => {
   // Adapter 集合内（作用域过滤），因此站点被禁用或它的路由条目引用了不存在的工具时，
   // 徽标会如实熄灭，而不是留下一个「配置里还写着」的假亮。
   // 坏配置不能让只读接口 500：加载失败一律退化为「全部不可直达」。
-  const enabledIds = new Set(sites.filter((site) => site.enabled).map((site) => site.id))
+  const enabledIds = new Set([...allAdapters.values()]
+    .filter(a => getSiteEnabled(a.id, a.defaultEnabled, a.managed?.enabled)).map(a => a.id))
   const { routable: routableIds, entryCount: routeEntryCount } = computeRoutableSitesFromConfig(enabledIds)
-  res.json(sites.map((site) => ({
+  return sites.map((site) => ({
     ...site,
     routable: routableIds.has(site.id),
     routeEntryCount: routeEntryCount.get(site.id) ?? 0,
-  })))
-})
+  }))
+}
+
+app.get('/sites', (_req, res) => res.json(describeSites()))
 
 // 当前生效的 `!别名` 清单（`router-config/aliases.json` + 用户覆盖层，经作用域过滤）。
 // 输入框据此判断「`!xxx` 是路由命令还是 shell 命令」，从而与后端别名**同源**——
@@ -1783,6 +1794,44 @@ app.delete('/router/fast-routes/local/:id', (req, res) => {
     res.json({ ok: true })
   } catch (error) {
     res.status(error instanceof LocalRouteError && error.reason === 'unavailable' ? 404 : 409).json({ detail: '本地路由不存在或状态已变化' })
+  }
+})
+
+app.get('/adapter-hub', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  const rawPage = req.query.page ?? '1'
+  const q = req.query.q ?? ''
+  if (typeof rawPage !== 'string' || !/^[1-9]\d{0,3}$/.test(rawPage) || typeof q !== 'string') {
+    res.status(400).json({ detail: 'AdapterHub 查询参数无效。' })
+    return
+  }
+  try {
+    res.json(await adapterUpdates.listHubPage(Number(rawPage), q.trim().slice(0, 100)))
+  } catch {
+    res.status(503).json({ detail: 'AdapterHub 暂不可用，请稍后重试。' })
+  }
+})
+
+app.get('/adapter-hub/:id/detail', async (req, res) => {
+  try {
+    res.json(await adapterUpdates.detail(req.params.id))
+  } catch {
+    res.status(503).json({ detail: '无法读取 AdapterHub 详情。' })
+  }
+})
+
+app.get('/adapter-hub/install-progress', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ items: adapterUpdates.hubTransfers() })
+})
+
+app.post('/adapter-hub/:id/install', async (req, res) => {
+  try {
+    const installed = await adapterUpdates.installFromHub(req.params.id, req.body?.version)
+    const [site] = describeSites(new Set([installed.name]))
+    res.json({ ...installed, site })
+  } catch (error) {
+    res.status(409).json({ detail: adapterUpdateErrorMessage(error) })
   }
 })
 

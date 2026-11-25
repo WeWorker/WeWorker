@@ -58,6 +58,8 @@ export interface ManifestRouteTemplateDef {
 
 export interface ParsedAdapter {
   managed?: DesktopAdapter['managed']
+  uploader?: string
+  displayDomains?: string[]
   id: string
   name: string
   description: string
@@ -488,6 +490,8 @@ export function parseAllAdapters(): Map<string, ParsedAdapter> {
       routeTemplates: (manifest.route_templates || []) as ManifestRouteTemplateDef[],
       icon: manifest.icon || 'globe', promptVarDisplay: mergePromptVarDisplay({}, manifest.prompt_var_display),
       iconUrl: manifest.iconUrl,
+      uploader: manifest.uploader,
+      displayDomains: [...new Set([...(manifest.match || []), ...(manifest.domains || []), ...(manifest.runtime_allowed_hosts || [])])],
     })
   }
   const ordered = new Map<string, ParsedAdapter>()

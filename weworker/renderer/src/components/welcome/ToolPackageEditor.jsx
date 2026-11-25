@@ -1769,7 +1769,7 @@ export default function ToolPackageEditor({
                   aria-selected={adapterView === 'manage'}
                   onClick={() => setAdapterView('manage')}
                 >
-                  Adapter 管理
+                  已安装 Adapter
                 </button>
                 <button
                   type="button"

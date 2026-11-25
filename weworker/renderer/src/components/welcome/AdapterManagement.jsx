@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { applyAdapterUpdate, checkAdapterUpdates, fetchAdapterUpdates, installedAdapterVersion } from '../../api/adapter-updates-api.js'
-import { showNotification, updateNotification } from '../../store/notifications.js'
+import { showNotification, updateNotification, useNotificationsStore } from '../../store/notifications.js'
 import { useSitesStore } from '../../store/sites.js'
 import AppSwitch from '../common/AppSwitch.jsx'
 import SiteIcon from '../icons/SiteIcon.jsx'
+import AdapterDetailView from './AdapterDetailView.jsx'
 import './adapter-management.css'
+import './adapter-hub.css'
 
 const statusLabels = {
   available: '有可用更新',
@@ -16,12 +18,16 @@ const statusLabels = {
 
 export default function AdapterManagement() {
   const sites = useSitesStore(state => state.sites)
+  const sitesStatus = useSitesStore(state => state.sitesStatus)
+  const loadSites = useSitesStore(state => state.loadSites)
   const refreshSites = useSitesStore(state => state.refreshSites)
   const toggle = useSitesStore(state => state.toggle)
   const togglingIds = useSitesStore(state => state.togglingIds)
   const toggleError = useSitesStore(state => state.toggleError)
   const [snapshot, setSnapshot] = useState(null)
   const [operation, setOperation] = useState(null)
+  const [selectedSite, setSelectedSite] = useState(null)
+  const [query, setQuery] = useState('')
   const runningOperation = useRef(false)
   const reportedToggleError = useRef(null)
 
@@ -81,20 +87,50 @@ export default function AdapterManagement() {
   const items = snapshot?.items || {}
   const siteById = new Map(sites.map(site => [site.id, site]))
   const ids = new Set([...siteById.keys(), ...Object.keys(items)])
+  const keyword = query.trim().toLowerCase()
+  const visibleIds = [...ids].filter(id => {
+    const site = siteById.get(id)
+    return !keyword || [id, site?.name, site?.description].some(value =>
+      typeof value === 'string' && value.toLowerCase().includes(keyword),
+    )
+  })
   const checking = operation?.action === 'check' || snapshot?.status === 'checking'
   const unavailable = !snapshot || checking || Boolean(operation)
+  const scanning = ids.size === 0 && (sitesStatus === 'idle' || sitesStatus === 'loading')
+
+  useEffect(() => {
+    if (!scanning) return undefined
+    const notice = showNotification('正在扫描已安装的 Adapter…', { type: 'loading', duration: 0 })
+    return () => useNotificationsStore.getState().dismiss(notice)
+  }, [scanning])
+
+  if (selectedSite) return <AdapterDetailView mode="local" site={selectedSite} onClose={() => setSelectedSite(null)} />
 
   return (
-    <section className="tool-package-list-page adapter-management" aria-label="Adapter 管理">
-      {ids.size > 0 ? (
+    <section className="tool-package-list-page adapter-management" aria-label="已安装 Adapter">
+      <div className="adapter-hub__toolbar">
+        <input
+          type="search"
+          className="adapter-hub__search"
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="搜索 Adapter"
+          aria-label="搜索已安装的 Adapter"
+        />
+      </div>
+      {visibleIds.length > 0 ? (
         <div className="tool-package-card-grid" role="list" aria-label="已安装的 Adapter">
-          {[...ids].map(id => {
+          {visibleIds.map(id => {
             const site = siteById.get(id)
             const name = site?.name || id
             const item = Object.hasOwn(items, id) ? items[id] : null
             const available = snapshot?.status === 'ready' && item?.status === 'available' && item.latestVersion
             return (
-              <article key={id} role="listitem" className="tool-package-entry tool-package-entry--adapter">
+              <article key={id} role="listitem" className="tool-package-entry tool-package-entry--adapter" onClick={() => setSelectedSite(site || { id, name, version: item?.currentVersion })} onKeyDown={event => {
+                   if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return
+                   event.preventDefault()
+                   setSelectedSite(site || { id, name, version: item?.currentVersion })
+                 }} tabIndex={0}>
                 <span className="tool-package-entry__icon" aria-hidden="true"><SiteIcon site={site || { id, name }} size={34} /></span>
                 <div className="tool-package-entry__body">
                   <h2 className="tool-package-entry__title" title={name}>{name}</h2>
@@ -105,7 +141,7 @@ export default function AdapterManagement() {
                   className={`tool-package-card-action${available ? ' is-update' : ''}`}
                   disabled={unavailable || (available && togglingIds.includes(id))}
                   aria-label={available ? `更新 ${name} 至 ${item.latestVersion}` : `检测 ${name} 最新版本`}
-                  onClick={() => available ? run('apply', id, item.latestVersion) : run('check', id)}
+                  onClick={event => { event.stopPropagation(); available ? run('apply', id, item.latestVersion) : run('check', id) }}
                 >
                   {operation?.id === id ? (operation.action === 'apply' ? '更新中…' : '检测中…') : available ? '更新' : '检测'}
                 </button>
@@ -113,16 +149,16 @@ export default function AdapterManagement() {
                   <div className="adapter-management__versions">
                     <span>当前 {item?.currentVersion || installedAdapterVersion(site)}</span>
                     <span>最新 {item?.latestVersion || '—'}</span>
-                    {item?.status && <span className={available ? 'adapter-management__available' : undefined}>{statusLabels[item.status]}</span>}
+                    {item?.status && <span className={available ? 'adapter-management__available' : undefined}>{item.unavailableReason || statusLabels[item.status]}</span>}
                   </div>
-                  {site && <label className="adapter-management__switch">
+                  {site && <label className="adapter-management__switch" onClick={event => event.stopPropagation()}>
                     <span>{site.enabled === false ? '已停用' : '已启用'}</span>
                     <AppSwitch
                       aria-label={`启用 ${name}`}
                       checked={site.enabled !== false}
                       disabled={togglingIds.includes(id) || (operation?.action === 'apply' && operation.id === id)
                         || (site.managed && !site.enabled && !site.managed.canEnable)}
-                      onChange={() => toggle(id)}
+                      onChange={event => { event.stopPropagation(); toggle(id) }}
                     />
                   </label>}
                 </div>
@@ -130,7 +166,16 @@ export default function AdapterManagement() {
             )
           })}
         </div>
-      ) : snapshot && <p>暂无已安装的 Adapter。</p>}
+      ) : ids.size > 0 ? (
+        <p className="adapter-hub__empty" role="status">没有匹配的 Adapter。</p>
+      ) : sitesStatus === 'error' ? (
+        <div className="adapter-hub__empty" role="status">
+          <span>无法读取已安装的 Adapter。</span>
+          <button type="button" className="adapter-hub__retry" onClick={loadSites}>重试</button>
+        </div>
+      ) : sitesStatus === 'ready' ? (
+        <p className="adapter-hub__empty" role="status">暂无已安装的 Adapter。</p>
+      ) : null}
     </section>
   )
 }

@@ -8,6 +8,7 @@ export interface AdapterStateEvent {
   revision: number
   adapters: string[]
   sync?: boolean
+  hubInstall?: boolean
 }
 
 export interface AdapterStateRefreshDependencies {
@@ -55,7 +56,10 @@ export function createAdapterStateRefreshHandler({
 
   return (event) => {
     // Coalesce rapid installer commits to the newest revision while a refresh is active.
-    pendingEvent = event
+    pendingEvent = pendingEvent && pendingEvent.profile === event.profile
+      ? { ...event, adapters: [...new Set([...pendingEvent.adapters, ...event.adapters])],
+          sync: pendingEvent.sync || event.sync, hubInstall: pendingEvent.hubInstall && event.hubInstall }
+      : event
     if (active) return
     active = true
     queue = (async () => {

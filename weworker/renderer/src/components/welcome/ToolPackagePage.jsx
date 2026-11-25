@@ -26,7 +26,7 @@ function mergeScenariosForSites(selectedSites) {
 
 export default function ToolPackagePage({ onClose }) {
   const sites = useSitesStore((s) => s.sites)
-  const loadSites = useSitesStore((s) => s.load)
+  const loadSites = useSitesStore((s) => s.loadSites)
   const selectedSiteIds = useToolPackagePageStore((s) => s.selectedSiteIds)
   const setSelectedSiteIds = useToolPackagePageStore((s) => s.setSelectedSiteIds)
   const scenarioSiteIds = useToolPackagePageStore((s) => s.scenarioSiteIds)

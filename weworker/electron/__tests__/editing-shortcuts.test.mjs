@@ -6,7 +6,7 @@ import vm from 'node:vm'
 import { EventEmitter } from 'node:events'
 
 const source = fs.readFileSync(new URL('../main.js', import.meta.url), 'utf8')
-const createWindow = source.slice(source.indexOf('async function createWindow('), source.indexOf('\nif (hasSingleInstanceLock) app.whenReady()'))
+const createWindow = source.slice(source.indexOf('async function createWindow('), source.indexOf('\nconst startup ='))
 
 async function openWindow(platform) {
   const calls = { menu: 'default', options: null, contextMenu: null, popup: null }

@@ -57,6 +57,65 @@
   overflow-wrap: anywhere;
 }
 
+.tool-package-card-action.adapter-hub__transfer:disabled {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-width: 76px;
+  opacity: 1;
+  --adapter-transfer-blue: #339cff;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border-color: color-mix(in srgb, var(--adapter-transfer-blue) 32%, var(--border));
+  font-weight: 600;
+}
+
+.adapter-hub__transfer-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--transfer-progress);
+  background: var(--adapter-transfer-blue);
+  transition: width 240ms linear;
+}
+
+.adapter-hub__transfer-label { position: relative; }
+
+@media (prefers-reduced-motion: reduce) {
+  .adapter-hub__transfer-fill { transition: none; }
+}
+
+.adapter-hub__pagination {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.adapter-hub__pagination [role='status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adapter-hub__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: adapter-hub-spin 0.75s linear infinite;
+}
+
+@keyframes adapter-hub-spin {
+  to { transform: rotate(1turn); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adapter-hub__spinner { animation: none; }
+}
+
 .adapter-hub__official {
   color: var(--accent);
   font-weight: 600;

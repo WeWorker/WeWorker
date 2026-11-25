@@ -22,6 +22,7 @@ test('desktop index exposes trusted release metadata and supports conditional re
     publish('first.example.com', 'admin')
     publish('second.example.com', 'owner')
     publish('third.example.com', 'admin', 'user')
+    db.prepare('UPDATE adapters SET display=?, description=? WHERE name=?').run('Fixture', 'Example description', 'first.example.com')
     await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve))
     const url = `http://127.0.0.1:${server.address().port}/api/v1/adapters/index`
     const desktop = await fetch(url + '?channel=desktop')
@@ -30,6 +31,8 @@ test('desktop index exposes trusted release metadata and supports conditional re
       channel: 'desktop',
       items: ['first', 'second', 'third'].map((label, index) => ({
         name: `${label}.example.com`, version: '1.0.0', sha256, official: index === 0,
+        ...(index === 0 ? { displayName: 'Fixture', description: 'Example description' } : {}),
+        ...(index < 2 ? { origin: 'official' } : { publishedBy: 'test-publisher' }),
       })),
     })
     const etag = desktop.headers.get('etag')

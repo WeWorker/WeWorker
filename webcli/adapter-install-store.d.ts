@@ -5,6 +5,7 @@ export function compareAdapterVersions(a: string, b: string): number
 export function installAdapter(input: {
   files: Map<string, Buffer | string>
   origin: { kind: 'generated' | 'local' | 'development' | 'hub'; service?: string }
+  uploader?: string
   activate?: boolean
   preserveDisabled?: boolean
   expectedSourceDigest?: string | null

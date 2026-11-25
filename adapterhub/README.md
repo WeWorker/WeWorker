@@ -61,18 +61,20 @@ npm test
 
 对外部署时，将 `/adapterhub/api/v1/` 转发到 AdapterHub API，保留查询参数与 `ETag`／`If-None-Match`，不要落到官网的 HTML 回退页。桌面客户端使用随构建固定的 HTTPS 地址，不接受重定向。可用 `GET /api/v1/adapters/index?channel=desktop` 验证服务：应返回 JSON `{ channel: "desktop", items: [...] }`，每项沿用已有版本和制品 SHA-256，并提供 `official` 标记。未上架和只有占位制品的条目不会出现在索引中。未传 `channel` 的客户端仍可使用原格式。
 
-内置 Adapter 只接受官方条目由管理员发布的版本；已从同一 Hub 安装的 Adapter 可按原来源更新，已有内置副本的同名 Adapter 仍要求官方版本。本地导入、生成或开发中的 Adapter 不会被替换。用户点更新后，桌面端通过 `GET /api/v1/adapters/:name/download?version=...` 取得确切版本，校验制品 SHA-256、包名和版本后安装。安装不允许降级或扩大权限，已禁用的 Adapter 更新后仍保持禁用。部署验收请同时验证索引 JSON、条件请求的 304、确切版本的 `.adapt` 下载和哈希一致性。
+内置 Adapter 只接受官方条目由管理员发布的版本；已从同一 Hub 安装的 Adapter 可按原来源更新，已有内置副本的同名 Adapter 仍要求官方版本。本地导入、生成或开发中的 Adapter 不会被替换。用户点更新后，桌面端通过 `GET /api/v1/adapters/:name/download?version=...` 取得确切版本，校验制品 SHA-256、包名和版本后安装。安装不允许降级。用户主动更新时可安装包含新增权限的版本，已禁用的 Adapter 更新后仍保持禁用。部署验收请同时验证索引 JSON、条件请求的 304、确切版本的 `.adapt` 下载和哈希一致性。
 
 当前的完整性校验信任官方 HTTPS Hub 和受控的发布权限；SHA-256 不是发行者签名，不能防止被攻陷的 Hub 同时替换索引和制品。若部署需要独立的发布者身份验证，应在启用分发前引入由客户端验证的签名，并明确签名密钥轮换及撤销规则。本任务不更改发布流程。
 
-### 桌面端 AdapterHub 浏览与安装（Backend 待接入）
+### 桌面端 AdapterHub 浏览与安装
 
-桌面端「AdapterHub」页已完成前端，等待 Backend 提供以下鉴权路由：
+桌面端通过本地 Backend 的鉴权路由访问构建配置中固定的 Hub。
 
-- `GET /adapter-hub` → `{ items: [{ name, displayName?, description?, version, official?, iconUrl?, installedVersion? }] }`。`name` 必填且为 Adapter 包名；`installedVersion` 留空表示本地未安装。
-- `POST /adapter-hub/:id/install`，请求体 `{ version }`；失败返回 `{ detail }`，桌面端直接展示该文案。
+- `GET /adapter-hub?page=1&q=keyword` 返回 `{ items, page, hasMore }`。条目的 `action` 为 `install`、`update` 或 `null`，表示当前允许的操作。
+- `GET /adapter-hub/:id/detail` 返回 Hub 详情和命令清单。已安装详情使用本地 `/sites` 数据。
+- `GET /adapter-hub/install-progress` 返回下载队列和进度。
+- `POST /adapter-hub/:id/install` 接收 `{ version }`，成功返回 `{ name, version, site? }`，失败返回 `{ detail }`。
 
-前端行为：列表由远端完整返回，搜索只在本地过滤；安装期间显示顶部进度提示，成功后刷新站点列表并重新拉取 Hub 列表；接口不可用时显示「AdapterHub 暂不可用，请稍后重试。」并提供重试。Backend 可代理 `GET /api/v1/adapters` 与确切版本下载，复用 `installAdapter({ origin: { kind: 'hub', service } })`，并保持 SHA-256、包名、版本与权限的既有校验。
+Backend 与 `webcli adapterhub list` 共用 `GET /api/v1/adapters` 分页目录。客户端优先使用 HTTPS，连接错误时可回退到配置的同一主机的 HTTP 服务，拒绝重定向。安装按确切版本下载并校验 SHA-256、包名、版本和本地状态。更新保留禁用状态。「已安装 Adapter」页优先使用桌面版本索引，索引不可用时改用分页目录比较版本。
 
 ## 认证扩展（企业部署）
 

@@ -4,6 +4,8 @@ export interface DesktopAdapter {
   description?: string
   display?: string
   match?: string[]
+  uploader?: string
+  runtime_allowed_hosts?: string[]
   /** Site domains: each covers the domain and every subdomain (see host-scope.js). */
   domains?: string[]
   homepage_url?: string

@@ -547,7 +547,7 @@ export function preflightAdapterPublish(db, userid, items) {
   return { authorized: summary.forbidden === 0 && summary.conflict === 0 && summary.downgradeBlocked === 0 && summary.invalid === 0, items: results, summary }
 }
 
-const ADAPTER_SELECT = `SELECT a.name,a.display,a.description,a.match_json,a.runtimes_json,a.origin,a.scenarios_json,
+const ADAPTER_COLUMNS = `a.name,a.display,a.description,a.match_json,a.runtimes_json,a.origin,a.scenarios_json,
   a.download_count,ar.version,ar.artifact_path,ar.artifact_sha256,ar.artifact_size,ar.published_at,ar.published_by,ar.publisher_role,
   (SELECT o.userid FROM adapter_owners o WHERE o.adapter_name=a.name ORDER BY o.created_at ASC, o.userid ASC LIMIT 1) author,
   (SELECT COUNT(*) FROM json_each(a.runtimes_json)) runtime_count,
@@ -556,8 +556,9 @@ const ADAPTER_SELECT = `SELECT a.name,a.display,a.description,a.match_json,a.run
     (SELECT COUNT(*) FROM commands c JOIN sites s ON s.hub_id=c.site_id WHERE s.domain=a.name AND c.listed=1),
     0
   ) command_count,
-  (SELECT COUNT(*) FROM favorites f WHERE f.adapter_name=a.name) favorite_count
-  FROM adapters a JOIN adapter_releases ar ON ar.id=a.current_release_id`
+  (SELECT COUNT(*) FROM favorites f WHERE f.adapter_name=a.name) favorite_count`
+const ADAPTER_FROM = 'FROM adapters a JOIN adapter_releases ar ON ar.id=a.current_release_id'
+const ADAPTER_SELECT = `SELECT ${ADAPTER_COLUMNS} ${ADAPTER_FROM}`
 
 // 场景/推荐提示词清洗：[{title, summary, prompts:[{text}]}]，剔除空项，防任意字段注入
 export function sanitizeScenarios(input) {
@@ -602,7 +603,13 @@ export function listAdapters(db, options = {}) {
 }
 
 export function getAdapter(db, name) {
-  return mapAdapter(db.prepare(`${ADAPTER_SELECT} WHERE a.listed=1 AND a.name=?`).get(String(name || '')))
+  const row = db.prepare(`SELECT ${ADAPTER_COLUMNS}, ar.manifest_json AS release_manifest ${ADAPTER_FROM} WHERE a.listed=1 AND a.name=?`).get(String(name || ''))
+  if (!row) return undefined
+  const adapter = mapAdapter(row)
+  const manifest = parsed(row.release_manifest, {})
+  const domains = [adapter.match, manifest?.match, manifest?.domains, manifest?.runtime_allowed_hosts]
+    .filter(Array.isArray).flat().filter(value => typeof value === 'string' && value.trim())
+  return { ...adapter, domains: [...new Set(domains)] }
 }
 
 /**
@@ -651,12 +658,19 @@ export function listAdapterReleases(db, name) {
 
 /** 客户端联动版本索引：全部已列出 Adapter 的 name/version/sha256 轻量清单（无元数据）。 */
 export function adapterVersionIndex(db, { desktop = false } = {}) {
-  return db.prepare(`SELECT a.name, a.origin, ar.version, ar.artifact_sha256, ar.publisher_role
+  return db.prepare(`SELECT a.name, a.display, a.description, a.origin, ar.version, ar.artifact_sha256, ar.publisher_role, ar.published_by,
+    (SELECT o.userid FROM adapter_owners o WHERE o.adapter_name=a.name ORDER BY o.created_at ASC, o.userid ASC LIMIT 1) author
     FROM adapters a JOIN adapter_releases ar ON ar.id=a.current_release_id
     WHERE a.listed=1 AND ar.artifact_sha256 != 'placeholder-no-artifact'
     ORDER BY a.name`).all()
     .map((r) => ({ name: r.name, version: r.version, sha256: r.artifact_sha256,
-      ...(desktop ? { official: r.origin === 'official' && r.publisher_role === 'admin' } : {}),
+      ...(desktop ? { official: r.origin === 'official' && r.publisher_role === 'admin',
+         ...(r.display ? { displayName: r.display } : {}),
+         ...(r.description ? { description: r.description } : {}),
+          ...(r.origin === 'official' ? { origin: 'official' } : {}),
+          ...(r.origin === 'user' && r.published_by ? { publishedBy: r.published_by } : {}),
+          ...(r.origin === 'user' && r.author ? { author: r.author } : {}),
+       } : {}),
     }))
 }
 
