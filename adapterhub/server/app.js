@@ -1,4 +1,5 @@
 
+import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { nullAuth } from './auth.js'
@@ -236,16 +237,15 @@ export function createHandler({ db, dataDir, webDir, auth = nullAuth }) {
       // 客户端联动版本索引：轻量 [{name, version, sha256}] 清单，ETag/304 支持增量比对
       // （须在 getAdapter 单项路由之前匹配，否则 "index" 会被当作 adapter name）
       if (url.pathname === '/api/v1/adapters/index' && req.method === 'GET') {
-        const items = adapterVersionIndex(db)
-        const merged = items.map((i) => `${i.name}@${i.version}:${i.sha256}`).join('|')
-        let h = 0
-        for (let i = 0; i < merged.length; i++) { h = (h * 31 + merged.charCodeAt(i)) | 0 }
-        const etag = `"idx-${items.length}-${(h >>> 0).toString(16)}"`
+        const desktop = url.searchParams.get('channel') === 'desktop'
+        const items = adapterVersionIndex(db, { desktop })
+        const payload = { items, ...(desktop ? { channel: 'desktop' } : {}) }
+        const etag = `"idx-${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}"`
         if (req.headers['if-none-match'] === etag) {
           res.writeHead(304, { etag, 'cache-control': 'no-store' })
           return res.end()
         }
-        return sendJson(res, 200, { items }, { etag })
+        return sendJson(res, 200, payload, { etag, 'cache-control': 'no-store' })
       }
       if (parts[0] === 'api' && parts[1] === 'v1' && parts[2] === 'adapters' && parts.length === 4 && req.method === 'GET') {
         const adapter = getAdapter(db, decodeURIComponent(parts[3]))

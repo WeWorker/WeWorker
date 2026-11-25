@@ -1,0 +1,29 @@
+.adapter-management__status {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.adapter-management__status:empty {
+  display: none;
+}
+
+.adapter-management__versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.adapter-management__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+.adapter-management__available {
+  color: var(--accent);
+  font-weight: 600;
+}

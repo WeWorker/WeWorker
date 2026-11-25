@@ -1,0 +1,122 @@
+.adapter-hub__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.adapter-hub__search {
+  flex: 0 1 320px;
+  min-width: 0;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.adapter-hub__search:focus,
+.adapter-hub__search:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.adapter-hub__empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.adapter-hub__retry {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.adapter-hub__retry:hover {
+  border-color: var(--accent);
+}
+
+.adapter-hub__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.tool-package-card-action.adapter-hub__transfer:disabled {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-width: 76px;
+  opacity: 1;
+  --adapter-transfer-blue: #339cff;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border-color: color-mix(in srgb, var(--adapter-transfer-blue) 32%, var(--border));
+  font-weight: 600;
+}
+
+.adapter-hub__transfer-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--transfer-progress);
+  background: var(--adapter-transfer-blue);
+  transition: width 240ms linear;
+}
+
+.adapter-hub__transfer-label { position: relative; }
+
+@media (prefers-reduced-motion: reduce) {
+  .adapter-hub__transfer-fill { transition: none; }
+}
+
+.adapter-hub__pagination {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.adapter-hub__pagination [role='status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.adapter-hub__spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: adapter-hub-spin 0.75s linear infinite;
+}
+
+@keyframes adapter-hub-spin {
+  to { transform: rotate(1turn); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adapter-hub__spinner { animation: none; }
+}
+
+.adapter-hub__official {
+  color: var(--accent);
+  font-weight: 600;
+}

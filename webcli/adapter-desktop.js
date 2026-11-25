@@ -46,6 +46,7 @@ export function describeDesktopAdapters(options = {}) {
     return {
       ...(candidate?.manifest || {}), id: name, name,
       iconUrl: candidate?.iconUrl,
+      uploader: candidate?.source === 'builtin' ? '官方' : candidate?.uploader,
       commands: active?.commands || [],
       managed: { enabled: !!active, profile: catalog.profile, source: candidate?.source || source || null,
         digest: candidate?.digest || null, version: candidate?.version || null,

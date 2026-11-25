@@ -327,7 +327,7 @@ describe('System Prompt - complete output contract before externalization', () =
       Claude Code 原生文件工具、WeWorker Shell 和带路径参数的 MCP 工具只能访问用户目录 \`C:\\Users\\test\\.weworker\\user-files\` 及其子目录中的文件。
       严禁读取、写入、列出、搜索、上传、解密或发送该目录之外的任何路径。
       WeWorker Shell 命令（含 cat、type、python 等）与内置文件工具同样受用户目录边界约束，越界请求会被系统拦截。
-      \`CLAUDE_CONFIG_DIR/skills\` 下的技能目录禁止在 WeWorker 会话里直接编辑、删除、重命名或上传。需要管理技能时，引导用户使用左侧「SKILLS与场景」功能。
+      \`CLAUDE_CONFIG_DIR/skills\` 下的技能目录禁止在 WeWorker 会话里直接编辑、删除、重命名或上传。需要管理技能时，引导用户使用左侧「Adapter、Skill 与场景」功能。
       \`Read\`、\`Glob\`、\`Grep\`、\`Edit\`、\`Write\`、\`NotebookEdit\` 可用于用户目录内的文件读取、搜索和编辑；文件类 MCP 工具也仅接受用户目录内路径。
       文件读取、搜索、编辑优先使用 Claude Code 内置文件工具：\`Read\`、\`Glob\`、\`Grep\`、\`Edit\`、\`Write\`、\`NotebookEdit\`；只有需要执行真实命令、构建、测试、git、npm 或查看命令输出时，才使用 \`weworker_powershell\`。
 

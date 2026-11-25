@@ -63,7 +63,7 @@ export default function QuickCreateHome({ draftKey }) {
                     )}
                   </span>
                   <span className="quick-create__hub-desc">
-                    {ready ? template.tagline : `需先在「SKILLS与场景」启用 ${template.siteLabel} 网站`}
+                    {ready ? template.tagline : `需先在「设置 → 站点」启用 ${template.siteLabel} 网站`}
                   </span>
                 </span>
                 <span className={`quick-create__hub-cta${ready ? '' : ' is-muted'}`} aria-hidden="true">
@@ -88,7 +88,7 @@ export default function QuickCreateHome({ draftKey }) {
               <div
                 key={template.id}
                 className="quick-create__hub-card"
-                title={`先在「SKILLS与场景」启用 ${template.siteLabel}（${template.siteId}）网站，再回来创建这个 Bot。`}
+                title={`先在「设置 → 站点」启用 ${template.siteLabel}（${template.siteId}）网站，再回来创建这个 Bot。`}
               >
                 {cardBody}
               </div>

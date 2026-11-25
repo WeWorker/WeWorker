@@ -21,7 +21,7 @@ fs.writeFileSync(entry, `
   app.setPath('userData', process.env.EDIT_TEST_PROFILE)
   app.whenReady().then(async () => {
     const source = fs.readFileSync(process.env.EDIT_TEST_MAIN, 'utf8')
-    const createWindow = source.slice(source.indexOf('async function createWindow('), source.indexOf('\\nif (hasSingleInstanceLock) app.whenReady()'))
+    const createWindow = source.slice(source.indexOf('async function createWindow('), source.indexOf('\\nconst startup ='))
     const context = {
       process: { platform: process.platform, env: { WEWORKER_E2E: '1' } },
       Menu: {

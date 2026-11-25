@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { WarningOutlined } from '@ant-design/icons'
 import Tooltip from '../Tooltip.jsx'
 import UpdatePrompt from '../sidebar/UpdatePrompt.jsx'
-import { useToolPackagePageStore } from '../../store/tool-package-page.js'
+import { ADAPTER_WORKSPACE_TITLE, useToolPackagePageStore } from '../../store/tool-package-page.js'
 import { useExplorationPageStore } from '../../store/exploration-page.js'
 import { useWebsiteExplorationStore } from '../../store/website-exploration.js'
 import { useDedicatedAgentsStore } from '../../store/dedicated-agents.js'
@@ -96,7 +96,7 @@ export default function AppRail({ activeSection, settingsOpen = false, extension
             </button>
           </Tooltip>
           <div className="app-rail__more-items" role="menu" aria-label="更多功能" aria-hidden={!moreOpen}>
-            <RailMenuButton label="SKILLS与场景" active={activeKey === 'skills'} disabled={!moreOpen} onClick={() => openFeature(onOpenSkills)}>
+            <RailMenuButton label={ADAPTER_WORKSPACE_TITLE} active={activeKey === 'skills'} disabled={!moreOpen} onClick={() => openFeature(onOpenSkills)}>
               <SkillsIcon />
             </RailMenuButton>
             <RailMenuButton label="Adapter工坊" active={activeKey === 'website'} disabled={!moreOpen} onClick={() => openFeature(onOpenWebsiteExploration)}>

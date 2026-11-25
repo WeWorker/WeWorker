@@ -1,12 +1,18 @@
 import { create } from 'zustand'
 
-export const SKILL_SCOPE_SITE = 'site'
-export const SKILL_SCOPE_PUBLIC = 'public'
 export const WORKSPACE_TAB_SKILLS = 'skills'
 export const WORKSPACE_TAB_SCENARIOS = 'scenarios'
+export const WORKSPACE_TAB_ADAPTERS = 'adapters'
+export const ADAPTER_WORKSPACE_TITLE = 'Adapter、Skill 与场景'
+
+export const WORKSPACE_TABS = [
+  { id: WORKSPACE_TAB_ADAPTERS, label: 'Adapter' },
+  { id: WORKSPACE_TAB_SKILLS, label: 'Skills' },
+  { id: WORKSPACE_TAB_SCENARIOS, label: '场景' },
+]
 
 function normalizeWorkspaceTab(tab) {
-  return tab === WORKSPACE_TAB_SCENARIOS ? WORKSPACE_TAB_SCENARIOS : WORKSPACE_TAB_SKILLS
+  return WORKSPACE_TABS.some(({ id }) => id === tab) ? tab : WORKSPACE_TAB_ADAPTERS
 }
 
 function normalizeSiteIds(siteIds, fallbackSiteId = '') {
@@ -20,10 +26,9 @@ function normalizeSiteIds(siteIds, fallbackSiteId = '') {
 export const useToolPackagePageStore = create((set) => ({
   open: false,
   openSessionId: 0,
-  workspaceTab: WORKSPACE_TAB_SKILLS,
+  workspaceTab: WORKSPACE_TAB_ADAPTERS,
   selectedSiteIds: [],
   scenarioSiteIds: [],
-  skillScope: SKILL_SCOPE_SITE,
   selectedPublicSkillName: '',
   openPage: (siteId, options = {}) => set((state) => {
     const normalizedSiteId = typeof siteId === 'string' && siteId ? siteId : ''
@@ -36,17 +41,15 @@ export const useToolPackagePageStore = create((set) => ({
     return {
       open: true,
       openSessionId: state.openSessionId + 1,
-      workspaceTab: normalizeWorkspaceTab(options.workspaceTab),
+      workspaceTab: normalizeWorkspaceTab(options.workspaceTab || (options.publicSkillName || normalizedSiteId
+        ? WORKSPACE_TAB_SKILLS
+        : WORKSPACE_TAB_ADAPTERS)),
       selectedPublicSkillName: options.publicSkillName || '',
-      ...(options.publicSkillName ? { skillScope: SKILL_SCOPE_PUBLIC } : {}),
       selectedSiteIds: nextSiteIds,
       scenarioSiteIds: nextScenarioSiteIds,
     }
   }),
   closePage: () => set({ open: false }),
-  setSkillScope: (skillScope) => set({
-    skillScope: skillScope === SKILL_SCOPE_PUBLIC ? SKILL_SCOPE_PUBLIC : SKILL_SCOPE_SITE,
-  }),
   setSelectedSiteIds: (siteIds) => set({
     selectedSiteIds: normalizeSiteIds(siteIds),
   }),

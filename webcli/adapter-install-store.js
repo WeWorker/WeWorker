@@ -173,7 +173,14 @@ export function installAdapter(input, options = {}) {
     }
     const previous = state.installations[pkg.name];
     // A quarantined snapshot must not erase the previously approved capability/version boundary.
-    const base = previous ? { version: previous.version, permissions: previous.grants || [] } : active;
+    const disabled = state.selections[pkg.name]?.source === 'disabled';
+    const disabledBuiltin = input.preserveDisabled && disabled && before.candidates.find(
+      (entry) => entry.name === pkg.name && entry.source === 'builtin',
+    );
+    const base = previous ? { version: previous.version, permissions: previous.grants || [] } : active || disabledBuiltin;
+    if (input.preserveDisabled && !base) {
+      throw adapterError('ADAPTER_BASE_CHANGED', 'Adapter no longer has an installed version to update.');
+    }
     if (!previous && existsSync(assertManagedFile(paths.userDir, pkg.name))) {
       throw adapterError('ADAPTER_UNMANAGED_CONFLICT', 'An unmanaged Adapter directory already exists; review its migration before installing.');
     }
@@ -195,11 +202,16 @@ export function installAdapter(input, options = {}) {
     next.installations[pkg.name] = {
       name: pkg.name, version: pkg.manifest.version, digest: pkg.digest,
       profile: paths.profile, origin, grants,
+      ...(origin.kind === 'hub' && typeof input.uploader === 'string' && input.uploader.trim()
+        ? { uploader: input.uploader.trim().slice(0, 100) } : {}),
     };
-    if (input.activate !== false) next.selections[pkg.name] = { source: 'user', digest: pkg.digest };
+    const keepDisabled = input.preserveDisabled && disabled;
+    const activeAfterInstall = !keepDisabled && input.activate !== false;
+    if (keepDisabled) next.selections[pkg.name] = { source: 'disabled', resumeSource: 'user' };
+    else if (activeAfterInstall) next.selections[pkg.name] = { source: 'user', digest: pkg.digest };
     else if (next.selections[pkg.name]?.source === 'user') next.selections[pkg.name] = { source: 'disabled' };
     next.revision++;
-    if (input.activate !== false) ensureSelectable(paths, next, pkg.name, 'user');
+    if (activeAfterInstall) ensureSelectable(paths, next, pkg.name, 'user');
     const journal = {
       id: randomUUID(), operation: 'install', name: pkg.name, revision: state.revision,
       nextDigest: pkg.digest, hadTarget: existsSync(assertManagedFile(paths.userDir, pkg.name)),
@@ -219,7 +231,7 @@ export function installAdapter(input, options = {}) {
       throw error;
     }
     return { name: pkg.name, version: pkg.manifest.version, digest: pkg.digest, dir: tx.target,
-      executionRoot: pinnedRoot, revision: next.revision, active: input.activate !== false, origin };
+      executionRoot: pinnedRoot, revision: next.revision, active: activeAfterInstall, origin };
   });
 }
 

@@ -189,7 +189,9 @@ export default function App() {
           return
         }
         if (parsed.type === 'adapter_state_changed') {
-          useSitesStore.getState().refreshSites()
+          const sites = useSitesStore.getState()
+          if (Array.isArray(parsed.sites)) parsed.sites.forEach(sites.addInstalledSite)
+          else sites.refreshSites()
           return
         }
         if (parsed.type === 'agent_skill_updated') {

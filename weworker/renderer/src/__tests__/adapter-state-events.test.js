@@ -13,12 +13,13 @@ const serverSource = fs.readFileSync(path.join(backendRoot, 'src/server.ts'), 'u
 test('renderer refreshes Adapter capabilities from backend state events', () => {
   assert.match(appSource, /import \{ useSitesStore \} from '\.\/store\/sites\.js'/)
   assert.match(appSource, /parsed\.type === 'adapter_state_changed'/)
-  assert.match(appSource, /useSitesStore\.getState\(\)\.refreshSites\(\)/)
+  assert.match(appSource, /parsed\.sites\.forEach\(sites\.addInstalledSite\)/)
+  assert.match(appSource, /else sites\.refreshSites\(\)/)
 })
 
 test('backend delegates state refresh to the retrying serialized handler', () => {
   assert.match(serverSource, /createAdapterStateRefreshHandler/)
   assert.match(serverSource, /refreshSkills: \(\) => refreshDesktopAdapterSkills\(SKILLS_DIR\)/)
-  assert.match(serverSource, /broadcast: \(event\) => broadcastSSE\(event\)/)
+  assert.match(serverSource, /broadcastSSE\(\{ \.\.\.event, sites: describeSites\(new Set\(event\.adapters\)\) \}\)/)
   assert.match(serverSource, /bridgeStatus\.onAdapterStateChanged\(handleAdapterStateRefresh\)/)
 })

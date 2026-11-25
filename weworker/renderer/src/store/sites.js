@@ -3,12 +3,31 @@ import { fetchRouterAliases, fetchSites } from '../api/sites-api.js'
 import { API, backendFetch } from '../api/http.js'
 
 
-async function reloadSites(set) {
-  set({ sites: await fetchSites() })
+function upsertSite(sites, site) {
+  return sites.some(entry => entry.id === site.id)
+    ? sites.map(entry => entry.id === site.id ? site : entry)
+    : [...sites, site]
 }
 
-export const useSitesStore = create((set) => ({
+const pendingSiteLoads = new Set()
+
+async function reloadSites(set) {
+  const updates = new Map()
+  pendingSiteLoads.add(updates)
+  try {
+    let sites = await fetchSites()
+    for (const site of updates.values()) sites = upsertSite(sites, site)
+    set({ sites, sitesStatus: 'ready' })
+  } finally {
+    pendingSiteLoads.delete(updates)
+  }
+}
+
+let sitesLoad
+
+export const useSitesStore = create((set, get) => ({
   sites: [],
+  sitesStatus: 'idle',
   systemTools: [],
   /**
    * 后端当前生效的 `!别名`（含 `!` 前缀）。输入框据此把 `!xxx` 判成路由命令。
@@ -26,17 +45,33 @@ export const useSitesStore = create((set) => ({
     }
   },
 
+  addInstalledSite: (site) => {
+    if (!site || typeof site.id !== 'string' || !site.id) return
+    for (const updates of pendingSiteLoads) updates.set(site.id, site)
+    set(state => ({ sites: upsertSite(state.sites, site) }))
+  },
+
+  loadSites: () => {
+    if (!sitesLoad) {
+      set({ sitesStatus: 'loading' })
+      sitesLoad = reloadSites(set)
+        .catch(() => set({ sitesStatus: 'error' }))
+        .finally(() => { sitesLoad = undefined })
+    }
+    return sitesLoad
+  },
+
   load: async () => {
     set({ loading: true })
     try {
-      const [sites, sysRes, routerAliases] = await Promise.all([
-        fetchSites(),
-        backendFetch(`${API}/system-tools`),
-        fetchRouterAliases().catch(() => []),
+      await Promise.all([
+        get().loadSites(),
+        backendFetch(`${API}/system-tools`).then(async res => {
+          if (res.ok) set({ systemTools: await res.json() })
+        }).catch(() => {}),
+        fetchRouterAliases().catch(() => []).then(routerAliases => set({ routerAliases })),
       ])
-      const systemTools = sysRes.ok ? await sysRes.json() : []
-      set({ sites, systemTools, routerAliases, loading: false })
-    } catch {
+    } finally {
       set({ loading: false })
     }
   },

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { installedAdapterVersion } from '../../api/adapter-updates-api.js'
 import { useSitesStore } from '../../store/sites.js'
 import { useSettingsStore } from '../../store/settings.js'
 import { useCapabilitiesPanelStore } from '../../store/capabilities-panel.js'
@@ -1390,6 +1391,9 @@ export default function WelcomeScreen({ onFillInput }) {
                       pointerEvents: isScenarioPickerClosing ? 'none' : 'auto',
                     }}
                   >
+                    <div style={{ padding: '8px 12px 0', color: 'var(--text-secondary)', fontSize: 12 }}>
+                      Adapter 版本 {installedAdapterVersion(site)}
+                    </div>
                     <div style={pickerHeaderRowStyle}>
                       <div style={pickerSearchWrapStyle}>
                         <input

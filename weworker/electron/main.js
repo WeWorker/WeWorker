@@ -5,6 +5,7 @@ import os from 'os'
 import { fileURLToPath } from 'url'
 import { randomBytes, randomUUID } from 'crypto'
 import { stopManagedServices } from './managed-shutdown.js'
+import { acquireDesktopInstance } from './single-instance.js'
 import { selectServicePorts } from './service-ports.js'
 import {
   BridgeManager,
@@ -132,16 +133,18 @@ function registerLocalFileProtocol() {
   })
 }
 
+let takeoverRequested = false
+let quitForTakeover = () => { takeoverRequested = true }
+const instanceLock = acquireDesktopInstance(app, () => quitForTakeover())
+
 // ── Logging setup ────────────────────────────────────────────────────────────
 const logDir = process.platform === 'darwin'
   ? path.join(app.getPath('home'), 'Library', 'Logs', 'WeWorker')
   : path.join(app.getPath('userData'), 'logs')
-fs.mkdirSync(logDir, { recursive: true })
 export const logFile = path.join(logDir, 'main.log')
-// Overwrite on each launch — keeps the log fresh and bounded
-const logStream = fs.createWriteStream(logFile, { flags: 'w' })
+let logStream
 let stdoutWritable = true
-let logFileWritable = true
+let logFileWritable = false
 
 process.stdout.on('error', (err) => {
   if (err?.code === 'EPIPE') {
@@ -151,9 +154,12 @@ process.stdout.on('error', (err) => {
   stdoutWritable = false
 })
 
-logStream.on('error', () => {
-  logFileWritable = false
-})
+function openMainLog() {
+  fs.mkdirSync(logDir, { recursive: true })
+  logStream = fs.createWriteStream(logFile, { flags: 'w' })
+  logFileWritable = true
+  logStream.on('error', () => { logFileWritable = false })
+}
 
 function safeWrite(stream, msg, onError) {
   try {
@@ -187,18 +193,6 @@ process.on('uncaughtException', (err) => log(`[main] uncaughtException: ${err.st
 process.on('unhandledRejection', (reason) => log(`[main] unhandledRejection: ${reason}`))
 
 let mainWindow
-const hasSingleInstanceLock = app.requestSingleInstanceLock()
-if (!hasSingleInstanceLock) {
-  app.quit()
-} else {
-  app.on('second-instance', () => {
-    // Also brings the window back from the tray / background.
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-  })
-}
 const servicePorts = { backend: 8765, exploration: 8766, bridge: 3711 }
 const httpAuthToken = randomBytes(32).toString('base64url')
 const webwrightModelToken = randomBytes(32).toString('base64url')
@@ -513,9 +507,24 @@ async function createWindow({ show = true } = {}) {
   }
 }
 
-if (hasSingleInstanceLock) app.whenReady().then(async () => {
+const startup = app.whenReady().then(async () => {
+  try {
+    if (!await instanceLock) {
+      dialog.showErrorBox('WeWorker', '已有 WeWorker 正在运行，请稍后重新打开。')
+      app.exit(0)
+      return
+    }
+  } catch (error) {
+    log(`[main] instance lock failed: ${error.message}`)
+    dialog.showErrorBox('WeWorker', '无法取得 WeWorker 启动锁。')
+    app.exit(1)
+    return
+  }
+  if (takeoverRequested) return
+  openMainLog()
   log('[main] app ready')
   Object.assign(servicePorts, await selectServicePorts())
+  if (takeoverRequested) return
   log(`[main] service ports: backend=${servicePorts.backend}, exploration=${servicePorts.exploration}, bridge=${servicePorts.bridge}`)
 
   // Use the same rounded artwork as the macOS bundle icon, including in dev.
@@ -539,6 +548,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
   // Start bridge and backend in parallel.
   await Promise.allSettled([bridgeManager.start(), pythonManager.start()])
+  if (takeoverRequested) return
   // Attaching keeps WeWorker 浏览器 running while the app runs (also with a Bridge started by webcli).
   browserClient.start()
 
@@ -550,6 +560,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   })
   applyLaunchAtLogin()
   await createWindow({ show: !startHidden })
+  if (takeoverRequested) return
   if (startHidden) log('[main] started hidden (launched at login)')
   if (browserClient.getStatus().status !== 'running') keepFocusWhileBrowserStarts()
   trayManager.create()
@@ -560,7 +571,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
 
   app.on('activate', () => {
     // Dock click: bring back the hidden window, or re-create it if it was destroyed.
-    if (background.showWindow()) return
+    if (takeoverRequested || background.showWindow()) return
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
@@ -579,11 +590,12 @@ app.on('before-quit', async (event) => {
   if (isInstallingUpdate) return
   // A real quit (tray, Cmd+Q, Dock) first warns when dedicated agents are bound.
   if (background.handleBeforeQuit(event) !== 'proceed') return
+  event.preventDefault()
   if (isCleaningUp) return
   isCleaningUp = true
-  event.preventDefault()
   log('[main] before-quit — stopping subprocesses')
   try {
+    if (takeoverRequested) await Promise.resolve(startup).catch(() => {})
     await stopManagedServices({ stopExploration: () => webwrightManager.stop(), stopBackend: () => pythonManager.stop(), stopBrowser: stopBridgeAndBrowser })
   } catch (err) {
     log(`[main] cleanup error: ${err?.message || err}`)
@@ -592,3 +604,11 @@ app.on('before-quit', async (event) => {
   log('[main] cleanup done — exiting')
   app.exit(0)
 })
+
+quitForTakeover = () => {
+  if (isInstallingUpdate) return
+  takeoverRequested = true
+  background.allowQuitWithoutPrompt('new WeWorker instance')
+  app.quit()
+}
+if (takeoverRequested) quitForTakeover()

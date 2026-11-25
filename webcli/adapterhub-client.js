@@ -138,13 +138,17 @@ async function parseError(resp, url) {
 
 // ── 目录 API（匿名可用）──
 
-export async function listAdapters({ q = "", sort = "", origin = "", runtime = "", page = 1 } = {}) {
-  const params = new URLSearchParams({ page_size: "100", page: String(Math.max(1, page)) });
+export function adapterCatalogRoute({ q = "", sort = "", origin = "", runtime = "", page = 1, pageSize = 100 } = {}) {
+  const params = new URLSearchParams({ page_size: String(pageSize), page: String(Math.max(1, page)) });
   if (q) params.set("q", q);
   if (sort) params.set("sort", sort);
   if (origin) params.set("origin", origin);
   if (runtime) params.set("runtime", runtime);
-  const url = joinUrl(resolveEndpoint(), `/api/v1/adapters?${params}`);
+  return `/api/v1/adapters?${params}`;
+}
+
+export async function listAdapters(options = {}) {
+  const url = joinUrl(resolveEndpoint(), adapterCatalogRoute(options));
   const resp = await request(url);
   if (!resp.ok) throw await parseError(resp, url);
   return resp.json();

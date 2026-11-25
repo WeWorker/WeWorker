@@ -281,7 +281,7 @@ export default function SkillComposer({ draft, onChange, site, sites }) {
                 checked={draft.skillScope === 'public'}
                 onChange={(event) => onChange({ skillScope: event.target.checked ? 'public' : 'private' })}
               >
-                也用于 WeWorker 主对话（会出现在「SKILLS与场景」中）
+                也用于 WeWorker 主对话（会出现在「公共 Skill」中）
               </Checkbox>
               <div style={{ ...hintStyle, marginLeft: 24 }}>默认不勾选：这份知识只给WeWorker Bot 用，不影响主对话。之后也可以在 Agent 设置里切换。</div>
             </div>

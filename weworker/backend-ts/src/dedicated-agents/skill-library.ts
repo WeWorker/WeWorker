@@ -2,7 +2,7 @@
  * Skills used by dedicated agents.
  *
  * - private: stored in the agent skill library; only dedicated agents see them.
- * - public:  stored in the runtime skills dir; the main chat and 「SKILLS与场景」 see them too.
+ * - public:  stored in the runtime skills dir; the main chat and 「Adapter、Skill 与场景」 see them too.
  *
  * Names are unique across both locations, so an agent references a skill by name.
  */
