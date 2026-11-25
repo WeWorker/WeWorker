@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Settings } from './config.js'
 import { getProvider, PROVIDERS } from './provider-registry.js'
-import { configuredModel, explorationResetPatch } from './provider-config.js'
+import { configuredModel, desktopAccountKey, explorationResetPatch } from './provider-config.js'
 import { buildProviderVisibility, isFixedProvider } from './provider-visibility.js'
 import { isBuiltinProvider } from './builtin-provider.js'
 import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
@@ -103,6 +103,10 @@ export function renameModelConfiguration(settings: Settings, id: string, value: 
 export function createModelConfiguration(settings: Settings, providerId: string) {
   const provider = getProvider(providerId)
   if (!provider || provider.builtin || provider.allowMultiple === false) throw new Error('请选择预置或自定义供应商')
+  if (provider.desktopAccount && settings.model_configurations) {
+    const existing = Object.entries(settings.model_configurations).find(([, value]) => value.provider_id === providerId)
+    if (existing) return { id: existing[0], updates: { model_configurations: settings.model_configurations } }
+  }
   const id = `model-${randomUUID()}`
   const nameUpdates = modelConfigurationNameUpdates(settings)
   const names = new Set(Object.values(buildModelConfigurationNames(settings)))
@@ -146,6 +150,8 @@ export function getModelConfiguration(settings: Settings, id: string | undefined
   const provider = configuration && getProvider(configuration.provider_id)
   if (!configuration || !provider) return undefined
   return { ...configuration, model: configuredModel(provider.id, configuration.model),
+    ...(provider.desktopAccount ? { api_key: desktopAccountKey(configuration.api_key),
+      openai_api_key: desktopAccountKey(configuration.openai_api_key || configuration.api_key) } : {}),
     ...(provider.fixedModel ? { openai_model: provider.defaultModel } : {}),
     ...(provider.id === 'custom' ? { weworker_protocol: configuration.weworker_protocol === 'openai_responses' ? 'openai_responses' : configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages' } : {
       base_url: provider.weworker.baseUrl, openai_base_url: provider.webwright.baseUrl,
@@ -160,7 +166,7 @@ export function getModelConfiguration(settings: Settings, id: string | undefined
 export function savedModelConfigurationKey(settings: Settings, id: string, target: 'weworker' | 'webwright'): string {
   const configuration = getModelConfiguration(settings, id)
   const provider = getProvider(configuration?.provider_id || id)
-  if (!provider || isBuiltinProvider(provider.id)) throw new Error('该模型配置不支持查看 API Key')
+  if (!provider || provider.desktopAccount || isBuiltinProvider(provider.id)) throw new Error('该模型配置不支持查看 API Key')
   if (configuration) return target === 'webwright' ? configuration.openai_api_key || configuration.api_key : configuration.api_key
   const keys: Record<string, string | undefined> = {
     anthropic: settings.api_key_anthropic, glm: settings.api_key_glm,

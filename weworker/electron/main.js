@@ -5,6 +5,7 @@ import os from 'os'
 import { fileURLToPath } from 'url'
 import { randomBytes, randomUUID } from 'crypto'
 import { stopManagedServices } from './managed-shutdown.js'
+import { startModelAccountService } from './model-account.js'
 import { selectServicePorts } from './service-ports.js'
 import {
   BridgeManager,
@@ -227,6 +228,7 @@ const updateManager = new UpdateManager({
   beforeInstall: async () => {
     isInstallingUpdate = true
     background.allowQuitWithoutPrompt('update install')
+    modelAccountService?.close()
     await stopManagedServices({ stopExploration: () => webwrightManager.stop(), stopBackend: () => pythonManager.stop(), stopBrowser: stopBridgeAndBrowser })
   },
 })
@@ -513,6 +515,7 @@ async function createWindow({ show = true } = {}) {
   }
 }
 
+let modelAccountService
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
   log('[main] app ready')
   Object.assign(servicePorts, await selectServicePorts())
@@ -531,6 +534,15 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       return true
     },
   })
+  try {
+    modelAccountService = await startModelAccountService({
+      isTrusted: event => mainWindow && !mainWindow.isDestroyed()
+        && event.sender === mainWindow.webContents && event.senderFrame === event.sender.mainFrame,
+    })
+    pythonManager.modelAccountEnv = modelAccountService?.backendEnv
+  } catch {
+    log('[main] model account service unavailable')
+  }
   registerLocalFileProtocol()
 
   // Webwright health checks must not delay the main window. Its status remains
@@ -584,6 +596,7 @@ app.on('before-quit', async (event) => {
   event.preventDefault()
   log('[main] before-quit — stopping subprocesses')
   try {
+    modelAccountService?.close()
     await stopManagedServices({ stopExploration: () => webwrightManager.stop(), stopBackend: () => pythonManager.stop(), stopBrowser: stopBridgeAndBrowser })
   } catch (err) {
     log(`[main] cleanup error: ${err?.message || err}`)

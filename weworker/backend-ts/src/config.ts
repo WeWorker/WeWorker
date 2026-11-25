@@ -1,4 +1,4 @@
-import { DEFAULT_PROVIDER, configuredProvider, explorationResetPatch, resolveConfiguredSettings } from './provider-config.js'
+import { DEFAULT_PROVIDER, configuredProvider, explorationResetPatch, resolveConfiguredSettings, storedModelAccountReferences } from './provider-config.js'
 import { migrateChannelConfigurations, type ChannelConfigurations, type ChannelType } from './channels/channel-configurations.js'
 import { normalizeBuiltinContextLimits, resolveBuiltinSettings, resolveBankCodingSettings } from './builtin-provider.js'
 import { PROVIDERS } from './provider-registry.js'
@@ -732,6 +732,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
 
 
 function buildPersistedSettings(settings: Settings): Record<string, unknown> {
+  settings = storedModelAccountReferences(settings)
 
   const secrets = extractSecrets(settings)
 
