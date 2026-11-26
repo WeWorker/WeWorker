@@ -18,6 +18,8 @@ try { runtimePath = resolveToolkitRuntime(); } catch { /* 无运行时环境:跳
 describe.runIf(runtimePath)('repair 端到端(Webwright 实跑,需外网可达 example.com)', () => {
   let env, home
   beforeAll(async () => {
+    // hub 同步关闭:端到端只验本地修复链路,不触发经验回源外呼
+    process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD = 'off'
     home = await mkdtemp(join(tmpdir(), 'repair-e2e-'))
     roots.push(home)
     const adapters = join(home, 'adapters')

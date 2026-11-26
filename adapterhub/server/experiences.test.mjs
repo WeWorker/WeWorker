@@ -131,6 +131,18 @@ test('路由：缺 symptom 400；缺 id 补齐为 sha1(site|runtime|symptom) 前
   })
 })
 
+test('路由：缺 id 时 >500 字符 symptom 按截断后（500）哈希补齐——与客户端 entryKey 清洗一致', async () => {
+  await withServer(async ({ base, db }) => {
+    const token = createAccessToken(db, 'pat-user', 'test', 60_000).token
+    const symptom = 'x'.repeat(600)
+    const res = await postExperience(base, { site: 'wekm', runtime: 'wewright', symptom }, token)
+    assert.equal(res.status, 200)
+    const expectedId = createHash('sha1').update(`wekm|wewright|${symptom.slice(0, 500)}`).digest('hex').slice(0, 12)
+    assert.equal((await res.json()).id, expectedId)
+    assert.equal((await getItems(base))[0].id, expectedId)
+  })
+})
+
 test('路由：超长字段截断（10000 字符 symptom 落库 ≤500）；非法 outcome 归一为 fixed', async () => {
   await withServer(async ({ base, db }) => {
     const token = createAccessToken(db, 'pat-user', 'test', 60_000).token

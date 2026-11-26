@@ -3,7 +3,8 @@
  * rootCause 'login-expired' / 'needs-regeneration' 提前终止;LLM 异常 → 'llm-error'、
  * ADAPTER_BASE_CHANGED → 'base-changed'(均为持久/外部条件,不烧轮次,回写 open 重入安全);
  * verifyRepair 契约为「不抛错」,但意外异常仍按失败轮次处理(不中断循环);
- * 经验库写入失败仅 log 降级,不影响任务状态与退出。
+ * 经验库写入失败仅 log 降级,不影响任务状态与退出;
+ * hub 同步(沉淀上报 fire-and-forget/本地命中不足回源合并)全程静默,绝不影响主流程。
  */
 import { homedir } from "node:os";
 import { readWewrightTarget, writeRepairDraftWewright } from "./wewright-draft.js";
@@ -11,13 +12,48 @@ import { verifyRepair } from "./verify.js";
 import { searchExperience, injectContext, recordExperience, knowledgePath } from "./knowledge.js";
 import { transition, saveTask, tasksDir } from "./task.js";
 
+// 沉淀后 hub 上报(fire-and-forget,全程静默;WEBCLI_REPAIR_EXPERIENCE_UPLOAD=off 关闭)。
+// 端点与 publish 同源:resolveEndpoint()(WEBCLI_ADAPTERHUB_ENDPOINT 优先,回退 profile);
+// 令牌与 publish 同源:loadAdapterHubToken()(ADAPTERHUB_TOKEN env 优先,回退 DPAPI 凭据)。
+// entry 转 hub 契约(snake_case),id 复用 recordExperience 的 entryKey 结果,保证两端一致。
+function reportStoredExperienceToHub(stored) {
+  if (!stored?.id || process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD === "off") return;
+  void (async () => {
+    try {
+      const { reportExperienceToHub } = await import("./hub-sync.js");
+      const { resolveEndpoint } = await import("../adapterhub-client.js");
+      const { loadAdapterHubToken } = await import("../adapterhub-credentials.js");
+      const registry = resolveEndpoint(); // 端点为空抛 UsageError → 外层 catch 静默跳过
+      const { token } = await loadAdapterHubToken();
+      await reportExperienceToHub({
+        entry: {
+          id: stored.id, site: stored.site, runtime: stored.runtime, symptom: stored.symptom,
+          root_cause: stored.rootCause, fix_strategy: stored.fixStrategy, outcome: stored.outcome,
+          ...(stored.playbook ? { playbook: stored.playbook } : {}),
+          ...(stored.meta ? { meta: stored.meta } : {}),
+        },
+        registry, token,
+      });
+    } catch { /* 静默:hub 同步绝不影响修复主流程 */ }
+  })();
+}
+
 export async function runRepairLoop({ task, llm, env = process.env, home = homedir(), maxRounds = 3, log = () => {}, now = Date.now(), save = saveTask, verifyImpl = verifyRepair, fixtures = [], runtimePath } = {}) {
   const startedAt = Date.now();
   let llmCalls = 0;
   task = transition(task, "diagnosing");
   save(task, tasksDir(home));
   const { pkg } = readWewrightTarget(task.adapterId, { env, home });
-  const hits = searchExperience(knowledgePath(home), { site: task.adapterId, runtime: "wewright", errSignature: task.failures?.[0]?.lastErr || "" }, 3);
+  let hits = searchExperience(knowledgePath(home), { site: task.adapterId, runtime: "wewright", errSignature: task.failures?.[0]?.lastErr || "" }, 3);
+  if (hits.length < 3 && process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD !== "off") {
+    // 本地命中不足 → hub 回源合并(5s 超时,静默失败);registry 与 publish 同源(profile/env)
+    try {
+      const { fetchHubExperiences } = await import("./hub-sync.js");
+      const { resolveEndpoint } = await import("../adapterhub-client.js");
+      const shared = await fetchHubExperiences({ registry: resolveEndpoint(), site: task.adapterId, runtime: "wewright", k: 3 - hits.length });
+      hits = [...hits, ...shared];
+    } catch { /* hub 不可达/端点未配置 → 仅用本地经验 */ }
+  }
   const experienceHint = injectContext(hits);
   const baseVersion = pkg.manifest.version;
   let feedback = null;
@@ -71,7 +107,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
       task = transition(task, "draft-ready");
       save(task, tasksDir(home));
       try {
-        recordExperience(knowledgePath(home), {
+        const stored = recordExperience(knowledgePath(home), {
           site: task.adapterId, runtime: "wewright",
           symptom: task.failures?.[0]?.lastErr || "",
           rootCause: proposal.rootCause, fixStrategy: proposal.reasoning || "",
@@ -80,6 +116,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
           rounds: round, llmCalls, durationMs: Date.now() - startedAt,
           usedPlaybook: hits.some((e) => e.playbook), // 结构化判定,不嗅探渲染文本
         });
+        reportStoredExperienceToHub(stored);
       } catch (e) {
         log(`[repair] 经验库写入失败: ${e.message}`);
       }
@@ -91,7 +128,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
   task = transition(task, "archived");
   save(task, tasksDir(home));
   try {
-    recordExperience(knowledgePath(home), {
+    const stored = recordExperience(knowledgePath(home), {
       site: task.adapterId, runtime: "wewright",
       symptom: task.failures?.[0]?.lastErr || "",
       rootCause: "unresolved", fixStrategy: feedback || "", outcome: "failed",
@@ -100,6 +137,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
       rounds: maxRounds, llmCalls, durationMs: Date.now() - startedAt,
       usedPlaybook: hits.some((e) => e.playbook), // 结构化判定,不嗅探渲染文本
     });
+    reportStoredExperienceToHub(stored);
   } catch (e) {
     log(`[repair] 经验库写入失败: ${e.message}`);
   }

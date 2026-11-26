@@ -9,6 +9,8 @@ const FIXED_PY = "import json\nprint(json.dumps({'ok': True}))\n"
 let env, home
 
 beforeAll(async () => {
+  // hub 同步关闭:本文件测本地修复行为;开启时会因本地命中不足触发回源外呼
+  process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD = 'off'
   home = await mkdtemp(join(tmpdir(), 'repair-exec-'))
   const adapterRoot = join(home, 'adapters', 'demo-fixture')
   await mkdir(join(adapterRoot, 'wewright', 'commands'), { recursive: true })

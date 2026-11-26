@@ -301,7 +301,7 @@ export function createHandler({ db, dataDir, webDir, auth = nullAuth }) {
             }
             // id 约定：客户端用 sha1(site|runtime|symptom) 前 12 位；缺失时服务端按同算法补齐（providedId 封顶 64，防超大主键回显）
             const providedId = typeof body.id === 'string' ? body.id.trim().slice(0, 64) : ''
-            const id = providedId || createHash('sha1').update(`${body.site}|${body.runtime || ''}|${body.symptom}`).digest('hex').slice(0, 12)
+            const id = providedId || createHash('sha1').update(`${body.site}|${body.runtime || ''}|${String(body.symptom || '').slice(0, 500)}`).digest('hex').slice(0, 12)
             // 字段级上限：experiences 走匿名 GET 且后续进 LLM 提示词——入口截断，限制单条内容尺寸与放大面
             const clipped = (v, max) => String(v ?? '').slice(0, max)
             // playbook 序列化后超 4KB 整体置 null（合并语义下保留库中旧 playbook，见 db.upsertExperience）
