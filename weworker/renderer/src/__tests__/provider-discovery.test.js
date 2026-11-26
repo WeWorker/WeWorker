@@ -320,7 +320,7 @@ test('preset configurations use their predefined exploration interfaces without 
   assert.ok(document.querySelector('[aria-label="模型配置详情"]'))
 })
 
-test('every built-in has an editable context window and saves it without deployment fields', async t => {
+test('built-in context windows use preset-only menus and save without deployment fields', async t => {
   const timeout = globalThis.setTimeout
   const savedFeedbackTimers = []
   t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
@@ -334,25 +334,26 @@ test('every built-in has an editable context window and saves it without deploym
     state.providers[provider.id] = { has_key: true, model: provider.defaultModel, readonly: true, context_limit: 200000 }
     store.setState({ activeProvider: provider.id, providers: { ...state.providers }, contextLimit: 200000 })
     await act(async () => root.render(React.createElement(SettingsPage, { key: provider.id })))
-    const input = document.querySelector('input[aria-label="上下文窗口"]')
-    assert.ok(input)
-    assert.equal(input.disabled, false)
-    assert.equal(input.value, '200K')
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, '128K')
-      input.dispatchEvent(new window.Event('input', { bubbles: true }))
-    })
+    const trigger = ariaButton('上下文窗口')
+    assert.ok(trigger)
+    assert.equal(trigger.disabled, false)
+    assert.equal(trigger.textContent.trim(), '200K')
+    assert.equal(document.querySelector('input[aria-label="上下文窗口"]'), null)
+    await click(trigger)
+    const options = [...document.querySelectorAll('[role="listbox"] [role="option"]')]
+    assert.deepEqual(options.map(option => option.textContent.trim()), ['32K', '64K', '128K', '200K', '256K', '512K', '960K'])
+    await click(options.at(-1))
     await click(button('保存'))
     const request = calls.filter(item => item.endpoint === '/settings/provider').at(-1)
     const body = JSON.parse(request.body)
     assert.deepEqual(Object.keys(body).sort(), ['activate', 'context_limit', 'name', 'provider'])
     assert.equal(body.activate, true)
     assert.equal(body.provider, provider.id)
-    assert.equal(body.context_limit, 128000)
-    assert.equal(store.getState().contextLimit, 128000)
+    assert.equal(body.context_limit, 960000)
+    assert.equal(store.getState().contextLimit, 960000)
     await act(async () => savedFeedbackTimers.splice(0).forEach(callback => callback()))
     await act(async () => root.render(React.createElement(SettingsPage, { key: `${provider.id}-reload` })))
-    assert.equal(document.querySelector('input[aria-label="上下文窗口"]').value, '128K')
+    assert.equal(ariaButton('上下文窗口').textContent.trim(), '960K')
   }
 })
 
@@ -364,6 +365,27 @@ test('the context popup immediately uses the configured limit when a conversatio
   assert.match(document.querySelector('.context-panel__summary').textContent, /50K \/ 200K tokens/)
   await act(async () => root.render(React.createElement(ContextPanel, { snapshot, contextLimit: 128000 })))
   assert.match(document.querySelector('.context-panel__summary').textContent, /50K \/ 128K tokens/)
+})
+
+test('the context popup applies a conversation limit from its bounded slider', async () => {
+  const updates = []
+  await act(async () => root.render(React.createElement(ContextPanel, {
+    contextLimit: 200000,
+    onSaveContextLimit: async limit => { updates.push(limit) },
+  })))
+  await click(ariaButton('查看上下文'))
+  const slider = document.querySelector('input[type="range"]')
+  assert.equal(slider.min, '64000')
+  assert.equal(slider.max, '960000')
+  assert.equal(slider.value, '200000')
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(slider, '960000')
+    slider.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  assert.equal(slider.style.getPropertyValue('--context-budget-fill'), '100%')
+  assert.deepEqual(updates, [])
+  await click(button('应用'))
+  assert.deepEqual(updates, [960000])
 })
 
 test('the extension switch defaults on, saves changes and preserves its state after a failed save', async () => {

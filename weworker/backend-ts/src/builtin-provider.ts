@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Settings } from './config.js'
 import { createDecipheriv } from 'node:crypto'
-import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeContextLimit, parseContextLimit } from './context-window.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeModelContextLimit, parseContextLimit } from './context-window.js'
 import { normalizeLlmBaseUrl, type ProviderEntry } from './llm-egress.js'
 
 import { configuredProvider, configuredEncryptedApiKey, CONFIGURED_PROVIDERS, explorationResetPatch } from './provider-config.js'
@@ -77,7 +77,7 @@ export function normalizeBuiltinContextLimits(value: unknown): Record<string, nu
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value).flatMap(([id, limit]) => {
     const parsed = parseContextLimit(limit)
-    return parsed === null ? [] : [[id, parsed]]
+    return parsed === null ? [] : [[id, normalizeModelContextLimit(parsed)]]
   }))
 }
 
@@ -85,7 +85,7 @@ export function publicBuiltinProviders(providers: ProviderEntry[], env: NodeJS.P
   return Object.fromEntries(providers.filter(p => isBuiltinProvider(p.id)).map(p => [p.id, {
     has_key: isBuiltinProviderConfigured(p, env),
     model: p.defaultModel,
-    context_limit: normalizeContextLimit(contextLimits?.[p.id], DEFAULT_BUILTIN_CONTEXT_LIMIT),
+    context_limit: normalizeModelContextLimit(contextLimits?.[p.id], DEFAULT_BUILTIN_CONTEXT_LIMIT),
     readonly: true,
   }]))
 }
@@ -140,7 +140,7 @@ export function resolveBuiltinSettings(settings: Settings, providers: ProviderEn
     model: access?.provider.defaultModel || '',
     active_auth_type: access?.anthropicAuthType || settings.active_auth_type,
     active_weworker_protocol: access?.provider.weworker.protocol || 'anthropic_messages',
-    context_limit: normalizeContextLimit(settings.builtin_context_limits?.[settings.active_provider], DEFAULT_BUILTIN_CONTEXT_LIMIT),
+    context_limit: normalizeModelContextLimit(settings.builtin_context_limits?.[settings.active_provider], DEFAULT_BUILTIN_CONTEXT_LIMIT),
   }
 }
 

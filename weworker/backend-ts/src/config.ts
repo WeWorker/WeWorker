@@ -66,7 +66,7 @@ import {
   stripObsoleteZcfSettings,
   type CustomStyle,
 } from './style-settings.js'
-import { DEFAULT_CONTEXT_LIMIT, normalizeContextLimit } from './context-window.js'
+import { DEFAULT_CONTEXT_LIMIT, normalizeModelContextLimit } from './context-window.js'
 import { normalizeAddedProviders } from './provider-visibility.js'
 
 
@@ -636,12 +636,12 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
 
   merged.added_providers = normalizeAddedProviders(raw?.added_providers)
 
-  merged.context_limit_anthropic = normalizeContextLimit(raw?.context_limit_anthropic)
+  merged.context_limit_anthropic = normalizeModelContextLimit(raw?.context_limit_anthropic)
   merged.builtin_context_limits = normalizeBuiltinContextLimits(raw?.builtin_context_limits)
-  merged.context_limit_glm = normalizeContextLimit(raw?.context_limit_glm)
-  merged.context_limit_bank_coding = normalizeContextLimit(raw?.context_limit_bank_coding)
-  merged.context_limit_deepseek = normalizeContextLimit(raw?.context_limit_deepseek)
-  merged.context_limit_custom = normalizeContextLimit(raw?.context_limit_custom)
+  merged.context_limit_glm = normalizeModelContextLimit(raw?.context_limit_glm)
+  merged.context_limit_bank_coding = normalizeModelContextLimit(raw?.context_limit_bank_coding)
+  merged.context_limit_deepseek = normalizeModelContextLimit(raw?.context_limit_deepseek)
+  merged.context_limit_custom = normalizeModelContextLimit(raw?.context_limit_custom)
   merged.context_limit = merged.active_provider === 'glm'
     ? merged.context_limit_glm
     : merged.active_provider === 'deepseek'
@@ -652,7 +652,7 @@ function loadSettingsFromRaw(raw: Record<string, unknown> | null): Settings {
 
   const activeConfiguration = merged.model_configurations?.[merged.active_model_configuration || '']
   if (activeConfiguration) {
-    merged.context_limit = normalizeContextLimit(activeConfiguration.context_limit)
+    merged.context_limit = normalizeModelContextLimit(activeConfiguration.context_limit)
     merged.active_weworker_protocol = activeConfiguration.weworker_protocol || 'anthropic_messages'
   } else if (raw?.active_weworker_protocol === undefined && merged.active_provider === 'custom') {
     merged.active_weworker_protocol = merged.weworker_protocol_custom
@@ -872,13 +872,13 @@ export function updateSettings(updates: Partial<Settings>): Settings {
   _settings.model_discovery_enabled = _settings.model_discovery_enabled !== false
   _settings.compaction_ratio = normalizeCompactionRatio(_settings.compaction_ratio)
   _settings.compaction_max_attempts = normalizeCompactionMaxAttempts(_settings.compaction_max_attempts)
-  _settings.context_limit = normalizeContextLimit(_settings.context_limit)
+  _settings.context_limit = normalizeModelContextLimit(_settings.context_limit)
   _settings.builtin_context_limits = normalizeBuiltinContextLimits(_settings.builtin_context_limits)
-  _settings.context_limit_anthropic = normalizeContextLimit(_settings.context_limit_anthropic)
-  _settings.context_limit_glm = normalizeContextLimit(_settings.context_limit_glm)
-  _settings.context_limit_bank_coding = normalizeContextLimit(_settings.context_limit_bank_coding)
-  _settings.context_limit_deepseek = normalizeContextLimit(_settings.context_limit_deepseek)
-  _settings.context_limit_custom = normalizeContextLimit(_settings.context_limit_custom)
+  _settings.context_limit_anthropic = normalizeModelContextLimit(_settings.context_limit_anthropic)
+  _settings.context_limit_glm = normalizeModelContextLimit(_settings.context_limit_glm)
+  _settings.context_limit_bank_coding = normalizeModelContextLimit(_settings.context_limit_bank_coding)
+  _settings.context_limit_deepseek = normalizeModelContextLimit(_settings.context_limit_deepseek)
+  _settings.context_limit_custom = normalizeModelContextLimit(_settings.context_limit_custom)
   _settings.paste_text_attachment_threshold = normalizePasteTextAttachmentThreshold(_settings.paste_text_attachment_threshold)
   _settings.welcome_featured_site_limit = normalizeWelcomeFeaturedSiteLimit(_settings.welcome_featured_site_limit)
   _settings.user_directory_blacklist = normalizeUserDirectoryBlacklist(_settings.user_directory_blacklist)

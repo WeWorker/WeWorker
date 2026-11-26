@@ -6,7 +6,6 @@ import LocalModelDiscoveryDialog from '../common/LocalModelDiscoveryDialog.jsx'
 import SecretInput from './SecretInput.jsx'
 import { MODEL_SETTINGS_DESCRIPTION, MODEL_SETTINGS_DESCRIPTION_DANGER } from '../../config/model-settings-text.js'
 import { ScanSearch } from 'lucide-react'
-import AppDropdownInput from '../common/AppDropdownInput.jsx'
 import React, { useState, useEffect, useMemo, useRef, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { ApiOutlined, AppstoreAddOutlined, CheckCircleFilled, CheckOutlined, CloseOutlined, CopyOutlined, DeleteOutlined, DisconnectOutlined, DownOutlined, EditOutlined, LinkOutlined, LoadingOutlined, SearchOutlined, UpOutlined } from '@ant-design/icons'
@@ -1704,28 +1703,12 @@ function ModelTab() {
   const reportContextLimitError = () => {
     const { notices } = useNotificationsStore.getState()
     if (notices.some((notice) => notice.id === contextLimitNoticeId.current)) return
-    contextLimitNoticeId.current = showNotification('上下文窗口请输入 1K 到 100M 之间的数值，单位只能是 K 或 M，例如 200K、1M', { type: 'error' })
+    contextLimitNoticeId.current = showNotification('请从下拉菜单选择上下文窗口，最高 960K', { type: 'error' })
   }
 
   const clearContextLimitError = () => {
     useNotificationsStore.getState().dismiss(contextLimitNoticeId.current)
     contextLimitNoticeId.current = null
-  }
-
-  const changeContextLimit = (pid, value) => {
-    setFormField(pid, 'context_limit', value)
-    if (parseContextLimitInput(value) !== null) clearContextLimitError()
-    else if (/[^\d.,\sKM]/iu.test(value)) reportContextLimitError()
-  }
-
-  const finishContextLimit = (pid, value) => {
-    const parsed = parseContextLimitInput(value)
-    if (parsed === null) {
-      reportContextLimitError()
-      return
-    }
-    clearContextLimitError()
-    setFormField(pid, 'context_limit', formatContextLimitInput(parsed))
   }
 
   const singleProvider = PROVIDERS.length === 1
@@ -2377,16 +2360,14 @@ function ModelTab() {
             </div>
           )
           const contextLimitField = (
-            <Field label="上下文窗口" hint="用于上下文占用和自动压缩，单位支持 K 或 M">
-              <AppDropdownInput
-                className="settings-input"
-                ariaLabel="上下文窗口" options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
+            <Field label="上下文窗口" hint="用于上下文占用和自动压缩，最高 960K">
+              <AppDropdownSelect
+                ariaLabel="上下文窗口"
+                options={CONTEXT_LIMIT_PRESETS.map(value => ({ value, label: value }))}
                 value={f.context_limit}
-                onChange={(e) => changeContextLimit(p.id, e.target.value)}
-                onBlur={(e) => finishContextLimit(p.id, e.target.value)}
-                aria-invalid={parseContextLimitInput(f.context_limit) === null}
-                placeholder="例如 200K 或 1M"
-                inputMode="text"
+                fallbackOption={{ value: f.context_limit, label: f.context_limit }}
+                matchAnchorWidth
+                onChange={(value) => { setFormField(p.id, 'context_limit', value); clearContextLimitError() }}
               />
             </Field>
           )

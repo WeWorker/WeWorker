@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { isBuiltinProvider, publicBuiltinProviders, resolveBuiltinSettings } from '../builtin-provider.js'
-import { parseContextLimit } from '../context-window.js'
+import { MODEL_CONTEXT_LIMIT_ERROR, parseModelContextLimit } from '../context-window.js'
 import { PROVIDERS } from '../provider-registry.js'
 import type { Settings } from '../config.js'
 
@@ -17,7 +17,7 @@ function fixture(active = 'builtin') {
   })
   const context = vm.createContext({
     app: { post: (_path: string, callback: typeof handler) => { handler = callback } },
-    getSettings: () => state, updateSettings, isBuiltinProvider, parseContextLimit,
+    getSettings: () => state, updateSettings, isBuiltinProvider, parseModelContextLimit, MODEL_CONTEXT_LIMIT_ERROR,
     getModelConfiguration: () => undefined,
     renameModelConfiguration: () => ({ provider_names: { builtin: 'Fixture model' } }),
     ALLOWED_PROVIDER_IDS: new Set(PROVIDERS.map(provider => provider.id)),
@@ -44,7 +44,15 @@ describe('built-in context settings API', () => {
     expect(f.state().context_limit).toBe(active === 'builtin' ? 128000 : 1000000)
   })
 
-  it.each(['', '200', 'invalid', 0, 100000001, null])('rejects invalid context windows (%s) without saving', value => {
+  it('accepts bare decimal token counts', async () => {
+    const f = fixture()
+    const res = f.response()
+    await f.call({ provider: 'builtin', context_limit: '80000' }, res)
+    expect(res.status).not.toHaveBeenCalled()
+    expect(f.state().builtin_context_limits).toEqual({ builtin: 80_000 })
+  })
+
+  it.each(['', '200', 'invalid', 0, 960001, '1M', 100000001, null])('rejects invalid context windows (%s) without saving', value => {
     const f = fixture()
     const res = f.response()
     f.call({ provider: 'builtin', context_limit: value }, res)

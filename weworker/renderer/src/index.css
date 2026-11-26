@@ -1866,14 +1866,20 @@ html.dark {
   font-size: 12px;
 }
 
+.context-panel {
+  --context-track-height: 7px;
+  --context-track-radius: 4px;
+  --context-track-background: var(--bg-tertiary);
+}
+
 .context-panel__bar {
   display: flex;
   width: 100%;
-  height: 7px;
+  height: var(--context-track-height);
   margin: 10px 0 14px;
   overflow: hidden;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
+  border-radius: var(--context-track-radius);
+  background: var(--context-track-background);
 }
 
 .context-panel__bar span {
@@ -1891,6 +1897,80 @@ html.dark {
 .context-panel__groups {
   display: grid;
   gap: 12px;
+}
+
+.context-panel__budget {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.context-panel__budget-label {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.context-panel__budget-label input {
+  appearance: none;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.context-panel__budget-label input::-webkit-slider-runnable-track {
+  height: var(--context-track-height);
+  border-radius: var(--context-track-radius);
+  background: linear-gradient(to right, var(--accent) var(--context-budget-fill), var(--context-track-background) var(--context-budget-fill));
+}
+
+.context-panel__budget-label input::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: calc((var(--context-track-height) - 14px) / 2);
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg-primary);
+}
+
+.context-panel__budget-label input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--context-track-radius);
+}
+
+.context-panel__budget-label input:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.context-panel__budget-range,
+.context-panel__budget-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-secondary);
+}
+
+.context-panel__budget-actions button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.context-panel__budget-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .context-panel__group {
