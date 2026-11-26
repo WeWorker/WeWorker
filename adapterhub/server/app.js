@@ -299,8 +299,8 @@ export function createHandler({ db, dataDir, webDir, auth = nullAuth }) {
             for (const field of ['site', 'symptom']) {
               if (!body?.[field]) return error(res, 400, 'INVALID', `缺少 ${field}`)
             }
-            // id 约定：客户端用 sha1(site|runtime|symptom) 前 12 位；缺失时服务端按同算法补齐
-            const providedId = typeof body.id === 'string' ? body.id.trim() : ''
+            // id 约定：客户端用 sha1(site|runtime|symptom) 前 12 位；缺失时服务端按同算法补齐（providedId 封顶 64，防超大主键回显）
+            const providedId = typeof body.id === 'string' ? body.id.trim().slice(0, 64) : ''
             const id = providedId || createHash('sha1').update(`${body.site}|${body.runtime || ''}|${body.symptom}`).digest('hex').slice(0, 12)
             // 字段级上限：experiences 走匿名 GET 且后续进 LLM 提示词——入口截断，限制单条内容尺寸与放大面
             const clipped = (v, max) => String(v ?? '').slice(0, max)
@@ -314,6 +314,7 @@ export function createHandler({ db, dataDir, webDir, auth = nullAuth }) {
             const outcome = body.outcome === 'failed' ? 'failed' : 'fixed'
             upsertExperience(db, {
               ...body, id,
+              site: clipped(body.site, 200), // site 既是回显字段也是去重键因子——同样封顶
               symptom: clipped(body.symptom, 500),
               root_cause: clipped(body.root_cause, 200),
               fix_strategy: clipped(body.fix_strategy, 2000),

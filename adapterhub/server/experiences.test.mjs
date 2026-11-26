@@ -158,3 +158,32 @@ test('路由：playbook 序列化超 4KB 整体置 null（INSERT 路径存 NULL�
     assert.equal((await getItems(base))[0].playbook, null)
   })
 })
+
+test('路由：200KB site 落库截断 ≤200，GET 回显与落库一致', async () => {
+  await withServer(async ({ base, db }) => {
+    const token = createAccessToken(db, 'pat-user', 'test', 60_000).token
+    const res = await postExperience(base, { site: 'w'.repeat(200 * 1024), symptom: 's' }, token)
+    assert.equal(res.status, 200)
+    const row = (await getItems(base))[0]
+    assert.equal(row.site, 'w'.repeat(200))
+  })
+})
+
+test('路由：超长 provided id 封顶 64 字符（防超大主键回显）', async () => {
+  await withServer(async ({ base, db }) => {
+    const token = createAccessToken(db, 'pat-user', 'test', 60_000).token
+    const res = await postExperience(base, { id: 'z'.repeat(1000), site: 'wekm', symptom: 's' }, token)
+    assert.equal(res.status, 200)
+    assert.equal((await res.json()).id.length, 64)
+    assert.equal((await getItems(base))[0].id.length, 64)
+  })
+})
+
+test('路由：请求体超 256KB 返回 413 PAYLOAD_TOO_LARGE', async () => {
+  await withServer(async ({ base, db }) => {
+    const token = createAccessToken(db, 'pat-user', 'test', 60_000).token
+    const res = await postExperience(base, { site: 'wekm', symptom: 's', root_cause: 'r'.repeat(300 * 1024) }, token)
+    assert.equal(res.status, 413)
+    assert.equal((await res.json()).error.code, 'PAYLOAD_TOO_LARGE')
+  })
+})
