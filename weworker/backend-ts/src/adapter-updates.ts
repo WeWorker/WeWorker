@@ -33,7 +33,7 @@ export function createAdapterUpdates({
   let releases = new Map<string, Release>()
   let catalogVersions = new Map<string, { version: string; blockedReason?: string }>()
   let checking: Promise<void> | undefined
-  let applying = false
+  let activeUpdate: { name: string; job: HubJob } | undefined
   const hubJobs = new Map<string, HubJob>()
   const hubQueue: (() => Promise<void>)[] = []
   let activeHubJobs = 0
@@ -50,11 +50,19 @@ export function createAdapterUpdates({
     }
   }
 
+  function transfer(name: string, job: HubJob) {
+    return { name, status: job.phase, receivedBytes: job.progress?.received ?? 0,
+      totalBytes: job.progress?.total ?? job.totalBytes,
+      elapsedMs: job.progress?.elapsedMs ?? 0, bytesPerSecond: job.progress?.bytesPerSecond ?? 0 }
+  }
+
+  function updateTransfer() {
+    return activeUpdate ? transfer(activeUpdate.name, activeUpdate.job) : null
+  }
+
   function hubTransfers() {
     let position = 0
-    return [...hubJobs].map(([name, job]) => ({ name, status: job.phase,
-      receivedBytes: job.progress?.received ?? 0, totalBytes: job.progress?.total ?? job.totalBytes,
-      elapsedMs: job.progress?.elapsedMs ?? 0, bytesPerSecond: job.progress?.bytesPerSecond ?? 0,
+    return [...hubJobs].map(([name, job]) => ({ ...transfer(name, job),
       ...(job.phase === 'queued' ? { queuePosition: ++position } : {}),
     }))
   }
@@ -126,9 +134,8 @@ export function createAdapterUpdates({
     return checking
   }
 
-  async function downloadPackage(id: string, release: Release, job?: HubJob) {
-    const bytes = job ? await source.download(id, release.version, progress => { job.progress = progress })
-      : await source.download(id, release.version)
+  async function downloadPackage(id: string, release: Release, job: HubJob) {
+    const bytes = await source.download(id, release.version, progress => { job.progress = progress })
     if (job) job.phase = 'verifying'
     const digest = 'sha256:' + createHash('sha256').update(bytes).digest('hex')
     if (digest !== release.sha256) throw new AdapterUpdateError('下载包校验失败，请刷新后再试。')
@@ -144,7 +151,7 @@ export function createAdapterUpdates({
 
   async function applyRelease(id: string, version: unknown, catalogRelease?: Release) {
     if (!isUpdateVersion(version)) throw new AdapterUpdateError('更新版本无效。')
-    if (applying) throw new AdapterUpdateError('已有 Adapter 正在更新，请稍后重试。')
+    if (activeUpdate) throw new AdapterUpdateError('已有 Adapter 正在更新，请稍后重试。')
     if (!catalogRelease && status !== 'ready') throw new AdapterUpdateError('请先检测 Adapter 最新版本。')
     const before = inventory()
     const adapter = before.adapters.find((entry) => entry.id === id)
@@ -153,9 +160,12 @@ export function createAdapterUpdates({
     if (item?.status !== 'available' || release?.version !== version) {
       throw new AdapterUpdateError('该版本当前不可更新，请重新检测。')
     }
-    applying = true
+    const job: HubJob = { phase: 'downloading', totalBytes: release.size }
+    activeUpdate = { name: id, job }
     try {
-      const files = await downloadPackage(id, release)
+      const files = await downloadPackage(id, release, job)
+      job.phase = 'writing'
+      await new Promise<void>(resolve => setImmediate(resolve))
       const after = inventory()
       const current = after.adapters.find((entry) => entry.id === id)
       const latest = catalogRelease ?? releases.get(id)
@@ -170,7 +180,7 @@ export function createAdapterUpdates({
       onInstalled({ name: id, profile: before.paths.profile, previousRevision: before.revision, revision: installed.revision })
       return snapshot()
     } finally {
-      applying = false
+      activeUpdate = undefined
     }
   }
 
@@ -257,7 +267,7 @@ export function createAdapterUpdates({
     })
   }
 
-  return { snapshot, startCheck, apply: (id: string, version: unknown) => applyRelease(id, version), listHub, listHubPage, detail: (id: string) => source.detail(id), installFromHub, hubTransfers }
+  return { snapshot, startCheck, updateTransfer, apply: (id: string, version: unknown) => applyRelease(id, version), listHub, listHubPage, detail: (id: string) => source.detail(id), installFromHub, hubTransfers }
 }
 
 export function adapterUpdateErrorMessage(error: unknown) {

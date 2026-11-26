@@ -16,6 +16,12 @@ export function fetchAdapterUpdates(signal) {
   return request('', { signal })
 }
 
+export async function fetchAdapterUpdateProgress(signal) {
+  const response = await backendFetch('/adapter-updates/progress', { signal })
+  if (!response.ok) throw new Error('无法读取 Adapter 更新进度')
+  return (await response.json()).transfer
+}
+
 export function checkAdapterUpdates() {
   return request('/check', { method: 'POST' })
 }
