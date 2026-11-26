@@ -16,7 +16,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/issues)
 
-[官网](https://www.weworker.cc) · [下载](https://www.weworker.cc/download) · [快速开始](https://www.weworker.cc/docs/quick-start) · [安装 FAQ](https://github.com/WeWorker/WeWorker/discussions/224) · [33 个 Adapter](docs/ADAPTERS.md) · [社区讨论](https://github.com/WeWorker/WeWorker/discussions)
+[官网](https://www.weworker.cc) · [下载](https://www.weworker.cc/download) · [快速开始](https://www.weworker.cc/docs/quick-start) · [安装 FAQ](https://github.com/WeWorker/WeWorker/discussions/224) · [33 个 Adapter](docs/ADAPTERS.md) · [加入社区](COMMUNITY.md) · [社区讨论](https://github.com/WeWorker/WeWorker/discussions)
 
 ![WeWorker 调用 GitHub 与 Hacker News Adapter 并整理公开结果](docs/assets/weworker-public-demo.gif)
 
@@ -248,13 +248,23 @@ npm run build:win
 
 [查看 Adapter 清单](docs/ADAPTERS.md) · [阅读贡献指南](CONTRIBUTING.md) · [提出 Adapter 建议](https://github.com/WeWorker/WeWorker/issues/new/choose)
 
+## 社区
+
+欢迎加入 WeWorker 微信群或 QQ 群，也可以通过邮箱联系我们。相同联系方式见 [COMMUNITY.md](COMMUNITY.md)。
+
+| 微信群 | QQ 群 |
+| --- | --- |
+| <img src="docs/assets/community/wechat-group-2026-12-03.jpg" alt="WeWorker 微信群二维码" width="320" /><br />二维码有效期至 **2026-12-03** | <img src="docs/assets/community/qq-group.jpg" alt="WeWorker QQ 群二维码" width="320" /><br />群号：**801627516** |
+
+邮箱：[kinghao@apache.org](mailto:kinghao@apache.org)
+
 ## 版本
 
-当前版本为 `1.0.1`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本为 `1.2.0`。公开版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
 正式发布由维护者完成；推送版本 Tag 后会自动构建 Draft Release，维护者验证安装包后再发布。创建 Tag 前必须通过项目规定的审核、测试、构建和发布验证，完整流程见 [发布指南](docs/RELEASE.md)。
