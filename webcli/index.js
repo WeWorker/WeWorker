@@ -159,7 +159,7 @@ AdapterHub（参数详情: webcli adapterhub <命令> --help）:
   adapterhub init [PAT]                              安全保存发布 PAT（Windows DPAPI）
   adapterhub status                                  查看 PAT 是否已配置
   adapterhub publish <dir> | <file.adapt> [--yes]    发布/更新 Adapter（需 PAT）
-  repair <task|run|list|show>              修复任务:报错生成 / 执行修复循环 / 查看
+  repair <task|run|list|show|stats>        修复任务:报错生成 / 执行修复循环 / 查看 / 修复经验统计
 
 Tools:
   skills list | skills read <skill[/path]>  列出或读取随包 Skill（不安装、不执行）

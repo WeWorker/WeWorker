@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync, writeFileSync } from 'node:fs'
-import { loadKnowledge, recordExperience, searchExperience, injectContext, entryKey, KNOWLEDGE_LIMIT, pickPlaybooks } from '../repair/knowledge.js'
+import { loadKnowledge, recordExperience, searchExperience, injectContext, entryKey, KNOWLEDGE_LIMIT, pickPlaybooks, repairStats } from '../repair/knowledge.js'
 
 // mkdtemp 临时根统一登记,afterAll 一次性清理(与 repair-verify.test.js 同惯例)
 const roots = []
@@ -115,5 +115,26 @@ describe('playbook', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].hits).toBe(2)
     expect(entries[0].meta).toEqual({ rounds: 1, llmCalls: 1, durationMs: 1000, usedPlaybook: true })
+  })
+})
+
+describe('repairStats', () => {
+  it('首轮成功率/平均轮数/playbook 命中率聚合(比率分母 = 带 meta 条目,无 meta 只计 total/fixed)', () => {
+    const entries = [
+      { outcome: 'fixed', meta: { rounds: 1, usedPlaybook: true } },
+      { outcome: 'fixed', meta: { rounds: 2, usedPlaybook: false } },
+      { outcome: 'fixed', meta: { rounds: 1, usedPlaybook: true } },
+      { outcome: 'failed', meta: { rounds: 3, usedPlaybook: false } },
+      { outcome: 'fixed' }, // 无 meta 不计入比率
+    ]
+    const s = repairStats(entries)
+    expect(s.total).toBe(5)
+    expect(s.fixed).toBe(4)
+    expect(s.firstRoundSuccessRate).toBe(50)   // rounds===1 共 2 条 / 带 meta 4 条
+    expect(s.avgRounds).toBe(1.8)              // (1+2+1+3)/4 = 1.75 → toFixed(1)
+    expect(s.playbookHitRate).toBe(50)         // usedPlaybook 共 2 条 / 带 meta 4 条
+  })
+  it('空库全零', () => {
+    expect(repairStats([])).toEqual({ total: 0, fixed: 0, firstRoundSuccessRate: 0, avgRounds: 0, playbookHitRate: 0 })
   })
 })

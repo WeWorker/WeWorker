@@ -1,5 +1,5 @@
 /**
- * webgo repair <task|run|list|show> —— 修复任务 CLI(工作台机器使用)。
+ * webgo repair <task|run|list|show|stats> —— 修复任务 CLI(工作台机器使用)。
  * 退出码:0 成功;2 参数错误;1 运行错误。--json 时 stdout 仅一个 JSON 对象。
  */
 import { readFileSync } from "node:fs";
@@ -57,7 +57,12 @@ export async function runRepairCli(args, { outputFormat } = {}) {
     }
     if (sub === "list") return emit(listTasks().map((t) => `${t.id} [${t.status}] ${t.source} 失败:${t.failures.reduce((s, f) => s + f.count, 0)}`).join("\n") || "(无任务)");
     if (sub === "show" && rest[0]) return emit(JSON.stringify(loadTask(rest[0]), null, 2));
-    throw new Error("用法: webgo repair task --from errors [--since 7d] [--min-calls 3] | webgo repair task --from patrol --report <巡检报告.json> | repair run <taskId> | repair list | repair show <taskId>");
+    if (sub === "stats") {
+      const { loadKnowledge, repairStats } = await import("./knowledge.js");
+      const s = repairStats(loadKnowledge().entries);
+      return emit(`修复经验统计:共 ${s.total} 条(fixed ${s.fixed});首轮成功率 ${s.firstRoundSuccessRate}%;平均轮数 ${s.avgRounds};playbook 命中 ${s.playbookHitRate}%`);
+    }
+    throw new Error("用法: webgo repair task --from errors [--since 7d] [--min-calls 3] | webgo repair task --from patrol --report <巡检报告.json> | repair run <taskId> | repair list | repair show <taskId> | repair stats");
   } catch (e) {
     // 退出码约定(见头注释):用法/参数错误 2(先例 adapterhub-cli.js UsageError → 2),运行错误 1
     return fail(e.message, String(e.message).startsWith("用法:") ? 2 : 1);

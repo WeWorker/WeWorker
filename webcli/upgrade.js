@@ -99,6 +99,7 @@ export async function runUpgrade({
   const target = await resolveGlobalInstallTarget({ env, platform, existsImpl, home });
   installCmd.push(...target.prefixArgs);
   log(`[webcli] 升级 ${currentVersion} → ${latest}:${installCmd.join(" ")}`);
+  const upgradeStartedAt = Date.now();
   try {
     const child = await spawnImpl(installCmd[0], installCmd.slice(1), { stdio: "inherit", shell: process.platform === "win32" });
     await new Promise((resolve, reject) => {
@@ -117,6 +118,13 @@ export async function runUpgrade({
     log(`[webcli] 可手动执行:${buildInstallCommand(pkgName, latest, registry)}`);
     return { upgraded: false, latest, error: e.message };
   }
+  // 升级埋点:tool 名首段 install 在 metrics-server 噪音名单(NOISE_FIRST_SEGMENTS)内,
+  // 不污染 adapter 统计口径,只进原始 metrics 表供升级效果度量;未配置上报时静默。
+  try {
+    const { buildUploadConfig, reportMetric } = await import("./metrics.js");
+    const metrics = await buildUploadConfig({ webcliVersion: latest });
+    reportMetric(metrics, "install.upgrade", true, Date.now() - upgradeStartedAt, undefined);
+  } catch { /* 埋点静默 */ }
   for (const dir of serviceWorkerCacheDirs(home)) {
     try {
       await existsImpl(dir);
