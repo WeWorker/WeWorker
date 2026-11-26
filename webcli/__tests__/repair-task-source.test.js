@@ -4,8 +4,9 @@ import { adapterIdOfTool, tasksFromErrDetail, fetchErrDetail } from '../repair/t
 const ERRDETAIL = {
   rows: [
     { err: 'lowpkg boom', tools: [ { tool: 'lowpkg.two', calls: 5 } ] },
+    // 脏数据:open_browser 把 URL 记进工具名,派生的 adapterId 含非法字符 → 跳过
     { err: 'Toolkit Adapter exited with code 1', tools: [
-      { tool: 'wekm.list-articles', calls: 19 }, { tool: 'wekm.get-article', calls: 27 }, { tool: 'wekm.probe-charset', calls: 3 } ] },
+      { tool: 'open.https:\\todo.weoa.com/list', calls: 12 }, { tool: 'wekm.list-articles', calls: 19 }, { tool: 'wekm.get-article', calls: 27 }, { tool: 'wekm.probe-charset', calls: 3 } ] },
     { err: 'Toolkit Adapter exited with code 1', tools: [ { tool: 'lowpkg.one', calls: 2 } ] },
   ],
 }

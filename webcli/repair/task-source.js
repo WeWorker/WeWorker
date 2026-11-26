@@ -1,6 +1,11 @@
 /** 报错源:metrics-server errdetail → 统一修复任务。 */
 import { buildTask } from "./task.js";
 
+// adapterId 允许字符:open_browser 等会把整段 URL 记进工具名(如
+// `open.https:\todo.weoa.com/...`),派生的 adapterId 含 :/\ 非法字符,
+// 会让 saveTask 写文件 ENOENT 并污染任务列表——此类脏数据直接跳过。
+const SAFE_ADAPTER_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
 export function adapterIdOfTool(tool) {
   const i = String(tool).lastIndexOf(".");
   return i > 0 ? String(tool).slice(0, i) : null;
@@ -12,7 +17,7 @@ export function tasksFromErrDetail(errdetail, { minCalls = 3, now = Date.now() }
   for (const row of rows) {
     for (const t of row.tools || []) {
       const adapterId = adapterIdOfTool(t.tool);
-      if (!adapterId) continue;
+      if (!adapterId || !SAFE_ADAPTER_ID.test(adapterId)) continue;
       if (!byAdapter.has(adapterId)) byAdapter.set(adapterId, []);
       byAdapter.get(adapterId).push({ tool: t.tool, count: t.calls, lastErr: String(row.err || "").slice(0, 200) });
     }
