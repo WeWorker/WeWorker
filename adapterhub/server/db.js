@@ -786,21 +786,23 @@ export function upsertExperience(db, e) {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`)
       .run(e.id, e.site, e.runtime ?? '', e.root_cause ?? '', e.symptom ?? '', e.fix_strategy ?? '',
            e.playbook ?? null, e.outcome ?? 'fixed', e.outcome ?? 'fixed', e.reporter ?? '', now, now)
-    return
-  }
-  // failed 复现只记账（hits/last_outcome/reporter）：已验证的 root_cause/fix_strategy/outcome/playbook 保留旧值
-  if ((e.outcome ?? 'fixed') === 'failed') {
+  } else if ((e.outcome ?? 'fixed') === 'failed') {
+    // failed 复现只记账（hits/last_outcome/reporter）：已验证的 root_cause/fix_strategy/outcome/playbook 保留旧值
     db.prepare('UPDATE experiences SET hits = hits + 1, last_outcome = ?, reporter = ?, updated_at = ? WHERE id = ?')
       .run('failed', e.reporter ?? prev.reporter ?? '', now, e.id)
-    return
+  } else {
+    // 正常合并：修复结论以 incoming 为准；playbook 仅在传入时覆盖（COALESCE 保留旧值）
+    // reporter 覆盖取舍（显式声明）：PAT 持有者为受信内部人员，合并取最后上报人（last-writer-wins）；
+    // 滥用规模由路由层字段长度上限约束；内容治理（admin 清理端点）列入后续工作。
+    db.prepare(`UPDATE experiences SET hits = hits + 1, last_outcome = ?, outcome = ?, root_cause = ?, fix_strategy = ?,
+                playbook = COALESCE(?, playbook), reporter = ?, updated_at = ? WHERE id = ?`)
+      .run(e.outcome ?? 'fixed', e.outcome ?? 'fixed', e.root_cause ?? '', e.fix_strategy ?? '',
+           e.playbook ?? null, e.reporter ?? prev.reporter ?? '', now, e.id)
   }
-  // 正常合并：修复结论以 incoming 为准；playbook 仅在传入时覆盖（COALESCE 保留旧值）
-  // reporter 覆盖取舍（显式声明）：PAT 持有者为受信内部人员，合并取最后上报人（last-writer-wins）；
-  // 滥用规模由路由层字段长度上限约束；内容治理（admin 清理端点）列入后续工作。
-  db.prepare(`UPDATE experiences SET hits = hits + 1, last_outcome = ?, outcome = ?, root_cause = ?, fix_strategy = ?,
-              playbook = COALESCE(?, playbook), reporter = ?, updated_at = ? WHERE id = ?`)
-    .run(e.outcome ?? 'fixed', e.outcome ?? 'fixed', e.root_cause ?? '', e.fix_strategy ?? '',
-         e.playbook ?? null, e.reporter ?? prev.reporter ?? '', now, e.id)
+  // 容量淘汰（spec §7.1「服务端放宽至 2000 + 淘汰」）：按 updated_at 只保留最新 2000 条，防经验库无界增长
+  db.prepare(`DELETE FROM experiences WHERE id IN (
+                SELECT id FROM experiences ORDER BY updated_at DESC LIMIT -1 OFFSET 2000
+              )`).run()
 }
 
 export function listExperiences(db, { site = '', runtime = '', root_cause = '', k = 20 } = {}) {

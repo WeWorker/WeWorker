@@ -38,6 +38,13 @@ test('id 缺失/非法由路由层校验/补齐（db 层只管存取，不拦不
   assert.equal(listExperiences(db, {}).length, 1) // db 层不拦；路由层拦——此处仅确认 db 不炸
 })
 
+test('容量淘汰：写 2005 条仅保留最新 2000 条（spec §7.1「放宽至 2000 + 淘汰」）', () => {
+  const db = openCatalog(':memory:')
+  for (let i = 0; i < 2005; i++) upsertExperience(db, { ...E, id: `e${i}`, symptom: `s${i}` })
+  assert.equal(db.prepare('SELECT COUNT(*) c FROM experiences').get().c, 2000)
+  assert.equal(listExperiences(db, { k: 50 }).length, 50) // 淘汰后读取路径不受影响（k 封顶）
+})
+
 // ── 路由层（真实起服；认证桩与起服方式照 adapter-publish-preflight.test.mjs 模式）──
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
