@@ -46,12 +46,15 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
   const { pkg } = readWewrightTarget(task.adapterId, { env, home });
   let hits = searchExperience(knowledgePath(home), { site: task.adapterId, runtime: "wewright", errSignature: task.failures?.[0]?.lastErr || "" }, 3);
   if (hits.length < 3 && process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD !== "off") {
-    // 本地命中不足 → hub 回源合并(5s 超时,静默失败);registry 与 publish 同源(profile/env)
+    // 本地命中不足 → hub 回源合并(5s 超时,静默失败);registry 与 publish 同源(profile/env)。
+    // WEBCLI_REPAIR_EXPERIENCE_UPLOAD=off 同时关闭经验上报与回源注入
+    // (隐私优先:既不共享本机经验,也不拉取团队经验)
     try {
       const { fetchHubExperiences } = await import("./hub-sync.js");
       const { resolveEndpoint } = await import("../adapterhub-client.js");
       const shared = await fetchHubExperiences({ registry: resolveEndpoint(), site: task.adapterId, runtime: "wewright", k: 3 - hits.length });
-      hits = [...hits, ...shared];
+      // 按 id 去重:本机上报条目回流 hub 后再拉回,会与本地条目重复进提示
+      hits = [...hits, ...shared.filter((s) => !hits.some((h) => h.id === s.id))];
     } catch { /* hub 不可达/端点未配置 → 仅用本地经验 */ }
   }
   const experienceHint = injectContext(hits);

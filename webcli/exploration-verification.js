@@ -1,7 +1,7 @@
 import { explorationError as fail } from './exploration-commands.js';
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
-const sensitive = /password|passwd|secret|cookie|authorization|token|credential|api.?key|csrf|session/i;
+export const sensitive = /password|passwd|secret|cookie|authorization|token|credential|api.?key|csrf|session/i;
 const invalid = message => { throw fail('INVALID_VERIFICATION', message); };
 
 // Advisory coverage, never a claim that a business mapping has been proved.

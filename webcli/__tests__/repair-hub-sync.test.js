@@ -29,6 +29,22 @@ describe('reportExperienceToHub', () => {
   it('hub 不可达静默返回 false 不抛', async () => {
     expect(await reportExperienceToHub({ entry: ENTRY, registry: HUB, token: 't', fetchImpl: async () => { throw new Error('network dead') } })).toBe(false)
   })
+  it('隐私红线:symptom 命中敏感词 → 整条跳过,不发请求(不脱敏上报)', async () => {
+    let called = 0
+    const ok = await reportExperienceToHub({ entry: { ...ENTRY, symptom: 'Authorization: Bearer abc' }, registry: HUB, token: 't',
+      fetchImpl: async () => { called++; return { ok: true } } })
+    expect(ok).toBe(false)
+    expect(called).toBe(0)
+  })
+  it('隐私红线:rootCause/fixStrategy/playbook 片段命中敏感词同样跳过', async () => {
+    let called = 0
+    const hit = async (entry) => reportExperienceToHub({ entry, registry: HUB, token: 't', fetchImpl: async () => { called++; return { ok: true } } })
+    expect(await hit({ ...ENTRY, root_cause: 'token 泄漏' })).toBe(false)
+    expect(await hit({ ...ENTRY, fix_strategy: '读取 session 后重试' })).toBe(false)
+    expect(await hit({ ...ENTRY, playbook: { detect: 'd', detectSnippet: '读取 session cookie 后重试', fixTemplate: 'f' } })).toBe(false)
+    expect(await hit({ ...ENTRY, playbook: JSON.stringify({ detectSnippet: 'password=123' }) })).toBe(false)
+    expect(called).toBe(0)
+  })
 })
 
 describe('fetchHubExperiences', () => {
@@ -148,5 +164,39 @@ describe('runRepairLoop hub 接线', () => {
     expect(hint).toContain('检测片段')
     expect(hint).toContain('(注意:最近一次复现失败)')
     await new Promise((r) => setTimeout(r, 20))
+  })
+
+  it('回源条目与本地条目同 id → 去重,不重复进提示', async () => {
+    vi.stubEnv('WEBCLI_ADAPTERHUB_ENDPOINT', HUB)
+    vi.stubEnv('ADAPTERHUB_TOKEN', 'ahp_test_token')
+    const { home, env } = await fixtureHome('repair-sync-dedup-')
+    const local = recordExperience(join(home, '.webcli', 'repair-knowledge.json'), { site: 'demo-fixture', runtime: 'wewright', symptom: 'local信号', rootCause: 'logic-bug', fixStrategy: '本地修法', outcome: 'fixed' })
+    // hub 返回同 id 条目(本机上报回流),symptom 不同 → 应被过滤
+    vi.stubGlobal('fetch', async () => ({ ok: true, status: 200, json: async () => ({ items: [{ id: local.id, site: 'demo-fixture', runtime: 'wewright', symptom: '回流重复', root_cause: 'logic-bug', fix_strategy: '回流策略', outcome: 'fixed', hits: 1 }] }) }))
+    let hint = ''
+    const llm = { async diagnose(ctx) { hint = ctx.experienceHint; return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } } } }
+    const { outcome } = await runRepairLoop({ task: taskFor(), llm, env, home, verifyImpl: OK_VERIFY, log: () => {} })
+    expect(outcome).toBe('draft-ready')
+    expect(hint).toContain('local信号')
+    expect(hint).not.toContain('回流重复')
+    await new Promise((r) => setTimeout(r, 20))
+  })
+
+  it('沉淀条目命中敏感词 → 本地照常沉淀,但不上报(不发请求)', async () => {
+    vi.stubEnv('WEBCLI_ADAPTERHUB_ENDPOINT', HUB)
+    vi.stubEnv('ADAPTERHUB_TOKEN', 'ahp_test_token')
+    const posts = []
+    vi.stubGlobal('fetch', async (url, opts = {}) => {
+      if (opts.method === 'POST') posts.push(String(url))
+      return { ok: true, status: 200, json: async () => ({ items: [] }) }
+    })
+    const { home, env } = await fixtureHome('repair-sync-privacy-')
+    const task = buildTask({ source: 'manual', adapterId: 'demo-fixture', failures: [{ tool: 'demo-fixture.get-article', count: 3, lastErr: 'Authorization: Bearer abc 失败' }] })
+    const { outcome } = await runRepairLoop({ task, llm: PATCH_LLM, env, home, verifyImpl: OK_VERIFY, log: () => {} })
+    expect(outcome).toBe('draft-ready')
+    await new Promise((r) => setTimeout(r, 20))
+    expect(posts).toHaveLength(0)
+    const { entries } = loadKnowledge(join(home, '.webcli', 'repair-knowledge.json'))
+    expect(entries.some((e) => e.site === 'demo-fixture' && e.outcome === 'fixed')).toBe(true) // 本地沉淀不受影响
   })
 })
