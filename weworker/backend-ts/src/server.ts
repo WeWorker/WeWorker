@@ -98,8 +98,8 @@ import { isProbeChannel, probeChannel } from './channels/channel-probe.js'
 import { normalizeOwnerPermissionLevel, validateOwnerUserId } from './channels/channel-permissions.js'
 import { clearAdapterCache, getRegistryDefaultIcon, getRegistryIconById, parseAllAdapters } from './adapter-parser.js'
 import type { StaticToolDef } from './adapter-parser.js'
-import { refreshDesktopAdapterSkills, toggleDesktopAdapter } from '../../../webcli/adapter-desktop.js'
-import { getDesktopAdapterCatalog } from './adapter-catalog-cache.js'
+import { toggleDesktopAdapter } from '../../../webcli/adapter-desktop.js'
+import { getDesktopAdapterCatalog, refreshDesktopAdapterSkillsIfStale } from './adapter-catalog-cache.js'
 import { adapterUpdateErrorMessage, createAdapterUpdates } from './adapter-updates.js'
 import { findAdaptersDirectory, resolveToolsForAdapter } from './adapter-tool-list.js'
 import { getOfficialScenarioDefs, resolveSiteScenarios } from './site-scenarios.js'
@@ -302,7 +302,6 @@ bridgeStatus.onAdapterScaffoldGenerated(({ siteKey }) => {
 })
 const handleAdapterStateRefresh = createAdapterStateRefreshHandler({
   clearCache: clearAdapterCache,
-  refreshSkills: () => refreshDesktopAdapterSkills(SKILLS_DIR),
   broadcast: (event) => {
     if (!event.hubInstall) {
       broadcastSSE(event)
@@ -379,8 +378,6 @@ app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
     return result
   },
   onInstalled: ({ name, revision, profile }) => {
-    clearAdapterCache()
-    refreshDesktopAdapterSkills(SKILLS_DIR)
     clearAdapterCache()
     broadcastSSE({ type: 'adapter_state_changed', profile, revision, adapters: [name] })
   },
@@ -1493,7 +1490,7 @@ app.post('/settings/weixin/qr-cancel', (req, res) => {
 
 app.use(createSkillManagementRouter(SKILLS_DIR, (name) => officialSkillBuildTime(name,
   (id) => parseAllAdapters().get(id)?.managed?.source === 'builtin',
-)))
+), () => refreshDesktopAdapterSkillsIfStale(SKILLS_DIR)))
 
 app.post('/skills/import-zip', express.raw({ type: ['application/zip', 'application/x-zip-compressed'], limit: '50mb' }), async (req, res) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {

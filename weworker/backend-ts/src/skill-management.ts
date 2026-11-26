@@ -174,10 +174,11 @@ export function saveManagedSkill(root: string, input: { name: string; previousNa
   return { ok: true, ...readManagedSkill(root, name) }
 }
 
-export function createSkillManagementRouter(root: string, officialBuildTime: (name: string) => number | undefined = () => undefined) {
+export function createSkillManagementRouter(root: string, officialBuildTime: (name: string) => number | undefined = () => undefined, refreshAdapterSkills?: () => void) {
   const router = Router()
-  router.get('/skills', (_req, res, next) => {
+  router.get('/skills', (req, res, next) => {
     try {
+      if (req.query.refreshAdapters === '1') refreshAdapterSkills?.()
       fs.mkdirSync(root, { recursive: true })
       const skills = fs.readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).flatMap(entry => {
         try { return [readManagedSkill(root, entry.name, officialBuildTime(entry.name))] } catch { return [] }

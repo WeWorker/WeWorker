@@ -846,8 +846,8 @@ function buildToolSiteMetaPrefix(tool) {
   return tool.siteName ? `${tool.siteName} · ` : ''
 }
 
-async function fetchPublicSkillsFromApi() {
-  const res = await backendFetch(`${SKILLS_API}/skills`)
+async function fetchPublicSkillsFromApi({ refreshAdapters = false } = {}) {
+  const res = await backendFetch(`${SKILLS_API}/skills${refreshAdapters ? '?refreshAdapters=1' : ''}`)
   if (!res.ok) throw new Error('读取 Skill 列表失败，请重试')
   const entries = await res.json()
   if (!Array.isArray(entries)) throw new Error('Skill 列表格式异常')
@@ -968,11 +968,11 @@ export default function ToolPackageEditor({
 
   React.useEffect(() => {
     let cancelled = false
-    fetchPublicSkillsFromApi().then(entries => {
+    fetchPublicSkillsFromApi({ refreshAdapters: workspaceTab === WORKSPACE_TAB_SKILLS }).then(entries => {
       if (!cancelled) applyInstalledSkills(entries)
     }).catch(error => { if (!cancelled) setSkillsLoadError(error.message) })
     return () => { cancelled = true }
-  }, [applyInstalledSkills])
+  }, [applyInstalledSkills, workspaceTab])
 
   const siteSkillDirectoryNames = useMemo(() => new Set(siteList.flatMap(toolSite => [
     `webcli-${toolSite.id}`,

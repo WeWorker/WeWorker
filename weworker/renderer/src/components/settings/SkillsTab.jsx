@@ -26,7 +26,7 @@ export default function SkillsTab() {
   const load = async () => {
     setLoading(true)
     try {
-      const res = await backendFetch('/skills')
+      const res = await backendFetch('/skills?refreshAdapters=1')
       if (res.ok) setSkills(await res.json())
     } catch {}
     setLoading(false)
