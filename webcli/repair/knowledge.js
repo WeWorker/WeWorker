@@ -2,6 +2,7 @@
  * 本地跨 adapter 经验库(~/.webcli/repair-knowledge.json)。
  * 修复结束自动沉淀;修复/探索前按 site+runtime+错误签名检索 Top-K 注入。
  * 淘汰策略 LRU(主键 date 新→旧,hits 仅平局裁决);failed 合并不抹已知修法。
+ * 条目可带 playbook(检测片段/修复模板)与 meta(rounds/llmCalls/durationMs/usedPlaybook 成本)。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -32,7 +33,17 @@ export function entryKey(entry) {
   return createHash("sha1").update(key).digest("hex").slice(0, 12);
 }
 
-export function recordExperience(file, entry, now = new Date().toISOString()) {
+// playbook 清洗截断(detect 300 / detectSnippet 1500 / fixTemplate 2000);非法输入返回 null
+function cleanPlaybook(pb) {
+  if (!pb || typeof pb !== "object" || Array.isArray(pb)) return null;
+  return {
+    detect: String(pb.detect || "").slice(0, 300),
+    detectSnippet: String(pb.detectSnippet || "").slice(0, 1500),
+    fixTemplate: String(pb.fixTemplate || "").slice(0, 2000),
+  };
+}
+
+export function recordExperience(file, entry, now = new Date().toISOString(), meta = null) {
   const clean = {
     site: String(entry.site || ""), runtime: String(entry.runtime || ""),
     symptom: String(entry.symptom || "").slice(0, 500),
@@ -41,14 +52,24 @@ export function recordExperience(file, entry, now = new Date().toISOString()) {
     outcome: entry.outcome === "failed" ? "failed" : "fixed",
     evidenceRef: String(entry.evidenceRef || "").slice(0, 200), date: now,
   };
+  const playbook = cleanPlaybook(entry.playbook);
+  if (playbook) clean.playbook = playbook;
+  // 成本元数据(rounds/llmCalls/durationMs/usedPlaybook)原样存;非法输入存 null
+  clean.meta = meta && typeof meta === "object" && !Array.isArray(meta) ? meta : null;
   clean.id = entryKey(clean);
   const data = loadKnowledge(file);
   const idx = data.entries.findIndex((e) => e.id === clean.id);
   if (idx >= 0) {
     const prev = data.entries[idx];
     if (clean.outcome === "failed") {
-      // failed 合并不抹已知修法:保留旧 rootCause/fixStrategy/outcome/evidenceRef,只刷新 hits/date
-      data.entries[idx] = { ...prev, hits: (prev.hits || 0) + 1, date: clean.date, lastOutcome: "failed" };
+      // failed 合并不抹已知修法:保留旧 rootCause/fixStrategy/outcome/evidenceRef,只刷新 hits/date;
+      // playbook/incoming 有则更新、无则保留旧值;meta 同理(仅本次带有效 meta 才刷新)
+      data.entries[idx] = {
+        ...prev,
+        ...(playbook ? { playbook } : {}),
+        ...(clean.meta ? { meta: clean.meta } : {}),
+        hits: (prev.hits || 0) + 1, date: clean.date, lastOutcome: "failed",
+      };
     } else {
       data.entries[idx] = { ...prev, ...clean, hits: (prev.hits || 0) + 1, lastOutcome: "fixed" };
     }
@@ -82,7 +103,15 @@ export function searchExperience(file = knowledgePath(), { site = "", runtime = 
 
 export function injectContext(entries) {
   if (!entries.length) return "经验库暂无相关条目。";
-  return "相关修复经验:\n" + entries.map((e) =>
-    `- [${e.site}/${e.runtime}] 症状: ${e.symptom}\n  根因: ${e.rootCause}\n  策略: ${e.fixStrategy}(${e.outcome},出现 ${e.hits || 1} 次)`,
-  ).join("\n");
+  return "相关修复经验:\n" + entries.map((e) => {
+    let line = `- [${e.site}/${e.runtime}] 症状: ${e.symptom}\n  根因: ${e.rootCause}\n  策略: ${e.fixStrategy}(${e.outcome},出现 ${e.hits || 1} 次)`;
+    if (e.lastOutcome === "failed") line += "(注意:最近一次复现失败)";
+    if (e.playbook) line += `\n  检测片段: ${e.playbook.detectSnippet}\n  修复模板: ${e.playbook.fixTemplate}`;
+    return line;
+  }).join("\n");
+}
+
+// playbook 检索:按根因取带 playbook 的条目(executor 注入诊断上下文用)
+export function pickPlaybooks(entries, rootCause) {
+  return entries.filter((e) => e.playbook && e.rootCause === rootCause);
 }

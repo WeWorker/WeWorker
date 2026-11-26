@@ -12,6 +12,8 @@ import { searchExperience, injectContext, recordExperience, knowledgePath } from
 import { transition, saveTask, tasksDir } from "./task.js";
 
 export async function runRepairLoop({ task, llm, env = process.env, home = homedir(), maxRounds = 3, log = () => {}, now = Date.now(), save = saveTask, verifyImpl = verifyRepair, fixtures = [], runtimePath } = {}) {
+  const startedAt = Date.now();
+  let llmCalls = 0;
   task = transition(task, "diagnosing");
   save(task, tasksDir(home));
   const { pkg } = readWewrightTarget(task.adapterId, { env, home });
@@ -30,6 +32,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
       save(task, tasksDir(home));
       return { task, outcome: "llm-error", error: e.message };
     }
+    llmCalls++;
     if (proposal.rootCause === "needs-regeneration" || proposal.rootCause === "login-expired") {
       const to = proposal.rootCause === "needs-regeneration" ? "needs-regeneration" : "needs-login";
       task = transition(task, to);
@@ -72,6 +75,9 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
           symptom: task.failures?.[0]?.lastErr || "",
           rootCause: proposal.rootCause, fixStrategy: proposal.reasoning || "",
           outcome: "fixed", evidenceRef: draft.draftDir,
+        }, new Date().toISOString(), {
+          rounds: round, llmCalls, durationMs: Date.now() - startedAt,
+          usedPlaybook: experienceHint.includes("检测片段"),
         });
       } catch (e) {
         log(`[repair] 经验库写入失败: ${e.message}`);
@@ -89,6 +95,9 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
       symptom: task.failures?.[0]?.lastErr || "",
       rootCause: "unresolved", fixStrategy: feedback || "", outcome: "failed",
       evidenceRef: "",
+    }, new Date().toISOString(), {
+      rounds: maxRounds, llmCalls, durationMs: Date.now() - startedAt,
+      usedPlaybook: experienceHint.includes("检测片段"),
     });
   } catch (e) {
     log(`[repair] 经验库写入失败: ${e.message}`);

@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync, writeFileSync } from 'node:fs'
-import { loadKnowledge, recordExperience, searchExperience, injectContext, entryKey, KNOWLEDGE_LIMIT } from '../repair/knowledge.js'
+import { loadKnowledge, recordExperience, searchExperience, injectContext, entryKey, KNOWLEDGE_LIMIT, pickPlaybooks } from '../repair/knowledge.js'
 
 // mkdtemp 临时根统一登记,afterAll 一次性清理(与 repair-verify.test.js 同惯例)
 const roots = []
@@ -76,5 +76,35 @@ describe('injectContext', () => {
     expect(text).toContain('[wekm/wewright]')
     expect(text).toContain('策略: f')
     expect(text).toContain('出现 2 次')
+  })
+})
+
+describe('playbook', () => {
+  const PB = { detect: '页面 URL 含 /login 即登录态失效', detectSnippet: "if ('/login' in page.url) return NEEDS_LOGIN", fixTemplate: 'goto 后先探登录重定向,失效返回 {ok:false, code:NEEDS_LOGIN, needs_user:true}' }
+  it('recordExperience 存 playbook;merge failed 时 playbook 保留', () => {
+    const f = join(tmpdir(), `rk-pb-${Math.random().toString(36).slice(2)}.json`)
+    recordExperience(f, { ...ENTRY, rootCause: 'login-expired', playbook: PB }, '2026-11-26T00:00:00Z')
+    recordExperience(f, { ...ENTRY, rootCause: 'login-expired', outcome: 'failed' }, '2026-11-26T01:00:00Z')
+    const { entries } = loadKnowledge(f)
+    expect(entries[0].playbook.detectSnippet).toBe(PB.detectSnippet)
+  })
+  it('pickPlaybooks 按 rootCause 过滤', () => {
+    const f = join(tmpdir(), `rk-pb2-${Math.random().toString(36).slice(2)}.json`)
+    recordExperience(f, { ...ENTRY, rootCause: 'login-expired', playbook: PB })
+    recordExperience(f, { ...ENTRY, site: 'other', symptom: 's2', rootCause: 'logic-bug' })
+    const hits = pickPlaybooks(loadKnowledge(f).entries, 'login-expired')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].playbook.fixTemplate).toContain('NEEDS_LOGIN')
+  })
+  it('injectContext 渲染 playbook 块与 failed 警示', () => {
+    const text = injectContext([{ site: 'wekm', runtime: 'wewright', symptom: 's', rootCause: 'r', fixStrategy: 'f', outcome: 'fixed', hits: 1, lastOutcome: 'failed', playbook: PB }])
+    expect(text).toContain('检测片段')
+    expect(text).toContain('修复模板')
+    expect(text).toContain('最近一次复现失败')
+  })
+  it('meta(rounds/llmCalls/usedPlaybook)随条目存储', () => {
+    const f = join(tmpdir(), `rk-meta-${Math.random().toString(36).slice(2)}.json`)
+    recordExperience(f, { ...ENTRY }, '2026-11-26T00:00:00Z', { rounds: 2, llmCalls: 2, durationMs: 45000, usedPlaybook: false })
+    expect(loadKnowledge(f).entries[0].meta).toEqual({ rounds: 2, llmCalls: 2, durationMs: 45000, usedPlaybook: false })
   })
 })

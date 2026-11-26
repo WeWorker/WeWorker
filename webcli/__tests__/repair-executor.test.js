@@ -89,3 +89,32 @@ describe('runRepairLoop', () => {
     expect(error).toContain('ADAPTER_BASE_CHANGED')
   })
 })
+
+describe('runRepairLoop 成本元数据', () => {
+  it('draft-ready 时 recordExperience 带 meta(rounds/llmCalls/usedPlaybook)', async () => {
+    const home2 = await mkdtemp(join(tmpdir(), 'repair-meta-'))
+    const adapterRoot = join(home2, 'adapters', 'demo-fixture')
+    await mkdir(join(adapterRoot, 'wewright', 'commands'), { recursive: true })
+    await writeFile(join(adapterRoot, 'manifest.json'), JSON.stringify({
+      schema_version: 2, name: 'demo-fixture', version: '1.0.0', description: 'd', runtime_allowed_hosts: ['demo.example.com'],
+      commands: [{ id: 'get-article', runtime: 'wewright', module: 'wewright/commands/get-article.py', description: 'd', schema: { type: 'object' } }],
+    }, null, 2))
+    await writeFile(join(adapterRoot, 'wewright', 'commands', 'get-article.py'), 'raise TypeError("broken")\n')
+    const env2 = { WEWORKER_USER_ADAPTERS_DIR: join(home2, 'adapters'), WEBCLI_ADAPTERS_DIR: join(home2, 'adapters'), HOME: home2 }
+    const PB = { detect: 'd', detectSnippet: 's', fixTemplate: 'f' }
+    const llm = { async diagnose(ctx) {
+      expect(ctx.experienceHint).toBeDefined()
+      return { rootCause: 'logic-bug', patchedFiles: { 'wewright/commands/get-article.py': FIXED_PY } }
+    } }
+    // 预置一条带 playbook 的经验,验证 usedPlaybook 标记
+    const { recordExperience } = await import('../repair/knowledge.js')
+    recordExperience(join(home2, '.webcli', 'repair-knowledge.json'), { site: 'demo-fixture', runtime: 'wewright', symptom: 'x', rootCause: 'logic-bug', fixStrategy: 'y', outcome: 'fixed', playbook: PB })
+    const task2 = buildTask({ source: 'manual', adapterId: 'demo-fixture', failures: [{ tool: 'demo-fixture.get-article', count: 2, lastErr: 'x' }] })
+    await runRepairLoop({ task: task2, llm, env: env2, home: home2, verifyImpl: async () => ({ passed: true, checks: [] }), log: () => {} })
+    const { loadKnowledge } = await import('../repair/knowledge.js')
+    const { entries } = loadKnowledge(join(home2, '.webcli', 'repair-knowledge.json'))
+    const hit = entries.find((e) => e.site === 'demo-fixture' && e.meta)
+    expect(hit?.meta.rounds).toBe(1)
+    expect(hit?.meta.usedPlaybook).toBe(true)
+  })
+})
