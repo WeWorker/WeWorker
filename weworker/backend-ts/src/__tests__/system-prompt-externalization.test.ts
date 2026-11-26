@@ -257,6 +257,8 @@ describe('System Prompt - complete output contract before externalization', () =
       - 不支持这些参数的工具不能直接套用此文件。若用户要求修改正文，先生成更新后的正文并让用户核对，不使用旧快照；多个正文附件无法确定目标时先询问。
 
 
+      在聊天回复中输出可单独保存的代码时，请使用带语言和文件名的 Markdown 代码围栏，例如 \`\`\`python filename=binary_sort.py。每个文件一个代码块，提供完整文件名（包含原有后缀，无后缀的文件保留原名），不含目录，代码块正文只放文件内容。
+
       [[MEMORY_PROTOCOL_FULL]]
 
       ---
@@ -415,6 +417,8 @@ describe('System Prompt - complete output contract before externalization', () =
       - 不支持这些参数的工具不能直接套用此文件。若用户要求修改正文，先生成更新后的正文并让用户核对，不使用旧快照；多个正文附件无法确定目标时先询问。
 
 
+      在聊天回复中输出可单独保存的代码时，请使用带语言和文件名的 Markdown 代码围栏，例如 \`\`\`python filename=binary_sort.py。每个文件一个代码块，提供完整文件名（包含原有后缀，无后缀的文件保留原名），不含目录，代码块正文只放文件内容。
+
       [[MEMORY_PROTOCOL_NO_BASH]]"
     `)
   })
@@ -459,6 +463,8 @@ describe('System Prompt - complete output contract before externalization', () =
       - 若用户请求上述能力，请明确说明需要主人权限，并提示联系管理员在 设置 → 通道 中配置主人 ID。
 
       请用简洁、准确的中文回复。
+
+      在聊天回复中输出可单独保存的代码时，请使用带语言和文件名的 Markdown 代码围栏，例如 \`\`\`python filename=binary_sort.py。每个文件一个代码块，提供完整文件名（包含原有后缀，无后缀的文件保留原名），不含目录，代码块正文只放文件内容。
 
       [[MEMORY_PROTOCOL_QA_ONLY]]
 

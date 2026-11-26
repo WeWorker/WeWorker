@@ -13,7 +13,8 @@ import { isPlanManagementTool } from '../../utils/todowrite-state.js'
 import { normalizeUserChoiceBlock } from '../../utils/user-choice.js'
 import { localFileUrl } from '../../utils/local-file-url.js'
 import { handleChatLinkClick } from '../../utils/chat-links.js'
-import { isTabTableBlock, preChildText } from '../../utils/code-block.js'
+import { isTabTableBlock, preChildText, remarkCodeFilenames } from '../../utils/code-block.js'
+import ChatCodeBlock from './ChatCodeBlock.jsx'
 import { captureMessageSelection, messageCopyContent } from '../../utils/message-copy.js'
 import FileGlyph, { getFileTypeLabel, getFileTypeMeta } from '../files/FileTypeIcon.jsx'
 
@@ -493,7 +494,7 @@ function MarkdownBody({ text, onShellCommand }) {
   if (!text) return null
   return (
     <div className="markdown message-text-selectable" style={{ color: 'inherit' }}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkCodeFilenames]} components={{
         a: ({ href, title, children }) => (
           <a
             href={href}
@@ -510,16 +511,24 @@ function MarkdownBody({ text, onShellCommand }) {
             <table {...props}>{children}</table>
           </div>
         ),
-        pre: ({ children, ...props }) => {
+        pre: ({ children, node }) => {
           const codeText = preChildText(children)
-          if (isTabTableBlock(codeText)) {
-            return <pre {...props} className="markdown-tab-table"><TabTableCode text={codeText} /></pre>
-          }
-          return <pre {...props} className={props.className}>{children}</pre>
+          const properties = node?.children?.[0]?.properties
+          const filename = properties?.['data-code-filename'] ?? 'code'
+          const language = properties?.className?.find(value => value.startsWith('language-'))?.slice(9)
+          const tabTable = isTabTableBlock(codeText)
+          return (
+            <ChatCodeBlock filename={filename} text={codeText} language={language}
+              preserveInline={tabTable || extractBangCommands(codeText).length > 0}>
+              <pre className={tabTable ? 'markdown-tab-table' : undefined}>
+                {tabTable ? <TabTableCode text={codeText} /> : children}
+              </pre>
+            </ChatCodeBlock>
+          )
         },
-        code: ({ inline, className, children, ...props }) => {
+        code: ({ node, className, children, 'data-code-filename': filename, ...props }) => {
           const codeText = String(children ?? '').replace(/\n$/, '')
-          if (!inline) {
+          if (filename) {
             const commands = extractBangCommands(codeText)
             if (commands.length > 0) {
               return (

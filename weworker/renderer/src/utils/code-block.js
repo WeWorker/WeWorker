@@ -20,3 +20,27 @@ export function preChildText(children) {
   const inner = first && typeof first === 'object' ? first.props?.children : ''
   return typeof inner === 'string' ? inner : ''
 }
+
+function codeBlockFilename(name) {
+  if (!name || /[<>:"/\\|?*\u0000-\u001f]|[. ]$/u.test(name) ||
+      /^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])\s*(?:\.|$)/i.test(name)) return 'code'
+  return name
+}
+
+// Keep the filename in Markdown metadata, outside the text copied or saved.
+export function remarkCodeFilenames() {
+  return tree => {
+    function annotate(node) {
+      if (node.type === 'code') {
+        const match = node.meta?.match(/(?:^|\s)filename=(?:"([^"]+)"|'([^']+)'|([^\s]+))(?:\s|$)/)
+        node.data ??= {}
+        node.data.hProperties = {
+          ...node.data.hProperties,
+          'data-code-filename': codeBlockFilename(match?.[1] ?? match?.[2] ?? match?.[3]),
+        }
+      }
+      node.children?.forEach(annotate)
+    }
+    annotate(tree)
+  }
+}
