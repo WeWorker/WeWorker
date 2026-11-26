@@ -118,7 +118,8 @@ export function pickPlaybooks(entries, rootCause) {
   return entries.filter((e) => e.playbook && e.rootCause === rootCause);
 }
 
-/** 修复成本统计(经验库 meta 聚合):首轮成功率/平均轮数/playbook 命中率。比率分母 = 带 meta 条目,无 meta 只计 total/fixed。 */
+/** 修复成本统计(经验库 meta 聚合):首轮成功率/平均轮数/playbook 命中率。
+ * 口径披露(review 裁决):fixed 为全部 fixed 结果计数(含未带 meta 条目);三比率分母仅含带 meta 条目。 */
 export function repairStats(entries) {
   const withMeta = entries.filter((e) => e.meta);
   const firstRound = withMeta.filter((e) => e.meta.rounds === 1);
