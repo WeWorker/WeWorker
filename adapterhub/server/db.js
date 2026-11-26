@@ -127,7 +127,22 @@ export function openCatalog(file = 'adapterhub.db') {
       revoked INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_access_tokens_userid ON access_tokens(userid, revoked);
-    PRAGMA user_version = 5;
+    CREATE TABLE IF NOT EXISTS experiences (
+      id TEXT PRIMARY KEY,
+      site TEXT NOT NULL,
+      runtime TEXT,
+      root_cause TEXT,
+      symptom TEXT,
+      fix_strategy TEXT,
+      playbook TEXT,
+      outcome TEXT,
+      last_outcome TEXT,
+      hits INTEGER DEFAULT 1,
+      reporter TEXT,
+      created_at INTEGER,
+      updated_at INTEGER
+    );
+    PRAGMA user_version = 6;
   `)
   // v5 迁移：adapter_releases 增加 published_by / publisher_role（最后更新人 + 管理员统一标签）。
   // 发布时间即事实记录，历史数据保持 NULL（前端/CLI 显示「未知」）。
@@ -759,4 +774,39 @@ export function useridFromAccessToken(db, token) {
   if (!row) return null
   db.prepare('UPDATE access_tokens SET last_used_at=? WHERE token_hash=?').run(Date.now(), hash)
   return row.userid
+}
+
+// ── 修复经验（自进化二期；读匿名，写需 PAT）──
+
+export function upsertExperience(db, e) {
+  const now = Date.now()
+  const prev = db.prepare('SELECT * FROM experiences WHERE id = ?').get(e.id)
+  if (!prev) {
+    db.prepare(`INSERT INTO experiences (id, site, runtime, root_cause, symptom, fix_strategy, playbook, outcome, last_outcome, hits, reporter, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`)
+      .run(e.id, e.site, e.runtime ?? '', e.root_cause ?? '', e.symptom ?? '', e.fix_strategy ?? '',
+           e.playbook ?? null, e.outcome ?? 'fixed', e.outcome ?? 'fixed', e.reporter ?? '', now, now)
+    return
+  }
+  // failed 复现只记账（hits/last_outcome/reporter）：已验证的 root_cause/fix_strategy/outcome/playbook 保留旧值
+  if ((e.outcome ?? 'fixed') === 'failed') {
+    db.prepare('UPDATE experiences SET hits = hits + 1, last_outcome = ?, reporter = ?, updated_at = ? WHERE id = ?')
+      .run('failed', e.reporter ?? prev.reporter ?? '', now, e.id)
+    return
+  }
+  // 正常合并：修复结论以 incoming 为准；playbook 仅在传入时覆盖（COALESCE 保留旧值）
+  db.prepare(`UPDATE experiences SET hits = hits + 1, last_outcome = ?, outcome = ?, root_cause = ?, fix_strategy = ?,
+              playbook = COALESCE(?, playbook), reporter = ?, updated_at = ? WHERE id = ?`)
+    .run(e.outcome ?? 'fixed', e.outcome ?? 'fixed', e.root_cause ?? '', e.fix_strategy ?? '',
+         e.playbook ?? null, e.reporter ?? prev.reporter ?? '', now, e.id)
+}
+
+export function listExperiences(db, { site = '', runtime = '', root_cause = '', k = 20 } = {}) {
+  const clauses = [], params = []
+  if (site) { clauses.push('site = ?'); params.push(site) }
+  if (runtime) { clauses.push('runtime = ?'); params.push(runtime) }
+  if (root_cause) { clauses.push('root_cause = ?'); params.push(root_cause) }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+  return db.prepare(`SELECT * FROM experiences ${where} ORDER BY hits DESC, updated_at DESC LIMIT ?`)
+    .all(...params, Math.max(1, Math.min(50, k)))
 }

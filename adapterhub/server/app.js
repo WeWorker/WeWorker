@@ -4,7 +4,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeF
 import path from 'node:path'
 import { nullAuth } from './auth.js'
 import { readAdapterPackage } from '../lib/adapt-package.js'
-import { artifactForAdapter, artifactForAdapterVersion, artifactForSite, getAdapter, getCommand, getSite, incrementAdapterDownload, incrementSiteDownload, listAdapters, listAdapterCommands, listAdapterReleases, listCommands, listSites, createAccessToken, listAccessTokens, revokeAccessToken, listFavorites, addFavorite, removeFavorite, listManagedAdapters, checkAdapterPublish, preflightAdapterPublish, importAdapter, addAdapterOwner, canManageAdapter, useridFromAccessToken, isAdmin, adapterVersionIndex } from './db.js'
+import { artifactForAdapter, artifactForAdapterVersion, artifactForSite, getAdapter, getCommand, getSite, incrementAdapterDownload, incrementSiteDownload, listAdapters, listAdapterCommands, listAdapterReleases, listCommands, listSites, createAccessToken, listAccessTokens, revokeAccessToken, listFavorites, addFavorite, removeFavorite, listManagedAdapters, checkAdapterPublish, preflightAdapterPublish, importAdapter, addAdapterOwner, canManageAdapter, useridFromAccessToken, isAdmin, adapterVersionIndex, upsertExperience, listExperiences } from './db.js'
 
 function sendJson(res, status, value, extraHeaders = {}) {
   const body = JSON.stringify(value)
@@ -269,6 +269,46 @@ export function createHandler({ db, dataDir, webDir, auth = nullAuth }) {
         const artifact = version ? artifactForAdapterVersion(db, name, version) : artifactForAdapter(db, name)
         if (!artifact) return error(res, 404, 'NOT_FOUND', version ? `Adapter ${name} 无版本 ${version} 的可下载制品` : 'Adapter not found or not installable')
         return streamArtifact(req, res, dataDir, artifact, () => incrementAdapterDownload(db, artifact.adapterName))
+      }
+      // ── 修复经验（自进化二期；GET 匿名，POST 需 PAT）──
+      if (url.pathname === '/api/v1/experiences' && req.method === 'GET') {
+        return sendJson(res, 200, { items: listExperiences(db, {
+          site: url.searchParams.get('site') || '',
+          runtime: url.searchParams.get('runtime') || '',
+          root_cause: url.searchParams.get('root_cause') || '',
+          k: Number.parseInt(url.searchParams.get('k') || '20', 10) || 20,
+        }) })
+      }
+      if (auth.configured && url.pathname === '/api/v1/experiences' && req.method === 'POST') {
+        // 鉴权优先 PAT（webcli CLI 用），回退 session cookie（网页登录态）——与 POST /adapters 同款
+        const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '')?.[1]
+        const userid = token ? useridFromAccessToken(db, token) : (req.oaUser?.userid || null)
+        if (!userid) return error(res, 401, 'UNAUTHORIZED', '请先登录或提供访问令牌（Authorization: Bearer ahp_...）')
+        const chunks = []
+        let totalBytes = 0
+        let aborted = false
+        req.on('data', (c) => {
+          totalBytes += c.length
+          if (totalBytes > 256 * 1024) { aborted = true; error(res, 413, 'PAYLOAD_TOO_LARGE', '请求超过 256KB 上限'); req.destroy() }
+          else chunks.push(c)
+        })
+        req.on('end', () => {
+          if (aborted) return
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+            for (const field of ['site', 'symptom']) {
+              if (!body?.[field]) return error(res, 400, 'INVALID', `缺少 ${field}`)
+            }
+            // id 约定：客户端用 sha1(site|runtime|symptom) 前 12 位；缺失时服务端按同算法补齐
+            const providedId = typeof body.id === 'string' ? body.id.trim() : ''
+            const id = providedId || createHash('sha1').update(`${body.site}|${body.runtime || ''}|${body.symptom}`).digest('hex').slice(0, 12)
+            upsertExperience(db, { ...body, id, reporter: userid })
+            return sendJson(res, 200, { ok: true, id })
+          } catch (cause) {
+            return error(res, 400, 'BAD_REQUEST', cause instanceof Error ? cause.message : 'Invalid request')
+          }
+        })
+        return
       }
       // ── v1（冻结只读）：站点维度保留，命令维度下载已下线 ──
       if (url.pathname === '/api/v1/sites' && req.method === 'GET') {
