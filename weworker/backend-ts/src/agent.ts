@@ -328,6 +328,8 @@ export interface UsageEvent {
   kind?: 'turn' | 'post_compaction_probe'
 }
 
+const CHAT_CODE_FILENAME_RULE = '在聊天回复中输出可单独保存的代码时，请使用带语言和文件名的 Markdown 代码围栏，例如 ```python filename=binary_sort.py。每个文件一个代码块，提供完整文件名（包含原有后缀，无后缀的文件保留原名），不含目录，代码块正文只放文件内容。'
+
 export function buildSystemPrompt(opts?: {
   channelPermissionMode?: ChannelPermissionMode
   workspaceDirectory?: string
@@ -344,7 +346,7 @@ export function buildSystemPrompt(opts?: {
   const defaultShell = platform === 'win32' ? 'powershell' : 'bash'
   if (channelPermissionMode === 'qa_only') {
     const base = renderPrompt('agent-qa-only', {}).trim()
-    return composeSystemPromptWithStyle(`${base}\n\n${opts?.memoryProtocol ?? ''}`.trim(), opts?.styleId, opts?.customStyles ?? [])
+    return composeSystemPromptWithStyle(`${base}\n\n${CHAT_CODE_FILENAME_RULE}\n\n${opts?.memoryProtocol ?? ''}`.trim(), opts?.styleId, opts?.customStyles ?? [])
   }
 
   const allAdapters = parseAllAdapters()
@@ -496,7 +498,7 @@ Host-managed Extension Adapter（包括页面/DOM 命令）必须直接调用业
     windows_encryption_rules: windowsEncryptionRules,
     login_detection_rules: loginDetectionRules,
   }).trimEnd()}\n`
-  return composeSystemPromptWithStyle(`${base}\n\n${opts?.memoryProtocol ?? ''}`.trim(), opts?.styleId, opts?.customStyles ?? [])
+  return composeSystemPromptWithStyle(`${base}\n\n${CHAT_CODE_FILENAME_RULE}\n\n${opts?.memoryProtocol ?? ''}`.trim(), opts?.styleId, opts?.customStyles ?? [])
 }
 function findClaudeExecutable(): string | undefined {
   const configured = process.env.WEWORKER_CLAUDE_CODE_PATH
