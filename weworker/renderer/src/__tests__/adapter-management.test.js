@@ -310,6 +310,42 @@ test('fills the Hub update button while waiting and switches to measured progres
   assert.ok(button('已安装').disabled)
 })
 
+test('pauses installed Adapter update progress at halfway and advances with measured bytes', async t => {
+  let finishUpdate
+  let transfer = null
+  const response = new Promise(resolve => { finishUpdate = resolve })
+  stubFetch(t, ({ path }) => {
+    if (path === '/adapter-updates') return snapshot('ready', item)
+    if (path === '/adapter-updates/progress') return Response.json({ transfer })
+    if (path === `/adapter-updates/${site.id}/apply`) return response
+    if (path === '/sites') return Response.json([{ ...site, version: '1.1.0' }])
+    throw new Error(`Unexpected path ${path}`)
+  })
+  siteStore.setState({ sites: [site] })
+  await mount(t, AdapterManagement)
+  await act(async () => button('更新').click())
+  const progress = button('更新中…')
+  const width = () => progress.style.getPropertyValue('--transfer-progress')
+  assert.equal(progress.disabled, true)
+  assert.equal(width(), '4%')
+  transfer = { name: site.id, status: 'downloading', receivedBytes: 200, totalBytes: 1000 }
+  await act(() => delay(430))
+  assert.match(progress.title, /20%/)
+  await act(() => delay(6000))
+  assert.equal(width(), '50%')
+  transfer = { ...transfer, receivedBytes: 760 }
+  await act(() => delay(430))
+  assert.equal(width(), '76%')
+  assert.match(progress.title, /76%/)
+  transfer = { ...transfer, status: 'writing', receivedBytes: 1000 }
+  await act(() => delay(430))
+  assert.equal(width(), '100%')
+  assert.equal(button('写入中…'), progress)
+  await act(async () => finishUpdate(snapshot('ready', { ...item, currentVersion: '1.1.0', status: 'current' })))
+  assert.equal(document.querySelector('.adapter-hub__transfer'), null)
+  assert.equal(lastNotice().type, 'success')
+})
+
 test('filters installed Adapters locally and restores the list when cleared', async t => {
   const calls = stubFetch(t, () => snapshot('ready'))
   siteStore.setState({ sites: [site, { ...site, id: 'mail.example.org', name: 'Mail', description: '收发邮件' }] })

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { applyAdapterUpdate, checkAdapterUpdates, fetchAdapterUpdates, installedAdapterVersion } from '../../api/adapter-updates-api.js'
+import { applyAdapterUpdate, checkAdapterUpdates, fetchAdapterUpdateProgress, fetchAdapterUpdates, installedAdapterVersion } from '../../api/adapter-updates-api.js'
 import { showNotification, updateNotification, useNotificationsStore } from '../../store/notifications.js'
 import { useSitesStore } from '../../store/sites.js'
 import AppSwitch from '../common/AppSwitch.jsx'
 import SiteIcon from '../icons/SiteIcon.jsx'
 import AdapterDetailView from './AdapterDetailView.jsx'
+import AdapterTransferButton from './AdapterTransferButton.jsx'
 import './adapter-management.css'
 import './adapter-hub.css'
 
@@ -26,6 +27,7 @@ export default function AdapterManagement() {
   const toggleError = useSitesStore(state => state.toggleError)
   const [snapshot, setSnapshot] = useState(null)
   const [operation, setOperation] = useState(null)
+  const [transfer, setTransfer] = useState(null)
   const [selectedSite, setSelectedSite] = useState(null)
   const [query, setQuery] = useState('')
   const runningOperation = useRef(false)
@@ -50,6 +52,26 @@ export default function AdapterManagement() {
     }
   }, [snapshot, operation])
 
+  const updatingId = operation?.action === 'apply' ? operation.id : null
+  useEffect(() => {
+    if (!updatingId) return
+    const controller = new AbortController()
+    let timer = setTimeout(poll, 350)
+    async function poll() {
+      try {
+        const next = await fetchAdapterUpdateProgress(controller.signal)
+        if (!controller.signal.aborted && next?.name === updatingId) {
+          setTransfer(previous => previous?.status === 'complete' ? previous : next)
+        }
+      } catch {
+        // The update request reports the result even if progress polling fails.
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(poll, 350)
+      }
+    }
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [updatingId])
+
   const run = async (action, id, version) => {
     if (runningOperation.current || !snapshot || snapshot.status === 'checking') return
     runningOperation.current = true
@@ -67,6 +89,7 @@ export default function AdapterManagement() {
         updateNotification(notice, '已检测最新版本', { type: 'success' })
       } else {
         setSnapshot(await applyAdapterUpdate(id, version))
+        setTransfer({ name: id, status: 'complete' })
         await refreshSites()
         updateNotification(notice, `已将 ${name} 更新至 ${version}`, { type: 'success' })
       }
@@ -75,6 +98,7 @@ export default function AdapterManagement() {
     } finally {
       runningOperation.current = false
       setOperation(null)
+      setTransfer(null)
     }
   }
 
@@ -136,15 +160,17 @@ export default function AdapterManagement() {
                   <h2 className="tool-package-entry__title" title={name}>{name}</h2>
                   <span className="tool-package-entry__description">{site?.description || id}</span>
                 </div>
-                <button
+                {updatingId === id ? (
+                  <AdapterTransferButton job={transfer ?? { status: 'downloading' }} entry={{ name }} activeLabel="更新中…" minimumWaitingProgress={50} />
+                ) : <button
                   type="button"
                   className={`tool-package-card-action${available ? ' is-update' : ''}`}
                   disabled={unavailable || (available && togglingIds.includes(id))}
                   aria-label={available ? `更新 ${name} 至 ${item.latestVersion}` : `检测 ${name} 最新版本`}
                   onClick={event => { event.stopPropagation(); available ? run('apply', id, item.latestVersion) : run('check', id) }}
                 >
-                  {operation?.id === id ? (operation.action === 'apply' ? '更新中…' : '检测中…') : available ? '更新' : '检测'}
-                </button>
+                  {operation?.id === id ? '检测中…' : available ? '更新' : '检测'}
+                </button>}
                 <div className="tool-package-entry__footer">
                   <div className="adapter-management__versions">
                     <span>当前 {item?.currentVersion || installedAdapterVersion(site)}</span>

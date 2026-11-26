@@ -78,10 +78,26 @@ it('coalesces checks and updates a disabled Hub Adapter without enabling it', as
   expect(source.index).toHaveBeenCalledTimes(1)
   expect(updater.snapshot().items[id]).toEqual({ currentVersion: '1.0.0', latestVersion: '1.1.0', status: 'available' })
   expect((await updater.apply(id, '1.1.0')).items[id].status).toBe('current')
-  expect(source.download).toHaveBeenCalledWith(id, '1.1.0')
+  expect(source.download).toHaveBeenCalledWith(id, '1.1.0', expect.any(Function))
+  expect(updater.updateTransfer()).toBeNull()
   expect(installed).toHaveBeenCalledWith(expect.objectContaining({ name: id }))
   expect(readDesktopAdapterCatalogInputs().state.selections[id]).toEqual({ source: 'disabled', resumeSource: 'user' })
   expect(toggleDesktopAdapter(id)).toBe(true)
+})
+
+it('reports real bytes for an installed Adapter update and clears failed transfers', async () => {
+  installAdapter({ files: files('1.0.0'), origin })
+  const source = feed()
+  const download = vi.fn<ReturnType<typeof createAdapterUpdateSource>['download']>(async (_id, _version, report) => {
+    report?.({ received: 760, total: 1000, elapsedMs: 500, bytesPerSecond: 1520 })
+    throw new Error('Interrupted download')
+  })
+  const updater = createAdapterUpdates({ source: { ...source, download } })
+  await updater.startCheck()
+  const result = updater.apply(id, '1.1.0')
+  expect(updater.updateTransfer()).toMatchObject({ name: id, status: 'downloading', receivedBytes: 760, totalBytes: 1000 })
+  await expect(result).rejects.toThrow('Interrupted download')
+  expect(updater.updateTransfer()).toBeNull()
 })
 
 it('accepts permission changes from the official channel and keeps a disabled built-in disabled', async () => {
