@@ -1871,6 +1871,11 @@ app.get('/adapter-updates', (_req, res) => {
   res.json(adapterUpdates.snapshot())
 })
 
+app.get('/adapter-updates/progress', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ transfer: adapterUpdates.updateTransfer() })
+})
+
 app.post('/adapter-updates/check', async (_req, res) => {
   await adapterUpdates.startCheck()
   res.json(adapterUpdates.snapshot())
