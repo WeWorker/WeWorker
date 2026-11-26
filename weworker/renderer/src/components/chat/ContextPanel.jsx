@@ -9,7 +9,45 @@ import {
   normalizeContextSnapshot,
 } from '../../utils/context-snapshot.js'
 
-export default function ContextPanel({ snapshot, contextLimit, usageOnly = false }) {
+import { MAX_CONTEXT_LIMIT } from '../../utils/context-window.js'
+
+const MIN_CONTEXT_LIMIT = 64_000
+
+function ContextLimitControl({ value, pending, onSave }) {
+  const [draft, setDraft] = useState(null)
+  const [error, setError] = useState('')
+  const limit = draft ?? value
+
+  async function save(event) {
+    event.preventDefault()
+    try {
+      await onSave(limit)
+      setDraft(null)
+      setError('')
+    } catch {
+      setError('保存失败，请重试')
+    }
+  }
+
+  return (
+    <form className="context-panel__budget" onSubmit={save}>
+      <label className="context-panel__budget-label">
+        <span>本对话上下文上限 <strong>{formatContextTokens(limit)}</strong></span>
+        <input type="range" min={MIN_CONTEXT_LIMIT} max={MAX_CONTEXT_LIMIT} step="1"
+          value={limit} aria-valuetext={`${formatContextTokens(limit)} tokens`} disabled={pending}
+          style={{ '--context-budget-fill': `${100 * (limit - MIN_CONTEXT_LIMIT) / (MAX_CONTEXT_LIMIT - MIN_CONTEXT_LIMIT)}%` }}
+          onChange={event => { setDraft(event.target.valueAsNumber); setError('') }} />
+      </label>
+      <div className="context-panel__budget-range" aria-hidden="true"><span>64K</span><span>960K</span></div>
+      <div className="context-panel__budget-actions">
+        <span role="status">{error}</span>
+        <button type="submit" disabled={pending || limit === value}>{pending ? '保存中' : '应用'}</button>
+      </div>
+    </form>
+  )
+}
+
+export default function ContextPanel({ snapshot, contextLimit, usageOnly = false, onSaveContextLimit, savingContextLimit = false }) {
   const normalized = useMemo(
     () => normalizeContextSnapshot(snapshot || createEmptyContextSnapshot(contextLimit), contextLimit),
     [snapshot, contextLimit],
@@ -71,7 +109,7 @@ export default function ContextPanel({ snapshot, contextLimit, usageOnly = false
         <div
           data-context-panel
           className="context-panel motion-popover-enter"
-          style={{ left: placement.left, bottom: placement.bottom }}
+          style={{ left: placement.left, bottom: placement.bottom, maxHeight: `min(660px, calc(100dvh - ${placement.bottom + 12}px))` }}
           role="dialog"
           aria-label="上下文组成"
         >
@@ -131,6 +169,9 @@ export default function ContextPanel({ snapshot, contextLimit, usageOnly = false
               </section>
             ))}
           </div>}
+          {!usageOnly && onSaveContextLimit && <ContextLimitControl
+            value={normalized.context_limit} pending={savingContextLimit} onSave={onSaveContextLimit}
+          />}
         </div>,
         document.body,
       )}

@@ -30,6 +30,7 @@ vi.mock('../user-directory-access.js', () => ({
 import { clearStoredConversationCompaction, streamChat } from '../agent.js'
 import { configureWorkLogs, readWorkLog } from '../work-log-file.js'
 import { disposeAllChatSessions } from '../chat-session.js'
+import { conversationModels, createConversationModelStore, resolveWorkModelSettings } from '../conversation-models.js'
 import { hasPendingAskUser, requestUserChoice } from '../ask-user-pending.js'
 
 function message(id: string, text: string, role: Message['role'] = 'user'): Message {
@@ -474,6 +475,51 @@ describe('agent conversation compaction', () => {
     }))
     const events = await collect(history(), { forceCompaction: true, compactionOnly: true }, { ...settings, context_limit: 4000 })
     expect(events.find(event => event.type === 'context_compaction_end')?.compaction?.status).toBe('failed')
+  })
+
+  it.each([3, 1])('recalculates compaction on the next send after lowering the saved limit with %i summary attempts', async maxAttempts => {
+    const file = path.join(mocks.directory, 'conversation-models.json')
+    const models = createConversationModelStore(file)
+    const highLimit = 200_000
+    const lowLimit = 64_000
+    models.setContextLimit(options.workId, highLimit)
+    vi.spyOn(conversationModels, 'getRecord').mockImplementation(id => createConversationModelStore(file).getRecord(id))
+
+    // One bounded summary cannot bring this history under the new limit.
+    const older = [
+      message('old-user', 'Public test question. ' + '先前对话内容。'.repeat(10_000)),
+      message('old-assistant', '检查结束。'.repeat(10_000), 'assistant'),
+    ]
+    const turnOptions = { reuseSession: true, channelPermissionMode: 'full' as const }
+    const before = await collect([...older, message('first', 'Public first follow-up')], turnOptions,
+      resolveWorkModelSettings(options.workId, settings))
+    expect(before.some(event => event.type === 'context_compaction_start')).toBe(false)
+    expect(before.find(event => event.type === 'context_snapshot')?.context?.context_limit).toBe(highLimit)
+
+    models.setContextLimit(options.workId, lowLimit)
+    mocks.query.mockClear()
+    const messages = [...older, message('first', 'Public first follow-up'),
+      message('answer', 'Public answer', 'assistant'), message('next', 'Public next follow-up')]
+    const after = await collect(messages, turnOptions, {
+      ...resolveWorkModelSettings(options.workId, settings), compaction_max_attempts: maxAttempts,
+    })
+    const summaryRequests = mocks.query.mock.calls.map(([request]) => request).filter(request => request.options.tools)
+    expect(summaryRequests).toHaveLength(maxAttempts === 1 ? 1 : 2)
+    expect(after.some(event => event.type === 'context_compaction_end'
+      && event.compaction?.strategy === 'drop_oldest')).toBe(maxAttempts === 1)
+    for (const request of summaryRequests) {
+      expect(request.options.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe(String(lowLimit))
+      expect(contextAssembly.estimateContextTokens(request.prompt) + 4096 + 1024).toBeLessThan(lowLimit)
+      expect(request.prompt).not.toContain('Public next follow-up')
+    }
+    const mainRequest = mocks.query.mock.calls.at(-1)![0]
+    expect(mainRequest.options.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS).toBe(String(lowLimit))
+    if (maxAttempts > 1) expect(mainRequest.prompt).toContain('[历史对话摘要]')
+    expect(mainRequest.prompt).toContain('Public next follow-up')
+    const request = after.filter(event => event.type === 'context_snapshot' && event.context?.phase === 'request_start').at(-1)?.context
+    expect(request).toMatchObject({ context_limit: lowLimit })
+    expect(request!.estimated_total_tokens).toBeLessThan(lowLimit)
+    expect(after.some(event => event.type === 'error')).toBe(false)
   })
 
   it('automatically compacts at the local threshold and preserves the result for later turns', async () => {

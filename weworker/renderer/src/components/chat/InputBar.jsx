@@ -1019,7 +1019,12 @@ export default function InputBar({
             className="chat-permission-picker"
           />
         </div>}
-        {!isWelcome && <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit} />}
+        {!isWelcome && <ContextPanel snapshot={contextSnapshot} contextLimit={contextLimit}
+          savingContextLimit={sessionModel.pending}
+          onSaveContextLimit={sessionModel.loaded && attachmentTarget.startsWith('work:')
+            ? limit => useConversationModelsStore.getState().saveContextLimit(attachmentTarget, limit)
+            : undefined}
+        />}
       </div>
       <div className="chat-input-toolbar-actions">
         <ModelSelector

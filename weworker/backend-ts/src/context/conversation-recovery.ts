@@ -69,17 +69,19 @@ export async function* streamWithConversationRecovery(input: {
   const response = createResponse(input.workId)
   let snapshot: SSEEvent['context']
   async function* execute(request: ConversationRecoveryRequest): AsyncGenerator<SSEEvent, {
-    overflow?: SSEEvent; error?: SSEEvent; completed: boolean; compaction?: SSEEvent['compaction']
+    overflow?: SSEEvent; error?: SSEEvent; completed: boolean; compaction?: SSEEvent['compaction']; summaryAttempts: number
   }> {
     let overflow: SSEEvent | undefined
     let error: SSEEvent | undefined
     let completed = false
     let compaction: SSEEvent['compaction']
+    let summaryAttempts = 0
     try {
       for await (const event of input.run(request)) {
         if (input.signal?.aborted) break
         if (event.type === 'done') { completed = true; continue }
         if (event.type === 'context_snapshot') snapshot = event.context
+        if (event.type === 'context_compaction_start' && event.compaction?.strategy === 'summary') summaryAttempts++
         if (event.type === 'context_compaction_end') compaction = event.compaction
         if (event.type === 'error') {
           if (isContextOverflowError(event.content)) overflow = event
@@ -94,7 +96,7 @@ export async function* streamWithConversationRecovery(input: {
       if (isContextOverflowError(event.content)) overflow = event
       else error = event
     }
-    return { overflow, error, completed, compaction }
+    return { overflow, error, completed, compaction, summaryAttempts }
   }
   const initial = yield* execute({})
   if (input.signal?.aborted) return
@@ -113,7 +115,7 @@ export async function* streamWithConversationRecovery(input: {
   let failureReason = ''
   if (!terminalError && (overflow || thresholdReached)) {
     const maxAttempts = normalizeCompactionMaxAttempts(input.maxAttempts)
-    let attempts = initial.compaction?.strategy === 'summary' ? 1 : 0
+    let attempts = Math.max(initial.summaryAttempts, initial.compaction?.strategy === 'summary' ? 1 : 0)
     let dropOldest = !!summaryNeedsRecovery
       && ['no_reduction', 'summary_input_too_large'].includes(initial.compaction?.reason || '')
     while (!input.signal?.aborted) {

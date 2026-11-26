@@ -78,7 +78,7 @@ import {
 import { listProviderModels, probeTimedMainConnection, probeProviderProtocol, type ProbeTarget } from './provider-model-services.js'
 import { modelCatalogConfigPatch, resolveModelCatalogConfig } from './model-catalog-config.js'
 import { registerExplorationModelRoutes, explorationConversationSettings } from './exploration-model-settings.js'
-import { conversationModels, currentConversationModel, defaultConversationModel, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
+import { conversationModels, currentConversationModel, defaultConversationModel, initialConversationContextLimit, parseConversationModel, registerConversationModelRoutes, resolveConversationModelSettings, resolveWorkModelSettings, workModelSelection, type ConversationModel } from './conversation-models.js'
 import { activateCheckedModelSettings, prepareCheckedModelSave, type ModelActivationCheck } from './model-settings-activation.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
@@ -88,7 +88,7 @@ import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
 import { configuredModel } from './provider-config.js'
-import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
+import { DEFAULT_CONTEXT_LIMIT, MODEL_CONTEXT_LIMIT_ERROR, parseModelContextLimit } from './context-window.js'
 import { explorationResetPatch, isAuthorizedModelConfigRequest, resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { assertAllowedWeixinBaseUrl, buildAllowedWeixinBaseUrls } from './channel-egress.js'
 import { agentConversationPermission, resolveDesktopChatPermission } from './chat-permission-mode.js'
@@ -879,9 +879,9 @@ app.post('/settings/provider', async (req, res) => {
       res.status(403).json({ detail: '免费模型仅支持修改名称和上下文窗口' })
       return
     }
-    const limit = parseContextLimit(context_limit)
+    const limit = parseModelContextLimit(context_limit)
     if (limit === null) {
-      res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位' })
+      res.status(400).json({ detail: MODEL_CONTEXT_LIMIT_ERROR })
       return
     }
     const current = getSettings()
@@ -931,9 +931,9 @@ app.post('/settings/provider', async (req, res) => {
     res.status(400).json({ detail: 'WeWorker 对话协议无效' })
     return
   }
-  const parsedContextLimit = context_limit === undefined ? undefined : parseContextLimit(context_limit)
+  const parsedContextLimit = context_limit === undefined ? undefined : parseModelContextLimit(context_limit)
   if (context_limit !== undefined && parsedContextLimit === null) {
-    res.status(400).json({ detail: '上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位' })
+    res.status(400).json({ detail: MODEL_CONTEXT_LIMIT_ERROR })
     return
   }
   const updates: Partial<ReturnType<typeof getSettings>> = { ...nameUpdates }
@@ -1198,7 +1198,12 @@ app.post('/settings/provider/probe', async (req, res) => {
 })
 
 registerExplorationModelRoutes(app, { getSettings, updateSettings })
-registerConversationModelRoutes(app, { getSettings, hasWork: id => Boolean(store.getWork(id)), isBusy: id => isChatSessionBusy(id) || sharedChatTurns.isActive(id) })
+registerConversationModelRoutes(app, {
+  getSettings,
+  hasWork: id => Boolean(store.getWork(id)),
+  isBusy: id => isChatSessionBusy(id) || sharedChatTurns.isActive(id),
+  onContextLimitChanged: id => disposeIdleChatSession(id, 'context_limit_changed'),
+})
 
 app.get('/settings/channels', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store')
@@ -2572,15 +2577,23 @@ app.post('/works', (req, res) => {
     return
   }
   let selection: ConversationModel | undefined
+  let contextLimit: number
   try {
     const defaults = getSettings()
     if (req.body.model_selection) {
       selection = currentConversationModel(defaults, parseConversationModel(req.body.model_selection))
-      resolveConversationModelSettings(defaults, selection)
     } else if (defaults.model) selection = defaultConversationModel(defaults)
+    contextLimit = initialConversationContextLimit(defaults, selection)
   } catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '会话模型无效' }); return }
   const work = store.createWork('', project_id ?? null)
-  if (selection) conversationModels.set(work.id, selection)
+  try {
+    if (selection) conversationModels.set(work.id, selection, contextLimit)
+    else conversationModels.setContextLimit(work.id, contextLimit)
+  } catch (error) {
+    store.deleteWork(work.id)
+    res.status(500).json({ detail: error instanceof Error ? error.message : '上下文预算保存失败' })
+    return
+  }
   if (zcf_role !== undefined) {
     const prefs = sanitizeWorkStylePatch({ zcf_role }, getSettings())
     const updated = store.updateWorkStyle(work.id, prefs)
@@ -3265,7 +3278,9 @@ async function prewarmChatSession(input: {
   try {
     const defaults = getSettings()
     const selection = input.workId ? workModelSelection(input.workId, defaults) : currentConversationModel(defaults, input.modelSelection)
-    const settings = resolveConversationModelSettings(defaults, selection)
+    const settings = input.workId ? resolveWorkModelSettings(input.workId, defaults) : {
+      ...resolveConversationModelSettings(defaults, selection), context_limit: initialConversationContextLimit(defaults, selection),
+    }
     const styleId = resolveStyleId(input.zcf, settings)
     for await (const event of streamChat(input.messages, settings, undefined, {
       ...(input.workId ? { workId: input.workId } : {}),

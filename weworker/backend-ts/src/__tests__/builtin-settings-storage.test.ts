@@ -35,6 +35,24 @@ it('persists the built-in context window across unrelated saves, reload and reac
   expect(config.getSettings().context_limit).toBe(200000)
 })
 
+it('caps oversized legacy settings on read for the active model and provider rows', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-context-cap-fixture-'))
+  vi.spyOn(os, 'homedir').mockReturnValue(root)
+  vi.resetModules()
+  const directory = path.join(root, '.weworker')
+  fs.mkdirSync(directory)
+  fs.writeFileSync(path.join(directory, 'settings.json'), JSON.stringify({
+    active_provider: 'custom', active_model_configuration: 'fixture',
+    context_limit_anthropic: 1_000_000, builtin_context_limits: { builtin: '1M' },
+    model_configurations: { fixture: { provider_id: 'custom', model: 'fixture-model', context_limit: 2_000_000 } },
+  }))
+  const config = await import('../config.js')
+  const { publicModelConfigurations } = await import('../model-configurations.js')
+  const settings = config.getSettings()
+  expect(settings).toMatchObject({ context_limit: 960_000, context_limit_anthropic: 960_000, builtin_context_limits: { builtin: 960_000 } })
+  expect(publicModelConfigurations(settings).fixture.context_limit).toBe(960_000)
+})
+
 it('keeps deployment keys out of settings during activation, unrelated saves and reload', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-builtin-fixture-'))
   vi.spyOn(os, 'homedir').mockReturnValue(root)

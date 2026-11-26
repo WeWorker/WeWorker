@@ -6,7 +6,7 @@ import type { Settings } from './config.js'
 import { getModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { getProvider } from './provider-registry.js'
 import { builtinProviderAccess, isBuiltinProvider } from './builtin-provider.js'
-import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeContextLimit } from './context-window.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeContextLimit, normalizeConversationContextLimit, parseConversationContextLimit } from './context-window.js'
 
 export interface ConversationModel {
   provider: string
@@ -101,24 +101,48 @@ export function conversationModelStatus(settings: Settings, selection: Conversat
   return { ...selection, model: resolved.model, context_limit: resolved.context_limit }
 }
 
+export function initialConversationContextLimit(settings: Settings, selection?: ConversationModel): number {
+  return normalizeConversationContextLimit(selection ? resolveConversationModelSettings(settings, selection).context_limit : settings.context_limit)
+}
+
+type StoredConversationModel = Partial<ConversationModel> & { context_limit?: number }
+
 export function createConversationModelStore(file = path.join(os.homedir(), '.weworker', 'conversation-models.json')) {
-  function read(): Record<string, ConversationModel> {
+  function read(): Record<string, StoredConversationModel> {
     if (!fs.existsSync(file)) return {}
     const data = JSON.parse(fs.readFileSync(file, 'utf8'))
     if (data?.version !== 1 || !data.models || typeof data.models !== 'object' || Array.isArray(data.models)) throw new Error('会话模型记录读取失败')
     return data.models
   }
-  const get = (id: string) => { const all = read(); return Object.hasOwn(all, id) ? parseConversationModel(all[id]) : undefined }
-  const set = (id: string, selection: ConversationModel) => {
-    const value = parseConversationModel(selection)
-    const models = { ...read(), [id]: value }
+  function getRecord(id: string) {
+    const models = read()
+    if (!Object.hasOwn(models, id)) return {}
+    const { context_limit, ...model } = models[id]
+    return {
+      selection: Object.keys(model).length ? parseConversationModel(model) : undefined,
+      contextLimit: parseConversationContextLimit(context_limit) ?? undefined,
+    }
+  }
+  function write(models: Record<string, StoredConversationModel>) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     const temporary = `${file}.${process.pid}.tmp`
     fs.writeFileSync(temporary, JSON.stringify({ version: 1, models }) + '\n', 'utf8')
     fs.renameSync(temporary, file)
+  }
+  const get = (id: string) => getRecord(id).selection
+  const set = (id: string, selection: ConversationModel, contextLimit?: number) => {
+    const value = parseConversationModel(selection)
+    const models = read()
+    const storedLimit = contextLimit ?? (Object.hasOwn(models, id) ? models[id].context_limit : undefined)
+    write({ ...models, [id]: { ...value, context_limit: storedLimit } })
     return value
   }
-  return { get, set, ensure: (id: string, fallback: ConversationModel) => get(id) || set(id, fallback) }
+  function setContextLimit(id: string, contextLimit: number) {
+    const models = read()
+    const record = Object.hasOwn(models, id) ? models[id] : undefined
+    write({ ...models, [id]: { ...record, context_limit: contextLimit } })
+  }
+  return { get, set, getRecord, setContextLimit, ensure: (id: string, fallback: ConversationModel) => get(id) || set(id, fallback) }
 }
 
 export const conversationModels = createConversationModelStore()
@@ -126,13 +150,16 @@ export function workModelSelection(workId: string, settings: Settings): Conversa
   return currentConversationModel(settings, conversationModels.get(workId))
 }
 export function resolveWorkModelSettings(workId: string, settings: Settings): Settings {
-  return resolveConversationModelSettings(settings, workModelSelection(workId, settings))
+  const { selection, contextLimit } = conversationModels.getRecord(workId)
+  const resolved = resolveConversationModelSettings(settings, currentConversationModel(settings, selection))
+  return { ...resolved, context_limit: contextLimit ?? normalizeConversationContextLimit(resolved.context_limit) }
 }
 
 export function registerConversationModelRoutes(app: Express, deps: {
   getSettings: () => Settings
   hasWork: (id: string) => boolean
   isBusy: (id: string) => boolean
+  onContextLimitChanged?: (id: string) => void
   models?: ReturnType<typeof createConversationModelStore>
 }) {
   const models = deps.models || conversationModels
@@ -147,12 +174,16 @@ export function registerConversationModelRoutes(app: Express, deps: {
     if (!deps.hasWork(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
     try {
       const settings = deps.getSettings()
-      const selection = currentConversationModel(settings, models.get(req.params.id))
-      try { res.json(conversationModelStatus(settings, selection)) }
+      const record = models.getRecord(req.params.id)
+      const selection = currentConversationModel(settings, record.selection)
+      try {
+        const status = conversationModelStatus(settings, selection)
+        res.json({ ...status, context_limit: record.contextLimit ?? normalizeConversationContextLimit(status.context_limit) })
+      }
       catch (e) {
         // Keep the missing reference visible so users can select a replacement;
         // never display the default as if it belonged to this conversation.
-        res.json({ ...selection, unavailable: true, error: e instanceof Error ? e.message : '会话模型不可用，请重新选择' })
+        res.json({ ...selection, context_limit: record.contextLimit, unavailable: true, error: e instanceof Error ? e.message : '会话模型不可用，请重新选择' })
       }
     } catch (e) { res.status(400).json({ detail: e instanceof Error ? e.message : '会话模型读取失败' }) }
   })
@@ -165,8 +196,20 @@ export function registerConversationModelRoutes(app: Express, deps: {
         res.status(409).json({ detail: '全局模型已切换，请刷新后重新选择' }); return
       }
       const result = conversationModelStatus(settings, selection)
+      const { contextLimit } = models.getRecord(req.params.id)
       models.set(req.params.id, selection)
-      res.json(result)
+      res.json({ ...result, context_limit: contextLimit ?? normalizeConversationContextLimit(result.context_limit) })
     } catch (e) { res.status(400).json({ detail: e instanceof Error ? e.message : '会话模型保存失败' }) }
+  })
+  app.patch('/works/:id/context-limit', (req, res) => {
+    const id = req.params.id
+    if (!deps.hasWork(id)) { res.status(404).json({ detail: '对话不存在' }); return }
+    const limit = parseConversationContextLimit(req.body?.context_limit)
+    if (limit === null) { res.status(400).json({ detail: '上下文预算须为 64000 至 960000 之间的整数' }); return }
+    try {
+      models.setContextLimit(id, limit)
+      deps.onContextLimitChanged?.(id)
+      res.json({ context_limit: limit })
+    } catch (e) { res.status(500).json({ detail: e instanceof Error ? e.message : '上下文预算保存失败' }) }
   })
 }

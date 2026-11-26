@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
+import ts from 'typescript'
 import type { Settings } from '../config.js'
 import type { Express } from 'express'
-import { createConversationModelStore, currentConversationModel, defaultConversationModel, resolveConversationModelSettings, parseConversationModel, registerConversationModelRoutes } from '../conversation-models.js'
+import { createConversationModelStore, currentConversationModel, defaultConversationModel, initialConversationContextLimit, resolveConversationModelSettings, parseConversationModel, registerConversationModelRoutes } from '../conversation-models.js'
 
 function defaults(): Settings {
   return { active_provider: 'custom', active_model_configuration: 'example-a', model: 'default-a', api_key: 'placeholder-a',
@@ -36,8 +38,10 @@ describe('conversation-specific model configuration', () => {
       const models = createConversationModelStore(path.join(dir, 'models.json'))
       const settings = defaults(), before = structuredClone(settings)
       const handlers = new Map<string, Function>()
-      registerConversationModelRoutes({ get: (p: string, h: Function) => handlers.set('GET ' + p, h), post: (p: string, h: Function) => handlers.set('POST ' + p, h) } as unknown as Express,
-        { getSettings: () => settings, hasWork: id => id !== 'missing', isBusy: id => id === 'running', models })
+      const onContextLimitChanged = vi.fn()
+      registerConversationModelRoutes(Object.fromEntries(['GET', 'POST', 'PATCH'].map(method => [method.toLowerCase(),
+        (p: string, h: Function) => handlers.set(`${method} ${p}`, h)])) as unknown as Express,
+        { getSettings: () => settings, hasWork: id => id !== 'missing', isBusy: id => id === 'running', onContextLimitChanged, models })
       let data: any, status = 200
       const res = { json(value: unknown) { data = value; return this }, status(value: number) { status = value; return this } }
       const selection = { provider: 'example-b', model: 'session-b', thinking_effort: 'high' }
@@ -63,7 +67,28 @@ describe('conversation-specific model configuration', () => {
       expect(status).toBe(409)
       expect(models.get('a')).toEqual(selection)
       handlers.get('GET /works/:id/model')!({ params: { id: 'a' } }, res)
-      expect(data).toMatchObject({ provider: 'example-a', model: 'default-a', selection_revision: 'latest-revision' })
+      expect(data).toMatchObject({ provider: 'example-a', model: 'default-a', selection_revision: 'latest-revision', context_limit: 200_000 })
+      const patch = handlers.get('PATCH /works/:id/context-limit')!
+      for (const limit of [63_999, 960_001, 64_000.5, '80000', null]) {
+        status = 200
+        patch({ params: { id: 'a' }, body: { context_limit: limit } }, res)
+        expect(status).toBe(400)
+      }
+      expect(models.getRecord('a').contextLimit).toBeUndefined()
+      patch({ params: { id: 'missing' }, body: { context_limit: 80_000 } }, res)
+      expect(status).toBe(404)
+      status = 200
+      patch({ params: { id: 'a' }, body: { context_limit: 80_000 } }, res)
+      expect(status).toBe(200)
+      expect(data).toEqual({ context_limit: 80_000 })
+      expect(onContextLimitChanged).toHaveBeenCalledExactlyOnceWith('a')
+      handlers.get('GET /works/:id/model')!({ params: { id: 'a' } }, res)
+      expect(data).toMatchObject({ provider: 'example-a', context_limit: 80_000 })
+      handlers.get('POST /works/:id/model')!({ params: { id: 'a' }, body: { ...selection, selection_revision: 'latest-revision' } }, res)
+      expect(data).toMatchObject({ provider: 'example-b', context_limit: 80_000 })
+      expect(models.getRecord('a').contextLimit).toBe(80_000)
+      handlers.get('GET /works/:id/model')!({ params: { id: 'b' } }, res)
+      expect(data.context_limit).toBe(200_000)
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
   it('resolves a session model without modifying defaults or provider configurations', () => {
@@ -89,6 +114,42 @@ describe('conversation-specific model configuration', () => {
       expect(restored.ensure('c', defaultConversationModel(settings)).model).toBe('changed-default')
       const serialized = fs.readFileSync(file, 'utf8')
       expect(serialized).not.toMatch(/placeholder|api_key|base_url/)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+  it('snapshots the selected model budget at desktop creation and keeps it after settings change', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conversation-creation-test-'))
+    const file = path.join(dir, 'models.json')
+    try {
+      const settings = { ...defaults(), model_selection_revision: 'current' }
+      let create: Function | undefined
+      let seq = 0
+      const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
+      const start = source.indexOf("app.post('/works',")
+      const end = source.indexOf("\napp.patch('/works/:id/style'", start)
+      vm.runInNewContext(ts.transpileModule(source.slice(start, end), {
+        compilerOptions: { target: ts.ScriptTarget.ES2022 },
+      }).outputText, {
+        app: { post: (_path: string, callback: Function) => { create = callback } },
+        store: { createWork: () => ({ id: `work-${++seq}` }) },
+        conversationModels: createConversationModelStore(file), getSettings: () => settings,
+        currentConversationModel, defaultConversationModel, initialConversationContextLimit, parseConversationModel,
+        broadcastSSE: vi.fn(),
+      })
+      const res = { json: vi.fn(), status: vi.fn().mockReturnThis() }
+      const selected = settings.model_configurations!['example-b']
+      const selection = { provider: 'example-b', model: 'different-model-name', selection_revision: 'current' }
+      create!({ body: { model_selection: selection } }, res)
+      selected.context_limit = 32_000
+      create!({ body: { model_selection: selection } }, res)
+      selected.context_limit = 1_000_000
+      create!({ body: { model_selection: selection } }, res)
+      create!({ body: {} }, res)
+      expect(res.status).not.toHaveBeenCalled()
+      const restored = createConversationModelStore(file)
+      expect(restored.getRecord('work-1')).toMatchObject({ selection, contextLimit: 128_000 })
+      expect(restored.getRecord('work-2').contextLimit).toBe(64_000)
+      expect(restored.getRecord('work-3').contextLimit).toBe(960_000)
+      expect(restored.getRecord('work-4').contextLimit).toBe(200_000)
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
   it('does not silently fall back to defaults when a session configuration disappears', () => {
