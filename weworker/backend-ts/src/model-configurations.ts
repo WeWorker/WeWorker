@@ -4,7 +4,7 @@ import { getProvider, PROVIDERS } from './provider-registry.js'
 import { configuredModel, explorationResetPatch } from './provider-config.js'
 import { buildProviderVisibility, isFixedProvider } from './provider-visibility.js'
 import { isBuiltinProvider } from './builtin-provider.js'
-import { DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
+import { DEFAULT_CONTEXT_LIMIT, MODEL_CONTEXT_LIMIT_ERROR, normalizeModelContextLimit, parseModelContextLimit } from './context-window.js'
 import { isAnthropicAuthType, type AnthropicAuthType } from './anthropic-auth.js'
 import { isLlmProtocol, normalizeLlmUrlInput } from './llm-egress.js'
 import { modelCatalogConfigPatch, type ModelCatalogConfig } from './model-catalog-config.js'
@@ -145,7 +145,7 @@ export function getModelConfiguration(settings: Settings, id: string | undefined
     : undefined
   const provider = configuration && getProvider(configuration.provider_id)
   if (!configuration || !provider) return undefined
-  return { ...configuration, model: configuredModel(provider.id, configuration.model),
+  return { ...configuration, model: configuredModel(provider.id, configuration.model), context_limit: normalizeModelContextLimit(configuration.context_limit),
     ...(provider.fixedModel ? { openai_model: provider.defaultModel } : {}),
     ...(provider.id === 'custom' ? { weworker_protocol: configuration.weworker_protocol === 'openai_responses' ? 'openai_responses' : configuration.weworker_protocol === 'openai_chat_completions' ? 'openai_chat_completions' : 'anthropic_messages' } : {
       base_url: provider.weworker.baseUrl, openai_base_url: provider.webwright.baseUrl,
@@ -256,8 +256,8 @@ export function updateModelConfiguration(settings: Settings, id: string, input: 
     }
   }
   if (input.context_limit !== undefined) {
-    const limit = parseContextLimit(input.context_limit)
-    if (limit === null) throw new Error('上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位')
+    const limit = parseModelContextLimit(input.context_limit)
+    if (limit === null) throw new Error(MODEL_CONTEXT_LIMIT_ERROR)
     next.context_limit = limit
   }
   if (current.provider_id === 'custom' && input.base_url_is_full !== undefined && input.base_url === undefined && next.base_url) {

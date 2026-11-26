@@ -5,7 +5,7 @@ import { defaultConversationModel, resolveConversationModelSettings } from './co
 import { getModelConfiguration, activateModelConfiguration, updateModelConfiguration, renameModelConfiguration } from './model-configurations.js'
 import { getProvider } from './provider-registry.js'
 import { explorationResetPatch } from './provider-config.js'
-import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, parseContextLimit } from './context-window.js'
+import { DEFAULT_BUILTIN_CONTEXT_LIMIT, MODEL_CONTEXT_LIMIT_ERROR, normalizeModelContextLimit, parseModelContextLimit } from './context-window.js'
 import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
 import type { ModelConfiguration } from './model-configurations.js'
 
@@ -15,8 +15,8 @@ export async function prepareCheckedModelSave(settings: Settings, id: string, in
   if (!provider) throw new Error('模型配置不存在')
   if (provider.builtin) {
     if (Object.keys(input).some(key => !['provider', 'activate', 'name', 'context_limit'].includes(key))) throw new Error('内置模型仅支持修改名称和上下文窗口')
-    const limit = parseContextLimit(input.context_limit)
-    if (limit === null) throw new Error('上下文窗口请输入 1K 到 100M 之间的数值，并使用 K 或 M 单位')
+    const limit = parseModelContextLimit(input.context_limit)
+    if (limit === null) throw new Error(MODEL_CONTEXT_LIMIT_ERROR)
     return { ...(input.name === undefined ? {} : renameModelConfiguration(settings, id, input.name)),
       builtin_context_limits: { ...settings.builtin_context_limits, [id]: limit } }
   }
@@ -26,7 +26,7 @@ export async function prepareCheckedModelSave(settings: Settings, id: string, in
   const current: ModelConfiguration = stored || {
     provider_id: id, name: settings.model_configuration_names?.[id] || provider.name,
     api_key: String(legacy[`api_key_${id}`] || ''), model: String(legacy[`model_${id}`] || provider.defaultModel),
-    context_limit: Number(legacy[`context_limit_${id}`]) || DEFAULT_CONTEXT_LIMIT,
+    context_limit: normalizeModelContextLimit(legacy[`context_limit_${id}`]),
     base_url: id === 'custom' ? settings.base_url_custom : provider.weworker.baseUrl,
     base_url_is_full: id === 'custom' && settings.base_url_is_full_custom === true,
     auth_type: id === 'custom' ? settings.custom_auth_type : provider.authType || 'api_key',

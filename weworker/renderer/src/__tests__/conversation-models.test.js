@@ -23,6 +23,25 @@ test('conversation model reads and writes are isolated, and drafts use a statele
   assert.equal(requests.some(item => item.path.startsWith('/settings')), false)
 })
 
+test('context budget updates only the requested conversation and preserves the previous limit on error', async () => {
+  let failure = false
+  const store = createConversationModelsStore(async (path, body, method) => {
+    if (!body) return { provider: 'example', model: 'test', context_limit: 200_000 }
+    assert.equal(path, '/works/example-a/context-limit')
+    assert.equal(method, 'PATCH')
+    if (failure) throw new Error('save failed')
+    return { context_limit: body.context_limit }
+  })
+  await store.getState().load('work:example-a')
+  await store.getState().load('work:example-b')
+  await store.getState().saveContextLimit('work:example-a', 960_000)
+  failure = true
+  await assert.rejects(store.getState().saveContextLimit('work:example-a', 64_000), /save failed/)
+  assert.equal(store.getState().selections['work:example-a'].context_limit, 960_000)
+  assert.equal(store.getState().selections['work:example-b'].context_limit, 200_000)
+  assert.equal(store.getState().pending['work:example-a'], false)
+})
+
 test('late initial read cannot overwrite a new selection and failed saves preserve it', async () => {
   let resolveRead, fail = false
   const store = createConversationModelsStore(async (_path, body) => {

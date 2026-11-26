@@ -43,6 +43,7 @@ import {
   CHAT_SESSION_WARM_IDLE_MS,
 } from '../chat-session.js'
 import { clearDesktopAdapterCatalogCache } from '../adapter-catalog-cache.js'
+import { conversationModels, createConversationModelStore } from '../conversation-models.js'
 
 type Request = { prompt: string | AsyncIterable<{ message: { content: string } }>; options: Record<string, any> }
 
@@ -144,6 +145,27 @@ afterEach(() => {
 })
 
 describe('desktop chat session reuse', () => {
+  it('applies persisted conversation budgets to SDK launches and replaces a warmed session', async () => {
+    const store = createConversationModelStore(path.join(mocks.directory, 'conversation-models.json'))
+    const read = vi.spyOn(conversationModels, 'getRecord').mockImplementation(store.getRecord)
+    try {
+      const sessions = installFakeCli()
+      store.setContextLimit('work-a', 64_000)
+      await collect([], { warmupOnly: true })
+      store.setContextLimit('work-a', 960_000)
+      const events = await collect([message('u1', 'first question')])
+      expect(sessions).toHaveLength(2)
+      expect(sessions[0].closed).toBe(true)
+      for (const [index, limit] of [[0, '64000'], [1, '960000']] as const) {
+        expect(sessions[index].request.options.env).toMatchObject({
+          CLAUDE_CODE_MAX_CONTEXT_TOKENS: limit, CLAUDE_CODE_AUTO_COMPACT_WINDOW: limit,
+        })
+      }
+      expect(events.find(event => event.type === 'context_snapshot')?.context?.context_limit).toBe(960_000)
+    } finally {
+      read.mockRestore()
+    }
+  })
   it('restarts the native session when its configured context window changes', async () => {
     const sessions = installFakeCli()
     const first = message('u1', 'first question')

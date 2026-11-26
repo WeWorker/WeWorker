@@ -5,9 +5,9 @@ import { useSettingsStore } from './settings.js'
 
 export const modelSelectionPayload = value => ({ provider: value.provider, model: value.model, thinking_effort: value.thinking_effort || 'off',
   ...(value.selection_revision ? { selection_revision: value.selection_revision } : {}) })
-async function request(path, body) {
+async function request(path, body, method = 'POST') {
   const response = await backendFetch(path, body === undefined ? {} : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
   const value = await response.json()
   if (!response.ok) throw new Error(value.detail || '会话模型配置失败')
@@ -53,6 +53,20 @@ export function createConversationModelsStore(send = request) {
         if (version === generation) set(s => ({ errors: { ...s.errors, [scope]: error.message } }))
         throw error
       } finally { if (version === generation) set(s => ({ pending: { ...s.pending, [scope]: false } })) }
+    },
+    async saveContextLimit(scope, contextLimit) {
+      const version = generation
+      if (!scope.startsWith('work:') || !get().selections[scope] || get().pending[scope]) throw new Error('当前对话暂时无法保存上下文上限')
+      set(s => ({ pending: { ...s.pending, [scope]: true } }))
+      try {
+        const value = await send(`/works/${encodeURIComponent(scope.slice(5))}/context-limit`, { context_limit: contextLimit }, 'PATCH')
+        if (version === generation) set(s => ({ selections: {
+          ...s.selections,
+          [scope]: { ...s.selections[scope], context_limit: value.context_limit },
+        } }))
+      } finally {
+        if (version === generation) set(s => ({ pending: { ...s.pending, [scope]: false } }))
+      }
     },
     discard(scope) {
       set(s => { const selections = { ...s.selections }; delete selections[scope]; return { selections } })

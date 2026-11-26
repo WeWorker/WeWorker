@@ -11,7 +11,7 @@ import { configuredModel, explorationResetPatch } from '../provider-config.js'
 import { isBuiltinProvider } from '../builtin-provider.js'
 import { isLlmProtocol, normalizeLlmUrlInput } from '../llm-egress.js'
 import { isAnthropicAuthType } from '../anthropic-auth.js'
-import { parseContextLimit } from '../context-window.js'
+import { MODEL_CONTEXT_LIMIT_ERROR, parseModelContextLimit } from '../context-window.js'
 import { modelCatalogConfigPatch } from '../model-catalog-config.js'
 import { resolveWebwrightModelConfig } from '../webwright-model-config.js'
 
@@ -34,7 +34,7 @@ function fixture(fetchImpl: typeof fetch) {
     getModelConfiguration, updateModelConfiguration, renameModelConfiguration,
     automaticWorkshopUpdate: (current: any, next: any, input: any) => automaticWorkshopUpdate(current, next, input, fetchImpl),
     ALLOWED_PROVIDER_IDS: new Set(['custom']), getProvider, configuredModel, explorationResetPatch,
-    isBuiltinProvider, isLlmProtocol, normalizeLlmUrlInput, isAnthropicAuthType, parseContextLimit, modelCatalogConfigPatch,
+    isBuiltinProvider, isLlmProtocol, normalizeLlmUrlInput, isAnthropicAuthType, parseModelContextLimit, MODEL_CONTEXT_LIMIT_ERROR, modelCatalogConfigPatch,
   })
   return {
     state: () => state,

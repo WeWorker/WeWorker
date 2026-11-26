@@ -60,6 +60,18 @@ describe('checked settings activation', () => {
     expect(Object.keys(before.model_configurations)).toEqual(['model-example'])
   })
 
+  it('accepts a bare token count and rejects settings above 960K', async () => {
+    const f = fixture()
+    const before = f.getSettings()
+    const patch = await prepareCheckedModelSave(before, 'model-example', { context_limit: '80000' })
+    expect(patch.model_configurations?.['model-example'].context_limit).toBe(80_000)
+    await expect(prepareCheckedModelSave(before, 'model-example', { context_limit: '1M' })).rejects.toThrow('960000')
+    await expect(prepareCheckedModelSave(before, 'builtin', { context_limit: 960_001 })).rejects.toThrow('960000')
+    before.model_configurations['model-example'].context_limit = 1_500_000
+    await activateCheckedModelSettings('model-example', {}, f)
+    expect(f.getSettings().context_limit).toBe(960_000)
+  })
+
   it('commits edited settings while rejecting a stale snapshot', async () => {
     const f = fixture()
     const before = f.getSettings()
