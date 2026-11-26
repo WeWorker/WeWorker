@@ -795,6 +795,8 @@ export function upsertExperience(db, e) {
     return
   }
   // 正常合并：修复结论以 incoming 为准；playbook 仅在传入时覆盖（COALESCE 保留旧值）
+  // reporter 覆盖取舍（显式声明）：PAT 持有者为受信内部人员，合并取最后上报人（last-writer-wins）；
+  // 滥用规模由路由层字段长度上限约束；内容治理（admin 清理端点）列入后续工作。
   db.prepare(`UPDATE experiences SET hits = hits + 1, last_outcome = ?, outcome = ?, root_cause = ?, fix_strategy = ?,
               playbook = COALESCE(?, playbook), reporter = ?, updated_at = ? WHERE id = ?`)
     .run(e.outcome ?? 'fixed', e.outcome ?? 'fixed', e.root_cause ?? '', e.fix_strategy ?? '',

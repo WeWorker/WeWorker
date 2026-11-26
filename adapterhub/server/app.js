@@ -302,7 +302,25 @@ export function createHandler({ db, dataDir, webDir, auth = nullAuth }) {
             // id 约定：客户端用 sha1(site|runtime|symptom) 前 12 位；缺失时服务端按同算法补齐
             const providedId = typeof body.id === 'string' ? body.id.trim() : ''
             const id = providedId || createHash('sha1').update(`${body.site}|${body.runtime || ''}|${body.symptom}`).digest('hex').slice(0, 12)
-            upsertExperience(db, { ...body, id, reporter: userid })
+            // 字段级上限：experiences 走匿名 GET 且后续进 LLM 提示词——入口截断，限制单条内容尺寸与放大面
+            const clipped = (v, max) => String(v ?? '').slice(0, max)
+            // playbook 序列化后超 4KB 整体置 null（合并语义下保留库中旧 playbook，见 db.upsertExperience）
+            let playbook = null
+            if (body.playbook != null && body.playbook !== '') {
+              playbook = typeof body.playbook === 'string' ? body.playbook : JSON.stringify(body.playbook)
+              if (playbook.length > 4000) playbook = null
+            }
+            // outcome 白名单：仅接受 fixed|failed，其余归一为 fixed（防脏值污染统计与提示词）
+            const outcome = body.outcome === 'failed' ? 'failed' : 'fixed'
+            upsertExperience(db, {
+              ...body, id,
+              symptom: clipped(body.symptom, 500),
+              root_cause: clipped(body.root_cause, 200),
+              fix_strategy: clipped(body.fix_strategy, 2000),
+              runtime: clipped(body.runtime, 64),
+              playbook, outcome,
+              reporter: clipped(userid, 64), // 路由侧截断（db 层不动）
+            })
             return sendJson(res, 200, { ok: true, id })
           } catch (cause) {
             return error(res, 400, 'BAD_REQUEST', cause instanceof Error ? cause.message : 'Invalid request')
