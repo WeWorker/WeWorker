@@ -16,7 +16,7 @@ Natural-language tasks → Adapters → real browser actions. Includes 33 websit
 [![GitHub stars](https://img.shields.io/github/stars/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/WeWorker/WeWorker)](https://github.com/WeWorker/WeWorker/issues)
 
-[Website](https://www.weworker.cc) · [Download](https://www.weworker.cc/download) · [Quick start](https://www.weworker.cc/docs/quick-start) · [33 Adapters](docs/ADAPTERS.md) · [Discussions](https://github.com/WeWorker/WeWorker/discussions)
+[Website](https://www.weworker.cc) · [Download](https://www.weworker.cc/download) · [Quick start](https://www.weworker.cc/docs/quick-start) · [33 Adapters](docs/ADAPTERS.md) · [Community](COMMUNITY.md) · [Discussions](https://github.com/WeWorker/WeWorker/discussions)
 
 ![WeWorker turns an English request into structured website results](docs/assets/weworker-public-demo-en.gif)
 
@@ -186,9 +186,19 @@ Is a website you use missing from the catalog? Submit a PR for a public website 
 
 [Browse the Adapter catalog](docs/ADAPTERS.md) · [Read the contribution guide](CONTRIBUTING.md) · [Propose an Adapter](https://github.com/WeWorker/WeWorker/issues/new/choose)
 
+## Community
+
+Join the WeWorker community on WeChat or QQ, or contact us by email. See [COMMUNITY.md](COMMUNITY.md) for the same contact information.
+
+| WeChat group | QQ group |
+| --- | --- |
+| <img src="docs/assets/community/wechat-group-2026-12-03.jpg" alt="WeWorker WeChat group QR code" width="320" /><br />Valid through **December 3, 2026** | <img src="docs/assets/community/qq-group.jpg" alt="WeWorker QQ group QR code" width="320" /><br />Group: **801627516** |
+
+Email: [kinghao@apache.org](mailto:kinghao@apache.org)
+
 ## Version
 
-The current public version is `1.0.1`. See [CHANGELOG.md](CHANGELOG.md) for public release history and [the release guide](docs/RELEASE.md) for the maintainer workflow.
+The current public version is `1.2.0`. See [CHANGELOG.md](CHANGELOG.md) for public release history and [the release guide](docs/RELEASE.md) for the maintainer workflow.
 
 ---
 
