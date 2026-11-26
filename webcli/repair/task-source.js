@@ -42,3 +42,29 @@ export async function fetchErrDetail({ registry = process.env.METRICS_STATS_ENDP
   if (!res.ok) throw new Error(`errdetail 拉取失败: ${res.status}`);
   return res.json();
 }
+
+// ── 巡检源:巡检报告(契约见 docs/superpowers/plans/2026-11-26-adapter-self-evolution-phase2.md)→ 修复任务。
+// verdict 枚举 ok | degraded | needs-regeneration | login-blocked;仅 degraded/needs-regeneration 生成任务。
+const PATROL_VERDICTS = new Set(["degraded", "needs-regeneration"]);
+
+export function tasksFromPatrol(report, { minEntries = 1, now = Date.now() } = {}) {
+  const adapters = report?.adapters || [];
+  const tasks = [];
+  for (const a of adapters) {
+    if (!a.adapterId || !SAFE_ADAPTER_ID.test(a.adapterId)) continue;
+    const entries = (a.entries || []).filter((e) => PATROL_VERDICTS.has(e.verdict));
+    const degraded = entries.filter((e) => e.verdict === "degraded");
+    const needsRegen = entries.filter((e) => e.verdict === "needs-regeneration").map((e) => e.tool);
+    if (degraded.length + needsRegen.length < minEntries) continue;
+    // needs-regeneration 也进 failures:诊断上下文可见;executor 对此类工具按既有 needs-regeneration 提前终止路径处理
+    const failures = [
+      ...degraded.map((e) => ({ tool: e.tool, count: 1, lastErr: `[patrol:${e.verdict}] ${String(e.diff || "").slice(0, 180)}` })),
+      ...needsRegen.map((tool) => ({ tool, count: 1, lastErr: "[patrol:needs-regeneration] 站点结构改版,需重新取证" })),
+    ];
+    const task = buildTask({ source: "patrol", adapterId: a.adapterId, failures, now });
+    task.runtime = a.runtime || null;
+    task.patrol = { runId: String(report.runId || "").slice(0, 64), needsRegenerationTools: needsRegen };
+    tasks.push(task);
+  }
+  return tasks;
+}

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { adapterIdOfTool, tasksFromErrDetail, fetchErrDetail } from '../repair/task-source.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { adapterIdOfTool, tasksFromErrDetail, tasksFromPatrol, fetchErrDetail } from '../repair/task-source.js'
 
 const ERRDETAIL = {
   rows: [
@@ -64,5 +66,35 @@ describe('fetchErrDetail', () => {
     expect(called.url).toBe('http://example.test/v1/stats?by=errdetail&kind=adapter&since=7d')
     expect(called.opts.headers.authorization).toBe('Bearer t')
     expect(data).toEqual({ rows: [] })
+  })
+})
+
+describe('tasksFromPatrol', () => {
+  const report = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'patrol-report.json'), 'utf8'))
+  it('degraded → 任务 failures;needs-regeneration 记入 task.patrol;login-blocked/ok 跳过', () => {
+    const tasks = tasksFromPatrol(report, { now: Date.parse('2026-11-26T00:00:00Z') })
+    expect(tasks).toHaveLength(2)
+    const costplus = tasks.find((t) => t.adapterId === 'costplus.weoa.com')
+    expect(costplus.source).toBe('patrol')
+    expect(costplus.runtime).toBe('extension')
+    expect(costplus.failures.map((f) => f.tool)).toEqual([
+      'costplus.weoa.com.list-subsidy-ledgers',
+      'costplus.weoa.com.get-document-detail',
+    ])
+    expect(costplus.failures[0].lastErr).toContain('degraded')
+    expect(costplus.failures[1].lastErr).toContain('needs-regeneration')
+    expect(costplus.patrol.runId).toBe('patrol-20261126-0800')
+    expect(costplus.patrol.needsRegenerationTools).toEqual(['costplus.weoa.com.get-document-detail'])
+    const we123 = tasks.find((t) => t.adapterId === 'we123-teamspace')
+    expect(we123).toBeUndefined() // 只有 login-blocked/ok → 无 degraded/needs-regen → 不生成任务
+  })
+  it('空 entries / 非法报告 → 空数组', () => {
+    expect(tasksFromPatrol({})).toEqual([])
+    expect(tasksFromPatrol(null)).toEqual([])
+    expect(tasksFromPatrol({ adapters: [{ adapterId: 'x', entries: [] }] })).toEqual([])
+  })
+  it('脏 adapterId(URL 形)跳过', () => {
+    const dirty = { adapters: [{ adapterId: 'open.https:\\x.com', entries: [{ tool: 'open.https:\\x.com/a', verdict: 'degraded', diff: 'd' }] }] }
+    expect(tasksFromPatrol(dirty)).toEqual([])
   })
 })

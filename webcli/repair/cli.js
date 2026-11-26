@@ -2,20 +2,31 @@
  * webgo repair <task|run|list|show> —— 修复任务 CLI(工作台机器使用)。
  * 退出码:0 成功;2 参数错误;1 运行错误。--json 时 stdout 仅一个 JSON 对象。
  */
+import { readFileSync } from "node:fs";
 export async function runRepairCli(args, { outputFormat } = {}) {
   const [sub, ...rest] = args;
   const fail = (message, code = 1) => { console.error(`[repair] ${message}`); process.exitCode = code; };
   const emit = (value) => console.log(outputFormat === 'json' || rest.includes('--json') ? JSON.stringify(value, null, 2) : value);
   const { listTasks, loadTask, saveTask } = await import("./task.js");
-  const { tasksFromErrDetail, fetchErrDetail } = await import("./task-source.js");
+  const { tasksFromErrDetail, tasksFromPatrol, fetchErrDetail } = await import("./task-source.js");
 
   try {
     if (sub === "task" && rest.includes("--from")) {
       const opt = (name, dflt) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : dflt; };
-      const since = opt("--since", "7d");
-      const minCalls = parseInt(opt("--min-calls", "3"), 10);
-      const detail = await fetchErrDetail({ since });
-      const tasks = tasksFromErrDetail(detail, { minCalls });
+      const source = rest[rest.indexOf("--from") + 1] || "errors";
+      const reportFile = opt("--report", null);
+      let tasks;
+      if (source === "patrol") {
+        if (!reportFile) return fail("--from patrol 需要 --report <巡检报告.json>", 2);
+        tasks = tasksFromPatrol(JSON.parse(readFileSync(reportFile, "utf8")));
+      } else if (source === "errors") {
+        const since = opt("--since", "7d");
+        const minCalls = parseInt(opt("--min-calls", "3"), 10);
+        const detail = await fetchErrDetail({ since });
+        tasks = tasksFromErrDetail(detail, { minCalls });
+      } else {
+        return fail("用法: --from 仅支持 errors | patrol", 2);
+      }
       const existing = listTasks();
       let created = 0, skipped = 0;
       for (const t of tasks) {
@@ -46,7 +57,7 @@ export async function runRepairCli(args, { outputFormat } = {}) {
     }
     if (sub === "list") return emit(listTasks().map((t) => `${t.id} [${t.status}] ${t.source} 失败:${t.failures.reduce((s, f) => s + f.count, 0)}`).join("\n") || "(无任务)");
     if (sub === "show" && rest[0]) return emit(JSON.stringify(loadTask(rest[0]), null, 2));
-    throw new Error("用法: webgo repair task --from errors [--since 7d] [--min-calls 3] | repair run <taskId> | repair list | repair show <taskId>");
+    throw new Error("用法: webgo repair task --from errors [--since 7d] [--min-calls 3] | webgo repair task --from patrol --report <巡检报告.json> | repair run <taskId> | repair list | repair show <taskId>");
   } catch (e) {
     // 退出码约定(见头注释):用法/参数错误 2(先例 adapterhub-cli.js UsageError → 2),运行错误 1
     return fail(e.message, String(e.message).startsWith("用法:") ? 2 : 1);
