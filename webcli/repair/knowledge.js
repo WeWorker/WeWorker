@@ -54,8 +54,9 @@ export function recordExperience(file, entry, now = new Date().toISOString(), me
   };
   const playbook = cleanPlaybook(entry.playbook);
   if (playbook) clean.playbook = playbook;
-  // 成本元数据(rounds/llmCalls/durationMs/usedPlaybook)原样存;非法输入存 null
-  clean.meta = meta && typeof meta === "object" && !Array.isArray(meta) ? meta : null;
+  // 成本元数据(rounds/llmCalls/durationMs/usedPlaybook)原样存;非法输入存 null。
+  // 不入 clean:合并时仅 incoming 带有效 meta 才覆盖,不带则保留旧值(hub 回源等写入不抹旧成本)
+  const storedMeta = meta && typeof meta === "object" && !Array.isArray(meta) ? meta : null;
   clean.id = entryKey(clean);
   const data = loadKnowledge(file);
   const idx = data.entries.findIndex((e) => e.id === clean.id);
@@ -63,18 +64,19 @@ export function recordExperience(file, entry, now = new Date().toISOString(), me
     const prev = data.entries[idx];
     if (clean.outcome === "failed") {
       // failed 合并不抹已知修法:保留旧 rootCause/fixStrategy/outcome/evidenceRef,只刷新 hits/date;
-      // playbook/incoming 有则更新、无则保留旧值;meta 同理(仅本次带有效 meta 才刷新)
+      // playbook/incoming 有则更新、无则保留旧值;meta 同理
       data.entries[idx] = {
         ...prev,
         ...(playbook ? { playbook } : {}),
-        ...(clean.meta ? { meta: clean.meta } : {}),
+        ...(storedMeta ? { meta: storedMeta } : {}),
         hits: (prev.hits || 0) + 1, date: clean.date, lastOutcome: "failed",
       };
     } else {
-      data.entries[idx] = { ...prev, ...clean, hits: (prev.hits || 0) + 1, lastOutcome: "fixed" };
+      // meta 仅在 incoming 带有效值时覆盖(与 playbook 同规则)
+      data.entries[idx] = { ...prev, ...clean, ...(storedMeta ? { meta: storedMeta } : {}), hits: (prev.hits || 0) + 1, lastOutcome: "fixed" };
     }
   } else {
-    data.entries.push({ ...clean, hits: 1, lastOutcome: clean.outcome });
+    data.entries.push({ ...clean, meta: storedMeta, hits: 1, lastOutcome: clean.outcome });
   }
   // LRU:主键 date 降序(新→旧),hits 降序仅平局裁决;超限裁尾,刚沉淀的经验永不被裁
   data.entries.sort((a, b) => String(b.date).localeCompare(String(a.date)) || (b.hits || 0) - (a.hits || 0));

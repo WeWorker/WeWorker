@@ -107,4 +107,13 @@ describe('playbook', () => {
     recordExperience(f, { ...ENTRY }, '2026-11-26T00:00:00Z', { rounds: 2, llmCalls: 2, durationMs: 45000, usedPlaybook: false })
     expect(loadKnowledge(f).entries[0].meta).toEqual({ rounds: 2, llmCalls: 2, durationMs: 45000, usedPlaybook: false })
   })
+  it('fixed 合并 incoming 无 meta → 旧 meta 保留(与 playbook 同规则)', () => {
+    const f = join(tmpdir(), `rk-merge-${Math.random().toString(36).slice(2)}.json`)
+    recordExperience(f, { ...ENTRY }, '2026-11-26T00:00:00Z', { rounds: 1, llmCalls: 1, durationMs: 1000, usedPlaybook: true })
+    recordExperience(f, { ...ENTRY }, '2026-11-26T01:00:00Z')
+    const { entries } = loadKnowledge(f)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].hits).toBe(2)
+    expect(entries[0].meta).toEqual({ rounds: 1, llmCalls: 1, durationMs: 1000, usedPlaybook: true })
+  })
 })

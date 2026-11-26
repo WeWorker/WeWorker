@@ -17,7 +17,8 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
   task = transition(task, "diagnosing");
   save(task, tasksDir(home));
   const { pkg } = readWewrightTarget(task.adapterId, { env, home });
-  const experienceHint = injectContext(searchExperience(knowledgePath(home), { site: task.adapterId, runtime: "wewright", errSignature: task.failures?.[0]?.lastErr || "" }, 3));
+  const hits = searchExperience(knowledgePath(home), { site: task.adapterId, runtime: "wewright", errSignature: task.failures?.[0]?.lastErr || "" }, 3);
+  const experienceHint = injectContext(hits);
   const baseVersion = pkg.manifest.version;
   let feedback = null;
   for (let round = 1; round <= maxRounds; round++) {
@@ -77,7 +78,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
           outcome: "fixed", evidenceRef: draft.draftDir,
         }, new Date().toISOString(), {
           rounds: round, llmCalls, durationMs: Date.now() - startedAt,
-          usedPlaybook: experienceHint.includes("检测片段"),
+          usedPlaybook: hits.some((e) => e.playbook), // 结构化判定,不嗅探渲染文本
         });
       } catch (e) {
         log(`[repair] 经验库写入失败: ${e.message}`);
@@ -97,7 +98,7 @@ export async function runRepairLoop({ task, llm, env = process.env, home = homed
       evidenceRef: "",
     }, new Date().toISOString(), {
       rounds: maxRounds, llmCalls, durationMs: Date.now() - startedAt,
-      usedPlaybook: experienceHint.includes("检测片段"),
+      usedPlaybook: hits.some((e) => e.playbook), // 结构化判定,不嗅探渲染文本
     });
   } catch (e) {
     log(`[repair] 经验库写入失败: ${e.message}`);
