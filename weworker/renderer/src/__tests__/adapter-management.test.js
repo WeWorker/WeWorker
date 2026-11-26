@@ -287,7 +287,7 @@ test('fills the Hub update button while waiting and switches to measured progres
   const footer = document.querySelector('.tool-package-entry__footer')
   assert.match(footer.firstElementChild.textContent, /已安装 1\.1\.0/)
   assert.equal(footer.children.length, 1)
-  const transfer = button('更新中…')
+  const transfer = button('准备中…')
   const width = () => transfer.style.getPropertyValue('--transfer-progress')
   assert.equal(transfer.disabled, true)
   assert.equal(width(), '4%')
@@ -297,6 +297,12 @@ test('fills the Hub update button while waiting and switches to measured progres
   await act(async () => delay(420))
   assert.equal(width(), '46%')
   assert.match(transfer.title, /46% \(943\.4KB\/2\.00MB\) · 256\.0KB\/s/)
+  for (const [status, label] of [['verifying', '校验中…'], ['extracting', '解包中…'], ['writing', '写入中…']]) {
+    progress = [{ name: 'example.com', status, receivedBytes: totalBytes, totalBytes }]
+    await act(async () => delay(420))
+    assert.equal(button(label).title, label)
+    assert.equal(width(), '100%')
+  }
   progress = []
   await act(async () => finishInstall(Response.json({ name: 'example.com', version: '1.2.0' })))
   assert.equal(width(), '100%')
@@ -396,8 +402,8 @@ test('preserves site menu actions and shows the installed Adapter version', asyn
   assert.deepEqual(selected, [[site.id, workspace.WORKSPACE_TAB_SKILLS], [site.id, workspace.WORKSPACE_TAB_SCENARIOS]])
 })
 
-test('renders the complete workspace and shows the selected site version in both site views', async t => {
-  stubFetch(t, ({ path, params }) => {
+test('renders the complete workspace and refreshes Adapter Skills only on the Skills tab', async t => {
+  const calls = stubFetch(t, ({ path, params }) => {
     if (path === '/adapter-updates') return snapshot('idle')
     if (path === '/sites') return Response.json([site])
     if (path === '/skills') return Response.json([{ name: 'example-public-skill', enabled: true }])
@@ -418,7 +424,10 @@ test('renders the complete workspace and shows the selected site version in both
   assert.match(document.querySelector('.tool-package-entry--hub').textContent, /example-hub-adapter.*2\.0\.0.*官方/)
   await act(async () => viewTabs()[0].click())
   assert.match(document.querySelector('.tool-package-entry--adapter').textContent, /1\.0\.0/)
+  const refreshCalls = () => calls.filter(({ path, params }) => path === '/skills' && params.get('refreshAdapters') === '1')
+  assert.equal(refreshCalls().length, 0)
   await act(async () => topTabs()[1].click())
+  assert.equal(refreshCalls().length, 1)
   assert.equal(document.querySelector('h1').textContent, 'Skills')
   const skillRows = [...document.querySelectorAll('.tool-package-entry--skill')]
   const siteSkill = skillRows.find(row => row.textContent.includes(`webcli-${site.id}`))

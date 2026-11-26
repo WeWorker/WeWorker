@@ -15,11 +15,12 @@ function formatBytes(bytes, speed = false) {
 function TransferButton({ job, entry }) {
   const [waitingProgress, setWaitingProgress] = useState(4)
   const queued = job.status === 'queued'
-  const installing = job.status === 'installing' || job.status === 'complete'
+  const phaseLabels = { verifying: '校验中…', extracting: '解包中…', writing: '写入中…', complete: '已完成' }
+  const phaseLabel = phaseLabels[job.status]
   const received = job.receivedBytes ?? 0
   const total = job.totalBytes ?? entry.totalBytes
   const percent = received > 0 && total >= received ? Math.floor(received / total * 100) : null
-  const waiting = !queued && !installing && percent === null && waitingProgress < 50
+  const waiting = !queued && !phaseLabel && percent === null && waitingProgress < 50
 
   useEffect(() => {
     if (!waiting) return
@@ -27,9 +28,9 @@ function TransferButton({ job, entry }) {
     return () => clearInterval(timer)
   }, [waiting])
 
-  const width = queued ? 0 : installing ? 100 : Math.max(waitingProgress, percent ?? 0)
-  const label = queued ? '排队中' : entry.action === 'update' ? '更新中…' : installing ? '安装中…' : '下载中…'
-  const stats = percent === null ? '' : `${percent}% (${formatBytes(received)}/${formatBytes(total)}) · ${formatBytes(job.bytesPerSecond ?? 0, true)}/s`
+  const width = queued ? 0 : phaseLabel ? 100 : Math.max(waitingProgress, percent ?? 0)
+  const label = phaseLabel || (queued ? '排队中' : job.status === 'preparing' ? '准备中…' : '下载中…')
+  const stats = job.status !== 'downloading' || percent === null ? '' : `${percent}% (${formatBytes(received)}/${formatBytes(total)}) · ${formatBytes(job.bytesPerSecond ?? 0, true)}/s`
   const status = queued && job.queuePosition ? `排队第 ${job.queuePosition} 位` : stats || label
   return (
     <button type="button" disabled className="tool-package-card-action adapter-hub__transfer"

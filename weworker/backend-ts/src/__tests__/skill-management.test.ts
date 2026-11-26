@@ -25,12 +25,14 @@ vi.mock('node:os', async importOriginal => {
 afterAll(() => fs.rmSync(fixtureState.home, { recursive: true, force: true }))
 vi.mock('../runtime-skills-dir.js', () => ({ getRuntimeSkillsDir: () => fixtureState.root }))
 let root: string, server: Server, url: string
+const refreshAdapterSkills = vi.fn()
 beforeEach(async () => {
+  refreshAdapterSkills.mockClear()
   root = fs.mkdtempSync(path.join(fixtureState.home, 'skills-'))
   fixtureState.root = path.join(root, 'skills')
   const app = express()
   app.use(express.json(), createSkillManagementRouter(fixtureState.root, name =>
-    officialSkillBuildTime(name, id => id === 'example', Date.UTC(2026, 0, 2))))
+    officialSkillBuildTime(name, id => id === 'example', Date.UTC(2026, 0, 2)), refreshAdapterSkills))
   server = await new Promise<Server>(resolve => { const listener = app.listen(0, '127.0.0.1', () => resolve(listener)) })
   url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
 })
@@ -43,6 +45,14 @@ const post = (route: string, body: unknown) => fetch(`${url}${route}`, { method:
 const list = async () => (await fetch(`${url}/skills`)).json()
 
 describe('Skill management HTTP routes', () => {
+  it('refreshes Adapter Skills only for an explicit refresh request', async () => {
+    expect(await list()).toEqual([])
+    expect(refreshAdapterSkills).not.toHaveBeenCalled()
+    const response = await fetch(`${url}/skills?refreshAdapters=1`)
+    expect(response.ok).toBe(true)
+    expect(await response.json()).toEqual([])
+    expect(refreshAdapterSkills).toHaveBeenCalledTimes(1)
+  })
   it('creates a physically empty folder, lists it after reload, and refuses activation until authored', async () => {
     const startedAt = Date.now()
     const response = await post('/skills/folders', { name: 'example-skill' })

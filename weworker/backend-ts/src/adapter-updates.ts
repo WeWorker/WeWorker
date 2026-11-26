@@ -8,7 +8,7 @@ import type { DownloadProgress, Release } from './adapter-update-source.js'
 
 const HUB_DOWNLOAD_LIMIT = 3
 const HUB_QUEUE_LIMIT = 100
-type HubJob = { phase: 'queued' | 'preparing' | 'downloading' | 'installing'; progress?: DownloadProgress; totalBytes?: number }
+type HubJob = { phase: 'queued' | 'preparing' | 'downloading' | 'verifying' | 'extracting' | 'writing'; progress?: DownloadProgress; totalBytes?: number }
 type HubResult = { name: string; version: string }
 
 type Item = { currentVersion: string; latestVersion?: string; unavailableReason?: string; status: 'available' | 'current' | 'local-newer' | 'unlisted' | 'unsupported' }
@@ -129,10 +129,12 @@ export function createAdapterUpdates({
   async function downloadPackage(id: string, release: Release, job?: HubJob) {
     const bytes = job ? await source.download(id, release.version, progress => { job.progress = progress })
       : await source.download(id, release.version)
-    if (job) job.phase = 'installing'
+    if (job) job.phase = 'verifying'
     const digest = 'sha256:' + createHash('sha256').update(bytes).digest('hex')
     if (digest !== release.sha256) throw new AdapterUpdateError('下载包校验失败，请刷新后再试。')
+    if (job) job.phase = 'extracting'
     const files = await readAdapterUpdateArchive(bytes)
+    if (job) job.phase = 'verifying'
     const pkg = validatePackageFiles(files)
     if (pkg.name !== id || pkg.manifest.version !== release.version) {
       throw new AdapterUpdateError('下载包的名称或版本与索引不一致。')
@@ -217,6 +219,9 @@ export function createAdapterUpdates({
     job.phase = 'downloading'
     const files = await downloadPackage(id, release, job)
     const commit = async () => {
+      job.phase = 'writing'
+      // Let pending progress requests observe the phase before synchronous disk work.
+      await new Promise<void>(resolve => setImmediate(resolve))
       const after = inventory()
       if (targetState(id, before) !== targetState(id, after) || hubItems([entry], after)[0].action !== item.action) {
         throw new AdapterUpdateError('Adapter 状态已变化，请刷新后再试。')

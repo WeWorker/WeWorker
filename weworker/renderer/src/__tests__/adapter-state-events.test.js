@@ -19,7 +19,8 @@ test('renderer refreshes Adapter capabilities from backend state events', () => 
 
 test('backend delegates state refresh to the retrying serialized handler', () => {
   assert.match(serverSource, /createAdapterStateRefreshHandler/)
-  assert.match(serverSource, /refreshSkills: \(\) => refreshDesktopAdapterSkills\(SKILLS_DIR\)/)
+  assert.doesNotMatch(serverSource, /refreshSkills: \(\) =>/)
+  assert.match(serverSource, /\(\) => refreshDesktopAdapterSkillsIfStale\(SKILLS_DIR\)/)
   assert.match(serverSource, /broadcastSSE\(\{ \.\.\.event, sites: describeSites\(new Set\(event\.adapters\)\) \}\)/)
   assert.match(serverSource, /bridgeStatus\.onAdapterStateChanged\(handleAdapterStateRefresh\)/)
 })

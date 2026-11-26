@@ -13,7 +13,7 @@ export interface AdapterStateEvent {
 
 export interface AdapterStateRefreshDependencies {
   clearCache: () => void
-  refreshSkills: () => unknown
+  refreshSkills?: () => unknown
   broadcast: (event: { type: 'adapter_state_changed' } & AdapterStateEvent) => void
   retryDelaysMs?: number[]
   logger?: (message: string, error?: unknown) => void
@@ -41,8 +41,10 @@ export function createAdapterStateRefreshHandler({
     for (let attempt = 0; ; attempt++) {
       try {
         clearCache()
-        await refreshSkills()
-        clearCache()
+        if (refreshSkills) {
+          await refreshSkills()
+          clearCache()
+        }
         broadcast({ type: 'adapter_state_changed', ...event })
         return
       } catch (error) {
