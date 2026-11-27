@@ -61,14 +61,19 @@ export function summarizeProbe(raw) {
 }
 
 /** 执行一条命令，返回原始结果（不做判定）。 */
-export function probeTool({ tool, args }, { env, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const argv = [CLI_ENTRY, 'call', tool]
+export function probeTool({ tool, args }, { env, timeoutMs = DEFAULT_TIMEOUT_MS, cliEntry = CLI_ENTRY } = {}) {
+  const argv = [cliEntry, 'call', tool]
   if (args && Object.keys(args).length > 0) argv.push('--args', JSON.stringify(args))
   argv.push('-v')
 
   return new Promise((resolvePromise) => {
     const started = Date.now()
     const child = spawn(process.execPath, argv, { cwd: WEBCLI_DIR, env: env ?? buildPatrolEnv(), windowsHide: true })
+    // 按 utf8 解码后再拼接：中文内容（如京东搜索结果）在管道块边界被截断时，
+    // Buffer 直拼会产生 U+FFFD 乱码 → JSON.parse 失败误判；setEncoding 让
+    // Node 的 StringDecoder 持有不完整字节序列直到下一块，拼接无损。
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
     let stdout = ''
     let stderr = ''
     let timedOut = false

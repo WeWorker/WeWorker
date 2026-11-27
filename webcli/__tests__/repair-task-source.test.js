@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -96,5 +97,85 @@ describe('tasksFromPatrol', () => {
   it('脏 adapterId(URL 形)跳过', () => {
     const dirty = { adapters: [{ adapterId: 'open.https:\\x.com', entries: [{ tool: 'open.https:\\x.com/a', verdict: 'degraded', diff: 'd' }] }] }
     expect(tasksFromPatrol(dirty)).toEqual([])
+=======
+import { describe, expect, it } from 'vitest'
+import { tasksFromPatrolReport } from '../repair/task-source.js'
+
+/**
+ * 构造 patrol report 的**原生形状**（与 patrol/report.js 的 buildReport 输出一致）：
+ * results: [{adapterId, tool, verdict, kind, details, escalated}]
+ * reEvidence: [{adapterId, tool, reason, evidence}]
+ */
+function patrolReport() {
+  return {
+    runId: 'patrol-123',
+    results: [
+      { adapterId: 'a.com', tool: 'a.search', verdict: 'failed', kind: 'site_changed', details: { missing: [{ path: 'items' }] }, escalated: false },
+      { adapterId: 'a.com', tool: 'a.detail', verdict: 'failed', kind: 'content_degraded', details: { emptied: ['title'] }, escalated: true },
+      { adapterId: 'a.com', tool: 'a.list', verdict: 'failed', kind: 'content_degraded', details: { emptied: ['rows'] }, escalated: false },
+      { adapterId: 'b.com', tool: 'b.x', verdict: 'uncovered', kind: 'login_required', details: { reason: 'login_required' } },
+    ],
+    reEvidence: [
+      { adapterId: 'a.com', tool: 'a.search', reason: 'site_changed', evidence: { missing: [{ path: 'items' }] } },
+      { adapterId: 'a.com', tool: 'a.detail', reason: 'content_degraded', evidence: { emptied: ['title'] } },
+    ],
+  }
+}
+
+describe('tasksFromPatrolReport', () => {
+  it('site_changed 与升级的 content_degraded 生成任务，按 adapter 分组', () => {
+    const tasks = tasksFromPatrolReport(patrolReport())
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].adapterId).toBe('a.com')
+    expect(tasks[0].source).toBe('patrol')
+    // a.search 在 reEvidence 与 results 各出现一次、a.detail 既在 reEvidence 又是
+    // escalated——按工具去重后只应剩两条失败
+    expect(tasks[0].failures.map((f) => f.tool).sort()).toEqual(['a.detail', 'a.search'])
+  })
+
+  it('failures 字段：count=1，lastErr 带 [patrol:kind] 前缀与截断的 details', () => {
+    const tasks = tasksFromPatrolReport(patrolReport())
+    const search = tasks[0].failures.find((f) => f.tool === 'a.search')
+    expect(search.count).toBe(1)
+    expect(search.lastErr).toBe(`[patrol:site_changed] ${JSON.stringify({ missing: [{ path: 'items' }] }).slice(0, 180)}`)
+  })
+
+  it('patrol 元数据带 runId 与需重新生成的工具清单', () => {
+    const tasks = tasksFromPatrolReport(patrolReport())
+    expect(tasks[0].patrol).toEqual({ runId: 'patrol-123', needsRegenerationTools: ['a.search', 'a.detail'] })
+  })
+
+  it('单次 content_degraded（未升级）不生成任务', () => {
+    const tasks = tasksFromPatrolReport({
+      runId: 'r',
+      results: [{ adapterId: 'a.com', tool: 'a.list', verdict: 'failed', kind: 'content_degraded', details: { emptied: ['rows'] }, escalated: false }],
+      reEvidence: [],
+    })
+    expect(tasks).toHaveLength(0)
+  })
+
+  it('非法 adapterId 被过滤（SAFE_ADAPTER_ID 同款规则）', () => {
+    const tasks = tasksFromPatrolReport({
+      runId: 'r',
+      results: [{ adapterId: '../evil', tool: 'x', verdict: 'failed', kind: 'site_changed', details: {} }],
+      reEvidence: [{ adapterId: '../evil', tool: 'x', reason: 'site_changed', evidence: {} }],
+    })
+    expect(tasks).toHaveLength(0)
+  })
+
+  it('多 adapter 各生成一个任务', () => {
+    const tasks = tasksFromPatrolReport({
+      runId: 'r',
+      results: [
+        { adapterId: 'a.com', tool: 'a.s', verdict: 'failed', kind: 'site_changed', details: {} },
+        { adapterId: 'b.com', tool: 'b.s', verdict: 'failed', kind: 'site_changed', details: {} },
+      ],
+      reEvidence: [
+        { adapterId: 'a.com', tool: 'a.s', reason: 'site_changed', evidence: {} },
+        { adapterId: 'b.com', tool: 'b.s', reason: 'site_changed', evidence: {} },
+      ],
+    })
+    expect(tasks.map((t) => t.adapterId).sort()).toEqual(['a.com', 'b.com'])
+>>>>>>> eae4703f (feat(repair): 巡检报告→修复任务适配（原生报告形状）+ 探针多字节编码修复)
   })
 })

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildPatrolEnv, runWithConcurrency, summarizeProbe } from '../patrol/probe.js'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { buildPatrolEnv, probeTool, runWithConcurrency, summarizeProbe } from '../patrol/probe.js'
 
 describe('buildPatrolEnv', () => {
   it('强制 WEBCLI_METRICS=off / WEBCLI_METRICS_UPLOAD=off 并移除 ENDPOINT，避免污染本机统计', () => {
@@ -41,3 +43,12 @@ describe('summarizeProbe', () => {
     expect(summarizeProbe({ exitCode: 0, stdout: out, stderr: '', timedOut: false }).parsed).toEqual({ ok: true })
   })
 })
+
+describe('probeTool 多字节安全', () => {
+  it('中文 JSON 在管道块边界撕裂后仍能完整解码（stdout 按 utf8 解码拼接）', async () => {
+    const fixture = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'patrol-tear-fixture.js')
+    const raw = await probeTool({ tool: 'tear-fixture' }, { env: buildPatrolEnv(), timeoutMs: 10_000, cliEntry: fixture })
+    expect(summarizeProbe(raw).parsed).toEqual({ ok: true, items: ['京东超市搜索结果第一页', '自营旗舰店'] })
+  })
+})
+
