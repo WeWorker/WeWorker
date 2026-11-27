@@ -37,8 +37,10 @@ export function createEnsureLogin({ probeSession, tryAccounts }) {
  * - `probeStatus(adapterId, sessionStore)` 由**调用方注入**：当 adapterId 对应适配器包里
  *   存在 `check_login_status` 类工具时，调用方应基于 sessionStore **真实探一次**并返回
  *   布尔结果；子项目 2 落地前由编排层负责构造这个探针。
- * - **未注入 probeStatus 时**回退为"假定登录态可用"——登录问题由连通层兜底归为
- *   `login_required` → 未覆盖，不会误报为结构/内容退化。真实探测是后续子项目的注入点，
+ * - **未注入 probeStatus 时**回退为"假定登录态可用"——登录问题一律落在「未覆盖」桶，
+ *   不算失败：ensureLogin 不通过（login-failed / no-account）时编排层直接整站记
+ *   uncovered；连通层探出 `login_required` 时由编排层 mapLoginUncovered 重定性为
+ *   uncovered，不会误报为结构/内容退化。真实探测是后续子项目的注入点，
  *   本期不在内核里硬编码探测方式。
  */
 export function createDefaultEnsureLogin({ sessionStore, probeStatus } = {}) {

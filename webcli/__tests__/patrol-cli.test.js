@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { parsePatrolArgs } from '../patrol/index.js'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { parsePatrolArgs, mapLoginUncovered, collectBaselineEntries, planBaselineUpdate, patrolStateDir } from '../patrol/index.js'
+import { BASELINE_VERSION } from '../patrol/baseline.js'
+import { extractShape } from '../patrol/shape.js'
 
 describe('parsePatrolArgs', () => {
   it('解析常用参数', () => {
@@ -16,5 +20,95 @@ describe('parsePatrolArgs', () => {
 
   it('--timeout 以秒为单位换算', () => {
     expect(parsePatrolArgs(['--timeout', '30']).timeoutMs).toBe(30_000)
+  })
+
+  it('--only 缺值记用法错误（而不是误入全量巡检）', () => {
+    const missing = parsePatrolArgs(['--only'])
+    expect(missing.usageError).toBeTruthy()
+    expect(missing.only).toBeNull()
+    // 值是另一个 flag 时同样视为缺值——adapterId 永不以 -- 开头
+    expect(parsePatrolArgs(['--only', '--json']).usageError).toBeTruthy()
+    expect(parsePatrolArgs(['--json', '--only', 'a.com']).usageError).toBeNull()
+  })
+})
+
+describe('mapLoginUncovered', () => {
+  const row = (over = {}) => ({ adapterId: 'a.com', tool: 'a.x', verdict: 'failed', kind: 'login_required', details: { reason: 'login_required', durationMs: 5, baselineMissing: true }, parsed: null, sampleSource: null, ...over })
+
+  it('login_required 失败映射为未覆盖（spec 验收 5:登录态失效整站转未覆盖,不算失败）', () => {
+    const mapped = mapLoginUncovered(row())
+    expect(mapped.verdict).toBe('uncovered')
+    expect(mapped.kind).toBe('login_required')
+    expect(mapped.details.reason).toBe('login_required')
+    expect(mapped.details.durationMs).toBe(5)
+  })
+
+  it('permission_denied / timeout / error 维持 failed（spec 只豁免登录态）', () => {
+    for (const kind of ['permission_denied', 'timeout', 'error']) {
+      expect(mapLoginUncovered(row({ kind, details: { reason: kind } })).verdict).toBe('failed')
+    }
+  })
+
+  it('pass 与未覆盖行原样返回', () => {
+    const passing = { adapterId: 'a.com', tool: 'a.y', verdict: 'pass', kind: null, details: { added: [] } }
+    expect(mapLoginUncovered(passing)).toBe(passing)
+    const uncovered = row({ verdict: 'uncovered', kind: 'needs-sample', details: { reason: 'needs-sample' } })
+    expect(mapLoginUncovered(uncovered)).toBe(uncovered)
+  })
+})
+
+describe('patrolStateDir', () => {
+  it('落盘在用户级 ~/.webcli/patrol（巡检产物不入仓），home 可注入', () => {
+    expect(patrolStateDir()).toBe(join(homedir(), '.webcli', 'patrol'))
+    expect(patrolStateDir({ home: '/tmp/x' })).toBe(join('/tmp/x', '.webcli', 'patrol'))
+  })
+})
+
+describe('collectBaselineEntries', () => {
+  const parsed = { status: 'ok', items: ['x'] }
+
+  it('只收「连通 ok + 有样本 + parsed 非 null」的行，用首跑自建条目', () => {
+    const rows = [
+      { tool: 'a.ok', verdict: 'pass', kind: null, parsed, sampleSource: 'f#1' },
+      { tool: 'a.changed', verdict: 'failed', kind: 'site_changed', parsed, sampleSource: 'f#2' },
+      { tool: 'a.uncovered', verdict: 'uncovered', kind: 'needs-sample', parsed: null, sampleSource: null },
+      { tool: 'a.connfail', verdict: 'failed', kind: 'error', parsed: null, sampleSource: 'f#3' },
+      { tool: 'a.badjson', verdict: 'pass', kind: null, parsed: null, sampleSource: 'f#4' },
+    ]
+    const entries = collectBaselineEntries(rows, { now: '2026-11-27T00:00:00Z' })
+    expect(entries.map((e) => e.tool)).toEqual(['a.ok', 'a.changed'])
+    for (const { tool, entry } of entries) {
+      expect(entry.source).toBe('first-run')
+      expect(entry.shape).toEqual(extractShape(parsed))
+      expect(entry.requiredNonEmpty).toEqual(['status', 'items'])
+      expect(entry.sampleSource).toBe(`f#${tool === 'a.ok' ? 1 : 2}`)
+      expect(entry.updatedAt).toBe('2026-11-27T00:00:00Z')
+      expect(entry.updatedBy).toBe('patrol')
+    }
+  })
+})
+
+describe('planBaselineUpdate', () => {
+  const oldBaseline = { version: 1, updatedAt: 'old', updatedBy: 'patrol', tools: { keep: { shape: { a: 'string' } }, changed: { shape: { b: 'number' } } } }
+  const entries = [
+    { tool: 'changed', entry: { source: 'first-run', shape: { b: 'string' }, requiredNonEmpty: [] } },
+    { tool: 'added', entry: { source: 'first-run', shape: { c: 'boolean' }, requiredNonEmpty: ['c'] } },
+  ]
+
+  it('合并旧基线（未探到的工具保留，不会误报移除）并产出变更预览', () => {
+    const { newBaseline, plan } = planBaselineUpdate(oldBaseline, entries)
+    expect(plan.added).toEqual(['added'])
+    expect(plan.changed).toEqual(['changed'])
+    expect(plan.removed).toEqual([])
+    expect(newBaseline.version).toBe(BASELINE_VERSION)
+    expect(newBaseline.tools.keep).toEqual(oldBaseline.tools.keep) // 未探到的原样保留
+    expect(newBaseline.tools.changed).toEqual(entries[0].entry)
+    expect(newBaseline.tools.added).toEqual(entries[1].entry)
+  })
+
+  it('旧基线为 null 时全部记 added', () => {
+    const { plan } = planBaselineUpdate(null, entries)
+    expect(plan.added.sort()).toEqual(['added', 'changed'])
+    expect(plan.removed).toEqual([])
   })
 })

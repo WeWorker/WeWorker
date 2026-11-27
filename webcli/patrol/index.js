@@ -6,12 +6,16 @@
  *   node webcli/patrol/index.js [--json] [--only <adapterId>] [--concurrency 4]
  *                               [--timeout 20] [--update-baseline] [--list]
  *
- * 退出码：0 全绿（含未覆盖） / 1 有失败 / 2 脚本自身异常
+ * 退出码：0 全绿（含未覆盖） / 1 有失败 / 2 脚本自身异常（含用法错误、--only 不存在）
+ *
+ * 巡检产物（latest.json / runs/）落盘在用户级 `~/.webcli/patrol/`，不入仓；
+ * 基线（baselines/）只存形状，入仓可评审。
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadBaseline } from './baseline.js'
+import { BASELINE_VERSION, buildBaseline, diffBaselinePlan, loadBaseline, saveBaseline } from './baseline.js'
 import { classifyConnectivity, evaluateTool } from './classify.js'
 import { buildPatrolList, indexSamples } from './enumerate.js'
 import { createDefaultEnsureLogin } from './ensure-login.js'
@@ -19,25 +23,35 @@ import { buildPatrolEnv, probeTool, runWithConcurrency, summarizeProbe, WEBCLI_D
 import { buildReport, formatTextReport } from './report.js'
 import { diffShape, extractShape } from './shape.js'
 
-const PATROL_DIR = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(WEBCLI_DIR, '..')
-const RUNS_DIR = join(REPO_ROOT, 'webcli', 'patrol', 'runs')
 
 /**
- * adapterId 入口白名单：adapterId 会被拼进基线/运行产物文件路径（`loadBaseline`、
- * `persistRun`），也来自命令行 `--only`。只放行安全字符集，防止路径穿越与
- * 非法文件名——与 bridge.js 的 SAFE_ADAPTER_ID_RE 同款。
+ * adapterId 入口白名单：adapterId 会被拼进基线文件路径（`loadBaseline`），也来自
+ * 命令行 `--only`。只放行安全字符集，防止路径穿越与非法文件名——与 bridge.js 的
+ * SAFE_ADAPTER_ID_RE 同款。
  */
 const SAFE_ADAPTER_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
+/** 巡检运行产物目录（用户级，不入仓）。home 可注入供测试。 */
+export function patrolStateDir({ home = homedir() } = {}) {
+  return join(home, '.webcli', 'patrol')
+}
+
 export function parsePatrolArgs(argv) {
-  const options = { json: false, only: null, concurrency: 4, timeoutMs: 20_000, updateBaseline: false, list: false }
+  const options = { json: false, only: null, concurrency: 4, timeoutMs: 20_000, updateBaseline: false, list: false, usageError: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--json') options.json = true
     else if (arg === '--list') options.list = true
     else if (arg === '--update-baseline') options.updateBaseline = true
-    else if (arg === '--only') options.only = argv[++i] ?? null
+    else if (arg === '--only') {
+      const value = argv[++i]
+      // 缺值（或值是下一个 flag——adapterId 永不以 -- 开头）是用法错误，不是"全量巡检"
+      if (value === undefined || value.startsWith('--')) options.usageError = '用法: --only 需要一个 adapterId'
+      else options.only = value
+    }
+    // 已知偏差：concurrency 目前是"同 adapter 内"并发（spec 方向是"跨 adapter 总并发 N"，
+    // 即各站串行、总并发 4）。全量巡检时退化为逐站串行、站内并发 N。本期不改。
     else if (arg === '--concurrency') options.concurrency = Math.max(1, Number(argv[++i]) || 4)
     else if (arg === '--timeout') options.timeoutMs = Math.max(1, Number(argv[++i]) || 20) * 1000
   }
@@ -65,29 +79,76 @@ async function loadTools(adapterId) {
     .map((tool) => ({ tool }))
 }
 
-async function patrolAdapter({ adapterId, samples, options, env, ensureLogin }) {
+/**
+ * 登录态失效整站转未覆盖，不算失败（spec 验收 5）。evaluateTool 把一切连通失败判成
+ * failed；编排层在此只把 login_required 重定性为 uncovered——站点要求登录不是"站坏了"。
+ * permission_denied / timeout / error 维持 failed（spec 只豁免登录态）。
+ */
+export function mapLoginUncovered(row) {
+  if (row.verdict === 'failed' && row.kind === 'login_required') {
+    return { ...row, verdict: 'uncovered', details: { ...row.details, reason: 'login_required' } }
+  }
+  return row
+}
+
+/**
+ * 从本站结果行收集基线候选：只收「连通 ok + 有样本 + parsed 非 null」的行
+ * （uncovered 未跑、连通失败与坏 JSON 无从建形状）。条目为首跑自建（fixture 优先
+ * 是后续子项目的注入点，本期未接）。
+ */
+export function collectBaselineEntries(rows, { now = null } = {}) {
+  return rows
+    .filter((row) => row.verdict !== 'uncovered' && row.parsed != null && row.sampleSource)
+    .map((row) => ({
+      tool: row.tool,
+      entry: buildBaseline({ tool: row.tool, parsed: row.parsed, sampleSource: row.sampleSource, updatedAt: now, updatedBy: 'patrol' }),
+    }))
+}
+
+/**
+ * 合并旧基线生成新基线与变更预览。旧基线的工具**全量保留**（本轮没探到的工具
+ * 不算"移除"——探针只跑有样本的命令，按次全量覆盖会误删历史基线），
+ * 本轮采到的条目按工具覆盖写入。
+ */
+export function planBaselineUpdate(oldBaseline, entries, { now = null } = {}) {
+  const tools = { ...(oldBaseline?.tools ?? {}) }
+  for (const { tool, entry } of entries) tools[tool] = entry
+  const newBaseline = { version: BASELINE_VERSION, updatedAt: now, updatedBy: 'patrol', tools }
+  const plan = diffBaselinePlan(oldBaseline, newBaseline)
+  return { newBaseline, plan }
+}
+
+const planChanged = (plan) => plan.added.length + plan.changed.length + plan.removed.length > 0
+
+async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, now = null }) {
   if (!SAFE_ADAPTER_ID.test(adapterId)) {
     // 非法 adapterId：跳过该站，记一行未覆盖（不计入通过），不让一个坏 id 炸整轮巡检
-    return [{ adapterId, tool: '*', verdict: 'uncovered', kind: 'invalid-adapter-id', details: { reason: 'invalid-adapter-id' } }]
+    return {
+      rows: [{ adapterId, tool: '*', verdict: 'uncovered', kind: 'invalid-adapter-id', details: { reason: 'invalid-adapter-id' } }],
+      baselineUpdate: null,
+    }
   }
 
   const login = await ensureLogin(adapterId)
   if (!login.ok) {
     const tools = await loadTools(adapterId)
-    return tools.map(({ tool }) => ({
-      adapterId,
-      tool,
-      verdict: 'uncovered',
-      kind: login.reason,
-      details: { reason: login.reason },
-    }))
+    return {
+      rows: tools.map(({ tool }) => ({
+        adapterId,
+        tool,
+        verdict: 'uncovered',
+        kind: login.reason,
+        details: { reason: login.reason },
+      })),
+      baselineUpdate: null,
+    }
   }
 
   const tools = await loadTools(adapterId)
   const baseline = loadBaseline(REPO_ROOT, adapterId)
   const list = buildPatrolList({ adapterId, tools, samples, baseline })
 
-  return runWithConcurrency(list, options.concurrency, async (row) => {
+  const rows = await runWithConcurrency(list, options.concurrency, async (row) => {
     if (row.skipReason) {
       return { adapterId, tool: row.tool, verdict: 'uncovered', kind: row.skipReason, details: { reason: row.skipReason } }
     }
@@ -105,7 +166,7 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin }) 
     }
 
     const verdict = evaluateTool({ connectivity, shapeDiff, emptiedPaths })
-    return {
+    return mapLoginUncovered({
       adapterId,
       tool: row.tool,
       verdict: verdict.verdict,
@@ -113,18 +174,33 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin }) 
       details: { ...verdict.details, durationMs: result.durationMs, baselineMissing: connectivity.ok && !baselineEntry },
       parsed: result.parsed,
       sampleSource: row.sample?.source ?? null,
-    }
+    })
   })
+
+  const entries = collectBaselineEntries(rows, { now })
+  const baselineUpdate = entries.length > 0 ? planBaselineUpdate(baseline, entries, { now }) : null
+  return { rows, baselineUpdate }
 }
 
 async function main() {
   const options = parsePatrolArgs(process.argv.slice(2))
+  if (options.usageError) {
+    console.error(`[patrol] ${options.usageError}`)
+    process.exitCode = 2
+    return
+  }
+
   const env = buildPatrolEnv()
   const manifests = loadSampleManifests()
   const samples = indexSamples(manifests)
 
   const { loadExtensionAdapters } = await import('../adapter-cli.js')
   const adapters = await loadExtensionAdapters()
+  if (options.only && !adapters.some((adapter) => adapter.id === options.only)) {
+    console.error(`[patrol] 未找到 adapter: ${options.only}（用 --list 查看已装清单）`)
+    process.exitCode = 2
+    return
+  }
   const targetIds = options.only ? [options.only] : adapters.map((adapter) => adapter.id)
 
   if (options.list) {
@@ -143,21 +219,39 @@ async function main() {
   const runId = `patrol-${Date.now()}`
   const startedAt = new Date().toISOString()
   const rows = []
+  const baselineUpdates = []
   for (const adapterId of targetIds) {
-    rows.push(...(await patrolAdapter({ adapterId, samples, options, env, ensureLogin })))
+    const stationFinishedAt = new Date().toISOString()
+    const { rows: adapterRows, baselineUpdate } = await patrolAdapter({ adapterId, samples, options, env, ensureLogin, now: stationFinishedAt })
+    rows.push(...adapterRows)
+    if (baselineUpdate && planChanged(baselineUpdate.plan)) baselineUpdates.push({ adapterId, ...baselineUpdate })
   }
   const finishedAt = new Date().toISOString()
 
   const previousReport = loadPreviousReport()
   const report = buildReport({ runId, startedAt, finishedAt, rows, siteCount: targetIds.length, previousReport })
 
+  // 基线变更预览（spec:--update-baseline 前先打印）走 stderr，JSON 模式的 stdout 保持纯 JSON
+  for (const { adapterId, newBaseline, plan } of baselineUpdates) {
+    console.error(`[baseline] ${adapterId}: 新增 ${plan.added.length} / 变化 ${plan.changed.length}${plan.removed.length ? ` / 移除 ${plan.removed.length}` : ''}`)
+    for (const tool of plan.added) console.error(`  + ${tool}`)
+    for (const tool of plan.changed) console.error(`  ~ ${tool}`)
+    if (options.updateBaseline) {
+      saveBaseline(REPO_ROOT, adapterId, newBaseline)
+      console.error(`[baseline] ${adapterId}: 已写入 webcli/patrol/baselines/${adapterId}.json`)
+    }
+  }
+  if (baselineUpdates.length > 0 && !options.updateBaseline) {
+    console.error('基线变更未写入，重跑加 --update-baseline')
+  }
+
   persistRun(report, rows)
   console.log(options.json ? JSON.stringify(report, null, 2) : formatTextReport(report))
   process.exitCode = report.failed > 0 ? 1 : 0
 }
 
-function loadPreviousReport() {
-  const file = join(REPO_ROOT, 'webcli', 'patrol', 'latest.json')
+function loadPreviousReport({ home } = {}) {
+  const file = join(patrolStateDir({ home }), 'latest.json')
   if (!existsSync(file)) return null
   try {
     return JSON.parse(readFileSync(file, 'utf8'))
@@ -166,10 +260,12 @@ function loadPreviousReport() {
   }
 }
 
-function persistRun(report, rows) {
-  mkdirSync(RUNS_DIR, { recursive: true })
-  writeFileSync(join(RUNS_DIR, `${report.runId}.json`), `${JSON.stringify(rows, null, 2)}\n`, 'utf8')
-  writeFileSync(join(REPO_ROOT, 'webcli', 'patrol', 'latest.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+function persistRun(report, rows, { home } = {}) {
+  const stateDir = patrolStateDir({ home })
+  const runsDir = join(stateDir, 'runs')
+  mkdirSync(runsDir, { recursive: true })
+  writeFileSync(join(runsDir, `${report.runId}.json`), `${JSON.stringify(rows, null, 2)}\n`, 'utf8')
+  writeFileSync(join(stateDir, 'latest.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
 }
 
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
