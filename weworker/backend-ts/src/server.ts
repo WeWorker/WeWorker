@@ -83,7 +83,7 @@ import { conversationModels, currentConversationModel, defaultConversationModel,
 import { activateCheckedModelSettings, prepareCheckedModelSave, type ModelActivationCheck } from './model-settings-activation.js'
 import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
-import { createModelConfiguration, getModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
+import { activateModelConfiguration, createModelConfiguration, getModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
 import { automaticWorkshopUpdate, sharedOpenAiWorkshopAddress, workshopSettingsEdited } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
@@ -519,16 +519,19 @@ app.get('/settings', (_req, res) => {
 // predefined providers must already have a saved API key.
 app.post('/settings/onboarding/complete', (req, res) => {
   const provider = typeof req.body?.provider === 'string' ? req.body.provider.trim() : ''
+  const current = getSettings()
   const isPredefined = getProvider(provider)?.fixed === true
-  if (!isBuiltinProvider(provider) && !isPredefined) {
-    res.status(400).json({ detail: '请选择免费模型或预定义供应商' })
+  const isDiscovered = Boolean(getModelConfiguration(current, provider)?.external_source_id)
+  if (!isBuiltinProvider(provider) && !isPredefined && !isDiscovered) {
+    res.status(400).json({ detail: '请选择免费模型、预定义供应商或本地识别的模型配置' })
     return
   }
 
   try {
-    const current = getSettings()
     let updates: Partial<Settings>
-    if (isBuiltinProvider(provider)) {
+    if (isDiscovered) {
+      updates = activateModelConfiguration(current, provider)
+    } else if (isBuiltinProvider(provider)) {
       const builtin = getProvider(provider)
       if (!builtin) throw new Error('免费模型在当前构建中不可用')
       updates = activateBuiltinProvider(builtin)

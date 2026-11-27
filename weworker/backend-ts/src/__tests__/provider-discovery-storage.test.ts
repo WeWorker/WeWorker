@@ -33,7 +33,8 @@ it('persists encrypted imports and deletion dismissals across settings reloads',
     let state = config.getSettings()
     expect(state.model_discovery_enabled).toBe(false)
     const id = imported.imported[0]
-    expect(state.active_model_configuration).toBe(id)
+    expect(state.onboarding_completed).toBe(false)
+    expect(state.active_model_configuration).not.toBe(id)
     expect(state.model_configurations![id].api_key).toBe('fixture-imported-secret')
     expect(importDiscoveredProviders(state, discovered).imported).toEqual([])
     state = config.updateSettings({ active_model_configuration: '', active_provider: 'anthropic' })

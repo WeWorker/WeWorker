@@ -329,9 +329,10 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
   const updates: Partial<Settings> = imported.length || changed ? {
     model_configurations: configurations, dismissed_model_sources: [...dismissed],
   } : {}
-  // Existing working selections always win; only fill an unconfigured setup.
+  // First launch shows the imported options without picking one for the user.
+  // After onboarding, retain the existing fallback for an unconfigured setup.
   const ready = imported.find(id => configurations[id].model)
-  if (ready && !settings.api_key?.trim()) Object.assign(updates,
+  if (ready && settings.onboarding_completed !== false && !settings.api_key?.trim()) Object.assign(updates,
     activateModelConfiguration({ ...settings, ...updates }, ready), { onboarding_completed: true })
   return { updates, imported, existing, merged, updated }
 }
