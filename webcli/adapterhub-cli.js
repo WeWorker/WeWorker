@@ -346,11 +346,11 @@ function findInstalledSite(current, target) {
 
 // ─── 翻页拉取全部 adapter ─────────────────────────────────────────────────────
 
-async function listAllAdapters(params = {}) {
+async function listAllAdapters(params = {}, { signal } = {}) {
   const items = [];
   let total = 0, page = 1, pageSize = 100;
   for (let guard = 0; guard < 100; guard++) {
-    const data = await listAdapters({ ...params, page });
+    const data = await listAdapters({ ...params, page, signal });
     items.push(...(data.items || []));
     total = data.total ?? items.length;
     pageSize = data.pageSize || 100;
@@ -621,7 +621,7 @@ async function cmdInstall(args, emit = value => console.log(JSON.stringify(value
 }
 
 /** 本地 Adapter 集合（内置 ∪ 自装，重名自装优先），供 check/upgrade 比对。 */
-function collectLocalAdapters() {
+export function collectLocalAdapters() {
   const installedIds = localAdapterIds();
   return [
     ...builtinAdapterIds()
@@ -636,8 +636,8 @@ function collectLocalAdapters() {
  * 一次拉全量列表（本地包名不进任何 URL），逐条分类：
  * update-available / up-to-date / local-newer / delisted / placeholder / unknown。
  */
-async function compareLocalWithHub(local) {
-  const { items: hubItems } = await listAllAdapters();
+export async function compareLocalWithHub(local, { signal } = {}) {
+  const { items: hubItems } = await listAllAdapters({}, { signal });
   const hubByName = new Map(hubItems.map((item) => [String(item.name || "").toLowerCase(), item]));
   return local.map((entry) => {
     const hub = hubByName.get(entry.name.toLowerCase());

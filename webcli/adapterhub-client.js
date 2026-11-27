@@ -149,7 +149,7 @@ export function adapterCatalogRoute({ q = "", sort = "", origin = "", runtime = 
 
 export async function listAdapters(options = {}) {
   const url = joinUrl(resolveEndpoint(), adapterCatalogRoute(options));
-  const resp = await request(url);
+  const resp = await request(url, { signal: options.signal ?? null });
   if (!resp.ok) throw await parseError(resp, url);
   return resp.json();
 }
