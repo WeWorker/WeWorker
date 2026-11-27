@@ -9,6 +9,9 @@ export const CLI_ENTRY = join(WEBCLI_DIR, 'index.js')
 export const DEFAULT_CONCURRENCY = 4
 export const DEFAULT_TIMEOUT_MS = 20_000
 
+/** probeTool 返回的 stderrTail 上限(环形丢弃旧行,只留尾部)。 */
+export const STDERR_TAIL_MAX = 800
+
 /**
  * 子进程环境：继承当前环境，但固定三处。
  * - WEBCLI_METRICS=off / WEBCLI_METRICS_UPLOAD=off：巡检不写本地 metrics、不上报
@@ -77,6 +80,12 @@ export function probeTool({ tool, args }, { env, timeoutMs = DEFAULT_TIMEOUT_MS,
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    // stderr 尾部留存:巡检行只存 reason="error" 时,traceback 的真实原因(最后
+    // 一行异常消息)全部丢失,报告不可诊断。环形丢弃旧行只留尾部 ~800 字节,
+    // 与 toolkit-runner.js 的 stderrTail 同款(chunk 按 utf8 字节数记账)。
+    const stderrChunks = []
+    let stderrBytes = 0
+    const stderrTail = () => stderrChunks.join('').trim().slice(-STDERR_TAIL_MAX)
 
     const timer = setTimeout(() => {
       timedOut = true
@@ -84,14 +93,24 @@ export function probeTool({ tool, args }, { env, timeoutMs = DEFAULT_TIMEOUT_MS,
     }, timeoutMs)
 
     child.stdout.on('data', (chunk) => { stdout += chunk })
-    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+      stderrChunks.push(chunk)
+      stderrBytes += Buffer.byteLength(chunk)
+      while (stderrBytes > STDERR_TAIL_MAX && stderrChunks.length > 1) {
+        stderrBytes -= Buffer.byteLength(stderrChunks[0])
+        stderrChunks.shift()
+      }
+    })
     child.on('error', (error) => {
       clearTimeout(timer)
-      resolvePromise({ exitCode: null, stdout, stderr: `${stderr}${error.message}`, timedOut: false, durationMs: Date.now() - started })
+      stderr += error.message
+      stderrChunks.push(error.message)
+      resolvePromise({ exitCode: null, stdout, stderr, stderrTail: stderrTail(), timedOut: false, durationMs: Date.now() - started })
     })
     child.on('close', (code) => {
       clearTimeout(timer)
-      resolvePromise({ exitCode: code ?? 1, stdout, stderr, timedOut, durationMs: Date.now() - started })
+      resolvePromise({ exitCode: code ?? 1, stdout, stderr, stderrTail: stderrTail(), timedOut, durationMs: Date.now() - started })
     })
   })
 }

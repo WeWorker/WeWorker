@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parsePatrolArgs, mapLoginUncovered, collectBaselineEntries, planBaselineUpdate, patrolStateDir, writeHtmlReport } from '../patrol/index.js'
+import { parsePatrolArgs, mapLoginUncovered, collectBaselineEntries, planBaselineUpdate, patrolStateDir, writeHtmlReport, extractParsedError } from '../patrol/index.js'
 import { BASELINE_VERSION } from '../patrol/baseline.js'
 import { extractShape } from '../patrol/shape.js'
 
@@ -93,6 +93,27 @@ describe('writeHtmlReport', () => {
     } finally {
       rmSync(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('extractParsedError', () => {
+  it('字符串 error 原样提取(折叠空白),超长截 200', () => {
+    expect(extractParsedError({ error: '需要登录 ITSM工单:登录页已在浏览器中打开' })).toBe('需要登录 ITSM工单:登录页已在浏览器中打开')
+    expect(extractParsedError({ error: 'a\n  b' })).toBe('a b')
+    expect(extractParsedError({ error: 'x'.repeat(300) })).toHaveLength(200)
+  })
+
+  it('{code,message} 对象取 message,无 message 兜底 JSON.stringify', () => {
+    expect(extractParsedError({ error: { code: 'E_AUTH', message: '需要登录' } })).toBe('需要登录')
+    expect(extractParsedError({ error: { code: 'E_X' } })).toBe('{"code":"E_X"}')
+  })
+
+  it('无 error / 非 error 对象 / null parsed / 空文本返回 null', () => {
+    expect(extractParsedError({ ok: true })).toBeNull()
+    expect(extractParsedError(null)).toBeNull()
+    expect(extractParsedError([1, 2])).toBeNull()
+    expect(extractParsedError({ error: '' })).toBeNull()
+    expect(extractParsedError({ error: '   ' })).toBeNull()
   })
 })
 

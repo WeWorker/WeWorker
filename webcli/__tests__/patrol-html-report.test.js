@@ -98,3 +98,23 @@ describe('renderHtmlReport:站点健康度按 details/summary 折叠', () => {
     expect(html).toContain('a.bad&lt;script&gt;')
   })
 })
+
+describe('renderHtmlReport:失败明细携带真实错误文本', () => {
+  const html = renderHtmlReport({
+    runId: 'patrol-err',
+    startedAt: '2026-11-27T01:00:00Z', finishedAt: '2026-11-27T01:05:00Z',
+    coverage: { sites: '1/1', tools: '1/1' },
+    passed: 0, failed: 1, uncovered: [],
+    results: [
+      { adapterId: 'a.com', tool: 'a.x', verdict: 'failed', kind: 'error', details: { reason: 'error', stderrTail: 'TypeError: <boom> & crash', parsedError: '需要登录 ITSM工单' }, durationMs: 12 },
+    ],
+    reEvidence: [], newlyFailed: [], recovered: [], loginHealth: [],
+  })
+
+  it('details 是遍历式渲染:stderrTail/parsedError 自动带出且过转义', () => {
+    expect(html).toContain('parsedError')
+    expect(html).toContain('需要登录 ITSM工单')
+    expect(html).toContain('TypeError: &lt;boom&gt; &amp; crash')
+    expect(html).not.toContain('<boom>')
+  })
+})

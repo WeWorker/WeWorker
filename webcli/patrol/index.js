@@ -94,6 +94,20 @@ export function mapLoginUncovered(row) {
 }
 
 /**
+ * 从结构化结果里提取业务错误文本:parsed.error 可能是字符串(如「需要登录
+ * ITSM工单:…」)或 {code,message} 对象,统一 String 化(对象优先取 message,
+ * 没有 message 兜底 JSON.stringify)、折叠空白后截 200 字符;无 error 或空文本
+ * 返回 null——成功行不携带噪音。
+ */
+export function extractParsedError(parsed, { max = 200 } = {}) {
+  const error = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed.error : undefined
+  if (error == null) return null
+  const text = typeof error === 'string' ? error : error.message ?? JSON.stringify(error)
+  const normalized = String(text).replace(/\s+/g, ' ').trim()
+  return normalized ? normalized.slice(0, max) : null
+}
+
+/**
  * 从本站结果行收集基线候选：只收「连通 ok + 有样本 + parsed 非 null」的行
  * （uncovered 未跑、连通失败与坏 JSON 无从建形状）。条目为首跑自建（fixture 优先
  * 是后续子项目的注入点，本期未接）。
@@ -177,7 +191,15 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
       tool: row.tool,
       verdict: verdict.verdict,
       kind: verdict.kind,
-      details: { ...verdict.details, durationMs: result.durationMs, baselineMissing: connectivity.ok && !baselineEntry },
+      // 可诊断性:真实执行过的行携带真实错误文本(stderr 尾部/业务 error 消息),
+      // 报告不再只见 reason:"error"。skipReason/uncovered 行不经此路径,不携带。
+      details: {
+        ...verdict.details,
+        durationMs: result.durationMs,
+        baselineMissing: connectivity.ok && !baselineEntry,
+        stderrTail: result.stderrTail ? String(result.stderrTail).slice(-200) : null,
+        parsedError: extractParsedError(result.parsed),
+      },
       parsed: result.parsed,
       sampleSource: row.sample?.source ?? null,
     }))

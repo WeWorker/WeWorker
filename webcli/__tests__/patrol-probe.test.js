@@ -52,3 +52,29 @@ describe('probeTool 多字节安全', () => {
   })
 })
 
+describe('probeTool stderrTail 留存', () => {
+  const fixture = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'patrol-stderr-fixture.js')
+  const run = (tool) => probeTool({ tool }, { env: buildPatrolEnv(), timeoutMs: 10_000, cliEntry: fixture })
+
+  it('非零退出时返回 stderr 尾部,携带真实错误文本;summarizeProbe 透传', async () => {
+    const raw = await run('stderr-boom')
+    expect(raw.exitCode).toBe(1)
+    expect(raw.stderrTail).toContain('boom: real cause')
+    expect(summarizeProbe(raw).stderrTail).toContain('boom: real cause')
+  })
+
+  it('stderr 超长时环形丢弃旧行,只留尾部 ~800 字节', async () => {
+    const raw = await run('stderr-flood')
+    expect(raw.exitCode).toBe(1)
+    expect(raw.stderrTail.length).toBeLessThanOrEqual(800)
+    expect(raw.stderrTail).toContain('TAIL_MARKER')
+    expect(raw.stderrTail).not.toContain('HEAD_MARKER')
+  })
+
+  it('成功且无 stderr 时 stderrTail 为空字符串', async () => {
+    const raw = await run('stderr-ok')
+    expect(raw.exitCode).toBe(0)
+    expect(raw.stderrTail).toBe('')
+  })
+})
+
