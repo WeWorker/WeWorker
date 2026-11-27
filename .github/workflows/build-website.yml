@@ -19,6 +19,10 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Normalize lockfile registry for public CI
+        shell: bash
+        run: git ls-files '*package-lock.json' | xargs node scripts/normalize-lockfile-registry.mjs
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
