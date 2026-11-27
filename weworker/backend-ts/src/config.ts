@@ -306,6 +306,7 @@ export interface Settings {
 
   openai_base_url_custom: string
   openai_base_url_is_full_custom?: boolean
+  workshop_auto_configured_custom?: boolean
 
   exploration_base_url: string
   exploration_base_url_is_full?: boolean

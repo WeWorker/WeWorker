@@ -35,6 +35,7 @@ export async function prepareCheckedModelSave(settings: Settings, id: string, in
     openai_base_url_is_full: id === 'custom' && settings.openai_base_url_is_full_custom === true,
     openai_api_key: id === 'custom' ? settings.openai_api_key_custom : undefined,
     openai_model: id === 'custom' ? settings.openai_model_custom : undefined,
+    workshop_auto_configured: id === 'custom' ? settings.workshop_auto_configured_custom : undefined,
     ...(id === 'custom' ? {
       models_url: settings.models_url_custom, models_url_is_full: settings.models_url_is_full_custom,
       models_auth_type: settings.models_auth_type_custom, openai_models_url: settings.openai_models_url_custom,
@@ -44,7 +45,7 @@ export async function prepareCheckedModelSave(settings: Settings, id: string, in
   const draft = { ...settings, model_configurations: { ...settings.model_configurations, [id]: current } }
   const pending = updateModelConfiguration(draft, id, input)
   const automatic = await automaticWorkshopUpdate(current, pending.model_configurations![id], input)
-  return updateModelConfiguration(draft, id, { ...input, ...automatic })
+  return updateModelConfiguration(draft, id, input, automatic)
 }
 
 export function providerActivationPatch(settings: Settings, id: string): Partial<Settings> {

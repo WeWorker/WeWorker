@@ -8,22 +8,23 @@ import type { Settings } from './config.js'
 import { DEFAULT_CONTEXT_LIMIT } from './context-window.js'
 import { activateModelConfiguration, type ModelConfiguration } from './model-configurations.js'
 import { normalizeLlmUrlInput, type LlmProtocol } from './llm-egress.js'
+import type { ProviderValidation } from './provider-model-services.js'
 import { discoverHarnessProviders } from './harness-provider-discovery.js'
-import { discoverWorkshopConfig } from './adapter-workshop-config.js'
+import { detectValidatedWorkshop, hasIndependentWorkshopSettings } from './adapter-workshop-config.js'
+import { getProvider } from './provider-registry.js'
+import { DEFAULT_ANTHROPIC_BASE_URL } from './model-endpoint-defaults.js'
+export { looksLikeApiKey, validateProviderConnection, type ProviderValidation } from './provider-model-services.js'
 
 type RecordValue = Record<string, any>
 type Product = 'Claude Code' | 'Codex' | 'WorkBuddy' | 'CodeBuddy' | 'OpenCode' | 'DeepSeek Harness'
-export interface ProviderValidation {
-  ok: boolean
-  reason: '' | 'format' | 'auth' | 'unreachable' | 'unsupported'
-  detail: string
-}
 export interface DiscoveredProvider {
   sourceId: string
   legacySourceIds?: string[]
   product: Product
   configuration: ModelConfiguration
   validation?: ProviderValidation
+  presetWorkshop?: boolean
+  workshopUnavailable?: boolean
 }
 export interface DiscoveryOptions {
   home?: string
@@ -35,46 +36,6 @@ export interface DiscoveryOptions {
 }
 const record = (value: unknown): RecordValue => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {}
 const text = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
-
-/** 只做格式判断：可打印 ASCII、无空白、长度合理。 */
-export function looksLikeApiKey(key: string): boolean {
-  return /^[\x21-\x7e]{8,512}$/.test(String(key || '')) && !/\s/.test(String(key || ''))
-}
-
-/**
- * 连通性校验：用模型列表接口做一次轻量探测。
- * 401/403 视为 key 无效；其它失败视为不可达；200 视为可用。
- */
-export async function validateProviderConnection(
-  configuration: Pick<ModelConfiguration, 'api_key' | 'base_url' | 'weworker_protocol'>,
-  fetchImpl: typeof fetch = fetch,
-  timeoutMs = 6000,
-): Promise<ProviderValidation> {
-  if (!looksLikeApiKey(configuration.api_key)) {
-    return { ok: false, reason: 'format', detail: 'API Key 格式不合法（需为 8-512 个非空白可见字符）' }
-  }
-  const anthropic = configuration.weworker_protocol === 'anthropic_messages'
-  const url = anthropic
-    ? `${configuration.base_url.replace(/\/+$/, '')}/v1/models?limit=1`
-    : `${configuration.base_url.replace(/\/+$/, '')}/models`
-  const headers: Record<string, string> = anthropic
-    ? { 'x-api-key': configuration.api_key, 'anthropic-version': '2023-06-01' }
-    : { authorization: `Bearer ${configuration.api_key}` }
-  try {
-    const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) })
-    if (response.ok) return { ok: true, reason: '', detail: '' }
-    if (response.status === 401 || response.status === 403) {
-      return { ok: false, reason: 'auth', detail: `鉴权失败（HTTP ${response.status}），该 Key 无法调用此接口` }
-    }
-    if (response.status === 404 || response.status === 405) {
-      // 有些网关不提供模型列表接口，不能据此判定 key 无效。
-      return { ok: true, reason: '', detail: '' }
-    }
-    return { ok: false, reason: 'unsupported', detail: `接口返回 HTTP ${response.status}` }
-  } catch (error) {
-    return { ok: false, reason: 'unreachable', detail: `无法连接接口：${error instanceof Error ? error.message : String(error)}` }
-  }
-}
 
 // Connection identity excludes the app and model. Only a digest is exposed.
 function connectionId(configuration: ModelConfiguration): string {
@@ -196,7 +157,7 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
     opus: claudeEnv.ANTHROPIC_DEFAULT_OPUS_MODEL,
     haiku: claudeEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL,
   }
-  add('Claude Code', 'default', claudeKey, claudeEnv.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',
+  add('Claude Code', 'default', claudeKey, claudeEnv.ANTHROPIC_BASE_URL || DEFAULT_ANTHROPIC_BASE_URL,
     Object.hasOwn(claudeAliases, text(claudeModel)) ? claudeAliases[text(claudeModel)] : claudeModel,
     'anthropic_messages', claudeEnv.ANTHROPIC_AUTH_TOKEN ? 'auth_token' : 'api_key')
 
@@ -214,7 +175,7 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
       || (codexProviderId === 'openai' && Object.keys(codex).length ? env.OPENAI_API_KEY : '')
   const wireApi = text(codexProvider.wire_api) || 'responses'
   if (wireApi === 'responses' || wireApi === 'chat') add('Codex', codexProviderId, codexKey,
-    codexProvider.base_url || (codexProviderId === 'openai' ? 'https://api.openai.com/v1' : ''),
+    codexProvider.base_url || (codexProviderId === 'openai' ? (getProvider('openai')?.weworker.baseUrl || '') : ''),
     codexConfig.model, wireApi === 'chat' ? 'openai_chat_completions' : 'openai_responses', 'auth_token')
 
   for (const [product, directory] of [['WorkBuddy', '.workbuddy'], ['CodeBuddy', '.codebuddy']] as const) {
@@ -251,8 +212,8 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
       '@ai-sdk/openai-compatible': 'openai_chat_completions',
     }
     const defaults: Record<string, { npm: string; url: string }> = {
-      anthropic: { npm: '@ai-sdk/anthropic', url: 'https://api.anthropic.com' },
-      openai: { npm: '@ai-sdk/openai', url: 'https://api.openai.com/v1' },
+      anthropic: { npm: '@ai-sdk/anthropic', url: DEFAULT_ANTHROPIC_BASE_URL },
+      openai: { npm: '@ai-sdk/openai', url: (getProvider('openai')?.weworker.baseUrl || '') },
     }
     const protocol = protocols[text(definition.npm) || defaults[providerId]?.npm]
     if (protocol) add('OpenCode', providerId, key, apiOptions.baseURL || defaults[providerId]?.url, selection.slice(separator + 1), protocol,
@@ -270,12 +231,13 @@ export async function discoverLocalProviders(options: DiscoveryOptions = {}) {
     const fetchImpl = options.fetchImpl ?? fetch
     const timeoutMs = options.validateTimeoutMs ?? 6000
     await Promise.all(grouped.map(async (item) => {
-      const [validation, workshop] = await Promise.all([
-        validateProviderConnection(item.configuration, fetchImpl, timeoutMs),
-        discoverWorkshopConfig(item.configuration, fetchImpl, timeoutMs),
-      ])
+      const config = item.configuration
+      const { validation, workshop, preset } = await detectValidatedWorkshop(config, fetchImpl, timeoutMs)
       item.validation = validation
-      Object.assign(item.configuration, workshop)
+      if (!validation.ok) return
+      Object.assign(config, workshop)
+      item.presetWorkshop = preset
+      item.workshopUnavailable = !workshop.openai_base_url
     }))
   }
   return { providers: grouped, issues: [...issues] }
@@ -299,6 +261,8 @@ export function publicDiscoveredProviders(settings: Settings, discovered: Discov
       imported: Boolean(existing),
       configuration_id: existing?.[0] || '',
       api_key_hint: item.configuration.api_key ? item.configuration.api_key.slice(-4) : '',
+      preset_workshop: item.presetWorkshop === true,
+      workshop_unavailable: item.workshopUnavailable === true,
       validation: item.validation ?? { ok: true, reason: '' as const, detail: '' },
     }
   })
@@ -314,7 +278,7 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
   let changed = false
   for (const item of discovered) {
     // 自动导入只接受校验通过的来源；用户手动导入则由用户决定（列表里仍然展示）。
-    if (!manual && item.validation && !item.validation.ok) continue
+    if (!manual && (item.validation?.ok === false || item.workshopUnavailable)) continue
     const matches = Object.entries(configurations).filter(([, configuration]) =>
       matchesSource(configuration, item) || sameConnection(configuration, item))
     const match = matches.find(([id]) => id === settings.active_model_configuration) || matches[0]
@@ -334,11 +298,13 @@ export function importDiscoveredProviders(settings: Settings, discovered: Discov
       }
       const next = { ...saved, custom_models: [...models],
         ...(saved.external_source_id ? { external_source_id: item.sourceId } : {}),
-        ...(!saved.openai_base_url && item.configuration.openai_base_url ? {
+        ...(!saved.openai_base_url && !hasIndependentWorkshopSettings(saved)
+          && item.configuration.workshop_auto_configured && item.configuration.openai_base_url ? {
           openai_base_url: item.configuration.openai_base_url,
           openai_base_url_is_full: item.configuration.openai_base_url_is_full === true,
-          openai_api_key: saved.openai_api_key || item.configuration.openai_api_key,
-          openai_model: saved.openai_model || item.configuration.openai_model,
+          openai_api_key: item.configuration.openai_api_key,
+          openai_model: item.configuration.openai_model,
+          ...(item.configuration.workshop_auto_configured ? { workshop_auto_configured: true } : {}),
         } : {}),
       }
       if (JSON.stringify(next) !== JSON.stringify(saved)) {

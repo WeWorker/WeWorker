@@ -136,6 +136,23 @@ test('settings checklist probes both built-in interfaces and displays separate r
     assert.equal(useSettingsStore.getState().activeProvider, 'builtin')
     assert.match(document.querySelector('[aria-label="连通性检查"]').textContent, /检查未通过/)
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 2100)) })
+    await act(async () => useSettingsStore.setState({ providers: { ...useSettingsStore.getState().providers,
+      'fixture-openai': { provider_id: 'custom', name: 'Fixture shared OpenAI', has_key: true, model: 'fixture-chat',
+        base_url: 'https://example.com/v1', weworker_protocol: 'openai_responses',
+        openai_base_url: 'https://example.org/stale/v1', openai_model: 'fixture-stale', added: true },
+      'fixture-anthropic': { provider_id: 'custom', name: 'Fixture Anthropic', has_key: true, model: 'fixture-chat',
+        base_url: 'https://example.com/anthropic', weworker_protocol: 'anthropic_messages', added: true },
+    } }))
+    const row = name => [...document.querySelectorAll('button')].find(button => button.textContent.includes(name))
+    await act(async () => row('Fixture shared OpenAI').click())
+    assert.equal(nav('高级配置'), undefined)
+    const openAiStart = calls.length
+    await act(async () => nav('测试模型可用性').click())
+    const openAiRequests = calls.slice(openAiStart).filter(c => c.path.endsWith('/provider/probe')).map(c => c.body)
+    assert.deepEqual(openAiRequests.map(body => body.target), ['weworker', 'webwright'])
+    assert.ok(openAiRequests.every(body => body.model === 'fixture-chat' && body.openai_model === undefined && body.openai_base_url === undefined))
+    await act(async () => row('Fixture Anthropic').click())
+    assert.ok(nav('高级配置'))
   } finally {
     await act(async () => root?.unmount())
     await server?.close()

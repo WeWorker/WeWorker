@@ -303,6 +303,7 @@ describe('multiple model configurations', () => {
   it('persists and reloads model edits and deletions without restoring removed configurations', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-model-config-test-'))
     const homedir = vi.spyOn(os, 'homedir').mockReturnValue(directory)
+    vi.resetModules()
     const { setMasterKeyForTests } = await import('../secret-store.js')
     setMasterKeyForTests('0123456789abcdef0123456789abcdef')
     try {

@@ -43,13 +43,13 @@ function fixture() {
   return { root, payload, files }
 }
 
-async function harness(payload: object, override?: typeof fetch, onInstalled: () => void | Promise<void> = () => {}, readExploration?: (command: string, args: Record<string, unknown>, options?: { profile?: string; timeoutMs?: number }) => Promise<any>) {
+async function harness(payload: object, override?: typeof fetch, onInstalled: () => void | Promise<void> = () => {}, readExploration?: (command: string, args: Record<string, unknown>, options?: { profile?: string; timeoutMs?: number }) => Promise<any>, onDevelopmentHandoff?: (input: unknown, sourceSelection: unknown) => unknown) {
   const fetchAgent = override || vi.fn(async (url: string) => url.endsWith('/api/health')
     ? Response.json({ ok: true, instance_id: 'owned' })
     : Response.json({ ...payload, ...('digest' in payload ? { operation_id: String(payload.digest) + '-1' } : {}) })) as unknown as typeof fetch
   const app = express()
   app.use(express.json())
-  app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({ instanceId: 'owned', fetchAgent, onInstalled, readExploration }))
+  app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({ instanceId: 'owned', fetchAgent, onInstalled, readExploration, onDevelopmentHandoff }))
   const server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)) })
   servers.push(server)
   const address = server.address() as { port: number }
@@ -57,6 +57,49 @@ async function harness(payload: object, override?: typeof fetch, onInstalled: ()
     'http://127.0.0.1:' + address.port + '/api/website-exploration' + path, options)
   return { request, fetchAgent }
 }
+
+describe('native generation handoff model', () => {
+  const source = { schema_version: 1, source_exploration: { exploration_id: 'example-id', run_id: 'example-run' } }
+  const selection = { provider: 'fixture-config', model: 'workshop-model', selection_revision: 'fixture-revision' }
+  function fakeAgent(modelResponse: () => Response) {
+    return vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'owned' })
+      expect(new Headers(init?.headers).get('X-WeWorker-Exploration-Instance')).toBe('owned')
+      if (url.endsWith('/example-id/development/input')) {
+        expect(init?.method).toBe('POST')
+        expect(JSON.parse(String(init?.body))).toEqual({ instruction: 'Example task' })
+        return Response.json(source)
+      }
+      expect(url.endsWith('/example-id/model')).toBe(true)
+      expect(init?.method).toBe('GET')
+      expect(init?.body).toBeUndefined()
+      return modelResponse()
+    })
+  }
+  const data = (run_id = 'example-run') => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ run_id, instruction: 'Example task' }) })
+
+  it('passes the managed source selection independently from the handoff input', async () => {
+    const onDevelopmentHandoff = vi.fn(() => ({ workId: 'generation-example' }))
+    const agent = fakeAgent(() => Response.json({ model_selection: selection }))
+    const { request } = await harness({}, agent as unknown as typeof fetch, undefined, undefined, onDevelopmentHandoff)
+    const response = await request('/explorations/example-id/development/chat', data())
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ workId: 'generation-example' })
+    expect(onDevelopmentHandoff).toHaveBeenCalledExactlyOnceWith(source, selection)
+    expect((await request('/explorations/example-id/development/chat', data('old-run'))).status).toBe(409)
+    expect(agent.mock.calls.filter(([url]) => url.endsWith('/example-id/model'))).toHaveLength(1)
+  })
+
+  it('stops before creating a work if source model lookup fails', async () => {
+    const onDevelopmentHandoff = vi.fn()
+    const agent = fakeAgent(() => Response.json({ detail: 'fixture credential error' }, { status: 503 }))
+    const { request } = await harness({}, agent as unknown as typeof fetch, undefined, undefined, onDevelopmentHandoff)
+    const response = await request('/explorations/example-id/development/chat', data())
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ detail: '无法读取源探索的 Adapter 工坊模型，请重试' })
+    expect(onDevelopmentHandoff).not.toHaveBeenCalled()
+  })
+})
 
 describe('mixed Adapter composition', () => {
   function mixedFixture() {

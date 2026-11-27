@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import json
+import asyncio
 import base64
+import json
+from functools import partial
 
+import httpx
 import pytest
 
 from webwright.models.anthropic_model import AnthropicModel
@@ -169,6 +172,34 @@ def test_model_snapshot_accepts_host_selected_loopback_port():
 def test_model_snapshot_rejects_non_host_endpoints(url):
     with pytest.raises(ManagedModelConfigError, match="unavailable"):
         load_managed_model_config({"WEWORKER_MODEL_CONFIG_URL": url, "WEWORKER_MODEL_CONFIG_TOKEN": "fixture-token"})
+
+
+def test_managed_openai_chat_sends_structured_request(monkeypatch) -> None:
+    config = ManagedModelConfig.from_payload(payload())
+    requests = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
+            "thought": "Checked the page", "bash_command": "", "done": True, "final_response": "Example result",
+        })}}]})
+
+    client = partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    model = OpenAIChatModel(model_name=config.model, openai_chat_api_key=config.api_key,
+                            openai_chat_endpoint=config.request_endpoint)
+    result = asyncio.run(model._query_async([{"role": "user", "content": "Summarize the page"}]))
+
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.method == "POST"
+    assert str(request.url) == "https://example.test/v1/chat/completions"
+    assert request.headers["authorization"] == f"Bearer {config.api_key}"
+    assert "x-api-key" not in request.headers
+    body = json.loads(request.content)
+    assert body["model"] == config.model
+    assert body["response_format"] == {"type": "json_object"}
+    assert result["extra"]["final_response"] == "Example result"
 
 
 def test_openai_chat_payload_uses_json_object() -> None:

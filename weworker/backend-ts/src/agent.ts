@@ -1,3 +1,4 @@
+import { DEFAULT_ANTHROPIC_BASE_URL } from './model-endpoint-defaults.js'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type {
   SDKMessage,
@@ -17,6 +18,7 @@ import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { Settings } from './config.js'
 import { conversationModels, currentConversationModel, resolveConversationModelSettings } from './conversation-models.js'
+import { isGenerationModelSettings } from './exploration-generation-model.js'
 import { getConfigDirectory, getOpenBrowserAllowedOrigins, getSiteEnabled, getUserDirectory, getUserDirectoryBlacklist } from './config.js'
 import { redactSensitive } from './http-security.js'
 import { normalizeContextLimit, normalizeConversationContextLimit } from './context-window.js'
@@ -210,7 +212,7 @@ export function buildConfiguredModelEnv(
   env.CLAUDE_CONFIG_DIR = claudeConfigDir
     ? ensureIsolatedClaudeConfigDir(process.platform, claudeConfigDir)
     : ensureIsolatedClaudeConfigDir()
-  if (baseUrl !== 'https://api.anthropic.com') {
+  if (baseUrl !== (DEFAULT_ANTHROPIC_BASE_URL)) {
     env.ANTHROPIC_BASE_URL = baseUrl
   } else {
     delete env.ANTHROPIC_BASE_URL
@@ -1219,14 +1221,23 @@ export function* mapSdkMessage(
 
 export async function* streamChat(...args: Parameters<typeof streamChatWithBaseUrl>): AsyncGenerator<SSEEvent> {
   const workId = args[3]?.workId ?? args[0].at(-1)?.work_id
-  const record = workId ? conversationModels.getRecord(workId) : undefined
-  const savedSelection = record?.selection
-  if (savedSelection && currentConversationModel(args[1], savedSelection) === savedSelection) {
-    args[1] = resolveConversationModelSettings(args[1], savedSelection)
-    args[3] = { ...args[3], thinkingEffort: resolveThinkingEffort(args[1].active_provider, args[1].model, savedSelection.thinking_effort) }
-  }
-  if (record?.contextLimit !== undefined || savedSelection) {
-    args[1] = { ...args[1], context_limit: record?.contextLimit ?? normalizeConversationContextLimit(args[1].context_limit) }
+  if (workId && isExplorationConversation(workId)) {
+    if (args[3]?.warmupOnly) return
+    if (!isGenerationModelSettings(args[1])) {
+      yield { type: 'error', content: 'Adapter 工坊模型不可用，请检查对应的 OpenAI 接口配置' }
+      return
+    }
+    args[3] = { ...args[3], directRoute: undefined, thinkingEffort: args[1].exploration_thinking_effort }
+  } else {
+    const record = workId ? conversationModels.getRecord(workId) : undefined
+    const savedSelection = record?.selection
+    if (savedSelection && currentConversationModel(args[1], savedSelection) === savedSelection) {
+      args[1] = resolveConversationModelSettings(args[1], savedSelection)
+      args[3] = { ...args[3], thinkingEffort: resolveThinkingEffort(args[1].active_provider, args[1].model, savedSelection.thinking_effort) }
+    }
+    if (record?.contextLimit !== undefined || savedSelection) {
+      args[1] = { ...args[1], context_limit: record?.contextLimit ?? normalizeConversationContextLimit(args[1].context_limit) }
+    }
   }
   if (args[3]?.warmupOnly) { yield* streamChatWithRuntime(...args); return }
   yield* recordWorkLogStream(workId, streamChatWithRuntime(...args), { messages: args[0] }, args[2]?.signal)
@@ -1284,7 +1295,7 @@ async function* streamChatWithModelRuntime(
   if (args[2]?.signal.aborted) return
   let runtime: Awaited<ReturnType<typeof prepareModelRuntime>>
   try {
-    runtime = await prepareModelRuntime(args[1])
+    runtime = await prepareModelRuntime(args[1], { pinModel: isGenerationModelSettings(args[1]) })
   } catch {
     yield { type: 'error', content: '模型接口地址无效或无法启动本地转发' }
     return
@@ -1485,6 +1496,13 @@ async function* streamChatWithBaseUrl(
   let queryEnv: NodeJS.ProcessEnv
   try {
     queryEnv = buildConfiguredModelEnv(settings, claudeSetup.extraEnv, opts.isolatedClaudeConfigDir)
+    if (isGenerationModelSettings(settings)) {
+      queryEnv.ANTHROPIC_MODEL = settings.model
+      queryEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = settings.model
+      queryEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = settings.model
+      queryEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = settings.model
+      queryEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+    }
   } catch (e) {
     yield { type: 'error', content: e instanceof Error ? e.message : 'LLM base URL is not allowed' }
     return
@@ -2037,6 +2055,7 @@ async function* streamChatWithBaseUrl(
     const fingerprint = sha256(JSON.stringify({
       model: settings.model,
       protocol: settings.active_weworker_protocol || 'anthropic_messages',
+      workshopOwned: isGenerationModelSettings(settings),
       contextLimit: normalizeContextLimit(settings.context_limit),
       baseUrl: internal.sessionBaseUrl,
       apiKey: sha256(settings.api_key || ''),

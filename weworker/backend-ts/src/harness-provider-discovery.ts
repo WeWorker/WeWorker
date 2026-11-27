@@ -1,3 +1,4 @@
+import { configuredProvider } from './provider-config.js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { parseDocument } from 'yaml'
@@ -107,7 +108,7 @@ export async function discoverHarnessProviders(home: string, env: NodeJS.Process
       const official = name ? ['@deepseek-ai/dsh-llm-deepseek-api-key', '@deepseek-ai/dsh-llm-deepseek'].includes(name) : id === 'llm-deepseek'
       if (official) {
         addModels(`${profile}/${id}`, config, resolveKey(text(config.apiKeyEnv) || 'DEEPSEEK_API_KEY') || storedToken,
-          text(config.baseURL) || text(env.DEEPSEEK_BASE_URL) || 'https://api.deepseek.com/anthropic', 'anthropic_messages', preferredModel)
+          text(config.baseURL) || text(env.DEEPSEEK_BASE_URL) || (configuredProvider('deepseek')?.weworker.baseUrl || ''), 'anthropic_messages', preferredModel)
       } else if (name === '@deepseek-ai/dsh-llm-pi-ai' || (!name && id === 'llm-pi-ai')) {
         for (const [providerId, rawConfig] of Object.entries(object(config.providers)).slice(0, 100)) {
           const provider = object(rawConfig)

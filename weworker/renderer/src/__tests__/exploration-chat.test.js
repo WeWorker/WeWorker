@@ -47,6 +47,32 @@ before(async () => {
   server = await createServer({ configFile: false, root: fileURLToPath(new URL('../../', import.meta.url)), server: { middlewareMode: true, hmr: false, ws: false, watch: null }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom' })
   components = await server.ssrLoadModule('/src/components/website-exploration/ExploreWorkspace.jsx')
 })
+
+test('generation composer displays the Workshop model and hides ordinary model controls', async () => {
+  const { default: InputBar } = await server.ssrLoadModule('/src/components/chat/InputBar.jsx')
+  const { useConversationModelsStore } = await server.ssrLoadModule('/src/store/conversation-models.js')
+  const scope = 'work:example-generation'
+  // React's server renderer uses Zustand's initial snapshot.
+  const initial = useConversationModelsStore.getInitialState()
+  const { selections, errors } = initial
+  const render = () => renderToStaticMarkup(React.createElement(InputBar, {
+    workshopOwned: true, hidePermissionMode: true, attachmentTarget: scope, text: 'Example message',
+  }))
+  try {
+    initial.selections = { [scope]: { provider: 'example', model: 'ordinary-model' } }
+    const loading = render()
+    assert.match(loading, /正在读取 Adapter工坊模型/)
+    assert.doesNotMatch(loading, /ordinary-model|模型供应商选择|aria-label="思考效果"/)
+    initial.selections = { [scope]: { provider: 'example', model: 'pinned-model', read_only: true } }
+    assert.match(render(), /Adapter工坊 · pinned-model/)
+    initial.errors = { [scope]: 'Adapter 工坊模型不可用' }
+    const failed = render()
+    assert.match(failed, /Adapter 工坊模型不可用/)
+    assert.match(failed, /aria-label="发送消息"[^>]+disabled/)
+  } finally {
+    Object.assign(initial, { selections, errors })
+  }
+})
 after(async () => { await server?.close() })
 test('composer renders the main chat send icon and lower-right controls without instruction labels', () => {
   const html = renderToStaticMarkup(React.createElement(components.ExplorationComposer, { value: '', onChange() {}, onAction() {}, actionDisabled: true }, React.createElement(components.ExplorationControls, { controls: controls('running') })))

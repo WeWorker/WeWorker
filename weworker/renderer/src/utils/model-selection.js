@@ -123,8 +123,9 @@ export function buildProbeResultRows(results) {
   })
 }
 
-export function buildProviderProbeTargets(providerId, openAiBaseUrl) {
-  if (providerId === 'custom' && !String(openAiBaseUrl || '').trim()) return ['weworker']
+export function buildProviderProbeTargets(providerId, openAiBaseUrl, weworkerProtocol) {
+  const sharedWorkshop = weworkerProtocol === 'openai_chat_completions' || weworkerProtocol === 'openai_responses'
+  if (providerId === 'custom' && !sharedWorkshop && !String(openAiBaseUrl || '').trim()) return ['weworker']
   return ['weworker', 'webwright']
 }
 

@@ -6,8 +6,9 @@ import { buildProviderVisibility, isFixedProvider } from './provider-visibility.
 import { isBuiltinProvider } from './builtin-provider.js'
 import { DEFAULT_CONTEXT_LIMIT, MODEL_CONTEXT_LIMIT_ERROR, normalizeModelContextLimit, parseModelContextLimit } from './context-window.js'
 import { isAnthropicAuthType, type AnthropicAuthType } from './anthropic-auth.js'
-import { isLlmProtocol, normalizeLlmUrlInput } from './llm-egress.js'
+import { isLlmProtocol, isOpenAiProtocol, normalizeLlmUrlInput } from './llm-egress.js'
 import { modelCatalogConfigPatch, type ModelCatalogConfig } from './model-catalog-config.js'
+import { workshopSettingsEdited, type WorkshopPatch } from './adapter-workshop-config.js'
 
 export interface ModelConfiguration extends ModelCatalogConfig {
   name?: string
@@ -21,6 +22,7 @@ export interface ModelConfiguration extends ModelCatalogConfig {
   base_url_is_full?: boolean
   openai_base_url: string
   openai_base_url_is_full?: boolean
+  workshop_auto_configured?: boolean
   openai_api_key?: string
   openai_model?: string
   custom_models?: string[]
@@ -217,7 +219,7 @@ export function activateModelConfiguration(settings: Settings, id: string): Part
   }
 }
 
-export function updateModelConfiguration(settings: Settings, id: string, input: Record<string, unknown>): Partial<Settings> {
+export function updateModelConfiguration(settings: Settings, id: string, input: Record<string, unknown>, automatic: WorkshopPatch = {}): Partial<Settings> {
   const current = getModelConfiguration(settings, id)
   if (!current) throw new Error('模型配置不存在')
   const next = { ...current }
@@ -273,6 +275,10 @@ export function updateModelConfiguration(settings: Settings, id: string, input: 
   if (input.weworker_protocol !== undefined && current.provider_id === 'custom') {
     if (!isLlmProtocol(input.weworker_protocol)) throw new Error('WeWorker 对话协议无效')
     next.weworker_protocol = input.weworker_protocol
+  }
+  if (current.provider_id === 'custom') {
+    if (workshopSettingsEdited(current, next)) next.workshop_auto_configured = false
+    Object.assign(next, automatic)
   }
   const nameUpdates = modelConfigurationNameUpdates(settings)
   const model_configurations = { ...nameUpdates.model_configurations, [id]: { ...next, name: next.name || nameUpdates.model_configurations?.[id]?.name } }

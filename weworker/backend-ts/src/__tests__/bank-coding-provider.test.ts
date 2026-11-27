@@ -52,6 +52,14 @@ describe('user-configured coding provider', () => {
     expect(resolveBankCodingProvider(provider, env).weworker.baseUrl).toBe('https://example.com/public')
   })
 
+  it.each(['https://example.net/coding', 'https://example.net/coding/v1/'])('normalizes an OpenAI Workshop base from the deployed gateway %s', baseUrl => {
+    const provider = { ...BANK_CODING_PROVIDER, webwright: { ...BANK_CODING_PROVIDER.webwright,
+      protocol: 'openai_chat_completions' as const, modelClass: 'openai_chat' as const, structuredOutput: 'openai_json_object' as const } }
+    const resolved = resolveBankCodingProvider(provider, { ...env, WEWORKER_BANK_CODING_BASE_URL: baseUrl })
+    expect(resolved.weworker.baseUrl).toBe(baseUrl.replace(/\/$/, ''))
+    expect(resolved.webwright.baseUrl).toBe('https://example.net/coding/v1')
+  })
+
   it('requires a user key and ignores deployment credentials from files and environment', () => {
     const file = path.join(root, 'providers.json')
     fs.writeFileSync(file, JSON.stringify({ bank_coding: { apiKey: 'fixture-old-reference-key', baseUrl: 'https://example.org/public' } }))

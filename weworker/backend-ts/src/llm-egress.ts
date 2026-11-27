@@ -1,3 +1,5 @@
+import { DEFAULT_ANTHROPIC_BASE_URL } from './model-endpoint-defaults.js'
+
 export type LlmProtocol = 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses'
 
 export function isLlmProtocol(value: unknown): value is LlmProtocol {
@@ -53,7 +55,7 @@ export function normalizeLlmUrlInput(raw: string, fullUrl: unknown = false): str
 }
 
 export function resolveAnthropicEndpoint(settings: { base_url: string; base_url_is_full?: boolean }): string {
-  const url = normalizeLlmUrlInput(settings.base_url || (settings.base_url_is_full ? '' : 'https://api.anthropic.com'), settings.base_url_is_full ?? false)
+  const url = normalizeLlmUrlInput(settings.base_url || (settings.base_url_is_full ? '' : (DEFAULT_ANTHROPIC_BASE_URL)), settings.base_url_is_full ?? false)
   return settings.base_url_is_full ? url : `${url}/v1/messages`
 }
 
@@ -78,7 +80,7 @@ export function buildAllowedLlmBaseUrls(providers: ProviderEntry[], extraCsv = p
 }
 
 export function assertAllowedLlmBaseUrl(raw: string | undefined, allowedBaseUrls: Set<string>): string {
-  const value = raw?.trim() || 'https://api.anthropic.com'
+  const value = raw?.trim() || (DEFAULT_ANTHROPIC_BASE_URL)
   let normalized: string
   try {
     normalized = normalizeLlmBaseUrl(value)

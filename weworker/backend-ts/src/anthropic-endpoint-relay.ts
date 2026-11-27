@@ -55,9 +55,10 @@ export async function openAnthropicEndpointRelay(endpoint: string) {
   }
 }
 
-export async function prepareModelRuntime(settings: Settings) {
+export async function prepareModelRuntime(settings: Settings, { pinModel = false } = {}) {
   if (isOpenAiProtocol(settings.active_weworker_protocol)) {
-    const relay = await openOpenAiChatRelay(settings.base_url, settings.base_url_is_full === true, fetch, settings.active_weworker_protocol || 'openai_chat_completions')
+    const relay = await openOpenAiChatRelay(settings.base_url, settings.base_url_is_full === true, fetch,
+      settings.active_weworker_protocol || 'openai_chat_completions', pinModel ? { model: settings.model } : undefined)
     return {
       settings: { ...settings, base_url: relay.baseUrl, base_url_is_full: false },
       close: relay.close,

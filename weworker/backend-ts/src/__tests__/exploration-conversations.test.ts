@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createDevelopmentChatHandoff } from '../website-exploration-handoff.js'
-import { excludeExplorationConversations, listExplorationConversations, prepareExplorationConversation, markExplorationDeleted, isExplorationConversation } from '../exploration-conversations.js'
+import { excludeExplorationConversations, listExplorationConversations, prepareExplorationConversation, markExplorationDeleted, explorationConversation, isExplorationConversation } from '../exploration-conversations.js'
 import type { WorkWithMessages } from '../works-store.js'
 
 const roots: string[] = []
@@ -45,6 +45,28 @@ it('retries reuse the same run, survive reload and do not resubmit accepted hist
   expect(prepareExplorationConversation(input(), deps).needsInitialMessage).toBe(false)
   expect(fs.readFileSync(deps.file, 'utf8')).not.toContain('example.com')
 })
+it('persists only a model reference, separate from the attachment, and preserves it across retries', () => {
+  const deps = fixture()
+  const reference = { provider: 'fixture-configuration', model: 'fixture-model', selection_revision: 'r1' }
+  const first = prepareExplorationConversation(input(), { ...deps, selectModel: () => reference })
+  const selectModel = vi.fn(() => ({ ...reference, model: 'another-model' }))
+  expect(prepareExplorationConversation(input(), { ...deps, selectModel }).workId).toBe(first.workId)
+  expect(selectModel).not.toHaveBeenCalled()
+  expect(explorationConversation(first.workId, deps.file)?.modelSelection).toEqual(reference)
+  expect(JSON.parse(fs.readFileSync(deps.file, 'utf8')).entries[0]).toEqual({
+    explorationId: 'exp_example', runId: 'run_one', workId: first.workId, modelSelection: reference,
+  })
+  expect(fs.readFileSync(first.attachment.path, 'utf8')).not.toContain(reference.model)
+  expect(listExplorationConversations(deps)[0]).not.toHaveProperty('modelSelection')
+})
+
+it('does not create a generation work when its model cannot be resolved', () => {
+  const deps = fixture()
+  expect(() => prepareExplorationConversation(input(), { ...deps, selectModel: () => { throw new Error('Example configuration unavailable') } })).toThrow('Example configuration unavailable')
+  expect(deps.create).not.toHaveBeenCalled()
+  expect(fs.existsSync(deps.file)).toBe(false)
+})
+
 it('isolates every development round from main and archived lists, preserving other works', () => {
   const deps = fixture()
   const first = prepareExplorationConversation(input(), deps)

@@ -1816,10 +1816,14 @@ function ModelTab() {
     return {
       provider: pid,
       api_key: f.api_key,
-      openai_api_key: f.openai_api_key,
       model: f.model,
-      openai_model: f.openai_model,
-      ...(providerType(pid) === 'custom' ? { base_url: f.base_url, base_url_is_full: f.base_url_is_full, weworker_protocol: f.weworker_protocol, openai_base_url: f.openai_base_url, openai_base_url_is_full: f.openai_base_url_is_full, auth_type: f.auth_type } : {}),
+      ...(providerType(pid) !== 'custom' || f.weworker_protocol === 'anthropic_messages' ? {
+        openai_api_key: f.openai_api_key, openai_model: f.openai_model,
+      } : {}),
+      ...(providerType(pid) === 'custom' ? {
+        base_url: f.base_url, base_url_is_full: f.base_url_is_full, weworker_protocol: f.weworker_protocol, auth_type: f.auth_type,
+        ...(f.weworker_protocol === 'anthropic_messages' ? { openai_base_url: f.openai_base_url, openai_base_url_is_full: f.openai_base_url_is_full } : {}),
+      } : {}),
     }
   }
 
@@ -1884,7 +1888,9 @@ function ModelTab() {
   useEffect(() => {
     if (!selectedProvider || isBuiltinProvider(selectedProvider)) return
     void loadModels(selectedProvider)
-    if (providerType(selectedProvider) === 'custom') void loadModels(selectedProvider, false, 'webwright')
+    if (providerType(selectedProvider) === 'custom' && getForm(selectedProvider).weworker_protocol === 'anthropic_messages') {
+      void loadModels(selectedProvider, false, 'webwright')
+    }
   }, [selectedProvider])
 
   const handleSave = async (pid) => {
@@ -1905,20 +1911,23 @@ function ModelTab() {
     clearContextLimitError()
     const updates = isBuiltinProvider(pid) ? { name, context_limit: contextLimit } : { name, model: f.model, custom_models: f.custom_models, context_limit: contextLimit }
     if (f.api_key) updates.api_key = f.api_key
-    if (f.openai_api_key) updates.openai_api_key = f.openai_api_key
-    if (providerType(pid) === 'custom') {
+    const custom = providerType(pid) === 'custom'
+    if (f.openai_api_key && (!custom || f.weworker_protocol === 'anthropic_messages')) updates.openai_api_key = f.openai_api_key
+    if (custom) {
       updates.base_url = f.base_url
       updates.base_url_is_full = f.base_url_is_full
       updates.weworker_protocol = f.weworker_protocol
-      updates.openai_base_url = f.openai_base_url
-      updates.openai_base_url_is_full = f.openai_base_url_is_full
       updates.auth_type = f.auth_type
       updates.models_url = f.models_url
       updates.models_url_is_full = f.models_url_is_full
       updates.models_auth_type = f.models_auth_type
-      updates.openai_models_url = f.openai_models_url
-      updates.openai_models_url_is_full = f.openai_models_url_is_full
-      if (f.openai_model) updates.openai_model = f.openai_model
+      if (f.weworker_protocol === 'anthropic_messages') {
+        updates.openai_base_url = f.openai_base_url
+        updates.openai_base_url_is_full = f.openai_base_url_is_full
+        updates.openai_models_url = f.openai_models_url
+        updates.openai_models_url_is_full = f.openai_models_url_is_full
+        if (f.openai_model) updates.openai_model = f.openai_model
+      }
     }
     try {
       const noticeId = showNotification('正在检查模型连通性…', { type: 'loading', duration: 0 })
@@ -2105,7 +2114,8 @@ function ModelTab() {
           }
         }
       }
-      const targets = buildProviderProbeTargets(providerType(pid), getForm(pid).openai_base_url)
+      const form = getForm(pid)
+      const targets = buildProviderProbeTargets(providerType(pid), form.openai_base_url, form.weworker_protocol)
       const checks = targets.map((target) => ({
         target,
         label: target === 'weworker'
@@ -2568,7 +2578,7 @@ function ModelTab() {
                     </section>
                   )}
 
-                  {templateId === 'custom' && (
+                  {templateId === 'custom' && f.weworker_protocol === 'anthropic_messages' && (
                     <>
                       {(() => {
                         const advancedExpanded = advancedProviders[p.id] ?? false

@@ -5,6 +5,9 @@ import type { Express } from 'express'
 import type { Settings } from './config.js'
 import { getModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { getProvider } from './provider-registry.js'
+import { explorationConversation } from './exploration-conversations.js'
+import { resolveGenerationModelSettings } from './exploration-generation-model.js'
+import { defaultWebwrightModelSelection } from './webwright-model-config.js'
 import { builtinProviderAccess, isBuiltinProvider } from './builtin-provider.js'
 import { DEFAULT_BUILTIN_CONTEXT_LIMIT, DEFAULT_CONTEXT_LIMIT, normalizeContextLimit, normalizeConversationContextLimit, parseConversationContextLimit } from './context-window.js'
 
@@ -130,6 +133,10 @@ export function createConversationModelStore(file = path.join(os.homedir(), '.we
     fs.renameSync(temporary, file)
   }
   const get = (id: string) => getRecord(id).selection
+  const getContextLimit = (id: string) => {
+    const models = read()
+    return Object.hasOwn(models, id) ? parseConversationContextLimit(models[id].context_limit) ?? undefined : undefined
+  }
   const set = (id: string, selection: ConversationModel, contextLimit?: number) => {
     const value = parseConversationModel(selection)
     const models = read()
@@ -142,14 +149,18 @@ export function createConversationModelStore(file = path.join(os.homedir(), '.we
     const record = Object.hasOwn(models, id) ? models[id] : undefined
     write({ ...models, [id]: { ...record, context_limit: contextLimit } })
   }
-  return { get, set, getRecord, setContextLimit, ensure: (id: string, fallback: ConversationModel) => get(id) || set(id, fallback) }
+  return { get, set, getRecord, getContextLimit, setContextLimit, ensure: (id: string, fallback: ConversationModel) => get(id) || set(id, fallback) }
 }
 
 export const conversationModels = createConversationModelStore()
 export function workModelSelection(workId: string, settings: Settings): ConversationModel {
   return currentConversationModel(settings, conversationModels.get(workId))
 }
-export function resolveWorkModelSettings(workId: string, settings: Settings): Settings {
+export function resolveWorkModelSettings(workId: string, settings: Settings, generationWork: ReturnType<typeof explorationConversation> | null = explorationConversation(workId)): Settings {
+  if (generationWork) {
+    const resolved = resolveGenerationModelSettings(settings, generationWork.modelSelection)
+    return { ...resolved, context_limit: conversationModels.getContextLimit(workId) ?? normalizeConversationContextLimit(resolved.context_limit) }
+  }
   const { selection, contextLimit } = conversationModels.getRecord(workId)
   const resolved = resolveConversationModelSettings(settings, currentConversationModel(settings, selection))
   return { ...resolved, context_limit: contextLimit ?? normalizeConversationContextLimit(resolved.context_limit) }
@@ -161,8 +172,10 @@ export function registerConversationModelRoutes(app: Express, deps: {
   isBusy: (id: string) => boolean
   onContextLimitChanged?: (id: string) => void
   models?: ReturnType<typeof createConversationModelStore>
+  getGenerationWork?: typeof explorationConversation
 }) {
   const models = deps.models || conversationModels
+  const getGenerationWork = deps.getGenerationWork ?? explorationConversation
   app.post('/chat/model/resolve', (req, res) => {
     try {
       const settings = deps.getSettings()
@@ -174,6 +187,21 @@ export function registerConversationModelRoutes(app: Express, deps: {
     if (!deps.hasWork(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
     try {
       const settings = deps.getSettings()
+      const generationWork = getGenerationWork(req.params.id)
+      if (generationWork) {
+        res.setHeader('Cache-Control', 'no-store')
+        const { provider, model, selection_revision } = generationWork.modelSelection ?? defaultWebwrightModelSelection(settings)
+        const contextLimit = models.getContextLimit(req.params.id)
+        try {
+          const resolved = resolveGenerationModelSettings(settings, generationWork.modelSelection)
+          res.json({ provider, model: resolved.model, selection_revision, thinking_effort: resolved.exploration_thinking_effort,
+            context_limit: contextLimit ?? normalizeConversationContextLimit(resolved.context_limit), read_only: true })
+        } catch (error) {
+          res.json({ provider, model, selection_revision, context_limit: contextLimit, read_only: true, unavailable: true,
+            error: error instanceof Error ? error.message : 'Adapter 工坊模型不可用' })
+        }
+        return
+      }
       const record = models.getRecord(req.params.id)
       const selection = currentConversationModel(settings, record.selection)
       try {
@@ -190,6 +218,9 @@ export function registerConversationModelRoutes(app: Express, deps: {
   app.post('/works/:id/model', (req, res) => {
     if (!deps.hasWork(req.params.id)) { res.status(404).json({ detail: '对话不存在' }); return }
     try {
+      if (getGenerationWork(req.params.id)) {
+        res.status(409).json({ detail: '此会话使用源探索的 Adapter 工坊模型' }); return
+      }
       const settings = deps.getSettings()
       const selection = parseConversationModel(req.body)
       if (settings.model_selection_revision && selection.selection_revision !== settings.model_selection_revision) {

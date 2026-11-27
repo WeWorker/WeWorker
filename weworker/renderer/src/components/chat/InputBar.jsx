@@ -96,6 +96,7 @@ export default function InputBar({
   defaultPermissionMode = 'workspace',
   hidePermissionMode = false,
   contextSnapshot = null,
+  workshopOwned = false,
   historyMessages = [],
   onWarmup,
   allowQueue = false,
@@ -114,7 +115,7 @@ export default function InputBar({
   const hasAttachments = attachments.length > 0
   const attachmentLimit = Math.max(1, Number(maxAttachments) || DEFAULT_MAX_ATTACHMENTS)
   const pasteTextAttachmentThreshold = useSettingsStore((s) => s.pasteTextAttachmentThreshold)
-  const sessionModel = useConversationModel(attachmentTarget)
+  const sessionModel = useConversationModel(attachmentTarget, { workshopOwned })
   const contextLimit = sessionModel.selection.context_limit
   const textAttachmentThreshold = Math.max(1, Number(pasteTextAttachmentThreshold) || DEFAULT_PASTE_TEXT_ATTACHMENT_THRESHOLD)
   const overAttachmentLimit = attachments.length > attachmentLimit
@@ -1027,13 +1028,19 @@ export default function InputBar({
         />}
       </div>
       <div className="chat-input-toolbar-actions">
-        <ModelSelector
-          conversationScope={attachmentTarget}
-          disabled={!!disabled}
-          onPendingChange={setModelSelectionPending}
-          thinkingEffort={thinkingEffort}
-          onThinkingEffortChange={handleThinkingEffortChange}
-        />
+        {workshopOwned ? (
+          <span className={sessionModel.error ? 'wx-error' : 'wx-muted'} style={{ fontSize: 12 }} role="status">
+            {sessionModel.error || (sessionModel.selection.model ? `Adapter工坊 · ${sessionModel.selection.model}` : '正在读取 Adapter工坊模型…')}
+          </span>
+        ) : (
+          <ModelSelector
+            conversationScope={attachmentTarget}
+            disabled={!!disabled}
+            onPendingChange={setModelSelectionPending}
+            thinkingEffort={thinkingEffort}
+            onThinkingEffortChange={handleThinkingEffortChange}
+          />
+        )}
         {actionBtn}
       </div>
     </div>

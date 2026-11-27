@@ -23,8 +23,8 @@ export function createConversationModelsStore(send = request) {
       loads.clear()
       set({ selections: {}, pending: {}, errors: {} })
     },
-    load(scope) {
-      if (!scope.startsWith('work:') || get().selections[scope]) return Promise.resolve()
+    load(scope, refresh = false) {
+      if (!scope.startsWith('work:') || (!refresh && get().selections[scope])) return Promise.resolve()
       if (loads.has(scope)) return loads.get(scope)
       const version = generation
       const promise = send(`/works/${encodeURIComponent(scope.slice(5))}/model`)
@@ -44,6 +44,7 @@ export function createConversationModelsStore(send = request) {
       try {
         await loads.get(scope)
         if (version !== generation) throw new Error('全局模型已切换，请重新选择')
+        if (get().selections[scope]?.read_only) throw new Error('此会话使用源探索的 Adapter 工坊模型')
         const body = modelSelectionPayload({ ...selection, selection_revision: revision })
         const value = await send(scope.startsWith('work:') ? `/works/${encodeURIComponent(scope.slice(5))}/model` : '/chat/model/resolve',
           scope.startsWith('work:') ? body : { selection: body })
@@ -77,7 +78,8 @@ export const useConversationModelsStore = createConversationModelsStore()
 useSettingsStore.subscribe((next, previous) => {
   if (next.modelSelectionRevision !== previous.modelSelectionRevision) useConversationModelsStore.getState().resetForGlobalModel()
 })
-export function useConversationModel(scope = 'welcome') {
+const EMPTY_WORKSHOP_MODEL = {}
+export function useConversationModel(scope = 'welcome', { workshopOwned = false } = {}) {
   const stored = useConversationModelsStore(s => s.selections[scope])
   const pending = useConversationModelsStore(s => Boolean(s.pending[scope]))
   const error = useConversationModelsStore(s => s.errors[scope] || '')
@@ -86,7 +88,14 @@ export function useConversationModel(scope = 'welcome') {
   const contextLimit = useSettingsStore(s => s.contextLimit)
   const settingsLoaded = useSettingsStore(s => s.loaded)
   const revision = useSettingsStore(s => s.modelSelectionRevision)
+  const workshopProviders = useSettingsStore(s => workshopOwned ? s.providers : null)
   const fallback = useMemo(() => ({ provider, model, context_limit: contextLimit, thinking_effort: 'off', ...(revision ? { selection_revision: revision } : {}) }), [provider, model, contextLimit, revision])
-  useEffect(() => { if (settingsLoaded) void useConversationModelsStore.getState().load(scope) }, [scope, settingsLoaded, revision])
+  useEffect(() => {
+    if (workshopOwned || settingsLoaded) void useConversationModelsStore.getState().load(scope, workshopOwned)
+  }, [scope, settingsLoaded, revision, workshopOwned, workshopProviders])
+  if (workshopOwned) {
+    const selection = stored?.read_only ? stored : EMPTY_WORKSHOP_MODEL
+    return { selection, pending, error, loaded: Boolean(selection.model && !selection.unavailable && !error) }
+  }
   return { selection: stored || fallback, pending, error, loaded: settingsLoaded && (!scope.startsWith('work:') || Boolean(stored && !stored.unavailable)) }
 }

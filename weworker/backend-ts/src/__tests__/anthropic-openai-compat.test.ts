@@ -151,12 +151,32 @@ describe('Anthropic to OpenAI Chat Completions compatibility', () => {
       })
       expect(response.status).toBe(200)
       expect(response.headers.get('content-type')).toContain('application/json')
-      expect(upstreamBody).toMatchObject({ stream: false })
+      expect(upstreamBody).toMatchObject({ model: 'fixture-model', stream: false })
       expect(await response.json()).toMatchObject({
         type: 'message', role: 'assistant', model: 'fixture-model',
         content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn',
         usage: { input_tokens: 3, output_tokens: 1 },
       })
+    } finally {
+      await relay.close()
+    }
+  })
+
+  it('pins SDK utility calls to the Workshop model with Bearer authentication', async () => {
+    const relay = await openOpenAiChatRelay('https://example.org/workshop/v1', false, async (url, init) => {
+      expect(url).toBe('https://example.org/workshop/v1/chat/completions')
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer fixture-workshop-key')
+      expect(JSON.parse(String(init?.body))).toMatchObject({ model: 'selected-workshop-model', stream: false })
+      return Response.json({ id: 'chatcmpl-utility', model: 'selected-workshop-model', choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] })
+    }, 'openai_chat_completions', { model: 'selected-workshop-model' })
+    try {
+      const response = await fetch(`${relay.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'fixture-workshop-key' },
+        body: JSON.stringify({ model: 'sdk-utility-alias', max_tokens: 20, messages: [{ role: 'user', content: 'hello' }], stream: false }),
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ content: [{ type: 'text', text: 'ok' }] })
     } finally {
       await relay.close()
     }

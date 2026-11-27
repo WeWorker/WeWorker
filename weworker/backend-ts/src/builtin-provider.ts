@@ -41,36 +41,52 @@ function bankCodingDeployment(env: NodeJS.ProcessEnv): { baseUrl: string } {
   }
 }
 
+const BUILTIN_NOT_CONFIGURED = '免费模型服务尚未配置，请联系应用提供方或使用其他模型'
+
+type BuiltinWorkshopGateway = ProviderEntry['webwright'] & { baseUrlEnv?: string }
+
+function deploymentValue(env: NodeJS.ProcessEnv, name: string | undefined): string {
+  return name ? env[name]?.trim() || '' : ''
+}
+
+function validBuiltinBaseUrl(value: string): string {
+  try { return value ? normalizeLlmBaseUrl(value) : '' }
+  catch { return '' }
+}
+
+function getBuiltinRuntimeProvider(provider: ProviderEntry, env: NodeJS.ProcessEnv, hasDeploymentKey: boolean): ProviderEntry {
+  if (provider.id !== 'builtin_dev') return provider
+  const defaultMain = validBuiltinBaseUrl(provider.weworker.baseUrl)
+  const mainOverride = deploymentValue(env, provider.baseUrlEnv)
+  const mainBaseUrl = mainOverride ? validBuiltinBaseUrl(mainOverride) : defaultMain
+  if (!mainBaseUrl || (mainBaseUrl !== defaultMain && !hasDeploymentKey)) throw new Error(BUILTIN_NOT_CONFIGURED)
+
+  const workshop = provider.webwright as BuiltinWorkshopGateway
+  const defaultWorkshop = validBuiltinBaseUrl(workshop.baseUrl)
+  const workshopOverride = deploymentValue(env, workshop.baseUrlEnv)
+  // A different chat gateway needs an explicit Workshop address.
+  const workshopBaseUrl = workshopOverride ? validBuiltinBaseUrl(workshopOverride)
+    : mainBaseUrl === defaultMain ? defaultWorkshop : ''
+  // Embedded credentials are scoped to the bundled endpoints.
+  const canUseWorkshop = workshop.protocol === 'openai_chat_completions'
+    && (workshopBaseUrl === defaultWorkshop || hasDeploymentKey)
+  return {
+    ...provider,
+    weworker: { ...provider.weworker, baseUrl: mainBaseUrl },
+    webwright: { ...workshop, baseUrl: canUseWorkshop ? workshopBaseUrl : '' },
+  }
+}
+
 export function getBuiltinApiKey(id: string, env: NodeJS.ProcessEnv = process.env): string {
   const provider = configuredProvider(id)
   if (!provider?.builtin) return ''
-  const variable = provider.apiKeyEnv
-  const override = variable ? (env[variable] || '').trim() : ''
-  if (override) return override
-  const encrypted = configuredEncryptedApiKey(id)
-  return encrypted ? decryptEmbeddedSecret(encrypted) : ''
-}
-
-function getBuiltinRuntimeProvider(provider: ProviderEntry, env: NodeJS.ProcessEnv = process.env): ProviderEntry {
-  if (provider.id !== 'builtin_dev') return provider
-  const baseUrl = (env[provider.baseUrlEnv || ''] || provider.weworker.baseUrl || '').trim()
-  if (!baseUrl) throw new Error('免费模型服务尚未配置，请联系应用提供方或使用其他模型')
-  const normalized = normalizeLlmBaseUrl(baseUrl)
-  return {
-    ...provider,
-    weworker: { ...provider.weworker, baseUrl: normalized },
-    webwright: { ...provider.webwright, baseUrl: env[provider.baseUrlEnv || ''] ? normalized : provider.webwright.baseUrl || normalized },
-  }
+  try { return builtinProviderAccess(provider, env).apiKey }
+  catch { return '' }
 }
 
 export function isBuiltinProviderConfigured(provider: ProviderEntry, env: NodeJS.ProcessEnv = process.env): boolean {
-  try {
-    if (!getBuiltinApiKey(provider.id, env)) return false
-    getBuiltinRuntimeProvider(provider, env)
-    return true
-  } catch {
-    return false
-  }
+  try { return Boolean(builtinProviderAccess(provider, env).apiKey) }
+  catch { return false }
 }
 
 export function normalizeBuiltinContextLimits(value: unknown): Record<string, number> {
@@ -91,10 +107,13 @@ export function publicBuiltinProviders(providers: ProviderEntry[], env: NodeJS.P
 }
 
 export function builtinProviderAccess(provider: ProviderEntry, env: NodeJS.ProcessEnv = process.env) {
-  if (!isBuiltinProvider(provider.id)) throw new Error('不是免费模型')
-  const apiKey = getBuiltinApiKey(provider.id, env)
-  if (!apiKey) throw new Error('免费模型服务尚未配置，请联系应用提供方或使用其他模型')
-  const runtimeProvider = getBuiltinRuntimeProvider(provider, env)
+  const configured = configuredProvider(provider.id)
+  if (!configured?.builtin) throw new Error('不是免费模型')
+  const deploymentKey = deploymentValue(env, configured.apiKeyEnv)
+  const runtimeProvider = getBuiltinRuntimeProvider(configured, env, Boolean(deploymentKey))
+  const encrypted = deploymentKey ? '' : configuredEncryptedApiKey(configured.id)
+  const apiKey = deploymentKey || (encrypted ? decryptEmbeddedSecret(encrypted) : '')
+  if (!apiKey) throw new Error(BUILTIN_NOT_CONFIGURED)
   return {
     provider: runtimeProvider,
     apiKey,
@@ -152,7 +171,9 @@ export function resolveBankCodingProvider(provider: ProviderEntry, env: NodeJS.P
   const baseUrl = bankCodingDeployment(env).baseUrl
   if (!baseUrl) return provider
   const normalized = normalizeLlmBaseUrl(baseUrl)
-  return { ...provider, weworker: { ...provider.weworker, baseUrl: normalized }, webwright: { ...provider.webwright, baseUrl: normalized } }
+  const workshopBaseUrl = provider.webwright.protocol === 'openai_chat_completions' && !/\/v1$/i.test(normalized)
+    ? `${normalized}/v1` : normalized
+  return { ...provider, weworker: { ...provider.weworker, baseUrl: normalized }, webwright: { ...provider.webwright, baseUrl: workshopBaseUrl } }
 }
 
 export function resolveBankCodingSettings(settings: Settings, providers: ProviderEntry[], env: NodeJS.ProcessEnv = process.env): Settings {

@@ -1,5 +1,8 @@
 {
   "defaultProvider": "builtin",
+  "endpointDefaults": {
+    "anthropic": "https://api.anthropic.com"
+  },
   "providers": [
     {
       "id": "builtin",

@@ -109,6 +109,7 @@ function createEsbuildDefines(currentBuildDefines, promptsRoot = PROMPTS_ROOT) {
     'import.meta.url': '__importMetaUrl',
     'import.meta.dirname': '__dirname',
     '__BUILD_MODEL_CONFIG__': 'true',
+    '__BUILD_ANTHROPIC_BASE_URL__': JSON.stringify(loadEndpointDefaults().anthropic),
     '__BUILD_PROVIDERS__': JSON.stringify(publicProviders(currentBuildDefines.providers)),
     '__BUILD_PROVIDER_CREDENTIALS__': JSON.stringify(Object.fromEntries(currentBuildDefines.providers.filter(p => p.builtin && p.encryptedApiKey).map(p => [p.id, p.encryptedApiKey]))),
     '__BUILD_DEFAULT_PROVIDER__': JSON.stringify(currentBuildDefines.defaultProvider),
@@ -117,7 +118,7 @@ function createEsbuildDefines(currentBuildDefines, promptsRoot = PROMPTS_ROOT) {
   }
 }
 
-const { loadBuildDefines, publicProviders } = require('./model-provider-config.cjs')
+const { loadBuildDefines, loadEndpointDefaults, publicProviders } = require('./model-provider-config.cjs')
 
 function bundleBackend(options = {}) {
   const outFile = options.outFile ?? (options.outDir ? path.join(options.outDir, 'server.cjs') : OUT_FILE)
