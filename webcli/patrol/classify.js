@@ -12,7 +12,7 @@
  * 维持 failed。
  */
 
-const LOGIN_PATTERNS = [/未登录/, /登录态失效/, /请先登录/, /认证失败/, /login required/i, /authentication required/i, /not logged in/i]
+const LOGIN_PATTERNS = [/未登录/, /登录态失效/, /请先登录/, /需要登录/, /认证失败/, /login required/i, /authentication required/i, /not logged in/i]
 const PERMISSION_PATTERNS = [/无权限/, /权限不足/, /permission denied/i, /no permission/i]
 const TIMEOUT_PATTERNS = [/超时/, /timeout/i, /timed out/i]
 
