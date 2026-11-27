@@ -1,0 +1,5030 @@
+{
+  "name": "intranet-full",
+  "description": "行内 31 站全量命令样本(读写自动分类;写命令默认不可安全执行,标记后由巡检跳过)",
+  "cases": [
+    {
+      "id": "aiep.weoa.com.list-aiep-items",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.list-aiep-items",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.model-performance",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.model-performance",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.dashboard-overview",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.dashboard-overview",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.dropdown-options",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.dropdown-options",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.apikey-usage-summary",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.apikey-usage-summary",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.apikey-usage-list",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.apikey-usage-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.apikey-usage-chart",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.apikey-usage-chart",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.my-codeplan-quota",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.my-codeplan-quota",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.apikey-detail",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.apikey-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.check-login-status",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "aiep.weoa.com.current-user",
+      "site": "aiep.weoa.com",
+      "command": "aiep.weoa.com.current-user",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "apidesign.weoa.com.get-api-design-detail",
+      "site": "apidesign.weoa.com",
+      "command": "apidesign.weoa.com.get-api-design-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "apidesign.weoa.com.list-api-designs",
+      "site": "apidesign.weoa.com",
+      "command": "apidesign.weoa.com.list-api-designs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "apidesign.weoa.com.open-api-design-url",
+      "site": "apidesign.weoa.com",
+      "command": "apidesign.weoa.com.open-api-design-url",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "url": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "bilbo.weoa.com.get-bilbo-itsm-status",
+      "site": "bilbo.weoa.com",
+      "command": "bilbo.weoa.com.get-bilbo-itsm-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "action": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "bilbo.weoa.com.get-bilbo-log",
+      "site": "bilbo.weoa.com",
+      "command": "bilbo.weoa.com.get-bilbo-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "action": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "bilbo.weoa.com.run-bilbo-task",
+      "site": "bilbo.weoa.com",
+      "command": "bilbo.weoa.com.run-bilbo-task",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "sql": "__patrol_probe__",
+        "subsystem": "__patrol_probe__",
+        "db": "__patrol_probe__",
+        "dcn": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "bilbo.weoa.com.list-bilbo-records",
+      "site": "bilbo.weoa.com",
+      "command": "bilbo.weoa.com.list-bilbo-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "code.weoa.com.add-gitee-file",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.add-gitee-file",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "project": "__patrol_probe__",
+        "users": []
+      }
+    },
+    {
+      "id": "code.weoa.com.create-gitee-repo",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.create-gitee-repo",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "code.weoa.com.get-gitee-diff",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.get-gitee-diff",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "source-branch": "__patrol_probe__",
+        "target-branch": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "code.weoa.com.get-gitee-branch",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.get-gitee-branch",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "branch": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "code.weoa.com.list-gitee-repos",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.list-gitee-repos",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "code.weoa.com.create-gitee-pr",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.create-gitee-pr",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "source-branch": "__patrol_probe__",
+        "target-branch": "__patrol_probe__",
+        "title": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "code.weoa.com.get-gitee-pr-detail",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.get-gitee-pr-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pr-iid": 1
+      }
+    },
+    {
+      "id": "code.weoa.com.list-gitee-pr-files",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.list-gitee-pr-files",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pr-iid": 1
+      }
+    },
+    {
+      "id": "code.weoa.com.list-gitee-prs",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.list-gitee-prs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "code.weoa.com.merge-gitee-pr",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.merge-gitee-pr",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pr-iid": 1
+      }
+    },
+    {
+      "id": "code.weoa.com.remove-gitee-file",
+      "site": "code.weoa.com",
+      "command": "code.weoa.com.remove-gitee-file",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__",
+        "user": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "console.cloud.tencent.com.list-alarm-histories",
+      "site": "console.cloud.tencent.com",
+      "command": "console.cloud.tencent.com.list-alarm-histories",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "startTime": 1,
+        "endTime": 1
+      }
+    },
+    {
+      "id": "console.cloud.tencent.com.list-projects",
+      "site": "console.cloud.tencent.com",
+      "command": "console.cloud.tencent.com.list-projects",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "console.cloud.tencent.com.list-instance-groups",
+      "site": "console.cloud.tencent.com",
+      "command": "console.cloud.tencent.com.list-instance-groups",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.check-login-status",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.navigate-to-budget-request",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.navigate-to-budget-request",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.navigate-to-corporate-payment-request",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.navigate-to-corporate-payment-request",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.fill-budget-request",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.fill-budget-request",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.confirm-budget-request-upload-result",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.confirm-budget-request-upload-result",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.fill-corporate-payment-request",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.fill-corporate-payment-request",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.list-subsidy-ledgers",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.list-subsidy-ledgers",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.get-subsidy-ledger",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.get-subsidy-ledger",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.summarize-subsidy-ledgers",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.summarize-subsidy-ledgers",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "costplus.weoa.com.list-subsidy-invoices",
+      "site": "costplus.weoa.com",
+      "command": "costplus.weoa.com.list-subsidy-invoices",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "fp-ids": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dbcm.weoa.com.get-dbcm-detail",
+      "site": "dbcm.weoa.com",
+      "command": "dbcm.weoa.com.get-dbcm-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "db-id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dbcm.weoa.com.list-dbcm-items",
+      "site": "dbcm.weoa.com",
+      "command": "dbcm.weoa.com.list-dbcm-items",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "docs.weoa.com.add-collaborator-permission",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.add-collaborator-permission",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "docIdOrUrl": "__patrol_probe__",
+        "username": "__patrol_probe__",
+        "permission": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "docs.weoa.com.check-login-status",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "docs.weoa.com.navigate-to-home",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.navigate-to-home",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "docs.weoa.com.open-doc",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.open-doc",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "docIdOrUrl": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "docs.weoa.com.list-space-content",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.list-space-content",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "docs.weoa.com.get-current-page-info",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.get-current-page-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "docs.weoa.com.perform-doc-action",
+      "site": "docs.weoa.com",
+      "command": "docs.weoa.com.perform-doc-action",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "action": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.get",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.get",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "url": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.list-dpms-items",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-dpms-items",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.get-dpms-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.get-dpms-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.list-dpms-enums",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-dpms-enums",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "name": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.release-content",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.release-content",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "release-plan-id": 1,
+        "product-id": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.query-dpms-workbench",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.query-dpms-workbench",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.list-dpms-subsystems",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-dpms-subsystems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "release-plan-id": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.create-dpms-item",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.create-dpms-item",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.create-dpms-bug",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.create-dpms-bug",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "product-id": 1,
+        "name": "__patrol_probe__",
+        "type": 1,
+        "level": 1,
+        "found-step": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.fix-dpms-bug",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.fix-dpms-bug",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": 1,
+        "fix-type": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.run-dpms-action",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.run-dpms-action",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.rename-dpms-bug",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.rename-dpms-bug",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "bug-id": 1,
+        "name": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.link-dpms-subsystem",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.link-dpms-subsystem",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "story-id": 1,
+        "release-plan-id": 1,
+        "versions": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.update-dpms-item",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.update-dpms-item",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.update-dpms-sdl",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.update-dpms-sdl",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "story-id": 1,
+        "product-id": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.create-dpms-itsm-apply",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.create-dpms-itsm-apply",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "release-plan-id": 1,
+        "subsystems": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.check-login-status",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.get-product-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.get-product-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.list-starred-products",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-starred-products",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.search-products",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.search-products",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "keyword": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.get-current-page-info",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.get-current-page-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.get-release-plan-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.get-release-plan-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.create-release-plan",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.create-release-plan",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productId": "__patrol_probe__",
+        "name": "__patrol_probe__",
+        "testOwner": "__patrol_probe__",
+        "opsOwner": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.list-system-requirements",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-system-requirements",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.create-system-requirement",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.create-system-requirement",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productId": "__patrol_probe__",
+        "type": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.update-system-requirement",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.update-system-requirement",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productId": "__patrol_probe__",
+        "storyId": "__patrol_probe__",
+        "releasePlanId": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.list-business-requirements",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-business-requirements",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.navigate-to-business-requirements",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.navigate-to-business-requirements",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.create-business-requirement",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.create-business-requirement",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productId": "__patrol_probe__",
+        "title": "__patrol_probe__",
+        "content": "__patrol_probe__",
+        "priority": "__patrol_probe__",
+        "interactionReview": "__patrol_probe__",
+        "personalInfoReview": "__patrol_probe__",
+        "dataExternalProvision": "__patrol_probe__",
+        "uatOwner": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.batch-bind-release-plans-to-business-requirements",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.batch-bind-release-plans-to-business-requirements",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "releasePlanName": "__patrol_probe__",
+        "rowNumbers": []
+      }
+    },
+    {
+      "id": "dpms.weoa.com.batch-bind-release-plans-to-system-requirements",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.batch-bind-release-plans-to-system-requirements",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "releasePlanName": "__patrol_probe__",
+        "rowNumbers": []
+      }
+    },
+    {
+      "id": "dpms.weoa.com.list-dpms-tasks",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.list-dpms-tasks",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productId": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.get-dpms-task",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.get-dpms-task",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productId": 1,
+        "id": 1
+      }
+    },
+    {
+      "id": "dpms.weoa.com.cli-status",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-product-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-product-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-product-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-product-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-product-custom-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-product-custom-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "domain-class": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.cli-product-member-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-product-member-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-content",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-content",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-change-log",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-change-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-test-env-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-test-env-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-finish",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-finish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-update",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-update-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-update-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-milestone-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-milestone-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-release-plan-milestone-save",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-release-plan-milestone-save",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-update",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-update-ai-assist",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-update-ai-assist",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-change-log",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-change-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-add-attachment",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-add-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-comment-add",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-comment-add",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-comment-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-comment-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-comment-delete",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-comment-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-prod-verify-info",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-prod-verify-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-directory-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-directory-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-directory-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-directory-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-biz-story-directory-rename",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-biz-story-directory-rename",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-update",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-update-ai-assist",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-update-ai-assist",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-transit-progress",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-transit-progress",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-progress-defs",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-progress-defs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-refuse",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-refuse",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-associate-biz-story",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-associate-biz-story",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-disassociate-biz-story",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-disassociate-biz-story",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-change-log",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-change-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-add-attachment",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-add-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-directory-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-directory-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-directory-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-directory-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-directory-rename",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-directory-rename",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-comment-add",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-comment-add",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-comment-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-comment-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-comment-delete",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-comment-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-status",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-cases",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-cases",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-generate",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-generate",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-recommend",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-recommend",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-save",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-save",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-nosdl",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-nosdl",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-reset",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-reset",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-story-sdl-switch-version",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-story-sdl-switch-version",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-test-case-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-test-case-list",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-add-test-case",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-add-test-case",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-remove-test-case",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-remove-test-case",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-plan-execute-test-case",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-plan-execute-test-case",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-change-log",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-change-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-add-attachment",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-add-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-associate-biz-story",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-associate-biz-story",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-disassociate-biz-story",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-disassociate-biz-story",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-associate-story",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-associate-story",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-disassociate-story",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-disassociate-story",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-update",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-directory-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-directory-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-directory-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-directory-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-directory-rename",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-directory-rename",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-comment-add",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-comment-add",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-comment-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-comment-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-case-comment-delete",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-case-comment-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-review-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-review-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-review-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-review-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-review-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-review-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-review-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-review-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-report-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-report-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-report-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-report-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-report-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-report-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-report-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-report-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-test-report-send",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-test-report-send",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-resolve",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-resolve",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-reject",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-reject",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-defer",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-defer",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-close",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-close",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-change-log",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-change-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-add-attachment",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-add-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-comment-add",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-comment-add",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-comment-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-comment-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-bug-comment-delete",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-bug-comment-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-detail",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-update",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-transit-status",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-transit-status",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-handle-test-task",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-handle-test-task",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-change-log",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-change-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-add-attachment",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-add-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-create",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-create-fields",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-create-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-comment-add",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-comment-add",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-comment-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-comment-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-task-comment-delete",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-task-comment-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-data-dict-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-data-dict-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "dpms.weoa.com.cli-upload-file",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-upload-file",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "file": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "dpms.weoa.com.cli-timesheet-list",
+      "site": "dpms.weoa.com",
+      "command": "dpms.weoa.com.cli-timesheet-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.check-login-status",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.navigate-to-home",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.navigate-to-home",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.get-current-page-info",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.get-current-page-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.search-flow",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.search-flow",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "keyword": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "ef.weoa.com.list-form-fields",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.list-form-fields",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.fill-form-field",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.fill-form-field",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "field": "__patrol_probe__",
+        "value": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "ef.weoa.com.fill-form",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.fill-form",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "fields": {}
+      }
+    },
+    {
+      "id": "ef.weoa.com.upload-form-attachment",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.upload-form-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "file_path": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "ef.weoa.com.open-approval-chain",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.open-approval-chain",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.list-approval-chain-steps",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.list-approval-chain-steps",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.set-approval-chain-approver",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.set-approval-chain-approver",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "approvers": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "ef.weoa.com.confirm-approval-chain",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.confirm-approval-chain",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "ef.weoa.com.save-form-draft",
+      "site": "ef.weoa.com",
+      "command": "ef.weoa.com.save-form-draft",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.import-req",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.import-req",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "form": "__patrol_probe__",
+        "file": "__patrol_probe__",
+        "title": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.list-tickets",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.list-tickets",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.accept-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.accept-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.cancel-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.cancel-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.transfer-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.transfer-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "to": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.close-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.close-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "detail": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.urge-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.urge-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.watch-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.watch-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "user": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.confirm-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.confirm-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "plan": "__patrol_probe__",
+        "approver": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.approve-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.approve-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.create-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.create-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "title": "__patrol_probe__",
+        "handler": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.get-ticket-detail",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.get-ticket-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.edit-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.edit-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.reject-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.reject-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "reason": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.copy-ticket",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.copy-ticket",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.check-login-status",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.navigate-to-home",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.navigate-to-home",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.list-available-request-types",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.list-available-request-types",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.open-request-form",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.open-request-form",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.fill-request-field",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.fill-request-field",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "fieldName": "__patrol_probe__",
+        "value": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.submit-request-form",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.submit-request-form",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.add-approve-node",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.add-approve-node",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "stepName": "__patrol_probe__",
+        "stepType": "__patrol_probe__",
+        "stepTips": "__patrol_probe__",
+        "approvers": []
+      }
+    },
+    {
+      "id": "itsm.weoa.com.set-approve-node-approver",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.set-approve-node-approver",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "position": 1,
+        "username": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.get-approve-chain-info",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.get-approve-chain-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.my-todo",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.my-todo",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.due",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.due",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "itsm.weoa.com.security-close",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.security-close",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "securityWorkId": 1,
+        "isEffectService": "__patrol_probe__",
+        "securityOnlineDate": "__patrol_probe__",
+        "securityPhase": "__patrol_probe__",
+        "securityReason": "__patrol_probe__",
+        "operateDetail": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "itsm.weoa.com.template-download",
+      "site": "itsm.weoa.com",
+      "command": "itsm.weoa.com.template-download",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mail.163.com.check-login-status",
+      "site": "mail.163.com",
+      "command": "mail.163.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.163.com.navigate-to-inbox",
+      "site": "mail.163.com",
+      "command": "mail.163.com.navigate-to-inbox",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.163.com.search-emails",
+      "site": "mail.163.com",
+      "command": "mail.163.com.search-emails",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "keyword": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mail.163.com.get-unread-emails",
+      "site": "mail.163.com",
+      "command": "mail.163.com.get-unread-emails",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.163.com.open-email",
+      "site": "mail.163.com",
+      "command": "mail.163.com.open-email",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "emailId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mail.163.com.download-attachment",
+      "site": "mail.163.com",
+      "command": "mail.163.com.download-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "attachmentName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mail.163.com.get-current-page-info",
+      "site": "mail.163.com",
+      "command": "mail.163.com.get-current-page-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.163.com.compose-email",
+      "site": "mail.163.com",
+      "command": "mail.163.com.compose-email",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "to": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mail.qq.com.check-login-status",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.qq.com.navigate-to-inbox",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.navigate-to-inbox",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.qq.com.search-emails",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.search-emails",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.qq.com.get-unread-emails",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.get-unread-emails",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.qq.com.open-email",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.open-email",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "emailId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mail.qq.com.download-attachment",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.download-attachment",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "attachmentName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mail.qq.com.get-current-page-info",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.get-current-page-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mail.qq.com.cancel-download-invoices-by-invoice",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.cancel-download-invoices-by-invoice",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mail.qq.com.download-invoices-by-invoice",
+      "site": "mail.qq.com",
+      "command": "mail.qq.com.download-invoices-by-invoice",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "matrix.weoa.com.list-subsystems",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.list-subsystems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "matrix.weoa.com.get-subsystem-detail",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.get-subsystem-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subSystemId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "matrix.weoa.com.list-environments",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.list-environments",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "matrix.weoa.com.list-idcs",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.list-idcs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "matrix.weoa.com.list-subsystem-instances",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.list-subsystem-instances",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "matrix.weoa.com.list-subsystem-vips",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.list-subsystem-vips",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "matrix.weoa.com.get-cmdb-by-ip",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.get-cmdb-by-ip",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "ip": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "matrix.weoa.com.get-arthas-connection",
+      "site": "matrix.weoa.com",
+      "command": "matrix.weoa.com.get-arthas-connection",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "ip": "__patrol_probe__",
+        "subsystemId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mockplus.et.weoa.com.get-mockplus-detail",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.get-mockplus-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem-id": "__patrol_probe__",
+        "dcn-guid": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "mockplus.et.weoa.com.list-mockplus-rules",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.list-mockplus-rules",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.disable-mockplus-rule",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.disable-mockplus-rule",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "source-id": []
+      }
+    },
+    {
+      "id": "mockplus.et.weoa.com.enable-mockplus-rule",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.enable-mockplus-rule",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "source-id": []
+      }
+    },
+    {
+      "id": "mockplus.et.weoa.com.add",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.add",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.compile",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.compile",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.copy",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.copy",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.debug",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.debug",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.disable",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.disable",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.edit",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.edit",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.enable",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.enable",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.push",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.push",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.rm",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.rm",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "mockplus.et.weoa.com.set",
+      "site": "mockplus.et.weoa.com",
+      "command": "mockplus.et.weoa.com.set",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "nnfp.jss.com.cn.get-invoice-info",
+      "site": "nnfp.jss.com.cn",
+      "command": "nnfp.jss.com.cn.get-invoice-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "nnfp.jss.com.cn.download-invoice",
+      "site": "nnfp.jss.com.cn",
+      "command": "nnfp.jss.com.cn.download-invoice",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "nnfp.jss.com.cn.auto-download-and-return",
+      "site": "nnfp.jss.com.cn",
+      "command": "nnfp.jss.com.cn.auto-download-and-return",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "nnfp.jss.com.cn.return-to-qqmail",
+      "site": "nnfp.jss.com.cn",
+      "command": "nnfp.jss.com.cn.return-to-qqmail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.list-pipeline-tasks",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.list-pipeline-tasks",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.get-pipeline-detail",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-pipeline-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.deploy-pipeline-package",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.deploy-pipeline-package",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.get-pipeline-update-params",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-pipeline-update-params",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.download-pipeline-package",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.download-pipeline-package",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "jobName": "__patrol_probe__",
+        "buildNumber": 1
+      }
+    },
+    {
+      "id": "pace.weoa.com.run-pipeline",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.run-pipeline",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.stop-pipeline",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.stop-pipeline",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.update-pipeline",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.update-pipeline",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.create-pipeline-link-version",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.create-pipeline-link-version",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystem": "__patrol_probe__",
+        "version": "__patrol_probe__",
+        "release-plan-id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.list-publish-orders",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.list-publish-orders",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.get-publish-order-detail",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-publish-order-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "formId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.get-publish-order-run-params",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-publish-order-run-params",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.get-publish-order-sync-params",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-publish-order-sync-params",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "formId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.run-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.run-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.sync-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.sync-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "formId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.confirm-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.confirm-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.finish-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.finish-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.fill-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.fill-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "formId": "__patrol_probe__",
+        "body": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.protect-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.protect-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "formId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.unprotect-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.unprotect-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "formId": "__patrol_probe__",
+        "body": {}
+      }
+    },
+    {
+      "id": "pace.weoa.com.check-login-status",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.edit-pipeline-config",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.edit-pipeline-config",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.copy-pipeline",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.copy-pipeline",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.basejob-copy",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.basejob-copy",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.basejob-detail",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.basejob-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.basejob-ls",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.basejob-ls",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.basejob-save",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.basejob-save",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.get-pipeline-log",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-pipeline-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.list-publish-order-subsystems",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.list-publish-order-subsystems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "formId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.sync-pre-publish-order",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.sync-pre-publish-order",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__",
+        "body": []
+      }
+    },
+    {
+      "id": "pace.weoa.com.list-pipeline-extra-options",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.list-pipeline-extra-options",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.get-publish-order-sync-extra",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.get-publish-order-sync-extra",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-list",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-exec",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-exec",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-copy",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-copy",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-detail",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-stop",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-stop",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-confirm",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-confirm",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-reject",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-reject",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-update",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-artifacts",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-artifacts",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-hosts",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-hosts",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-templates",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-templates",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-log",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-log",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-running-pkg",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-running-pkg",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-health",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-health",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-code-changes",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-code-changes",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-seal-info",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-seal-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-seal-status",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-seal-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-seal",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-seal",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-seal-history",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-seal-history",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pipelineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-unseal-info",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-unseal-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "recordId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-unseal-reasons",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-unseal-reasons",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-ci-unseal",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-ci-unseal",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "recordId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-subsystems",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-subsystems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-sql-records",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-sql-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-odl-scan",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-odl-scan",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-odl-rerun",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-odl-rerun",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystem": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-odl-pkg",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-odl-pkg",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "pkgs": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-scan-sql",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-scan-sql",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-envs",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-envs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-db-names",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-db-names",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-db-list",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-db-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-db-dcns",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-db-dcns",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__",
+        "dbName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-schema-diff",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-schema-diff",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-tidb-names",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-tidb-names",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-db-instances",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-db-instances",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "dbName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-tidb-instances",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-tidb-instances",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "dbName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-hive-servers",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-hive-servers",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-hive-records",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-hive-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-bd-sql-records",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-bd-sql-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-templates",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-templates",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-branches",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-branches",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-script-files",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-script-files",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-dev-publish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-dev-publish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-strategy-forms",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-strategy-forms",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-strategy-versions",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-strategy-versions",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "releaseFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-strategy-version",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-strategy-version",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "versionId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-strategy-hosts",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-strategy-hosts",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-strategy-publish-info",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-strategy-publish-info",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "versionId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-strategy-publish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-strategy-publish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "versionId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-todo-list",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-todo-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-todo-get",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-todo-get",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "guid": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-todo-approve",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-todo-approve",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "guid": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-todo-reject",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-todo-reject",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "guid": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-todo-abort",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-todo-abort",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "guid": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-todo-success",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-todo-success",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "guid": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-issue-bug",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-issue-bug",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "description": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-issue-feature",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-issue-feature",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "description": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-issue-list",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-issue-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-issue-get",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-issue-get",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-issue-update",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-issue-update",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-issue-claim",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-issue-claim",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-list",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-list",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-get",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-get",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-subsystems",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-subsystems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-create",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-create",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-delete",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-set-fixed",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-set-fixed",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-finish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-finish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-deploy-status",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-deploy-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-protect",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-protect",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-check-protect",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-check-protect",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-unprotect-reasons",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-unprotect-reasons",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-unprotect-branches",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-unprotect-branches",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-unprotect-check",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-unprotect-check",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-unprotect",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-unprotect",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-pkg-diffs",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-pkg-diffs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-quality-report",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-quality-report",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sync-production",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sync-production",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-env-sync-envs",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-env-sync-envs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-env-sync",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-env-sync",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-latest-pkg-check",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-latest-pkg-check",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-check-dbcm-pkg",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-check-dbcm-pkg",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-auto-publish-configs",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-auto-publish-configs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-auto-publish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-auto-publish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-disable-auto-publish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-disable-auto-publish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-run",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-run",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-apply",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-apply",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-material",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-material",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-sql-content",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-sql-content",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "sqlId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-materials",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-materials",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-files-to-pkg",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-files-to-pkg",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-publish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-publish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-status",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-packages",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-packages",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-tar-groups",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-tar-groups",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-pre-config",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-pre-config",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-download",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-download",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-sync-pre",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-sync-pre",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-refresh",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-refresh",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-hosts",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-hosts",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-templates",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-templates",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-branches",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-branches",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-db-names",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-db-names",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-db-instances",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-db-instances",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__",
+        "dbName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-tidb-names",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-tidb-names",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemName": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-idcs",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-idcs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-hive-form",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-hive-form",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-last-action-record",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-last-action-record",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-check-release",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-check-release",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-history",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-history",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-exec",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-exec",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "historyId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-latest",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-latest",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-fail-msg",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-fail-msg",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "historyId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-sub-form",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-sub-form",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-batch-set-fixed",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-batch-set-fixed",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "ids": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-batch-finish",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-batch-finish",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "ids": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-batch-delete",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-batch-delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "ids": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-batch-sync-pre",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-batch-sync-pre",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-baseline-latest",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-baseline-latest",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-baseline-records",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-baseline-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-baseline-compare",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-baseline-compare",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-baseline-confirm",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-baseline-confirm",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-baseline-refresh",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-baseline-refresh",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-history",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-history",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-append-subsystems",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-append-subsystems",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "pace.weoa.com.cli-rf-edit-subsystem",
+      "site": "pace.weoa.com",
+      "command": "pace.weoa.com.cli-rf-edit-subsystem",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productFormId": "__patrol_probe__",
+        "subsystemFormId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "rd.weoa.com.create-rmb-request",
+      "site": "rd.weoa.com",
+      "command": "rd.weoa.com.create-rmb-request",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "name": "__patrol_probe__",
+        "project-id": 1,
+        "parent-id": "__patrol_probe__",
+        "service-id": "__patrol_probe__",
+        "gns-key": "__patrol_probe__",
+        "body": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "rd.weoa.com.edit-rmb-request",
+      "site": "rd.weoa.com",
+      "command": "rd.weoa.com.edit-rmb-request",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": 1
+      }
+    },
+    {
+      "id": "rd.weoa.com.execute-rmb-request",
+      "site": "rd.weoa.com",
+      "command": "rd.weoa.com.execute-rmb-request",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": 1
+      }
+    },
+    {
+      "id": "rd.weoa.com.get-rmb-detail",
+      "site": "rd.weoa.com",
+      "command": "rd.weoa.com.get-rmb-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": 1
+      }
+    },
+    {
+      "id": "rd.weoa.com.list-rmb-requests",
+      "site": "rd.weoa.com",
+      "command": "rd.weoa.com.list-rmb-requests",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.link",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.link",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__",
+        "subsystem": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.create-scm-item",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.create-scm-item",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.list-scm-items",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.list-scm-items",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.check-login-status",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "scm.et.weoa.com.list-subsystems",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.list-subsystems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "scm.et.weoa.com.list-product-lines",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.list-product-lines",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "scm.et.weoa.com.list-product-line-versions",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.list-product-line-versions",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "productLineId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.list-subsystem-versions",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.list-subsystem-versions",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.open-subsystem-detail",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.open-subsystem-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystemId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.create-product-line-version",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.create-product-line-version",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "productLineId": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "scm.et.weoa.com.create-subsystem-version",
+      "site": "scm.et.weoa.com",
+      "command": "scm.et.weoa.com.create-subsystem-version",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystemId": "__patrol_probe__",
+        "version": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "todo.weoa.com.whoami",
+      "site": "todo.weoa.com",
+      "command": "todo.weoa.com.whoami",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "todo.weoa.com.list-todos",
+      "site": "todo.weoa.com",
+      "command": "todo.weoa.com.list-todos",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "todo.weoa.com.review-todo",
+      "site": "todo.weoa.com",
+      "command": "todo.weoa.com.review-todo",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "todo_id": 1,
+        "decision": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.push-publish-package",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.push-publish-package",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "subsystem": "__patrol_probe__",
+        "env": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.create-tdsql-instance",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.create-tdsql-instance",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "name": "__patrol_probe__",
+        "type": "__patrol_probe__",
+        "subsystem": "__patrol_probe__",
+        "db-name": "__patrol_probe__",
+        "logic-dcn": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.update-tdsql-instance",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.update-tdsql-instance",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.run-tdsql-sql",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.run-tdsql-sql",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.start-tdsql-instance",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.start-tdsql-instance",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.stop-tdsql-instance",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.stop-tdsql-instance",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.sync-tdsql-instance",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.sync-tdsql-instance",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "env": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.list-publish-records",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.list-publish-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.list-tdsql-instances",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.list-tdsql-instances",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.get-tdsql-detail",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.get-tdsql-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.get-tdsql-create-params",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.get-tdsql-create-params",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "subsystem": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.download-publish-package",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.download-publish-package",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "keyword": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.get-tdsql-job",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.get-tdsql-job",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.aompplus.weoa.com.get-tdsql-tips",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.get-tdsql-tips",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.copy-publish-template",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.copy-publish-template",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.create-publish-template",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.create-publish-template",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.get-publish-template-detail",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.get-publish-template-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.list-publish-systems",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.list-publish-systems",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.aompplus.weoa.com.update-publish-template",
+      "site": "uat.aompplus.weoa.com",
+      "command": "uat.aompplus.weoa.com.update-publish-template",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "uat.cmdb.weoa.com.get-cmdb-idc-vars",
+      "site": "uat.cmdb.weoa.com",
+      "command": "uat.cmdb.weoa.com.get-cmdb-idc-vars",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.cmdb.weoa.com.list-cmdb-resources",
+      "site": "uat.cmdb.weoa.com",
+      "command": "uat.cmdb.weoa.com.list-cmdb-resources",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "keyword": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.dongcha.weoa.com.detail",
+      "site": "uat.dongcha.weoa.com",
+      "command": "uat.dongcha.weoa.com.detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.ssh.bdp.weoa.com.check-login-status",
+      "site": "uat.ssh.bdp.weoa.com",
+      "command": "uat.ssh.bdp.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.ssh.bdp.weoa.com.login-machine",
+      "site": "uat.ssh.bdp.weoa.com",
+      "command": "uat.ssh.bdp.weoa.com.login-machine",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "ip": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.ssh.bdp.weoa.com.execute-command",
+      "site": "uat.ssh.bdp.weoa.com",
+      "command": "uat.ssh.bdp.weoa.com.execute-command",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "command": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.ssh.bdp.weoa.com.read-terminal",
+      "site": "uat.ssh.bdp.weoa.com",
+      "command": "uat.ssh.bdp.weoa.com.read-terminal",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.wcs.weoa.com.deploy-wcs-artifact",
+      "site": "uat.wcs.weoa.com",
+      "command": "uat.wcs.weoa.com.deploy-wcs-artifact",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "artifact-id": 1,
+        "app-cluster": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.wcs.weoa.com.restart-wcs-app",
+      "site": "uat.wcs.weoa.com",
+      "command": "uat.wcs.weoa.com.restart-wcs-app",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "pod-name": "__patrol_probe__",
+        "app-cluster": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.wcs.weoa.com.set-wcs-config",
+      "site": "uat.wcs.weoa.com",
+      "command": "uat.wcs.weoa.com.set-wcs-config",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "mode": "__patrol_probe__",
+        "app-cluster": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.wcs.weoa.com.sync-wcs-image",
+      "site": "uat.wcs.weoa.com",
+      "command": "uat.wcs.weoa.com.sync-wcs-image",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "image": "__patrol_probe__",
+        "tag": "__patrol_probe__",
+        "subsystem": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.wcs.weoa.com.upload-wcs-artifact",
+      "site": "uat.wcs.weoa.com",
+      "command": "uat.wcs.weoa.com.upload-wcs-artifact",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "file": "__patrol_probe__",
+        "system": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.wcs.weoa.com.list-wcs-resources",
+      "site": "uat.wcs.weoa.com",
+      "command": "uat.wcs.weoa.com.list-wcs-resources",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.weconf.weoa.com.list-weconf-configs",
+      "site": "uat.weconf.weoa.com",
+      "command": "uat.weconf.weoa.com.list-weconf-configs",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "uat.weconf.weoa.com.get-weconf-config",
+      "site": "uat.weconf.weoa.com",
+      "command": "uat.weconf.weoa.com.get-weconf-config",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "env": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.weconf.weoa.com.publish-weconf-config",
+      "site": "uat.weconf.weoa.com",
+      "command": "uat.weconf.weoa.com.publish-weconf-config",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "env": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.weconf.weoa.com.set-weconf-config",
+      "site": "uat.weconf.weoa.com",
+      "command": "uat.weconf.weoa.com.set-weconf-config",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "env": "__patrol_probe__",
+        "key": "__patrol_probe__",
+        "value": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "uat.weconf.weoa.com.get-weconf-set-params",
+      "site": "uat.weconf.weoa.com",
+      "command": "uat.weconf.weoa.com.get-weconf-set-params",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "weapm.weoa.com.get-trace-detail",
+      "site": "weapm.weoa.com",
+      "command": "weapm.weoa.com.get-trace-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "traceId": "__patrol_probe__",
+        "reqId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "weapm.weoa.com.query-trace",
+      "site": "weapm.weoa.com",
+      "command": "weapm.weoa.com.query-trace",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "traceId": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.list-groups",
+      "site": "wedo",
+      "command": "wedo.list-groups",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wedo.get-group",
+      "site": "wedo",
+      "command": "wedo.get-group",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wedo.list-members",
+      "site": "wedo",
+      "command": "wedo.list-members",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wedo.list-notifications",
+      "site": "wedo",
+      "command": "wedo.list-notifications",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wedo.get-notification-count",
+      "site": "wedo",
+      "command": "wedo.get-notification-count",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wedo.create-todo-list",
+      "site": "wedo",
+      "command": "wedo.create-todo-list",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "title": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.delete-todo-list",
+      "site": "wedo",
+      "command": "wedo.delete-todo-list",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.create-checkin-task",
+      "site": "wedo",
+      "command": "wedo.create-checkin-task",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "title": "__patrol_probe__",
+        "subscribers": "__patrol_probe__",
+        "week-days": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.delete-checkin-task",
+      "site": "wedo",
+      "command": "wedo.delete-checkin-task",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.list-checkin-tasks",
+      "site": "wedo",
+      "command": "wedo.list-checkin-tasks",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wedo.get-checkin",
+      "site": "wedo",
+      "command": "wedo.get-checkin",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.submit-checkin",
+      "site": "wedo",
+      "command": "wedo.submit-checkin",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "content": "__patrol_probe__",
+        "subscribers": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.edit-checkin",
+      "site": "wedo",
+      "command": "wedo.edit-checkin",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__",
+        "task-id": "__patrol_probe__",
+        "title": "__patrol_probe__",
+        "content": "__patrol_probe__",
+        "subscribers": "__patrol_probe__",
+        "join-knowledge": true,
+        "featured": true
+      }
+    },
+    {
+      "id": "wedo.delete-checkin",
+      "site": "wedo",
+      "command": "wedo.delete-checkin",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "record-id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.bookmark-checkin",
+      "site": "wedo",
+      "command": "wedo.bookmark-checkin",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.feature-checkin",
+      "site": "wedo",
+      "command": "wedo.feature-checkin",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.unfeature-checkin",
+      "site": "wedo",
+      "command": "wedo.unfeature-checkin",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.publish-announcement",
+      "site": "wedo",
+      "command": "wedo.publish-announcement",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "title": "__patrol_probe__",
+        "content": "__patrol_probe__",
+        "subscribers": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wedo.delete-announcement",
+      "site": "wedo",
+      "command": "wedo.delete-announcement",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wemeeting.weoa.com.check-login-status",
+      "site": "wemeeting.weoa.com",
+      "command": "wemeeting.weoa.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wemeeting.weoa.com.search-rooms",
+      "site": "wemeeting.weoa.com",
+      "command": "wemeeting.weoa.com.search-rooms",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wemeeting.weoa.com.book-room",
+      "site": "wemeeting.weoa.com",
+      "command": "wemeeting.weoa.com.book-room",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "startTime": "__patrol_probe__",
+        "endTime": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "wemeeting.weoa.com.cancel-room",
+      "site": "wemeeting.weoa.com",
+      "command": "wemeeting.weoa.com.cancel-room",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "id": "__patrol_probe__"
+      }
+    },
+    {
+      "id": "weoa.webank.com.bind",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.bind",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "invoice-ids": []
+      }
+    },
+    {
+      "id": "weoa.webank.com.delete",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.delete",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "invoice-ids": []
+      }
+    },
+    {
+      "id": "weoa.webank.com.plan",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.plan",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "weoa.webank.com.submit",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.submit",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "weoa.webank.com.confirm-allowance-invoices",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.confirm-allowance-invoices",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "weoa.webank.com.upload-allowance-invoices",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.upload-allowance-invoices",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {
+        "files": []
+      }
+    },
+    {
+      "id": "weoa.webank.com.list-allowance-invoices",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.list-allowance-invoices",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "weoa.webank.com.check-login-status",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.check-login-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "weoa.webank.com.navigate-to-home",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.navigate-to-home",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "weoa.webank.com.get-reimbursement-status",
+      "site": "weoa.webank.com",
+      "command": "weoa.webank.com.get-reimbursement-status",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {}
+    },
+    {
+      "id": "wesgs.weoa.com.apply-wesgs-request",
+      "site": "wesgs.weoa.com",
+      "command": "wesgs.weoa.com.apply-wesgs-request",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "wesgs.weoa.com.reply-wesgs-response",
+      "site": "wesgs.weoa.com",
+      "command": "wesgs.weoa.com.reply-wesgs-response",
+      "safety": "mutating",
+      "safetyMode": "none",
+      "args": {}
+    },
+    {
+      "id": "wesgs.weoa.com.get-wesgs-detail",
+      "site": "wesgs.weoa.com",
+      "command": "wesgs.weoa.com.get-wesgs-detail",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__",
+        "id": 1
+      }
+    },
+    {
+      "id": "wesgs.weoa.com.list-wesgs-records",
+      "site": "wesgs.weoa.com",
+      "command": "wesgs.weoa.com.list-wesgs-records",
+      "safety": "read",
+      "safetyMode": "read",
+      "args": {
+        "mode": "__patrol_probe__"
+      }
+    }
+  ]
+}
