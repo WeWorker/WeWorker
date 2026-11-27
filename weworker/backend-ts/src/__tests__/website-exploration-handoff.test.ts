@@ -45,7 +45,16 @@ it('invalid input or failed file write does not create a work', () => {
   expect(() => createDevelopmentChatHandoff(input, { ...deps, workspaceRoot: () => path.join(deps.workspaceRoot(), 'missing') })).toThrow()
   expect(deps.createWork).not.toHaveBeenCalled()
 })
-async function harness(fetchAgent: typeof fetch, callback: (value: unknown) => unknown) {
+const sourceModel = { provider: 'fixture-config', model: 'fixture-model' }
+
+function sourceModelResponse(options: RequestInit) {
+  expect(options.method).toBe('GET')
+  expect(options.redirect).toBe('error')
+  expect(options.headers).toMatchObject({ 'X-WeWorker-Exploration-Instance': 'instance-placeholder' })
+  return Response.json({ model_selection: sourceModel })
+}
+
+async function harness(fetchAgent: typeof fetch, callback: (value: unknown, sourceSelection: unknown) => unknown) {
   const app = express()
   app.use(express.json())
   app.use(createWebsiteExplorationAdapterRouter({ instanceId: 'instance-placeholder', fetchAgent, onDevelopmentHandoff: callback }))
@@ -59,6 +68,7 @@ it('verifies service identity, forwards context with identity header and returns
   const callback = vi.fn(value => createDevelopmentChatHandoff(value, fixture()))
   const fetchAgent = vi.fn(async (url: string, options: RequestInit) => {
     if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'instance-placeholder' })
+    if (url.endsWith('/api/explorations/exp_example/model')) return sourceModelResponse(options)
     expect(url).toBe('http://127.0.0.1:8766/api/explorations/exp_example/development/input')
     expect(options.redirect).toBe('error')
     expect(options.headers).toMatchObject({ 'X-WeWorker-Exploration-Instance': 'instance-placeholder' })
@@ -69,7 +79,7 @@ it('verifies service identity, forwards context with identity header and returns
   const response = await request({ instruction: 'Read title' })
   expect(response.status).toBe(200)
   expect((await response.json()).attachment.name).toBe('input.json')
-  expect(callback).toHaveBeenCalledExactlyOnceWith(input)
+  expect(callback).toHaveBeenCalledExactlyOnceWith(input, sourceModel)
 })
 it.each(['foreign-instance', 'wrong-exploration', 'input-error'])('rejects %s before creating a chat', async failure => {
   const callback = vi.fn()
@@ -86,6 +96,7 @@ it('keeps the run token host-side and rejects a stale run before creating work',
   const callback = vi.fn()
   const fetchAgent = vi.fn(async (url: string, options: RequestInit) => {
     if (url.endsWith('/api/health')) return Response.json({ ok: true, instance_id: 'instance-placeholder' })
+    if (url.endsWith('/api/explorations/exp_example/model')) return sourceModelResponse(options)
     expect(JSON.parse(options.body as string)).toEqual({ instruction: 'Read title' })
     return Response.json({ ...input, source_exploration: { exploration_id: 'exp_example', run_id: 'run_new' } })
   }) as unknown as typeof fetch
