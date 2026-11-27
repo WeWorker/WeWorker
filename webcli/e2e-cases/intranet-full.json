@@ -128,8 +128,10 @@
    "safety": "read",
    "safetyMode": "read",
    "args": {
-    "action": "__patrol_probe__"
-   }
+    "action": "status",
+    "env": "UAT"
+   },
+   "sampleNote": "真实业务值(需求方提供/schema 枚举)"
   },
   {
    "id": "bilbo.weoa.com.get-bilbo-log",
@@ -138,8 +140,12 @@
    "safety": "read",
    "safetyMode": "read",
    "args": {
-    "action": "__patrol_probe__"
-   }
+    "action": "ls",
+    "mode": "subsystems",
+    "query-type": "LOG",
+    "env": "UAT"
+   },
+   "sampleNote": "真实业务值(需求方提供/schema 枚举)"
   },
   {
    "id": "bilbo.weoa.com.run-bilbo-task",
@@ -481,10 +487,10 @@
    "safety": "read",
    "safetyMode": "read",
    "args": {
-    "mode": "product",
+    "mode": "story",
     "product-id": 100197
    },
-   "sampleNote": "真实业务值(需求方提供)"
+   "sampleNote": "真实业务值(需求方提供/schema 枚举)"
   },
   {
    "id": "dpms.weoa.com.get-dpms-detail",
