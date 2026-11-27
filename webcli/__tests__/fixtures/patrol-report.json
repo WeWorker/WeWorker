@@ -1,0 +1,30 @@
+{
+  "reportVersion": 1,
+  "generatedAt": "2026-11-26T08:00:00Z",
+  "runId": "patrol-20261126-0800",
+  "adapters": [
+    {
+      "adapterId": "costplus.weoa.com",
+      "runtime": "extension",
+      "entries": [
+        { "tool": "costplus.weoa.com.list-subsidy-ledgers", "verdict": "degraded", "diff": "types.amount: number→string", "sample": {} },
+        { "tool": "costplus.weoa.com.get-document-detail", "verdict": "needs-regeneration", "diff": "页面重构:表单容器不存在" }
+      ]
+    },
+    {
+      "adapterId": "wekm",
+      "runtime": "wewright",
+      "entries": [
+        { "tool": "wekm.list-articles", "verdict": "degraded", "diff": "列表页 data 字段偶发为 null" }
+      ]
+    },
+    {
+      "adapterId": "we123-teamspace",
+      "runtime": "wewright",
+      "entries": [
+        { "tool": "we123-teamspace.get-lottery-status", "verdict": "login-blocked", "diff": "登录态失效整站跳过" },
+        { "tool": "we123-teamspace.draw-lottery", "verdict": "ok", "diff": "" }
+      ]
+    }
+  ]
+}

@@ -81,6 +81,10 @@ outputs/
 webcli/extension/
 webcli/adapters/
 webcli/*.tgz
+# 巡检运行产物不入仓（spec 红线）：正式产物落盘在用户级 ~/.webcli/patrol/，
+# 树上这两条是双防线——历史误生成或未来实现回归时也不至于入仓
+webcli/patrol/runs/
+webcli/patrol/latest.json
 
 # offline packaging output (regenerable wheels/vendor.zip) + 临时账单导出
 offline_zips/

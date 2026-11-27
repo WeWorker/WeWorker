@@ -1,0 +1,148 @@
+/**
+ * 修复执行循环:取证 → 诊断(LLM 注入)→ 补丁草稿 → 分层验证,有界 ≤maxRounds 轮。
+ * rootCause 'login-expired' / 'needs-regeneration' 提前终止;LLM 异常 → 'llm-error'、
+ * ADAPTER_BASE_CHANGED → 'base-changed'(均为持久/外部条件,不烧轮次,回写 open 重入安全);
+ * verifyRepair 契约为「不抛错」,但意外异常仍按失败轮次处理(不中断循环);
+ * 经验库写入失败仅 log 降级,不影响任务状态与退出;
+ * hub 同步(沉淀上报 fire-and-forget/本地命中不足回源合并)全程静默,绝不影响主流程。
+ */
+import { homedir } from "node:os";
+import { readWewrightTarget, writeRepairDraftWewright } from "./wewright-draft.js";
+import { verifyRepair } from "./verify.js";
+import { searchExperience, injectContext, recordExperience, knowledgePath } from "./knowledge.js";
+import { transition, saveTask, tasksDir } from "./task.js";
+
+// 沉淀后 hub 上报(fire-and-forget,全程静默;WEBCLI_REPAIR_EXPERIENCE_UPLOAD=off 关闭)。
+// 端点与 publish 同源:resolveEndpoint()(WEBCLI_ADAPTERHUB_ENDPOINT 优先,回退 profile);
+// 令牌与 publish 同源:loadAdapterHubToken()(ADAPTERHUB_TOKEN env 优先,回退 DPAPI 凭据)。
+// entry 转 hub 契约(snake_case),id 复用 recordExperience 的 entryKey 结果,保证两端一致。
+function reportStoredExperienceToHub(stored) {
+  if (!stored?.id || process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD === "off") return;
+  void (async () => {
+    try {
+      const { reportExperienceToHub } = await import("./hub-sync.js");
+      const { resolveEndpoint } = await import("../adapterhub-client.js");
+      const { loadAdapterHubToken } = await import("../adapterhub-credentials.js");
+      const registry = resolveEndpoint(); // 端点为空抛 UsageError → 外层 catch 静默跳过
+      const { token } = await loadAdapterHubToken();
+      await reportExperienceToHub({
+        entry: {
+          id: stored.id, site: stored.site, runtime: stored.runtime, symptom: stored.symptom,
+          root_cause: stored.rootCause, fix_strategy: stored.fixStrategy, outcome: stored.outcome,
+          ...(stored.playbook ? { playbook: stored.playbook } : {}),
+          ...(stored.meta ? { meta: stored.meta } : {}),
+        },
+        registry, token,
+      });
+    } catch { /* 静默:hub 同步绝不影响修复主流程 */ }
+  })();
+}
+
+export async function runRepairLoop({ task, llm, env = process.env, home = homedir(), maxRounds = 3, log = () => {}, now = Date.now(), save = saveTask, verifyImpl = verifyRepair, fixtures = [], runtimePath } = {}) {
+  const startedAt = Date.now();
+  let llmCalls = 0;
+  task = transition(task, "diagnosing");
+  save(task, tasksDir(home));
+  const { pkg } = readWewrightTarget(task.adapterId, { env, home });
+  let hits = searchExperience(knowledgePath(home), { site: task.adapterId, runtime: "wewright", errSignature: task.failures?.[0]?.lastErr || "" }, 3);
+  if (hits.length < 3 && process.env.WEBCLI_REPAIR_EXPERIENCE_UPLOAD !== "off") {
+    // 本地命中不足 → hub 回源合并(5s 超时,静默失败);registry 与 publish 同源(profile/env)。
+    // WEBCLI_REPAIR_EXPERIENCE_UPLOAD=off 同时关闭经验上报与回源注入
+    // (隐私优先:既不共享本机经验,也不拉取团队经验)
+    try {
+      const { fetchHubExperiences } = await import("./hub-sync.js");
+      const { resolveEndpoint } = await import("../adapterhub-client.js");
+      const shared = await fetchHubExperiences({ registry: resolveEndpoint(), site: task.adapterId, runtime: "wewright", k: 3 - hits.length });
+      // 按 id 去重:本机上报条目回流 hub 后再拉回,会与本地条目重复进提示
+      hits = [...hits, ...shared.filter((s) => !hits.some((h) => h.id === s.id))];
+    } catch { /* hub 不可达/端点未配置 → 仅用本地经验 */ }
+  }
+  const experienceHint = injectContext(hits);
+  const baseVersion = pkg.manifest.version;
+  let feedback = null;
+  for (let round = 1; round <= maxRounds; round++) {
+    log(`[repair] 第 ${round}/${maxRounds} 轮`);
+    const ctx = { task, failure: task.failures?.[0], experienceHint, feedback, round, baseVersion };
+    let proposal;
+    try {
+      proposal = round === 1 ? await llm.diagnose(ctx) : await llm.revise(ctx);
+    } catch (e) {
+      // LLM 服务中断属外部故障,烧轮次无意义;回写 open 等待重入(llm.revise 缺失的 TypeError 同被此 catch 覆盖)
+      task = transition(task, "open");
+      save(task, tasksDir(home));
+      return { task, outcome: "llm-error", error: e.message };
+    }
+    llmCalls++;
+    if (proposal.rootCause === "needs-regeneration" || proposal.rootCause === "login-expired") {
+      const to = proposal.rootCause === "needs-regeneration" ? "needs-regeneration" : "needs-login";
+      task = transition(task, to);
+      save(task, tasksDir(home));
+      return { task, outcome: to, reasoning: proposal.reasoning || "" };
+    }
+    if (!proposal.patchedFiles || !Object.keys(proposal.patchedFiles).length) {
+      feedback = "诊断未产出补丁";
+      continue;
+    }
+    let draft;
+    try {
+      draft = writeRepairDraftWewright({ adapterId: task.adapterId, expectedDigest: pkg.digest, patchedFiles: proposal.patchedFiles, env, home, now });
+    } catch (e) {
+      if (String(e.message).includes("ADAPTER_BASE_CHANGED")) {
+        // 基线漂移是持久条件,revise 修不了;回写 open,重新取证后再入
+        task = transition(task, "open");
+        save(task, tasksDir(home));
+        return { task, outcome: "base-changed", error: e.message };
+      }
+      feedback = `草稿失败: ${e.message}`;
+      log(`[repair] ${feedback}`);
+      continue;
+    }
+    let verification;
+    try {
+      verification = await verifyImpl({ task, draftDir: draft.draftDir, baseVersion, fixtures, env, home, log, runtimePath });
+    } catch (e) {
+      // verifyRepair 契约是不抛错;这里兜意外异常,按失败轮次处理
+      feedback = `验证异常: ${e.message}`;
+      log(`[repair] ${feedback}`);
+      continue;
+    }
+    if (verification.passed) {
+      task = transition(task, "draft-ready");
+      save(task, tasksDir(home));
+      try {
+        const stored = recordExperience(knowledgePath(home), {
+          site: task.adapterId, runtime: "wewright",
+          symptom: task.failures?.[0]?.lastErr || "",
+          rootCause: proposal.rootCause, fixStrategy: proposal.reasoning || "",
+          outcome: "fixed", evidenceRef: draft.draftDir,
+        }, new Date().toISOString(), {
+          rounds: round, llmCalls, durationMs: Date.now() - startedAt,
+          usedPlaybook: hits.some((e) => e.playbook), // 结构化判定,不嗅探渲染文本
+        });
+        reportStoredExperienceToHub(stored);
+      } catch (e) {
+        log(`[repair] 经验库写入失败: ${e.message}`);
+      }
+      return { task, outcome: "draft-ready", draft, verification };
+    }
+    feedback = `验证未通过: ${verification.checks.filter((c) => !c.passed).map((c) => c.name).join(", ")}`;
+    log(`[repair] ${feedback}`);
+  }
+  task = transition(task, "archived");
+  save(task, tasksDir(home));
+  try {
+    const stored = recordExperience(knowledgePath(home), {
+      site: task.adapterId, runtime: "wewright",
+      symptom: task.failures?.[0]?.lastErr || "",
+      rootCause: "unresolved", fixStrategy: feedback || "", outcome: "failed",
+      evidenceRef: "",
+    }, new Date().toISOString(), {
+      rounds: maxRounds, llmCalls, durationMs: Date.now() - startedAt,
+      usedPlaybook: hits.some((e) => e.playbook), // 结构化判定,不嗅探渲染文本
+    });
+    reportStoredExperienceToHub(stored);
+  } catch (e) {
+    log(`[repair] 经验库写入失败: ${e.message}`);
+  }
+  return { task, outcome: "archived" };
+}
