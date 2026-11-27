@@ -18,6 +18,11 @@ describe('parsePatrolArgs', () => {
     expect(parsePatrolArgs(['--update-baseline']).updateBaseline).toBe(true)
   })
 
+  it('识别 --html(生成自包含 HTML 报告,默认关闭)', () => {
+    expect(parsePatrolArgs(['--html']).html).toBe(true)
+    expect(parsePatrolArgs([]).html).toBe(false)
+  })
+
   it('--timeout 以秒为单位换算', () => {
     expect(parsePatrolArgs(['--timeout', '30']).timeoutMs).toBe(30_000)
   })

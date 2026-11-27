@@ -3,7 +3,7 @@
  * 巡检执行器 CLI。
  *
  * 用法：
- *   node webcli/patrol/index.js [--json] [--only <adapterId>] [--concurrency 4]
+ *   node webcli/patrol/index.js [--json] [--html] [--only <adapterId>] [--concurrency 4]
  *                               [--timeout 20] [--update-baseline] [--list]
  *
  * 退出码：0 全绿（含未覆盖） / 1 有失败 / 2 脚本自身异常（含用法错误、--only 不存在）
@@ -21,6 +21,7 @@ import { buildPatrolList, indexSamples } from './enumerate.js'
 import { createDefaultEnsureLogin } from './ensure-login.js'
 import { buildPatrolEnv, probeTool, runWithConcurrency, summarizeProbe, WEBCLI_DIR } from './probe.js'
 import { buildReport, formatTextReport } from './report.js'
+import { renderHtmlReport } from './html-report.js'
 import { diffShape, extractShape } from './shape.js'
 
 const REPO_ROOT = resolve(WEBCLI_DIR, '..')
@@ -38,10 +39,11 @@ export function patrolStateDir({ home = homedir() } = {}) {
 }
 
 export function parsePatrolArgs(argv) {
-  const options = { json: false, only: null, concurrency: 4, timeoutMs: 20_000, updateBaseline: false, list: false, usageError: null }
+  const options = { json: false, html: false, only: null, concurrency: 4, timeoutMs: 20_000, updateBaseline: false, list: false, usageError: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--json') options.json = true
+    else if (arg === '--html') options.html = true
     else if (arg === '--list') options.list = true
     else if (arg === '--update-baseline') options.updateBaseline = true
     else if (arg === '--only') {
@@ -247,6 +249,15 @@ async function main() {
 
   persistRun(report, rows)
   console.log(options.json ? JSON.stringify(report, null, 2) : formatTextReport(report))
+
+  // HTML 报告(单文件自包含)落盘在用户级 reports/,与 runs/ 同层,不入仓
+  if (options.html) {
+    const reportsDir = join(patrolStateDir(), 'reports')
+    mkdirSync(reportsDir, { recursive: true })
+    const filePath = join(reportsDir, `${report.runId}.html`)
+    writeFileSync(filePath, renderHtmlReport(report), 'utf8')
+    console.log(`[patrol] HTML 报告: ${filePath}`)
+  }
   process.exitCode = report.failed > 0 ? 1 : 0
 }
 
