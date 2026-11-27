@@ -1,8 +1,7 @@
-<<<<<<< HEAD
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { adapterIdOfTool, tasksFromErrDetail, tasksFromPatrol, fetchErrDetail } from '../repair/task-source.js'
+import { adapterIdOfTool, tasksFromErrDetail, tasksFromPatrol, fetchErrDetail, tasksFromPatrolReport } from '../repair/task-source.js'
 
 const ERRDETAIL = {
   rows: [
@@ -97,9 +96,8 @@ describe('tasksFromPatrol', () => {
   it('脏 adapterId(URL 形)跳过', () => {
     const dirty = { adapters: [{ adapterId: 'open.https:\\x.com', entries: [{ tool: 'open.https:\\x.com/a', verdict: 'degraded', diff: 'd' }] }] }
     expect(tasksFromPatrol(dirty)).toEqual([])
-=======
-import { describe, expect, it } from 'vitest'
-import { tasksFromPatrolReport } from '../repair/task-source.js'
+  })
+})
 
 /**
  * 构造 patrol report 的**原生形状**（与 patrol/report.js 的 buildReport 输出一致）：
@@ -176,6 +174,5 @@ describe('tasksFromPatrolReport', () => {
       ],
     })
     expect(tasks.map((t) => t.adapterId).sort()).toEqual(['a.com', 'b.com'])
->>>>>>> eae4703f (feat(repair): 巡检报告→修复任务适配（原生报告形状）+ 探针多字节编码修复)
   })
 })
