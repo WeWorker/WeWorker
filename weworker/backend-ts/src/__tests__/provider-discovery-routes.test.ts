@@ -3,7 +3,9 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import { importDiscoveredProviders, publicDiscoveredProviders } from '../provider-discovery.js'
-import { publicModelConfigurations, savedModelConfigurationKey } from '../model-configurations.js'
+import { activateModelConfiguration, getModelConfiguration, publicModelConfigurations, savedModelConfigurationKey } from '../model-configurations.js'
+import { getProvider } from '../provider-registry.js'
+import { isBuiltinProvider } from '../builtin-provider.js'
 import type { Settings } from '../config.js'
 
 const source = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8')
@@ -20,6 +22,7 @@ function fixture() {
   const updateSettings = vi.fn(patch => { state = { ...state, ...patch }; return state })
   const context = vm.createContext({
     discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders, savedModelConfigurationKey, getSettings: () => state, updateSettings,
+    activateModelConfiguration, getModelConfiguration, getProvider, isBuiltinProvider,
     buildSettingsResponse: (settings: Settings) => ({ providers: publicModelConfigurations(settings) }),
     app: { post: (url: string, handler: any) => routes.set(url, handler) },
   })
@@ -33,11 +36,35 @@ function fixture() {
   vm.runInContext(ts.transpileModule(source.slice(switchFrom, switchTo), {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText, context)
+  const onboardingFrom = source.indexOf("app.post('/settings/onboarding/complete'")
+  const onboardingTo = source.indexOf('\napp.post(', onboardingFrom + 1)
+  vm.runInContext(ts.transpileModule(source.slice(onboardingFrom, onboardingTo), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, context)
   const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis(), setHeader: vi.fn() })
   return { context, discoverLocalProviders, updateSettings, routes, response, state: () => state }
 }
 
 describe('provider discovery API and startup', () => {
+  it('offers startup imports and activates only the model chosen during onboarding', async () => {
+    const f = fixture()
+    Object.assign(f.state(), { onboarding_completed: false, api_key: '' })
+    const scan = f.response()
+    await f.routes.get('/settings/provider/detect-and-import')!({}, scan)
+    expect(f.state().onboarding_completed).toBe(false)
+    expect(f.state().active_model_configuration).toBeUndefined()
+    expect(scan.json.mock.calls[0][0].providers['model-discovered-fixture-second']).toMatchObject({
+      external_source_id: 'fixture-second', model: 'fixture-second-model', has_key: true,
+    })
+
+    const complete = f.response()
+    await f.routes.get('/settings/onboarding/complete')!({ body: { provider: 'model-discovered-fixture-second' } }, complete)
+    expect(complete.status).not.toHaveBeenCalled()
+    expect(f.state()).toMatchObject({
+      onboarding_completed: true, active_model_configuration: 'model-discovered-fixture-second', model: 'fixture-second-model',
+    })
+  })
+
   it('reveals the saved configuration key rather than rescanning a changed source', async () => {
     const f = fixture()
     f.state().model_configurations = { 'model-fixture': {

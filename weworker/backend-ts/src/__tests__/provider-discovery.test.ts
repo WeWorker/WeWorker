@@ -405,7 +405,7 @@ describe('discovered provider import', () => {
   it('fills an unconfigured setup, and keeps deleted entries dismissed until manual discovery', async () => {
     claude()
     const discovered = (await discover()).providers
-    const empty = { ...settings(), api_key: '' }
+    const empty = { ...settings(), api_key: '', onboarding_completed: true }
     const first = importDiscoveredProviders(empty, discovered)
     expect(first.updates.active_model_configuration).toBe(first.imported[0])
     expect(first.updates.onboarding_completed).toBe(true)

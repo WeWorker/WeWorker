@@ -6,20 +6,29 @@ import { isFixedProvider } from '../../utils/model-selection.js'
 import { fetchProviderModels } from '../../api/provider-models.js'
 import './initial-setup.css'
 
-function providerOptions() {
-  return PROVIDERS
+export function providerOptions(providers) {
+  const presets = PROVIDERS
     .filter(provider => !provider.hidden && (isBuiltinProvider(provider.id) || isFixedProvider(provider.id)))
     .map(provider => ({
       value: provider.id,
       label: provider.name,
       description: provider.models?.length ? provider.models.join('、') : '',
     }))
+  const discovered = Object.entries(providers).filter(([, entry]) => entry.external_source_id)
+    .map(([value, entry]) => ({
+      value,
+      label: `${entry.name || entry.external_product || '模型配置'}（本地识别）`,
+      description: entry.model || '未识别到模型名称',
+      disabled: !entry.has_key || !entry.model || !entry.base_url,
+      discovered: true,
+    }))
+  return [...presets, ...discovered]
 }
 
 export default function InitialSetup({ onComplete }) {
   const providers = useSettingsStore(state => state.providers)
   const saveProvider = useSettingsStore(state => state.saveProvider)
-  const options = useMemo(providerOptions, [])
+  const options = useMemo(() => providerOptions(providers), [providers])
   const [provider, setProvider] = useState(() => options.find(option => option.value === 'builtin')?.value || options[0]?.value || '')
   const [apiKey, setApiKey] = useState('')
   const [saving, setSaving] = useState(false)
@@ -29,11 +38,14 @@ export default function InitialSetup({ onComplete }) {
   const [model, setModel] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
 
+  const selectedOption = options.find(option => option.value === provider)
   const selectedIsBuiltin = isBuiltinProvider(provider)
+  const selectedIsDiscovered = selectedOption?.discovered === true
   const selectedProvider = PROVIDERS.find(item => item.id === provider)
   const hasSavedKey = Boolean(providers[provider]?.has_key)
   const needsModelCatalog = provider === 'bank_coding'
-  const canContinue = selectedIsBuiltin || (hasSavedKey && (!needsModelCatalog || Boolean(model)))
+  const canContinue = Boolean(selectedOption && !selectedOption.disabled &&
+    (selectedIsBuiltin || (hasSavedKey && (!needsModelCatalog || Boolean(model)))))
 
   useEffect(() => {
     if (!needsModelCatalog || !hasSavedKey) return
@@ -114,7 +126,7 @@ export default function InitialSetup({ onComplete }) {
           />
         </div>
 
-        {!selectedIsBuiltin && (
+        {!selectedIsBuiltin && !selectedIsDiscovered && (
           <form className="initial-setup__key-form" onSubmit={handleSave}>
             <label htmlFor="initial-api-key">API Key</label>
             <div className="initial-setup__key-row">
