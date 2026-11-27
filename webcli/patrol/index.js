@@ -52,8 +52,8 @@ export function parsePatrolArgs(argv) {
       if (value === undefined || value.startsWith('--')) options.usageError = '用法: --only 需要一个 adapterId'
       else options.only = value
     }
-    // 已知偏差：concurrency 目前是"同 adapter 内"并发（spec 方向是"跨 adapter 总并发 N"，
-    // 即各站串行、总并发 4）。全量巡检时退化为逐站串行、站内并发 N。本期不改。
+    // concurrency = 跨 adapter 并发数；同一 adapter 内命令严格串行（spec §关键约束 4：
+    // 同站并发会争抢共享浏览器页面，"打爆站点"）。
     else if (arg === '--concurrency') options.concurrency = Math.max(1, Number(argv[++i]) || 4)
     else if (arg === '--timeout') options.timeoutMs = Math.max(1, Number(argv[++i]) || 20) * 1000
   }
@@ -150,9 +150,13 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
   const baseline = loadBaseline(REPO_ROOT, adapterId)
   const list = buildPatrolList({ adapterId, tools, samples, baseline })
 
-  const rows = await runWithConcurrency(list, options.concurrency, async (row) => {
+  // 同 adapter 内命令严格串行（spec §关键约束 4）——共享浏览器页面独占，
+  // 并发会互相争抢页面（"页面正在被其他任务使用"）。跨 adapter 并发由编排层控制。
+  const rows = []
+  for (const row of list) {
     if (row.skipReason) {
-      return { adapterId, tool: row.tool, verdict: 'uncovered', kind: row.skipReason, details: { reason: row.skipReason } }
+      rows.push({ adapterId, tool: row.tool, verdict: 'uncovered', kind: row.skipReason, details: { reason: row.skipReason } })
+      continue
     }
 
     const raw = await probeTool({ tool: row.tool, args: row.sample?.args }, { env, timeoutMs: options.timeoutMs })
@@ -168,7 +172,7 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
     }
 
     const verdict = evaluateTool({ connectivity, shapeDiff, emptiedPaths })
-    return mapLoginUncovered({
+    rows.push(mapLoginUncovered({
       adapterId,
       tool: row.tool,
       verdict: verdict.verdict,
@@ -176,8 +180,8 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
       details: { ...verdict.details, durationMs: result.durationMs, baselineMissing: connectivity.ok && !baselineEntry },
       parsed: result.parsed,
       sampleSource: row.sample?.source ?? null,
-    })
-  })
+    }))
+  }
 
   const entries = collectBaselineEntries(rows, { now })
   const baselineUpdate = entries.length > 0 ? planBaselineUpdate(baseline, entries, { now }) : null
@@ -220,13 +224,19 @@ async function main() {
 
   const runId = `patrol-${Date.now()}`
   const startedAt = new Date().toISOString()
+  // 跨 adapter 并发 ≤ concurrency;同 adapter 内命令严格串行(每站一条串行链)
+  const stationResults = await runWithConcurrency(targetIds, options.concurrency, async (adapterId) => {
+    const stationStartedAt = new Date().toISOString()
+    const { rows, baselineUpdate } = await patrolAdapter({ adapterId, samples, options, env, ensureLogin, now: stationStartedAt })
+    return { adapterId, rows, baselineUpdate }
+  })
   const rows = []
   const baselineUpdates = []
-  for (const adapterId of targetIds) {
-    const stationFinishedAt = new Date().toISOString()
-    const { rows: adapterRows, baselineUpdate } = await patrolAdapter({ adapterId, samples, options, env, ensureLogin, now: stationFinishedAt })
-    rows.push(...adapterRows)
-    if (baselineUpdate && planChanged(baselineUpdate.plan)) baselineUpdates.push({ adapterId, ...baselineUpdate })
+  for (const station of stationResults) {
+    rows.push(...station.rows)
+    if (station.baselineUpdate && planChanged(station.baselineUpdate.plan)) {
+      baselineUpdates.push({ adapterId: station.adapterId, ...station.baselineUpdate })
+    }
   }
   const finishedAt = new Date().toISOString()
 
