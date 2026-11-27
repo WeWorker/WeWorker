@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { homedir } from 'node:os'
+import { describe, expect, it, vi, afterEach } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parsePatrolArgs, mapLoginUncovered, collectBaselineEntries, planBaselineUpdate, patrolStateDir } from '../patrol/index.js'
+import { parsePatrolArgs, mapLoginUncovered, collectBaselineEntries, planBaselineUpdate, patrolStateDir, writeHtmlReport } from '../patrol/index.js'
 import { BASELINE_VERSION } from '../patrol/baseline.js'
 import { extractShape } from '../patrol/shape.js'
 
@@ -66,6 +67,31 @@ describe('patrolStateDir', () => {
   it('落盘在用户级 ~/.webcli/patrol（巡检产物不入仓），home 可注入', () => {
     expect(patrolStateDir()).toBe(join(homedir(), '.webcli', 'patrol'))
     expect(patrolStateDir({ home: '/tmp/x' })).toBe(join('/tmp/x', '.webcli', 'patrol'))
+  })
+})
+
+describe('writeHtmlReport', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('--json --html 同用:HTML 提示走 stderr,stdout 保持纯 JSON 可解析', () => {
+    const home = mkdtempSync(join(tmpdir(), 'patrol-html-'))
+    const report = { runId: 'patrol-cli-html', coverage: { sites: '0/0', tools: '0/0' }, passed: 0, failed: 0, uncovered: [], results: [], reEvidence: [], newlyFailed: [], recovered: [], loginHealth: [] }
+    // main 在 --json 模式下先往 stdout 打报告行;spy 模拟之后的输出走向
+    const stdout = [JSON.stringify(report, null, 2)]
+    const stderr = []
+    vi.spyOn(console, 'log').mockImplementation((msg) => stdout.push(String(msg)))
+    vi.spyOn(console, 'error').mockImplementation((msg) => stderr.push(String(msg)))
+    try {
+      const filePath = writeHtmlReport(report, { home })
+      expect(filePath).toBe(join(home, '.webcli', 'patrol', 'reports', `${report.runId}.html`))
+      expect(existsSync(filePath)).toBe(true)
+      expect(readFileSync(filePath, 'utf8')).toContain('<!doctype html>')
+      expect(stderr.join('\n')).toContain('[patrol] HTML 报告:')
+      expect(stdout.join('\n')).not.toContain('HTML 报告')
+      expect(() => JSON.parse(stdout.join('\n'))).not.toThrow()
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
 

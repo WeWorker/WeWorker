@@ -249,15 +249,7 @@ async function main() {
 
   persistRun(report, rows)
   console.log(options.json ? JSON.stringify(report, null, 2) : formatTextReport(report))
-
-  // HTML 报告(单文件自包含)落盘在用户级 reports/,与 runs/ 同层,不入仓
-  if (options.html) {
-    const reportsDir = join(patrolStateDir(), 'reports')
-    mkdirSync(reportsDir, { recursive: true })
-    const filePath = join(reportsDir, `${report.runId}.html`)
-    writeFileSync(filePath, renderHtmlReport(report), 'utf8')
-    console.log(`[patrol] HTML 报告: ${filePath}`)
-  }
+  if (options.html) writeHtmlReport(report)
   process.exitCode = report.failed > 0 ? 1 : 0
 }
 
@@ -277,6 +269,19 @@ function persistRun(report, rows, { home } = {}) {
   mkdirSync(runsDir, { recursive: true })
   writeFileSync(join(runsDir, `${report.runId}.json`), `${JSON.stringify(rows, null, 2)}\n`, 'utf8')
   writeFileSync(join(stateDir, 'latest.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
+}
+
+/**
+ * HTML 报告(单文件自包含)落盘在用户级 reports/,与 runs/ 同层,不入仓。
+ * 提示走 stderr——--json 模式的 stdout 必须保持纯 JSON(与上方基线预览同一纪律)。
+ */
+export function writeHtmlReport(report, { home = homedir() } = {}) {
+  const reportsDir = join(patrolStateDir({ home }), 'reports')
+  mkdirSync(reportsDir, { recursive: true })
+  const filePath = join(reportsDir, `${report.runId}.html`)
+  writeFileSync(filePath, renderHtmlReport(report), 'utf8')
+  console.error(`[patrol] HTML 报告: ${filePath}`)
+  return filePath
 }
 
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
