@@ -37,7 +37,7 @@ import { hideBrowserForNewTurn } from '../../utils/dedicated-browser.js'
  * @param {(fill: (text: string) => void) => React.ReactNode} [props.renderEmpty] Empty-state override.
  * @param {() => void} [props.onTurnFinished] Called after each send completes.
  */
-export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished, historyPrefix, permissionScope, defaultPermissionMode = 'workspace', hidePermissionMode = false }) {
+export default function ChatView({ workId, embedded = false, renderEmpty, onTurnFinished, historyPrefix, permissionScope, defaultPermissionMode = 'workspace', hidePermissionMode = false, workshopOwned = false }) {
   const isHandoffChat = useWorksStore(s => s.handoffWorkIds.has(workId))
   const queue = useMemo(() => getMessageQueue(workId), [workId])
   const queueState = useMessageQueueStore(s => s.queues[workId] ?? EMPTY_MESSAGE_QUEUE)
@@ -80,9 +80,10 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
   // 打开/切换会话时就开始预热：CLI 冷启动（约 0.5-0.8s）不再落在用户第一条消息上。
   // 同一个 work 由 requestChatWarmup 的 60s 节流去重，后端也会在会话已存在时直接返回。
   useEffect(() => {
+    if (workshopOwned) return
     const request = buildOpenWarmupRequest(workId)
     if (request) requestChatWarmup(request.workId, request.payload)
-  }, [workId])
+  }, [workId, workshopOwned])
 
   useEffect(() => {
     setContextCompactionLifecycleHandler((targetWorkId, status) => {
@@ -804,7 +805,8 @@ export default function ChatView({ workId, embedded = false, renderEmpty, onTurn
           maxAttachments={maxChatAttachments}
           attachmentTarget={`work:${workId}`}
           contextSnapshot={contextSnapshot}
-          onWarmup={(thinkingEffort) => requestChatWarmup(workId, { thinkingEffort })}
+          workshopOwned={workshopOwned}
+          onWarmup={workshopOwned ? undefined : (thinkingEffort) => requestChatWarmup(workId, { thinkingEffort })}
         />
       )}
     </div>

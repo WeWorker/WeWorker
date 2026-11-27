@@ -42,6 +42,24 @@ test('context budget updates only the requested conversation and preserves the p
   assert.equal(store.getState().pending['work:example-a'], false)
 })
 
+test('a read-only generation model refreshes after settings changes and rejects ordinary saves', async () => {
+  const scope = 'work:example-generation'
+  const requests = []
+  let response = { provider: 'example', model: 'workshop-model', read_only: true }
+  const store = createConversationModelsStore(async (path, body) => {
+    requests.push({ path, body })
+    return response
+  })
+  await store.getState().load(scope)
+  await assert.rejects(store.getState().save(scope, { provider: 'example', model: 'ordinary-model' }), /Adapter 工坊模型/)
+  assert.equal(requests.length, 1)
+  response = { ...response, unavailable: true, error: 'Example configuration missing' }
+  await store.getState().load(scope, true)
+  assert.equal(requests.length, 2)
+  assert.deepEqual(store.getState().selections[scope], response)
+  assert.equal(store.getState().errors[scope], response.error)
+})
+
 test('late initial read cannot overwrite a new selection and failed saves preserve it', async () => {
   let resolveRead, fail = false
   const store = createConversationModelsStore(async (_path, body) => {

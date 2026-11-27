@@ -3,7 +3,8 @@ import { resolveAnthropicEndpoint, resolveOpenAiEndpoint, isOpenAiProtocol, type
 import { resolveModelCatalogEndpoint, type ModelCatalogAuthType } from './model-catalog-config.js'
 import { buildAnthropicAuthHeaders } from './anthropic-auth.js'
 import type { AnthropicAuthType } from './anthropic-auth.js'
-import { findProviderByWeWorkerBaseUrl } from './provider-registry.js'
+import { findProviderByWeWorkerBaseUrl, getProvider } from './provider-registry.js'
+import type { ModelConfiguration } from './model-configurations.js'
 
 export type ModelCatalogSource = 'remote' | 'fallback'
 export type ProbeTarget = 'weworker' | 'webwright'
@@ -152,6 +153,11 @@ export async function listProviderModels(
       : input.weworkerFullUrl ?? input.anthropicFullUrl
     if (!address?.trim() || !key?.trim()) return { models: [], source: 'fallback', warning: '请先填写此接口的地址和 API Key' }
     if (fullUrl && !explicitUrl) return { models: [], source: 'fallback', warning: '完整 URL 模式请单独填写模型列表地址' }
+  }
+  if (input.provider.builtin && input.provider.fixedModel) return { models: fallbackModels, source: 'fallback' }
+  if (input.provider.id !== 'custom' && input.provider.webwright.protocol === 'openai_chat_completions'
+    && !input.provider.webwright.baseUrl?.trim()) {
+    return { models: fallbackModels, source: 'fallback', warning: '模型列表接口未配置，显示内置模型列表' }
   }
   if (!input.apiKey && !input.openaiApiKey) {
     return { models: [...input.provider.models], source: 'fallback', warning: '未配置 API Key，显示内置模型列表' }
@@ -350,7 +356,8 @@ export async function probeProviderProtocol(
     if (requiresToolCall && useToolCall && (isThinkingToolChoiceConflict(response.status, detail) || shouldRetryAnthropicTextProbe(input, detail))) {
       return execute(false, signal)
     }
-    return { ok: false, target: input.target, protocol, model, error: classifyProbeFailure(response.status, detail), detail }
+    return { ok: false, target: input.target, protocol, model, error: classifyProbeFailure(response.status, detail),
+      detail: input.provider.id === 'builtin_dev' ? `HTTP ${response.status}` : detail }
   }
 
   try {
@@ -373,7 +380,7 @@ export async function probeProviderProtocol(
       protocol,
       model,
       error: timedOut ? 'timeout' : 'network_error',
-      detail: timedOut ? '连接超时' : (error instanceof Error ? error.message : '连接失败').split(apiKey).join('[已隐藏]'),
+      detail: timedOut ? '连接超时' : input.provider.id === 'builtin_dev' ? '连接失败' : (error instanceof Error ? error.message : '连接失败').split(apiKey).join('[已隐藏]'),
     }
   }
 }
@@ -392,6 +399,67 @@ export async function probeMainConnection(input: ProviderConnectionInput & { aut
   const alternate = authType === 'auth_token' ? 'api_key' : 'auth_token'
   const retried = await probeProviderProtocol({ ...input, anthropicAuthType: alternate, target: 'weworker', verifyResponse: true }, fetchImpl)
   return retried.ok ? { ...retried, auth_type: alternate } : retried
+}
+
+export interface ProviderValidation {
+  ok: boolean
+  reason: '' | 'format' | 'auth' | 'unreachable' | 'unsupported'
+  detail: string
+}
+
+export function looksLikeApiKey(key: string): boolean {
+  return /^[\x21-\x7e]{8,512}$/.test(key)
+}
+
+// Prefer the cheap catalog request. In strict mode a missing catalog or a
+// generic 2xx page needs a successful inference request to prove the source.
+export async function validateProviderConnection(
+  configuration: Pick<ModelConfiguration, 'api_key' | 'base_url' | 'weworker_protocol'>
+    & Partial<Pick<ModelConfiguration, 'auth_type' | 'base_url_is_full' | 'model'>>,
+  fetchImpl: FetchLike = fetch,
+  timeoutMs = 6000,
+  requireVerifiedKey = false,
+): Promise<ProviderValidation> {
+  if (!looksLikeApiKey(configuration.api_key)) {
+    return { ok: false, reason: 'format', detail: 'API Key 格式不合法（需为 8-512 个非空白可见字符）' }
+  }
+  const anthropic = !isOpenAiProtocol(configuration.weworker_protocol)
+  const headers: Record<string, string> = anthropic
+    ? { ...buildAnthropicAuthHeaders(configuration.api_key, 'custom', configuration.auth_type ?? 'api_key'), 'anthropic-version': '2023-06-01' }
+    : { authorization: `Bearer ${configuration.api_key}` }
+  try {
+    const fallback = async (): Promise<ProviderValidation> => {
+      const result = await probeProviderProtocol({
+        provider: getProvider('custom')!, target: 'weworker', apiKey: configuration.api_key,
+        model: configuration.model || '', weworkerBaseUrl: configuration.base_url,
+        anthropicBaseUrl: anthropic ? configuration.base_url : undefined,
+        weworkerFullUrl: configuration.base_url_is_full, weworkerProtocol: configuration.weworker_protocol,
+        anthropicAuthType: configuration.auth_type, timeoutMs, verifyResponse: true,
+      }, fetchImpl)
+      return result.ok ? { ok: true, reason: '', detail: '' }
+        : { ok: false, reason: result.error === 'auth_failed' ? 'auth' : 'unsupported', detail: '原接口未通过模型调用验证' }
+    }
+    if (configuration.base_url_is_full) return await fallback()
+    const base = configuration.base_url.replace(/\/+$/, '')
+    const catalog = `${base}${anthropic ? '/v1/models?limit=1' : '/models'}`
+    const response = await fetchImpl(catalog, { headers, signal: AbortSignal.timeout(timeoutMs), redirect: 'error' })
+    if (response.ok) {
+      if (requireVerifiedKey) {
+        const result = await response.json().catch(() => null) as { data?: unknown } | null
+        if (!Array.isArray(result?.data)) return await fallback()
+      }
+      return { ok: true, reason: '', detail: '' }
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, reason: 'auth', detail: `鉴权失败（HTTP ${response.status}），该 Key 无法调用此接口` }
+    }
+    if (response.status === 404 || response.status === 405) {
+      return requireVerifiedKey ? await fallback() : { ok: true, reason: '', detail: '' }
+    }
+    return { ok: false, reason: 'unsupported', detail: `接口返回 HTTP ${response.status}` }
+  } catch {
+    return { ok: false, reason: 'unreachable', detail: '无法连接模型接口' }
+  }
 }
 
 // Measures the complete verified conversation request, including any protocol

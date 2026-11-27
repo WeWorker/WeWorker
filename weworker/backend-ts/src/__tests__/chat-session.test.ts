@@ -43,7 +43,7 @@ import {
   CHAT_SESSION_WARM_IDLE_MS,
 } from '../chat-session.js'
 import { clearDesktopAdapterCatalogCache } from '../adapter-catalog-cache.js'
-import { conversationModels, createConversationModelStore } from '../conversation-models.js'
+import { conversationModels, createConversationModelStore, resolveWorkModelSettings } from '../conversation-models.js'
 
 type Request = { prompt: string | AsyncIterable<{ message: { content: string } }>; options: Record<string, any> }
 
@@ -142,6 +142,38 @@ afterEach(() => {
   clearDesktopAdapterCatalogCache()
   vi.unstubAllEnvs()
   fs.rmSync(mocks.directory, { recursive: true, force: true })
+})
+
+it('uses only the resolved Workshop runtime for an owned generation turn', async () => {
+  const sessions = installFakeCli()
+  fs.writeFileSync(path.join(mocks.directory, 'exploration-conversations.json'), JSON.stringify({ version: 1, entries: [{
+    workId: 'work-a', explorationId: 'example-exploration', runId: 'example-run',
+    modelSelection: { provider: 'fixture-config', model: 'pinned-workshop' },
+  }] }))
+  vi.stubEnv('WEBWRIGHT_HOME', path.join(mocks.directory, 'webwright'))
+  const taskDirectory = path.join(mocks.directory, 'webwright', 'tasks', 'example-exploration', '.server')
+  fs.mkdirSync(taskDirectory, { recursive: true })
+  fs.writeFileSync(path.join(taskDirectory, 'task.json'), JSON.stringify({ task_id: 'example-exploration', activity_type: 'exploration' }))
+  const ordinary = vi.spyOn(conversationModels, 'getRecord')
+  try {
+    await collect([], { warmupOnly: true })
+    expect(sessions).toHaveLength(0)
+    expect(await collect([message('u1', 'Example task')])).toEqual([expect.objectContaining({ type: 'error' })])
+    const defaults = { ...settings, model_configurations: { 'fixture-config': {
+      provider_id: 'custom', model: 'ordinary-model', api_key: 'fixture-chat-key', auth_type: 'api_key' as const,
+      base_url: 'https://example.com/main', context_limit: 128_000, openai_base_url: 'https://example.org/workshop', openai_api_key: 'fixture-workshop-key',
+    } } }
+    const workshopSettings = resolveWorkModelSettings('work-a', defaults)
+    const events = await collect([message('u1', 'Example task')], { directRoute: { status: 'miss' } }, workshopSettings)
+    expect(events.filter(event => event.type === 'error')).toEqual([])
+    expect(events).toContainEqual(expect.objectContaining({ type: 'done' }))
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].request.options).toMatchObject({ model: 'pinned-workshop', env: {
+      ANTHROPIC_MODEL: 'pinned-workshop', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'pinned-workshop',
+      ANTHROPIC_BASE_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:/), ANTHROPIC_AUTH_TOKEN: 'fixture-workshop-key',
+    } })
+    expect(ordinary).not.toHaveBeenCalled()
+  } finally { ordinary.mockRestore(); vi.unstubAllEnvs() }
 })
 
 describe('desktop chat session reuse', () => {

@@ -6,6 +6,7 @@ import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProv
 import { deleteModelConfiguration, publicModelConfigurations, updateModelConfiguration } from '../model-configurations.js'
 import { applySecrets, clearSecretsOnDisk, extractSecrets } from '../settings-secrets.js'
 import type { Settings } from '../config.js'
+import { PROVIDERS } from '../provider-registry.js'
 
 let home: string
 beforeEach(() => { home = fs.mkdtempSync(path.join(os.tmpdir(), 'weworker-provider-discovery-')) })
@@ -25,6 +26,26 @@ function claude(key = 'fixture-claude-key') {
 const discover = (env: NodeJS.ProcessEnv = {}) => discoverLocalProviders({ home, env, validate: false })
 
 describe('local provider discovery', () => {
+  it.each([200, 401])('uses the registry Workshop route only after source validation returns %s', async (status) => {
+    const fixture = { ...PROVIDERS.find(provider => provider.id === 'custom')!, id: 'fixture-preset',
+      weworker: { protocol: 'anthropic_messages' as const, baseUrl: 'https://example.com/fixture-chat' },
+      webwright: { ...PROVIDERS.find(provider => provider.id === 'custom')!.webwright, baseUrl: 'https://example.org/fixture-workshop' } }
+    PROVIDERS.push(fixture)
+    try {
+      write('.claude/settings.json', { env: { ANTHROPIC_API_KEY: 'fixture-source-key',
+        ANTHROPIC_BASE_URL: fixture.weworker.baseUrl, ANTHROPIC_MODEL: 'fixture-source-model' } })
+      const fetchImpl = vi.fn(async () => Response.json({ data: [{ id: 'fixture-source-model' }] }, { status }))
+      const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl })
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(fetchImpl).toHaveBeenCalledWith('https://example.com/fixture-chat/v1/models?limit=1', expect.anything())
+      const result = importDiscoveredProviders(settings(), providers, true)
+      expect(result.updates.model_configurations![result.imported[0]]).toMatchObject({
+        weworker_protocol: 'anthropic_messages', base_url: fixture.weworker.baseUrl,
+        openai_base_url: status === 200 ? fixture.webwright.baseUrl : '',
+        openai_api_key: status === 200 ? 'fixture-source-key' : '',
+      })
+    } finally { PROVIDERS.pop() }
+  })
   it('recognizes and imports an OpenAI workshop sibling while retaining Anthropic chat', async () => {
     claude()
     const fetchImpl = vi.fn(async (url, init) => {
@@ -48,6 +69,49 @@ describe('local provider discovery', () => {
     const old = { ...providers[0].configuration, openai_base_url: '', openai_api_key: '' }
     const refreshed = importDiscoveredProviders({ ...settings(), model_configurations: { old } }, providers, true)
     expect(refreshed.updates.model_configurations!.old.openai_base_url).toBe('https://example.com/anthropic/v1')
+  })
+
+  it.each(['glm', 'deepseek', 'bank_coding'])('uses the registered OpenAI endpoint for %s after source validation', async id => {
+    const provider = PROVIDERS.find(entry => entry.id === id)
+    if (!provider?.weworker.baseUrl || !provider.webwright.baseUrl) return // This profile has no registered gateway for the preset.
+    const fixtureModel = 'fixture-model'
+    write('.claude/settings.json', { env: {
+      ANTHROPIC_API_KEY: 'fixture-deepseek-key',
+      ANTHROPIC_BASE_URL: provider.weworker.baseUrl,
+      ANTHROPIC_MODEL: fixtureModel,
+    } })
+    const calls: string[] = []
+    const fetchImpl: typeof fetch = async (url) => {
+      calls.push(String(url))
+      return Response.json({ data: [{ id: fixtureModel }] })
+    }
+    const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl })
+    expect(calls).toEqual([`${provider.weworker.baseUrl.replace(/\/+$/, '')}/v1/models?limit=1`])
+    expect(publicDiscoveredProviders(settings(), providers)[0]).toMatchObject({
+      preset_workshop: true,
+      openai_base_url: provider.webwright.baseUrl,
+      openai_model: fixtureModel,
+    })
+    const result = importDiscoveredProviders(settings(), providers)
+    expect(result.updates.model_configurations![result.imported[0]]).toMatchObject({
+      openai_base_url: provider.webwright.baseUrl, openai_api_key: 'fixture-deepseek-key',
+    })
+    const rejected = await discoverLocalProviders({ home, env: {}, fetchImpl: async () => new Response('', { status: 401 }) })
+    expect(publicDiscoveredProviders(settings(), rejected.providers)[0]).toMatchObject({
+      imported: false, openai_base_url: '', validation: { ok: false, reason: 'auth' },
+    })
+    expect(importDiscoveredProviders(settings(), rejected.providers).imported).toEqual([])
+  })
+
+  it('keeps a custom source visible when only its Workshop probe fails', async () => {
+    claude()
+    const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl: async url =>
+      String(url).endsWith('/chat/completions') ? new Response('', { status: 403 }) : Response.json({ data: [] }),
+    })
+    expect(publicDiscoveredProviders(settings(), providers)[0]).toMatchObject({
+      validation: { ok: true }, workshop_unavailable: true, openai_base_url: '',
+    })
+    expect(importDiscoveredProviders(settings(), providers).imported).toEqual([])
   })
 
   it('keeps real failed Anthropic sources visible without fabricated OpenAI routes', async () => {
@@ -424,10 +488,11 @@ describe('connection grouping and legacy migration', () => {
     write('.workbuddy/models.json', { models: [...buddyModels(), ...buddyModels('fixture-other-key'), {
       id: 'responses-model', apiKey: 'fixture-shared-key', api: 'openai-responses', url: 'https://example.com/v1',
     }] })
-    const fetchImpl = vi.fn(async () => new Response('{}', { status: 200 }))
+    const fetchImpl = vi.fn(async () => Response.json({ data: [] }))
     const { providers } = await discoverLocalProviders({ home, env: {}, fetchImpl })
     expect(providers).toHaveLength(3)
-    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    // The distinct Responses connection also probes its Chat Completions sibling.
+    expect(fetchImpl).toHaveBeenCalledTimes(4)
     expect(providers[0].configuration.custom_models).toEqual(['model-a', 'model-b'])
     expect(providers[0].legacySourceIds).toHaveLength(4)
     expect(new Set(providers.map(item => item.sourceId)).size).toBe(3)

@@ -6,7 +6,8 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import type { Settings } from '../config.js'
 import type { Express } from 'express'
-import { createConversationModelStore, currentConversationModel, defaultConversationModel, initialConversationContextLimit, resolveConversationModelSettings, parseConversationModel, registerConversationModelRoutes } from '../conversation-models.js'
+import { createConversationModelStore, currentConversationModel, defaultConversationModel, initialConversationContextLimit, resolveConversationModelSettings, parseConversationModel, registerConversationModelRoutes, resolveWorkModelSettings } from '../conversation-models.js'
+import { selectGenerationModel } from '../exploration-generation-model.js'
 
 function defaults(): Settings {
   return { active_provider: 'custom', active_model_configuration: 'example-a', model: 'default-a', api_key: 'placeholder-a',
@@ -41,7 +42,7 @@ describe('conversation-specific model configuration', () => {
       const onContextLimitChanged = vi.fn()
       registerConversationModelRoutes(Object.fromEntries(['GET', 'POST', 'PATCH'].map(method => [method.toLowerCase(),
         (p: string, h: Function) => handlers.set(`${method} ${p}`, h)])) as unknown as Express,
-        { getSettings: () => settings, hasWork: id => id !== 'missing', isBusy: id => id === 'running', onContextLimitChanged, models })
+        { getSettings: () => settings, hasWork: id => id !== 'missing', isBusy: id => id === 'running', onContextLimitChanged, models, getGenerationWork: () => undefined })
       let data: any, status = 200
       const res = { json(value: unknown) { data = value; return this }, status(value: number) { status = value; return this } }
       const selection = { provider: 'example-b', model: 'session-b', thinking_effort: 'high' }
@@ -91,6 +92,57 @@ describe('conversation-specific model configuration', () => {
       expect(data.context_limit).toBe(200_000)
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
+  it('pins the effective source model across global activation and reads the current Workshop credentials', () => {
+    const settings = { ...defaults(), model_selection_revision: 'before' }
+    const a = settings.model_configurations!['example-a']
+    const b = settings.model_configurations!['example-b']
+    a.openai_base_url = 'https://example.com/workshop'
+    a.openai_model = 'workshop-a'
+    const selected = selectGenerationModel(settings, { provider: '__exploration__:example-b', model: 'ignored-shared-model', selection_revision: 'before' })
+    expect(selected).toEqual({ provider: 'example-b', model: 'default-b', selection_revision: 'before' })
+    const activated = { ...settings, model_selection_revision: 'after', model_configurations: {
+      ...settings.model_configurations, 'example-b': { ...b, model: 'new-b', api_key: 'fixture-key-rotated' },
+    } }
+    expect(selectGenerationModel(activated, selected)).toEqual({ provider: 'example-a', model: 'workshop-a', selection_revision: 'after' })
+    const generationWork = { workId: 'owned', explorationId: 'example', runId: 'round-one' }
+    expect(resolveWorkModelSettings('owned', activated, { ...generationWork, modelSelection: selected })).toMatchObject({
+      model: 'default-b', api_key: 'fixture-key-rotated', base_url: 'https://example.org/infer', base_url_is_full: true,
+      active_weworker_protocol: 'openai_chat_completions', active_auth_type: 'auth_token', context_limit: 128000,
+    })
+    expect(resolveWorkModelSettings('owned', activated, generationWork).model).toBe('workshop-a')
+  })
+
+  it('returns a read-only Workshop status and refuses ordinary model overrides for generation', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workshop-model-route-test-'))
+    try {
+      const models = createConversationModelStore(path.join(dir, 'models.json'))
+      const settings = { ...defaults(), model_selection_revision: 'current' }
+      const a = settings.model_configurations!['example-a']
+      a.openai_base_url = 'https://example.com/workshop/v1'
+      a.openai_api_key = 'fixture-workshop-key'
+      const ordinary = { provider: 'example-b', model: 'ordinary-model', thinking_effort: 'off' as const }
+      models.set('owned', ordinary, 96000)
+      const handlers = new Map<string, Function>()
+      registerConversationModelRoutes({ get: (p: string, h: Function) => handlers.set('GET ' + p, h), post: (p: string, h: Function) => handlers.set('POST ' + p, h), patch: (p: string, h: Function) => handlers.set('PATCH ' + p, h) } as unknown as Express, {
+        getSettings: () => settings, hasWork: () => true, isBusy: () => false, models,
+        getGenerationWork: id => id === 'owned' ? { workId: id, explorationId: 'example', runId: 'round-one',
+          modelSelection: { provider: 'example-a', model: 'pinned-model', selection_revision: 'previous' } } : undefined,
+      })
+      const res = { json: vi.fn(), status: vi.fn().mockReturnThis(), setHeader: vi.fn() }
+      const req = { params: { id: 'owned' }, body: { ...ordinary, model: 'replacement' } }
+      handlers.get('GET /works/:id/model')!(req, res)
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store')
+      expect(res.json).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'example-a', model: 'pinned-model', read_only: true, context_limit: 96000 }))
+      expect(JSON.stringify(res.json.mock.calls)).not.toMatch(/example\.com|fixture-workshop-key/)
+      handlers.get('POST /works/:id/model')!(req, res)
+      expect(res.status).toHaveBeenLastCalledWith(409)
+      expect(models.get('owned')).toEqual(ordinary)
+      delete settings.model_configurations!['example-a']
+      handlers.get('GET /works/:id/model')!(req, res)
+      expect(res.json).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'pinned-model', read_only: true, unavailable: true }))
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+
   it('resolves a session model without modifying defaults or provider configurations', () => {
     const settings = defaults(), original = structuredClone(settings)
     const runtime = resolveConversationModelSettings(settings, { provider: 'example-b', model: 'session-b' })

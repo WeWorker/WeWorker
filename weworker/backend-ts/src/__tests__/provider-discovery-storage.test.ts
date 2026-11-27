@@ -19,8 +19,13 @@ it('persists encrypted imports and deletion dismissals across settings reloads',
     fs.writeFileSync(path.join(root, '.claude', 'settings.json'), JSON.stringify({ env: {
       ANTHROPIC_API_KEY: 'fixture-imported-secret', ANTHROPIC_MODEL: 'fixture-model', ANTHROPIC_BASE_URL: 'https://example.com',
     } }))
-    const discovered = (await discoverLocalProviders({ home: root, env: {} })).providers
+    const discovered = (await discoverLocalProviders({ home: root, env: {}, fetchImpl: async url =>
+      String(url).endsWith('/chat/completions')
+        ? Response.json({ choices: [{ message: { content: '{"ok":true}' } }] })
+        : Response.json({ data: [{ id: 'fixture-model' }] }),
+    })).providers
     const imported = importDiscoveredProviders(config.getSettings(), discovered)
+    expect(imported.imported).toHaveLength(1)
     config.updateSettings(imported.updates)
     const diskPath = path.join(root, '.weworker', 'settings.json')
     expect(fs.readFileSync(diskPath, 'utf8')).not.toContain('fixture-imported-secret')

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ModelConfiguration } from '../model-configurations.js'
-import { discoverWorkshopConfig, automaticWorkshopUpdate } from '../adapter-workshop-config.js'
+import { detectValidatedWorkshop, sharedOpenAiWorkshopAddress, automaticWorkshopUpdate } from '../adapter-workshop-config.js'
 
 const configuration = (patch: Partial<ModelConfiguration> = {}): ModelConfiguration => ({
   provider_id: 'custom', api_key: 'fixture-api-key', model: 'fixture-model',
@@ -8,6 +8,15 @@ const configuration = (patch: Partial<ModelConfiguration> = {}): ModelConfigurat
   openai_base_url: '', auth_type: 'api_key', context_limit: 200000, ...patch,
 })
 const success = () => Response.json({ choices: [{ message: { content: '{"ok":true}' } }] })
+
+const validSource = () => Response.json({ data: [{ id: 'fixture-model' }] })
+const probe = (fallback: typeof fetch): typeof fetch => (url, init) =>
+  /\/v1\/models\?limit=1$/.test(String(url)) || String(url).endsWith('/messages')
+    ? Promise.resolve(String(url).endsWith('/messages') ? Response.json({ content: [{ type: 'tool_use', name: 'connection_check', input: { status: 'ok' } }] }) : validSource())
+    : fallback(url, init)
+async function discoverWorkshopConfig(input: ModelConfiguration, fetchImpl: typeof fetch) {
+  return (await detectValidatedWorkshop(input, probe(fetchImpl))).workshop
+}
 
 describe('automatic Adapter workshop configuration', () => {
   it.each([
@@ -54,27 +63,27 @@ describe('automatic Adapter workshop configuration', () => {
   it.each(['openai_chat_completions', 'openai_responses'] as const)('copies %s chat settings without changing the chat protocol', async protocol => {
     const input = configuration({ weworker_protocol: protocol, base_url: 'https://example.org/v1' })
     const fetchImpl = vi.fn()
-    expect(await discoverWorkshopConfig(input, fetchImpl)).toMatchObject({
-      openai_base_url: 'https://example.org/v1', openai_api_key: 'fixture-api-key', openai_model: 'fixture-model',
+    expect(sharedOpenAiWorkshopAddress(input)).toMatchObject({
+      openai_base_url: 'https://example.org/v1',
     })
     expect(input.weworker_protocol).toBe(protocol)
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('maps a full Responses endpoint to the workshop Chat Completions endpoint', async () => {
-    expect(await discoverWorkshopConfig(configuration({ weworker_protocol: 'openai_responses',
-      base_url: 'https://example.org/v1/responses', base_url_is_full: true }))).toMatchObject({
-      openai_base_url: 'https://example.org/v1/chat/completions', openai_base_url_is_full: true,
+    expect(sharedOpenAiWorkshopAddress(configuration({ base_url: 'https://example.org/v1/responses?version=1&route=a%2Fb',
+      weworker_protocol: 'openai_responses', base_url_is_full: true }))).toMatchObject({
+      openai_base_url: 'https://example.org/v1/chat/completions?version=1&route=a%2Fb', openai_base_url_is_full: true,
     })
   })
 
   it('fills empty workshop settings when saving a main connection and syncs later edits', async () => {
     const current = configuration()
-    const first = await automaticWorkshopUpdate(current, current, { base_url: current.base_url }, async () => success())
+    const first = await automaticWorkshopUpdate(current, current, { base_url: current.base_url }, probe(async () => success()))
     expect(first.openai_base_url).toBe('https://example.com/gateway/v1')
     const saved = { ...current, ...first }
     expect(await automaticWorkshopUpdate(saved, { ...saved, model: 'fixture-next-model', api_key: 'fixture-next-key' },
-      { model: 'fixture-next-model', api_key: 'fixture-next-key' }, async () => success())).toMatchObject({
+      { model: 'fixture-next-model', api_key: 'fixture-next-key' }, probe(async () => success()))).toMatchObject({
       openai_model: 'fixture-next-model', openai_api_key: 'fixture-next-key',
     })
   })

@@ -42,14 +42,46 @@ describe('model settings Adapter workshop interface', () => {
       exploration_model: 'old-independent-model', exploration_use_main_key: false,
     })
   }
-  it.each(['anthropic_messages', 'openai_chat_completions', 'openai_responses'] as const)('uses OpenAI exploration fields regardless of conversation protocol %s', protocol => {
-    const saved = configured(protocol)
+  it('uses distinct Workshop settings for custom Anthropic', () => {
+    const saved = configured('anthropic_messages')
     const original = structuredClone(saved)
     expect(resolveWebwrightModelConfig(saved)).toMatchObject({ protocol: 'openai_chat_completions',
       base_url: 'https://example.org/old/v1', base_url_is_full: false,
       model: 'old-model', api_key: 'placeholder-old-key', auth_type: 'auth_token', context_limit: 128000 })
     expect(defaultExplorationModel(saved).provider).toBe('example-config')
     expect(saved).toEqual(original)
+  })
+  it.each([
+    ['openai_chat_completions', 'https://example.com/custom/infer/?v=1', true, 'https://example.com/custom/infer/?v=1'],
+    ['openai_responses', 'https://example.com/v1', false, 'https://example.com/v1'],
+    ['openai_responses', 'https://example.com/v1/responses', true, 'https://example.com/v1/chat/completions'],
+  ] as const)('shares the saved %s connection at %s despite stale Workshop fields and selection', (protocol, url, full, expected) => {
+    const saved = configured(protocol)
+    Object.assign(saved.model_configurations!['example-config'], { base_url: url, base_url_is_full: full })
+    saved.exploration_model_selection = { provider: '__exploration__:example-config', model: 'stale-workshop-model' }
+    expect(resolveWebwrightModelConfig(saved)).toMatchObject({ protocol: 'openai_chat_completions',
+      base_url: expected, base_url_is_full: full, model: 'example-model', api_key: 'placeholder-main-key' })
+    expect(defaultExplorationModel(saved).model).toBe('example-model')
+    expect(resolveConversationModelSettings(saved, defaultConversationModel(saved))).toMatchObject({ active_weworker_protocol: protocol, base_url: url })
+  })
+  it('honors a pinned generation model and thinking effort after a shared default changes', () => {
+    const saved = configured('openai_chat_completions')
+    saved.model_selection_revision = 'fixture-new-revision'
+    saved.model_configurations!['example-config'].model = 'fixture-new-default'
+    const pin = { provider: '__exploration__:example-config', model: 'fixture-prepared-model',
+      thinking_effort: 'high' as const, selection_revision: 'fixture-old-revision' }
+    expect(resolveWebwrightModelConfig(saved).model).toBe('fixture-new-default')
+    expect(resolveWebwrightModelConfig(saved, pin)).toMatchObject({ model: pin.model,
+      thinking_effort: 'high', context_limit: 128000, api_key: 'placeholder-main-key' })
+  })
+  it('does not use an arbitrary full Responses URL or a stale Workshop override', () => {
+    expect(() => resolveWebwrightModelConfig(configured('openai_responses'))).toThrow(/OpenAI/)
+  })
+  it('shares the main connection for legacy custom OpenAI settings', () => {
+    const saved = settings({ active_provider: 'custom', api_key_custom: 'placeholder-main-key',
+      base_url_custom: 'https://example.com/shared/v1', model_custom: 'fixture-main', weworker_protocol_custom: 'openai_chat_completions',
+      openai_api_key_custom: 'placeholder-stale-key', openai_base_url_custom: 'https://example.org/stale/v1', openai_model_custom: 'fixture-stale' })
+    expect(resolveWebwrightModelConfig(saved)).toMatchObject({ base_url: saved.base_url_custom, model: saved.model_custom, api_key: saved.api_key_custom })
   })
   it('keeps a session model override separate from the default configuration', () => {
     const saved = configured('anthropic_messages')

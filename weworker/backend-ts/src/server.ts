@@ -1,4 +1,5 @@
-import { prepareExplorationConversation, listExplorationConversations, excludeExplorationConversations, markExplorationDeleted } from './exploration-conversations.js'
+import { prepareExplorationConversation, listExplorationConversations, excludeExplorationConversations, markExplorationDeleted, explorationConversation, isExplorationConversation } from './exploration-conversations.js'
+import { selectGenerationModel } from './exploration-generation-model.js'
 import { workspaceDirectoryForContext } from './workspace-context.js'
 import { createSkillManagementRouter, sanitizeSkillDirectoryName } from './skill-management.js'
 import { officialSkillBuildTime } from './skill-build-time.js'
@@ -67,7 +68,7 @@ import {
   type UserDirectoryBlacklistEntry,
 } from './user-directory-blacklist.js'
 import { isAllowedHost, isAllowedOrigin, isAuthorizedHttpRequest, LOCAL_HTTP_PORT, redactSensitive } from './http-security.js'
-import { isLlmProtocol, normalizeLlmUrlInput, resolveAnthropicEndpoint } from './llm-egress.js'
+import { isLlmProtocol, isOpenAiProtocol, normalizeLlmUrlInput, resolveAnthropicEndpoint } from './llm-egress.js'
 import {
   ALLOWED_PROVIDER_IDS,
   PROVIDER_BASE_URLS,
@@ -84,7 +85,7 @@ import { resolveThinkingEffort } from './thinking-effort.js'
 import { buildProviderVisibility } from './provider-visibility.js'
 import { createModelConfiguration, getModelConfiguration, updateModelConfiguration, updatePresetConfiguration, publicModelConfigurations, buildModelConfigurationNames, renameModelConfiguration, deleteModelConfiguration, savedModelConfigurationKey } from './model-configurations.js'
 import { discoverLocalProviders, importDiscoveredProviders, publicDiscoveredProviders } from './provider-discovery.js'
-import { automaticWorkshopUpdate } from './adapter-workshop-config.js'
+import { automaticWorkshopUpdate, sharedOpenAiWorkshopAddress, workshopSettingsEdited } from './adapter-workshop-config.js'
 import { buildAnthropicAuthHeaders, isAnthropicAuthType } from './anthropic-auth.js'
 import { activateBuiltinProvider, builtinProviderAccess, isBuiltinProvider, publicBuiltinProviders } from './builtin-provider.js'
 import { configuredModel } from './provider-config.js'
@@ -372,8 +373,10 @@ app.use(requireHttpAuth)
 app.use(express.json({ limit: '50mb' }))
 app.use('/api/website-exploration', createWebsiteExplorationAdapterRouter({
   onListDevelopmentChats: () => listExplorationConversations(),
-  onDevelopmentHandoff: input => {
-    const result = prepareExplorationConversation(input)
+  onDevelopmentHandoff: (input, sourceSelection) => {
+    const result = prepareExplorationConversation(input, {
+      selectModel: () => selectGenerationModel(getSettings(), sourceSelection),
+    })
     broadcastSSE({ type: 'works_changed', workId: result.work.id })
     return result
   },
@@ -856,7 +859,11 @@ app.post('/settings/provider', async (req, res) => {
       const pending = updateModelConfiguration(settings, provider, req.body)
       const automatic = await automaticWorkshopUpdate(current, pending.model_configurations![provider], req.body)
       // Re-read after the network probe so another configuration saved meanwhile is preserved.
-      res.json(buildSettingsResponse(updateSettings(updateModelConfiguration(getSettings(), provider, { ...req.body, ...automatic }))))
+      const latest = getSettings()
+      if (JSON.stringify(getModelConfiguration(latest, provider)) !== JSON.stringify(current)) {
+        throw new Error('模型配置已变更，请重试保存')
+      }
+      res.json(buildSettingsResponse(updateSettings(updateModelConfiguration(latest, provider, req.body, automatic))))
     } catch (error) {
       res.status(400).json({ detail: error instanceof Error ? error.message : String(error) })
     }
@@ -988,8 +995,19 @@ app.post('/settings/provider', async (req, res) => {
       openai_base_url: value.openai_base_url_custom || '', openai_base_url_is_full: value.openai_base_url_is_full_custom,
       openai_api_key: value.openai_api_key_custom, openai_model: value.openai_model_custom,
       auth_type: value.custom_auth_type, context_limit: value.context_limit_custom,
+      openai_models_url: value.openai_models_url_custom, openai_models_url_is_full: value.openai_models_url_is_full_custom,
+      workshop_auto_configured: value.workshop_auto_configured_custom,
     })
-    const automatic = await automaticWorkshopUpdate(legacy(settings), legacy({ ...settings, ...updates }), req.body)
+    const previous = legacy(settings)
+    const next = legacy({ ...settings, ...updates })
+    const automatic = await automaticWorkshopUpdate(previous, next, req.body)
+    if (JSON.stringify(legacy(getSettings())) !== JSON.stringify(previous)) {
+      res.status(409).json({ detail: '模型配置已变更，请重试保存' })
+      return
+    }
+    if (automatic.workshop_auto_configured !== undefined || workshopSettingsEdited(previous, next)) {
+      updates.workshop_auto_configured_custom = automatic.workshop_auto_configured ?? false
+    }
     if (automatic.openai_base_url !== undefined) updates.openai_base_url_custom = automatic.openai_base_url
     if (automatic.openai_base_url_is_full !== undefined) updates.openai_base_url_is_full_custom = automatic.openai_base_url_is_full
     if (automatic.openai_api_key !== undefined) updates.openai_api_key_custom = automatic.openai_api_key
@@ -1062,30 +1080,29 @@ function resolveProviderAccess(body: ProviderRequestBody) {
       provider.id === 'bank_coding' ? settings.api_key_bank_coding || '' :
       provider.id === 'glm' ? settings.api_key_glm :
       provider.id === 'deepseek' ? settings.api_key_deepseek : provider.id === 'custom' ? settings.api_key_custom : '')
-  const savedOpenAiApiKey = configuration?.openai_api_key ?? (provider.id === 'custom' ? settings.openai_api_key_custom || savedApiKey : savedApiKey)
+  const apiKey = body.api_key?.trim() || savedApiKey || (provider.id === 'custom' && !configuration && settings.active_provider === 'custom' && !settings.active_model_configuration ? settings.api_key : '')
+  const savedOpenAiApiKey = configuration?.openai_api_key || (configuration ? apiKey : provider.id === 'custom' ? settings.openai_api_key_custom || apiKey : apiKey)
   const anthropicFullUrl = provider.id === 'custom'
     && (body.base_url_is_full ?? (configuration ? configuration.base_url_is_full ?? false : settings.base_url_is_full_custom ?? false))
   if (typeof anthropicFullUrl !== 'boolean') throw new Error('使用完整 URL 必须为布尔值')
-  const anthropicUrl = body.base_url === undefined ? configuration?.base_url ?? settings.base_url_custom : body.base_url
-  const openaiFullUrl = provider.id === 'custom'
-    && (body.openai_base_url_is_full ?? (configuration ? configuration.openai_base_url_is_full ?? false : settings.openai_base_url_is_full_custom ?? false))
+  const anthropicUrl = body.base_url ?? configuration?.base_url ?? (settings.base_url_custom ||
+    (provider.id === 'custom' && settings.active_provider === 'custom' && !settings.active_model_configuration ? settings.base_url : ''))
+  const sharedWorkshop = provider.id === 'custom' && isOpenAiProtocol(weworkerProtocol)
+  const sharedAddress = sharedWorkshop ? sharedOpenAiWorkshopAddress({ base_url: anthropicUrl || '', base_url_is_full: anthropicFullUrl, weworker_protocol: weworkerProtocol }) : undefined
+  const openaiFullUrl = provider.id === 'custom' && (sharedWorkshop ? sharedAddress?.openai_base_url_is_full === true
+    : body.openai_base_url_is_full ?? (configuration ? configuration.openai_base_url_is_full ?? false : settings.openai_base_url_is_full_custom ?? false))
   if (typeof openaiFullUrl !== 'boolean') throw new Error('使用完整 URL 必须为布尔值')
-  const openaiUrl = body.openai_base_url === undefined ? configuration?.openai_base_url ?? settings.openai_base_url_custom : body.openai_base_url
-  const weworkerUrl = body.target === 'weworker'
-    ? (body.base_url === undefined ? configuration?.base_url ?? settings.base_url_custom : body.base_url)
-    : undefined
-  const weworkerFullUrl = body.target === 'weworker'
-    ? (body.base_url_is_full ?? (configuration ? configuration.base_url_is_full ?? false : settings.base_url_is_full_custom ?? false))
-    : undefined
-  if (weworkerFullUrl !== undefined && typeof weworkerFullUrl !== 'boolean') throw new Error('使用完整 URL 必须为布尔值')
+  const openaiUrl = sharedWorkshop ? sharedAddress?.openai_base_url
+    : body.openai_base_url ?? configuration?.openai_base_url ?? settings.openai_base_url_custom
+  const weworkerUrl = body.target === 'weworker' && provider.id === 'custom' ? anthropicUrl : undefined
   return {
     provider,
     target: body.target,
     weworkerProtocol,
-    ...(weworkerUrl?.trim() ? { weworkerBaseUrl: normalizeLlmUrlInput(weworkerUrl, weworkerFullUrl === true) } : {}),
-    ...(weworkerFullUrl !== undefined ? { weworkerFullUrl } : {}),
-    apiKey: body.api_key?.trim() || savedApiKey,
-    openaiApiKey: body.openai_api_key?.trim() || savedOpenAiApiKey,
+    ...(weworkerUrl?.trim() ? { weworkerBaseUrl: normalizeLlmUrlInput(weworkerUrl, anthropicFullUrl) } : {}),
+    ...(body.target === 'weworker' ? { weworkerFullUrl: anthropicFullUrl } : {}),
+    apiKey,
+    openaiApiKey: sharedWorkshop ? apiKey : body.openai_api_key?.trim() || savedOpenAiApiKey,
     anthropicBaseUrl: provider.id === 'custom'
       ? anthropicUrl?.trim() ? normalizeLlmUrlInput(anthropicUrl, anthropicFullUrl) : undefined
       : provider.weworker.baseUrl,
@@ -1108,17 +1125,20 @@ function resolveProviderRequest(body: ProviderRequestBody) {
   const access = resolveProviderAccess(body)
   if (isBuiltinProvider(access.provider.id)) return { ...access, model: access.provider.defaultModel }
   const settings = getSettings()
-  const savedModel =
-    getModelConfiguration(settings, body.provider)?.model ?? (
+  const configuration = getModelConfiguration(settings, body.provider)
+  const savedModel = configuration?.model ?? (
     access.provider.id === 'anthropic' ? settings.model_anthropic :
     access.provider.id === 'bank_coding' ? settings.model_bank_coding || '' :
     access.provider.id === 'glm' ? settings.model_glm :
-    access.provider.id === 'deepseek' ? settings.model_deepseek : access.provider.id === 'custom' ? settings.model_custom : '')
-  const savedOpenAiModel = getModelConfiguration(settings, body.provider)?.openai_model || savedModel
+    access.provider.id === 'deepseek' ? settings.model_deepseek : access.provider.id === 'custom' ? settings.model_custom ||
+      (settings.active_provider === 'custom' && !settings.active_model_configuration ? settings.model : '') : '')
+  const savedOpenAiModel = (configuration ? configuration.openai_model : access.provider.id === 'custom' ? settings.openai_model_custom : '') || savedModel
+  const model = configuredModel(access.provider.id, body.model === undefined ? savedModel : body.model.trim())
+  const sharedWorkshop = access.provider.id === 'custom' && 'weworkerProtocol' in access && isOpenAiProtocol(access.weworkerProtocol)
   return {
     ...access,
-    model: configuredModel(access.provider.id, body.model === undefined ? savedModel : body.model.trim()),
-    openaiModel: configuredModel(access.provider.id, body.openai_model === undefined ? savedOpenAiModel : body.openai_model.trim()),
+    model,
+    openaiModel: sharedWorkshop ? model : configuredModel(access.provider.id, body.openai_model === undefined ? savedOpenAiModel : body.openai_model.trim()),
   }
 }
 
@@ -1133,13 +1153,15 @@ app.post('/settings/provider/models', async (req, res) => {
         openai_models_url: settings.openai_models_url_custom,
         openai_models_url_is_full: settings.openai_models_url_is_full_custom,
       }
+      const protocol = req.body.weworker_protocol ?? configuration?.weworker_protocol ?? settings.weworker_protocol_custom
+      const target = req.body.target === 'webwright' && isOpenAiProtocol(protocol) ? 'weworker' : req.body.target
       const catalog = resolveModelCatalogConfig({ ...req.body,
-        ...(req.body.target === 'weworker' ? { openai_models_url: '', openai_models_url_is_full: true } : {}),
-        ...(req.body.target === 'webwright' ? { models_url: '', models_url_is_full: true, models_auth_type: 'inherit' } : {}),
+        ...(target === 'weworker' ? { openai_models_url: '', openai_models_url_is_full: true } : {}),
+        ...(target === 'webwright' ? { models_url: '', models_url_is_full: true, models_auth_type: 'inherit' } : {}),
       }, saved)
-      const input = resolveProviderAccess({ ...req.body,
-        ...(catalog.models_url || req.body.target === 'webwright' ? { base_url: '', base_url_is_full: false } : {}),
-        ...(catalog.openai_models_url || req.body.target === 'weworker' ? { openai_base_url: '', openai_base_url_is_full: false } : {}),
+      const input = resolveProviderAccess({ ...req.body, target,
+        ...(catalog.models_url || target === 'webwright' ? { base_url: '', base_url_is_full: false } : {}),
+        ...(catalog.openai_models_url || target === 'weworker' ? { openai_base_url: '', openai_base_url_is_full: false } : {}),
       })
       res.json(await listProviderModels({ ...input, modelsUrl: catalog.models_url,
         modelsUrlIsFull: catalog.models_url_is_full, openaiModelsUrlIsFull: catalog.openai_models_url_is_full,
@@ -3310,6 +3332,10 @@ app.post('/works/:id/warmup', (req, res) => {
     res.status(404).json({ detail: 'Work not found' })
     return
   }
+  if (isExplorationConversation(workId)) {
+    res.json({ status: 'skipped' })
+    return
+  }
   if (hasChatSession(workId) || chatWarmupsInFlight.has(workId)) {
     res.json({ status: 'ready' })
     return
@@ -3451,10 +3477,14 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     res.status(404).json({ detail: 'Work not found' })
     return
   }
-  // Conversations owned by a dedicated agent run as that agent (its skills and tool limits).
   let settings: ReturnType<typeof getSettings>
-  try { settings = resolveWorkModelSettings(workId, getSettings()) }
+  let generationWork: ReturnType<typeof explorationConversation>
+  try {
+    generationWork = explorationConversation(workId)
+    settings = resolveWorkModelSettings(workId, getSettings(), generationWork ?? null)
+  }
   catch (error) { res.status(400).json({ detail: error instanceof Error ? error.message : '会话模型无效' }); return }
+  // Conversations owned by a dedicated agent run as that agent (its skills and tool limits).
   const dedicatedAgent = findAgentByWorkId(workId)
   let dedicatedAgentOptions: ReturnType<typeof buildDesktopAgentTurnOptions> | undefined
   if (dedicatedAgent) {
@@ -3498,7 +3528,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   }
 
   // Auto-title from first message: immediate fallback, then async LLM refinement
-  const isFirstMessage = !work.title
+  const isFirstMessage = !generationWork && !work.title
   const titleSource = message?.trim() || importedAttachments.map((block) => block.type === 'file_attachment' ? block.name : '').filter(Boolean).join(', ')
   if (isFirstMessage && retryCompaction !== true) {
     const title = generateTitle(titleSource)
@@ -3632,7 +3662,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
   let directRoute: DirectRouteOutcome = { status: 'skipped', reason: dedicatedAgent ? 'dedicated_agent'
     : retryCompaction === true ? 'retry_compaction'
     : desktopPermission.channelPermissionMode === 'ask' ? 'ask_permission' : 'no_text' }
-  if (!dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim()) {
+  if (!dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && retryCompaction !== true && message?.trim() && !generationWork) {
     const routed = await tryRoutedTurn({
       message,
       // A hint is never authority: the compiled server-side template must reconstruct
@@ -3657,7 +3687,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
       return
     }
   } else {
-    const reason = dedicatedAgent ? 'dedicated_agent'
+    const reason = generationWork ? 'workshop_generation' : dedicatedAgent ? 'dedicated_agent'
       : desktopPermission.channelPermissionMode === 'ask' ? 'permission_requires_confirmation'
       : retryCompaction === true ? 'compaction_retry' : 'empty_message'
     appendWorkLog(workId, 'route_diagnostic', { phase: 'route_skipped', reason, fallback: 'llm' }, turnId)
@@ -3667,7 +3697,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
 
   // Locally approved exact questions are a last deterministic option, never a
   // replacement for a blocked gate, attachment, explicit alias or system route.
-  const plainDesktopQuestion = !dedicatedAgent && retryCompaction !== true
+  const plainDesktopQuestion = !generationWork && !dedicatedAgent && retryCompaction !== true
     && process.env.WEWORKER_API_QUERY_ROUTE !== '0'
     && desktopPermission.channelPermissionMode !== 'ask' && importedAttachments.length === 0
     && modelInputMessage === message && !!message.trim() && !scenario
@@ -3774,7 +3804,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     // 旧的「消息含未注册站点 URL」启发式（语义与改动前一致）。
     let tier4Task: { taskId: string; startUrl: string; startedAt: number } | null = null
     let tier4Source: AsyncGenerator<SSEEvent> | null = null
-    const exploration = decideExplorationDispatch({
+    const exploration = generationWork ? null : decideExplorationDispatch({
       message,
       siteGate,
       // 覆盖集同时看已安装 adapter 与探索固化出的 toolkit：两者任一接管该站点都不再重探，
@@ -3784,7 +3814,7 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
     })
     // With WebCLI routing enabled, every direct miss must reach the Agent with
     // its recommendation. The Agent can still request website exploration.
-    if (settings.webcli_route_enabled === false && !dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && exploration.dispatch && exploration.startUrl) {
+    if (settings.webcli_route_enabled === false && !dedicatedAgent && desktopPermission.channelPermissionMode !== 'ask' && exploration?.dispatch && exploration.startUrl) {
       const health = await checkWebwrightHealth()
       if (!health.ok) {
         chatLog.info(`${tag} tier4: unavailable reason=health(${health.reason || 'down'})`)
@@ -3805,12 +3835,12 @@ async function handleChatRequest(req: express.Request<{ id: string }>, res: expr
           chatLog.info(`${tag} tier4: unavailable reason=create-${opened.code}${opened.message ? ` (${opened.message})` : ''}`)
         }
       }
-    } else if (siteGate.reason === 'miss') {
+    } else if (exploration && siteGate.reason === 'miss') {
       // miss 时 siteGate 无日志行，这里补观测：为什么没走第4层。
       chatLog.info(`${tag} tier4: skip reason=${settings.webcli_route_enabled !== false ? 'webcli_route_to_agent' : exploration.reason}`)
     }
     for await (const ev of tier4Source ?? streamChat(modelMessages, settings, abortController, {
-      directRoute,
+      ...(generationWork ? {} : { directRoute }),
       enabledAdapterIds,
       workId,
       styleId,

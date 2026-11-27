@@ -147,6 +147,30 @@ describe('exploration reads the model settings exploration interface', () => {
     expect(saved).toEqual(before)
   })
 
+  it('uses the shared chat catalog before a model is selected and ignores obsolete Workshop catalog fields', async () => {
+    const saved = settings()
+    const configuration = saved.model_configurations!['configured-custom']
+    Object.assign(configuration, { model: '', weworker_protocol: 'openai_chat_completions',
+      base_url: 'https://example.com/infer', base_url_is_full: true,
+      models_url: 'https://example.com/catalog', models_url_is_full: true })
+    const before = structuredClone(saved)
+    const requests: Array<{ url: string; key: string | null }> = []
+    const handlers = new Map<string, Function>()
+    registerExplorationModelRoutes({ get() {}, post: (route: string, handler: Function) => handlers.set(route, handler) } as unknown as Express,
+      { getSettings: () => saved, updateSettings: () => { throw new Error('must not write settings') },
+        fetchImpl: async (url, options) => {
+          requests.push({ url: String(url), key: new Headers(options?.headers).get('authorization') })
+          return Response.json({ data: [{ id: 'fixture-shared-model' }] })
+        } })
+    let data: unknown, status = 200
+    const response = { json(value: unknown) { data = value; return this }, status(value: number) { status = value; return this } }
+    await handlers.get('/settings/exploration-model/models')!({ body: { provider: '__exploration__:configured-custom' } }, response)
+    expect(status).toBe(200)
+    expect(data).toMatchObject({ models: ['fixture-shared-model'], source: 'remote' })
+    expect(requests).toEqual([{ url: 'https://example.com/catalog', key: 'Bearer placeholder-chat-key' }])
+    expect(saved).toEqual(before)
+  })
+
   it('probes and lists models with the settings exploration credentials and its explicit catalog URL', async () => {
     const saved = settings(), before = structuredClone(saved), requests: Array<{ url: string; key: string | null }> = []
     const fetchImpl: typeof fetch = async (url, options) => {

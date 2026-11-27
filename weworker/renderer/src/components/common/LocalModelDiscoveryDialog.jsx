@@ -126,7 +126,7 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported, dismiss
         <header className="local-model-discovery__header">
           <div className="local-model-discovery__heading">
             <h2 id={titleId}>识别本地模型</h2>
-            <p>选择需要导入的配置，已有配置不会被覆盖。</p>
+            <p>通过校验的预设配置会自动导入，其余结果可按需手动导入。</p>
           </div>
           <button type="button" className="local-model-discovery__icon" aria-label="重新识别" title="重新识别"
             disabled={scanning || Boolean(importing)} onClick={() => { void scan() }}><RefreshCw size={17} /></button>
@@ -152,7 +152,7 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported, dismiss
                       </div>
                       <span className="local-model-discovery__endpoint" title={candidate.base_url}>{candidate.base_url}</span>
                       {candidate.weworker_protocol === 'anthropic_messages' && candidate.openai_base_url && (
-                        <div aria-label="已验证的 OpenAI 接口">
+                        <div aria-label={candidate.preset_workshop ? '预设 OpenAI 接口' : '已验证的 OpenAI 接口'}>
                           <div className="local-model-discovery__model">
                             <span>Adapter 工坊</span>
                             <span className="local-model-discovery__protocol">OpenAI Chat Completions</span>
@@ -181,6 +181,10 @@ export default function LocalModelDiscoveryDialog({ onClose, onImported, dismiss
                       {busy ? '导入中' : imported ? '已导入' : '导入'}
                     </button>
                   </div>
+                  {validation.ok && candidate.workshop_unavailable && <div className="local-model-discovery__invalid">
+                    <TriangleAlert size={14} aria-hidden="true" />
+                    <div><strong>探索接口未通过验证</strong><span>对话配置仍可手动导入。</span></div>
+                  </div>}
                   {!validation.ok && <div className="local-model-discovery__invalid">
                     <TriangleAlert size={14} aria-hidden="true" />
                     <div><strong>校验未通过</strong><span>{validation.detail || '未知原因'}，仍可手动导入。</span></div>

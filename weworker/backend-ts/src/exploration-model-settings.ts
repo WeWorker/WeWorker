@@ -3,7 +3,7 @@ import type { Express } from 'express'
 import type { Settings } from './config.js'
 import type { ProviderEntry } from './llm-egress.js'
 import { probeProviderProtocol, listProviderModels, type ProtocolProbeResult } from './provider-model-services.js'
-import { defaultWebwrightModelSelection, modelSettingsExplorationEntry, resolveWebwrightModelConfig } from './webwright-model-config.js'
+import { builtinExplorationAccess, defaultWebwrightModelSelection, modelSettingsExplorationEntry, resolveWebwrightModelConfig } from './webwright-model-config.js'
 import { resolveConversationModelSettings, parseConversationModel, type ConversationModel } from './conversation-models.js'
 import { getProvider, PROVIDERS } from './provider-registry.js'
 import { buildModelConfigurationNames, getModelConfiguration } from './model-configurations.js'
@@ -53,7 +53,8 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
     let formMain: Settings | undefined
     try { formMain = resolveConversationModelSettings(settings, { provider: selectedExplorationProvider,
       model: saved?.model || formProvider?.defaultModel || selection.model }) } catch { /* Incomplete configuration. */ }
-    const candidateUrl = saved?.base_url || (formProvider?.builtin ? formProvider.webwright.baseUrl : '')
+    const builtin = formProvider?.builtin ? builtinExplorationAccess(formProvider) : undefined
+    const candidateUrl = saved?.base_url || builtin?.openaiBaseUrl || ''
     const scoped = configurationId ? { ...settings, exploration_model_selection: {
       provider: configurationId, model: saved?.model || formProvider?.defaultModel || '', thinking_effort: 'off' as const,
       ...(settings.model_selection_revision ? { selection_revision: settings.model_selection_revision } : {}),
@@ -79,7 +80,7 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
       configured_base_url: candidateUrl,
       has_independent_key: false,
       main_model: formMain?.model || settings.model,
-      use_main_key: !configuration?.openai_api_key && !(selectedExplorationProvider === 'custom' && settings.openai_api_key_custom),
+      use_main_key: saved?.use_main_key ?? true,
       has_key: Boolean(effective?.api_key),
       status: verified === fingerprint(scoped) ? 'connected' : 'pending',
       active_provider: selectedExplorationProvider,
@@ -99,11 +100,7 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
           return provider && !PROVIDERS.some(p => p.id === id) ? [{ id, provider }] : []
         })].map(({ id, provider }) => {
         const saved = modelSettingsExplorationEntry(settings, id)
-        let builtinAvailable = false
-        if (provider.builtin) {
-          try { builtinAvailable = Boolean(resolveConversationModelSettings(settings, { provider: provider.id, model: provider.defaultModel }).api_key) }
-          catch { builtinAvailable = false }
-        }
+        const builtin = provider.builtin ? builtinExplorationAccess(provider) : undefined
         return {
           id, name: names[id] || provider.name, selection_provider: provider.builtin ? id : `__exploration__:${id}`,
           models: [...new Set([saved?.model, ...(getModelConfiguration(settings, id)?.custom_models || []), ...provider.models].filter(Boolean))],
@@ -113,12 +110,12 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
           fixed_provider: id === provider.id && provider.fixed === true,
           builtin: provider.builtin === true,
           saved_exploration: Boolean(saved),
-          base_url: provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
+          base_url: provider.builtin ? builtin?.openaiBaseUrl || '' : provider.id === 'custom' ? saved?.base_url || '' : provider.webwright.baseUrl,
           protocol: provider.id === 'custom' ? saved?.protocol || 'openai_chat_completions' : provider.webwright.protocol,
           base_url_is_full: saved?.base_url_is_full === true,
-          auth_type: saved?.auth_type || 'api_key', has_key: Boolean(builtinAvailable || saved?.api_key),
-          configured: Boolean(names[id] && (builtinAvailable || (saved?.api_key && saved.model
-            && saved.base_url))),
+          auth_type: provider.builtin ? 'auth_token' : saved?.auth_type || 'api_key',
+          has_key: Boolean(builtin || saved?.api_key),
+          configured: Boolean(names[id] && (builtin?.model || (saved?.api_key && saved.model && saved.base_url))),
         }
       }),
     }
@@ -129,7 +126,8 @@ export function createExplorationModelService(fetchImpl: typeof fetch = fetch) {
     if (!force && verified === id) return { ok: true, target: 'webwright', protocol: config.protocol, model: config.model }
     if (pending.has(id)) return pending.get(id)!
     const provider: ProviderEntry = {
-      id: 'custom', name: 'Adapter工坊·探索模型', models: [], defaultModel: '',
+      id: config.provider_id === 'builtin_dev' ? config.provider_id : 'custom',
+      name: 'Adapter工坊·探索模型', models: [], defaultModel: '',
       weworker: { protocol: 'anthropic_messages', baseUrl: '' },
       webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output },
     }
@@ -218,14 +216,15 @@ export function registerExplorationModelRoutes(app: Express, deps: {
       if (!saved?.api_key) throw new Error('请先在模型配置中保存 Adapter 工坊的 API Key')
       // Catalog discovery needs endpoint credentials before the user has a
       // model. This temporary resolver value is never saved or sent to a model.
-      const candidate = { ...settings, exploration_model_selection: { provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model || 'model-catalog', ...(settings.model_selection_revision ? { selection_revision: settings.model_selection_revision } : {}) } }
-      const config = resolveWebwrightModelConfig(candidate)
+      const config = resolveWebwrightModelConfig(settings, {
+        provider: `__exploration__:${id}`, model: req.body?.model || saved.model || configuration?.model || settings.model || 'model-catalog',
+      })
       const entry: ProviderEntry = { ...provider, id: 'custom', weworker: { protocol: config.protocol, baseUrl: config.base_url },
         webwright: { protocol: config.protocol, baseUrl: config.base_url, modelClass: config.model_class, structuredOutput: config.structured_output } }
       const catalog = await listProviderModels({ provider: entry, apiKey: config.api_key, openaiApiKey: config.api_key,
         target: 'webwright', openaiBaseUrl: config.base_url, openaiFullUrl: config.base_url_is_full,
-        openaiModelsUrl: configuration?.openai_models_url || (id === 'custom' ? settings.openai_models_url_custom : undefined),
-        openaiModelsUrlIsFull: configuration ? configuration.openai_models_url_is_full : settings.openai_models_url_is_full_custom,
+        openaiModelsUrl: saved.models_url,
+        openaiModelsUrlIsFull: saved.models_url_is_full,
       }, deps.fetchImpl)
       const redact = (value: string) => value.split(config.api_key).join('[REDACTED]')
       res.json({ ...catalog, models: catalog.models.map(redact), ...(catalog.warning ? { warning: redact(catalog.warning) } : {}) })

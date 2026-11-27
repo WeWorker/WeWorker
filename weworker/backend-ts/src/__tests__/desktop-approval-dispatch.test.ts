@@ -26,11 +26,11 @@ describe.each([
   // The legacy profile-query branch is retired; retired-profile-route.test.ts
   // asserts it is no longer wired into server.ts.
   ['deterministic query', 'message?.trim()'],
-  ['website exploration', 'exploration.dispatch'],
+  ['website exploration', 'exploration?.dispatch'],
 ])('desktop %s dispatch', (_name, condition) => {
   it.each((['ask', 'workspace', 'full'] as const).flatMap(mode =>
-    [false, true].map(webcliRouteEnabled => ({ mode, webcliRouteEnabled })),
-  ))('respects $mode confirmation mode with WebCLI routing=$webcliRouteEnabled', async ({ mode, webcliRouteEnabled }) => {
+    [false, true].flatMap(webcliRouteEnabled => [false, true].map(generation => ({ mode, webcliRouteEnabled, generation }))),
+  ))('respects $mode with WebCLI routing=$webcliRouteEnabled, generation=$generation', async ({ mode, webcliRouteEnabled, generation }) => {
     const dispatch = vi.fn(async () => true)
     const context = vm.createContext({
       desktopPermission: resolveDesktopChatPermission(mode), dedicatedAgent: null,
@@ -43,7 +43,8 @@ describe.each([
       finished: false, res: { off: vi.fn(), end: vi.fn() }, onClose: vi.fn(), broadcastSSE: vi.fn(),
       retryCompaction: false, workWithMessages: { messages: [] }, savedUserMessage: undefined,
       tryRoutedTurn: async () => ({ handled: await dispatch() }),
-      exploration: { dispatch: true, startUrl: 'https://example.com', query: 'Public query', reason: 'explicit' },
+      generationWork: generation ? { workId: 'fixture-work' } : undefined,
+      exploration: generation ? null : { dispatch: true, startUrl: 'https://example.com', query: 'Public query', reason: 'explicit' },
       siteGate: { reason: 'covered' }, abortController: new AbortController(),
       checkWebwrightHealth: async () => ({ ok: true }), tier4Task: null, tier4Source: null,
       openTier4Turn: async () => ({ ok: await dispatch(), taskId: 'fixture-task', run: null }),
@@ -53,7 +54,7 @@ describe.each([
     await vm.runInContext(dispatchBranch(condition), context)
     // Ask must fall through to the model's per-tool approval path. Automatic
     // query/exploration dispatch has no operation confirmation callback.
-    const skip = mode === 'ask' || (condition === 'exploration.dispatch' && webcliRouteEnabled)
+    const skip = generation || mode === 'ask' || (condition === 'exploration?.dispatch' && webcliRouteEnabled)
     expect(dispatch).toHaveBeenCalledTimes(skip ? 0 : 1)
   })
 })

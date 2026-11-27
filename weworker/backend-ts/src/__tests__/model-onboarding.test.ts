@@ -182,10 +182,10 @@ describe('exploration connection preparation', () => {
   it('passes through a complete OpenAI endpoint and rechecks after changing its URL mode', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => chatResponse())
     const service = createExplorationModelService(fetchMock)
-    const full = settings({ openai_base_url_custom: 'https://example.com/inference', openai_base_url_is_full_custom: true })
+    const full = settings({ base_url_custom: 'https://example.com/inference', base_url_is_full_custom: true })
     await service.check(full)
     expect(service.status(full)).toMatchObject({ status: 'connected', base_url_is_full: true })
-    const base = { ...full, openai_base_url_is_full_custom: false }
+    const base = { ...full, base_url_is_full_custom: false }
     expect(service.status(base).status).toBe('pending')
     await service.check(base)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
@@ -344,7 +344,8 @@ describe('model settings exploration API', () => {
   it('lists models using exploration credentials and masks reflected keys', async () => {
     const upstream = vi.fn(async () => new Response('invalid fixture-explore-key', { status: 401 }))
     await withRoutes(upstream, async (url, _get, set) => {
-      set({ openai_api_key_custom: 'fixture-explore-key', openai_model_custom: 'explore-model', openai_base_url_custom: 'https://example.org/v1' })
+      set({ weworker_protocol_custom: 'anthropic_messages', openai_api_key_custom: 'fixture-explore-key',
+        openai_model_custom: 'explore-model', openai_base_url_custom: 'https://example.org/v1' })
       const data = await (await post(url + '/models', { provider: 'custom' })).json()
       expect(data.source).toBe('fallback')
       expect(JSON.stringify(data)).not.toContain('fixture-explore-key')

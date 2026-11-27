@@ -62,7 +62,7 @@ test('build profile accepts providers without a built-in model but keeps non-emp
 
 
 test('fixed coding provider survives profile compilation without deployment data', () => {
-  const template = profile.providers.find(p => p.id === 'anthropic');
+  const template = profile.providers.find(p => p.id === 'glm');
   const provider = { ...template, id: 'bank_coding', name: 'Fixture coding provider', allowMultiple: false,
     weworker: { ...template.weworker, baseUrl: 'https://example.com' },
     webwright: { ...template.webwright, baseUrl: 'https://example.org' } };

@@ -482,6 +482,8 @@ export interface OpenAiChatRelayOptions {
   idleTimeoutMs?: number
   /** Total timeout for non-streaming upstream requests. */
   nonStreamTimeoutMs?: number
+  /** Use the Workshop's pinned model for SDK helper calls as well as the chat turn. */
+  model?: string
 }
 
 export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetchImpl: typeof fetch = fetch, protocol: LlmProtocol = 'openai_chat_completions', options: OpenAiChatRelayOptions = {}) {
@@ -522,10 +524,11 @@ export async function openOpenAiChatRelay(baseUrl: string, fullUrl = false, fetc
       }
       armIdleTimer()
       try {
+        const selectedBody = options.model ? { ...body, model: options.model } : body
         const upstream = await fetchImpl(endpoint, {
           method: 'POST',
           headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-          body: JSON.stringify(responsesProtocol ? anthropicRequestToOpenAiResponses(body) : anthropicRequestToOpenAi(body)),
+          body: JSON.stringify(responsesProtocol ? anthropicRequestToOpenAiResponses(selectedBody) : anthropicRequestToOpenAi(selectedBody)),
           signal: controller.signal,
           redirect: 'error',
         })

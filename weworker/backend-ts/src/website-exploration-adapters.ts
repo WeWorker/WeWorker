@@ -55,18 +55,20 @@ export function createWebsiteExplorationAdapterRouter({
   fetchAgent?: typeof fetch
   readExploration?: typeof callExploration
   onListDevelopmentChats?: () => unknown | Promise<unknown>
-  onDevelopmentHandoff?: (input: unknown) => unknown | Promise<unknown>
+  onDevelopmentHandoff?: (input: unknown, sourceSelection: unknown) => unknown | Promise<unknown>
   onInstalled?: (event: { name: string; revision: number; profile: string }) => void | Promise<void>
 } = {}) {
   const router = Router()
-  const agent = async (path: string, body?: object) => {
+  const agent = async (path: string, body?: object, bindInstance = false) => {
     if (!instanceId) throw new Error('网站探索服务尚未就绪')
     const healthResponse = await fetchAgent(AGENT + '/api/health', { signal: AbortSignal.timeout(3000), redirect: 'error' })
     const health = healthResponse.ok ? await healthResponse.json() : null
     if (!health?.ok || health.instance_id !== instanceId) throw new Error('网站探索服务实例不匹配')
     const response = await fetchAgent(AGENT + path, {
       method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
-      ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json', 'X-WeWorker-Exploration-Instance': instanceId }, body: JSON.stringify(body) }),
+      ...(body === undefined
+        ? bindInstance ? { headers: { 'X-WeWorker-Exploration-Instance': instanceId } } : {}
+        : { headers: { 'Content-Type': 'application/json', 'X-WeWorker-Exploration-Instance': instanceId }, body: JSON.stringify(body) }),
     })
     const result = await response.json()
     if (!response.ok) throw Object.assign(new Error(result?.error?.message || result?.detail || '网站探索操作失败'), { status: response.status })
@@ -94,7 +96,17 @@ export function createWebsiteExplorationAdapterRouter({
     if (expectedRunId !== undefined && expectedRunId !== (input.source_exploration.run_id ?? null)) {
       throw new Error('探索轮次已变化，请刷新后重试')
     }
-    return onDevelopmentHandoff(input)
+    // Load the selection from the managed exploration service, outside input.json.
+    let model: unknown
+    try {
+      model = await agent(`/api/explorations/${req.params.id}/model`, undefined, true)
+    } catch {
+      throw new Error('无法读取源探索的 Adapter 工坊模型，请重试')
+    }
+    if (!model || typeof model !== 'object' || !Object.hasOwn(model, 'model_selection')) {
+      throw new Error('无法读取源探索的 Adapter 工坊模型，请重试')
+    }
+    return onDevelopmentHandoff(input, (model as { model_selection: unknown }).model_selection)
   }))
 
   const deleting = new Set<string>()

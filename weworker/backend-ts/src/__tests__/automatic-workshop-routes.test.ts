@@ -3,7 +3,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import type { Settings } from '../config.js'
-import { automaticWorkshopUpdate } from '../adapter-workshop-config.js'
+import { automaticWorkshopUpdate, workshopSettingsEdited } from '../adapter-workshop-config.js'
 import { getModelConfiguration, updateModelConfiguration, publicModelConfigurations,
   renameModelConfiguration } from '../model-configurations.js'
 import { getProvider } from '../provider-registry.js'
@@ -33,6 +33,7 @@ function fixture(fetchImpl: typeof fetch) {
     buildSettingsResponse: (s: Settings) => ({ providers: publicModelConfigurations(s) }),
     getModelConfiguration, updateModelConfiguration, renameModelConfiguration,
     automaticWorkshopUpdate: (current: any, next: any, input: any) => automaticWorkshopUpdate(current, next, input, fetchImpl),
+    workshopSettingsEdited,
     ALLOWED_PROVIDER_IDS: new Set(['custom']), getProvider, configuredModel, explorationResetPatch,
     isBuiltinProvider, isLlmProtocol, normalizeLlmUrlInput, isAnthropicAuthType, parseModelContextLimit, MODEL_CONTEXT_LIMIT_ERROR, modelCatalogConfigPatch,
   })
@@ -49,7 +50,7 @@ function fixture(fetchImpl: typeof fetch) {
 
 describe('saving main model automatically configures Adapter workshop', () => {
   it('persists verified Anthropic sibling with saved credentials and preserves active chat protocol', async () => {
-    const f = fixture(async () => Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
+    const f = fixture(async url => String(url).includes('?limit=1') ? Response.json({ data: [{ id: 'fixture-model' }] }) : Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
     const response = await f.save({ base_url: 'https://example.com/gateway', model: 'fixture-model', api_key: '',
       openai_base_url: '', openai_model: 'fixture-model' })
     expect(f.state().model_configurations!.fixture).toMatchObject({
@@ -73,13 +74,14 @@ describe('saving main model automatically configures Adapter workshop', () => {
   it('configures OpenAI chat directly and preserves main protocol', async () => {
     const f = fixture(async () => { throw new Error('no probe needed') })
     await f.save({ base_url: 'https://example.org/v1', weworker_protocol: 'openai_chat_completions' })
-    expect(f.state().model_configurations!.fixture).toMatchObject({ weworker_protocol: 'openai_chat_completions',
-      openai_base_url: 'https://example.org/v1', openai_api_key: 'fixture-key', openai_model: 'fixture-model' })
+    expect(f.state().model_configurations!.fixture.openai_base_url).toBe('')
+    expect(resolveWebwrightModelConfig(f.state())).toMatchObject({ protocol: 'openai_chat_completions',
+      base_url: 'https://example.org/v1', api_key: 'fixture-key', model: 'fixture-model' })
     expect(f.state().active_weworker_protocol).toBe('openai_chat_completions')
   })
 
   it('also handles the legacy custom configuration path', async () => {
-    const f = fixture(async () => Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
+    const f = fixture(async url => String(url).includes('?limit=1') ? Response.json({ data: [{ id: 'fixture-model' }] }) : Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
     f.state().active_model_configuration = ''
     await f.save({ api_key: 'fixture-legacy-key', model: 'fixture-model',
       base_url: 'https://example.org/anthropic', weworker_protocol: 'anthropic_messages' }, 'custom')

@@ -3,20 +3,44 @@ import type { Settings } from '../config.js'
 import { BUILTIN_DEV_PROVIDER, BUILTIN_PROVIDER, activateBuiltinProvider, builtinProviderAccess, getBuiltinApiKey, publicBuiltinProviders, resolveBuiltinSettings } from '../builtin-provider.js'
 import { getProvider, PROVIDERS } from '../provider-registry.js'
 import { buildAnthropicAuthHeaders } from '../anthropic-auth.js'
-import { probeMainConnection, probeProviderProtocol } from '../provider-model-services.js'
+import { listProviderModels, probeMainConnection, probeProviderProtocol } from '../provider-model-services.js'
 import { resolveWebwrightModelConfig } from '../webwright-model-config.js'
+import { createExplorationModelService } from '../exploration-model-settings.js'
+import { resolveConversationModelSettings } from '../conversation-models.js'
 
-// Optional managed-provider support uses a public fixture, not deployment JSON.
+const { fixtureEncryptionKey } = vi.hoisted(() => ({ fixtureEncryptionKey: Buffer.alloc(32, 0x5a) }))
+vi.mock('node:crypto', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:crypto')>()
+  return { ...actual,
+    createDecipheriv: (algorithm: 'aes-256-gcm', _key: Buffer, iv: Buffer) => actual.createDecipheriv(algorithm, fixtureEncryptionKey, iv) }
+})
+
+// Both managed providers use synthetic addresses and credentials.
 vi.mock('../provider-config.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../provider-config.js')>()
-  const builtin = actual.configuredProvider('builtin')!
-  const providers = [...actual.CONFIGURED_PROVIDERS.filter(p => p.id !== 'builtin_dev'), { ...builtin, id: 'builtin_dev', name: 'Fixture managed provider',
-    apiKeyEnv: 'WEWORKER_BUILTIN_DEV_API_KEY', baseUrlEnv: 'WEWORKER_BUILTIN_DEV_BASE_URL',
+  const { createCipheriv, randomBytes } = await import('node:crypto')
+  const encrypt = (value: string) => {
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', fixtureEncryptionKey, iv)
+    const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
+    return [iv, cipher.getAuthTag(), ciphertext].map(part => part.toString('base64url')).join('.')
+  }
+  const template = actual.configuredProvider('builtin')!
+  const builtin = { ...template,
+    weworker: { ...template.weworker, baseUrl: 'https://example.com/office' },
+    webwright: { ...template.webwright, baseUrl: 'https://example.com/office/v1' } }
+  const managed = { ...builtin, id: 'builtin_dev', name: 'Fixture managed provider',
+    apiKeyEnv: 'WEWORKER_BUILTIN_DEV_API_KEY', baseUrlEnv: 'WEWORKER_BUILTIN_DEV_BASE_URL', authType: 'api_key' as const,
+    models: ['fixture-dev-model'], defaultModel: 'fixture-dev-model',
     weworker: { ...builtin.weworker, baseUrl: 'https://example.com/managed' },
-    webwright: { ...builtin.webwright, baseUrl: 'https://example.org/managed' } }]
+    webwright: { protocol: 'openai_chat_completions' as const, modelClass: 'openai_chat' as const,
+      baseUrl: 'https://example.com/managed/v1', structuredOutput: 'openai_json_object' as const,
+      baseUrlEnv: 'WEWORKER_BUILTIN_DEV_OPENAI_BASE_URL' } }
+  const providers = [...actual.CONFIGURED_PROVIDERS.filter(p => !['builtin', 'builtin_dev'].includes(p.id)), builtin, managed]
+  const credentials = new Map([['builtin', encrypt('fixture-embedded-builtin-key')], ['builtin_dev', encrypt('fixture-embedded-dev-key')]])
   return { ...actual, CONFIGURED_PROVIDERS: providers,
     configuredProvider: (id: string | undefined) => providers.find(p => p.id === id),
-    configuredEncryptedApiKey: (id: string) => actual.configuredEncryptedApiKey(id === 'builtin_dev' ? 'builtin' : id) }
+    configuredEncryptedApiKey: (id: string) => credentials.get(id) || '' }
 })
 
 const env = {
@@ -61,7 +85,10 @@ describe('managed built-in models', () => {
     const ready = publicBuiltinProviders(providers, env)
     expect(ready.builtin.has_key).toBe(true)
     expect(ready.builtin_dev.has_key).toBe(true)
-    expect(JSON.stringify(ready)).not.toContain('fixture-')
+    for (const credential of [env.WEWORKER_BUILTIN_API_KEY, env.WEWORKER_BUILTIN_DEV_API_KEY,
+      'fixture-embedded-builtin-key', 'fixture-embedded-dev-key']) {
+      expect(JSON.stringify(ready)).not.toContain(credential)
+    }
     expect(publicBuiltinProviders([], env)).toEqual({})
   })
 
@@ -134,6 +161,97 @@ describe('managed built-in models', () => {
     const failure = await probeMainConnection(input, fetchMock)
     expect(failure.ok).toBe(false)
     expect(failure.detail).not.toContain('fixture-builtin-key')
+  })
+
+  const devSelection = { provider: 'builtin_dev', model: 'fixture-dev-model' }
+  const devSettings = {
+    active_provider: devSelection.provider, model: devSelection.model, api_key: 'fixture-stale-key',
+    base_url: 'https://example.org/stale', builtin_context_limits: { builtin_dev: 256000 },
+    compaction_ratio: 65, compaction_max_attempts: 5,
+  } as unknown as Settings
+  function stubDevDeployment(deployment: NodeJS.ProcessEnv) {
+    for (const name of ['WEWORKER_BUILTIN_DEV_BASE_URL', 'WEWORKER_BUILTIN_DEV_OPENAI_BASE_URL', 'WEWORKER_BUILTIN_DEV_API_KEY']) {
+      vi.stubEnv(name, deployment[name])
+    }
+  }
+
+  it.each([
+    { label: 'bundled routes', deployment: {}, mainBase: 'https://example.com/managed',
+      workshopBase: 'https://example.com/managed/v1', key: 'fixture-embedded-dev-key' },
+    { label: 'bundled address after normalization', deployment: { WEWORKER_BUILTIN_DEV_BASE_URL: ' https://example.com/managed/ ' },
+      mainBase: 'https://example.com/managed', workshopBase: 'https://example.com/managed/v1', key: 'fixture-embedded-dev-key' },
+    { label: 'separate deployment routes', deployment: { ...env, WEWORKER_BUILTIN_DEV_OPENAI_BASE_URL: ' https://example.net/openai/api/ ' },
+      mainBase: 'https://example.org/runtime', workshopBase: 'https://example.net/openai/api', key: 'fixture-dev-key' },
+  ])('resolves the managed provider consistently across chat, Workshop and status with $label', async ({ deployment, mainBase, workshopBase, key }) => {
+    stubDevDeployment(deployment)
+    expect(resolveConversationModelSettings(devSettings, devSelection)).toMatchObject({
+      active_weworker_protocol: 'anthropic_messages', base_url: mainBase, api_key: key,
+    })
+    expect(resolveWebwrightModelConfig(devSettings)).toMatchObject({
+      provider_id: 'builtin_dev', protocol: 'openai_chat_completions', model_class: 'openai_chat',
+      base_url: workshopBase, base_url_is_full: false, api_key: key, model: devSelection.model,
+      context_limit: 256000, compaction_ratio: 65, compaction_max_attempts: 5,
+    })
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({ choices: [{ message: { content: '{"ok":true}' } }] }))
+    const service = createExplorationModelService(fetchMock)
+    expect(await service.check(devSettings, true)).toMatchObject({ ok: true, protocol: 'openai_chat_completions' })
+    const status = service.status(devSettings, 'builtin_dev')
+    expect(status).toMatchObject({ status: 'connected', base_url: workshopBase,
+      candidate_url: workshopBase, configured_base_url: workshopBase, has_key: true })
+    expect(status.providers.find(provider => provider.id === 'builtin_dev')).toMatchObject({
+      base_url: workshopBase, configured: true, has_key: true, auth_type: 'auth_token',
+    })
+    expect(JSON.stringify(status)).not.toContain(key)
+    const [[endpoint, request]] = fetchMock.mock.calls
+    expect(endpoint).toBe(`${workshopBase}/chat/completions`)
+    expect(new Headers(request?.headers).get('authorization')).toBe(`Bearer ${key}`)
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: devSelection.model, response_format: { type: 'json_object' } })
+  })
+
+  it.each([
+    { label: 'missing Workshop override for a changed chat gateway', deployment: env, key: 'fixture-dev-key' },
+    { label: 'full request endpoint in a Workshop override', deployment: { ...env, WEWORKER_BUILTIN_DEV_OPENAI_BASE_URL: 'https://example.net/v1/chat/completions' }, key: 'fixture-dev-key' },
+    { label: 'separate Workshop route with an embedded key', deployment: { WEWORKER_BUILTIN_DEV_OPENAI_BASE_URL: 'https://example.net/v1' }, key: 'fixture-embedded-dev-key' },
+  ])('keeps chat available and disables Workshop with $label', async ({ deployment, key }) => {
+    stubDevDeployment(deployment)
+    const input = builtinProviderAccess(BUILTIN_DEV_PROVIDER)
+    expect(input.apiKey).toBe(key)
+    expect(input.openaiBaseUrl).toBe('')
+    expect(() => resolveWebwrightModelConfig(devSettings)).toThrow(/OpenAI/)
+    const fetchMock = vi.fn<typeof fetch>()
+    const service = createExplorationModelService(fetchMock)
+    await expect(service.check(devSettings)).rejects.toThrow(/OpenAI/)
+    expect(await probeProviderProtocol({ ...input, target: 'webwright' }, fetchMock)).toMatchObject({ ok: false, error: 'not_configured' })
+    expect(await listProviderModels({ ...input, target: 'webwright' }, fetchMock)).toEqual({ models: [devSelection.model], source: 'fallback' })
+    expect(fetchMock).not.toHaveBeenCalled()
+    const status = service.status(devSettings)
+    expect(status).toMatchObject({ status: 'pending', base_url: '', candidate_url: '', has_key: false })
+    expect(status.providers.find(provider => provider.id === 'builtin_dev')).toMatchObject({ base_url: '', configured: false, has_key: false })
+  })
+
+  it('refuses to reuse an embedded key or caller-supplied gateway for a different chat deployment', () => {
+    const deployment = { WEWORKER_BUILTIN_DEV_BASE_URL: env.WEWORKER_BUILTIN_DEV_BASE_URL }
+    const supplied = { ...BUILTIN_DEV_PROVIDER,
+      weworker: { ...BUILTIN_DEV_PROVIDER.weworker, baseUrl: 'https://example.org/runtime' } }
+    expect(getBuiltinApiKey('builtin_dev', deployment)).toBe('')
+    expect(publicBuiltinProviders([BUILTIN_DEV_PROVIDER], deployment).builtin_dev.has_key).toBe(false)
+    expect(() => builtinProviderAccess(supplied, deployment)).toThrow(/尚未配置/)
+    expect(builtinProviderAccess(supplied, {}).anthropicBaseUrl).toBe('https://example.com/managed')
+    expect(resolveBuiltinSettings(devSettings, PROVIDERS, deployment)).toMatchObject({ api_key: '', base_url: '', model: '' })
+  })
+
+  it('omits reflected deployment addresses and credentials from Workshop probe errors', async () => {
+    stubDevDeployment({ ...env, WEWORKER_BUILTIN_DEV_OPENAI_BASE_URL: 'https://example.net/v1' })
+    const input = builtinProviderAccess(BUILTIN_DEV_PROVIDER)
+    const reflected = `${input.openaiBaseUrl} ${input.apiKey}`
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(reflected, { status: 404 }))
+      .mockRejectedValueOnce(new Error(reflected))
+    expect(await probeProviderProtocol({ ...input, target: 'webwright' }, fetchMock))
+      .toMatchObject({ ok: false, error: 'endpoint_missing', detail: 'HTTP 404' })
+    expect(await createExplorationModelService(fetchMock).check(devSettings))
+      .toMatchObject({ ok: false, error: 'network_error', detail: '连接失败' })
   })
 
   it('does not reinsert built-ins excluded by a build profile', async () => {

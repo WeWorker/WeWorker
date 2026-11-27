@@ -437,7 +437,7 @@ function ExplorationDetail({ id, title, developmentReady, disabled, globalBusy, 
     </>
   return <section className="wx-detail wx-chat-detail">
     {renderHeader(title || data.title || '网站探索', development ? <span className="wx-status">网站适配器生成</span> : <ExplorationStatus value={data.status} />)}
-    {development ? <ChatView key={development.work.id} workId={development.work.id} embedded hidePermissionMode {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
+    {development ? <ChatView key={development.work.id} workId={development.work.id} embedded workshopOwned hidePermissionMode {...explorationDevelopmentPermissionSettings(development.work.id)} historyPrefix={<div className="wx-development-context">{explorationMessages}</div>} /> : <>
     <ScrollArea name={id} revision={JSON.stringify([data.status, data.timeline, data.live_activity?.phase, data.live_activity?.step, data.live_activity?.reason, transferring, submitted])}><div className="wx-message-content">{explorationMessages}</div></ScrollArea>
     <ExplorationComposer conversationId={id} inputRef={composerInput} onModelReadyChange={setSessionModelReady} value={prompt} onChange={setPrompt} actionMode={actionMode}
       attachments={attachments} onAttachmentsChange={setAttachments} usage={data.context_usage} modelDisabled={globalBusy}

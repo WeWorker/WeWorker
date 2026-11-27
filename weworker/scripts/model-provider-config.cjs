@@ -50,4 +50,8 @@ function publicProviders(providers) {
   return providers.map(({ encryptedApiKey, ...provider }) => provider);
 }
 
-module.exports = { publicProviders, loadBuildProfile, loadBuildDefines, mergeConfiguredProfile };
+function loadEndpointDefaults() {
+  return readJson(path.join(ROOT, "model.json"), "model provider config").endpointDefaults;
+}
+
+module.exports = { loadEndpointDefaults, publicProviders, loadBuildProfile, loadBuildDefines, mergeConfiguredProfile };

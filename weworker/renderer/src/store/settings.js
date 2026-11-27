@@ -1,4 +1,4 @@
-import { BUILD_PROVIDERS, BUILD_DEFAULT_PROVIDER } from '../utils/provider-config.js'
+import { BUILD_PROVIDERS, BUILD_DEFAULT_PROVIDER, DEFAULT_ANTHROPIC_BASE_URL } from '../utils/provider-config.js'
 import { create } from 'zustand'
 import { appBotQrState } from '../utils/app-bot-qr-save.js'
 import {
@@ -532,7 +532,7 @@ export const useSettingsStore = create((set, get) => ({
 
 
 export function detectProvider(baseUrl) {
-  if (!baseUrl || baseUrl === 'https://api.anthropic.com') return 'anthropic'
+  if (!baseUrl || baseUrl === DEFAULT_ANTHROPIC_BASE_URL) return 'anthropic'
   if (baseUrl.includes('bigmodel.cn')) return 'glm'
   if (baseUrl.includes('deepseek.com')) return 'deepseek'
   return 'custom'
