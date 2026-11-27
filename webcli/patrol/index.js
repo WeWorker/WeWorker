@@ -50,7 +50,7 @@ export function parsePatrolArgs(argv) {
       const value = argv[++i]
       // 缺值（或值是下一个 flag——adapterId 永不以 -- 开头）是用法错误，不是"全量巡检"
       if (value === undefined || value.startsWith('--')) options.usageError = '用法: --only 需要一个 adapterId'
-      else options.only = value
+      else options.only = value.split(',').map((item) => item.trim()).filter(Boolean)
     }
     // concurrency = 跨 adapter 并发数；同一 adapter 内命令严格串行（spec §关键约束 4：
     // 同站并发会争抢共享浏览器页面，"打爆站点"）。
@@ -202,12 +202,15 @@ async function main() {
 
   const { loadExtensionAdapters } = await import('../adapter-cli.js')
   const adapters = await loadExtensionAdapters()
-  if (options.only && !adapters.some((adapter) => adapter.id === options.only)) {
-    console.error(`[patrol] 未找到 adapter: ${options.only}（用 --list 查看已装清单）`)
-    process.exitCode = 2
-    return
+  if (options.only?.length) {
+    const missing = options.only.filter((id) => !adapters.some((adapter) => adapter.id === id))
+    if (missing.length) {
+      console.error(`[patrol] 未找到 adapter: ${missing.join(', ')}（用 --list 查看已装清单）`)
+      process.exitCode = 2
+      return
+    }
   }
-  const targetIds = options.only ? [options.only] : adapters.map((adapter) => adapter.id)
+  const targetIds = options.only?.length ? options.only : adapters.map((adapter) => adapter.id)
 
   if (options.list) {
     for (const id of targetIds) {

@@ -8,7 +8,8 @@ import { extractShape } from '../patrol/shape.js'
 
 describe('parsePatrolArgs', () => {
   it('解析常用参数', () => {
-    expect(parsePatrolArgs(['--concurrency', '8', '--only', 'a.com', '--json'])).toMatchObject({ concurrency: 8, only: 'a.com', json: true })
+    expect(parsePatrolArgs(['--concurrency', '8', '--only', 'a.com', '--json'])).toMatchObject({ concurrency: 8, only: ['a.com'], json: true })
+  expect(parsePatrolArgs(['--only', 'a.com,b.com']).only).toEqual(['a.com', 'b.com'])
   })
 
   it('默认并发 4', () => {
