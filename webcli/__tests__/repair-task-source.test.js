@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { adapterIdOfTool, tasksFromErrDetail, tasksFromPatrol, fetchErrDetail, tasksFromPatrolReport } from '../repair/task-source.js'
+import { loadTask, saveTask } from '../repair/task.js'
+import { adapterIdOfTool, tasksFromErrDetail, tasksFromPatrol, tasksFromPatrolReport, isNativePatrolReport, fetchErrDetail } from '../repair/task-source.js'
 
 const ERRDETAIL = {
   rows: [
@@ -174,5 +176,38 @@ describe('tasksFromPatrolReport', () => {
       ],
     })
     expect(tasks.map((t) => t.adapterId).sort()).toEqual(['a.com', 'b.com'])
+  })
+
+  it('产物是 RepairTask 契约形状:id/status/createdAt/updatedAt/runtime 齐备', () => {
+    const tasks = tasksFromPatrolReport(patrolReport(), { now: Date.parse('2026-11-27T00:00:00Z') })
+    expect(tasks).toHaveLength(1)
+    const task = tasks[0]
+    expect(task.id).toBe('rt-2026-11-27-a.com')
+    expect(task.status).toBe('open')
+    expect(task.createdAt).toBe('2026-11-27T00:00:00.000Z')
+    expect(task.updatedAt).toBe(task.createdAt)
+    expect(task.runtime).toBeNull()
+    expect(task.source).toBe('patrol')
+    expect(task.adapterId).toBe('a.com')
+    expect(task.failures.map((f) => f.tool).sort()).toEqual(['a.detail', 'a.search'])
+    expect(task.patrol).toEqual({ runId: 'patrol-123', needsRegenerationTools: ['a.search', 'a.detail'] })
+  })
+
+  it('saveTask 可直接落盘并读回（与 errdetail/契约 patrol 任务同库存同去重守卫）', () => {
+    const [task] = tasksFromPatrolReport(patrolReport(), { now: Date.parse('2026-11-27T00:00:00Z') })
+    const dir = mkdtempSync(join(tmpdir(), 'repair-tasks-'))
+    const file = saveTask(task, dir)
+    expect(existsSync(file)).toBe(true)
+    expect(loadTask(task.id, dir)).toEqual(task)
+  })
+})
+
+describe('isNativePatrolReport（CLI patrol 分流谓词）', () => {
+  it('results/reEvidence 任一存在即原生形状;契约版与空值走 tasksFromPatrol', () => {
+    expect(isNativePatrolReport(patrolReport())).toBe(true)
+    expect(isNativePatrolReport({ reEvidence: [] })).toBe(true)
+    expect(isNativePatrolReport({ adapters: [{ adapterId: 'x', entries: [] }] })).toBe(false)
+    expect(isNativePatrolReport({})).toBe(false)
+    expect(isNativePatrolReport(null)).toBe(false)
   })
 })

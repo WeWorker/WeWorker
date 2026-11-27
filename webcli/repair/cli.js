@@ -8,7 +8,7 @@ export async function runRepairCli(args, { outputFormat } = {}) {
   const fail = (message, code = 1) => { console.error(`[repair] ${message}`); process.exitCode = code; };
   const emit = (value) => console.log(outputFormat === 'json' || rest.includes('--json') ? JSON.stringify(value, null, 2) : value);
   const { listTasks, loadTask, saveTask } = await import("./task.js");
-  const { tasksFromErrDetail, tasksFromPatrol, fetchErrDetail } = await import("./task-source.js");
+  const { tasksFromErrDetail, tasksFromPatrol, tasksFromPatrolReport, isNativePatrolReport, fetchErrDetail } = await import("./task-source.js");
 
   try {
     if (sub === "task" && rest.includes("--from")) {
@@ -18,7 +18,11 @@ export async function runRepairCli(args, { outputFormat } = {}) {
       let tasks;
       if (source === "patrol") {
         if (!reportFile) return fail("--from patrol 需要 --report <巡检报告.json>", 2);
-        tasks = tasksFromPatrol(JSON.parse(readFileSync(reportFile, "utf8")));
+        const report = JSON.parse(readFileSync(reportFile, "utf8"));
+        // 两种报告形状:巡检内核 buildReport 的原生形状（results/reEvidence）走适配层,
+        // 一期契约版（adapters[].entries）走 tasksFromPatrol——产物都是 buildTask 任务,
+        // 下方"同日同 adapter 进行中任务跳过"的存档去重守卫对两者通用。
+        tasks = isNativePatrolReport(report) ? tasksFromPatrolReport(report) : tasksFromPatrol(report);
       } else if (source === "errors") {
         const since = opt("--since", "7d");
         const minCalls = parseInt(opt("--min-calls", "3"), 10);

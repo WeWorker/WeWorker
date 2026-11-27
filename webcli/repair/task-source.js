@@ -82,16 +82,13 @@ export function tasksFromPatrol(report, { minEntries = 1, now = Date.now() } = {
  *   reEvidence，这里按 adapterId+tool 去重，避免失败重复计数）。
  *
  * 单次 content_degraded（未升级）与 uncovered 不生成任务——波动不该惊动修复管线。
- */
-
-/**
+ *
  * @param {object} report patrol buildReport 的输出
- * @param {{ maxLastErrLength?: number }} opts
- * @returns {Array<{adapterId, source: 'patrol', failures, patrol}>} 每个 adapter 一条 RepairTask
+ * @param {{ maxLastErrLength?: number, now?: number }} opts
+ * @returns {Array<object>} 每个 adapter 一条 RepairTask（buildTask 契约:
+ *   id/status/createdAt/updatedAt/runtime + 本源特有的 task.patrol 元数据）
  */
-export function tasksFromPatrolReport(report, opts = {}) {
-  const maxLastErrLength = opts.maxLastErrLength ?? 180
-
+export function tasksFromPatrolReport(report, { maxLastErrLength = 180, now = Date.now() } = {}) {
   // 收集候选，按 adapterId::tool 去重（reEvidence 先入，escalated results 后入，
   // 两者 details 同源，首见者胜）
   const byKey = new Map()
@@ -117,19 +114,28 @@ export function tasksFromPatrolReport(report, opts = {}) {
     groups.get(item.adapterId).push(item)
   }
 
-  return [...groups.entries()].map(([adapterId, items]) => ({
-    adapterId,
-    source: 'patrol',
-    failures: items.map((item) => ({
-      tool: item.tool,
-      count: 1,
-      lastErr: `[patrol:${item.kind}] ${JSON.stringify(item.details).slice(0, maxLastErrLength)}`,
-    })),
-    patrol: {
-      runId: report?.runId ?? null,
+  return [...groups.entries()].map(([adapterId, items]) => {
+    const task = buildTask({
+      source: 'patrol',
+      adapterId,
+      now,
+      failures: items.map((item) => ({
+        tool: item.tool,
+        count: 1,
+        lastErr: `[patrol:${item.kind}] ${JSON.stringify(item.details).slice(0, maxLastErrLength)}`,
+      })),
+    })
+    task.patrol = {
+      runId: String(report?.runId || '').slice(0, 64),
       needsRegenerationTools: (report?.reEvidence ?? [])
         .filter((item) => item.adapterId === adapterId)
         .map((item) => item.tool),
-    },
-  }))
+    }
+    return task
+  })
+}
+
+/** repair CLI 的 patrol 分流:原生形状（results/reEvidence）走适配层,契约版走 tasksFromPatrol。 */
+export function isNativePatrolReport(report) {
+  return Boolean(report?.results || report?.reEvidence)
 }
