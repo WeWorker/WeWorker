@@ -94,6 +94,25 @@ export function mapLoginUncovered(row) {
 }
 
 /**
+ * Host CLI 依赖类失败重定性:cli-* 等命令依赖内部发行版 provider(公开版构建
+ * 恒抛 HOST_CLI_UNAVAILABLE),在无该 provider 的环境必然失败——重定性为
+ * uncovered「需内部发行版」,不算 adapter 故障(与 login_required 同类)。
+ */
+export function mapHostCliLimited(row) {
+  if (row.verdict !== 'failed' || row.kind !== 'error') return row
+  const text = `${(row.details || {}).stderrTail || ''} ${(row.details || {}).parsedError || ''} ${(row.details || {}).error || ''} ${(row.parsed || {}).error || ''}`
+  if (/Host CLI request failed|HOST_CLI_UNAVAILABLE/i.test(text)) {
+    return {
+      ...row,
+      verdict: 'uncovered',
+      kind: 'needs-internal-dist',
+      details: { ...row.details, reason: 'needs-internal-dist' },
+    }
+  }
+  return row
+}
+
+/**
  * 从结构化结果里提取业务错误文本:parsed.error 可能是字符串(如「需要登录
  * ITSM工单:…」)或 {code,message} 对象,统一 String 化(对象优先取 message,
  * 没有 message 兜底 JSON.stringify)、折叠空白后截 200 字符;无 error 或空文本
@@ -186,7 +205,7 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
     }
 
     const verdict = evaluateTool({ connectivity, shapeDiff, emptiedPaths })
-    rows.push(mapLoginUncovered({
+    rows.push(mapHostCliLimited(mapLoginUncovered({
       adapterId,
       tool: row.tool,
       verdict: verdict.verdict,
@@ -202,8 +221,12 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
       },
       parsed: result.parsed,
       sampleSource: row.sample?.source ?? null,
-    }))
+    })))
   }
+
+  // 行级重分类收口:Host CLI 依赖类(cli-* 等)在无内部发行版 provider 的环境
+  // 必然失败——重定性为 uncovered「需内部发行版」,不算 adapter 故障。
+  for (let i = 0; i < rows.length; i += 1) rows[i] = mapHostCliLimited(rows[i])
 
   const entries = collectBaselineEntries(rows, { now })
   const baselineUpdate = entries.length > 0 ? planBaselineUpdate(baseline, entries, { now }) : null

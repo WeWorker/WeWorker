@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parsePatrolArgs, mapLoginUncovered, collectBaselineEntries, planBaselineUpdate, patrolStateDir, writeHtmlReport, extractParsedError } from '../patrol/index.js'
+import { parsePatrolArgs, mapLoginUncovered, mapHostCliLimited, collectBaselineEntries, planBaselineUpdate, patrolStateDir, writeHtmlReport, extractParsedError } from '../patrol/index.js'
 import { BASELINE_VERSION } from '../patrol/baseline.js'
 import { extractShape } from '../patrol/shape.js'
 
@@ -163,5 +163,26 @@ describe('planBaselineUpdate', () => {
     const { plan } = planBaselineUpdate(null, entries)
     expect(plan.added.sort()).toEqual(['added', 'changed'])
     expect(plan.removed).toEqual([])
+  })
+})
+
+describe('mapHostCliLimited', () => {
+  it('Host CLI 依赖失败重定性为 uncovered needs-internal-dist', () => {
+    const row = { adapterId: 'dpms.weoa.com', tool: 'dpms.weoa.com.cli-status', verdict: 'failed', kind: 'error',
+      details: { stderrTail: 'Host CLI request failed.' }, parsed: { ok: false, error: { message: 'Host CLI request failed.' } } }
+    const out = mapHostCliLimited(row)
+    expect(out.verdict).toBe('uncovered')
+    expect(out.kind).toBe('needs-internal-dist')
+    expect(out.details.reason).toBe('needs-internal-dist')
+  })
+  it('其他失败不重定性', () => {
+    const row = { verdict: 'failed', kind: 'error', details: { stderrTail: 'boom' }, parsed: { ok: false, error: 'boom' } }
+    expect(mapHostCliLimited(row).verdict).toBe('failed')
+  })
+  it('通过/uncovered 行原样返回(同一性)', () => {
+    const pass = { verdict: 'pass', kind: null, details: {} }
+    const unc = { verdict: 'uncovered', kind: 'needs-sample', details: {} }
+    expect(mapHostCliLimited(pass)).toBe(pass)
+    expect(mapHostCliLimited(unc)).toBe(unc)
   })
 })
