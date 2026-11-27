@@ -1,0 +1,16 @@
+{
+  "name": "high-usage-patrol",
+  "description": "高频 adapter 只读巡检样本(2026-11-27 依调用量挑选;参数取业务常规值)",
+  "cases": [
+    { "id": "itsm-my-todo", "site": "itsm.weoa.com", "command": "itsm.weoa.com.my-todo", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "itsm-list-tickets", "site": "itsm.weoa.com", "command": "itsm.weoa.com.list-tickets", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "todo-whoami", "site": "todo.weoa.com", "command": "todo.weoa.com.whoami", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "todo-list-todos", "site": "todo.weoa.com", "command": "todo.weoa.com.list-todos", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "costplus-login-check", "site": "costplus.weoa.com", "command": "costplus.weoa.com.check-login-status", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "costplus-subsidy-ledgers", "site": "costplus.weoa.com", "command": "costplus.weoa.com.list-subsidy-ledgers", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "aiep-list-items", "site": "aiep.weoa.com", "command": "aiep.weoa.com.list-aiep-items", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "aiep-codeplan-quota", "site": "aiep.weoa.com", "command": "aiep.weoa.com.my-codeplan-quota", "safety": "read", "safetyMode": "read", "args": {} },
+    { "id": "dpms-workbench", "site": "dpms.weoa.com", "command": "dpms.weoa.com.query-dpms-workbench", "safety": "read", "safetyMode": "read", "args": { "mode": "task" } },
+    { "id": "dpms-list-items", "site": "dpms.weoa.com", "command": "dpms.weoa.com.list-dpms-items", "safety": "read", "safetyMode": "read", "args": { "mode": "task" } }
+  ]
+}
