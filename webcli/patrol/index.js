@@ -39,11 +39,12 @@ export function patrolStateDir({ home = homedir() } = {}) {
 }
 
 export function parsePatrolArgs(argv) {
-  const options = { json: false, html: false, only: null, concurrency: 4, timeoutMs: 20_000, updateBaseline: false, list: false, usageError: null }
+  const options = { json: false, html: false, only: null, concurrency: 4, timeoutMs: 20_000, updateBaseline: false, list: false, progress: false, usageError: null }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--json') options.json = true
     else if (arg === '--html') options.html = true
+    else if (arg === '--progress') options.progress = true
     else if (arg === '--list') options.list = true
     else if (arg === '--update-baseline') options.updateBaseline = true
     else if (arg === '--only') {
@@ -153,6 +154,21 @@ export function planBaselineUpdate(oldBaseline, entries, { now = null } = {}) {
   return { newBaseline, plan }
 }
 
+/**
+ * Host CLI 可用性探测:调用 executeHostCli(公开 build 确定性抛 HOST_CLI_UNAVAILABLE;
+ * 内部发行版有真 provider 时会按命令表执行——传一个空命令让它拒绝而不是真跑)。
+ * 只看错误码:HOST_CLI_UNAVAILABLE → 不可用;其他(参数拒绝等) → 视为可用。
+ */
+export async function probeHostCliAvailable() {
+  try {
+    const { executeHostCli } = await import('../host-cli-provider.js')
+    await executeHostCli()
+    return true
+  } catch (error) {
+    return error?.code !== 'HOST_CLI_UNAVAILABLE'
+  }
+}
+
 const planChanged = (plan) => plan.added.length + plan.changed.length + plan.removed.length > 0
 
 async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, now = null }) {
@@ -183,12 +199,22 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
   const baseline = loadBaseline(REPO_ROOT, adapterId)
   const list = buildPatrolList({ adapterId, tools, samples, baseline })
 
+  // Host CLI 可用性一次性探测:公开 build 的 executeHostCli 确定性抛
+  // HOST_CLI_UNAVAILABLE,cli-* 命令必败且每条白等一个超时(dpms/pace 136 条 ≈ 68 分钟)。
+  // 探测到不可用时,cli-* 命令直接标 needs-internal-dist 跳过,不进探针。
+  if (options.hostCliAvailable === undefined) options.hostCliAvailable = await probeHostCliAvailable()
+  const isHostCliCommand = (tool) => /\.(cli-|host-)/.test(tool)
+
   // 同 adapter 内命令严格串行（spec §关键约束 4）——共享浏览器页面独占，
   // 并发会互相争抢页面（"页面正在被其他任务使用"）。跨 adapter 并发由编排层控制。
   const rows = []
   for (const row of list) {
     if (row.skipReason) {
       rows.push({ adapterId, tool: row.tool, verdict: 'uncovered', kind: row.skipReason, details: { reason: row.skipReason } })
+      continue
+    }
+    if (!options.hostCliAvailable && isHostCliCommand(row.tool)) {
+      rows.push({ adapterId, tool: row.tool, verdict: 'uncovered', kind: 'needs-internal-dist', details: { reason: 'needs-internal-dist', note: 'Host CLI 在当前构建不可用,跳过探测' } })
       continue
     }
 
@@ -205,6 +231,11 @@ async function patrolAdapter({ adapterId, samples, options, env, ensureLogin, no
     }
 
     const verdict = evaluateTool({ connectivity, shapeDiff, emptiedPaths })
+    // 逐条进度(--progress):供工作台/长跑场景实时透传,默认静默
+    if (options.progress) {
+      const shown = verdict.kind ?? (connectivity.ok ? 'ok' : '')
+      console.error(`[progress] ${adapterId} ${row.tool} → ${verdict.verdict}${shown ? ` [${shown}]` : ''} (${result.durationMs}ms)`)
+    }
     rows.push(mapHostCliLimited(mapLoginUncovered({
       adapterId,
       tool: row.tool,
