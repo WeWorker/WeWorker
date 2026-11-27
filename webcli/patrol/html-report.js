@@ -77,7 +77,19 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th { font-size: 12px; font-weight: 500; color: var(--ink-muted); text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
 td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr:last-child td { border-bottom: none; }
-.group-head th { background: var(--group-bg); font-weight: 600; font-size: 12.5px; padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+details.site-group { border-bottom: 1px solid var(--line); }
+details.site-group:last-of-type { border-bottom: none; }
+details.site-group summary {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 9px 10px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+  list-style: none;
+}
+details.site-group summary::-webkit-details-marker { display: none; }
+details.site-group summary::before { content: '▸'; color: var(--ink-muted); font-size: 11px; }
+details.site-group[open] summary::before { content: '▾'; }
+details.site-group summary:hover { background: var(--group-bg); }
+.subtotals { display: inline-flex; gap: 12px; color: var(--ink-muted); font-weight: 400; font-size: 12px; }
+details.site-group > table { margin: 2px 0 8px; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace; font-size: 12.5px; }
 .num { font-variant-numeric: tabular-nums; }
@@ -148,6 +160,10 @@ function distributionBarHtml(report) {
   return `<div class="bar-row"><div class="bar">${bar}</div></div>`
 }
 
+/**
+ * 站点健康度按站折叠:每站一个原生 <details>(零 JS),summary 一行 = 站点 id + 三色小计。
+ * 有失败的站默认展开(open),全绿/全未覆盖默认收起;排序失败站在前,其余按 adapterId。
+ */
 function siteHealthHtml(results) {
   if (results.length === 0) return '<p class="empty">本次巡检无结果。</p>'
   const bySite = new Map()
@@ -155,25 +171,44 @@ function siteHealthHtml(results) {
     if (!bySite.has(row.adapterId)) bySite.set(row.adapterId, [])
     bySite.get(row.adapterId).push(row)
   }
-  const rows = []
-  for (const [adapterId, siteRows] of bySite) {
-    const subtotal = (verdict) => siteRows.filter((row) => row.verdict === verdict).length
-    rows.push(`<tr class="group-head"><th colspan="5">${escapeHtml(adapterId)} · 通过 ${subtotal('pass')} / 失败 ${subtotal('failed')} / 未覆盖 ${subtotal('uncovered')}</th></tr>`)
-    for (const row of siteRows) {
-      rows.push(
-        [
-          '<tr>',
-          `<td>${dotHtml(row.verdict)}</td>`,
-          `<td class="mono">${escapeHtml(row.tool)}</td>`,
-          `<td class="muted">${escapeHtml(row.kind ?? '—')}</td>`,
-          `<td class="num">${escapeHtml(formatDuration(row))}</td>`,
-          `<td class="muted">${escapeHtml(degradationSummary(row.details) || '—')}</td>`,
-          '</tr>',
-        ].join(''),
-      )
-    }
+  const groups = [...bySite.entries()]
+    .map(([adapterId, siteRows]) => {
+      const count = (verdict) => siteRows.filter((row) => row.verdict === verdict).length
+      return { adapterId, siteRows, pass: count('pass'), failed: count('failed'), uncovered: count('uncovered') }
+    })
+    .sort((a, b) => (b.failed > 0) - (a.failed > 0) || a.adapterId.localeCompare(b.adapterId))
+
+  const subtotalHtml = (verdict, count) => {
+    const meta = statusMeta(verdict)
+    return `<span class="subtotal"><span class="dot" style="background:${meta.dot}" title="${meta.label}"></span><span class="num">${meta.label} ${count}</span></span>`
   }
-  return `<table><thead><tr><th>状态</th><th>工具</th><th>判定</th><th>耗时(ms)</th><th>退化摘要</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+
+  return groups
+    .map((group) => {
+      const openAttr = group.failed > 0 ? ' open' : ''
+      const bodyRows = group.siteRows
+        .map((row) =>
+          [
+            '<tr>',
+            `<td>${dotHtml(row.verdict)}</td>`,
+            `<td class="mono">${escapeHtml(row.tool)}</td>`,
+            `<td class="muted">${escapeHtml(row.kind ?? '—')}</td>`,
+            `<td class="num">${escapeHtml(formatDuration(row))}</td>`,
+            `<td class="muted">${escapeHtml(degradationSummary(row.details) || '—')}</td>`,
+            '</tr>',
+          ].join(''),
+        )
+        .join('')
+      const table = `<table><thead><tr><th>状态</th><th>工具</th><th>判定</th><th>耗时(ms)</th><th>退化摘要</th></tr></thead><tbody>${bodyRows}</tbody></table>`
+      const subtotals = `<span class="subtotals">${subtotalHtml('pass', group.pass)}${subtotalHtml('failed', group.failed)}${subtotalHtml('uncovered', group.uncovered)}</span>`
+      return [
+        `<details class="site-group"${openAttr}>`,
+        `<summary><span class="mono">${escapeHtml(group.adapterId)}</span>${subtotals}</summary>`,
+        table,
+        '</details>',
+      ].join('')
+    })
+    .join('')
 }
 
 function failedDetailsHtml(results) {
